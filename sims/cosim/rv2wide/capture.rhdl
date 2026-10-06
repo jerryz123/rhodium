@@ -1,0 +1,98 @@
+#lang rhodium
+/* Captures RV2Wide's dual WB slots, actual deferred writes, CSR boundaries, and translated fragments. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/kernel.rhm").input as observer_input
+  "../../../cores/rv2wide/bundles.rhdl" open
+  "../../../cores/rv2wide/profile.rhm".RV2WideConfig
+  "../../../riscv/rtl/privilege.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
+  "../../../riscv/isa/xlen.rhm".XLen
+  "../events/transport.rhdl".capture_lane as lane
+
+/* Samples a WB slot or the retained synchronous-fault command without assigning host identity. */
+dpi_import procedure rhodium_rv2wide_lane(
+  instance: Bits(64), index: Bits(64), retired: Bits(64), split: Bits(64), pc: Bits(64), encoding: Bits(64), next_pc: Bits(64),
+  fetch_fault: Bits(64), rd: Bits(64), write: Bits(64), data: Bits(64), deferred: Bits(64), service: Bits(64), memory: Bits(64),
+  address: Bits(64), access: Bits(64), width: Bits(64), atomic: Bits(64), store_data: Bits(64)
+)
+/* Samples only external inputs and architectural trap/return decisions, not a CSR-bank snapshot. */
+dpi_import procedure rhodium_rv2wide_boundary(
+  instance: Bits(64), privilege: Bits(64), next_privilege: Bits(64), interrupt_take: Bits(64), trap: Bits(64), cause: Bits(64), epc: Bits(64),
+  tval: Bits(64), target: Bits(64), target_privilege: Bits(64), interrupts: Bits(64), time: Bits(64), interrupt_boundary: Bits(64)
+)
+/* Samples accepted service returns and their actual three-stage writeback destination. */
+dpi_import procedure rhodium_rv2wide_completion(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), write: Bits(64), data: Bits(64))
+/* Samples architectural translation and split-fragment ownership, excluding page-table traffic. */
+dpi_import procedure rhodium_rv2wide_physical(
+  instance: Bits(64), request_valid: Bits(64), request_address: Bits(64), pipeline_valid: Bits(64), pipeline_address: Bits(64),
+  fragment_valid: Bits(64), fragment_address: Bits(64), fragment_virtual: Bits(64), fragment_mask: Bits(64), fragment_data: Bits(64),
+  fragment_response: Bits(64), fragment_response_data: Bits(64)
+)
+
+/* Elaborates the stateless adapter selected by the versioned RV2Wide observation contract. */
+fun rv2wide_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
+  def profile :: RV2WideConfig = configuration["profile"]
+  elaborate_with_top(RV2WideCosimObserver(types, instance))
+
+/* Reports pre-edge facts only; all instruction identities and completion retention live in C++. */
+sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat):
+  def taps = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): name != "clock" && name != "reset")):
+    values(name, observer_input(name, tap_types[name]))
+  def instance_id = bits(instance, 64)
+  def active = !reset_active().into(Bool)
+  /* Widen an exactly declared packed input to the common transport lane. */
+  fun tap_lane(name :: String) :~ Bits(64):
+    def value :: Hardware.of(tap_types[name]) = taps[name]
+    lane(value.as_bits())
+  /* Standalone core observations have no sibling physical-memory provenance. */
+  fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | bits(0, 64)
+  def tokens :: Vec(2, RV2WideResult()) = taps["wb_tokens"]
+  def retirement :: Vec(2, RV2WideRetirement()) = taps["wb_retirement"]
+  def retired :: Vec(2, Bool) = taps["wb_retired"]
+  def writes :: Vec(2, Bool) = taps["wb_writes"]
+  def split_capture :: Bool = taps["wb_split_capture"]
+  def memory_lane :: Bits(1) = taps["wb_memory_lane"]
+  def multiply :: Bool = taps["wb_multiply_accepted"]
+  def command :: RV2WideResult() = taps["wb_command"]
+  def completion_valid :: Vec(4, Bool) = taps["completion_fire"]
+  def completions :: Vec(4, RV2WideRetirement()) = taps["completion"]
+  def privilege :: PrivilegeMode = taps["csr_privilege"]
+  def mret :: Bool = taps["csr_mret"]
+  def sret :: Bool = taps["csr_sret"]
+  def mret_privilege :: PrivilegeMode = taps["csr_mret_privilege"]
+  def sret_privilege :: PrivilegeMode = taps["csr_sret_privilege"]
+  def next_privilege = mux(mret, mret_privilege, mux(sret, sret_privilege, privilege))
+  def interrupt_inputs :: RiscvInterrupts() = taps["csr_interrupt_inputs"]
+  def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
+  for (index in 0..3):
+    def token :: RV2WideResult() = if index < 2 | tokens[index] | command
+    def result :: RV2WideRetirement() = if index < 2 | retirement[index] | literal(RV2WideRetirement(), 0)
+    def deferred = if index < 2 | result.deferred | Bool(#false)
+    def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
+    def next_pc = mux(mret ||| sret, taps["csr_redirect"], mux(token.taken, token.target, token.fetched.sequential_pc))
+    rhodium_rv2wide_lane.call(
+      instance_id, bits(index, 64), lane((if index < 2 | retired[index] | Bool(#false)).as_bits()),
+      lane((if index < 2 | split_capture & (memory_lane === bits(index, 1)) | Bool(#false)).as_bits()),
+      token.fetched.pc, lane(token.fetched.raw_instruction), next_pc, lane(token.fetched.fault.valid.as_bits()),
+      lane(token.rd), lane(write.as_bits()), result.data, lane(deferred.as_bits()),
+      lane(mux(token.memory.enable, bits(0, 2), mux(multiply, bits(1, 2), bits(2, 2)))),
+      lane(token.memory.enable.as_bits()), token.address, lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
+      lane(token.memory.atomic.as_bits()), token.store_data, ~enable: active
+    )
+  rhodium_rv2wide_boundary.call(
+    instance_id, lane(privilege.as_bits()), lane(next_privilege.as_bits()), tap_lane("csr_interrupt_take"), tap_lane("csr_synchronous_trap"),
+    tap_lane("csr_trap_cause"), tap_lane("csr_trap_pc"), tap_lane("csr_trap_value"), tap_lane("csr_redirect"),
+    lane(mux(trap_target === RiscvTrapTarget.Machine, PrivilegeMode.Machine, PrivilegeMode.Supervisor).as_bits()),
+    riscv_interrupt_pending(XLen.X64, interrupt_inputs), tap_lane("csr_time_input"), tap_lane("csr_interrupt_boundary"), ~enable: active
+  )
+  for (index in 0..4):
+    def result :: RV2WideRetirement() = completions[index]
+    rhodium_rv2wide_completion.call(instance_id, bits(index, 64), lane(completion_valid[index].as_bits()), result.fetched.pc, lane(result.rd), lane(result.write.as_bits()), result.data, ~enable: active)
+  rhodium_rv2wide_physical.call(
+    instance_id, mmu_lane("mmu_request_valid"), mmu_lane("mmu_request_address"), mmu_lane("mmu_pipeline_valid"), mmu_lane("mmu_pipeline_address"),
+    mmu_lane("mmu_fragment_valid"), mmu_lane("mmu_fragment_address"), mmu_lane("mmu_fragment_virtual"), mmu_lane("mmu_fragment_mask"), mmu_lane("mmu_fragment_data"),
+    mmu_lane("mmu_fragment_response"), mmu_lane("mmu_fragment_response_data"), ~enable: active
+  )
+
+export rv2wide_cosim_adapter

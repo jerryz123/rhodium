@@ -8,6 +8,8 @@ import:
   "issue-window.rhdl" open
   "load-response.rhdl" open
   "long-execution.rhdl" open
+  "observation.rhdl".RV2WideObservationContract
+  "../riscv/cosim-source.rhm".describe_cosim_hart
   "decode/core-ctrl.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
@@ -587,6 +589,19 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     wb_resume_pc <== mux(last.taken, last.target, last.fetched.sequential_pc)
     wb_pc_known <== Bool(#true)
     wb_sleeping <== wb_csrs.wfi
+
+  describe_cosim_hart(RV2WideObservationContract, {"profile": profile}, {
+    "wb_tokens": wb_tokens,
+    "wb_retired": vec(retired[0].valid, retired[1].valid),
+    "wb_retirement": vec(retired[0].bits, retired[1].bits),
+    "wb_writes": wb_writes,
+    "wb_split_capture": wb_split_capture,
+    "wb_memory_lane": wb_memory_lane,
+    "wb_multiply_accepted": wb_multiply_accepted,
+    "wb_command": wb_command,
+    "completion_fire": vec(wb_load_response.completed.fire(), ex_multiply.completed.fire(), wb_divide.completed.fire(), completed.valid),
+    "completion": vec(wb_load_response.completed.bits, ex_multiply.completed.bits, wb_divide.completed.bits, completed.bits)
+  }, {"csr": wb_csrs})
 
 export:
   RV2WideCore

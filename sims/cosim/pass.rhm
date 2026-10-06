@@ -13,13 +13,15 @@ import:
   "../../cores/riscv/cosim-source.rhm" open
   "../../cores/rv5stage/observation.rhdl".RV5StageObservationContract
   "rv5stage/capture.rhdl".rv5stage_cosim_adapter
+  "../../cores/rv2wide/observation.rhdl".RV2WideObservationContract
+  "rv2wide/capture.rhdl".rv2wide_cosim_adapter
 
 export cosim_pass
 
 /* Select all declared harts by default, or exact paths relative to the compilation top.
    Selection and occurrence IDs are stable across metadata-preserving prior passes. */
 fun cosim_pass(~harts: selected :: maybe(List.of(List.of(String))) = #false,
-               ~adapters: adapters :: Map = {RV5StageObservationContract: rv5stage_cosim_adapter}):
+               ~adapters: adapters :: Map = {RV5StageObservationContract: rv5stage_cosim_adapter, RV2WideObservationContract: rv2wide_cosim_adapter}):
   /* Clone the functional graph and attach read-only observer instances at selected harts. */
   fun transform(prepared :: PreparedRTL):
     def source = prepared.rtl

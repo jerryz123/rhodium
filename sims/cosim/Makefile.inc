@@ -44,7 +44,7 @@ $(COSIM_CONFIG_DIR)/runtime-config.h: $(SOC_BUILD_DIR)/soc_cosim.json $(SIMULATO
 	  --name "$(SOC_ID)" --sail "$(COSIM_SAIL_PREFIX)/bin/sail_riscv_sim" --output "$(COSIM_CONFIG_DIR)" \
 	  --observations "$(SOC_BUILD_DIR)/soc_cosim.json"
 
-$(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt
+$(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/rv2wide/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt
 	$(MAKE) sail-cosim-build SOC=$(SOC_ID)
 	touch "$@"
 endif

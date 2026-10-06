@@ -262,6 +262,26 @@ trap selection are reused, not copied into named-core control logic.
 
 ## Validation
 
+`observation.rhdl` names the passive `rv2wide.v1` contract. The core declares
+WB slots, split capture, CSR commands, and accepted service returns through
+`cores/riscv/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
+provenance. Ordinary elaboration adds no observation ports, state, or DPI.
+The simulation-owned [adapter](../../sims/cosim/DEVELOPING.md) assigns age IDs,
+retains deferred owners, and resolves both slots at a settled sample barrier.
+Keep replay and speculative EX multiply launch out of architectural admission.
+The completion adapter follows the three unflushable RR-to-WB return stages;
+update that contract and its ownership tests if their latency changes.
+
+For observation changes, run the native adapter and optional-pass tests, then
+the existing software path on both shapes:
+
+```sh
+make -C sims cosim-hooks-test
+tools/run-racket-tests.sh sims/cosim/tests/pass/pass-test.rhm
+make -C sims boot-test isa-smoke cosim-smoke SOC=mini-rv2wide-rv64imacb COSIM=1
+make -C sims boot-test isa-smoke cosim-smoke SOC=simple-rv2wide-rv64imacb COSIM=1
+```
+
 Run the focused production-core fixture:
 
 ```sh

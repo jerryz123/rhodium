@@ -302,7 +302,7 @@ class PlanTest(unittest.TestCase):
         runs = [entry for entry in plan["simulator_matrix"]["include"] if entry["isa"] in presets]
         self.assertEqual({entry["soc"] for entry in runs}, configs)
         self.assertTrue(all(entry["software_tests"] == "isa-smoke" for entry in runs))
-        self.assertTrue(all(not entry["cosim"] for entry in runs if entry["core"] == "rv2wide"))
+        self.assertTrue(all(entry["cosim"] for entry in runs if entry["core"] == "rv2wide"))
         for matrix, key in (("program_matrix", "soc"), ("arch_build_matrix", "configuration"),
                             ("arch_run_matrix", "configuration")):
             self.assertFalse(any(entry[key].endswith(tuple(f"-{isa}" for isa in presets)) for entry in plan[matrix]["include"]))

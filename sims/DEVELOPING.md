@@ -21,8 +21,8 @@ SoC shape's coherent fabric and platform contract.
 
 RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
 `rv64imacb`. Its two enrolled configs run only capability-filtered ISA smoke,
-with ordinary BootROM/FESVR loading. They use no cosim or tracing variant;
-those require a separate RV2Wide observation adapter. The SoC resolver owns
+with ordinary BootROM/FESVR loading and target-selected Sail cosimulation.
+They have no event-tracing adapter. The SoC resolver owns
 their fixed ISA and cache resources, not this harness.
 
 Import the CHI owners used by each simulator component directly. FESVR consumes
@@ -48,8 +48,8 @@ test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve config-keyed artifact and
 target identities so switching any axis cannot reuse another simulator.
 
-All enrolled Mini/Simple RV5Stage CIRCT rows build with `COSIM=1`, as does the
-direct SystemVerilog variant. Each instrumented row publishes one
+All enrolled Mini/Simple RV5Stage and RV2Wide CIRCT rows build with `COSIM=1`,
+as does the RV5Stage direct SystemVerilog variant. Each instrumented row publishes one
 simulator under its unchanged config artifact name; its local build directory
 retains the `-cosim` suffix. The experimental Rsim backend stays uninstrumented.
 The shared simulator job installs Sail, while the

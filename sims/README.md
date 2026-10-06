@@ -54,8 +54,9 @@ make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
 ```
 
 These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
-both with only ISA smoke. `COSIM=1` and event tracing remain unsupported for
-RV2Wide until its observation adapters exist.
+both with only ISA smoke and Sail cosimulation enabled. Set `COSIM=1` for local
+checked builds; see [cosim setup](cosim/README.md). Event tracing remains
+unsupported for RV2Wide.
 
 `rv64max` retains RVA23's scalar FP, V with VLEN=128/ELEN=64, and supervisor
 capabilities including Sv39, but omits H and Sha/Sh* guarantees. It is not an RVA23 profile.

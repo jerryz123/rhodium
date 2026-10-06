@@ -131,13 +131,27 @@ Device and external-memory atomics, hardware A/D updates, HPM event/filter
 behavior remain outside runtime support.
 
 `cosim-smoke` also injects deliberate GPR corruption to confirm mismatch detection.
-CI enables cosim on every enrolled Mini/Simple RV5Stage config, including the
+CI enables cosim on every enrolled Mini/Simple RV5Stage and RV2Wide config, including the
 existing direct-SystemVerilog variant; the experimental Rsim backend is not
 instrumented. They retain their ordinary shape/ISA-selected
 workloads, including native software, ACT, and OpenSBI where selected. There are
 no additional cosim configs, duplicate simulator builds, or test exclusions.
 Enablement is not a claim that all workloads pass; incomplete comparison paths
 remain visible as failures in those existing lanes.
+
+### Dual-issue RV2Wide checking
+
+`mini-rv2wide-rv64imacb` and `simple-rv2wide-rv64imacb` reuse the same Sail
+configuration, collector, and FESVR lifecycle. Enable a local checked build with
+`make -C sims boot-test isa-smoke SOC=mini-rv2wide-rv64imacb COSIM=1`.
+The observer admits both successful WB slots in age order. Accepted load,
+multiply, and divide owners retain their identities until their actual RF
+writes; completion does not retire the instruction again. Replays and
+speculative multiply launch create no records. Traps retain successful older
+retirement, and interrupts enter only at the core's drained boundary.
+Misaligned stores report completed physical prefixes even if a later fragment
+faults. No observation state, backpressure, or reference-state repair is added
+to the functional core. The existing RV2Wide CI rows remain ISA-smoke-only.
 
 ### Vector checking
 

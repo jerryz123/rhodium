@@ -85,8 +85,8 @@ else ifneq ($(TRACE),0)
 $(error TRACE must be 0 or 1)
 endif
 ifeq ($(COSIM),1)
-ifneq ($(SOC_CORE),rv5stage)
-$(error COSIM=1 currently requires RV5Stage)
+ifeq ($(filter $(SOC_CORE),rv5stage rv2wide),)
+$(error COSIM=1 requires RV5Stage or RV2Wide)
 endif
 ifeq ($(filter $(SOC_SHAPE),mini simple),)
 $(error COSIM=1 currently requires Mini or Simple)

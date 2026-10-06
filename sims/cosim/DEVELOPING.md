@@ -13,9 +13,10 @@ the [package graph](../../rhodium/DEVELOPING.md) owns repository dependencies.
 Dependency arrows point toward consumed APIs:
 
 ```text
-pass.rhm -> rv5stage/*.rhdl -> core observation contracts
+pass.rhm -> rv5stage/*.rhdl / rv2wide/capture.rhdl -> core observation contracts
 runtime/session -> events/DPI + Sail checker
 rv5stage/adapter -> events/DPI + collector
+rv2wide/adapter -> events/DPI + collector
 Sail checker -> event records + Sail reference
 collector -> event records
 ```
@@ -29,7 +30,7 @@ feedback or bookkeeping registers. Keep eligibility policy in the adapter.
 
 The event package has no named-core, Sail, or session dependency. Hart adapters
 understand microarchitectural ownership, not reference-model semantics. The
-checker consumes architectural records, never RV5Stage raw callbacks. Only
+checker consumes architectural records, never named-core raw callbacks. Only
 `sail/reference.cc` includes generated Sail model headers. Runtime assembly owns
 the active session, exact SoC configuration, FESVR mirroring, and shutdown.
 
@@ -120,9 +121,22 @@ to help the checker. Warm reset requires resetting both reference and collection
 | Compilation | `pass.rhm`: occurrence selection, tap export/remapping, adapter lookup, descriptor emission |
 | Generic events | `events/record.h`: event schema; `collector.*`: delayed assembly; `dpi.*`: binding/error barrier; `hooks.rhdl`: typed producer; `transport.rhdl`: lane widening |
 | RV5Stage | `rv5stage/capture.rhdl`, `vector.rhdl`: raw capture; `adapter.*`, `vector.*`: settled-cycle reconstruction |
+| RV2Wide | `rv2wide/capture.rhdl`: stateless dual-slot capture; `adapter.*`: WB age, deferred services, and split-prefix ownership |
 | Sail | `sail/reference.*`: embedding; `checker.*`: ordered comparison; `memory.*`, `vector.*`: comparison helpers; `diagnostic.h`: record-scoped errors |
 | Simulator session | `runtime/session.*`: lifecycle; `write-config.rhm`, `configure.py`: exact environment and embedded configuration |
-| Tests | `tests/events`, `rv5stage`, `sail`, `runtime`, `pass`: owning contracts; `tests/circt`: transport integration following repository fixture discovery |
+| Tests | `tests/events`, `rv5stage`, `rv2wide`, `sail`, `runtime`, `pass`: owning contracts; `tests/circt`: transport integration following repository fixture discovery |
+
+RV2Wide allocates identities only at successful WB admission or split capture,
+never at speculative EX multiply launch. It assigns two slots in age order and
+retains a split owner through its final retirement/trap, including completed
+store prefixes. Three native service FIFOs correspond to accepted memory,
+WB-authorized multiply, and divide. Arbitration schedules an owner through the
+three feed-forward return stages; only the actual RF-write edge seals its GPR
+producer. CSR traps allocate after draining older services; a successful older
+slot retains its retirement when the younger faults. No callback order, PC-only
+matching across generations, observer registers, or architectural CSR snapshots
+provide ownership. Native tests shuffle callback order and cover epoch changes,
+draining, reordered service results, and partial stores.
 
 Shared architectural projection and `SailModelConfig.cmake` belong in
 [`../sail/`](../sail/README.md), not here. ACT uses the same projection with its

@@ -429,8 +429,10 @@ must not return pre-reset responses afterward.
 
 There is no floating-point execution or guest translation.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
-The SoC bindings publish the lean RV64IMACB preset, not RVA23. Sail cosimulation
-and event tracing do not yet have an RV2Wide adapter. Shared ISA
+The SoC bindings publish the lean RV64IMACB preset, not RVA23. Mini/Simple
+bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)
+with `COSIM=1`; CI enables it on their existing ISA-smoke rows. Event tracing
+does not yet have an RV2Wide adapter. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
 
 The MMU checks the CHI physical map before physical tag resolution; the data-cache

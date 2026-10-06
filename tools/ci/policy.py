@@ -119,9 +119,9 @@ BACKEND_SMOKE_VARIANTS = {
 }
 
 # These existing configs publish one cosim-enabled simulator, not another lane.
-# All enrolled single-hart RV5Stage configs use the checker on CIRCT and direct SystemVerilog.
+# Enrolled single-hart RTL cores use the checker without changing software selection.
 COSIM_CONFIGS = frozenset(soc for soc, shape, core in SIMULATOR_CONFIGS
-                           if core == 'rv5stage' and shape in ('mini', 'simple'))
+                           if core in ('rv5stage', 'rv2wide') and shape in ('mini', 'simple'))
 
 
 def simulator_entry(soc, shape, core, backend='circt'):

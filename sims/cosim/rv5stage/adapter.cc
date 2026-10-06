@@ -1,6 +1,7 @@
 // Reconstructs RV5Stage identities and scalar/FP effects without observer RTL state.
 // SPDX-License-Identifier: Apache-2.0
 #include "adapter.h"
+#include "../events/atomic.h"
 #include <algorithm>
 #include <stdexcept>
 using namespace rhodium::cosim;
@@ -15,24 +16,7 @@ Word HartAdapter::mask(Word width) {
   return width == 64 ? UINT64_MAX : (Word{1} << width)-1;
 }
 Word HartAdapter::atomic(Word xlen, const RequestSample& request, Word value) {
-  // RiscvAtomicOperation's transport encoding; never executes a reference step.
-  const auto width = request.width == 2 ? 32 : xlen;
-  const auto left = value & mask(width), right = request.data & mask(width);
-  const bool less = (left ^ (Word{1} << (width-1))) < (right ^ (Word{1} << (width-1)));
-  Word result = right;
-  switch (request.atomic) {
-    case 0: break;
-    case 1: result = left + right; break;
-    case 2: result = left ^ right; break;
-    case 3: result = left & right; break;
-    case 4: result = left | right; break;
-    case 5: result = less ? left : right; break;
-    case 6: result = less ? right : left; break;
-    case 7: result = std::min(left,right); break;
-    case 8: result = std::max(left,right); break;
-    default: require(false, "invalid AMO operation");
-  }
-  return result & mask(width);
+  return atomic_written_value(request.atomic, value, request.data, request.width == 2 ? 32 : xlen);
 }
 void HartAdapter::memory(Collector& collector, Word instance, Id id, Word xlen,
                          const RequestSample& request, Word value, bool fault,

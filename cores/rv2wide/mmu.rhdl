@@ -13,6 +13,7 @@ import:
   "../riscv/mmu/tlb.rhdl" open
   "../riscv/mmu/walker.rhdl" open
   "../riscv/misaligned-access.rhdl" open
+  "../riscv/cosim-source.rhm".describe_cosim_signals
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode
@@ -255,6 +256,20 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     access_fault: Bool(#false)
   ) |> misaligned.physical_response
   pte_response |> map_flow(response => response.data) |> to_valid() |> walker.memory.response
+
+  describe_cosim_signals({
+    "pipeline_valid": physical_pipeline.request.valid,
+    "pipeline_address": mem_address,
+    "request_valid": requests.ingress[0].fire(),
+    "request_address": requests.ingress[0].bits.address,
+    "fragment_valid": requests.ingress[1].fire(),
+    "fragment_address": fragment_address,
+    "fragment_virtual": misaligned.fault_address,
+    "fragment_mask": split_request.bits.mask,
+    "fragment_data": split_request.bits.data,
+    "fragment_response": split_response.fire(),
+    "fragment_response_data": split_response.bits.data
+  })
 
 export:
   RV2WideMmu

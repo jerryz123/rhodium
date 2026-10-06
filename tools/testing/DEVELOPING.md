@@ -106,7 +106,7 @@ Both build jobs omit CIRCT, and prebuilt consumers verify backend provenance.
 Workflow tests exercise optimization propagation, bounded smoke arguments, and
 nonzero status through log capture. CI retains build and harness logs.
 
-All Mini/Simple RV5Stage CIRCT and direct-SystemVerilog rows publish one
+All Mini/Simple RV5Stage and RV2Wide CIRCT rows, plus the RV5Stage direct-SystemVerilog row, publish one
 cosim-enabled simulator under the unchanged config artifact name. Propagate
 that selection to native ISA, ACT, and firmware consumers; verify the variant
 and install GMP. Native and ACT runners require nonempty successful checking.
@@ -288,7 +288,7 @@ configs receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
 `rv64imafdcb` presets enroll only their paired Simple configs; these six configs
 run only that suite, without ACT,
 benchmarks, or platform tests. Mini/Simple RV2Wide RV64IMACB enroll the same
-ISA-smoke-only policy without a cosim variant. Both Tiled cores run the
+ISA-smoke-only policy with cosim enabled on those existing rows. Both Tiled cores run the
 eight-hart benchmark manifests in CI. Harness jobs compile their platform and
 ISA-smoke software with the RISC-V toolchain, but ordinary RV5Stage jobs install
 no Racket, CIRCT, Verilator, or FESVR. ISA-smoke target preparation copies the

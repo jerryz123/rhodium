@@ -335,6 +335,18 @@ identity for its default registry, alongside neutral compile contracts, core
 IR/Builder/types, the event occurrence copier, source descriptors, and JSON
 string encoding. Callers can supply a different contract-to-adapter map. No observer signal drives
 functional handshakes, and no named core imports the simulator receiver.
+
+RV2Wide's core, MMU, and composition import the same passive metadata bridge
+for dual WB slots, CSR command context, deferred return ownership, and physical
+request/fragment provenance. `cores/rv2wide/observation.rhdl` declares `rv2wide.v1`
+without imports. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
+RV2Wide bundles/profile, architectural privilege/interrupt/XLEN descriptors,
+and the common transport widening helper; it adds no observer state or outputs.
+Its native adapter depends only on generic event/DPI contracts. The cosim pass
+imports both named-core observation identities and simulation-owned capture
+adapters for its default registry. Both native adapters share
+`events/atomic.h` for observed physical AMO write-byte normalization, not
+reference execution. The event package retains no named-core dependency.
 `cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
 configuration and NodeID-width checks. These modules import no named core.
 The Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm` only for
