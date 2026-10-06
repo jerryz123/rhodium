@@ -1,0 +1,39 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+
+export make_cache_borrows
+
+fun make_cache_borrows():
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("RsimCacheBorrows")
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def update = b.input(top, "update", Bits(1))
+  def select = b.input(top, "select", Bits(2))
+  def choose = b.input(top, "choose", Bits(1))
+  def pair = RecordType([RecordField("x", Bits(8)), RecordField("y", Bits(8))])
+  def lanes = VectorType(2, pair)
+  def box = RecordType([RecordField("lanes", lanes), RecordField("flag", Bits(1))])
+  def payload = b.input(top, "payload", lanes)
+  def zero = b.cast(top, b.constant(top, Bits(32), 0), lanes)
+  def state = b.register(top, "state", lanes, clock, reset, zero)
+  b.drive(state.next, b.mux_lookup(top, update, state.current, [[1, payload]]))
+  def rows = for List (value in [0x04030201, 0x08070605, 0x0c0b0a09], index in 0..3):
+    [index, 3, value * 2 + index mod 2, 2 ** 33 - 1]
+  def decoded = b.decode(top, select, Bits(2), box, rows, 0x100f0e0d * 2 + 1, 2 ** 33 - 1)
+  def projected = b.record_get(top, decoded, "lanes")
+  def constant = b.cast(top, b.constant(top, Bits(32), 0xaabbccdd), lanes)
+  def chain = b.mux_lookup(top, choose, projected, [[1, constant]])
+  def borrowed = b.mux_lookup(top, choose, state.current, [[1, chain]])
+  def sampled = b.register(top, "sampled", lanes, clock, reset, zero)
+  b.drive(sampled.next, borrowed)
+  // Shared outputs retain the decode, projection, and mux as boundary values.
+  for (name in ["direct", "first", "decoded", "projected", "chain", "borrowed", "captured"],
+       value in [state.current, b.vector_get(top, state.current, 0), decoded, projected, chain, borrowed, sampled.current]):
+    b.drive(b.output(top, name, value.type), value)
+  b.finish(top)
+  ElaboratedProgram(design, top)

@@ -6,6 +6,7 @@ import:
   "plan.rhm" open
   "evaluation.rhm" open
   "regions.rhm" open
+  "cache.rhm" open
   "conditional.rhm".plan_conditionals
   "layout.rhm" open
   "arrays.rhm" open
@@ -173,8 +174,9 @@ fun scratch_reference(slot :: ScratchSlot, ~index: index :: String = to_string(s
   "scratch.g" ++ to_string(slot.group) ++ "[" ++ index ++ "]"
 
 /* Render one planned backing reference against this evaluation's current bank.
-   Projection parentheses retain dereference precedence for nested paths; no
-   borrowed reference carries validity across bank switches or evaluations. */
+   Projection parentheses retain dereference precedence for nested paths. Direct
+   state roots resolve afresh; retained indirect roots require the cache planner's
+   separate lifetime proof. */
 fun storage_reference(binding :: StorageRef, constants :: Map) :: String:
   def root = binding.root
   def mutable value:
@@ -413,9 +415,9 @@ fun needs_helpers(regions :: List.of(RsimRegion), budget :: PosInt) :: Boolean:
   regions.length() > 1 && cost > budget
 
 /* Declare phase-local reusable buffers and bounded sampling helpers. Scratch is
-   overwritten before every read, never a cache; initialization happens once per
-   model, not per evaluation. Current/next references select distinct banks for
-   the whole pre-edge phase. Pure helpers write only scratch; consumer helpers
+   initialized once per model. Eager emission overwrites before every read; the
+   optional cache retains values and immutable-backed pointers with invalidation. Current/next
+   references select distinct banks for the whole pre-edge phase. Pure helpers write only scratch; consumer helpers
    read scratch and prepare their destinations. No scratch reference escapes
    into the frame. */
 fun declare_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, helpers :: Boolean, header :: MutableList):
@@ -461,12 +463,18 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
       for (sink in region.sinks): emit_sink(sink, plan, types, constants, source)
       source.add("}")
 
-/* Small bodies stay inline in their coordinator. Larger bodies execute every
-   helper exactly once, passing buffers by reference without copying or clearing. */
-fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destination :: String, helpers :: Boolean, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
+/* Small bodies stay inline in their coordinator. Larger bodies call eager
+   helpers and dirty cacheable helpers in unchanged order, passing scratch by
+   reference. Clear a dirty bit only after its helper returns successfully. */
+fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destination :: String, helpers :: Boolean, cache :: RsimRegionCache, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
   if helpers
   | for (region in regions, index in 0..regions.length()):
-      source.add("  " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "_scratch_, current" ++ (if region.sinks.length() > 0 | ", " ++ destination | "") ++ ");")
+      def call = phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "_scratch_, current" ++ (if region.sinks.length() > 0 | ", " ++ destination | "") ++ ");"
+      if index in cache.regions
+      | def dirty = phase ++ "_dirty_[" ++ to_string((index - index mod 64) / 64) ++ "]"
+        def bit = literal(2 ** (index mod 64))
+        source.add("  if (" ++ dirty ++ " & " ++ bit ++ ") {\n    " ++ call ++ "\n    " ++ dirty ++ " &= ~" ++ bit ++ ";\n  }")
+      | source.add("  " ++ call)
   | for (region in regions):
       for (index in region.steps):
         if region.conditionals.has_key(index)
@@ -478,11 +486,12 @@ fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destinati
    The evaluator writes only inactive state; tick publishes it only after every
    next-state expression and pending write has sampled the old state. Memory
    arrays live outside the frame, so evaluation never copies whole memories.
-   The private budget permits boundary stress tests without a target option. */
-fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 4096) :: List.of(String):
+   Private budget, module-cut, and cache controls permit experiments without
+   extending target options. */
+fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 4096, ~cache_regions: cache_regions :: Boolean = #false, ~module_cuts: module_cuts :: Boolean = #false) :: List.of(String):
   def evaluation = plan_conditionals(plan, build_evaluation_plan(plan))
-  def pre_regions = build_regions(plan, evaluation, evaluation.pre_edge, ~budget: region_budget)
-  def output_regions = build_regions(plan, evaluation, evaluation.outputs, ~budget: region_budget)
+  def pre_regions = build_regions(plan, evaluation, evaluation.pre_edge, ~budget: region_budget, ~module_cuts: module_cuts)
+  def output_regions = build_regions(plan, evaluation, evaluation.outputs, ~budget: region_budget, ~module_cuts: module_cuts)
   def pre_helpers = needs_helpers(pre_regions, region_budget)
   def output_helpers = needs_helpers(output_regions, region_budget)
   def namespace = "rsim_" ++ cpp_name(plan.name)
@@ -504,6 +513,40 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   def constants = emit_constants(plan.steps, evaluation.constants, types)
   def pre_layout = boundary_layout(pre_regions, plan, types, constants)
   def output_layout = boundary_layout(output_regions, plan, types, constants)
+  def empty_cache = RsimRegionCache(Set{}, {}, 0)
+  def pre_cache = if cache_regions && pre_helpers | plan_region_cache(plan, evaluation, pre_regions, pre_layout) | empty_cache
+  def output_cache = if cache_regions && output_helpers | plan_region_cache(plan, evaluation, output_regions, output_layout) | empty_cache
+  def caches = [["pre", pre_cache], ["output", output_cache]]
+  /* Render deterministic bit updates for both independently consumed phases. */
+  fun invalidate(root :: RsimCacheSource) :: String:
+    def lines = MutableList[]
+    for (entry in caches):
+      def cache :: RsimRegionCache = entry[1]
+      def masks = cache.invalidations.get(root, {})
+      for (word in 0..cache.words):
+        when masks.has_key(word)
+        | lines.add("    " ++ entry[0] ++ "_dirty_[" ++ to_string(word) ++ "] |= " ++ literal(masks[word]) ++ ";")
+    String.join(lines.snapshot(), "\n")
+  def input_checks = MutableList[]
+  for (port in plan.inputs, index in 0..plan.inputs.length()):
+    def invalidation = invalidate(RsimCacheSource("input", index))
+    when invalidation != ""
+    | def field = cpp_name(port.name)
+      input_checks.add("  if (!" ++ types.equal(port.type, "inputs." ++ field, "cached_inputs_." ++ field) ++ ") {\n" ++ invalidation ++ "\n    cached_inputs_." ++ field ++ " = inputs." ++ field ++ ";\n  }")
+  def state_checks = MutableList[]
+  /* Compare committed logical resources before switching banks. Failed attempts
+     must not invalidate against unpublished next-state or snapshot that state. */
+  fun state_check(root :: RsimCacheSource, type :: HardwareType, field :: String):
+    def invalidation = invalidate(root)
+    when invalidation != ""
+    | state_checks.add("  if (!" ++ types.equal(type, "states_[active_state_]." ++ field, "next." ++ field) ++ ") {\n" ++ invalidation ++ "\n  }")
+  for (reg in plan.registers, index in 0..plan.registers.length()):
+    state_check(RsimCacheSource("register", index), reg.type, "s" ++ to_string(index))
+  for (read in plan.reads, index in 0..plan.reads.length()):
+    state_check(RsimCacheSource("sync_read", index), plan.memories[read.memory].type, "r" ++ to_string(index))
+  for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
+    for (result in call.import_decl.results, result_index in 0..call.import_decl.results.length()):
+      state_check(RsimCacheSource("foreign", index, result_index), result.type, foreign_slot(index, result_index))
   def header = MutableList["// Declares the typed simulator for " ++ plan.name ++ ".",
                            "// SPDX-License-Identifier: Apache-2.0", "#pragma once", "#include <cstdint>", "#include <array>" ++ (if types.wide | "\n#include \"rsim-bits.hpp\"" | ""),
                            "namespace " ++ namespace ++ " {", String.join(types.declarations.snapshot(), "\n"), "class Model {", "public:",
@@ -536,6 +579,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     def prefix = "write" ++ to_string(index)
     header.add("    std::uint64_t " ++ prefix ++ "_address;\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data;\n    bool " ++ prefix ++ "_enable;")
   header.add("  };\n  Outputs outputs_;\n  Frame evaluate(const State& current, State& next) const;")
+  for (entry in caches):
+    def cache :: RsimRegionCache = entry[1]
+    when cache.words > 0
+    | header.add("  mutable std::array<std::uint64_t, " ++ to_string(cache.words) ++ "> " ++ entry[0] ++ "_dirty_{{" ++ String.join(for List (word in 0..cache.words): "~UINT64_C(0)", ", ") ++ "}};")
+  when input_checks.length() > 0
+  | header.add("  Inputs cached_inputs_{};\n  void observe_inputs();")
   declare_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", pre_helpers, header)
   declare_regions(output_regions, output_layout, "output", "Outputs& next_outputs", output_helpers, header)
   header.add("};\n}")
@@ -546,6 +595,9 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   when plan.foreign_calls.length() > 0
   | source.add("#include <climits>\n#include <cstring>\n#include <type_traits>")
   source.add("namespace " ++ namespace ++ " {")
+  for (line in types.equality_declarations): source.add(line)
+  when input_checks.length() > 0
+  | source.add("void Model::observe_inputs() {\n" ++ String.join(input_checks.snapshot(), "\n") ++ "\n}")
   when plan.foreign_calls.length() > 0
   | source.add("static_assert(CHAR_BIT == 8 && sizeof(short) == 2 && sizeof(int) == 4 && sizeof(long long) == 8, \"unsupported native foreign ABI\");")
     // A private namespace isolates declarations from model/helper names while
@@ -595,12 +647,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   // disabled-call holds. Failed assertions may dirty the inactive bank, but
   // retries overwrite it without reading stale values or clearing either bank.
   source.add("Model::Frame Model::evaluate([[maybe_unused]] const State& current, [[maybe_unused]] State& next) const {\n  Frame frame;")
-  emit_region_calls(pre_regions, "pre", "next, frame", pre_helpers, plan, types, constants, source)
-  source.add("  return frame;\n}\nvoid Model::eval() {\n  [[maybe_unused]] const State& current = states_[active_state_];\n  Outputs next_outputs{};")
-  emit_region_calls(output_regions, "output", "next_outputs", output_helpers, plan, types, constants, source)
+  emit_region_calls(pre_regions, "pre", "next, frame", pre_helpers, pre_cache, plan, types, constants, source)
+  source.add("  return frame;\n}\nvoid Model::eval() {\n" ++ (if input_checks.length() > 0 | "  observe_inputs();\n" | "") ++ "  [[maybe_unused]] const State& current = states_[active_state_];\n  Outputs next_outputs{};")
+  emit_region_calls(output_regions, "output", "next_outputs", output_helpers, output_cache, plan, types, constants, source)
   // Publish only after every output has sampled the current inputs/storage.
   // The pre-edge frame and all assertion/foreign/commit sequencing stay in tick.
-  source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n  const unsigned next_index = active_state_ ^ 1u;\n  State& next = states_[next_index];\n  [[maybe_unused]] auto before = evaluate(states_[active_state_], next);")
+  source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n" ++ (if input_checks.length() > 0 | "  observe_inputs();\n" | "") ++ "  const unsigned next_index = active_state_ ^ 1u;\n  State& next = states_[next_index];\n  [[maybe_unused]] auto before = evaluate(states_[active_state_], next);")
   for (assertion in plan.assertions, index in 0..plan.assertions.length()):
     def message = "assertion failed: " ++ (assertion.label || "<unlabeled>") ++ " [" ++ String.join([plan.name] ++ assertion.path, "/") ++ "] " ++ assertion.location
     source.add("  if (before.assertion" ++ to_string(index) ++ "_failed) throw std::runtime_error(" ++ cpp_string(message) ++ ");")
@@ -651,11 +703,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     source.add("  }")
   // Publication is the only bank switch. Assertions have passed and foreign
   // results are normalized; no staged reference is read by output evaluation.
+  for (line in state_checks): source.add(line)
   source.add("  active_state_ = next_index;")
   // Registers and writes sample the same old state. Guard addresses independently
   // of register reset; statement order only chooses unspecified collision results.
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "before.write" ++ to_string(index)
-    source.add("  if (" ++ prefix ++ "_enable && " ++ prefix ++ "_address < " ++ to_string(plan.memories[write.memory].depth) ++ ") memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;")
+    source.add("  if (" ++ prefix ++ "_enable && " ++ prefix ++ "_address < " ++ to_string(plan.memories[write.memory].depth) ++ ") {\n    memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;\n" ++ invalidate(RsimCacheSource("memory", write.memory)) ++ "\n  }")
   source.add("  eval();\n}\n}")
   [String.join(header.snapshot(), "\n") ++ "\n", String.join(source.snapshot(), "\n") ++ "\n"] ++ (if types.wide | [rkt.#{string->immutable-string}(file.#{file->string}(bits_header))] | [])

@@ -81,6 +81,31 @@ example `c++ -std=c++17 Counter.cpp harness.cpp -o counter`. Emission and native
 execution require neither CIRCT nor Verilator. The target does not run a compiler
 or write files. Portable retained implementations expand through normal preparation.
 
+Choose helper partitioning when constructing an rsim target:
+
+```rhombus
+import:
+  lib("rhodium/backend/rsim-target.rhm").RsimTarget
+
+def native = RsimTarget(~partitioning: "module")
+def sv_hosted = RsimTarget(~bind_sv: #true, ~partitioning: "module")
+def result = compile_program(program, native)
+```
+
+`~partitioning` accepts `"cost"` (the default) or `"module"`. Both preserve
+evaluation order and use the same helper cost budget. `"module"` prefers cuts at
+instance boundaries: large instances can span helpers and small instances can
+share one. It changes C++ organization while preserving simulation behavior;
+performance depends on the circuit and native compiler. An unknown strategy is
+rejected when the target is constructed.
+
+The same selection applies to `.plan(prepared)` and `rtl_pipeline_target`
+composition. Compilation result identities are `rsim`/`rsim-sv` for `"cost"`
+and `rsim-module`/`rsim-sv-module` for `"module"`; artifact names and the logical
+manifest stay unchanged. `rsim_target` and `rsim_sv_target` select `"cost"`.
+The standard SoC build continues to use that default. Partitioning is independent
+of cross-tick caching, which remains an internal experiment.
+
 The generated class is `rsim_<encoded-top>::Model`. Authored names are encoded by
 prefixing `p` and replacing every `_` with `_u`; for example `Counter` becomes
 `pCounter`, `data` becomes `pdata`, and `first_left` becomes `pfirst_uleft`.

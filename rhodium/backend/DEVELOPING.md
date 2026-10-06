@@ -13,7 +13,10 @@ and generated-artifact policy.
 
 `compile_program` selects a target. CIRCT and direct SV use `RTLTarget` with
 mandatory portable RTL expansion. `RsimTarget` owns rsim program preparation;
-it currently uses that same expansion before scheduling. All implement
+it currently uses that same expansion before scheduling. It captures the selected
+partition strategy in `RsimPlan` through both program and prepared-RTL entry
+points; option validation and target identity belong in this adapter, not generic
+`CompileOptions`. All implement
 `PreparedRTLConsumer`: `.plan(prepared)` accepts an existing `PreparedRTL`
 without preparing again, including concrete instrumentation results. Both
 paths return the backend's artifact set: one RTL artifact, the rsim C++ model (with optional support header), or
@@ -49,6 +52,7 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/conditional.rhm` | Bounded exclusive pure producers placed beneath mux selections and explicit consumer guards in each evaluation phase |
 | `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
+| `rsim/cache.rhm` | Experimental cache eligibility by backing lifetime and logical-resource invalidation masks |
 | `rsim/layout.rhm` | Structured backing references, aggregate borrowing, and typed scratch allocation for each evaluation body |
 | `rsim/arrays.rhm` | Element, fill, and affine-gather runs for existing vector constructors |
 | `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
@@ -191,8 +195,9 @@ foreign results, and asynchronous memory contents. Input steps remain explicit
 value roots. Memory resources never pull in writers. Final consumers also record
 sink-only uses, including reset operands, read/write controls, masked-write old
 words, assertion predicates, call arguments, and every held foreign result even
-when unused. Storage dependencies are conservative; they do not permit caching
-or skipping an effect. Both bodies sample afresh and can observe different state.
+when unused. Storage dependencies are conservative; alone they establish neither
+cache eligibility nor permission to skip an effect. By default both bodies sample
+afresh and can observe different state.
 When adding a storage-reading step or a pre-edge consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
@@ -208,8 +213,8 @@ within a branch; the renderer declares each producer once. Different mux arms
 have distinct paths, and sharing across paths or consumers outside the owner
 stays unconditional. Selectors, constants, input/storage roots, and existing
 fused array assignments retain their ordinary scheduling. This is conditional
-evaluation within one invocation, with no cached results or activity comparison
-across cycles.
+evaluation within one invocation. Cross-cycle reuse belongs to the separate
+experimental region cache.
 
 Moved work is bounded per owner by the same step-cost estimate as regions
 (default 4096), and at most 128 producers. A subtree beyond either limit stays
@@ -235,6 +240,19 @@ limit. An oversized step or consumer occupies a region alone; an empty body has
 no regions. Keep the cost model aligned with emitted work without materializing
 large host lists for vector shapes.
 
+`RsimTarget(~partitioning: "module")` selects instance boundaries as preferred
+cuts, independently of caching. The adapter maps the validated policy to the
+internal emitter switch `~module_cuts`; default targets retain cost-only cuts.
+On budget overflow, use the last instance transition whose prefix fills at least half the
+budget, retaining the suffix for the next region. Otherwise use the ordinary
+budget cut. Oversized items stand alone and a final fitting chunk stays intact.
+This coalesces tiny instances and splits large ones without changing value or
+consumer order. Conditional owners remain indivisible. `RsimStep.occurrence` is
+a deterministic traversal-local instance ID, independent of shared module
+definitions. Scalar CSE ignores it and keeps the first producer's owner; array
+rewrites preserve it, with new forwarding recipes owned by their requesting
+projection. It is a locality hint, never expression identity or cache validity.
+
 Regions retain original step IDs and consumer descriptors. Inputs name values
 consumed in the region but defined earlier; outputs name values defined in the
 region and consumed later, including by frame/output consumers. A value that
@@ -243,8 +261,39 @@ Boundary lists use ascending value IDs; current-storage reads are deduplicated i
 encounter order. Constants have a separate inventory and never require boundary
 temporary storage. Constant casts refer directly to their materialization rather
 than another step's alias. Planning rejects missing producers and reordered
-steps before emission. Boundary values describe one evaluation invocation, not a
-cache across edges.
+steps before emission. Boundaries describe one evaluation invocation; retaining
+their values across edges requires the cache eligibility and invalidation rules
+below.
+
+`emit_rsim(..., ~cache_regions: #true)` is a private experiment, disabled in
+production targets. It retains eligible pure-region results across calls without
+changing partitioning or inlining. `cache.rhm` walks original value dependencies,
+including conditional branches, to individual input ports and logical storage
+resources. A changed resource dirties its dependent regions in both phases;
+pre-edge and output evaluation clear their own bits independently. This is
+conservative transitive invalidation, with no output-change pruning or event queue.
+
+Direct `StateStorage` references qualify because every use resolves them against
+that evaluation's current bank; they store no pointer across calls. Retained
+pointer slots qualify only when backed entirely by immutable constants: decode
+rows, static projections into those rows, and mux chains whose every arm is
+immutable. `cache.rhm` derives this from the existing backing descriptors in
+producer order. Mixed state/constant pointers stay eager across bank swaps.
+Pointers into owned scratch also stay eager because copying a model would leave
+those pointers referring to the original object's scratch. Owned value slots
+are never reused for another value. Consumer helpers, assertions, enabled foreign
+calls, and publication remain eager and ordered. Public inputs are compared at both `eval`
+and `tick` entry. Committed registers, synchronous-read results, and held foreign
+results are compared before switching banks; failed assertions do not publish
+state or invalidate from abandoned next-state. Enabled in-bounds memory writes
+dirty all cached readers of that memory. Aggregate comparisons visit members,
+using loops for arrays, and never inspect C++ padding. Dirty bits start set,
+including for all-zero inputs. Inline bodies retain eager behavior.
+
+This first cut still scans dirty bits, prepares every consumer, compares watched
+state, and refreshes mutable borrowed boundaries each cycle. It establishes reuse;
+it does not make a whole idle tick constant time. Keep it private until compile-time
+and active/idle runtime measurements justify selecting it for normal emission.
 
 `layout.rhm` plans one authoritative value-to-backing map for each body. A
 `StorageRef` contains a state, constant, or scratch root and an ordered static
@@ -261,11 +310,13 @@ inline in their coordinator. The mandatory value/consumer cut alone does not
 force small bodies into helper calls. Value helpers receive writable
 scratch and read-only current state, with no next-state, frame, or output
 destination. Consumer helpers receive read-only scratch and their preparation
-destinations. All helpers still execute on every invocation. Assertion reporting,
+destinations. Ordinary emission calls every helper on each invocation; the private
+cache experiment applies the eligibility rules above. Assertion reporting,
 DPI execution, state publication, and output publication stay in the coordinators.
 This separation does not add cross-tick caching: region budgets bound generated
 C++ functions, while evaluation dependencies describe the computation and layout
-owns storage lifetime. The change grants no cross-tick validity to borrowed pointers.
+owns storage lifetime. Cross-tick pointer validity requires the separate
+immutable-backing proof above.
 
 Aggregate current-state roots bind directly to their model's active `State` bank
 by const reference, including registers and synchronous-read results with
@@ -972,3 +1023,28 @@ After changes, run boundary, license, parameter-annotation, and whitespace audit
 as applicable. CI runs the direct lane without CIRCT and the differential lane
 with both tools. Keep dependency routing current when fixtures reuse another
 package's circuit, bench, or native model.
+
+For the private persistent-region experiment, run
+`python3 rhodium/backend/tests/rsim/cache.py` to count actual pure helper calls
+and multiplication executions across settled ticks, input-only evaluation,
+an unrelated active counter, resets, and independent model copies. Its aggregate
+fixture also checks direct state projections, chained immutable decode pointers,
+mutable-pointer rebinding across bank swaps, decode defaults/selector changes,
+and copy/move independence after the source model is destroyed. Run
+`RHODIUM_RSIM_TEST_CACHE=1 python3 rhodium/backend/tests/rsim/run.py --region-budget 24 --differential`
+for existing native/SV behavioral oracles with cached Builder fixtures. Branch
+execution counts become upper bounds for cached pure work; consumer effects
+retain exact count checks. The normal suite keeps the original eager counts.
+
+For forced-budget module-cut coverage, add `RHODIUM_RSIM_TEST_MODULE_CUTS=1`
+to either forced-budget command above, with caching independently on or off.
+`rsim-evaluation-test.rhm` checks unchanged ordering, exact liveness, conditional
+ownership, budget limits, coalesced tiny instances, split large instances, and
+repeated-definition instance identity. Compare runtime, native compile time,
+executed helper counts, and boundary storage at the same budget before changing
+the default partitioning.
+
+`rsim-sv-test.rhm` also exercises both public partition strategies on a hierarchy
+large enough to form different helpers at the default budget. It checks native
+and SV-bound models, ordinary and prepared compilation, ordered pipeline sidecars,
+distinct result identities, repeatable emission, and unchanged source graphs.

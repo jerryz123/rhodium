@@ -150,8 +150,10 @@ and the region step-cost estimator for bounded conditional value and consumer ev
 and the C++ type helper for backing and scratch planning.
 `backend/rsim/arrays.rhm` imports only the local layout descriptors and scratch
 lookup helper for constructor-run recognition.
+`backend/rsim/cache.rhm` imports local schedule/evaluation/region/layout
+descriptors for owned-result eligibility and resource invalidation.
 `backend/rsim/emit.rhm` imports core types, local schedule/evaluation/region,
-layout/array/conditional modules, and `backend/rsim/types.rhm`. It also uses Rhombus runtime
+layout/array/conditional/cache modules, and `backend/rsim/types.rhm`. It also uses Rhombus runtime
 paths and Racket file/base primitives to read its local C++ support header at
 emission time. The type helper imports core types
 for C++ representation and packing. `backend/rsim/sv-binding.rhm` imports core

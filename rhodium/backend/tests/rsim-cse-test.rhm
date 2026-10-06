@@ -20,8 +20,8 @@ def steps = [
   RsimStep("rtl.constant", byte, [], {"value": 7, "name": "seven_b"}),
   RsimStep("input", byte, [], {"name": "a"}),
   RsimStep("rtl.constant", byte, [], {"value": 9}),
-  RsimStep("rtl.add", byte, [4, 2], {"name": "sum_a"}),
-  RsimStep("rtl.add", byte, [4, 3], {"name": "sum_b"}),
+  RsimStep("rtl.add", byte, [4, 2], {"name": "sum_a"}, 17),
+  RsimStep("rtl.add", byte, [4, 3], {"name": "sum_b"}, 29),
   RsimStep("rtl.xor", byte, [6, 2], {"name": "xor_a"}),
   RsimStep("rtl.xor", byte, [7, 3], {"name": "xor_b"}),
   RsimStep("input", byte, [], {"name": "b"}),
@@ -64,6 +64,7 @@ check:
   optimized.reads ~is [RsimRead(1, 1, 0, 0)]
   optimized.assertions ~is [RsimAssertion(["first"], "check", "one:1", 0, 0, 0), RsimAssertion(["second"], "check", "two:2", 0, 0, 0)]
   optimized.foreign_calls ~is [RsimForeign(imp, 0, [5]), RsimForeign(imp, 0, [5])]
+  optimized.steps[4].occurrence ~is 17
   optimized.steps[4].operands ~is [2, 1]
   optimized.steps[4].attributes ~is {"name": "sum_a"}
   optimized.steps[5].operands ~is [4, 1]

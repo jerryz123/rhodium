@@ -3,7 +3,7 @@
 import:
   "../../../core/main.rhm" open
   "../../../lowering/program.rhm".ElaboratedProgram
-export make_bridge_ports make_wide_bridge_ports
+export make_bridge_ports make_wide_bridge_ports make_partitioned_bridge
 
 fun make_bridge_ports(consumed_ids :: Nat = 0):
   def design = Design()
@@ -42,5 +42,29 @@ fun make_wide_bridge_ports(consumed_ids :: Nat = 0):
     b.drive(b.output(top, "sample" ++ suffix, type), delayed.current)
     b.drive(b.output(top, "constant" ++ suffix, type), b.constant(top, type, 2 ** (width - 1) + 2 ** 32 + 7))
   b.assert(top, b.bit_not(top, fault), clock, reset, b.constant(top, Bits(1), 1), "bridge_wide_check")
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+// Two independent instances each fill over half the normal helper budget.
+// Their long arithmetic chains stay observable through registered outputs.
+fun make_partitioned_bridge():
+  def design = Design()
+  def b = Builder(design)
+  def leaf = b.module("PartitionLeaf")
+  def clock = b.input(leaf, "clock", Clock)
+  def data = b.input(leaf, "data", Bits(8))
+  def mutable value = data
+  for (_ in 0..700): value := b.add(leaf, value, data)
+  def state = b.register(leaf, "q", Bits(8), clock)
+  b.drive(state.next, value)
+  b.drive(b.output(leaf, "result", Bits(8)), state.current)
+  b.finish(leaf)
+  def top = b.module("PartitionedBridge")
+  def root_clock = b.input(top, "clock", Clock)
+  for (name in ["left", "right"]):
+    def instance = b.instance(top, leaf, name)
+    b.drive(instance.input("clock"), root_clock)
+    b.drive(instance.input("data"), b.input(top, name, Bits(8)))
+    b.drive(b.output(top, name ++ "_result", Bits(8)), instance.output("result"))
   b.finish(top)
   ElaboratedProgram(design, top)

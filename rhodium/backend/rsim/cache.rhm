@@ -1,0 +1,78 @@
+#lang rhombus
+/* Plans conservative resource invalidation for persistent region results with safe backing lifetimes. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "plan.rhm" open
+  "evaluation.rhm" open
+  "regions.rhm".RsimRegion
+  "layout.rhm" open
+
+export RsimCacheSource RsimRegionCache plan_region_cache
+
+/* Identify an input port or one logical storage resource across state-bank swaps.
+   Only held foreign results use the secondary result index. */
+class RsimCacheSource(kind :: String, slot :: Nat, result :: Nat = 0)
+
+/* Eligible region IDs index dirty bits; each source maps word indices to masks.
+   Separate instances describe pre-edge and output caches. No effects are cached. */
+class RsimRegionCache(regions :: Set, invalidations :: Map, words :: Nat)
+
+/* Classify retained pointer slots from their actual producers and branch backing.
+   Decode rows and constant roots have static lifetime. Projections preserve that
+   lifetime, and a borrowed mux is safe only when every possible arm is immutable.
+   Owned scratch pointers remain excluded: copying a model would leave them
+   pointing into the original object. Process producers before borrowed chains. */
+fun immutable_borrows(schedule :: RsimSchedule, regions :: List.of(RsimRegion),
+                      layout :: BoundaryStorage, constants :: Map) :: Set:
+  def immutable = MutableSet{}
+  /* A static projection changes the subobject, never its root's lifetime. */
+  fun immutable_reference(value :: Nat) :: Boolean:
+    def binding = backed_reference(value, schedule.steps, constants, layout.bindings)
+    binding && (binding.root is_a ConstantStorage || binding.root in immutable)
+  for (region in regions):
+    for (value in region.outputs):
+      def slot = scratch_slot(layout.bindings[value])
+      when slot && slot.indirect
+      | def step = schedule.steps[value]
+        when aggregate_decode(step)
+          || (step.opcode == "rtl.mux_lookup" && (for all (operand in step.operands.drop(1)): immutable_reference(operand)))
+        | immutable.add(slot)
+  immutable.snapshot()
+
+/* Trace original value dependencies, including conditional branches, to logical
+   roots. Do not merge unrelated outputs merely because they share a producer
+   region. Direct state references are rebound at their use sites, while retained
+   pointers require immutable backing across bank swaps and model copies. Inline
+   bodies opt out at the caller. */
+fun plan_region_cache(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
+                      regions :: List.of(RsimRegion), layout :: BoundaryStorage) :: RsimRegionCache:
+  def immutable = immutable_borrows(schedule, regions, layout, evaluation.constants)
+  def eligible = MutableSet{}
+  def invalidations = MutableMap{}
+  def inputs = MutableMap{}
+  for (port in schedule.inputs, index in 0..schedule.inputs.length()): inputs[port.value] := index
+  for (region in regions, index in 0..regions.length()):
+    def reusable = for all (value in region.outputs):
+      def root = layout.bindings[value].root
+      root is_a ConstantStorage || root is_a StateStorage || (root is_a ScratchSlot && (!root.indirect || root in immutable))
+    when region.sinks.length() == 0 && reusable
+    | eligible.add(index)
+      def visited = MutableSet{}
+      def roots = MutableSet{}
+      /* Each value is visited once per region, even in highly shared cones. */
+      fun visit(value :: Nat):
+        unless value in visited || evaluation.constants.has_key(value)
+        | visited.add(value)
+          when inputs.has_key(value) | roots.add(RsimCacheSource("input", inputs[value]))
+          for (storage in evaluation.dependencies[value].storage):
+            roots.add(RsimCacheSource(storage.kind, storage.slot, storage.result || 0))
+          for (operand in evaluation.dependencies[value].values): visit(operand)
+      for (value in region.steps): visit(value)
+      def word = (index - index mod 64) / 64
+      for (root in roots):
+        unless invalidations.has_key(root) | invalidations[root] := MutableMap{}
+        def masks = invalidations[root]
+        masks[word] := masks.get(word, 0) bits.or (2 ** (index mod 64))
+  RsimRegionCache(eligible.snapshot(),
+                  for Map ((source, masks) in invalidations): values(source, masks.snapshot()),
+                  if eligible.length() == 0 | 0 | (regions.length() + 63 - (regions.length() + 63) mod 64) / 64)

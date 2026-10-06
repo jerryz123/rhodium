@@ -258,3 +258,15 @@ for ([depth, dag] in [[24, #true], [80, #false]]):
     result ~is compact_array_updates(result)
     result.steps.length() < depth * 3 + 30 ~is #true
   unless dag | check: result === schedule ~is #true
+
+// Synthetic forwarding recipes inherit the requesting projection's occurrence;
+// recovered update operations keep the constructed array's occurrence.
+for (source in [fixture(3, 2), read_fixture(3, 2, 2)]):
+  def tagged_steps = for List (step in source.steps, index in 0..source.steps.length()):
+    RsimStep(step.opcode, step.type, step.operands, step.attributes, index + 1)
+  def tagged = remap_schedule(source, tagged_steps, fun (value): value)
+  def result = compact_array_updates(tagged)
+  check:
+    result.steps[result.outputs[0].value].occurrence ~is tagged.outputs[0].value + 1
+    result ~is compact_array_updates(result)
+  for (step in result.steps): check: step.occurrence > 0 ~is #true

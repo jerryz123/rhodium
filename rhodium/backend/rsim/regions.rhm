@@ -86,14 +86,20 @@ fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
    then resolve actual value uses across both kinds of region.
    Oversized items occupy one region alone; empty bodies have no regions. The
    private budget is a deterministic heuristic and a fixture control, not a
-   target option. No storage allocation, inlining policy, or caching occurs here. */
+   target option. Optional module cuts prefer the last instance transition after
+   half the budget, without reordering steps or splitting conditional owners.
+   Tiny instances can share a region; large instances still split at the budget.
+   No storage allocation, inlining policy, or caching occurs here. */
 fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
-                  body :: RsimEvaluation, ~budget: budget :: PosInt = 4096) :: List.of(RsimRegion):
+                  body :: RsimEvaluation, ~budget: budget :: PosInt = 4096,
+                  ~module_cuts: module_cuts :: Boolean = #false) :: List.of(RsimRegion):
   def chunks = MutableList[]
   def costs = MutableList[]
   def mutable steps = MutableList[]
   def mutable sinks = MutableList[]
   def mutable cost = 0
+  def mutable cut = 0
+  def mutable cut_cost = 0
   /* Close a nonempty contiguous chunk and start fresh accumulation. */
   fun finish():
     when cost > 0
@@ -102,12 +108,29 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
       steps := MutableList[]
       sinks := MutableList[]
       cost := 0
-  /* Flush before adding an item that would exceed the soft budget. */
+      cut := 0
+      cut_cost := 0
+  /* On overflow, retain a suffix after the latest sufficiently full instance
+     boundary. Each retained suffix is smaller than a budget; oversized items
+     use the ordinary cut so they do not create an extra trailing fragment. */
   fun reserve(amount :: PosInt):
+    when cost + amount > budget && amount <= budget && cut > 0
+    | def pending = steps.snapshot()
+      chunks.add(RsimEvaluation(pending.take(cut), []))
+      costs.add(cut_cost)
+      steps := MutableList[]
+      for (index in pending.drop(cut)): steps.add(index)
+      cost := cost - cut_cost
+      cut := 0
+      cut_cost := 0
     when cost + amount > budget | finish()
     cost := cost + amount
   for (index in body.steps):
     unless index < schedule.steps.length() | error(~who: #'rsim, "region step is outside the schedule")
+    when module_cuts && steps.length() > 0 && cost * 2 >= budget && cost <= budget
+      && schedule.steps[steps[steps.length() - 1]].occurrence != schedule.steps[index].occurrence
+    | cut := steps.length()
+      cut_cost := cost
     reserve(if body.conditionals.has_key(index) | body.conditionals[index].cost | step_cost(index, schedule, evaluation.constants))
     steps.add(index)
   // Pure value helpers must not prepare next state, frame fields, or outputs.

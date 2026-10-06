@@ -8,6 +8,7 @@ import:
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
   "../rsim/regions.rhm" open
+  "../rsim/cache.rhm" open
   "../rsim/layout.rhm" open
   "../rsim/arrays.rhm" open
   "../rsim/types.rhm".CppTypes
@@ -16,6 +17,7 @@ import:
   "../rsim/cse.rhm".share_scalar_expressions
   "../rsim/array-updates.rhm".compact_array_updates
   "rsim/branch-fixtures.rhm" open
+  "rsim/cache-fixtures.rhm".make_cache_borrows
   "rsim/fixtures.rhm".make_scalar
   "rsim/aggregate-fixtures.rhm".make_aggregate
   "rsim/wide-fixtures.rhm".make_constant_rom
@@ -180,8 +182,8 @@ check:
 // Check forward partitioning against an independent backward liveness walk.
 // Only direct region consumers are inputs; passing across an unrelated region
 // must not create a redundant argument or a new producer for a live value.
-fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, body :: RsimEvaluation, budget :: PosInt):
-  def regions = build_regions(schedule, evaluation, body, ~budget: budget)
+fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, body :: RsimEvaluation, budget :: PosInt, module_cuts :: Boolean = #false):
+  def regions = build_regions(schedule, evaluation, body, ~budget: budget, ~module_cuts: module_cuts)
   def steps = MutableList[]
   def sinks = MutableList[]
   for (region in regions):
@@ -194,7 +196,7 @@ fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, bo
   check:
     steps.snapshot() ~is body.steps
     sinks.snapshot() ~is body.sinks
-    regions ~is build_regions(schedule, evaluation, body, ~budget: budget)
+    regions ~is build_regions(schedule, evaluation, body, ~budget: budget, ~module_cuts: module_cuts)
   def future = MutableSet{}
   for (offset in 0..regions.length()):
     def region = regions[regions.length() - 1 - offset]
@@ -233,7 +235,8 @@ def rom = build_schedule(prepare_rtl(make_constant_rom(65), CompileOptions(), "c
 for (scheduled in [schedule, repeated, unused, scalar, rom]):
   def planned = build_evaluation_plan(scheduled)
   for (body in [planned.pre_edge, planned.outputs]):
-    for (budget in [1, 24, 4096]): check_regions(scheduled, planned, body, budget)
+    for (budget in [1, 24, 4096]):
+      for (module_cuts in [#false, #true]): check_regions(scheduled, planned, body, budget, module_cuts)
 
 // Even a generous budget separates values from frame preparation. The cut
 // exports only consumed values; an outputless body has no empty helper region.
@@ -613,7 +616,7 @@ for (program in [make_branches(), make_conditionals()]):
         for (operand in dependencies.values):
           check: operand in available && operand < value ~is #true
       for (budget in [1, 24, 1000000]):
-        check_regions(planned, conditional, body, budget)
+        for (module_cuts in [#false, #true]): check_regions(planned, conditional, body, budget, module_cuts)
         for (region in build_regions(planned, conditional, body, ~budget: budget)):
           def visible = for Set (value in region.steps ++ region.inputs ++ region.constants): value
           for (sink in region.sinks):
@@ -622,3 +625,80 @@ for (program in [make_branches(), make_conditionals()]):
           for ((value, owner) in region.conditionals):
             for (operand in owner.dependencies.values):
               check: operand in visible ~is #true
+
+// Cache invalidation follows each value's roots, not unrelated region outputs.
+// Mutable borrowed pointers and every consumer stay eager despite pure work.
+def cache_data = input("data")
+def cache_shared = schedule.outputs[0].value
+def cache_word = schedule.outputs[2].value
+def cache_layout = BoundaryStorage({cache_data: StorageRef(ScratchSlot(0, 0, #false)),
+                                    cache_shared: StorageRef(ScratchSlot(0, 1, #false)),
+                                    cache_word: StorageRef(ScratchSlot(0, 2, #false))},
+                                   [ScratchGroup("std::uint64_t", #false, 3)])
+def cache_regions = [RsimRegion([cache_data], [], [], [cache_data], [], [], 1),
+                     RsimRegion([cache_shared], [], [], [cache_shared], [], [], 1),
+                     RsimRegion([cache_word], [], [], [cache_word], [], [], 1),
+                     RsimRegion([], [sink("register")], [], [], [], [], 1)]
+def cached = plan_region_cache(schedule, evaluation, cache_regions, cache_layout)
+def input_slots = for Map (port in schedule.inputs, slot in 0..schedule.inputs.length()): values(port.name, slot)
+check:
+  cached ~is plan_region_cache(schedule, evaluation, cache_regions, cache_layout)
+  cached.regions ~is Set{0, 1, 2}
+  cached.invalidations[RsimCacheSource("input", input_slots["data"])] ~is {0: 1}
+  cached.invalidations[RsimCacheSource("register", 0)] ~is {0: 2}
+  cached.invalidations[RsimCacheSource("foreign", 0, 1)] ~is {0: 2}
+  cached.invalidations[RsimCacheSource("memory", memory_slots["async"])] ~is {0: 4}
+  cached.invalidations[RsimCacheSource("input", input_slots["address"])] ~is {0: 4}
+  cached.words ~is 1
+for (root in [ScratchSlot(0, 0, #true), StateStorage("state", 0)]):
+  def borrowed = BoundaryStorage({cache_data: StorageRef(root, [0])}, [])
+  check:
+    plan_region_cache(schedule, evaluation, [cache_regions[0]], borrowed).regions ~is (if root is_a StateStorage | Set{0} | Set{})
+
+
+// Exercise real backing, including static subobjects and chains. The mixed
+// state/constant mux must stay eager; direct state aliases need no saved pointer.
+def lifetime_schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(make_cache_borrows(), CompileOptions(), "cache lifetimes").rtl)))
+def lifetime_evaluation = plan_conditionals(lifetime_schedule, build_evaluation_plan(lifetime_schedule))
+def lifetime_regions = build_regions(lifetime_schedule, lifetime_evaluation, lifetime_evaluation.outputs, ~budget: 1)
+def lifetime_layout = boundary_layout(lifetime_regions, lifetime_schedule, CppTypes(), lifetime_evaluation.constants)
+def lifetime_cache = plan_region_cache(lifetime_schedule, lifetime_evaluation, lifetime_regions, lifetime_layout)
+for (port in lifetime_schedule.outputs):
+  def region = lifetime_regions.index(lifetime_regions.find(fun (region): port.value in region.steps))
+  check: region in lifetime_cache.regions ~is (port.name != "borrowed")
+  when port.name in ["decoded", "projected", "chain", "borrowed"]
+  | check: lifetime_layout.bindings[port.value].root.indirect ~is #true
+// Input/owned-scratch pointers also cannot survive copying the model.
+def mutable_regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: 1)
+def mutable_layout = boundary_layout(mutable_regions, borrow_schedule, CppTypes(), borrow_evaluation.constants)
+def mutable_cache = plan_region_cache(borrow_schedule, borrow_evaluation, mutable_regions, mutable_layout)
+def mutable_mux_region = mutable_regions.index(mutable_regions.find(fun (region): borrow_schedule.outputs[0].value in region.steps))
+check: mutable_mux_region in mutable_cache.regions ~is #false
+
+// Instance boundaries are cut preferences, never a value-ordering policy.
+// Three two-cost values end the first instance after half a ten-cost budget;
+// the next instance is too large and must still split normally.
+fun cut_fixture(owners :: List.of(Nat), wide :: maybe(Nat) = #false):
+  def entries = for List (owner in owners, index in 0..owners.length()):
+    RsimStep("input", if index == wide | Bits(1024) | Bits(8), [], {"name": "i" ++ to_string(index)}, owner)
+  RsimSchedule("ModuleCuts", for List (step in entries, index in 0..entries.length()): RsimPort(step.attributes["name"], step.type, index),
+               [], entries, [], [], [], [], [], [])
+fun cut_steps(schedule :: RsimSchedule, enabled :: Boolean, budget :: PosInt = 10):
+  def evaluation = build_evaluation_plan(schedule)
+  check_regions(schedule, evaluation, evaluation.pre_edge, budget, enabled)
+  build_regions(schedule, evaluation, evaluation.pre_edge, ~budget: budget, ~module_cuts: enabled).map(fun (region): region.steps)
+def cut_schedule = cut_fixture([0, 0, 0, 1, 1, 1, 1, 1, 1, 2])
+check:
+  cut_steps(cut_schedule, #false) ~is [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+  cut_steps(cut_schedule, #true) ~is [[0, 1, 2], [3, 4, 5, 6, 7], [8, 9]]
+  cut_steps(cut_schedule, #true, 100) ~is [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+  cut_steps(cut_fixture([0, 1, 2, 3, 4, 5, 6]), #true) ~is [[0, 1, 2, 3, 4], [5, 6]]
+  cut_steps(cut_fixture([0, 0, 0, 0, 0, 0, 0]), #true) ~is [[0, 1, 2, 3, 4], [5, 6]]
+  cut_steps(cut_fixture([0, 0, 0, 1, 1, 2], 4), #true) ~is [[0, 1, 2, 3], [4], [5]]
+// Shared module definitions produce distinct locality hints at each instance;
+// memory resources are checked independently of the scheduling hint itself.
+def read_owners = for Map (step in repeated.steps.filter(~keep: fun (step): step.opcode == "memory_read")):
+  values(step.attributes["slot"], step.occurrence)
+check:
+  read_owners[sampled_slots[0]] != read_owners[sampled_slots[1]] ~is #true
+  repeated.steps.map(fun (step): step.occurrence) ~is build_schedule(prepare_rtl(make_memory(3, #false), CompileOptions(), "occurrences").rtl).steps.map(fun (step): step.occurrence)

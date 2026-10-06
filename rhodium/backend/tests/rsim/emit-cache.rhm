@@ -1,0 +1,39 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "../../../compile/program.rhm".compile_program
+  "region-target.rhm".rsim_target
+  "cache-fixtures.rhm".make_cache_borrows
+
+def d = Design()
+def b = Builder(d)
+def top = b.module("RsimCache")
+def clock = b.input(top, "clock", Clock)
+def reset = b.input(top, "reset", Reset)
+def enable = b.input(top, "enable", Bits(32))
+def x = b.input(top, "a", Bits(32))
+def y = b.input(top, "b", Bits(32))
+def zero = b.constant(top, Bits(32), 0)
+def count = b.register(top, "count_state", Bits(32), clock, reset, zero)
+b.drive(count.next, b.add(top, count.current, enable))
+b.drive(b.output(top, "count", Bits(32)), count.current)
+for (value in [x, y], name in ["x", "y"]):
+  def product = b.mul(top, value, value)
+  def state = b.register(top, "state_" ++ name, Bits(32), clock, reset, zero)
+  b.drive(state.next, product)
+  def peer = b.register(top, "peer_" ++ name, Bits(32), clock)
+  b.drive(peer.next, product)
+  b.drive(b.output(top, "copy_" ++ name, Bits(32)), peer.current)
+  b.drive(b.output(top, name, Bits(32)), product)
+  b.drive(b.output(top, "saved_" ++ name, Bits(32)), state.current)
+b.finish(top)
+def dir = rkt.#{vector-ref}(rkt.#{current-command-line-arguments}(), 0)
+for (artifact in compile_program(ElaboratedProgram(d, top), rsim_target).artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(dir, artifact.name), ~exists: #'replace)
+
+for (artifact in compile_program(make_cache_borrows(), rsim_target).artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(dir, artifact.name), ~exists: #'replace)

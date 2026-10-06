@@ -19,6 +19,7 @@ import membership
 import mask_index
 import assertions
 import branches
+import cache
 import foreign
 import uart
 import sv_bridge
@@ -312,6 +313,7 @@ def main():
             print(f"rsim: {chi_count} CHI memory cycle/response observations passed on both backends")
             bridge_count = sv_bridge.run_suite(work, run)
             print(f"rsim: {bridge_count} SV bridge scenarios passed")
+        cache.run_suite(work / "cache", run)
         print(f"rsim: {uart_count} UART/PTY instances passed" + (" on both backends" if args.differential else ""))
         print(f"rsim: {len(expected)} baseline, {dynamic_count} dynamic, {memory_count} asynchronous memory, {sync_count} synchronous memory, and {selection_count} selection observations passed" + (" on both backends" if args.differential else ""))
         print(f"rsim: {foreign_count} foreign-call observations passed" + (" on both backends" if args.differential else ""))

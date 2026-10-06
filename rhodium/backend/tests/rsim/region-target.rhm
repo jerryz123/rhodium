@@ -19,7 +19,8 @@ class RegionTestPlan(prepared :: PreparedRTL, budget :: PosInt):
   override method manifest(): prepared.manifest
   override method emit():
     def schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl)))
-    def contents = emit_rsim(schedule, ~region_budget: budget)
+    def contents = emit_rsim(schedule, ~region_budget: budget, ~cache_regions: rkt.getenv("RHODIUM_RSIM_TEST_CACHE") != #false,
+                             ~module_cuts: rkt.getenv("RHODIUM_RSIM_TEST_MODULE_CUTS") != #false)
     [Artifact(schedule.name ++ ".hpp", "text/x-c++hdr", contents[0]),
      Artifact(schedule.name ++ ".cpp", "text/x-c++src", contents[1])] ++ (if contents.length() == 3 | [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])] | [])
 

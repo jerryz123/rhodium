@@ -41,6 +41,7 @@ fun shape(type :: HardwareType) :: String:
    names are private; authored field names use the port encoding. */
 class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList = MutableList[],
                constant_names :: MutableMap = MutableMap{}, constant_declarations :: MutableList = MutableList[],
+               equality_names :: MutableMap = MutableMap{}, equality_declarations :: MutableList = MutableList[],
                mutable wide :: Boolean = #false):
   /* Intern canonical typed constants by physical representation. Collect all
      references before emitting the pool; every object has static lifetime. */
@@ -52,6 +53,22 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
       constant_names[key] := name
       constant_declarations.add("[[maybe_unused]] static constexpr " ++ this.name(type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
     constant_names[key]
+
+  /* Compare semantic members without reading C++ padding. Demand-generated
+     aggregate helpers use loops for arrays, keeping large state checks compact. */
+  method equal(type :: HardwareType, left :: String, right :: String) :: String:
+    if !record_type(type) && !vector_type(type)
+    | "(" ++ left ++ " == " ++ right ++ ")"
+    | def key = shape(type)
+      unless equality_names.has_key(key)
+      | def name = "equal_value" ++ to_string(equality_names.length())
+        equality_names[key] := name
+        def body:
+          if vector_type(type)
+          | "  for (std::size_t i = 0; i < " ++ to_string(type.length) ++ "; ++i) {\n    if (!" ++ this.equal(type.element_type, "left[i]", "right[i]") ++ ") return false;\n  }\n  return true;"
+          | "  return " ++ String.join(type.fields.map(fun (field): this.equal(field.type, "left." ++ cpp_name(field.name), "right." ++ cpp_name(field.name))), " && ") ++ ";"
+        equality_declarations.add("static bool " ++ name ++ "(const " ++ this.name(type) ++ "& left, const " ++ this.name(type) ++ "& right) {\n" ++ body ++ "\n}")
+      equality_names[key] ++ "(" ++ left ++ ", " ++ right ++ ")"
 
   /* Keep standalone scalar values in unsigned arithmetic carriers. Aggregate
      members use compact storage, recursively interned in logical field/index order. */

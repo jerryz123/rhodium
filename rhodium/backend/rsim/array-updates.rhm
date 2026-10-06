@@ -30,7 +30,8 @@ fun update_lane(value :: Nat, lane :: Nat, steps :~ List.of(RsimStep)) :: maybe(
 
 /* Forward bounded projection trees through immutable update versions. Recipes
    refer to original values until accepted, so declining a large query emits no
-   speculative computations. Dynamic reads retain rsim's zero-on-miss behavior. */
+   speculative computations. New recipes inherit the requesting occurrence, while
+   shared recipes keep the first owner. Dynamic reads retain zero-on-miss behavior. */
 fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
   def steps = MutableList[]
   def refs = MutableMap{}
@@ -54,7 +55,7 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
         | emitted[value] := found
         | emitted[value] := steps.length()
           expressions[key] := candidates ++ [steps.length()]
-          steps.add(RsimStep(recipe.opcode, recipe.type, operands, recipe.attributes))
+          steps.add(RsimStep(recipe.opcode, recipe.type, operands, recipe.attributes, recipe.occurrence))
       emitted[value]
   /* Record one static field/lane or dynamic unsigned lane selection. */
   fun part(step :: RsimStep) :: List:
@@ -75,7 +76,7 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
         /* Use shallow recipe IDs instead of recursively hashed expression trees. */
         fun node(opcode :: String, type :: HardwareType, operands :: List.of(Nat), attributes :: Map = {}) :: Nat:
           def id = schedule.steps.length() + recipes.length()
-          recipes.add(RsimStep(opcode, type, operands, attributes))
+          recipes.add(RsimStep(opcode, type, operands, attributes, step.occurrence))
           id
         /* Build a projection without assuming that its container is materialized.
            Whole-value leaves retain their original source identities. */
@@ -144,8 +145,8 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
       // those new aliases, avoiding tautological-comparison warnings in C++.
       if step.opcode in ["rtl.eq", "rtl.ult", "rtl.slt"] && step.operands[0] != step.operands[1] && operands[0] == operands[1]
       | changed := #true
-        steps.add(RsimStep("rtl.constant", step.type, [], {"value": if step.opcode == "rtl.eq" | 1 | 0}))
-      | steps.add(RsimStep(step.opcode, step.type, operands, step.attributes))
+        steps.add(RsimStep("rtl.constant", step.type, [], {"value": if step.opcode == "rtl.eq" | 1 | 0}, step.occurrence))
+      | steps.add(RsimStep(step.opcode, step.type, operands, step.attributes, step.occurrence))
   if changed | remap_schedule(schedule, steps.snapshot(), remap) | schedule
 
 /* Fold only a complete vector of matching lanes. Shared original lane values
@@ -221,7 +222,7 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
           )
     if base != #false
     | changed := #true
-      rewritten.add(RsimStep("rtl.vector_inject", step.type, [base, update[1], update[2]], step.attributes))
+      rewritten.add(RsimStep("rtl.vector_inject", step.type, [base, update[1], update[2]], step.attributes, step.occurrence))
     | rewritten.add(step)
     // Only earlier whole aggregates can become bases. Bound each bucket and
     // prefer recent candidates; type equality and every lane still require proof.
@@ -251,5 +252,5 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
     for (step in interim.steps, index in 0..interim.steps.length()):
       when index in needed
       | refs[index] := steps.length()
-        steps.add(RsimStep(step.opcode, step.type, step.operands.map(remap), step.attributes))
+        steps.add(RsimStep(step.opcode, step.type, step.operands.map(remap), step.attributes, step.occurrence))
     remap_schedule(interim, steps.snapshot(), remap)

@@ -184,6 +184,10 @@ def conditional_driver(native):
     if (rsim_conditional_evaluations != expected_counts) throw std::logic_error("conditional execution count");
     if (foreign_calls - calls_before != unsigned(tick && call_enable)) throw std::logic_error("DPI enable");
 ''' if native else ''
+    if native and os.environ.get('RHODIUM_RSIM_TEST_CACHE'):
+        # Cached pure mux owners may skip work; eager effects retain exact counts.
+        checks = checks.replace('rsim_conditional_evaluations != expected_counts',
+            '([&] { for (unsigned i = 0; i < 8; ++i) if (i >= 3 && i <= 6 ? rsim_conditional_evaluations[i] != expected_counts[i] : rsim_conditional_evaluations[i] > expected_counts[i]) return true; return false; }())')
     retry = '''
   dut.inputs.preset = 0; dut.inputs.pcheck_uenable = 1;
   dut.inputs.pcheck_udata = 1; dut.inputs.pexpected = 0;

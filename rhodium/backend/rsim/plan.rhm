@@ -18,8 +18,9 @@ export:
   build_schedule remap_schedule
 
 /* Describes one typed value in dependency order; operand indices
-   refer only to earlier steps. Input and state steps are evaluation roots. */
-class RsimStep(opcode :: String, type :: HardwareType, operands :: List.of(Nat), attributes :: Map)
+   refer only to earlier steps. Input and state steps are evaluation roots.
+   Occurrence is a deterministic locality hint, not part of expression identity. */
+class RsimStep(opcode :: String, type :: HardwareType, operands :: List.of(Nat), attributes :: Map, occurrence :: Nat = 0)
 
 /* Maps an authored port to its scheduled value and hardware type. */
 class RsimPort(name :: String, type :: HardwareType, value :: Nat)
@@ -297,7 +298,7 @@ fun build_schedule(rtl :: DesignElaboration) :: RsimSchedule:
         | ~else:
             RsimStep(op.opcode, type, op.operands.map(fun (operand): schedule(owner, operand)), op.attributes)
       refs[key] := steps.length()
-      steps.add(step)
+      steps.add(RsimStep(step.opcode, step.type, step.operands, step.attributes, owner))
       active.remove(key)
     refs[key]
   def inputs = for List (port in rtl.top.inputs.filter(~keep: fun (port): !clock_type(port.type))):

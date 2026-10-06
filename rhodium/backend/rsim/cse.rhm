@@ -26,7 +26,8 @@ fun shareable(step :: RsimStep, steps :~ List.of(RsimStep)) :: Boolean:
 
 /* Value names are diagnostic labels on admitted expressions, not computation.
    Preserve every other attribute conservatively, and keep the retained step's
-   original attributes. Root names never reach this function's sharing key. */
+   original attributes. Occurrence locality is outside this key; the first shared
+   producer retains its occurrence. Root names never reach this sharing key. */
 fun expression_attributes(attributes :: Map) :: Map:
   def result = MutableMap{}
   for ((key, value) in attributes):
@@ -54,5 +55,5 @@ fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
     | refs[index] := found
     | refs[index] := steps.length()
       when key | expressions[key] := candidates ++ [steps.length()]
-      steps.add(RsimStep(step.opcode, step.type, operands, step.attributes))
+      steps.add(RsimStep(step.opcode, step.type, operands, step.attributes, step.occurrence))
   remap_schedule(schedule, steps.snapshot(), remap)

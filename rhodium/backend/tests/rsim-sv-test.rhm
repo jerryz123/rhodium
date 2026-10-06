@@ -114,3 +114,42 @@ check:
 check:
   compile_program(boundary("projected_selector"), rsim_sv_target) ~throws "Boundary.result: output depends combinationally on an input"
   compile_program(boundary("projected_sibling"), rsim_sv_target).artifacts.length() ~is 4
+
+// Configured targets keep their choice across both preparation paths and pass
+// composition. Use a real hierarchy that splits differently at the normal budget.
+def partitioned = make_partitioned_bridge()
+def partitioned_source = dump_ir(partitioned.design)
+def partitioned_rtl = prepare_rtl(partitioned, CompileOptions(), "partition strategies")
+def prepared_source = dump_ir(partitioned_rtl.rtl.design)
+def models = MutableMap{}
+for (partitioning in ["cost", "module"]):
+  for (bind_sv in [#false, #true]):
+    def target = RsimTarget(~partitioning: partitioning, ~bind_sv: bind_sv)
+    def expected_name = (if bind_sv | "rsim-sv" | "rsim") ++ (if partitioning == "module" | "-module" | "")
+    def plan = target.plan(partitioned_rtl)
+    def artifacts = plan.emit()
+    def compiled = compile_program(partitioned, target)
+    def observed = compile_program(partitioned, rtl_pipeline_target(target, [observe("partition")]))
+    models[[partitioning, bind_sv]] := artifacts
+    check:
+      target.name ~is expected_name
+      compiled.target ~is expected_name
+      target.partitioning ~is partitioning
+      target.bind_sv ~is bind_sv
+      compiled.artifacts ~is artifacts
+      plan.emit() ~is artifacts
+      plan.manifest() === partitioned_rtl.manifest ~is #true
+      observed.target ~is expected_name ++ "+partition"
+      observed.artifacts ~is artifacts ++ [Artifact("partition.txt", "text/plain", "partition")]
+      dump_ir(partitioned.design) ~is partitioned_source
+      dump_ir(partitioned_rtl.rtl.design) ~is prepared_source
+      artifacts.length() ~is (if bind_sv | 4 | 2)
+  check: models[[partitioning, #true]].take(2) ~is models[[partitioning, #false]]
+check:
+  models[["cost", #false]] ~is rsim_target.plan(partitioned_rtl).emit()
+  models[["cost", #true]] ~is rsim_sv_target.plan(partitioned_rtl).emit()
+  models[["cost", #false]] != models[["module", #false]] ~is #true
+  models[["cost", #true]].drop(2) ~is models[["module", #true]].drop(2)
+  RsimTarget(~partitioning: "unknown") ~throws "partitioning must be cost or module"
+  rsim_target.partitioning ~is "cost"
+  rsim_sv_target.partitioning ~is "cost"
