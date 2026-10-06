@@ -12,6 +12,7 @@ import:
   "selection.rhm".CoreKind
   lib("cores/rv5stage/csr.rhdl").rv5stage_csr_config
   lib("cores/spike/udb.rhm").spike_csr_warl_policy
+  lib("cores/rv2wide/profile.rhm").RV2WideConfig
 
 /*
  * Snapshots public fabric parameters in expression notation and replaces factory closures with
@@ -40,6 +41,9 @@ fun config_metadata(resolved :: ResolvedSoCConfig,
   def csr_warl = match resolved.selection.core
   | CoreKind.RV5Stage: rv5stage_csr_config(config.hart.profile).warl_policy()
   | CoreKind.Spike: spike_csr_warl_policy(config.hart.profile)
+  | CoreKind.RV2Wide:
+      def profile :: RV2WideConfig = config.hart.profile
+      profile.csr_config.warl_policy()
   def platform = cond
   | config is_a MiniSoCConfig:
       {"ram": repr(config.ram), "clocks": repr(config.clocks),

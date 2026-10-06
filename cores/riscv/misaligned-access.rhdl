@@ -3,18 +3,33 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/protocol.rhdl" open
-  "protocol.rhdl" open
-  "../../../riscv/rtl/hypervisor.rhdl" open
-  "../../cache/operation.rhdl" open
-  "../memory-context.rhdl" open
-  "../../load-store.rhdl" open
-  "../../../riscv/isa/xlen.rhm" open
+  "../cache/protocol.rhdl" open
+  "../../riscv/rtl/hypervisor.rhdl" open
+  "../cache/operation.rhdl" open
+  "../load-store.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Carries a final virtual split outcome without adding trap metadata to physical cache replies. */
+bundle RiscvSplitResult(xlen :: XLen, Context :: DataType):
+  response: PhysicalMemoryResp(xlen, Context)
+  page_fault: Bool
+  fault_address: Bits(xlen.width)
+  guest: RiscvGuestException()
+
+/* Retains an authorized operation until its single final virtual outcome; the caller owns retirement. */
+interface RiscvSplitAccess(xlen :: XLen, Context :: DataType):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(PhysicalMemoryReq(xlen, Context))
+  responder -> requester:
+    response: Valid(RiscvSplitResult(xlen, Context))
+
 /* Waits for authorization and response before advancing to the next virtual fragment. */
-hardware_enum RV5StageMisalignedState:
+hardware_enum RiscvMisalignedState:
   Idle
   Request
   Response
@@ -22,28 +37,28 @@ hardware_enum RV5StageMisalignedState:
 
 /* Executes one or two independently checked fragments without reissuing an accepted prefix.
    The upstream architectural owner remains pending until the single final outcome. */
-sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: Pow2Int):
+sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   def width = xlen.width
   def word_bytes = memory_word_bytes(xlen)
-  interface start(Decoupled(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: consumer)
-  interface request(Decoupled(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: producer)
-  interface physical_response(Decoupled(PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: consumer)
-  interface completion(Valid(RV5StageSplitResult(xlen, vector_completion_slots)), ~role: producer)
+  interface start(Decoupled(PhysicalMemoryReq(xlen, Context)), ~role: consumer)
+  interface request(Decoupled(PhysicalMemoryReq(xlen, Context)), ~role: producer)
+  interface physical_response(Decoupled(PhysicalMemoryResp(xlen, Context)), ~role: consumer)
+  interface completion(Valid(RiscvSplitResult(xlen, Context)), ~role: producer)
   input request_fault: Bool
   input request_access_fault: Bool
   input request_guest: RiscvGuestException()
   output fault_address: Bits(width)
   output busy: Bool
 
-  reg state(RV5StageMisalignedState, ~init: RV5StageMisalignedState.Idle)
-  reg saved(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)))
+  reg state(RiscvMisalignedState, ~init: RiscvMisalignedState.Idle)
+  reg saved(PhysicalMemoryReq(xlen, Context))
   reg second(~init: Bool(#false))
   reg page_fault(~init: Bool(#false))
   reg access_fault(~init: Bool(#false))
   reg guest(RiscvGuestException())
   reg first_data(Bits(width))
   reg second_data(Bits(width))
-  busy <== state =/= RV5StageMisalignedState.Idle
+  busy <== state =/= RiscvMisalignedState.Idle
   start.ready <== !busy
   def capture = start.fire()
 
@@ -67,7 +82,7 @@ sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: P
     ~unsigned: Bool(#true),
     ~data: saved.data >> remaining_shift
   )
-  request.valid <== state === RV5StageMisalignedState.Request
+  request.valid <== state === RiscvMisalignedState.Request
   request.bits <== mux(second, second_fragment, first_fragment)
   fault_address <== mux(second, second_address, saved.address)
   def rejected = request.valid & (request_fault ||| request_access_fault)
@@ -85,10 +100,10 @@ sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: P
   load.width <== saved.width
   load.unsigned_load <== saved.unsigned
   load.data <== (first_data >> shift) ||| mux(crosses_word, second_data << remaining_shift, bits(0, width))
-  completion.valid <== state === RV5StageMisalignedState.Complete
-  completion.bits <== RV5StageSplitResult(xlen, vector_completion_slots):
+  completion.valid <== state === RiscvMisalignedState.Complete
+  completion.bits <== RiscvSplitResult(xlen, Context):
     response:
-      PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)):
+      PhysicalMemoryResp(xlen, Context):
         access_fault: access_fault
         data: mux(saved.access === CacheOperation.Store, bits(0, width), load.value)
         context: saved.context
@@ -105,26 +120,28 @@ sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: P
     page_fault <== Bool(#false)
     access_fault <== Bool(#false)
     guest <== literal(RiscvGuestException(), 0)
-    state <== RV5StageMisalignedState.Request
+    state <== RiscvMisalignedState.Request
   elsewhen rejected:
     page_fault <== request_fault
     access_fault <== request_access_fault
     guest <== request_guest
-    state <== RV5StageMisalignedState.Complete
+    state <== RiscvMisalignedState.Complete
   elsewhen (physical_fire):
-    state <== RV5StageMisalignedState.Response
+    state <== RiscvMisalignedState.Response
   elsewhen (first_response.valid):
     access_fault <== first_response.bits.access_fault
-    state <== mux(crosses_word & !first_response.bits.access_fault, RV5StageMisalignedState.Request, RV5StageMisalignedState.Complete)
+    state <== mux(crosses_word & !first_response.bits.access_fault, RiscvMisalignedState.Request, RiscvMisalignedState.Complete)
     when (crosses_word & !first_response.bits.access_fault):
       second <== Bool(#true)
   elsewhen (second_response.valid):
     access_fault <== second_response.bits.access_fault
-    state <== RV5StageMisalignedState.Complete
+    state <== RiscvMisalignedState.Complete
   elsewhen (completion_fire):
-    state <== RV5StageMisalignedState.Idle
+    state <== RiscvMisalignedState.Idle
   when (physical_response.valid):
-    assert(state === RV5StageMisalignedState.Response, "misaligned_response_has_fragment_owner")
+    assert(state === RiscvMisalignedState.Response, "misaligned_response_has_fragment_owner")
 
 export:
-  RV5StageMisalignedEngine
+  RiscvMisalignedEngine
+  RiscvSplitResult
+  RiscvSplitAccess

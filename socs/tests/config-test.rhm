@@ -8,6 +8,7 @@ import:
   "../configs/resolve.rhm" open
   "../configs/core-profiles.rhm" open
   "../configs/spike-core-profile.rhm" open
+  "../configs/rv2wide-core-profile.rhm" open
   "../configs/udb.rhm".riscv_udb_configuration
   "../mini-soc/main.rhdl".MiniSoCConfig
   "../platform/boot.rhdl".riscv_soc_boot_config
@@ -20,6 +21,29 @@ import:
   lib("riscv/gnu-toolchain.rhm").gnu_isa_target
 
 def rv32 = soc_architecture(IsaPreset.RV32Int)
+// A third hart binding retains the exact lean architecture and shape-owned resources.
+for (shape in [SoCShape.Mini, SoCShape.Simple]):
+  def selection = SoCSelection(shape, CoreKind.RV2Wide, IsaPreset.RV64IMACB)
+  def resolved = resolve_soc_config(selection)
+  def expected = soc_architecture(IsaPreset.RV64IMACB)
+  def cache_sets = if shape == SoCShape.Mini | 32 | 64
+  def cache_ways = if shape == SoCShape.Mini | 1 | 4
+  check:
+    named_soc_selection(selection.key) ~is selection
+    resolved.description.hart.isa_profile ~is expected.isa
+    resolved.description.hart.mmu_type ~is expected.mmu
+    resolved.description.hart.vector ~is #false
+    resolved.description.hart.instruction_cache.sets ~is cache_sets
+    resolved.description.hart.data_cache.ways ~is cache_ways
+    resolved.description.to_device_tree().to_dtb().length() > 0 ~is #true
+    resolved.udb().to_yaml().contains("  MXLEN: 64") ~is #true
+    resolved.udb().to_yaml().contains("  MUTABLE_MISA_C: false") ~is #true
+    simulator_soc_description(selection.key) ~is resolved.description
+    gnu_isa_target(expected.isa.xlen, expected.isa.isa_extensions).mabi ~is "lp64"
+check:
+  rv2wide_soc_profile(SoCShape.Mini, IsaPreset.RVA23) ~throws "supports Mini/Simple"
+  rv2wide_soc_profile(SoCShape.Tiled, IsaPreset.RV64IMACB) ~throws "supports Mini/Simple"
+
 def rv32_compiler = gnu_isa_target(rv32.isa.xlen, rv32.isa.isa_extensions)
 check:
   rv32.isa.xlen ~is XLen.X32

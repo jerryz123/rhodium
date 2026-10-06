@@ -42,7 +42,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   input request_fault_address: Bits(xlen.width)
-  interface split_completion(Valid(RV5StageSplitResult(xlen, slots)), ~role: consumer)
+  interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(slots))), ~role: consumer)
   interface feedback(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface completion(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~role: producer)

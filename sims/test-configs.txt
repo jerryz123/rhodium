@@ -6,6 +6,7 @@ mini-rv5stage-rv32max
 mini-spike-rv32max
 mini-rv5stage-rva23
 mini-spike-rva23
+mini-rv2wide-rv64imacb
 simple-rv5stage-rv32int
 simple-spike-rv32int
 simple-rv5stage-rv32max
@@ -14,6 +15,7 @@ simple-rv5stage-rv64max
 simple-spike-rv64max
 simple-rv5stage-rv64imacb
 simple-spike-rv64imacb
+simple-rv2wide-rv64imacb
 simple-rv5stage-rv64imafdcb
 simple-spike-rv64imafdcb
 simple-rv5stage-rva23

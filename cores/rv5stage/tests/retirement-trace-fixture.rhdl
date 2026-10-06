@@ -59,7 +59,7 @@ sync_circuit RV5StageRetirementTrace():
   core.data_access.request.ready <== data_ready
   core.data_access.request_fault <== Bool(#false)
   core.split_completion.valid <== Bool(#false)
-  core.split_completion.bits <== literal(RV5StageSplitResult(profile.xlen, profile.vector_completion_slots), 0)
+  core.split_completion.bits <== literal(RiscvSplitResult(profile.xlen, RV5StageMemoryContext(profile.vector_completion_slots)), 0)
   core.request_fault_address <== core.data_access.request.bits.address
   core.data_access.request_access_fault <== data_fault
   core.data_access.drained <== Bool(#true)

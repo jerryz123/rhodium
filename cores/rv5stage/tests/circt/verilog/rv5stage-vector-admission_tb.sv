@@ -18,7 +18,7 @@ module rv5stage_vector_admission_tb;
   struct packed { logic valid; CachePipelineReq bits; } accesses_out;
   struct packed { logic valid; PhysicalMemoryReq bits; } memory_requests_out;
   struct packed { logic valid; PhysicalMemoryResp bits; } memory_responses_in;
-  struct packed { logic valid; RV5StageSplitResult bits; } split_completion_in;
+  struct packed { logic valid; RiscvSplitResult bits; } split_completion_in;
   wire request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending;
   wire retired, outcome_valid, fp_offered;
   wire [63:0] outcome_pc;

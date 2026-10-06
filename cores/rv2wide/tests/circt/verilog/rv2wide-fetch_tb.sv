@@ -122,6 +122,11 @@ module rv2wide_fetch_tb;
     for (int b=0;b<4;b++) word[b*8+:8]=backing[instruction_pa(pc+b)];
     return word;
   endfunction
+  function automatic int data_pa(logic [63:0] address);
+    if(phase>=6 && address>='h500000 && address<'h501000) return (phase==13 ? 'h2000 : 'h15000)+int'(address&'hfff);
+    if(phase>=23 && address>='h501000 && address<'h502000) return 'h17000+int'(address&'hfff);
+    return int'(address);
+  endfunction
 
   // Public CHI transactions alone drive the byte-addressed backing store.
   // Instruction and data identities have independent retained transactions.
@@ -247,16 +252,14 @@ module rv2wide_fetch_tb;
       7'h03: begin
         address=registers[rs1]+64'($signed(word[31:20])); write_rd=rd!=0;
         assert(ustate==0) else $fatal(1,"younger load bypassed ordered IO");
-        if(phase>=6 && address >= 'h500000 && address < 'h501000) address=(phase==13 ? 'h2000 : 'h15000)+(address & 'hfff);
         bytes=1<<word[13:12];
-        for(int b=0;b<bytes;b++) value[b*8+:8]=model_bytes[int'(address)+b];
+        for(int b=0;b<bytes;b++) value[b*8+:8]=model_bytes[data_pa(address+64'(b))];
         if(!word[14] && value[bytes*8-1]) value|='1 << (bytes*8);
       end
       7'h23: begin
         imm=64'($signed({word[31:25],word[11:7]})); address=registers[rs1]+imm;
         assert(ustate==0) else $fatal(1,"younger store bypassed ordered IO");
-        if(phase>=6 && address >= 'h500000 && address < 'h501000) address=(phase==13 ? 'h2000 : 'h15000)+(address & 'hfff);
-        for(int b=0;b<(1<<word[13:12]);b++) model_bytes[int'(address)+b]=registers[rs2][b*8+:8];
+        for(int b=0;b<(1<<word[13:12]);b++) model_bytes[data_pa(address+64'(b))]=registers[rs2][b*8+:8];
       end
       7'h2f: begin
         logic [63:0] replacement;
@@ -320,7 +323,7 @@ module rv2wide_fetch_tb;
 
   always @(posedge clock) if(!reset) begin
     cycles<=cycles+1;
-    if(cycles>15000) $fatal(1,"timeout phase=%0d pc=%h",phase,reference_pc);
+    if(cycles>25000) $fatal(1,"timeout phase=%0d pc=%h",phase,reference_pc);
     if(retired[0].valid && retired[1].valid) begin
       dual_run++; if(dual_run>longest_dual) longest_dual=dual_run;
       if(phase==14 && dual_run>compressed_dual_run) compressed_dual_run=dual_run;
@@ -351,6 +354,7 @@ module rv2wide_fetch_tb;
           if(phase==0) assert(reference_pc==4096 && registers[30]==77) else $fatal(1,"lost page-end instruction");
           if(phase==4) assert(reference_pc==652) else $fatal(1,"lost older load or retired after illegal instruction");
           if(phase>=5) reference_pc=int'(redirect.bits.target);
+          if(phase==25) for(int b=0;b<3;b++) model_bytes['h15ffd+b]=registers[2][b*8+:8];
           faults++;
         end
         3: assert(phase>=5) else $fatal(1,"unexpected system recovery");
@@ -755,6 +759,57 @@ module rv2wide_fetch_tb;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(registers[3]=='1 && registers[4]=='1 && registers[5]==1 && registers[6]==64'hffffffff00000006 && registers[7]==0 && registers[8]==1 && registers[9]==0 && registers[10]==10 && registers[11]==0 && registers[12]==0 && completions.size()==0 && reference_pc=='h744)
       else $fatal(1,"fetching atomic values, ownership, or branch cancellation");
+    // Independently translated fragments: the second virtual page deliberately
+    // maps to a nonadjacent PA. Missing mappings retain the exact fault VA and
+    // leave an accepted store prefix visible to the real trap handler.
+    for(int scenario=23;scenario<=25;scenario++) begin
+      logic [63:0] pte, prefix;
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0; ustate=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      for(int b='h10000;b<'h20000;b++) begin backing[b]=0; model_bytes[b]=0; end
+      pte=('h11<<10)|1; for(int b=0;b<8;b++) backing['h10000+b]=pte[b*8+:8];
+      pte=('h12<<10)|1; for(int b=0;b<8;b++) backing['h11010+b]=pte[b*8+:8];
+      pte=('h14<<10)|'hcb; for(int b=0;b<8;b++) backing['h12000+b]=pte[b*8+:8];
+      pte=('h15<<10)|'hc7; for(int b=0;b<8;b++) backing['h12800+b]=pte[b*8+:8];
+      pte=scenario==23 ? ('h17<<10)|'hc7 : 0;
+      for(int b=0;b<8;b++) backing['h12808+b]=pte[b*8+:8];
+      for(int b=0;b<16;b++) begin
+        backing['h15ff0+b]=8'('h80+b); model_bytes['h15ff0+b]=backing['h15ff0+b];
+        backing['h17000+b]=8'('h90+b); model_bytes['h17000+b]=backing['h17000+b];
+      end
+      insn('h300,addi(1,0,'h380)); insn('h304,{12'h305,5'd1,3'b001,5'd0,7'h73});
+      insn('h308,addi(1,0,8)); insn('h30c,{6'd0,6'd60,5'd1,3'b001,5'd1,7'h13});
+      insn('h310,addi(1,1,16)); insn('h314,{12'h180,5'd1,3'b001,5'd0,7'h73});
+      insn('h318,32'h12000073); insn('h31c,addi(1,0,2047)); insn('h320,addi(1,1,1));
+      insn('h324,{12'h300,5'd1,3'b001,5'd0,7'h73});
+      insn('h328,{20'h400,5'd1,7'h37}); insn('h32c,{12'h341,5'd1,3'b001,5'd0,7'h73}); insn('h330,32'h30200073);
+      insn('h14000,{20'h501,5'd1,7'h37}); insn('h14004,addi(1,1,-3)); insn('h14008,addi(2,0,'h123));
+      insn('h1400c,scenario==25 ? store(2,1,0,3) : load(3,1,0,3));
+      if(scenario==23) begin
+        insn('h14010,load(4,1,0,3)); insn('h14014,addi(5,4,1));
+        insn('h14018,store(2,1,0,3)); insn('h1401c,load(6,1,0,3));
+        insn('h14020,load(0,1,0,3)); insn('h14024,32'h10500073);
+      end else insn('h14010,addi(4,0,99));
+      insn('h380,{12'h342,5'd0,3'b010,5'd10,7'h73});
+      insn('h384,{12'h343,5'd0,3'b010,5'd11,7'h73});
+      insn('h388,{12'h341,5'd0,3'b010,5'd13,7'h73});
+      insn('h38c,{20'h16,5'd1,7'h37}); insn('h390,addi(1,1,-8));
+      insn('h394,load(14,1,0,3)); insn('h398,32'h10500073);
+      phase=scenario; reference_pc='h300; expected_fault_pc='h40000c;
+      expected_fault_cause=scenario==25 ? 15 : 13; expected_fault_value='h501000;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      if(scenario==23) assert(registers[3]==64'h94939291908f8e8d && registers[4]==registers[3] && registers[5]==registers[3]+1 && registers[6]=='h123 && reference_pc=='h400028)
+        else $fatal(1,"noncontiguous translated split completion");
+      else begin
+        prefix=scenario==25 ? 64'h0001238c8b8a8988 : 64'h8f8e8d8c8b8a8988;
+        assert(registers[3]==0 && registers[4]==0 && registers[10]==64'(expected_fault_cause) && registers[11]=='h501000 && registers[13]=='h40000c && registers[14]==prefix)
+          else $fatal(1,"second-page trap provenance, younger squash, or partial store prefix");
+      end
+      assert(completions.size()==0) else $fatal(1,"split allocated a deferred RF owner");
+    end
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
     $finish;
   end

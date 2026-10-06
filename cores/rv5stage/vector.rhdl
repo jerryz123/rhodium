@@ -67,7 +67,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
   input request_fault_address: Bits(xlen.width)
   access.request_fault_address <== request_fault_address
-  interface split_completion(Valid(RV5StageSplitResult(xlen, slots)), ~role: consumer)
+  interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(slots))), ~role: consumer)
   split_completion |> access.split_completion
   if hypervisor
   | block:

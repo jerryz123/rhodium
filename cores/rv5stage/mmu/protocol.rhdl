@@ -4,6 +4,7 @@
 
 import:
   "../../cache/protocol.rhdl" open
+  "../../riscv/misaligned-access.rhdl".RiscvSplitResult
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/hypervisor.rhdl" open
   lib("cores/riscv/mmu/protocol.rhdl").RiscvTranslationResult
@@ -30,14 +31,6 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
     response: Decoupled(PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots)))
     drained: Bool
     reservation_valid: Bool
-
-/* Completes a retained misaligned operation, including late translation faults.
-   Only the virtual owner consumes this outcome; physical cache responses stay unchanged. */
-bundle RV5StageSplitResult(xlen :: XLen, slots :: Pow2Int):
-  response: PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots))
-  page_fault: Bool
-  fault_address: Bits(xlen.width)
-  guest: RiscvGuestException()
 
 /* Carries speculative guest-aware lookups with separate WB store authorization. */
 interface RV5StageGuestPipelineAccess(xlen :: XLen):
@@ -110,7 +103,7 @@ interface RV5StageVectorPrecheck():
     response: Irrevocable(Bool)
 
 export:
-  RV5StageSplitResult
+  RiscvSplitResult
   RV5StageGuestMemoryReq
   RV5StageGuestDataAccess
   RV5StageGuestPipelineAccess

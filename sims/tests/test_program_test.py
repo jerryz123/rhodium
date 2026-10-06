@@ -419,6 +419,13 @@ class ConfigSelectionTest(unittest.TestCase):
                 self.assertIn('--isa-selection smoke', result.stdout)
                 self.assertIn('ISA smoke supports SOC=mini simple tiled', result.stdout)
                 self.assertIn(f'/simple-{core}-{isa}/isa-smoke/manifest.json', result.stdout)
+        for shape in ('mini', 'simple'):
+            key = f'{shape}-rv2wide-rv64imacb'
+            selected = self.dry_run(f'SOC={shape}', 'CORE=rv2wide', 'ISA=rv64imacb', target='isa-smoke')
+            named = self.dry_run(f'SOC={key}', target='isa-smoke')
+            self.assertEqual(selected.returncode, 0, selected.stderr)
+            self.assertEqual(selected.stdout, named.stdout)
+            self.assertIn(f'/{key}/isa-smoke/manifest.json', named.stdout)
 
     def test_isa_smoke_reuses_prebuilt_target_without_elaboration(self):
         with tempfile.TemporaryDirectory() as directory:

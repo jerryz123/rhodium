@@ -113,11 +113,11 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   core.data_access |> data_access
   if (vector_translation || split_memory)
   | block:
-      interface split_completion(Valid(RV5StageSplitResult(xlen, profile.vector_completion_slots)), ~role: consumer)
+      interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(profile.vector_completion_slots))), ~role: consumer)
       split_completion |> core.split_completion
   | block:
       core.split_completion.valid <== Bool(#false)
-      core.split_completion.bits <== literal(RV5StageSplitResult(xlen, profile.vector_completion_slots), 0)
+      core.split_completion.bits <== literal(RiscvSplitResult(xlen, RV5StageMemoryContext(profile.vector_completion_slots)), 0)
   core.request_fault_address <== data_access.request.bits.address
   core.pipeline_access |> pipeline_access
   if vector_translation

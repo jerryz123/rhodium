@@ -11,7 +11,7 @@ placement, change workflow, and focused validation.
 
 The MMU sits between virtual core requests and the physical memory hierarchy.
 It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency
-fetch outcomes, misaligned ordinary-access sequencing and fragmentation, and
+fetch outcomes, misaligned fragment translation/admission, and
 separate translated-core and walker physical requests. The parent core owns CSR
 sequencing, trap priority, atomic/LRSC alignment, and final exception causes;
 the physical router and cache own admitted transaction behavior.
@@ -19,6 +19,10 @@ the physical router and cache own admitted transaction behavior.
 Reusable banks, walk sequencing, and translation contracts live in
 [`cores/riscv/mmu`](../../riscv/mmu/DEVELOPING.md). This directory owns their
 RV5Stage composition, not a separate TLB or walker implementation.
+Reusable ordinary-access fragmentation and load assembly live in
+[`cores/riscv/misaligned-access.rhdl`](../../riscv/misaligned-access.rhdl),
+specialized here with RV5Stage's opaque memory context. Its final outcome remains
+owned by scalar WB or the vector element, not by the shared physical cache.
 
 Reuse the public RISC-V Sv39 adapter for PTE layout, canonicality, permissions,
 superpages, and physical-address construction. Keep translation state in the
@@ -52,7 +56,7 @@ with `COSIM=1` instead of maintaining a separate cosim-only Sv39 program.
 | [`../../riscv/mmu/`](../../riscv/mmu/DEVELOPING.md) | Shared TLB/walker implementation, host/guest contracts, and direct fixture ownership |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, retained fragment demand translation, physical checks, and separate core/PTE physical offers |
-| [`misaligned-access.rhdl`](misaligned-access.rhdl) | One- or two-word virtual fragment sequencing, original-owner retention, load assembly, and precise final split outcome |
+| [`cores/riscv/misaligned-access.rhdl`](../../riscv/misaligned-access.rhdl) | Shared one- or two-word virtual fragmentation, opaque owner retention, load assembly, and precise final split outcome |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |

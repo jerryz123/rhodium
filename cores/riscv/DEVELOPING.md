@@ -20,6 +20,13 @@ microarchitectural policy in the named core.
 
 ## Implementation map
 
+[`misaligned-access.rhdl`](misaligned-access.rhdl) owns ordinary-access
+fragment sequencing, masks/positioning, load assembly, and an opaque-context
+virtual split result. It depends on shared physical cache and load/store
+contracts plus architectural guest-fault types, not a named core's payloads.
+Callers own translation/PMA checks, interrupt/drain policy, and retirement.
+Keep accepted fragments irrevocable; never advance before their responses.
+
 [`mmu/`](mmu/DEVELOPING.md) owns reusable TLB banks, host/nested page-table
 walking, and translation contracts. Named cores own their ITLB/DTLB composition,
 miss arbitration, replay, vector certificates, and physical-memory dispatch.
@@ -87,4 +94,6 @@ tools/run-racket-tests.sh cores/tests/vector-layout-test.rhm
 ```
 
 Run `bash cores/check-boundaries.sh` after changing imports or package layout.
+Changes to the shared split engine must cover both callers with
+`FIXTURES='rv2wide-mmu rv2wide-cache rv2wide-fetch rv5stage-hypervisor-core' bash tools/testing/circt/run.sh --simulate-only`.
 The named core's DEVELOPING guide owns its composed decode and CHI fixtures.

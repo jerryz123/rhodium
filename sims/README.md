@@ -44,7 +44,18 @@ simulation-only and executes the exact selected architecture. Its broad
 ACT/UDB projection preserves the requested ISA; simulator execution and successful
 configuration generation do not imply full ACT validation. See the
 [Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
-The two core choices do not add a runtime mux to the RTL.
+Core selection does not add a runtime mux to the RTL.
+
+RV2Wide is available on Mini and Simple with the lean `rv64imacb` preset:
+
+```sh
+make -C sims simulator SOC=mini-rv2wide-rv64imacb
+make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
+```
+
+These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
+both with only ISA smoke. `COSIM=1` and event tracing remain unsupported for
+RV2Wide until its observation adapters exist.
 
 `rv64max` retains RVA23's scalar FP, V with VLEN=128/ELEN=64, and supervisor
 capabilities including Sv39, but omits H and Sha/Sh* guarantees. It is not an RVA23 profile.

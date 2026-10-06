@@ -61,6 +61,7 @@ sync_circuit RV2WideCacheFixture():
   core.completed |> completed
   core.redirect |> redirect
   core.memory <=> mmu.memory
+  core.split <=> mmu.split
   core.pipeline <=> mmu.pipeline
   mmu.physical_memory <=> data.memory
   mmu.physical_pipeline <=> data.pipeline

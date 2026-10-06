@@ -11,6 +11,12 @@ module rv2wide_mmu_tb;
   logic [63:0] fetch_address='h400000, address='h500008;
   logic physical_ready=0, physical_fault=0, response_valid=0;
   logic [63:0] response_data=0;
+  logic split_valid=0;
+  logic [1:0] split_width=3;
+  logic [63:0] split_data=64'h8877665544332211;
+  wire split_ready, split_completed, split_page_fault, split_access_fault;
+  wire [63:0] split_result, split_fault_address, physical_data;
+  wire [7:0] physical_mask;
   wire [63:0] fetch_physical, index_address, resolve_address, physical_address, completed_data;
   wire index_valid, resolve_valid, result_valid, wb_fault, wb_ready, physical_valid, response_ready, completed;
   wire [2:0] outcome;
@@ -38,6 +44,20 @@ module rv2wide_mmu_tb;
   endtask
   task automatic fence;
     falling(); invalidate=1; tick(); falling(); invalidate=0; tick(); falling();
+  endtask
+  task automatic start_split(input logic [63:0] va, input int operation=1, width=3);
+    falling(); address=va; access=4'(operation); split_width=2'(width); split_valid=1; #1;
+    assert(split_ready) else $fatal(1,"split owner not available");
+    tick(); falling(); split_valid=0;
+  endtask
+  task automatic finish_split(input logic [63:0] value, fault_va=0, input bit page=0, access_error=0);
+    for(int i=0;!split_completed && i<80;i++) tick();
+    assert(split_completed && split_page_fault==page && split_access_fault==access_error)
+      else $fatal(1,"split final fault classification");
+    if(page || access_error) assert(split_fault_address==fault_va) else $fatal(1,"split fault VA");
+    else assert(split_result==value) else $fatal(1,"split merge got=%h expected=%h",split_result,value);
+    assert(!completed) else $fatal(1,"split response routed to scalar deferred owner");
+    tick(); falling();
   endtask
   task automatic walk_data(input logic [63:0] leaf);
     reply('h10000,('h11<<10)|1);
@@ -148,6 +168,28 @@ module rv2wide_mmu_tb;
     repeat(12) begin tick(); assert(!physical_valid) else $fatal(1,"PTE reached a device"); end
     falling(); wb_valid=1; #1;
     assert(wb_fault && !wb_ready && wb_fault_bits.cause==5 && wb_fault_bits.value=='h500008) else $fatal(1,"device PTE fault provenance");
+    falling(); wb_valid=0; privilege=3; satp=0; fence();
+    // Byte masks and shifts preserve all neighboring lanes. Prefix acceptance
+    // is irrevocable, but no second fragment appears before its response.
+    start_split('h307,2,3); wait_request('h300);
+    assert(physical_mask=='h80 && physical_data==64'h1100000000000000) else $fatal(1,"first store mask/shift");
+    physical_ready=1; tick(); falling(); physical_ready=0;
+    repeat(4) begin tick(); assert(!physical_valid && !split_completed) else $fatal(1,"advanced before first completion"); end
+    falling(); return_data(0); wait_request('h308);
+    assert(physical_mask=='h7f && physical_data==64'h0088776655443322) else $fatal(1,"second store mask/shift");
+    physical_ready=1; tick(); falling(); physical_ready=0; return_data(0); finish_split(0);
+    start_split('h303,1,1); reply('h300,64'h8877665544332211); finish_split('h5544);
+    // A cached first translation and missing second PTE must never reissue
+    // the accepted first-page store or require rollback.
+    privilege=1; satp=64'h8000000000000010; fence();
+    start_split('h500ffd,2,3); walk_data(('h15<<10)|'hc7);
+    wait_request('h15ff8); assert(physical_mask=='he0) else $fatal(1,"cross-page prefix mask");
+    physical_ready=1; tick(); falling(); physical_ready=0; return_data(0);
+    reply('h10000,('h11<<10)|1); reply('h11010,('h12<<10)|1); reply('h12808,0);
+    finish_split(0,'h501000,1);
+    // Device fragments are rejected locally, even when one natural beat would
+    // otherwise cover the access. Atomic alignment remains a core decision.
+    privilege=3; start_split('h2001,1,1); finish_split(0,'h2001,0,1);
     $display("RV2Wide MMU timing, permissions, invalidation, arbitration, and cancel/drain passed");
     $finish;
   end

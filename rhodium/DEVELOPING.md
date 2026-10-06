@@ -246,7 +246,12 @@ imports the pure C descriptor to configure the shared CSR bank's IALIGN.
 `cores/rv2wide/mmu.rhdl` imports the shared `cores/riscv/mmu/` TLB/walker,
 shared cache protocol/operation and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. It owns EX/MEM translation alignment and
-WB/PTE arbitration; the cache package has no reverse dependency. RV2Wide bundles
+WB/split/PTE arbitration; the cache package has no reverse dependency. Its MMU
+and core also consume `cores/riscv/misaligned-access.rhdl`: the neutral split
+request/result contract and retained fragment engine. This shared module imports
+the physical cache protocol, cache operations, load/store shaping, architectural
+XLEN/guest-fault types, Bits helpers, and Flow, never a named core's payload.
+RV2Wide bundles
 also consume the architectural privilege type, and its core selects Sv39 through
 the shared hart MMU-type descriptor.
 `cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
@@ -274,6 +279,15 @@ unit distinguishes raw ordinary beats from already-normalized atomic values.
 Reservation and RMW implementation remain in the shared L1D.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
+RV2Wide's `profile.rhm` imports the stable generator-parameter contract and
+shared cache geometry alongside pure ISA/hart descriptors and the shared CSR
+configuration used by both RTL and WARL metadata. `hart.rhdl` uses
+Flow and CHI channels to adapt its reset-started processor to the neutral SoC
+ports. Its UDB projection imports only pure RISC-V and support descriptors.
+The shared `cores/cache/chi/attachment.rhdl` describes the three cache endpoints
+using CHI protocol/transaction capabilities and the neutral hart identities.
+RV5Stage's CHI facade and the RV2Wide SoC binding consume it; there is no
+dependency between the named cores.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus
 architectural privilege types; its host receiver lives in `sims/cosim/`, with
 no reverse simulator import or dependency on tracing metadata.
@@ -304,8 +318,9 @@ consumers; no core source imports `sims/`.
 ports and public authoring APIs for the observer, plus `riscv/rtl/interrupt.rhdl`
 for architectural pin encoding, and the FP issue/completion bundles and destination
 controls for passive scalar capture. It also consumes the MMU's virtual split-outcome
-contract. `mmu/misaligned-access.rhdl` and `vector/memory.rhdl` share that
-contract through `mmu/protocol.rhdl`; guest fault details come from the existing
+contract from `cores/riscv/misaligned-access.rhdl`. RV5Stage's MMU, core, and
+`vector/memory.rhdl` specialize it with `RV5StageMemoryContext` through
+`mmu/protocol.rhdl`; guest fault details come from the existing
 RISC-V hypervisor adapter. Physical cache protocols remain unchanged.
 `cores/rv5stage/observation.rhdl` declares `rv5stage.v1` without imports. `sims/cosim/events/transport.rhdl`
 owns DPI lane widening through the base frontend. Neither capture module imports

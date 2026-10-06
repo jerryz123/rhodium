@@ -1,0 +1,21 @@
+#lang rhodium
+/* Binds RV2Wide's architectural profile and shared-cache CHI ports to generic SoCs. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/rv2wide/profile.rhm").RV2WideConfig
+  lib("cores/rv2wide/hart.rhdl").RV2WideHart
+  lib("cores/cache/config.rhm").CacheLineBytes
+  lib("cores/cache/chi/attachment.rhdl").cache_chi_params
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIConfig
+  "implementation.rhdl".RiscvHartImplementation
+
+/* Packages synthesizable RV2Wide specialization without introducing a new SoC or simulation harness. */
+fun rv2wide_hart(profile :: RV2WideConfig) :: RiscvHartImplementation:
+  RiscvHartImplementation("RV2Wide", "rv2wide", profile, profile.hart_description, CacheLineBytes,
+                          cache_chi_params,
+                          fun (selected :: RV2WideConfig, reset_address :: Nat, chi :: RiscvHartCHIConfig):
+                            RV2WideHart(selected, ~reset_address: reset_address, ~chi: chi))
+
+export:
+  rv2wide_hart

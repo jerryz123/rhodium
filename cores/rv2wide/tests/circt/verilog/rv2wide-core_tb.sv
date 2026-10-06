@@ -21,6 +21,17 @@ module rv2wide_core_tb;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
   typedef struct packed { lookup_flow_t response; logic commit_ready; } pipeline_in_t;
   typedef struct packed { memory_req_flow_t request; logic commit; } pipeline_out_t;
+  typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic unsigned_load; logic [63:0] data; logic context_bit; logic [2:0] locality; } split_req_t;
+  typedef struct packed { logic access_fault; logic [63:0] data; logic context_bit; } split_physical_resp_t;
+  typedef struct packed { split_physical_resp_t response; logic page_fault; logic [63:0] fault_address; logic [66:0] guest; } split_result_t;
+  typedef struct packed { logic valid; split_req_t bits; } split_request_flow_t;
+  typedef struct packed { logic valid; split_result_t bits; } split_response_flow_t;
+  typedef struct packed { logic request_ready; split_response_flow_t response; } split_in_t;
+  split_in_t split_in='0;
+  split_request_flow_t split_out;
+  bit split_active=0, hold_split=0, split_fault=0;
+  int split_due=0, split_requests=0;
+  split_result_t split_reply;
 
   logic clock = 0, reset = 1;
   packet_flow_t instructions;
@@ -88,7 +99,7 @@ module rv2wide_core_tb;
     .retired_0_out(retired[0]), .retired_1_out(retired[1]),
     .redirect_out(redirect), .fetch_flush_out(fetch_flush), .issued(issued), .retired_count(retired_count), .instruction_capacity(instruction_capacity),
     .memory_in({memory_in.request_ready, memory_in.fault, memory_in.response, memory_in.drained, 1'b0}),
-    .memory_out(memory_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
+    .memory_out(memory_out), .split_in(split_in), .split_out(split_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
   always @(posedge clock) if(!reset && instruction_invalidate) begin
@@ -98,6 +109,8 @@ module rv2wide_core_tb;
   end
   assign memory_in.ordered_busy = 1'b0;
   always_comb begin
+    split_in.request_ready = !split_active;
+    split_in.response.bits = split_reply;
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
     memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5} ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
@@ -112,6 +125,7 @@ module rv2wide_core_tb;
       end
     end
   end
+  always @(negedge clock) split_in.response.valid = !reset && split_active && cycles >= split_due && !hold_split;
 
   always_comb begin
     memory_in.response.valid = response_count > 0 && cycles >= response_due[response_read] && !hold_responses;
@@ -120,10 +134,26 @@ module rv2wide_core_tb;
 
   always @(posedge clock) begin
     if (reset) begin
+      split_active <= 0;
       response_count <= 0; response_read <= 0; response_write <= 0;
       lookup_response <= '0; store_candidate_valid <= 0;
     end else begin
       logic push_response, pop_response;
+      if(split_out.valid && split_in.request_ready) begin
+        logic [63:0] data;
+        int bytes_count;
+        assert(response_count==0 && expected_completions.size()==0) else $fatal(1,"split issued before older completions drained");
+        assert(split_out.bits.access inside {1,2}) else $fatal(1,"split atomic");
+        bytes_count=1<<split_out.bits.width; data=0;
+        for(int b=0;b<bytes_count;b++) begin
+          if(split_out.bits.access==2 && !split_fault) memory_bytes[int'(split_out.bits.address)+b]=split_out.bits.data[b*8+:8];
+          data[b*8+:8]=memory_bytes[int'(split_out.bits.address)+b];
+        end
+        if(!split_out.bits.unsigned_load && bytes_count<8 && data[bytes_count*8-1]) data|='1<<(bytes_count*8);
+        split_reply <= '{response:'{access_fault:1'b0,data:data,context_bit:1'b0},page_fault:split_fault,fault_address:split_out.bits.address+3,guest:'0};
+        split_active <= 1; split_due <= cycles+12; split_requests++;
+        if($test$plusargs("debug")) $display("%0d split request %h width=%0d",cycles,split_out.bits.address,split_out.bits.width);
+      end else if(split_in.response.valid) split_active<=0;
       push_response = memory_out.request.valid && memory_in.request_ready;
       pop_response = memory_in.response.valid && memory_out.response_ready;
       response_count <= response_count + int'(push_response) - int'(pop_response);
@@ -168,11 +198,12 @@ module rv2wide_core_tb;
   always @(posedge clock) begin
     if (!reset) begin
       cycles++;
+      if($test$plusargs("debug") && split_in.response.valid) $display("%0d split response retire=%b%b redirect=%b data=%h",cycles,retired[1].valid,retired[0].valid,redirect.valid,split_in.response.bits.response.data);
       for(int lane=0;lane<2;lane++) if(memory_stage[lane].valid) begin
         if(memory_stage[lane].bits.pc=='hab08) multiply_mem_cycle=cycles;
         if(memory_stage[lane].bits.pc=='hab10) dependent_mem_cycle=cycles;
       end
-      if (cycles > 15000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual);
+      if (cycles > 15000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
@@ -408,8 +439,8 @@ module rv2wide_core_tb;
         if (op == 'h23) immediate = {{52{word[31]}}, word[31:25], word[11:7]};
         address = a + immediate;
         bytes = 1 << (f3 & 3);
-        assert (address < 4096 && (address % 64'(bytes)) == 0) else $fatal(1, "oracle expected unaligned/outside access");
-        if (lookup_mode != 1 || op == 'h23) expect_memory(address, op == 'h23, bytes, b);
+        assert (address+64'(bytes) <= 4096) else $fatal(1, "oracle expected outside access");
+        if (address % 64'(bytes) == 0 && (lookup_mode != 1 || op == 'h23)) expect_memory(address, op == 'h23, bytes, b);
         if (op == 'h23) begin
           writes = 0;
           for (int i = 0; i < bytes; i++) model_bytes[int'(address) + i] = b[i*8 +: 8];
@@ -580,7 +611,7 @@ module rv2wide_core_tb;
   endtask
   task automatic drain;
     instructions.valid = 0;
-    do tick(); while (expected.size() != 0 || expected_redirects.size() != 0 || expected_requests.size() != 0 || expected_completions.size() != 0 || response_count != 0);
+    do tick(); while (expected.size() != 0 || expected_redirects.size() != 0 || expected_requests.size() != 0 || expected_completions.size() != 0 || response_count != 0 || split_active);
     repeat (8) tick();
     assert (expected.size() == 0 && expected_redirects.size() == 0) else $fatal(1, "missing ordered outcomes");
   endtask
@@ -594,6 +625,7 @@ module rv2wide_core_tb;
     reset = 1; instructions = '0; inject_enable = 0; inject_pc = 0; inject_result = '0;
     interrupts = 0; trap_target = 0;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
+    hold_split=0; split_fault=0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
     for (int i = 0; i < 4096; i++) begin
@@ -883,17 +915,35 @@ module rv2wide_core_tb;
     end
     send('h4e90, imm(0, 1, 0, 3, 'h03), store(2, 1, 7, 0)); drain();
 
-    // Natural alignment faults occur before lookup, including faults on x0 loads.
+    // Split owners retire once after completion, preserving an older peer and
+    // refetching younger work without adding a third RF write port.
     begin
-      int before_lookups;
-      before_lookups = lookups;
+      int before_splits=split_requests;
       for (int width = 1; width < 4; width++) begin
-        stop_at('h4e40, 'h4e40, 1, 4, 'h301);
-        send('h4e40, imm(0, 1, 1, width, 'h03), imm(16, 0, 99), 2, 0, 0); drain();
-        stop_at('h4e54, 'h4e54, 1, 6, 'h301);
-        send('h4e50, imm(16, 0, 8), store(2, 1, 1, width), 2, 1, 0); drain();
+        stop_at('h4e40, 'h4e44, 3);
+        send('h4e40, imm(0, 1, 1, width, 'h03), imm(16, 0, 99), 2, 1, 0); drain();
+        stop_at('h4e54, 'h4e58, 3);
+        send('h4e50, imm(16, 0, 8), store(2, 1, 1, width)); drain();
+        stop_at('h4e60, 'h4e64, 3);
+        send('h4e60, imm(17, 1, 1, width, 'h03), 0, 1); drain();
+        send('h4e64, imm(18,17,1), 0, 1); drain();
       end
-      assert (lookups == before_lookups) else $fatal(1, "misalignment issued speculative lookup");
+      assert(split_requests==before_splits+9) else $fatal(1,"split accepted more than once");
+      // The late outcome carries the exact second-fragment fault address.
+      split_fault=1; stop_at('h4e74,'h4e74,1,13,'h304);
+      send('h4e70,imm(16,0,11),imm(17,1,1,3,'h03),2,1,0); drain();
+      split_fault=0;
+      hold_responses=1; before_splits=split_requests;
+      send('h4e80,imm(19,1,0,3,'h03),0,1);
+      stop_at('h4e84,'h4e88,3);
+      send('h4e84,imm(0,1,7,3,'h03),imm(16,0,99),2,1,0);
+      repeat(14) tick();
+      assert(response_count==1 && split_requests==before_splits) else $fatal(1,"split escaped older drain");
+      hold_responses=0; drain();
+      before_splits=split_requests;
+      stop_at('h4e88,'h4ea8);
+      send('h4e88,jump(0,32),store(2,1,7,3),2,1,0); drain();
+      assert(split_requests==before_splits) else $fatal(1,"branch-killed split store issued");
     end
 
     // LR uses load fault classes; SC/AMO use store classes, including x0.
@@ -1141,6 +1191,22 @@ module rv2wide_core_tb;
     stop_at('h651c,'h700,3); interrupts=6'b010000;
     drain(); interrupts=0;
     csr_access('h710,2,10,0,'h341,'h651c);
+
+    // Interrupts cannot abandon a noncancelable split after prefix dispatch.
+    // Complete and retire it first, then trap at its sequential successor.
+    reset_core();
+    send('h6540,imm(1,0,'h301),imm(2,0,8)); drain();
+    send('h6548,imm(3,0,'h700),0,1); drain();
+    csr_access('h654c,1,0,3,'h305,0); trap_target='h700;
+    csr_access('h6550,1,0,2,'h304,0);
+    csr_access('h6554,1,0,2,'h300,64'ha00000000);
+    hold_split=1; stop_at('h6558,'h655c,3);
+    send('h6558,imm(4,1,0,1,'h03),0,1);
+    wait(split_active); interrupts=6'b010000;
+    repeat(16) tick();
+    assert(expected.size()==1 && expected_redirects.size()==1) else $fatal(1,"interrupt abandoned pending split");
+    stop_at('h655c,'h700,3); hold_split=0; drain(); interrupts=0;
+    csr_access('h700,2,5,0,'h341,'h655c);
 
     // WFI retires once, blocks younger effects, and wakes on locally enabled
     // pending interrupts even with global MIE clear. With MIE set it traps.

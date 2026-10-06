@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm" open
   "core.rhdl" open
   "frontend.rhdl" open
   "cache.rhdl" open
@@ -19,7 +20,11 @@ import:
 /* Starts from a physical PC and reports ordered retirement and architectural redirects.
    Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct instruction, data, and uncached identities separate retained transactions. */
-sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache):
+sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV2WideConfig = RV2WideConfig(~instruction_cache: instruction_cache, ~data_cache: cache)):
+  unless config.cache_line_bytes == CacheLineBytes
+  | error(~who: #'RV2Wide, "RV2Wide requires 64-byte CHI cache lines")
+  unless profile.instruction_cache == instruction_cache && profile.data_cache == cache
+  | error(~who: #'RV2Wide, "private caches must match the architectural description")
   input(instruction_node_id, data_node_id, uncached_node_id): Bits(config.flit.node_id_width)
   input interrupts: RiscvInterrupts()
   input(hart_id, time_counter): Bits(64)
@@ -33,7 +38,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   output halted: Bool
   output sleeping: Bool
   output(issued, retired_count): Bits(2)
-  inst core(RV2WideCore())
+  inst core(RV2WideCore(profile))
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter
@@ -61,6 +66,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   fetch_redirect |> frontend.redirect
   reported_redirect |> redirect
   core.memory <=> mmu.memory
+  core.split <=> mmu.split
   core.pipeline <=> mmu.pipeline
   mmu.physical_memory <=> data.memory
   mmu.physical_pipeline <=> data.pipeline

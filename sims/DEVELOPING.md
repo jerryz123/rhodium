@@ -19,6 +19,12 @@ RV5Stage configs contain synthesizable harts. Every Spike config contains
 the simulation-only `SpikeCore` DPI boundary while retaining the selected
 SoC shape's coherent fabric and platform contract.
 
+RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
+`rv64imacb`. Its two enrolled configs run only capability-filtered ISA smoke,
+with ordinary BootROM/FESVR loading. They use no cosim or tracing variant;
+those require a separate RV2Wide observation adapter. The SoC resolver owns
+their fixed ISA and cache resources, not this harness.
+
 Import the CHI owners used by each simulator component directly. FESVR consumes
 wire, channel, service, and message contracts; the shared single-core harness
 explicitly imports `chi/subordinate/memory-controller.rhdl` and
@@ -29,13 +35,13 @@ owns the public entry-point contract.
 Each `(SOC, CORE, ISA)` selection has an isolated build directory; direct SV
 adds a `-verilog` suffix and SV-hosted rsim adds `-rsim`, so backend artifacts
 cannot be reused accidentally.
-CI names all twenty configs explicitly and publishes an exact-commit simulator and target
+CI names its enrolled configs explicitly and publishes an exact-commit simulator and target
 descriptor for each selected build variant. The additional
 `simple-rv5stage-rva23-verilog` variant reuses its architectural config and runs
 only `smoke`, `host-mmio-test`, and `uart-pty-test`. The
 `simple-rv5stage-rva23-rsim` variant reuses the same config and runs only `smoke`.
 Software-only changes build
-the six full-suite Single configs; simulation changes build all twenty configs,
+the six full-suite Single configs; simulation changes build all enrolled configs,
 including all four Mini RV32 bindings, plus the direct-SV and rsim variants. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
@@ -61,7 +67,7 @@ target writer also accepts a complete config key). `config.mk` delegates Make se
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
 architectural choices. `test-configs.txt` is the sole explicit
-twenty-config inventory, consumed by CI and the typed `test-configs.rhm` view, separate from implementation support and workload
+config inventory, consumed by CI and the typed `test-configs.rhm` view, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
 must match the selected config. Config-independent

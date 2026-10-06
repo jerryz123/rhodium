@@ -12,6 +12,7 @@ import:
   "../riscv/mmu/translation.rhdl" open
   "../riscv/mmu/tlb.rhdl" open
   "../riscv/mmu/walker.rhdl" open
+  "../riscv/misaligned-access.rhdl" open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode
@@ -21,10 +22,16 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Distinguishes physical response owners independently of live translation and fragment state. */
+hardware_enum RV2WidePhysicalOwner:
+  Core
+  Split
+  Walker
+
 /* Keeps response routing independent of addresses, speculative redirects, and canceled walks. */
 bundle RV2WidePhysicalResponse():
   data: Bits(64)
-  pte: Bool
+  origin: RV2WidePhysicalOwner
 
 /* Resolves speculative hits without allocation; only WB data misses request walks.
    Instruction walks survive replay, pending WB walks have priority, and physical
@@ -35,6 +42,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   interface instruction(RV2WideInstructionTranslation(), ~role: responder)
   interface pipeline(RV2WidePipelineAccess(), ~role: responder)
   interface memory(RV2WideMemory(), ~role: responder)
+  interface split(RiscvSplitAccess(XLen.X64, Bool), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(XLen.X64)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(XLen.X64), ~role: requester)
   interface physical_memory(RV2WideMemory(), ~role: requester)
@@ -42,6 +50,17 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   inst itlb(RiscvTranslationTlb())
   inst dtlb(RiscvTranslationTlb())
   inst walker(RiscvTranslationWalker())
+  inst misaligned(RiscvMisalignedEngine(XLen.X64, Bool))
+  split.request |> misaligned.start
+  misaligned.completion |> split.response
+  misaligned.request_guest <== literal(misaligned.request_guest.type, 0)
+  def split_request = misaligned.request |> map_flow(request => RV2WideMemoryReq()):
+    address: request.address
+    access: request.access
+    atomic: request.atomic
+    width: request.width
+    data: request.data
+    mask: request.byte_mask
   reg cancel(~init: Bool(#false))
   cancel <== invalidate
   walker.cancel <== cancel
@@ -74,8 +93,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   early_index |> map_valid(request => cache_request(request)) |> pipeline_lookup
   def mem_request = retained_request |> valid_pipe(1)
   def mem :: RV2WideMemoryReq() = mem_request.bits
-  def data_request :: RV2WideMemoryReq() = mux(memory.request.valid, memory.request.bits, mem)
-  def data_lookup = lookup(data_request.address, mux(data_request.access.store_fault_class(), Sv39Access.Store, Sv39Access.Load), effective_data_privilege(XLen.X64, state.privilege, state.mstatus))
+  def data_request :: RV2WideMemoryReq() = mux(split_request.valid, split_request.bits, mux(memory.request.valid, memory.request.bits, mem))
+  def data_virtual_address = mux(split_request.valid, misaligned.fault_address, data_request.address)
+  def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
+  def data_lookup = lookup(data_virtual_address, mux(data_request.access.store_fault_class(), Sv39Access.Store, Sv39Access.Load), effective_data_privilege(XLen.X64, state.privilege, state.mstatus))
   itlb.lookup <== instruction_lookup
   itlb.probe <== instruction_lookup
   dtlb.lookup <== data_lookup
@@ -106,8 +127,9 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   def region = config.physical_map.lookup(mem_address, mem_address +& (memory_access_bytes(XLen.X64, mem_request.bits.width) - bits(1, 64)))
   def cacheable = region.cacheable & !region.device & region.read_idempotent
   def atomic_request = !mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def mem_misaligned = !atomic_request & !mem.width.is_aligned(mem.address)
   def permitted = region.mapped & mux(mem.access.store_fault_class(), region.writable, region.readable) & (!atomic_request ||| (cacheable & region.atomic & region.readable))
-  def speculative_ok = !memory.request.valid & data_ok & permitted & cacheable & !atomic_request & !physical_memory.ordered_busy
+  def speculative_ok = !data_demand & !misaligned.busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !physical_memory.ordered_busy
   (mem_request |> filter_valid(_request => speculative_ok)
     |> map_valid(request => cache_request(request).updated(~address: mem_address.align_down(8)))
   ) |> physical_pipeline.request
@@ -116,8 +138,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     CachePipelineOutcome.LoadHit: RV2WideCacheOutcome.LoadHit
     CachePipelineOutcome.StoreHit: RV2WideCacheOutcome.StoreHit
   wire outcome: RV2WideCacheOutcome
-  when (memory.request.valid):
+  when (data_demand ||| misaligned.busy):
     outcome <== RV2WideCacheOutcome.Replay
+  elsewhen mem_misaligned:
+    outcome <== RV2WideCacheOutcome.Slow
   elsewhen (!data_known):
     outcome <== RV2WideCacheOutcome.Slow
   elsewhen (data_result.fault === RiscvTranslationFault.PageFault):
@@ -132,15 +156,15 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   pipeline.response.bits <== RV2WideLookupResult():
     outcome: outcome
     data: physical_pipeline.response.bits.data
-  physical_pipeline.commit <== pipeline.commit
-  pipeline.commit_ready <== physical_pipeline.commit_ready
+  physical_pipeline.commit <== pipeline.commit & !misaligned.busy
+  pipeline.commit_ready <== physical_pipeline.commit_ready & !misaligned.busy
 
   reg pending_data(~init: Bool(#false))
   reg pending_lookup(RiscvTlbLookup())
   reg walk_live(~init: Bool(#false))
   reg walk_data(Bool)
   reg walk_lookup(RiscvTlbLookup())
-  def data_miss = memory.request.valid & !data_known
+  def data_miss = data_demand & !data_known
   def same_active_data = walk_live & walk_data & (walk_lookup.as_bits() === data_lookup.as_bits())
   def instruction_miss = instruction.request.valid & !instruction_known
   def choose_data = pending_data ||| data_miss
@@ -180,41 +204,56 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
 
   // The owner FIFO tracks accepted physical transactions, not live walks.
   // Cancellation suppresses translation publication, never response draining.
-  inst requests(Arbiter(RV2WideMemoryReq(), 2))
-  inst owners(Queue(Bool, 8))
-  (memory.request |> gate_flow(data_ok)
+  inst requests(Arbiter(RV2WideMemoryReq(), 3))
+  inst owners(Queue(RV2WidePhysicalOwner, 8))
+  (memory.request |> gate_flow(data_ok & !misaligned.busy)
     |> map_flow(request => request.updated(~address: data_result.physical_address.zext(64)))
   ) |> requests.ingress[0]
+  def fragment_address = data_result.physical_address.zext(64).align_down(8)
+  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& bits(7, 64))
+  def fragment_permitted = fragment_region.mapped & fragment_region.cacheable & !fragment_region.device & fragment_region.read_idempotent & mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
+  (split_request |> gate_flow(data_ok & fragment_permitted)
+    |> map_flow(request => request.updated(~address: fragment_address))
+  ) |> requests.ingress[1]
   def pte_region = config.physical_map.lookup(walker.memory.request.bits.address, walker.memory.request.bits.address +& bits(7, 64))
   def pte_permitted = pte_region.mapped & pte_region.cacheable & !pte_region.device & pte_region.read_idempotent & pte_region.readable
-  requests.ingress[1].valid <== walker.memory.request.valid & pte_permitted
-  requests.ingress[1].bits <== RV2WideMemoryReq():
+  requests.ingress[2].valid <== walker.memory.request.valid & pte_permitted
+  requests.ingress[2].bits <== RV2WideMemoryReq():
     address: walker.memory.request.bits.address
     access: CacheOperation.Load
     atomic: dont_care(memory.request.bits.atomic.type)
     width: MemoryWidth.Double
     data: bits(0, 64)
     mask: bits(0xff, 8)
-  def pte_selected = requests.chosen.into(Bool)
+  def origin = requests.chosen.into(RV2WidePhysicalOwner)
+  def pte_selected = origin === RV2WidePhysicalOwner.Walker
+  def split_selected = origin === RV2WidePhysicalOwner.Split
   def Array(physical_request, owner) = requests.egress |> atomic_fork(2)
   physical_request |> physical_memory.request
-  owner |> map_flow(_request => pte_selected) |> owners.ingress
+  owner |> map_flow(_request => origin) |> owners.ingress
   def pte_fault = (walker.memory.request.valid & !pte_permitted) ||| (physical_memory.fault.valid & pte_selected)
-  walker.memory.request.ready <== requests.ingress[1].ready ||| pte_fault
+  walker.memory.request.ready <== requests.ingress[2].ready ||| pte_fault
   walker.memory.request_access_fault <== pte_fault
-  memory.fault.valid <== memory.request.valid & ((data_known & !data_ok) ||| (physical_memory.fault.valid & !pte_selected))
+  memory.fault.valid <== memory.request.valid & !misaligned.busy & ((data_known & !data_ok) ||| (physical_memory.fault.valid & (origin === RV2WidePhysicalOwner.Core)))
   memory.fault.bits <== RV2WideResolution():
     disposition: RV2WideDisposition.Fault
     cause: mux(!data_ok, riscv_translation_fault_cause(data_result), physical_memory.fault.bits.cause)
     value: memory.request.bits.address
-  memory.drained <== physical_memory.drained & (owners.count === bits(0, owners.count.type.width))
+  misaligned.request_fault <== split_request.valid & data_known & (data_result.fault === RiscvTranslationFault.PageFault)
+  misaligned.request_access_fault <== split_request.valid & data_known & !misaligned.request_fault & ((data_result.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| (physical_memory.fault.valid & split_selected))
+  memory.drained <== physical_memory.drained & (owners.count === bits(0, owners.count.type.width)) & !misaligned.busy
   memory.ordered_busy <== physical_memory.ordered_busy
-  def responses = Array(physical_memory.response, owners.egress) |> zip_flow(data, pte):
+  def responses = Array(physical_memory.response, owners.egress) |> zip_flow(data, origin):
     RV2WidePhysicalResponse():
       data: data
-      pte: pte
-  def Array(core_response, pte_response) = responses |> demux_flow(2, response => response.pte.as_bits())
+      origin: origin
+  def Array(core_response, split_response, pte_response) = responses |> demux_flow(3, response => response.origin.as_bits())
   core_response |> map_flow(response => response.data) |> memory.response
+  (split_response |> map_flow(response => PhysicalMemoryResp(XLen.X64, Bool)):
+    data: response.data
+    context: Bool(#false)
+    access_fault: Bool(#false)
+  ) |> misaligned.physical_response
   pte_response |> map_flow(response => response.data) |> to_valid() |> walker.memory.response
 
 export:

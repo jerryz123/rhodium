@@ -40,6 +40,23 @@ instruction/uncached and RN-F data endpoints for SoC composition. The hardware
 `RiscvHartCHIIdentity` carries placement-specific IDs into an instance. A
 named core still owns its transaction engines and supported capabilities.
 
+## Misaligned ordinary accesses
+
+[`RiscvMisalignedEngine(xlen, Context)`](misaligned-access.rhdl) retains one
+ordinary load/store and emits one or two independently authorized aligned word
+fragments. `Context` is opaque retained metadata. `RiscvSplitAccess` provides
+a Decoupled original request and one final Valid `RiscvSplitResult`, separate
+from admission-certified physical replies.
+
+The guaranteed sequence is original capture → first request/response → optional
+second request/response → final outcome. The caller translates and checks each
+fragment, supplies page/access faults and guest details, and retains retirement
+ownership. First-fragment faults report the original VA; second-fragment faults
+report the next aligned word. Accepted store prefixes survive later faults;
+the engine neither preflights both pages nor rolls back or replays a prefix.
+Loads assemble and sign/zero-extend the natural-width result. The caller must
+restrict widened fragments to memory where full-word accesses are safe.
+
 ## Vector row layout
 
 [`VectorRegisterLayout(vlen, row_bits)`](vector-layout.rhm) maps architectural

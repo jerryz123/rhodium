@@ -4,121 +4,12 @@
 
 import:
   "../../cache/chi/flits.rhdl" open
-  lib("chi/protocol/flits.rhdl") open
-  lib("chi/protocol/coherence.rhdl").chi_rnf_snoop_opcodes
-  lib("chi/protocol/link.rhdl") open
-  lib("chi/protocol/fabric.rhdl") open
-  lib("chi/transactions/retryable-transaction.rhdl") open
-  lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
+  "../../cache/chi/attachment.rhdl" open
   "../../riscv/chi-hart.rhdl" open
 
-/* Wraps generic hart identities with RV5Stage-specific RN capabilities and Home attachment
-   profiles. */
-class RV5StageCHIParams(hart :: RiscvHartCHIParams):
-  /* Exposes the shared hart CHI configuration without duplicating its identity. */
-  property config: hart.config
-  /* Exposes the hart's shared CHI flit geometry. */
-  property flit: hart.flit
-  /* Exposes the validated address-to-Home mapping used by all three endpoints. */
-  property home_map: hart.home_map
-  /* Exposes the hart's instruction requester node identity. */
-  property instruction_node_id: hart.instruction_node_id
-  /* Exposes the hart's coherent data requester node identity. */
-  property data_node_id: hart.data_node_id
-  /* Exposes the hart's uncached requester node identity. */
-  property uncached_node_id: hart.uncached_node_id
-
-  /* Advertises ownership-free instruction reads and completion acknowledgement capabilities. */
-  property instruction_node:
-    CHINodeParams(
-      "rv5stage-l1i",
-      instruction_node_id,
-      CHINodeKind.RNI,
-      ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp],
-        ~rsp: [CHIRspOpcode.CompAck]
-      ),
-      ~supports: CHIChannelCapabilities(
-        ~rsp: CacheRefillResponses.response_opcodes,
-        ~dat: [CHIDatOpcode.CompData]
-      ),
-      ~max_outstanding: 2
-    )
-
-  /* Describes a coherent ReadOnce or noncoherent ReadNoSnp instruction Home port and its
-     acknowledgements. */
-  method instruction_home_port(~coherent: coherent :: Boolean):
-    CHIRequesterHomeParams(
-      instruction_node.icn_peer(),
-      ~emits: CHIChannelCapabilities(
-        ~rsp: (if coherent | CacheRefillResponses.response_opcodes | []),
-        ~dat: [CHIDatOpcode.CompData]),
-      ~supports: CHIChannelCapabilities(
-        ~req: [if coherent | CHIReqOpcode.ReadOnce | CHIReqOpcode.ReadNoSnp],
-        ~rsp: (if coherent | [CHIRspOpcode.CompAck] | [])))
-
-  /* Advertises coherent data reads, writes, maintenance, and supported snoop traffic. */
-  property data_node:
-    CHINodeParams(
-      "rv5stage-l1d",
-      data_node_id,
-      CHINodeKind.RNF,
-      ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadClean,
-               CHIReqOpcode.ReadUnique,
-               CHIReqOpcode.WriteUniquePtl,
-               CHIReqOpcode.WriteBackFull,
-               CHIReqOpcode.CleanShared,
-               CHIReqOpcode.CleanInvalid,
-               CHIReqOpcode.MakeInvalid],
-        ~rsp: [CHIRspOpcode.CompAck, CHIRspOpcode.SnpResp],
-        ~dat: [CHIDatOpcode.SnpRespData,
-               CHIDatOpcode.CopyBackWriteData,
-               CHIDatOpcode.NonCopyBackWriteData]
-      ),
-      ~supports: CHIChannelCapabilities(
-        ~rsp: chi_response_profile_opcodes([
-          CacheRefillResponses,
-          CacheWriteUniqueResponses,
-          CHICacheMaintenanceResponses
-        ]),
-        ~snp: chi_rnf_snoop_opcodes,
-        ~dat: [CHIDatOpcode.CompData]
-      ),
-      ~max_outstanding: 2
-    )
-
-  /* Advertises nonretrying uncached reads and partial writes on a separate RN-I identity. */
-  property uncached_node:
-    CHINodeParams(
-      "rv5stage-uncached",
-      uncached_node_id,
-      CHINodeKind.RNI,
-      ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadOnce, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl],
-        ~dat: [CHIDatOpcode.NonCopyBackWriteData]
-      ),
-      ~supports: CHIChannelCapabilities(
-        ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
-        ~dat: [CHIDatOpcode.CompData]
-      ),
-      ~max_outstanding: 1
-    )
-
-  /* Combines the three endpoints and coherent/noncoherent instruction Home profiles into one
-     hart attachment. */
-  property attachment:
-    RiscvHartCHIAttachment(hart, instruction_node, data_node, uncached_node,
-                           instruction_home_port(~coherent: #true),
-                           instruction_home_port(~coherent: #false))
-
-  /* Validates generic hart identities before deriving RV5Stage endpoint capabilities. */
-  constructor (config :: RiscvHartCHIConfig,
-               instruction_node_id :: Nat,
-               data_node_id :: Nat,
-               ~uncached_node_id: uncached_node_id :: Nat = 0):
-    super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
-                             ~uncached_node_id: uncached_node_id))
+/* Preserves the RV5Stage constructor spelling over shared-cache endpoint descriptions. */
+fun RV5StageCHIParams(config :: RiscvHartCHIConfig, instruction_node_id :: Nat, data_node_id :: Nat, ~uncached_node_id: uncached_node_id :: Nat = 0) :: CacheCHIParams:
+  CacheCHIParams(config, instruction_node_id, data_node_id, ~uncached_node_id: uncached_node_id)
 
 /* Builds the implementation-specific three-endpoint hart attachment from a shared CHI map. */
 fun rv5stage_chi_params(config :: RiscvHartCHIConfig,

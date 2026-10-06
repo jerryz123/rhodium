@@ -6,9 +6,11 @@ import:
   "selection.rhm" open
   "core-profiles.rhm".rv5stage_soc_profile
   "spike-core-profile.rhm".spike_soc_profile
+  "rv2wide-core-profile.rhm".rv2wide_soc_profile
   "../harts/implementation.rhdl".RiscvHartImplementation
   "../harts/rv5stage.rhdl".rv5stage_hart
   "../harts/spike.rhdl".spike_hart
+  "../harts/rv2wide.rhdl".rv2wide_hart
   "../mini-soc/main.rhdl" as mini
   "../single-core-soc/main.rhdl" as simple
   "../tiled-soc/main.rhdl" as tiled
@@ -18,6 +20,8 @@ import:
   lib("cores/spike/profile.rhm").SpikeConfig
   lib("cores/rv5stage/udb.rhm").rv5stage_udb_configuration
   lib("cores/spike/udb.rhm").spike_udb_configuration
+  lib("cores/rv2wide/udb.rhm").rv2wide_udb_configuration
+  lib("cores/rv2wide/profile.rhm").RV2WideConfig
   lib("riscv/udb.rhm").UdbConfiguration
 
 /* Resolves one typed selection into a hart binding shared by hardware configuration, architecture, and UDB projection. */
@@ -27,6 +31,7 @@ class ResolvedSoCConfig(selection :: SoCSelection, hart :: RiscvHartImplementati
     def hart = match selection.core
     | CoreKind.RV5Stage: rv5stage_hart(rv5stage_soc_profile(selection.shape, selection.isa))
     | CoreKind.Spike: spike_hart(spike_soc_profile(selection.isa))
+    | CoreKind.RV2Wide: rv2wide_hart(rv2wide_soc_profile(selection.shape, selection.isa))
     super(selection, hart)
 
   property key :: String: selection.key
@@ -50,6 +55,9 @@ class ResolvedSoCConfig(selection :: SoCSelection, hart :: RiscvHartImplementati
     | CoreKind.Spike:
         def profile :: SpikeConfig = hart.profile
         spike_udb_configuration(profile, name, "Rhodium " ++ key)
+    | CoreKind.RV2Wide:
+        def profile :: RV2WideConfig = hart.profile
+        rv2wide_udb_configuration(profile, name, "Rhodium " ++ key, rhodium_soc_flit.request_address_width)
 
 /* Creates the common resolved config used by hardware and architecture-facing consumers. */
 fun resolve_soc_config(selection :: SoCSelection) :: ResolvedSoCConfig:

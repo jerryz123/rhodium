@@ -44,6 +44,7 @@ module rv2wide_cache_tb;
   logic [63:0] reservation_address;
   int reservation_width, probe_lr_pc, probe_sc_pc, atomic_commits=0, atomic_dual=0, sc_success=0, sc_failure=0;
   int atomic_ops[9]='{1,0,4,12,8,16,20,24,28};
+  int split_resumes=0;
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -211,6 +212,10 @@ module rv2wide_cache_tb;
       case (redirect.bits.resolution.disposition)
         0: begin send_pc = int'(redirect.bits.target); branches++; end
         2: begin send_pc = int'(redirect.bits.pc); replays++; end
+        3: begin
+          assert(redirect.bits.target==64'(reference_pc)) else $fatal(1,"split resume did not follow retained retirement");
+          send_pc=int'(redirect.bits.target); split_resumes++;
+        end
         1: begin
           assert (redirect.bits.pc == 64'(reference_pc) && redirect.bits.resolution.cause == 5 && redirect.bits.resolution.value == 4096)
             else $fatal(1, "bad fault pc=%h cause=%h value=%h", redirect.bits.pc, redirect.bits.resolution.cause, redirect.bits.resolution.value);
@@ -301,9 +306,18 @@ module rv2wide_cache_tb;
     emit(atomic_insn(2,3,26,24,0)); probe_sc_pc=program_size*4;
     emit(atomic_insn(3,3,26,24,2)); emit(addi(27,26,1));
     emit(load(26,24,0,3));
+    // Exhaustive intra-word offsets, both extension modes, cross-word and
+    // cross-line fragments, x0 loads, and preservation of neighboring bytes.
+    for(int width=1;width<=3;width++) for(int offset=1;offset<=7;offset++) if(offset%(1<<width)!=0) begin
+      emit(store_insn(2,1,56+offset,width));
+      emit(load(3,1,56+offset,width)); emit(addi(4,3,1));
+      if(width<3) emit(load(5,1,56+offset,width+4));
+      emit(load(0,1,56+offset,width));
+      emit(load(6,1,56,3)); emit(load(7,1,64,3));
+    end
     // Establish a fresh miss immediately before a fault: accepted work must drain first.
     emit(load(22,1,704,3)); emit(addi(23,0,2047));
-    emit(addi(23,23,2047)); emit(addi(23,23,2));
+    emit(addi(23,23,2047)); emit(addi(23,23,-1));
     emit(load(0,23,0,3)); emit(store_insn(2,1,24,3));
     repeat (4) @(negedge clock);
     reset = 0;
@@ -314,6 +328,7 @@ module rv2wide_cache_tb;
     assert (hits_during_miss > 0 && alu_during_miss > 0) else $fatal(1, "no hit/ALU overlap with refill");
     assert(atomic_commits==53 && atomic_dual>0 && sc_success==3 && sc_failure==6 && probe_complete)
       else $fatal(1,"atomic coverage ops=%0d dual=%0d SC success=%0d failure=%0d probe=%b",atomic_commits,atomic_dual,sc_success,sc_failure,probe_complete);
+    assert(split_resumes==61) else $fatal(1,"missing split coverage %0d",split_resumes);
     $display("RV2Wide shared L1D passed: %0d retirements, %0d refills, %0d writebacks, %0d replays, %0d warm hits during miss", commits, reads, writes, replays, hits_during_miss);
     $finish;
   end

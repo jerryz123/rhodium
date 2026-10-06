@@ -26,6 +26,7 @@ check:
     "mini-spike-rv32max",
     "mini-rv5stage-rva23",
     "mini-spike-rva23",
+    "mini-rv2wide-rv64imacb",
     "simple-rv5stage-rv32int",
     "simple-spike-rv32int",
     "simple-rv5stage-rv32max",
@@ -34,6 +35,7 @@ check:
     "simple-spike-rv64max",
     "simple-rv5stage-rv64imacb",
     "simple-spike-rv64imacb",
+    "simple-rv2wide-rv64imacb",
     "simple-rv5stage-rv64imafdcb",
     "simple-spike-rv64imafdcb",
     "simple-rv5stage-rva23",
@@ -53,7 +55,7 @@ for (config in TestConfigs):
     metadata_json(metadata).contains("#<procedure") ~is #false
     metadata_json(metadata).contains("#<function") ~is #false
     metadata["csr_warl"]["pmm_unsupported_write"] ~is "disabled"
-    metadata["csr_warl"]["medeleg_mask"] ~is (if config.core == CoreKind.RV5Stage | 0xcb3fe | (if resolved.hart.description.mmu_type == RiscvMmuType.Bare | 0x803fe | 0x8b3fe)) bits.or (if config.isa == IsaPreset.RVA23 | 0xf00400 | 0)
+    metadata["csr_warl"]["medeleg_mask"] ~is (if config.core != CoreKind.Spike | 0xcb3fe | (if resolved.hart.description.mmu_type == RiscvMmuType.Bare | 0x803fe | 0x8b3fe)) bits.or (if config.isa == IsaPreset.RVA23 | 0xf00400 | 0)
     metadata["csr_warl"]["hedeleg_mask"] ~is (if config.isa == IsaPreset.RVA23 | (if config.core == CoreKind.RV5Stage | 0xcb1fe | 0xcb1ff) | 0)
   when config.core == CoreKind.Spike
   | block:

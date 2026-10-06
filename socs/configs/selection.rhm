@@ -6,8 +6,8 @@ import: "selection-data.rkt".selection_rows
 
 /* Selects compact internal RAM, single-core external memory, or tiled system topology. */
 enum SoCShape | Mini | Simple | Tiled
-/* Selects the hardware RV5Stage hart or the simulation-only Spike hart binding. */
-enum CoreKind | RV5Stage | Spike
+/* Selects a synthesizable RV5Stage/RV2Wide hart or the simulation-only Spike binding. */
+enum CoreKind | RV5Stage | RV2Wide | Spike
 /* Names the explicitly authored architectural presets independently of shape and core implementation. */
 enum IsaPreset | RV32Int | RV32Max | RV64IMACB | RV64IMAFDCB | RV64Max | RVA23
 
@@ -22,6 +22,7 @@ fun soc_shape_name(shape :: SoCShape) :: String:
 fun core_kind_name(core :: CoreKind) :: String:
   match core
   | CoreKind.RV5Stage: "rv5stage"
+  | CoreKind.RV2Wide: "rv2wide"
   | CoreKind.Spike: "spike"
 
 /* Returns the canonical CLI spelling for a typed architectural preset. */
@@ -46,6 +47,7 @@ fun parse_soc_shape(name :: String) :: SoCShape:
 fun parse_core_kind(name :: String) :: CoreKind:
   match name
   | "rv5stage": CoreKind.RV5Stage
+  | "rv2wide": CoreKind.RV2Wide
   | "spike": CoreKind.Spike
   | ~else: error(~who: #'parse_core_kind, "unsupported core: " ++ name)
 

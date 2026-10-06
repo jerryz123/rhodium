@@ -49,7 +49,7 @@ while IFS= read -r source; do
   [[ -n "$source" ]] || continue
   case "$source" in
     socs/platform/*|socs/one-hart/*|socs/mini-soc/*|socs/single-core-soc/*|socs/tiled-soc/*|socs/harts/implementation.rhdl)
-      if matches="$(grep -nE '^[[:space:]]+.*(cores/(rv5stage|spike)/|harts/(rv5stage|spike)\.rhdl|core-profiles\.rhm|spike-core-profile\.rhm)' "$source")"; then
+      if matches="$(grep -nE '^[[:space:]]+.*(cores/(rv5stage|rv2wide|spike)/|harts/(rv5stage|rv2wide|spike)\.rhdl|core-profiles\.rhm|rv2wide-core-profile\.rhm|spike-core-profile\.rhm)' "$source")"; then
         echo "$source: core-neutral SoC modules must not import a named core or its profile" >&2
         echo "$matches" >&2
         exit 1

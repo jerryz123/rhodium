@@ -100,7 +100,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
     core.data_access.request.ready <== data_ready
     core.data_access.request_fault <== page_fault
     core.split_completion.valid <== Bool(#false)
-    core.split_completion.bits <== literal(RV5StageSplitResult(xlen, 8), 0)
+    core.split_completion.bits <== literal(RiscvSplitResult(xlen, RV5StageMemoryContext(8)), 0)
     core.request_fault_address <== fault_address[0..xlen.width]
     core.data_access.request_access_fault <== data_fault
     core.data_access.drained <== drained

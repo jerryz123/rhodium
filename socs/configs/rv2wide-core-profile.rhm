@@ -1,0 +1,22 @@
+#lang rhombus
+/* Applies Mini/Simple cache resources to RV2Wide's exact lean scalar ISA. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/rv2wide/profile.rhm") open
+  lib("cores/cache/config.rhm").CacheConfig
+  "selection.rhm" open
+  "isa-profiles.rhm".soc_architecture
+
+/* Rejects unsupported shapes or architectures rather than silently selecting a weaker hart. */
+fun rv2wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV2WideConfig:
+  unless [SoCShape.Mini, SoCShape.Simple].contains(shape) && preset == IsaPreset.RV64IMACB
+  | error(~who: #'rv2wide_soc_profile, "RV2Wide supports Mini/Simple RV64IMACB only")
+  def cache = if shape == SoCShape.Mini | CacheConfig(32, 1) | CacheConfig(64, 4)
+  def profile = RV2WideConfig(~instruction_cache: cache, ~data_cache: cache)
+  unless profile.isa_profile == soc_architecture(preset).isa
+  | error(~who: #'rv2wide_soc_profile, "RV2Wide cannot implement the exact requested architecture")
+  profile
+
+export:
+  rv2wide_soc_profile

@@ -54,7 +54,7 @@ module rv5stage_core_tb;
   data_in_t data_access_in;
   instruction_out_t instruction_access_out;
   data_out_t data_access_out;
-  struct packed { logic valid; RV5StageSplitResult bits; } split_completion_in;
+  struct packed { logic valid; RiscvSplitResult bits; } split_completion_in;
   bit split_pending, split_load_done, split_store_done;
   logic [3:0] split_delay;
 

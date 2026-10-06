@@ -282,7 +282,9 @@ class PlanTest(unittest.TestCase):
         entries = self.plan("sims/Makefile")["simulator_matrix"]["include"]
         for (shape, isa), tests in SOFTWARE_TESTS.items():
             configs = [entry for entry in entries if entry["backend"] == 'circt' and (entry["shape"], entry["isa"]) == (shape, isa)]
-            self.assertEqual({entry["core"] for entry in configs}, {"rv5stage", "spike"})
+            self.assertEqual({entry["core"] for entry in configs},
+                             {core for soc, candidate_shape, core in SIMULATOR_CONFIGS
+                              if (candidate_shape, soc.rsplit('-', 1)[1]) == (shape, isa)})
             self.assertEqual({entry["software_tests"] for entry in configs}, {" ".join(tests)})
 
     def test_rv32_native_inventory_is_paired_without_rv64_only_ports(self):
@@ -296,9 +298,11 @@ class PlanTest(unittest.TestCase):
         plan = self.plan("socs/configs/isa-profiles.rhm")
         presets = ("rv64max", "rv64imacb", "rv64imafdcb")
         configs = {f"simple-{core}-{isa}" for isa in presets for core in ("rv5stage", "spike")}
+        configs.update(("mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb"))
         runs = [entry for entry in plan["simulator_matrix"]["include"] if entry["isa"] in presets]
         self.assertEqual({entry["soc"] for entry in runs}, configs)
         self.assertTrue(all(entry["software_tests"] == "isa-smoke" for entry in runs))
+        self.assertTrue(all(not entry["cosim"] for entry in runs if entry["core"] == "rv2wide"))
         for matrix, key in (("program_matrix", "soc"), ("arch_build_matrix", "configuration"),
                             ("arch_run_matrix", "configuration")):
             self.assertFalse(any(entry[key].endswith(tuple(f"-{isa}" for isa in presets)) for entry in plan[matrix]["include"]))

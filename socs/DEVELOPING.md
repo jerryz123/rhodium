@@ -38,7 +38,7 @@ leave DPI memory to the simulator. See the
 Mini, Single, and Tiled are independent host-selected SoC shapes. Each circuit
 accepts one immutable config that owns its hart binding. The contract in
 `harts/implementation.rhdl` contains no named-core import; adapters in
-`harts/rv5stage.rhdl` and `harts/spike.rhdl` supply their implementations.
+`harts/rv5stage.rhdl`, `harts/rv2wide.rhdl`, and `harts/spike.rhdl` supply their implementations.
 `configs/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
 and conversion from complete CLI keys. `configs/selections.tsv` is the shared
 key-to-axis contract consumed by the typed selector and dependency-light Python
@@ -118,6 +118,7 @@ in its own projection. UDB continues to own HPM event IDs and counter presence.
 |---|---|
 | Architectural host description and device-tree projection | [`description.rhm`](platform/description.rhm) |
 | RV5Stage processor profiles | [`core-profiles.rhm`](configs/core-profiles.rhm) |
+| RV2Wide Mini/Simple lean scalar policy | [`rv2wide-core-profile.rhm`](configs/rv2wide-core-profile.rhm), [`rv2wide.rhdl`](harts/rv2wide.rhdl) |
 | Typed config selection, architectural presets, and shared resolution | [`selection.rhm`](configs/selection.rhm), [`isa-profiles.rhm`](configs/isa-profiles.rhm), [`resolve.rhm`](configs/resolve.rhm) |
 | Spike processor profile | [`spike-core-profile.rhm`](configs/spike-core-profile.rhm) |
 | Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |

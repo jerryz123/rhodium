@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm" open
   "bundles.rhdl" open
   "issue-window.rhdl" open
   "load-response.rhdl" open
@@ -13,17 +14,15 @@ import:
   "decode/long-ctrl.rhdl" open
   lib("cores/multiplier.rhdl").MultiplierRequest
   lib("cores/divider.rhdl").DividerRequest
-  lib("cores/riscv/csr/config.rhm").RiscvCsrConfig
   lib("cores/riscv/csr/file.rhdl").RiscvCsrFile
   lib("cores/riscv/csr/protocol.rhdl") open
   lib("cores/alu.rhdl") open
   lib("cores/branch-resolver.rhdl") open
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
+  lib("cores/cache/protocol.rhdl").PhysicalMemoryReq
+  lib("cores/riscv/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
-  lib("riscv/isa/c.rhm").CCompressedExtensions
-  lib("riscv/isa/hart.rhm").RiscvMmuType
-  lib("riscv/isa/profile.rhm") open
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/model/formats.rhm") as fields
   lib("riscv/rtl/instruction-fields.rhdl") open
@@ -60,7 +59,7 @@ fun pending_destination(address :: Bits(5), producers :: List.of(Endpoint)) :: B
 
 /* Executes RV64 integer and system operations with precise WB-owned CSR/trap state.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
-sync_circuit RV2WideCore():
+sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(64)
   input time_counter: Bits(64)
@@ -72,6 +71,7 @@ sync_circuit RV2WideCore():
   interface fetch_flush(Pulse(), ~role: producer)
   interface instruction_invalidate(Pulse(), ~role: producer)
   interface memory(RV2WideMemory(), ~role: requester)
+  interface split(RiscvSplitAccess(XLen.X64, Bool), ~role: requester)
   interface pipeline(RV2WidePipelineAccess(), ~role: requester)
   interface completed(Valid(RV2WideRetirement()), ~role: producer)
   output issued: Bits(2)
@@ -101,7 +101,7 @@ sync_circuit RV2WideCore():
   wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "m", "a", "c", "zba", "zbb", "zbs", "zicond", "zimop", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.M, MisaExtension.A, MisaExtension.C, MisaExtension.B, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)))
+  inst wb_csrs(RiscvCsrFile(profile.csr_config))
   translation_state <== RV2WideTranslationState():
     privilege: wb_csrs.privilege
     mstatus: wb_csrs.mstatus
@@ -251,7 +251,7 @@ sync_circuit RV2WideCore():
     def ex_bad_pc = ex.fetched.pc[0].into(Bool)
     def ex_bad_target = ex_taken & ex_target[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.enable
-    def ex_bad_address = ex_memory & !ex.control.memory.width.is_aligned(ex_alu.result)
+    def ex_bad_address = ex_memory & !ex.control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !ex.control.memory.width.is_aligned(ex_alu.result)
     def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
     ex_output.valid <== ex_input.valid & !rr_squash
     ex_output.bits <== RV2WideResult():
@@ -335,7 +335,8 @@ sync_circuit RV2WideCore():
     def mem :: RV2WideResult() = mem_pipe[lane].egress.bits
     (mem_pipe[lane].egress |> map_valid(token): token.into(RV2WideResult()).fetched) |> memory_stage[lane]
     def mem_lookup = mem.memory.enable & (mem.resolution.disposition === RV2WideDisposition.Continue)
-    def mem_outcome = mux(pipeline.response.valid, pipeline.response.bits.outcome, RV2WideCacheOutcome.Replay)
+    def mem_misaligned = mem.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.memory.width.is_aligned(mem.address)
+    def mem_outcome = mux(mem_misaligned, RV2WideCacheOutcome.Slow, mux(pipeline.response.valid, pipeline.response.bits.outcome, RV2WideCacheOutcome.Replay))
     def mem_hit = mem_lookup & (mem.memory.access === CacheOperation.Load) & (mem_outcome === RV2WideCacheOutcome.LoadHit)
     def mem_page_fault = mem_outcome === RV2WideCacheOutcome.PageFault
     def mem_fault = mem_outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.AccessFault)
@@ -368,24 +369,60 @@ sync_circuit RV2WideCore():
 
   // WB: successful hits retire normally. Store candidates and slow requests
   // either authorize now, fault before acceptance, or replay without effects.
+  reg wb_split_pending(~init: Bool(#false))
+  reg wb_split_sent(~init: Bool(#false))
+  reg wb_split_owner(RV2WideResult())
+  def wb_split_fault = split.response.bits.page_fault ||| split.response.bits.response.access_fault
+  def wb_split_resolution = RV2WideResolution():
+    disposition: mux(wb_split_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
+    cause: mux(split.response.bits.page_fault, mux(wb_split_owner.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StorePageFault, 64), exception_cause_bits(ExceptionCause.LoadPageFault, 64)), mux(wb_split_owner.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAccessFault, 64), exception_cause_bits(ExceptionCause.LoadAccessFault, 64)))
+    value: split.response.bits.fault_address
+  def wb_split_result = wb_split_owner.updated(
+    ~data: split.response.bits.response.data,
+    ~result_ready: Bool(#true),
+    ~resolution: wb_split_resolution
+  )
   inst wb_fault_retention(OfferRegister(RV2WideResult()))
   reg wb_pending_interrupt(~init: Bool(#false))
   def wb_fault_pending = wb_fault_retention.egress.valid
-  def wb_valid :: Vec(2, Bool) = vec(wb_older.egress.valid, wb_younger.egress.valid)
-  def wb_group :: Vec(2, RV2WideResult()) = vec(for List (lane in 0..2): wb_pipe[lane].egress.bits)
+  def wb_valid :: Vec(2, Bool) = vec(mux(wb_split_pending, split.response.valid, wb_older.egress.valid), !wb_split_pending & wb_younger.egress.valid)
+  def wb_group :: Vec(2, RV2WideResult()) = vec(mux(wb_split_pending, wb_split_result, wb_older.egress.bits), wb_younger.egress.bits)
   def wb_raw_fault = (wb_valid[0] & (wb_group[0].resolution.disposition === RV2WideDisposition.Fault)) ||| (wb_valid[1] & (wb_group[1].resolution.disposition === RV2WideDisposition.Fault))
   // Interrupts precede the oldest unretired WB instruction, or use the saved
   // next PC at an empty-pipeline/sleep boundary. A synchronous fault wins.
   def wb_idle_boundary = rr_pipeline_empty & wb_pc_known
-  def wb_interrupt_stop = wb_csrs.interrupt_request & !wb_fault_pending & !wb_raw_fault & (wb_valid[0] ||| wb_idle_boundary)
+  def wb_interrupt_stop = wb_csrs.interrupt_request & !wb_split_pending & !wb_fault_pending & !wb_raw_fault & (wb_valid[0] ||| wb_idle_boundary)
   def wb_interrupt_pc = mux(wb_valid[0], wb_group[0].fetched.pc, wb_resume_pc)
   def wb_older_stop = wb_valid[0] & (wb_group[0].resolution.disposition =/= RV2WideDisposition.Continue)
   def wb_memory_lane = mux(wb_valid[0] & wb_group[0].memory.enable, bits(0, 1), bits(1, 1))
   def wb_memory :: RV2WideResult() = wb_group[wb_memory_lane]
-  def wb_memory_active = wb_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_fault_pending & !wb_interrupt_stop
-  def wb_slow = wb_memory_active & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
+  def wb_memory_active = wb_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_split_pending & !wb_fault_pending & !wb_interrupt_stop
+  def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
+  def wb_slow = wb_memory_active & !wb_split_capture & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
   def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
   def wb_memory_blocked = memory.ordered_busy ||| wb_atomic_pending
+  def wb_prior_drained = wb_load_response.drained & memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.or_reduce() & !rr_completion.valid
+  split.request.valid <== wb_split_pending & !wb_split_sent & wb_prior_drained
+  split.request.bits <== PhysicalMemoryReq(XLen.X64, Bool):
+    address: wb_split_owner.address
+    access: wb_split_owner.memory.access
+    atomic: dont_care(split.request.bits.atomic.type)
+    width: wb_split_owner.memory.width
+    unsigned: wb_split_owner.memory.unsigned
+    data: wb_split_owner.store_data
+    byte_mask: dont_care(Bits(8))
+    context: Bool(#false)
+    locality: dont_care(split.request.bits.locality.type)
+  when wb_split_capture:
+    wb_split_pending <== Bool(#true)
+    wb_split_sent <== Bool(#false)
+    wb_split_owner <== wb_memory
+  elsewhen (split.response.valid):
+    wb_split_pending <== Bool(#false)
+  elsewhen (split.request.fire()):
+    wb_split_sent <== Bool(#true)
+  when (split.response.valid):
+    assert(wb_split_pending & wb_split_sent, "rv2wide_split_response_has_retirement_owner")
   inst wb_store(StoreGen(XLen.X64))
   wb_store.address <== wb_memory.address
   wb_store.value <== wb_memory.store_data
@@ -401,7 +438,7 @@ sync_circuit RV2WideCore():
   pipeline.commit <== wb_store_hit & !wb_memory_blocked
   def wb_admission_fault = memory.request.valid & memory.fault.valid
   def wb_accepted = memory.request.fire() & !wb_admission_fault
-  def wb_memory_replay = (wb_memory_active & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
+  def wb_memory_replay = (wb_memory_active & !wb_split_capture & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
   wb_load_response.allocate.valid <== wb_accepted
   wb_load_response.allocate.bits <== wb_memory
   when (wb_accepted & !wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)):
@@ -455,10 +492,10 @@ sync_circuit RV2WideCore():
       )
   )
   def wb_stop = for List (lane in 0..2):
-    !wb_fault_pending & !wb_interrupt_stop & wb_valid[lane] & (wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue)
+    !wb_fault_pending & !wb_interrupt_stop & wb_valid[lane] & (wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue) & !(wb_split_capture & (wb_memory_lane === bits(0, 1)))
   def wb_selected :: RV2WideResult() = mux(wb_stop[0], wb_tokens[0], wb_tokens[1])
   def wb_stop_valid = wb_stop[0] ||| wb_stop[1]
-  wb_drained <== wb_load_response.drained & memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.or_reduce() & !rr_completion.valid & !wb_accepted & !wb_divide_accepted
+  wb_drained <== wb_prior_drained & !wb_accepted & !wb_divide_accepted & !wb_split_pending & !wb_split_capture
   def wb_explicit_fault = wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Fault)
   def wb_hold_fault = (wb_explicit_fault ||| wb_interrupt_stop) & !wb_drained
   wb_fault_retention.update.valid <== wb_hold_fault
@@ -490,8 +527,9 @@ sync_circuit RV2WideCore():
   def wb_replay = wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Replay)
   def wb_wake = wb_sleeping & wb_csrs.wfi_wake
   def wb_system_resume = wb_system & wb_csrs.command_success & !wb_csrs.wfi
+  def wb_split_resume = wb_split_pending & split.response.valid & !wb_split_fault
   instruction_invalidate.valid <== wb_system_resume & (wb_system_control.fence === RV2WideFence.Instruction)
-  wb_redirect_link.left.valid <== wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_interrupt_boundary ||| wb_wake
+  wb_redirect_link.left.valid <== wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_interrupt_boundary ||| wb_wake ||| wb_split_resume
   wb_redirect_link.left.bits <== RV2WideRedirect():
     pc:
       priority_mux(~default: wb_command.fetched.pc):
@@ -509,7 +547,7 @@ sync_circuit RV2WideCore():
         disposition: mux(wb_csrs.trap_event.valid & !wb_interrupt_boundary, RV2WideDisposition.Fault, mux(wb_replay, RV2WideDisposition.Replay, RV2WideDisposition.System))
         cause: wb_csrs.trap_event.cause
         value: wb_csrs.trap_event.value
-  wb_squash <== wb_stop_valid ||| wb_fault_pending ||| wb_interrupt_stop ||| wb_system ||| wb_sleeping
+  wb_squash <== wb_stop_valid ||| wb_fault_pending ||| wb_interrupt_stop ||| wb_system ||| wb_sleeping ||| wb_split_capture ||| wb_split_pending
   rr_squash <== wb_squash ||| mem_branch_redirect
   fetch_flush.valid <== rr_squash
   redirect.valid <== wb_redirect.valid ||| mem_branch_redirect
@@ -517,7 +555,8 @@ sync_circuit RV2WideCore():
   wire wb_writes: Vec(2, Bool)
   for (lane in 0..2):
     def wb :: RV2WideResult() = wb_tokens[lane]
-    def wb_eligible = !wb_fault_pending & !wb_interrupt_stop & wb_valid[lane] & (wb.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | !wb_system ||| wb_csrs.command_success | !wb_stop[0] & !wb_system)
+    def wb_split_suppressed = wb_split_capture & (if lane == 0 | wb_memory_lane === bits(0, 1) | Bool(#true))
+    def wb_eligible = !wb_split_suppressed & !wb_fault_pending & !wb_interrupt_stop & wb_valid[lane] & (wb.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | !wb_system ||| wb_csrs.command_success | !wb_stop[0] & !wb_system)
     def wb_deferred = (wb_accepted & (wb_memory_lane === bits(lane, 1))) ||| (wb_long_accepted & (wb_long_lane === bits(lane, 1)))
     retired[lane].valid <== wb_eligible
     retired[lane].bits <== RV2WideRetirement():

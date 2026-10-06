@@ -35,8 +35,10 @@ printf '  "../tiled-soc/main.rhdl"\n' > "$fixture/socs/mini-soc/main.rhdl"
 expect_failure 'must not import tiled-soc' audit
 printf '  "../shared.rhm"\n' > "$fixture/socs/mini-soc/main.rhdl"
 audit
-printf '  lib("cores/rv5stage/rv5stage.rhdl").RV5Stage\n' > "$fixture/socs/mini-soc/main.rhdl"
-expect_failure 'core-neutral SoC modules must not import a named core' audit
+for core in rv5stage rv2wide spike; do
+  printf '  lib("cores/%s/hart.rhdl") open\n' "$core" > "$fixture/socs/mini-soc/main.rhdl"
+  expect_failure 'core-neutral SoC modules must not import a named core' audit
+done
 printf '  "../shared.rhm"\n' > "$fixture/socs/mini-soc/main.rhdl"
 audit
 for tool in find grep; do

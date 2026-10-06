@@ -1,0 +1,43 @@
+#lang rhombus
+/* Defines RV2Wide's exact RV64IMACB architecture and private-cache specialization. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("riscv/isa/profile.rhm") open
+  lib("riscv/isa/hart.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/c.rhm").CCompressedExtensions
+  "../riscv/csr/config.rhm".RiscvCsrConfig
+  "../cache/config.rhm" open
+
+def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
+  XLen.X64,
+  ["i", "m", "a", "c", "b", "za64rs", "zba", "zbb", "zbs", "zic64b", "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt", "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"],
+  [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U, MisaExtension.C]
+)
+
+/* Specializes only cache resources; RV64, C, Sv39, and the architectural feature set are fixed. */
+class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig):
+  implements StableCircuitParam
+
+  /* Defaults both private caches to a four-way, 64-set VIPT geometry. */
+  constructor (~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
+               ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4)):
+    super(instruction_cache, data_cache)
+
+  property isa_profile :: RiscvIsaProfile: RV2WideIsaProfile
+  property xlen :: XLen: XLen.X64
+  /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
+  property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)
+  property hart_description :: RiscvHartDescription:
+    RiscvHartDescription(
+      isa_profile, RiscvMmuType.Sv39,
+      RiscvCacheDescription(CacheLineBytes, instruction_cache.sets, instruction_cache.capacity_bytes),
+      RiscvCacheDescription(CacheLineBytes, data_cache.sets, data_cache.capacity_bytes),
+      ~cbo_block_bytes: CacheLineBytes
+    )
+
+export:
+  RV2WideIsaProfile
+  RV2WideConfig

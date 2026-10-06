@@ -122,7 +122,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
   interface data_access(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
   input request_fault_address: Bits(width)
-  interface split_completion(Valid(RV5StageSplitResult(xlen, vector_completion_slots)), ~role: consumer)
+  interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: consumer)
   interface pipeline_access(if hypervisor | RV5StageGuestPipelineAccess(xlen) | CachePipelineAccess(xlen), ~role: requester)
   output pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: requester)

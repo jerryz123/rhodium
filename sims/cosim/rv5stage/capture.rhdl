@@ -7,7 +7,7 @@ import:
   "vector.rhdl".rv5stage_cosim_vector
   "../events/transport.rhdl".capture_lane as lane
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
-  "../../../cores/rv5stage/mmu/protocol.rhdl".RV5StageSplitResult
+  "../../../cores/riscv/misaligned-access.rhdl".RiscvSplitResult
   "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
   "../../../cores/rv5stage/memory-context.rhdl" open
   "../../../cores/rv5stage/fp/bundles.rhdl" open
@@ -112,7 +112,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def wb_fault_address :: Bits(width) = taps["wb_fault_address"]
   def wb_split_accepted :: Bool = taps["wb_split_accepted"]
   def wb_split_done :: Bool = taps["wb_split_done"]
-  def split_result :: RV5StageSplitResult(xlen, vector_completion_slots) = taps["split_result"]
+  def split_result :: RiscvSplitResult(xlen, RV5StageMemoryContext(vector_completion_slots)) = taps["split_result"]
   def wb_commit_has_multiply :: Bool = taps["wb_commit_has_multiply"]
   def wb_commit_has_divide :: Bool = taps["wb_commit_has_divide"]
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_offer_bits"]

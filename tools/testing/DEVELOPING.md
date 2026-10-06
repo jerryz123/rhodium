@@ -185,7 +185,7 @@ flowchart TD
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Selected --> Sail["Build or restore shared Sail model once<br/>when cosim or ACT is selected"]
     Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
-    Compile --> Simulators["Per-config reusable workflows<br/>twenty exact configs for simulation;<br/>six full-suite Single configs for software only"]
+    Compile --> Simulators["Per-config reusable workflows<br/>explicit simulator inventory;<br/>six full-suite Single configs for software only"]
     Sail --> Simulators
     Simulators --> Simulation["Each config's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
     Compile --> PlatformTargets["Generate platform targets and DTBs<br/>group compatible builds"]
@@ -287,7 +287,8 @@ adapter/source changes select the owning lane. All six CI Mini and both Tiled
 configs receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
 `rv64imafdcb` presets enroll only their paired Simple configs; these six configs
 run only that suite, without ACT,
-benchmarks, or platform tests. Both Tiled cores run the
+benchmarks, or platform tests. Mini/Simple RV2Wide RV64IMACB enroll the same
+ISA-smoke-only policy without a cosim variant. Both Tiled cores run the
 eight-hart benchmark manifests in CI. Harness jobs compile their platform and
 ISA-smoke software with the RISC-V toolchain, but ordinary RV5Stage jobs install
 no Racket, CIRCT, Verilator, or FESVR. ISA-smoke target preparation copies the

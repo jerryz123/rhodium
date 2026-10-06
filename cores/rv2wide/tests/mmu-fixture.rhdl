@@ -23,6 +23,14 @@ sync_circuit RV2WideMmuFixture():
   input(ex_valid, wb_valid, commit): Bool
   input access: CacheOperation
   input address: Bits(64)
+  input split_valid: Bool
+  input split_width: MemoryWidth
+  input split_data: Bits(64)
+  output split_ready: Bool
+  output split_completed: Bool
+  output split_result: Bits(64)
+  output(split_page_fault, split_access_fault): Bool
+  output split_fault_address: Bits(64)
   output(index_valid, resolve_valid, result_valid): Bool
   output(index_address, resolve_address): Bits(64)
   output outcome: RV2WideCacheOutcome
@@ -34,6 +42,8 @@ sync_circuit RV2WideMmuFixture():
   output physical_valid: Bool
   output physical_address: Bits(64)
   output physical_access: CacheOperation
+  output physical_data: Bits(64)
+  output physical_mask: Bits(8)
   output response_ready: Bool
   output completed: Bool
   output completed_data: Bits(64)
@@ -71,6 +81,23 @@ sync_circuit RV2WideMmuFixture():
   outcome <== mmu.pipeline.response.bits.outcome
   mmu.memory.request.valid <== wb_valid
   mmu.memory.request.bits <== request
+  mmu.split.request.valid <== split_valid
+  mmu.split.request.bits <== PhysicalMemoryReq(XLen.X64, Bool):
+    address: address
+    access: access
+    atomic: RiscvAtomicOperation.Swap
+    width: split_width
+    unsigned: Bool(#true)
+    data: split_data
+    byte_mask: bits(0, 8)
+    context: Bool(#false)
+    locality: literal(mmu.split.request.bits.locality.type, 0)
+  split_ready <== mmu.split.request.ready
+  split_completed <== mmu.split.response.valid
+  split_result <== mmu.split.response.bits.response.data
+  split_page_fault <== mmu.split.response.bits.page_fault
+  split_access_fault <== mmu.split.response.bits.response.access_fault
+  split_fault_address <== mmu.split.response.bits.fault_address
   wb_ready <== mmu.memory.request.ready
   wb_fault <== mmu.memory.fault.valid
   wb_fault_bits <== mmu.memory.fault.bits
@@ -90,6 +117,8 @@ sync_circuit RV2WideMmuFixture():
   physical_valid <== mmu.physical_memory.request.valid
   physical_address <== mmu.physical_memory.request.bits.address
   physical_access <== mmu.physical_memory.request.bits.access
+  physical_data <== mmu.physical_memory.request.bits.data
+  physical_mask <== mmu.physical_memory.request.bits.mask
   response_ready <== mmu.physical_memory.response.ready
 
 export:

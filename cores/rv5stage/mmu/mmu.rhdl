@@ -13,7 +13,7 @@ import:
   lib("cores/riscv/mmu/protocol.rhdl") open
   lib("cores/riscv/mmu/translation.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  "misaligned-access.rhdl" open
+  "../../riscv/misaligned-access.rhdl" open
   lib("cores/riscv/mmu/tlb.rhdl") open
   lib("cores/riscv/mmu/walker.rhdl") open
   "vector-window.rhdl" open
@@ -50,7 +50,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface instruction(RV5StageFetchAccess(xlen, hypervisor), ~role: responder)
   interface data(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: responder)
   output request_fault_address: Bits(width)
-  interface split_completion(Valid(RV5StageSplitResult(xlen, vector_completion_slots)), ~role: producer)
+  interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: producer)
   interface pipeline(if hypervisor | RV5StageGuestPipelineAccess(xlen) | CachePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
@@ -93,7 +93,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg instruction_fault_mapping(RiscvTlbMapping())
   def dtlb_result = riscv_host_result(dtlb.translation)
   inst vector_window(RV5StageVectorWindow(physical_map))
-  inst misaligned(RV5StageMisalignedEngine(xlen, vector_completion_slots))
+  inst misaligned(RiscvMisalignedEngine(xlen, RV5StageMemoryContext(vector_completion_slots)))
   reg split_mode(RiscvGuestMemoryAccess)
   reg split_physical(~init: Bool(#false))
   vector_precheck |> vector_window.check

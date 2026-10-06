@@ -52,6 +52,8 @@ serialization. Both extensions retain the normal writeback/destination policy.
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
+| `profile.rhm`, `udb.rhm` | Fixed lean RV64IMACB architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
+| `hart.rhdl` | Core-neutral SoC port adaptation and one reset-vector start per reset epoch |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
 
 ## Change workflow
@@ -74,6 +76,23 @@ Neither EX nor MEM waits for readiness. Missing or rejected service replays at
 WB; accepted transactions allocate an owner and cannot replay. Admission must
 certify synchronous fault freedom, as for RV5Stage's aligned ordinary service.
 Do not introduce late fault responses without retaining retirement ownership.
+
+Ordinary misaligned operations use the separate shared `RiscvSplitAccess`
+contract. Capture their WB owner before draining older deferred work, squash
+younger pipeline/window state, then launch once. Retain that owner through the
+single final Valid outcome; successful completion retires in slot zero and
+refetches its successor, while a fault enters normal retained-trap handling.
+Do not allocate a load-response/scoreboard owner or reuse the admission-certified
+aligned response port. Interrupt entry waits for this noncancelable owner.
+
+`cores/riscv/misaligned-access.rhdl` owns fragment masks, store positioning, and
+load assembly; this MMU owns each fragment's translation/PMA check. Fragment
+responses, ordinary core replies, and PTE responses share one ordered physical
+owner FIFO and are routed with `zip_flow`/`demux_flow`. The second fragment must
+wait for first-fragment completion, and fault provenance must use the engine's
+virtual fault address, not its aligned physical request. Preserve accepted
+prefixes on later faults. Check the full eight-byte footprint against normal,
+cacheable, idempotent memory; do not widen device accesses into this path.
 
 Preserve natural access width through MMU translation. Cache service aligns its
 own beats; uncached service keeps the exact address/size and unpositions store
@@ -304,6 +323,15 @@ It compares architectural retirement against an independent sequential model,
 not internal register names. External qualification is matched to public MEM
 PCs; no test-only RTL switches or hierarchical state mutations are used.
 
+Misaligned cases span every supported H/W/D offset, signed/unsigned/x0 loads,
+neighbor-preserving masks, word/line crossings, and older completion drain.
+The MMU fixture stalls the prefix response, checks exact fragment masks/data,
+and faults the second page without reissuing the prefix. The fetching fixture
+uses nonadjacent physical pages, reads fault VA/EPC/cause from the trap handler,
+and verifies a completed store prefix remains visible after a second-page fault.
+The core fixture checks retained completion in either WB position and preserves
+natural-alignment faults for LR/SC/AMO.
+
 `rv2wide-fetch` executes the production fetching top against a byte-addressed
 CHI backing-memory oracle. It checks sustained warm dual retirement, upper-only
 restart packets, dependency/backpressure retention, cold I/D misses, masked
@@ -342,5 +370,8 @@ The fixture runner invokes the repository-managed Racket wrapper. Run host
 checks through `tools/run-racket-tests.sh` and other elaboration through
 `tools/run-racket.sh`; do not bypass the managed compiled root. After changing
 fixture ownership, confirm `--group cores-execution-datapath --list-fixtures`
-includes `rv2wide-core`. No new SoC or software CI configuration belongs to this
-initial execution-slice milestone.
+includes `rv2wide-core`. Mini/Simple integration uses the existing shape harnesses
+and their normal FESVR loading and BootROM path. Run `boot-test` and `isa-smoke`
+with `SOC=mini-rv2wide-rv64imacb` and `SOC=simple-rv2wide-rv64imacb` for platform
+changes. Keep CI enrollment in `sims/test-configs.txt` and workload selection
+in the shared shape/ISA policy, not in the processor configuration.

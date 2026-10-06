@@ -7,11 +7,26 @@ RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
 independently usable RR-through-WB execution slice. It executes RV64IMACB:
-integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
-aligned scalar loads/stores through a pipelined memory-service boundary.
+integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and scalar
+loads/stores, including retained misaligned accesses in cacheable normal memory.
 It also executes Zicond and Zimop, plus Zicsr, ECALL/EBREAK, MRET/SRET, WFI,
 SFENCE.VMA, FENCE, and FENCE.I at WB.
 See [DEVELOPING.md](DEVELOPING.md) for ownership and validation.
+
+For complete BootROM/FESVR execution, select `mini-rv2wide-rv64imacb` or
+`simple-rv2wide-rv64imacb` through the existing [simulation harness](../../sims/README.md):
+
+```sh
+make -C sims simulator SOC=mini-rv2wide-rv64imacb
+make -C sims isa-smoke SOC=simple-rv2wide-rv64imacb
+```
+
+Both use the exact lean RV64IMACB preset, M/S/U, and Sv39. Mini has 32-set,
+direct-mapped L1s; Simple has 64-set, four-way L1s. Both retain the five-stage
+feed-forward multiplier. `RV2WideConfig` owns this architectural projection and
+private-cache geometry; `RV2WideHart` starts once at the platform reset vector
+after reset. The shared SoC BootROM performs normal FESVR entry publication and
+ACLINT release. No RV32, FP, vector, H, or Tiled selection is provided.
 
 ## Entry point
 
@@ -348,9 +363,33 @@ are replenished through coherent `ReadOnce`; system integration must supply the
 latest coherent data, including dirty data held by L1D.
 
 The boundary requires admission-certified aligned transactions, not an arbitrary
-bus that may raise a late synchronous exception. A future fault-capable service
-such as split-page accesses must retain retirement ownership until its final
-fault decision; it cannot reuse the successful deferred-response contract.
+bus that may raise a late synchronous exception. Split accesses use a separate
+retained-retirement contract; they cannot reuse the successful deferred-response
+contract.
+
+### Ordinary misaligned accesses
+
+Naturally misaligned integer loads/stores use
+`split: RiscvSplitAccess(XLen.X64, Bool)` on the standalone execution slice.
+The integrated top connects this to the shared `RiscvMisalignedEngine` through
+its MMU. The request retains the original virtual byte address, natural width,
+signedness, and unshifted store data. The one final Valid response carries either
+the assembled load value or a page/access fault and its exact virtual address.
+
+WB retains the instruction, flushes younger work, and drains older accepted work
+before split dispatch. A successful older peer may retire immediately; the split
+instruction retires exactly once on successful completion and redirects to its
+successor. A late fault enters the existing precise trap path without writing
+the destination or retiring the instruction. No deferred RF owner or third
+register-file write port is introduced.
+
+Each aligned eight-byte fragment is translated, checked, and completed before
+the next fragment issues. Only cacheable, idempotent normal memory is supported;
+misaligned device/uncached accesses report access faults without device effects.
+The first fragment reports the original VA on fault; the second reports the
+next aligned word's VA. An accepted store prefix remains visible if the second
+fragment faults. Split accesses are not atomic, and accepted prefixes are never
+replayed or rolled back. LR/SC/AMO still require natural alignment.
 
 ## Resolution and restart boundary
 
@@ -372,7 +411,8 @@ to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
 - Replay: restart at `pc`; the instruction has not committed.
 - Fault: a synchronous trap; `pc`, cause, and fault value are reported, and
   `target` is the architectural trap vector.
-- System: WB serialization/return recovery, WFI wake, or an interrupt boundary.
+- System: WB serialization/return recovery, successful split-access resume,
+  WFI wake, or an interrupt boundary.
   `target` is the selected successor, return PC, or trap vector. Cause/value are
   meaningful for an interrupt trap (cause has its interrupt bit set).
 
@@ -387,13 +427,10 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
-loads/stores fault before lookup; split accesses are not implemented.
-This execution slice makes no full RV64I or RV64IMACB architectural profile
-claim. It is not selectable through the SoC configuration resolver.
-
-The intended initial integration target is the existing lean RV64IMACB preset,
-with all of that preset's system properties, once implemented. Shared ISA
+There is no floating-point execution or guest translation.
+Misaligned accesses to devices or uncached memory are deliberately unsupported.
+The SoC bindings publish the lean RV64IMACB preset, not RVA23. Sail cosimulation
+and event tracing do not yet have an RV2Wide adapter. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
 
 The MMU checks the CHI physical map before physical tag resolution; the data-cache

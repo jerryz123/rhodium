@@ -26,6 +26,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `chi/line-read.rhdl` | Ownership-free coherent RAM and immutable ROM snapshots with opaque context |
 | `l1d/arrays.rhdl`, `l1d/store-buffer.rhdl` | Synchronous storage and committed byte hazards |
 | `chi/flits.rhdl` | Transaction response profiles and flit construction |
+| `chi/attachment.rhdl` | Shared-cache RN-I/RN-F capabilities and hart-to-Home attachment descriptions |
 | `chi/refill.rhdl`, `chi/writeback.rhdl`, `chi/snoop.rhdl` | Retained acquisition, victim, and snoop lifetimes |
 | `io-mshr.rhdl` | Opaque-context committed IO retention, from admission through final response |
 | `chi/uncached.rhdl`, `chi/write-unique.rhdl` | Nonallocating RN-I service and retryable partial-width write transport |

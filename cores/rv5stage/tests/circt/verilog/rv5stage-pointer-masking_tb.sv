@@ -38,7 +38,7 @@ module rv5stage_pointer_masking_tb;
   prefetch_t prefetch_out;
   instruction_resp_t instruction_response;
   data_resp_t data_response;
-  struct packed { logic valid; RV5StageSplitResult bits; } split_completion_in;
+  struct packed { logic valid; RiscvSplitResult bits; } split_completion_in;
   int stores, loads, faults, prefetches, flushes;
   bit rejected;
   localparam logic [63:0] LOAD_VALUE = 64'h123456789abcdef0;
