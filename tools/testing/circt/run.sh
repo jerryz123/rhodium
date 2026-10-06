@@ -254,7 +254,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache)
+    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch)
       return 0
       ;;
     cores-execution-datapath:rv5stage-cosim*)
@@ -599,8 +599,8 @@ verify_fixture() {
     # lookup. Packed structs look cyclic to Verilator; leaf-level RTL verification
     # remains enabled, as do simulation assertions and convergence checks.
     # RV2Wide's cache response similarly packs MEM data/hazards with independent
-    # WB commit readiness; the WB redirect only gates the younger EX lookup.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-cache || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    # WB commit readiness; MEM/WB recovery only gates the younger EX lookup.
+    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-cache || "$fixture" == rv2wide-fetch || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -957,6 +957,7 @@ direct_fixture_specs=(
   'rv5stage-core|rv5stage_core_tb'
   'rv2wide-core|rv2wide_core_tb'
   'rv2wide-cache|rv2wide_cache_tb'
+  'rv2wide-fetch|rv2wide_fetch_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'
   'rv5stage-zkt-rv32|rv5stage_zkt_rv32_tb'

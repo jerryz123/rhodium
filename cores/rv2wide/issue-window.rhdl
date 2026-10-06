@@ -1,5 +1,5 @@
 #lang rhodium
-/* Retains four instructions with two-wide packet admission and ordered prefix consumption. */
+/* Compacts fetch packets into one eight-entry instruction buffer with ordered prefix consumption. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,28 +11,31 @@ sync_circuit RV2WideIssueWindow():
   interface ingress(Decoupled(RV2WidePacket()), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   output head: RV2WidePacket()
+  output available: Bits(4)
   input consume: Bits(2)
 
-  reg count(~init: bits(0, 3))
-  reg entries(Vec(4, RV2WideInstruction()))
-  def remaining = count - consume.zext(3)
-  ingress.ready <== !clear.valid & (remaining <= bits(2, 3))
-  head.count <== mux(count >= bits(2, 3), bits(2, 2), count[0..2])
+  reg count(~init: bits(0, 4))
+  reg entries(Vec(8, RV2WideInstruction()))
+  def remaining = count - consume.zext(4)
+  available <== bits(8, 4) - count
+  ingress.ready <== !clear.valid & (remaining <= bits(6, 4))
+  head.count <== mux(count >= bits(2, 4), bits(2, 2), count[0..2])
   head.entries <== vec([entries[0], entries[1]])
-  def added = mux(ingress.fire(), ingress.bits.count.zext(3), bits(0, 3))
+  def added = mux(ingress.fire(), ingress.bits.count.zext(4), bits(0, 4))
   when (clear.valid):
-    count <== bits(0, 3)
+    count <== bits(0, 4)
   otherwise:
     count <== remaining + added
-    for (index in 0..4):
-      def position = bits(index, 3)
+    for (index in 0..8):
+      def position = bits(index, 4)
       def append = ingress.fire() & (position >= remaining) & (position < (remaining + added))
-      def shifted = position + consume.zext(3)
+      def shifted = position + consume.zext(4)
       def incoming = position - remaining
       when append:
         entries[index] <== ingress.bits.entries[incoming[0..1]]
       elsewhen ((consume =/= bits(0, 2)) & (position < remaining)):
-        entries[index] <== entries[shifted[0..2]]
+        entries[index] <== entries[shifted[0..3]]
+  assert(count <= bits(8, 4), "rv2wide_instruction_capacity")
   assert(consume <= head.count, "rv2wide_issue_prefix")
   when (ingress.valid):
     assert((ingress.bits.count === bits(1, 2)) ||| (ingress.bits.count === bits(2, 2)), "rv2wide_packet_count")

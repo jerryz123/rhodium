@@ -49,8 +49,8 @@ inst instructions(L1ICache(XLen.X64, CacheConfig(32, 2), ~chi: config, ~fetch_bi
 Requests must be aligned to `fetch_bits / 8`; blocks never cross cache lines or
 4-KiB pages. The low-order bits contain the lowest-address bytes. The caller
 selects instruction parcels and combines separately checked blocks for crossing
-instructions. RV5Stage selects 32 bits; a two-wide frontend can select 64 bits
-without imposing its assembly or issue policy here.
+instructions. RV5Stage selects 32 bits; RV2Wide selects 64 bits without imposing
+its assembly or issue policy here.
 
 ## Core-facing protocol
 

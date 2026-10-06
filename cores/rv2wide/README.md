@@ -1,11 +1,12 @@
-<!-- Documents RV2Wide's dual-issue execution, nonblocking memory, and retirement interfaces. -->
+<!-- Documents RV2Wide's physical fetch frontend, dual-issue execution, and precise retirement interfaces. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV2Wide
 
-RV2Wide is an in-order dual-issue processor under construction. The current
-`RV2WideCore()` implements the RR-through-WB integer execution slice, not a
-complete hart or the eventual seven-stage frontend/core. It executes RV64I
+RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
+fetches instructions through a shared L1I and executes through the shared L1D;
+it is physical-addressed, without privileged state. `RV2WideCore()` remains the
+independently usable RR-through-WB execution slice. It executes RV64I
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
 See [DEVELOPING.md](DEVELOPING.md) for ownership and validation.
@@ -20,26 +21,74 @@ import:
 inst core(RV2WideCore())
 ```
 
-For the same execution slice attached to the shared coherent L1D, import
+For the fetching core with both shared caches, import
 `cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
-`RV2Wide(CacheConfig(64, 2), ~chi: config)`. This exposes the instruction,
-retirement, completion, and redirect streams plus an RN-F CHI endpoint and
-`node_id` input. `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D`
-adapter for the memory boundaries below.
+`RV2Wide(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
+selects different L1I geometry; otherwise both use the supplied geometry.
+Connect separate `instruction_chi` RN-I and `data_chi` RN-F endpoints and
+distinct `instruction_node_id` / `data_node_id` inputs. Pulse
+`start: Valid(Bits(64))` with the initial physical PC after reset. `halted`
+is initially true and becomes true again after a precise fault is reported;
+only then may another start pulse resume execution. Restart does not reset GPRs
+or cache residency. A reset must reset the external memory-service epoch too.
 
-Provide `instructions: Decoupled(RV2WidePacket())`. Each packet has a `count`
+Retirement, completion, redirect, and issue-count outputs remain observable.
+Successful branches and memory replays redirect fetch internally. Faults are
+reported at WB and halt fetching; there is no implicit trap handler.
+`cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D` adapter.
+
+When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket())`. Each packet has a `count`
 of one or two and that many valid `entries`, oldest first. Entries contain a
-64-bit PC and a 32-bit instruction. The four-entry issue window retains
+64-bit PC, a 32-bit instruction, and optional fetch-fault cause/address. Clear
+`fault.valid` for successful fetches; instruction bits are ignored for faults.
+The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.
 The source must follow redirects and supply instructions in program order;
-the slice does not fetch instructions itself.
+the standalone slice does not fetch instructions itself. `fetch_flush: Pulse()`
+immediately cancels younger fetch work, even while a fault is waiting for older
+memory work to drain. Stop fetching on that pulse until a redirect or explicit
+restart supplies the next PC; a simultaneous redirect takes priority.
+
+## Instruction fetch
+
+The current frontend/caches implement this pipeline:
+
+```text
+IF1: PC / L1I array admission -> IF2: physical permission / tag resolution
+  -> ID: 64-bit result / ordered packet assembly -> issue window -> RR -> EX -> MEM -> WB
+```
+
+Each aligned eight-byte block supplies two 32-bit instructions, low address
+first. A restart at offset four supplies only the upper instruction; the issue
+window combines it with the next block. Blocks never cross a cache line or page.
+Consecutive hits can sustain two instructions per cycle. The frontend reserves
+two instruction entries per in-flight lookup in the core's sole compacting
+instruction buffer before issuing SRAM reads, so a blocked core cannot lose
+responses. There is no separate fetch-packet queue. The execution slice exposes
+`instruction_capacity: Bits(4)`, its registered free-entry count, for this
+reservation accounting; it does not depend on the current issue decision.
+
+L1I misses restart the failed fetch attempt and discard younger attempts,
+preserving older buffered instructions. A MEM branch or WB redirect clears speculative fetch
+and issue storage, but accepted CHI refills continue draining. Wrong-path
+errors cannot become architectural faults. A failed block produces one fault
+token at the first requested instruction PC, not an illegal instruction derived
+from undefined data. WB preserves age ordering and drains older accepted data
+transactions before reporting the fault.
+
+Physical permission and address-width checks happen before cache resolution.
+Only executable, instruction-cacheable, idempotent memory is fetched: coherent
+RAM uses `ReadOnce`, immutable ROM uses `ReadNoSnp`. Other regions report an
+instruction access fault without CHI traffic. Non-four-byte-aligned starts
+report instruction-address-misaligned faults. No predictor or C assembly is
+included; fetch always advances sequentially until a resolved redirect.
 
 ## Execution and ordering
 
 Current implementation:
 
 ```text
-instruction packets -> four-entry window -> RR -> EX -> MEM -> WB
+instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
                                             ^     |      |     |
                                             +-----+------+-----+ forwarding
 ```
@@ -72,10 +121,15 @@ GPR write and retirement `data` is unspecified. `completed` preserves the
 instruction identity and reports the returned value; store acknowledgements
 have `write` false. Non-writing data is unspecified on either interface.
 
-Branches resolve in EX but redirect at WB. A taken older
-branch suppresses the younger slot; a taken younger branch preserves the older
-retirement. Every redirect clears younger pipeline and window work and rejects
-instruction admission on that edge. A not-taken branch does not redirect.
+Branches resolve in EX and redirect from MEM. A taken older branch suppresses
+the younger slot; a taken younger branch preserves the older peer. Both the
+branch and any older peer still retire at WB. MEM recovery clears younger EX,
+RR, and fetch work, not older WB work or accepted memory transactions. WB faults
+and replays take priority over simultaneous MEM recovery. An older same-group
+memory operation can still fail authorization at WB on the following cycle;
+that recovery overrides the earlier branch target and prevents branch retirement.
+Every redirect rejects instruction admission on that edge. A not-taken branch
+does not redirect, and a redirected branch does not redirect again at WB.
 
 ## Pipelined memory and deferred completion
 
@@ -157,10 +211,11 @@ ordering before connecting a real memory subsystem.
 
 An internally detected instruction fault takes precedence over external
 qualification. Faults and replays never retire or write their destination.
-WB chooses the oldest stop, allowing a preceding successful instruction to
-retire exactly once. `redirect: Valid(RV2WideRedirect())` reports that stop:
+WB chooses the oldest fault/replay, allowing a preceding successful instruction
+to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
 
-- Continue: a successful taken branch; `target` is the resolved destination.
+- Continue: a taken branch at MEM; `target` is the resolved destination. This
+  is speculative recovery, not a retirement notification.
 - Replay: restart at `pc`; the instruction has not committed.
 - Fault: `pc`, cause, and fault value are reported; `target` is the faulting PC,
   **not a privileged trap vector**. The surrounding controller must handle it.
@@ -175,7 +230,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no fetch frontend, C expansion, MMU, CSR/trap-state unit,
+There is no C expansion, MMU, CSR/trap-state unit,
 interrupt handling, M/A/B decode, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
@@ -185,7 +240,7 @@ The intended initial integration target is the existing lean RV64IMACB preset,
 with all of that preset's system properties, once implemented. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
 
-The cached slice uses physical addresses and checks its CHI physical map before
+The data-cache adapter uses physical addresses and checks its CHI physical map before
 lookup or authorized admission. Only coherent, cacheable, idempotent RAM is
 supported; unmapped, non-cacheable, or disallowed accesses report access faults
 without CHI traffic. There is no MMIO fallback. The adapter requests aligned

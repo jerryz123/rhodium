@@ -6,7 +6,7 @@
 This package owns reusable physical L1I/L1D implementations, fixed-line
 cache geometry, IO retention, and refill, copyback, snoop, and nonallocating CHI engines. It contains no
 register destinations, vector completion slots, translation state, or retirement
-policy. RV5Stage uses both caches; RV2Wide currently uses L1D.
+policy. RV5Stage and RV2Wide use both caches.
 Contributors should read [DEVELOPING.md](DEVELOPING.md).
 
 ## Entry point

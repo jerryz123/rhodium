@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction; } instruction_t;
+  typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
+  typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction; fetch_fault_flow_t fault; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -28,6 +30,10 @@ module rv2wide_core_tb;
   retirement_flow_t retired[2];
   redirect_flow_t redirect;
   logic [1:0] issued, retired_count;
+  logic [3:0] instruction_capacity;
+  logic fetch_flush;
+  int mem_branch_redirects = 0, wb_overrides = 0;
+  int minimum_instruction_capacity = 8;
   logic inject_enable;
   logic [63:0] inject_pc;
   resolution_t inject_result;
@@ -61,7 +67,7 @@ module rv2wide_core_tb;
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
     .memory_stage_0_out(memory_stage[0]), .memory_stage_1_out(memory_stage[1]),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]),
-    .redirect_out(redirect), .issued(issued), .retired_count(retired_count),
+    .redirect_out(redirect), .fetch_flush_out(fetch_flush), .issued(issued), .retired_count(retired_count), .instruction_capacity(instruction_capacity),
     .memory_in(memory_in), .memory_out(memory_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
@@ -130,6 +136,7 @@ module rv2wide_core_tb;
       cycles++;
       if (cycles > 10000) $fatal(1, "watchdog");
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
+      if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
       if (retired[0].valid && retired[1].valid && retired[0].bits.write && retired[1].bits.write)
         assert (retired[0].bits.rd != retired[1].bits.rd) else $fatal(1, "same-group WAW was not split");
@@ -182,6 +189,18 @@ module rv2wide_core_tb;
       end
       if (redirect.valid) begin
         redirect_t want;
+        if (redirect.bits.resolution.disposition == 0) begin
+          assert ((memory_stage[0].valid && memory_stage[0].bits.pc == redirect.bits.pc) ||
+                  (memory_stage[1].valid && memory_stage[1].bits.pc == redirect.bits.pc))
+            else $fatal(1, "branch recovery did not occur in MEM");
+          for (int lane = 0; lane < 2; lane++)
+            assert (!retired[lane].valid || retired[lane].bits.fetched.pc != redirect.bits.pc)
+              else $fatal(1, "MEM branch was reported as already retired");
+          mem_branch_redirects++;
+        end else begin
+          for (int lane = 0; lane < 2; lane++)
+            if (memory_stage[lane].valid && memory_stage[lane].bits.instruction[6:0] == 7'h6f) wb_overrides++;
+        end
         assert (expected_redirects.size() > 0) else $fatal(1, "unexpected redirect pc=%h", redirect.bits.pc);
         want = expected_redirects.pop_front();
         assert (redirect.bits.pc == want.pc && redirect.bits.target == want.target && redirect.bits.resolution.disposition == want.resolution.disposition)
@@ -325,13 +344,15 @@ module rv2wide_core_tb;
   task automatic tick;
     @(posedge clock); #1;
   endtask
-  task automatic send(logic [63:0] pc, logic [31:0] first, logic [31:0] second, int count = 2, bit keep0 = 1, bit keep1 = 1);
+  task automatic send(logic [63:0] pc, logic [31:0] first, logic [31:0] second, int count = 2, bit keep0 = 1, bit keep1 = 1, int fetch_fault_lane = -1);
     if (keep0) expect_instruction(pc, first);
     if (count == 2 && keep1) expect_instruction(pc + 4, second);
     instructions.valid = 1;
     instructions.bits.count = 2'(count);
-    instructions.bits.entries[0] = '{pc: pc, instruction: first};
-    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second};
+    instructions.bits.entries[0] = '{pc: pc, instruction: first, fault: '0};
+    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, fault: '0};
+    if (fetch_fault_lane >= 0)
+      instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
     #1;
     while (!ready) tick();
     tick();
@@ -653,7 +674,7 @@ module rv2wide_core_tb;
     send('h5044, imm(18, 0, 5), imm(19, 0, 6));
     repeat (6) tick(); hold_responses = 0; drain();
 
-    // Return and branch enter RR together: flush at WB must preserve the reserved completion.
+    // Return and branch enter RR together: MEM recovery preserves the reserved completion.
     hold_responses = 1;
     send('h5080, imm(10, 1, 0, 3, 'h03), '0, 1);
     repeat (8) tick();
@@ -669,6 +690,46 @@ module rv2wide_core_tb;
     repeat (10) tick();
     assert (expected_redirects.size() == 1 && response_count == 1 && expected.size() == 0) else $fatal(1, "fault did not retain precise drain boundary");
     hold_responses = 0; drain(); inject_enable = 0;
+
+    // Fetch faults ignore even valid memory encodings and preserve both age slots.
+    // In particular, a younger fault must wait for its older accepted load.
+    begin
+      int before_lookups = lookups;
+      stop_at('h5140, 'h5140, 1, 1, 'h5140);
+      send('h5140, imm(11, 1, 0, 3, 'h03), '0, 1, 0, 0, 0);
+      drain();
+      assert (lookups == before_lookups) else $fatal(1, "fetch fault caused a data lookup");
+    end
+    hold_responses = 1;
+    stop_at('h5184, 'h5184, 1, 1, 'h5184);
+    send('h5180, imm(11, 1, 8, 3, 'h03), store(2, 1, 0, 3), 2, 1, 0, 1);
+    repeat (10) tick();
+    assert (expected_redirects.size() == 1 && response_count == 1 && expected.size() == 0)
+      else $fatal(1, "fetch fault did not wait for older load");
+    hold_responses = 0; drain();
+
+    // An older WB fault overrides a younger MEM branch on the same edge.
+    stop_at('h51a0, 'h51a0, 1, 2, 64'hffffffff);
+    send('h51a0, 32'hffffffff, '0, 1, 0, 0);
+    send('h51a4, jump(17, 64), '0, 1, 0, 0);
+    drain();
+    assert(wb_overrides > 0) else $fatal(1, "missing simultaneous WB/MEM recovery");
+
+    // Same-group WB authorization can override the prior cycle's MEM branch.
+    // No link write or retirement survives the older memory replay/fault.
+    for (int mode = 0; mode < 2; mode++) begin
+      logic [63:0] pc = 64'('h51c0 + mode*16);
+      lookup_mode = 0;
+      block_requests = mode == 0;
+      inject_memory_fault = mode == 1; fault_address = 0;
+      stop_at(pc+4, pc+68);
+      stop_at(pc, pc, mode == 0 ? 2 : 1, 5, 0);
+      send(pc, imm(11, 0, 0, 3, 'h03), jump(17, 64), 2, 0, 0);
+      drain();
+      block_requests = 0; inject_memory_fault = 0;
+    end
+    assert(mem_branch_redirects > 10) else $fatal(1, "missing early branch coverage");
+    assert(minimum_instruction_capacity == 0) else $fatal(1, "instruction buffer never filled under issue backpressure");
 
     // Reset is an epoch boundary for both core owners and the memory service.
     hold_responses = 1; send('h5200, imm(12, 1, 0, 3, 'h03), '0, 1);

@@ -1,0 +1,118 @@
+#lang rhodium
+/* Fetches aligned 64-bit instruction blocks with reserved response space and ordered replay. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../cache/l1i/protocol.rhdl" open
+  "../riscv/chi-hart.rhdl" open
+  lib("riscv/isa/trap.rhm").ExceptionCause
+  lib("riscv/rtl/trap.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Retains the original PC and physical admission fault alongside the fixed-latency lookup. */
+bundle RV2WideFetchAttempt():
+  pc: Bits(64)
+  fault: RV2WideFetchFault()
+
+/* Issues one block per cycle on hits, reserving entries in the sole downstream instruction buffer.
+   Replay kills younger attempts but not older packets. Faults stop fetch until WB recovery.
+   Physical PMA checks precede cache resolution; no rejected address reaches CHI. */
+sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
+  interface start(Valid(Bits(64)), ~role: consumer)
+  interface redirect(Valid(RV2WideRedirect()), ~role: consumer)
+  interface flush(Pulse(), ~role: consumer)
+  interface memory(InstructionCacheLookup(64, 64), ~role: requester)
+  interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
+  interface instructions(Decoupled(RV2WidePacket()), ~role: producer)
+  input instruction_capacity: Bits(4)
+
+  reg active(~init: Bool(#false))
+  reg pc(Bits(64))
+  inst s1(ValidPipeAlwaysCapture(Bits(64), 1, ~flushable: #true))
+  inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(), 1, ~flushable: #true))
+  def command = start.valid ||| redirect.valid ||| flush.valid
+  def result_fault = s2.egress.bits.fault.valid ||| memory.response.bits.access_fault
+  def replay = s2.egress.valid & !s2.egress.bits.fault.valid & memory.response.valid & memory.response.bits.replay & !command
+  def fault = s2.egress.valid & !replay & result_fault & !command
+  def stop = replay ||| fault
+  def reserved = (s1.egress.valid.as_bits().zext(4) + s2.egress.valid.as_bits().zext(4)) << 1
+  assert(reserved <= instruction_capacity, "rv2wide_fetch_reservations")
+
+  // S0 reserves capacity before touching the synchronous arrays. Readiness
+  // never depends on S1 tag matching or the core's current issue decision.
+  def attempt_link :: Handle = interface_link(Decoupled(Bits(64)))
+  def attempt :: Endpoint = attempt_link.right
+  attempt_link.left.valid <== active & !command & !stop & (instruction_capacity >= reserved + bits(2, 4))
+  attempt_link.left.bits <== pc
+  def Array(array_index, context) = attempt |> atomic_fork(2)
+  array_index |> map_flow(address => address.align_down(8)) |> virtual_lookup
+  context |> to_valid() |> s1.ingress
+  when (start.valid):
+    active <== Bool(#true)
+    pc <== start.bits
+  elsewhen (redirect.valid):
+    active <== redirect.bits.resolution.disposition =/= RV2WideDisposition.Fault
+    pc <== redirect.bits.target
+  elsewhen (flush.valid):
+    active <== Bool(#false)
+  elsewhen fault:
+    active <== Bool(#false)
+  elsewhen replay:
+    pc <== s2.egress.bits.pc
+  elsewhen (attempt.fire()):
+    pc <== pc.align_down(8) + bits(8, 64)
+
+  // S1 resolves physical permissions independently for each block. A bad
+  // instruction PC becomes a fault token, never an aliased aligned fetch.
+  def s1_base = s1.egress.bits.align_down(8)
+  def physical = config.physical_map.lookup(s1_base, s1_base +& bits(7, 64))
+  def permitted = physical.mapped & physical.executable & physical.instruction_cacheable & physical.read_idempotent & !physical.device
+  def misaligned = !s1.egress.bits.is_aligned(4)
+  def denied = !permitted ||| misaligned
+  def Array(resolutions, contexts) = s1.egress |> filter_valid(_pc => !command & !stop) |> fork_valid(2)
+  (resolutions |> filter_valid(_pc => !denied) |> map_valid(address => InstructionCacheReq(64)):
+    address: address.align_down(8)
+  ) |> memory.request
+  (contexts |> map_valid(address):
+    wire attempt: RV2WideFetchAttempt()
+    attempt.pc <== address
+    attempt.fault <== RV2WideFetchFault():
+      valid: denied
+      cause: mux(misaligned, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), exception_cause_bits(ExceptionCause.InstructionAccessFault, 64))
+      value: address
+    attempt
+  ) |> s2.ingress
+  s1.flush <== command ||| stop
+  s2.flush <== command ||| stop
+  memory.flush <== command
+  memory.invalidate_all <== Bool(#false)
+  memory.s1_kill <== command ||| stop
+
+  // ID packet assembly retains the upper-only restart offset. Only the first
+  // instruction of a failed block is offered, with precise fault provenance.
+  (s2.egress |> filter_valid(_attempt => !command & !replay)
+    |> map_valid(attempt):
+         wire packet: RV2WidePacket()
+         packet.count <== mux(attempt.pc[2].into(Bool) ||| result_fault, bits(1, 2), bits(2, 2))
+         def fetch_fault = RV2WideFetchFault():
+           valid: result_fault
+           cause: mux(attempt.fault.valid, attempt.fault.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, 64))
+           value: mux(attempt.fault.valid, attempt.fault.value, attempt.pc)
+         packet.entries <== vec(
+           for List (lane in 0..2):
+             RV2WideInstruction():
+               pc: attempt.pc + bits(lane * 4, 64)
+               instruction: if lane == 0 | mux(attempt.pc[2].into(Bool), memory.response.bits.data[32..64], memory.response.bits.data[0..32]) | memory.response.bits.data[32..64]
+               fault: fetch_fault
+         )
+         packet
+  ) |> to_decoupled() |> instructions
+  when (s2.egress.valid & !s2.egress.bits.fault.valid & !command):
+    assert(memory.response.valid, "rv2wide_fetch_has_outcome")
+  when (instructions.valid):
+    assert(instructions.ready, "rv2wide_fetch_reserved_response")
+
+export:
+  RV2WideFrontend

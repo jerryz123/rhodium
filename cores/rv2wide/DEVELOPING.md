@@ -4,7 +4,7 @@
 # Developing RV2Wide
 
 Read [README.md](README.md) for the current public contract. This guide owns
-the integer slice, its age/order rules, and its behavioral fixture. Follow
+the fetch frontend, integer slice, age/order rules, and behavioral fixtures. Follow
 [core ownership](../DEVELOPING.md), the repository
 [package graph](../../rhodium/DEVELOPING.md), and
 [test policy](../../tools/testing/DEVELOPING.md).
@@ -33,11 +33,12 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 | `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
-| `issue-window.rhdl` | Four-entry two-wide packet storage and prefix consumption |
+| `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
+| `frontend.rhdl` | Reserved-capacity block fetch, physical permissions, local replay, and fault packet assembly |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component instances, register state, precise stops |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `cache.rhdl` | Physical RAM permission checks and raw-beat adaptation to the shared L1D |
-| `rv2wide.rhdl` | Integrated composition; currently execution slice and L1D, without frontend or privilege state |
+| `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
 
 ## Change workflow
@@ -72,11 +73,40 @@ Pre-WB producer checks bridge the interval before the scoreboard is set.
 RAW interlocks select the youngest older producer; WAW interlocks cover all
 older deferred producers. A completion may forward to RR on its write edge.
 
+A MEM branch flush clears the instruction buffer, RR, and EX, including EX
+lookup admission, while preserving its own MEM-to-WB transfer and older WB work.
+An older taken branch also suppresses its same-group younger MEM transfer.
+Branch selection observes both lanes' resolved MEM outcomes. WB faults/replays
+and retained faults override MEM recovery; branches never redirect twice.
+An older same-group memory instruction may reject WB authorization after MEM
+branch recovery; its WB redirect must override that speculative target and
+suppress the younger branch's retirement. No branch prediction is involved.
+
 A pending fault squashes younger pipeline/window work immediately, but its
 public redirect waits for both the owner FIFO and memory service to drain.
 Same-group older acceptance participates in that drain decision. Branch and
 replay redirects do not cancel or wait for successful accepted work.
 Reset is coordinated with the memory service; it ends the entire response epoch.
+
+The frontend pairs one accepted S0 virtual index with S1 physical permission
+resolution and an S2 block outcome. Both lookup contexts use flushable Flow
+Valid pipes. Reserve two entries for each admitted lookup in the core's sole
+eight-entry instruction buffer, using its registered free-entry count. S2
+assembly feeds that buffer directly, with no intervening packet queue. Never
+depend on current issue readiness to accept a cache result. Replay kills younger
+lookup stages only; MEM/WB recovery also clears the instruction buffer. Start is
+quiescent-only and the buffer is already empty. Accepted refills belong to L1I
+and remain live across speculative cancellation. Fetch faults carry explicit
+cause/address through the ordinary instruction token and suppress decode
+hazards, memory requests, branch effects, and GPR writes.
+The core's immediate `fetch_flush` pulse also stops fetch during a retained WB
+fault, before its drained public redirect. A simultaneous redirect supplies the
+new cursor; otherwise fetch remains stopped. Buffer credits alone cannot express
+this cancellation because a cleared buffer can still be rejecting admission.
+
+Keep `start` quiescent-only: reset or completed fault delivery, after the data
+service drains. It is not an asynchronous core flush input. The integrated
+top automatically restarts branches/replays and stops on a reported fault.
 
 ## Validation
 
@@ -85,6 +115,7 @@ Run the focused production-core fixture:
 ```sh
 FIXTURE=rv2wide-core bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-cache bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv2wide-fetch bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
 
@@ -93,6 +124,9 @@ retirement, packet coalescing, RAW/WAW and x0, youngest-producer forwarding,
 RV64/word ALU operations, seeded dependency-heavy arithmetic, signed/unsigned
 branches and jumps in either slot, JALR masking, misalignment/illegal faults,
 MEM qualification, replay/restart, older-fault priority, and reset cancellation.
+It checks branch recovery against the public MEM token before WB retirement,
+simultaneous older WB recovery, same-group authorization failure after a MEM
+branch, and filling the instruction buffer under issue backpressure.
 The same fixture drives the production LSU boundary with a controlled cache
 service. It checks hit throughput, every natural byte lane and load extension,
 store masks, four outstanding owners, hit-under-miss, RAW/WAW scoreboarding,
@@ -105,6 +139,17 @@ unmapped-access faults after older accepted work drains.
 It compares architectural retirement against an independent sequential model,
 not internal register names. External qualification is matched to public MEM
 PCs; no test-only RTL switches or hierarchical state mutations are used.
+
+`rv2wide-fetch` executes the production fetching top against a byte-addressed
+CHI backing-memory oracle. It checks sustained warm dual retirement, upper-only
+restart packets, dependency/backpressure retention, cold I/D misses, masked
+store/load execution, reordered instruction refill packets, wrong-path refill
+errors across redirects, last-word-of-page retirement, precise unmapped/read-error
+faults, misaligned starts, and restart after fault. It also covers a younger
+illegal instruction while an older load drains, with fetch cancellation preceding
+the fault report. The existing cache-only
+fixture composes the same production core and L1D adapter with packet stimulus;
+it does not add a second public cached-core wrapper.
 
 The fixture runner invokes the repository-managed Racket wrapper. Run host
 checks through `tools/run-racket-tests.sh` and other elaboration through

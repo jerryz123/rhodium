@@ -51,11 +51,13 @@ sync_circuit RV2WideCore():
   interface memory_stage[2](Valid(RV2WideInstruction()), ~role: producer)
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
   interface redirect(Valid(RV2WideRedirect()), ~role: producer)
+  interface fetch_flush(Pulse(), ~role: producer)
   interface memory(RV2WideMemory(), ~role: requester)
   interface pipeline(RV2WidePipelineAccess(), ~role: requester)
   interface completed(Valid(RV2WideRetirement()), ~role: producer)
   output issued: Bits(2)
   output retired_count: Bits(2)
+  output instruction_capacity: Bits(4)
 
   inst rr_window(RV2WideIssueWindow())
   inst ex_older(ValidPipe(RV2WideExecute(), 1, ~flushable: #true))
@@ -74,6 +76,8 @@ sync_circuit RV2WideCore():
   def wb_redirect_link :: Handle = interface_link(Valid(RV2WideRedirect()))
   def wb_redirect :: Endpoint = wb_redirect_link.right
   wire wb_squash: Bool
+  wire rr_squash: Bool
+  wire mem_branch_redirect: Bool
   inst wb_load_response(RV2WideLoadResponse())
   inst wb_scoreboard(Scoreboard(32))
   memory.response |> wb_load_response.response
@@ -91,12 +95,14 @@ sync_circuit RV2WideCore():
   wb_scoreboard.clear.bits <== wb_completion.bits.rd
   reg rr_registers(~init: vec(for List (_ in 0..32): bits(0, 64)))
   instructions |> rr_window.ingress
-  rr_window.clear.valid <== wb_squash
+  instruction_capacity <== rr_window.available
+  rr_window.clear.valid <== rr_squash
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): RV2WideDecode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
+  def rr_decodable = for List (lane in 0..2): rr_decoded[lane].valid & !rr_head.entries[lane].fault.valid
   def rr_rs1 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
   def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
   def rr_rd :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rd, rr_head.entries[lane].instruction))
@@ -110,19 +116,19 @@ sync_circuit RV2WideCore():
   def rr_left :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs1[lane], rr_stored(rr_rs1[lane]), rr_producers))
   def rr_right :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs2[lane], rr_stored(rr_rs2[lane]), rr_producers))
   def rr_blocked = for List (lane in 0..2):
-    rr_decoded[lane].valid & ((rr_controls[lane].operand.uses_rs1 & (rr_left[lane].blocked ||| rr_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
-  def rr_older_write = rr_decoded[0].valid & rr_controls[0].writeback.enable & rr_rd[0].or_reduce()
+    rr_decodable[lane] & ((rr_controls[lane].operand.uses_rs1 & (rr_left[lane].blocked ||| rr_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
+  def rr_older_write = rr_decodable[0] & rr_controls[0].writeback.enable & rr_rd[0].or_reduce()
   def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
   def rr_pair_waw = rr_older_write & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
   def rr_pair_branch = rr_controls[0].branch.resolver.enable & rr_controls[1].branch.resolver.enable
   def rr_pair_memory = rr_controls[0].memory.enable & rr_controls[1].memory.enable
-  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !wb_squash
-  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decoded[0].valid & rr_decoded[1].valid & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !(rr_completion.valid & rr_completion.bits.write)
+  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !rr_squash
+  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decodable[0] & (rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory)) & !(rr_completion.valid & rr_completion.bits.write)
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   rr_window.consume <== issued
   for (lane in 0..2):
     def ex_ingress :: Endpoint = ex_pipe[lane].ingress
-    ex_pipe[lane].flush <== wb_squash
+    ex_pipe[lane].flush <== rr_squash
     ex_ingress.valid <== if lane == 0 | rr_first | rr_second
     ex_ingress.bits <== RV2WideExecute():
       fetched: rr_head.entries[lane]
@@ -134,13 +140,13 @@ sync_circuit RV2WideCore():
 
   // EX: two common ALUs and one steered common branch resolver.
   def ex_tokens :: Vec(2, RV2WideExecute()) = vec(for List (lane in 0..2): ex_pipe[lane].egress.bits)
-  def ex_branch_lane = mux(ex_older.egress.valid & ex_tokens[0].control.branch.resolver.enable, bits(0, 1), bits(1, 1))
+  def ex_branch_lane = mux(ex_older.egress.valid & !ex_tokens[0].illegal & !ex_tokens[0].fetched.fault.valid & ex_tokens[0].control.branch.resolver.enable, bits(0, 1), bits(1, 1))
   def ex_branch :: RV2WideExecute() = ex_tokens[ex_branch_lane]
   inst ex_resolver(BranchResolver(64))
   inst ex_alu_older(ALU(XLen.X64))
   inst ex_alu_younger(ALU(XLen.X64))
   def ex_alus = [ex_alu_older, ex_alu_younger]
-  ex_resolver.request.valid <== (ex_older.egress.valid ||| ex_younger.egress.valid) & !wb_squash
+  ex_resolver.request.valid <== (ex_older.egress.valid ||| ex_younger.egress.valid) & !rr_squash
   ex_resolver.request.bits <== BranchResolverRequest(64):
     left: ex_branch.rs1
     right: ex_branch.rs2
@@ -150,6 +156,7 @@ sync_circuit RV2WideCore():
     def ex_input :: Endpoint = ex_pipe[lane].egress
     def ex_output :: Endpoint = ex_links[lane].left
     def ex_alu = ex_alus[lane]
+    def ex_executable = !ex.illegal & !ex.fetched.fault.valid
     def ex_immediate = ex.control.operand.immediate.decode(ex.fetched.instruction)
     ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.rs1):
       RV2WideLeft.Pc: ex.fetched.pc
@@ -158,17 +165,17 @@ sync_circuit RV2WideCore():
     ex_alu.control <== ex.control.alu
     def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !bits(1, 64), ex_target_sum)
-    def ex_taken = !ex.illegal & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
+    def ex_taken = ex_executable & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
     def ex_bad_pc = ex.fetched.pc[0..2].or_reduce()
     def ex_bad_target = ex_taken & ex_target[0..2].or_reduce()
-    def ex_memory = !ex.illegal & ex.control.memory.enable
+    def ex_memory = ex_executable & ex.control.memory.enable
     def ex_bad_address = ex_memory & !ex.control.memory.width.is_aligned(ex_alu.result)
-    def ex_fault = ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
-    ex_output.valid <== ex_input.valid & !wb_squash
+    def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
+    ex_output.valid <== ex_input.valid & !rr_squash
     ex_output.bits <== RV2WideResult():
       fetched: ex.fetched
       rd: ex.rd
-      write: !ex.illegal & ex.control.writeback.enable & ex.rd.or_reduce()
+      write: ex_executable & ex.control.writeback.enable & ex.rd.or_reduce()
       data: mux(ex.control.writeback.link, ex.fetched.pc + bits(4, 64), ex_alu.result)
       result_ready: !(ex_memory & !ex.control.memory.write)
       taken: ex_taken
@@ -180,12 +187,12 @@ sync_circuit RV2WideCore():
       resolution:
         RV2WideResolution():
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
-          cause: mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.write, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64)))
-          value: mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.instruction.zext(64))))
+          cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.write, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
+          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.instruction.zext(64)))))
     ex_results[lane] |> mem_pipe[lane].ingress
-    mem_pipe[lane].flush <== wb_squash
+    mem_pipe[lane].flush <== rr_squash
 
-  def ex_memory_lane = mux(ex_older.egress.valid & ex_tokens[0].control.memory.enable, bits(0, 1), bits(1, 1))
+  def ex_memory_lane = mux(ex_older.egress.valid & !ex_tokens[0].illegal & !ex_tokens[0].fetched.fault.valid & ex_tokens[0].control.memory.enable, bits(0, 1), bits(1, 1))
   def ex_result_tokens :: Vec(2, RV2WideResult()) = vec(
     for List (lane in 0..2):
       def result :: Endpoint = ex_results[lane]
@@ -196,7 +203,7 @@ sync_circuit RV2WideCore():
   ex_store.address <== ex_lookup.address
   ex_store.value <== ex_lookup.store_data
   ex_store.width <== ex_lookup.memory.width
-  pipeline.request.valid <== (mux(ex_memory_lane === bits(0, 1), ex_older.egress.valid, ex_younger.egress.valid)) & ex_lookup.memory.enable & (ex_lookup.resolution.disposition === RV2WideDisposition.Continue) & !wb_squash
+  pipeline.request.valid <== (mux(ex_memory_lane === bits(0, 1), ex_older.egress.valid, ex_younger.egress.valid)) & ex_lookup.memory.enable & (ex_lookup.resolution.disposition === RV2WideDisposition.Continue) & !rr_squash
   pipeline.request.bits <== RV2WideMemoryReq():
     address: ex_lookup.address
     write: ex_lookup.memory.write
@@ -211,6 +218,7 @@ sync_circuit RV2WideCore():
   mem_load.width <== mem_memory.memory.width
   mem_load.unsigned_load <== mem_memory.memory.unsigned
   mem_load.data <== pipeline.response.bits.data
+  wire mem_resolved: Vec(2, RV2WideResult())
   for (lane in 0..2):
     def mem_input :: Endpoint = mem_pipe[lane].egress
     def mem_output :: Endpoint = mem_links[lane].left
@@ -225,15 +233,28 @@ sync_circuit RV2WideCore():
       disposition: mux(mem_fault, RV2WideDisposition.Fault, mux(mem_outcome === RV2WideCacheOutcome.Replay, RV2WideDisposition.Replay, RV2WideDisposition.Continue))
       cause: mux(mem_page_fault, mux(mem.memory.write, exception_cause_bits(ExceptionCause.StorePageFault, 64), exception_cause_bits(ExceptionCause.LoadPageFault, 64)), mux(mem.memory.write, exception_cause_bits(ExceptionCause.StoreAccessFault, 64), exception_cause_bits(ExceptionCause.LoadAccessFault, 64)))
       value: mem.address
-    mem_output.valid <== mem_input.valid & !wb_squash
-    mem_output.bits <== mem.updated(
+    mem_resolved[lane] <== mem.updated(
       ~resolution: mux(mem.resolution.disposition =/= RV2WideDisposition.Continue, mem.resolution, mux(resolution[lane].valid, resolution[lane].bits, mux(mem_lookup, mem_lookup_resolution, mem.resolution))),
       ~data: mux(mem_hit, mem_load.value, mem.data),
       ~result_ready: mem.result_ready ||| mem_hit,
       ~cache_outcome: mem_outcome
     )
+    mem_output.valid <== mem_input.valid & !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].taken & mem_older.egress.valid))
+    mem_output.bits <== mem_resolved[lane]
     mem_results[lane] |> wb_pipe[lane].ingress
     wb_pipe[lane].flush <== wb_squash
+
+  // Sequential fetch needs recovery only for taken branches. MEM preserves
+  // the branch and its older peer for WB, but removes every younger token.
+  def mem_older_continue = mem_resolved[0].resolution.disposition === RV2WideDisposition.Continue
+  def mem_branch_older = mem_older.egress.valid & mem_resolved[0].taken & mem_older_continue
+  def mem_branch_younger = mem_younger.egress.valid & mem_resolved[1].taken & (mem_resolved[1].resolution.disposition === RV2WideDisposition.Continue) & (!mem_older.egress.valid ||| (mem_older_continue & !mem_resolved[0].taken))
+  mem_branch_redirect <== (mem_branch_older ||| mem_branch_younger) & !wb_squash
+  def mem_branch :: RV2WideResult() = mux(mem_branch_older, mem_resolved[0], mem_resolved[1])
+  def mem_redirect_bits = RV2WideRedirect():
+    pc: mem_branch.fetched.pc
+    target: mem_branch.target
+    resolution: mem_branch.resolution
 
   // WB: successful hits retire normally. Store candidates and slow requests
   // either authorize now, fault before acceptance, or replay without effects.
@@ -241,7 +262,7 @@ sync_circuit RV2WideCore():
   def wb_fault_pending = wb_fault_retention.egress.valid
   def wb_valid :: Vec(2, Bool) = vec(wb_older.egress.valid, wb_younger.egress.valid)
   def wb_group :: Vec(2, RV2WideResult()) = vec(for List (lane in 0..2): wb_pipe[lane].egress.bits)
-  def wb_older_stop = wb_valid[0] & ((wb_group[0].resolution.disposition =/= RV2WideDisposition.Continue) ||| wb_group[0].taken)
+  def wb_older_stop = wb_valid[0] & (wb_group[0].resolution.disposition =/= RV2WideDisposition.Continue)
   def wb_memory_lane = mux(wb_valid[0] & wb_group[0].memory.enable, bits(0, 1), bits(1, 1))
   def wb_memory :: RV2WideResult() = wb_group[wb_memory_lane]
   def wb_memory_active = wb_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_fault_pending
@@ -279,7 +300,7 @@ sync_circuit RV2WideCore():
       )
   )
   def wb_stop = for List (lane in 0..2):
-    !wb_fault_pending & wb_valid[lane] & ((wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue) ||| wb_tokens[lane].taken)
+    !wb_fault_pending & wb_valid[lane] & (wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue)
   def wb_selected :: RV2WideResult() = mux(wb_stop[0], wb_tokens[0], wb_tokens[1])
   def wb_stop_valid = wb_stop[0] ||| wb_stop[1]
   def wb_stop_bits = RV2WideRedirect():
@@ -294,7 +315,10 @@ sync_circuit RV2WideCore():
   wb_redirect_link.left.valid <== (wb_stop_valid & !wb_hold_fault) ||| (wb_fault_pending & wb_drained)
   wb_redirect_link.left.bits <== mux(wb_fault_pending, wb_fault_retention.egress.bits, wb_stop_bits)
   wb_squash <== wb_stop_valid ||| wb_fault_pending
-  wb_redirect |> redirect
+  rr_squash <== wb_squash ||| mem_branch_redirect
+  fetch_flush.valid <== rr_squash
+  redirect.valid <== wb_redirect.valid ||| mem_branch_redirect
+  redirect.bits <== mux(wb_redirect.valid, wb_redirect.bits, mem_redirect_bits)
   wire wb_writes: Vec(2, Bool)
   for (lane in 0..2):
     def wb :: RV2WideResult() = wb_tokens[lane]

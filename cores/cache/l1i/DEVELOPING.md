@@ -29,7 +29,7 @@ separation.
 | Shared cache geometry | [`../geometry.rhdl`](../geometry.rhdl) |
 | Reusable invalid-first tree-PLRU policy | [`../../../rhodium/std/plru.rhdl`](../../../rhodium/std/plru.rhdl) |
 | Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
-| Core/MMU/CHI integration | [RV5Stage](../../rv5stage/rv5stage.rhdl) |
+| Core/MMU/CHI integration | [RV5Stage](../../rv5stage/rv5stage.rhdl), [RV2Wide physical fetch](../../rv2wide/rv2wide.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
 | CIRCT/Verilator fixtures | [Shared cache](../tests/circt/), [RV5Stage integration](../../rv5stage/tests/circt/) |
 
@@ -100,6 +100,8 @@ Test 32-bit snapshots, refill, invalidation, and access-error behavior in
 `cache-icache`. `cache-icache64` checks every 64-bit block position, page-end and
 next-page reads, consecutive hits, redirect survival, invalidation, errors, and
 ROM. `cache-compack` checks retained line-read and acknowledgement ancestry.
+`rv2wide-fetch` executes the real 64-bit frontend/core composition; its owning
+[guide](../../rv2wide/DEVELOPING.md#validation) describes the retirement oracle.
 Use the [RV5Stage guide](../../rv5stage/DEVELOPING.md#focused-validation) when a change crosses
 refill, snoop, MMU, Fetch, or complete-core integration, and use the backend test
 [`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator

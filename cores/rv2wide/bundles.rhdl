@@ -7,10 +7,17 @@ import:
   "decode/mem-ctrl.rhdl" open
   lib("flow/main.rhdl") open
 
-/* Carries one uncompressed instruction and its architectural PC. */
+/* Retains the architectural cause and faulting address independently of instruction data. */
+bundle RV2WideFetchFault():
+  valid: Bool
+  cause: Bits(64)
+  value: Bits(64)
+
+/* Carries one uncompressed instruction or fetch fault and its architectural PC. */
 bundle RV2WideInstruction():
   pc: Bits(64)
   instruction: Bits(32)
+  fault: RV2WideFetchFault()
 
 /* Offers a nonempty prefix of up to two instructions to the issue window. */
 bundle RV2WidePacket():
@@ -109,7 +116,7 @@ bundle RV2WideRetirement():
   data: Bits(64)
   deferred: Bool
 
-/* Names the oldest stop at WB; Continue denotes a resolved branch redirect. */
+/* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement. */
 bundle RV2WideRedirect():
   pc: Bits(64)
   target: Bits(64)
@@ -121,6 +128,7 @@ bundle RV2WideOperand():
   data: Bits(64)
 
 export:
+  RV2WideFetchFault
   RV2WideInstruction
   RV2WidePacket
   RV2WideDisposition

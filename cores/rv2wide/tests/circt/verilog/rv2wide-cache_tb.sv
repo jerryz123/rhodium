@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_cache_tb;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction; } instruction_t;
+  typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
+  typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction; fetch_fault_flow_t fault; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -23,7 +25,7 @@ module rv2wide_cache_tb;
   logic [1:0] issued, retired_count;
   chi_in_t chi_in;
   chi_out_t chi_out;
-  RV2Wide dut(.clock(clock), .reset(reset), .node_id(7'd3),
+  RV2WideCacheFixture dut(.clock(clock), .reset(reset), .node_id(7'd3),
     .instructions_in(instructions), .instructions_out(instructions_ready),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]), .completed_out(completed),
     .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out));
@@ -136,8 +138,8 @@ module rv2wide_cache_tb;
     if (!reset && !fault_seen && send_pc/4 < program_size) begin
       instructions.valid = 1;
       instructions.bits.count = send_pc/4+1 < program_size ? 2 : 1;
-      instructions.bits.entries[0] = '{64'(send_pc), program_words[send_pc/4]};
-      instructions.bits.entries[1] = '{64'(send_pc+4), program_words[send_pc/4+1]};
+      instructions.bits.entries[0] = '{64'(send_pc), program_words[send_pc/4], '0};
+      instructions.bits.entries[1] = '{64'(send_pc+4), program_words[send_pc/4+1], '0};
     end
   end
   always @(posedge clock) if (!reset) begin
