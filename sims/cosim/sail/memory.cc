@@ -52,7 +52,9 @@ void MemoryCheck::check_atomic(const StepResult& step) const {
             std::popcount(effect.byte_mask) == int(step.atomic->bytes), "atomic kind/address/width");
     require((effect.result == AccessResult::Fault) == step.trap.has_value(), "atomic fault outcome");
     if (step.atomic->physical_address) {
-      require(effect.physical_valid || *step.atomic->physical_address == effect.virtual_address, "missing translated SC address");
+      // Translation can succeed before PMP/PMA rejects SC, without a physical
+      // transaction. Completed SC attempts still require translated provenance.
+      require(effect.result == AccessResult::Fault || effect.physical_valid || *step.atomic->physical_address == effect.virtual_address, "missing translated SC address");
       require(!effect.physical_valid || effect.physical_address == *step.atomic->physical_address, "SC physical address");
     }
   } else if (!step.atomic) {

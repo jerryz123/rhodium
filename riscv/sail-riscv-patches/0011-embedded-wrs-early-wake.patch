@@ -1,0 +1,59 @@
+Subject: [PATCH] Distinguish embedded WRS early completion from timeout
+
+Purpose: Let an embedded host release WRS without manufacturing an interrupt or
+invalidating the reference reservation. Keep timeout traps model-owned.
+SPDX-License-Identifier: BSD-2-Clause
+
+Zawrs permits early completion for any reason, including with TW/VTW set.
+The default-disabled hook affects only an already-waiting WRS instruction.
+The existing exit_wait input still represents a timeout and preserves its
+privilege-dependent exception checks. Standalone execution is unchanged.
+
+diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
+--- a/c_emulator/riscv_platform_if.h
++++ b/c_emulator/riscv_platform_if.h
+@@ -35,6 +35,7 @@
+   virtual bool host_time_enabled(unit);
+   virtual fbits host_time(unit);
+   virtual bool host_interrupt_boundary(unit);
++  virtual bool host_wrs_early_wake(unit);
+ 
+   virtual unit fetch_callback(sbits opcode);
+ 
+diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
+--- a/c_emulator/riscv_platform_if.cpp
++++ b/c_emulator/riscv_platform_if.cpp
+@@ -18,6 +18,7 @@
+ bool PlatformInterface::host_time_enabled(unit) { return false; }
+ fbits PlatformInterface::host_time(unit) { return 0; }
+ bool PlatformInterface::host_interrupt_boundary(unit) { return true; }
++bool PlatformInterface::host_wrs_early_wake(unit) { return false; }
+ 
+ // We must provide default implementations so the automatically generated
+ // model_test() function can instantiate hart::Model.
+diff --git a/model/postlude/step.sail b/model/postlude/step.sail
+--- a/model/postlude/step.sail
++++ b/model/postlude/step.sail
+@@ -18,6 +18,11 @@
+   Step_Waiting            : WaitReason,
+ }
+ 
++// Optional implementation-dependent WRS completion, not a timeout or IRQ.
++// This does not change reservations and never applies to WFI.
++val host_wrs_early_wake = pure {cpp: "host_wrs_early_wake"} : unit -> bool
++function host_wrs_early_wake() = false
++
+ private function run_hart_waiting(_step_no : nat, wr: WaitReason, instr_info : instr_info, exit_wait : bool) -> Step = {
+   // successfully interrupted waits
+   if shouldWakeForInterrupt() then {
+@@ -31,5 +36,10 @@
+   };
+ 
++  if wr != WAIT_WFI & host_wrs_early_wake() then {
++    hart_state = HART_ACTIVE();
++    return Step_Execute(Retire_Success(), instr_info)
++  };
++
+   match (wr, valid_reservation(), exit_wait) {
+     (WAIT_WRS_STO, false, _) => {
+       if get_config_print_instr()

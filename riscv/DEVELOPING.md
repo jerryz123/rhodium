@@ -134,6 +134,13 @@ interrupt boundaries, empty whole-register memory `vstart` cleanup, and optional
 `tselect` presence. The selector patch preserves Sail's default placeholder;
 shared UDB projection disables it for our no-trigger harts. RV32/RV64 embedded
 regressions check absent read/write traps and the preserved default behavior.
+The CSR-WARL patch adds configurable `hedeleg`, HPM selector event IDs, and
+unsupported PMM normalization with legacy defaults. Resolved static policy,
+not observed DUT state, selects each implementation's behavior. The Sstc patch
+uses architectural host time without enabling a duplicate CLINT device.
+The WRS hook permits early completion of an already-waiting instruction without
+clearing reservations; standalone behavior and timeout exception checks remain
+unchanged. Embedded callers distinguish early release from timeout explicitly.
 Keep the executable and embedded library in one identity-scoped package.
 The fault-address patch includes a Sail unit test for positive, negative, and
 XLEN-wrapped offsets; run the upstream `unit_tests` target when building the model.

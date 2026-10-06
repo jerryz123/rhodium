@@ -17,6 +17,8 @@ def config_architecture(configuration, name, udb=None):
         raise ValueError("configuration must identify the selected config")
     if configuration["xlen"] != resolved["params"]["MXLEN"] or (udb is not None and resolved != udb):
         raise ValueError("UDB differs from its resolved config")
+    if "csr_warl" not in configuration:
+        raise ValueError("configuration lacks implementation CSR WARL policy; regenerate configuration")
     return resolved
 
 
@@ -34,6 +36,9 @@ def model_defaults(sail, xlen):
     transformed = default.get("extensions", {}).get("H", {}).get("transformed_instruction", {})
     if (not {"supported", "writable_bits"} <= inhibit.keys()
             or not TRANSFORMED_INSTRUCTION_PARAMETERS.keys() <= transformed.keys()
-            or type(default.get("base", {}).get("tselect_present")) is not bool):
-        raise ValueError("Sail lacks pinned mcountinhibit/transformed-instruction/tselect controls; rebuild with arch-test-sail-setup")
+            or type(default.get("base", {}).get("tselect_present")) is not bool
+            or "delegatable_bits" not in default.get("base", {}).get("hedeleg", {})
+            or not {"restricted", "supported"} <= default.get("base", {}).get("hpm_events", {}).keys()
+            or type(default.get("base", {}).get("pmm_unsupported_write_to_disabled")) is not bool):
+        raise ValueError("Sail lacks pinned CSR/transformed-instruction controls; rebuild with arch-test-sail-setup")
     return default

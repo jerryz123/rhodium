@@ -1,0 +1,111 @@
+Subject: [PATCH] Supply embedded HPM counter reads and overflow events
+
+Purpose: Keep implementation-defined event counting outside the reference while
+preserving Sail CSR access, read-modify-write, selector, and interrupt semantics.
+SPDX-License-Identifier: BSD-2-Clause
+
+Default hooks preserve standalone behavior. Only implemented counters 3..31
+can be sampled. Overflow events update sticky OF and LCOFIP before arbitration;
+cycle, time, and instret retain their existing providers.
+
+diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
+--- a/c_emulator/riscv_platform_if.h
++++ b/c_emulator/riscv_platform_if.h
+@@ -36,6 +36,9 @@
+   virtual fbits host_time(unit);
+   virtual bool host_interrupt_boundary(unit);
+   virtual bool host_wrs_early_wake(unit);
++  virtual fbits host_hpm_counters(unit);
++  virtual fbits host_hpm_counter(fbits index);
++  virtual fbits host_hpm_overflows(unit);
+ 
+   virtual unit fetch_callback(sbits opcode);
+ 
+diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
+--- a/c_emulator/riscv_platform_if.cpp
++++ b/c_emulator/riscv_platform_if.cpp
+@@ -19,6 +19,9 @@
+ fbits PlatformInterface::host_time(unit) { return 0; }
+ bool PlatformInterface::host_interrupt_boundary(unit) { return true; }
+ bool PlatformInterface::host_wrs_early_wake(unit) { return false; }
++fbits PlatformInterface::host_hpm_counters(unit) { return 0; }
++fbits PlatformInterface::host_hpm_counter(fbits) { return 0; }
++fbits PlatformInterface::host_hpm_overflows(unit) { return 0; }
+ 
+ // We must provide default implementations so the automatically generated
+ // model_test() function can instantiate hart::Model.
+diff --git a/model/core/counters.sail b/model/core/counters.sail
+--- a/model/core/counters.sail
++++ b/model/core/counters.sail
+@@ -174,6 +174,29 @@
+ function read_mhpmcounterh(index : hpmidx) -> bits(32) = mhpmcounter[index][63 .. 32]
+ function read_mhpmevent(index : hpmidx) -> xlenbits = mhpmevent[index].bits[(xlen - 1) .. 0]
+ 
++// Optional raw counter provider. CSR permission checks still precede read_CSR;
++// sampling here, rather than in read_mhpmcounter, preserves post-write callbacks.
++val host_hpm_counters = pure {cpp: "host_hpm_counters"} : unit -> bits(32)
++function host_hpm_counters() = zeros()
++val host_hpm_counter = pure {cpp: "host_hpm_counter"} : bits(5) -> bits(64)
++function host_hpm_counter(_index) = zeros()
++val host_hpm_overflows = pure {cpp: "host_hpm_overflows"} : unit -> bits(32)
++function host_hpm_overflows() = zeros()
++
++function sample_hpm_counter(index : hpmidx) -> unit =
++  if sys_writable_hpm_counters[index] == 0b1 & host_hpm_counters()[index] == 0b1 then
++    mhpmcounter[index] = host_hpm_counter(to_bits(5, index))
++
++function read_sampled_hpmcounter(index : hpmidx) -> xlenbits = {
++  sample_hpm_counter(index);
++  read_mhpmcounter(index)
++}
++
++function read_sampled_hpmcounterh(index : hpmidx) -> bits(32) = {
++  sample_hpm_counter(index);
++  read_mhpmcounterh(index)
++}
++
+ // Write the HPM CSRs. These return the new value of the CSR, for use in writeCSR.
+ function write_mhpmcounter(index : hpmidx, value : xlenbits) -> unit =
+   if sys_writable_hpm_counters[index] == 0b1 then mhpmcounter[index][(xlen - 1) .. 0] = value
+@@ -202,8 +225,8 @@
+ function clause is_CSR_accessible((0b1011000 /* 0xB00 */ @ index : bits(5), _, _) if unsigned(index) >= 3) = true // mhpmcounter3..31
+ function clause is_CSR_accessible((0b1011100 /* 0xB80 */ @ index : bits(5), _, _) if unsigned(index) >= 3) = xlen == 32 // mhpmcounterh3..31
+ 
+-function clause read_CSR(0b1011000 /* 0xB00 */ @ index : bits(5) if unsigned(index) >= 3) = read_mhpmcounter(hpmidx_from_bits(index))
+-function clause read_CSR(0b1011100 /* 0xB80 */ @ index : bits(5) if xlen == 32 & unsigned(index) >= 3) = read_mhpmcounterh(hpmidx_from_bits(index))
++function clause read_CSR(0b1011000 /* 0xB00 */ @ index : bits(5) if unsigned(index) >= 3) = read_sampled_hpmcounter(hpmidx_from_bits(index))
++function clause read_CSR(0b1011100 /* 0xB80 */ @ index : bits(5) if xlen == 32 & unsigned(index) >= 3) = read_sampled_hpmcounterh(hpmidx_from_bits(index))
+ 
+ function clause write_CSR((0b1011000 /* 0xB00 */ @ index : bits(5), value) if unsigned(index) >= 3) = {
+   let index = hpmidx_from_bits(index);
+diff --git a/model/extensions/Zihpm/zihpm.sail b/model/extensions/Zihpm/zihpm.sail
+--- a/model/extensions/Zihpm/zihpm.sail
++++ b/model/extensions/Zihpm/zihpm.sail
+@@ -74,5 +74,5 @@
+ function clause is_CSR_accessible((0b1100000 /* 0xC00 */ @ index : bits(5), priv, _) if unsigned(index) >= 3) = currentlyEnabled(Ext_Zihpm) & counter_enabled(unsigned(index), priv) // hpmcounter3..31
+ function clause is_CSR_accessible((0b1100100 /* 0xC80 */ @ index : bits(5), priv, _) if unsigned(index) >= 3) = currentlyEnabled(Ext_Zihpm) & xlen == 32 & counter_enabled(unsigned(index), priv) // hpmcounterh3..31
+ 
+-function clause read_CSR(0b1100000 /* 0xC00 */ @ index : bits(5) if unsigned(index) >= 3) = read_mhpmcounter(hpmidx_from_bits(index))
+-function clause read_CSR(0b1100100 /* 0xC80 */ @ index : bits(5) if xlen == 32 & unsigned(index) >= 3) = read_mhpmcounterh(hpmidx_from_bits(index))
++function clause read_CSR(0b1100000 /* 0xC00 */ @ index : bits(5) if unsigned(index) >= 3) = read_sampled_hpmcounter(hpmidx_from_bits(index))
++function clause read_CSR(0b1100100 /* 0xC80 */ @ index : bits(5) if xlen == 32 & unsigned(index) >= 3) = read_sampled_hpmcounterh(hpmidx_from_bits(index))
+diff --git a/model/core/interrupt_regs.sail b/model/core/interrupt_regs.sail
+--- a/model/core/interrupt_regs.sail
++++ b/model/core/interrupt_regs.sail
+@@ -263,4 +263,16 @@
+   // to the mask for supported interrupts.
+   var new_mip = mip;
++
++  // Hardware supplies wrap events, never OF/LCOFIP snapshots or a chosen IRQ.
++  // Sail owns sticky OF, the old-OF request qualification, and interrupt policy.
++  if currentlyEnabled(Ext_Sscofpmf) then {
++    let overflows = host_hpm_overflows() & sys_writable_hpm_counters;
++    foreach (index from 3 to 31) {
++      if overflows[index] == 0b1 then {
++        if mhpmevent[index][OF] == 0b0 then new_mip[LCOFI] = 0b1;
++        mhpmevent[index][OF] = 0b1;
++      }
++    }
++  };
+ 
+   new_mip[MSI] = machine_software_interrupt_pending();

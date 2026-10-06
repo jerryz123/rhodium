@@ -9,6 +9,9 @@ import:
   "../mini-soc/main.rhdl".MiniSoCConfig
   "../single-core-soc/main.rhdl".SingleCoreSoCConfig
   "../tiled-soc/main.rhdl".TiledSoCConfig
+  "selection.rhm".CoreKind
+  lib("cores/rv5stage/csr.rhdl").rv5stage_csr_config
+  lib("cores/spike/udb.rhm").spike_csr_warl_policy
 
 /*
  * Snapshots public fabric parameters in expression notation and replaces factory closures with
@@ -34,6 +37,9 @@ fun fabric_metadata(fabric :: SingleCoreSystemParams) :: Map:
 /* Builds the versioned metadata envelope from the selected implementation, shape configuration, architectural description, DTS, and UDB. */
 fun config_metadata(resolved :: ResolvedSoCConfig,
                     config :: MiniSoCConfig || SingleCoreSoCConfig || TiledSoCConfig = resolved.configuration()) :: Map:
+  def csr_warl = match resolved.selection.core
+  | CoreKind.RV5Stage: rv5stage_csr_config(config.hart.profile).warl_policy()
+  | CoreKind.Spike: spike_csr_warl_policy(config.hart.profile)
   def platform = cond
   | config is_a MiniSoCConfig:
       {"ram": repr(config.ram), "clocks": repr(config.clocks),
@@ -52,6 +58,7 @@ fun config_metadata(resolved :: ResolvedSoCConfig,
     "architecture": repr(config.hart.description),
     "xlen": config.hart.description.xlen.width,
     "implementation": repr(config.hart.profile),
+    "csr_warl": csr_warl,
     "hart_binding": {"name": config.hart.name, "key": config.hart.key, "cache_line_bytes": config.hart.cache_line_bytes},
     "platform": platform,
     "description": repr(config.description),

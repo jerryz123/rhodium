@@ -384,6 +384,17 @@ Device writes are reported but never sent to a second device implementation.
 Missing, mismatched, or unused read replay fails the step; a failed step poisons
 the instance because architectural state may already have changed.
 
+Implemented programmable HPM counters (3–31) are hardware-supplied raw 64-bit
+inputs. Sail samples them before an authorized counter CSR read, including
+read-modify-write operations with `rd=x0`; it still checks access permissions,
+read-only aliases, RV32 halves, CSR operations, and selector WARL rules.
+Unimplemented counters remain strictly zero. Hardware supplies overflow events,
+not selector or pending-CSR snapshots: Sail maintains sticky OF, `scountovf`,
+LCOFIP, software clears, and interrupt arbitration. RV5Stage currently supplies
+only implemented counter 3. Cycle, time, and instret policies are unchanged.
+PMU event selection, counting, inhibition, and wrap detection are checked by
+the RTL component tests, not independently reproduced by cosimulation.
+
 FESVR remains the sole loader/host-service implementation. The adapter neither
 creates HTIF nor reads an ELF on its own. The simulator runtime mirrors successful
 loading and host writes into private reference memory as described above.

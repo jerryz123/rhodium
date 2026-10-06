@@ -44,7 +44,7 @@ class SailConfigurationTest(unittest.TestCase):
                     self.assertEqual(model_defaults("sail", xlen), default)
                     args = invoke.call_args.args[0]
                     self.assertEqual("--rv32" in args, xlen == 32)
-            for key in ("mcountinhibit", "transformed_instruction", "tselect_present"):
+            for key in ("mcountinhibit", "transformed_instruction", "tselect_present", "hedeleg", "hpm_events", "pmm_unsupported_write_to_disabled"):
                 old = copy.deepcopy(default)
                 del (old["extensions"]["H"] if key == "transformed_instruction" else old["base"])[key]
                 with patch("sail.soc_config.subprocess.check_output", side_effect=["0.14.1", json.dumps(old)]):
@@ -63,6 +63,53 @@ class SailConfigurationTest(unittest.TestCase):
         udb["implemented_extensions"].append({"name": "Sdtrig", "version": "1.0.0"})
         with self.assertRaisesRegex(ValueError, "Sdtrig"):
             project_architecture(self.default(), udb)
+
+    def test_explicit_csr_warl_is_shared_by_act_and_cosim(self):
+        udb = vector_udb()
+        policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled"}
+        common = project_architecture(self.default(), udb, policy)
+        act = ACT["sail_config"](self.default(), udb, 0x80000000, 0x40000000, policy)
+        cosim = COSIM["project_environment"](common, environment())
+        self.assertEqual(act["base"], cosim["base"])
+        self.assertEqual(common["base"]["medeleg"]["delegatable_bits"]["value"], "0xcb3fe")
+        self.assertTrue(common["base"]["pmm_unsupported_write_to_disabled"])
+        policy["medeleg_mask"] = 0x8b3fe
+        policy["pmm_unsupported_write"] = "preserve"
+        other = project_architecture(self.default(), udb, policy)
+        self.assertEqual(other["base"]["medeleg"]["delegatable_bits"]["value"], "0x8b3fe")
+        self.assertFalse(other["base"]["pmm_unsupported_write_to_disabled"])
+
+    def test_csr_warl_rejects_invalid_delegation(self):
+        udb = vector_udb()
+        policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled"}
+        for name, value in (("medeleg_mask", 1 << 11), ("medeleg_mask", 1 << 16),
+                            ("medeleg_mask", -1), ("medeleg_mask", True),
+                            ("hedeleg_mask", 1), ("pmm_unsupported_write", "unknown")):
+            with self.assertRaises(ValueError):
+                project_architecture(self.default(), udb, {**policy, name: value})
+        udb["implemented_extensions"] += [{"name": "H", "version": "1.0.0"}, {"name": "C", "version": "2.0"}]
+        # Test the policy directly, independently of other H projection requirements.
+        from sail.configuration import project_csr_warl
+        policy.update(medeleg_mask=0xfcb7fe, hedeleg_mask=0xcb1fe)
+        project_csr_warl(self.default()["base"], policy, {"H": "1.0.0", "C": "2.0"}, 64)
+        for mask in (0x8b1fe, 0x4b1fe, 0xcb3fe, 0, 0xcb1fe & ~(1 << 1), 0xcb1fe & ~(1 << 4), 0xcb1fe & ~(1 << 6)):
+            with self.assertRaises(ValueError):
+                project_csr_warl(self.default()["base"], {**policy, "hedeleg_mask": mask}, {"H": "1.0.0", "C": "2.0"}, 64)
+        with self.assertRaises(ValueError):
+            project_csr_warl(self.default()["base"], policy, {"H": "1.0.0"}, 64)
+
+    def test_hpm_event_choices_come_from_udb(self):
+        for events in ([0, 1, 2], [0, 9]):
+            udb = vector_udb()
+            udb["params"]["HPM_COUNTER_EN"][3] = True
+            udb["params"]["HPM_EVENTS"] = events
+            model = project_architecture(self.default(), udb)
+            self.assertEqual(model["base"]["hpm_events"], {"restricted": True, "supported": [
+                {"len": 32, "value": hex(event)} for event in events]})
+        for events in (None, [], [1], [0, -1], [0, True], [0, 1 << 32]):
+            udb["params"]["HPM_EVENTS"] = events
+            with self.assertRaisesRegex(ValueError, "HPM_EVENTS"):
+                project_architecture(self.default(), udb)
 
     def test_mcountinhibit_projects_presence_and_exact_writable_mask(self):
         for supported, enabled in ((False, ()), (True, ()), (True, (0, 2)), (True, (3, 31))):

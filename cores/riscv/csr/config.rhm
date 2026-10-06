@@ -11,6 +11,7 @@ import:
   lib("riscv/isa/c.rhm") open
   lib("riscv/isa/vector.rhm").VectorLength
   lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/isa/trap.rhm") open
 
 /* Describes state-bank specialization; the integrating core owns ISA claims and feature compatibility. */
 class RiscvCsrConfig(isa_profile :: RiscvIsaProfile,
@@ -51,6 +52,24 @@ class RiscvCsrConfig(isa_profile :: RiscvIsaProfile,
 
   /* Uses the architecture's XLEN for all CSR operands and state. */
   property xlen :: XLen: isa_profile.xlen
+
+  /* Selects the bank's writable exception causes, including optional guest traps. */
+  property medeleg_mask :: Nat:
+    exception_mask(delegatable_causes() ++ (if hypervisor | HypervisorExceptionCauses | []))
+
+  /* Omits HS ECALL and guest-only causes from delegation to VS. */
+  property hedeleg_mask :: Nat:
+    if hypervisor
+    | exception_mask(delegatable_causes().filter(~keep: fun (cause): cause != ExceptionCause.EnvironmentCallFromSupervisor))
+    | 0
+
+  /* Keeps IALIGN=16 instruction-misalignment delegation read-only zero. */
+  method delegatable_causes() :: List.of(ExceptionCause):
+    DelegatableExceptionCauses.filter(~keep: fun (cause): compressed == [] || cause != ExceptionCause.InstructionAddressMisaligned)
+
+  /* Exports static WARL choices not expressible in UDB, without exposing live CSR state. */
+  method warl_policy() :: Map:
+    {"medeleg_mask": medeleg_mask, "hedeleg_mask": hedeleg_mask, "pmm_unsupported_write": "disabled"}
 
 export:
   RiscvCsrConfig

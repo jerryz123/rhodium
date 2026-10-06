@@ -38,7 +38,7 @@ dpi_import procedure rhodium_rv5stage_boundary(
   privilege: Bits(64), virtualized: Bits(64), cause: Bits(64), epc: Bits(64), tval: Bits(64), target_pc: Bits(64),
   target_privilege: Bits(64), target_virtualized: Bits(64), guest_valid: Bits(64), htval: Bits(64), htinst: Bits(64),
   next_pc: Bits(64), next_privilege: Bits(64), next_virtualized: Bits(64), interrupts: Bits(64), time: Bits(64),
-  interrupt_boundary: Bits(64)
+  interrupt_boundary: Bits(64), hpm_enabled: Bits(64), hpm_counter: Bits(64), hpm_overflow: Bits(64)
 )
 
 /* Captures request signals for native hart reconstruction. */
@@ -180,7 +180,8 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
     csr_fault_gpa, csr_fault_inst, lane(mux(csr_mret ||| csr_sret, csr_redirect, resume_pc)),
     lane(mux(csr_mret, csr_mret_privilege, mux(csr_sret, csr_sret_privilege, csr_privilege)).as_bits()),
     mux(csr_mret ||| csr_sret, csr_returned_virtual, csr_virtualized).as_bits().zext(64),
-    riscv_interrupt_pending(XLen.X64, csr_interrupt_inputs), csr_time_input, csr_interrupt_boundary.as_bits().zext(64), ~enable: active
+    riscv_interrupt_pending(XLen.X64, csr_interrupt_inputs), csr_time_input, csr_interrupt_boundary.as_bits().zext(64),
+    tap_lane("csr_hpm_enabled"), tap_lane("csr_hpm_counter"), tap_lane("csr_hpm_overflow"), ~enable: active
   )
   rhodium_rv5stage_response.call(
     cosim_instance, lane(memory_response.data), memory_response.access_fault.as_bits().zext(64),

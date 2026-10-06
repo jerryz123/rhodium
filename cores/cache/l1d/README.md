@@ -335,11 +335,14 @@ Unrelated load hits retain the existing hit-under-miss behavior.
 ## Cache-block management
 
 `CacheBlockClean`, `CacheBlockInvalidate`, and `CacheBlockFlush` requests issue
-`CleanShared`, `MakeInvalid`, and `CleanInvalid`, respectively, with SnoopMe
+`CleanShared`, `CleanInvalid`, and `CleanInvalid`, respectively, with SnoopMe
 enabled and no allocation. They drain older cache work, bypass demand lookup,
 and block younger lookup until Home completion. Even a local miss is sent to
 Home so other coherent caches are included. Snoop service remains independent
 through retries and completion waits; it also handles the issuing cache's copy.
+Invalidate uses the RISC-V-permitted flush policy: dirty data is preserved before
+invalidation. Its architectural permission remains CBO.INVAL's CBIE permission;
+selecting this implementation policy does not require flush permission.
 
 Every operation returns one backpressurable slow response. Its `access_fault`
 field reports a non-OK CHI completion; the parent retains architectural context

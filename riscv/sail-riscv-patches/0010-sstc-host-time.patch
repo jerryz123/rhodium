@@ -1,0 +1,101 @@
+Subject: [PATCH] Drive architectural Sstc comparators from host time
+
+Purpose: Separate S/VS timer comparison from the optional CLINT device.
+SPDX-License-Identifier: BSD-2-Clause
+
+The existing host-time hook backs stimecmp and vstimecmp when no CLINT is
+instantiated. Enabled STIP comparison replaces legacy pins without overwriting
+software-pending storage. Machine timer/software pins remain independent.
+Standalone hosts still default to CLINT time; host time remains opt-in.
+
+diff --git a/model/core/interrupt_interface.sail b/model/core/interrupt_interface.sail
+index 6fcbc7b..e0bdc83 100644
+--- a/model/core/interrupt_interface.sail
++++ b/model/core/interrupt_interface.sail
+@@ -49,6 +49,8 @@ val supervisor_software_interrupt_pending : unit -> bits(1)
+ // register for the platform, while `mtimecmp` is specific to the
+ // hart.
+ val get_mtime : unit -> bits(64)
++// Optional embedded time provider; the standalone default is disabled.
++val host_time_enabled = pure {cpp: "host_time_enabled"} : unit -> bool
+ val get_hart_mtimecmp : unit -> bits(64)
+ 
+ // Called to increment the platform clock.
+diff --git a/model/core/interrupt_regs.sail b/model/core/interrupt_regs.sail
+index b1f0a90..4507bc3 100644
+--- a/model/core/interrupt_regs.sail
++++ b/model/core/interrupt_regs.sail
+@@ -224,8 +224,8 @@ enum XipReadType = {
+   ExcludePlatformInterrupts,
+ }
+ 
+-function read_mip(read_type : XipReadType) -> Minterrupts =
+-  match read_type {
++function read_mip(read_type : XipReadType) -> Minterrupts = {
++  let pending : Minterrupts = match read_type {
+     IncludePlatformInterrupts => {
+       let platform_interrupts =
+         supported_interrupts_mask([external_interrupts_pending(hgeie) with
+@@ -234,7 +234,13 @@ function read_mip(read_type : XipReadType) -> Minterrupts =
+       Mk_Minterrupts(mip.bits | platform_interrupts.bits)
+     },
+     ExcludePlatformInterrupts => mip,
+-  }
++  };
++  // The enabled comparator replaces legacy software/platform STIP, not ORs it.
++  // Leave the software bit stored independently for when STCE is disabled.
++  if currentlyEnabled(Ext_Sstc) & menvcfg[STCE] == 0b1 & (plat_have_clint | host_time_enabled())
++  then [pending with STI = bool_to_bit(stimecmp <=_u get_mtime())]
++  else pending
++}
+ 
+ // This should be called once at the start of instruction execution.
+ // It updates the bits in `mip` that are written by platform-specific
+@@ -244,12 +250,11 @@ function update_mip() -> unit = {
+ 
+   // This updates `mip` for any timer interrupts that may now have
+   // fired, and for any machine-level software interrupts arising from
+-  // the CLINT.  Currently, the only timer support is from the CLINT;
+-  // so without a CLINT, no non-virtual timer interrupts can fire.
+-  // This may need to change when we support other or multiple
+-  // interrupt controllers.
++  // the CLINT. Architectural Sstc comparison may instead use host time;
++  // this does not create a CLINT or derive its machine interrupt pins.
+ 
+   let platform_has_timer = plat_have_clint;
++  let platform_has_time = plat_have_clint | host_time_enabled();
+ 
+   let cur_mtime = get_mtime();
+   let hart_mtimecmp = get_hart_mtimecmp();
+@@ -262,10 +267,6 @@ function update_mip() -> unit = {
+ 
+   if platform_has_timer then {
+     new_mip[MTI] = bool_to_bit(hart_mtimecmp <=_u cur_mtime);
+-
+-    if currentlyEnabled(Ext_Sstc) & menvcfg[STCE] == 0b1 then {
+-      new_mip[STI] = bool_to_bit(stimecmp <=_u cur_mtime);
+-    };
+   };
+ 
+   if currentlyEnabled(Ext_H) then {
+@@ -283,7 +284,7 @@ function update_mip() -> unit = {
+     // than (time + htimedelta), typically as a result of writing vstimecmp. The interrupt will be
+     // taken based on the standard interrupt enable and delegation rules while V=1.
+     new_mip[VSTI] = hvip[VSTI]
+-                    | (if currentlyEnabled(Ext_Sstc) & read_henvcfg()[STCE] == 0b1 & platform_has_timer
++                    | (if currentlyEnabled(Ext_Sstc) & read_henvcfg()[STCE] == 0b1 & platform_has_time
+                        then bool_to_bit(vstimecmp <=_u (cur_mtime + htimedelta))
+                        else 0b0);
+   };
+diff --git a/model/sys/interrupt_implementation.sail b/model/sys/interrupt_implementation.sail
+index c00db74..25af821 100644
+--- a/model/sys/interrupt_implementation.sail
++++ b/model/sys/interrupt_implementation.sail
+@@ -34,7 +34,6 @@ function supervisor_software_interrupt_pending() -> bits(1) =
+   (if plat_have_sig then sig_supervisor_software_interrupt_pending() else 0b0) | host_external_interrupts()[1]
+ 
+ // Embedded systems can supply time without creating a second CLINT device.
+-val host_time_enabled = pure {cpp: "host_time_enabled"} : unit -> bool
+ function host_time_enabled() = false
+ val host_time = pure {cpp: "host_time"} : unit -> bits(64)
+ function host_time() = zeros()

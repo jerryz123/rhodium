@@ -74,7 +74,7 @@ def reference_model_differences(params):
     if any(params.get("HPM_COUNTER_EN", [])[3:]):
         differences["HPM_EVENTS"] = {
             "dut": params.get("HPM_EVENTS", "implementation-defined"),
-            "sail": "selector writes retained; no event increments or generated overflow",
+            "sail": "no event increments or generated overflow",
         }
     return differences
 
@@ -206,7 +206,31 @@ def project_pointer_masking(model_extensions, extensions, params):
     return selected
 
 
-def project_architecture(default, udb):
+def project_csr_warl(base, policy, extensions, xlen):
+    """Apply static implementation choices, validating architectural constraints."""
+    if not isinstance(policy, dict) or set(policy) != {"medeleg_mask", "hedeleg_mask", "pmm_unsupported_write"}:
+        raise ValueError("csr_warl must specify delegation masks and unsupported PMM writes")
+    for name in ("medeleg_mask", "hedeleg_mask"):
+        value = policy[name]
+        if type(value) is not int or not 0 <= value < (1 << xlen):
+            raise ValueError(f"{name} must fit XLEN")
+    medeleg, hedeleg = policy["medeleg_mask"], policy["hedeleg_mask"]
+    if medeleg & ~0xFCB7FF or medeleg & ((1 << 11) | (1 << 16)):
+        raise ValueError("medeleg_mask contains nondelegatable causes")
+    if "H" not in extensions and (hedeleg or medeleg & ((1 << 10) | (0xF << 20))):
+        raise ValueError("guest delegation requires H")
+    if "H" in extensions:
+        required = 0xCB1FE | (0 if "C" in extensions or "Zca" in extensions else 1)
+        if hedeleg & ~0xCB1FF or hedeleg & required != required:
+            raise ValueError("hedeleg_mask violates mandatory writable or read-only bits")
+    if policy["pmm_unsupported_write"] not in ("disabled", "preserve"):
+        raise ValueError("unsupported PMM writes must select disabled or preserve")
+    base["medeleg"]["delegatable_bits"] = bits(medeleg)
+    base["hedeleg"]["delegatable_bits"] = bits(hedeleg)
+    base["pmm_unsupported_write_to_disabled"] = policy["pmm_unsupported_write"] == "disabled"
+
+
+def project_architecture(default, udb, csr_warl=None):
     """Project one exact UDB hart independently of its execution environment."""
     default = copy.deepcopy(default)
     params = udb["params"]
@@ -280,14 +304,15 @@ def project_architecture(default, udb):
         raise ValueError("COUNTINHIBIT_EN must leave TIME and absent mcountinhibit read-only zero")
     base["mcountinhibit"].update(supported=inhibit_supported,
                                writable_bits=bits(sum(1 << i for i, enabled in enumerate(inhibit_bits) if enabled), 32))
-    # Sail 0.14.1 defaults include H and CFI exception causes independently of
-    # whether those extensions are implemented by the selected hart.
-    if "H" not in extensions:
-        delegatable = base["medeleg"]["delegatable_bits"]
-        delegatable["value"] = hex(int(delegatable["value"], 0) & ~((1 << 10) | (0xF << 20)))
-    if not extensions.keys() & {"Zicfilp", "Zicfiss"}:
-        delegatable = base["medeleg"]["delegatable_bits"]
-        delegatable["value"] = hex(int(delegatable["value"], 0) & ~(1 << 18))
+    if csr_warl is not None:
+        project_csr_warl(base, csr_warl, extensions, params["MXLEN"])
+    hpm_present = any(params["HPM_COUNTER_EN"][3:])
+    events = params.get("HPM_EVENTS", [])
+    if hpm_present and (not isinstance(events, list) or not events or 0 not in events):
+        raise ValueError("implemented HPM counters require HPM_EVENTS including event zero")
+    if not isinstance(events, list) or any(type(event) is not int or not 0 <= event < (1 << 32) for event in events):
+        raise ValueError("HPM_EVENTS must contain unsigned 32-bit event IDs")
+    base["hpm_events"] = {"restricted": True, "supported": [bits(event, 32) for event in events]}
     for prefix, field in (("HPM_COUNTER_EN", "writable_hpm_counters"),
                           ("MCOUNTENABLE_EN", "mcounteren_writable_bits"),
                           ("SCOUNTENABLE_EN", "scounteren_writable_bits")):

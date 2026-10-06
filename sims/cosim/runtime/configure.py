@@ -126,7 +126,7 @@ def main():
     args = parser.parse_args()
     exported = json.loads(args.config.read_text())
     udb, environment = checked_config(exported, args.name)
-    config = project_environment(project_architecture(model_defaults(args.sail, udb["params"]["MXLEN"]), udb), environment)
+    config = project_environment(project_architecture(model_defaults(args.sail, udb["params"]["MXLEN"]), udb, exported["configuration"]["csr_warl"]), environment)
     args.output.mkdir(parents=True, exist_ok=True)
     config_path = args.output / "sail.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n")

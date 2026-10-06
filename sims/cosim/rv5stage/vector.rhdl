@@ -36,10 +36,10 @@ dpi_import procedure rhodium_rv5stage_vector_cycle(
 /* Captures dispatch signals for native settled-cycle interpretation. */
 dpi_import procedure rhodium_rv5stage_vector_dispatch(instance: Bits(64), owner: Bits(64), base: Bits(64), eew: Bits(64), instruction: Bits(64), vtype: Bits(64))
 
-/* Captures issue signals for native settled-cycle interpretation. */
+/* Captures raw scheduling, effective virtual, and certified physical addresses separately. */
 dpi_import procedure rhodium_rv5stage_vector_issue(
   instance: Bits(64), owner: Bits(64), tag: Bits(64), first: Bits(64), destination: Bits(64), packed: Bits(64), enabled: Bits(64),
-  store: Bits(64), address: Bits(64), physical: Bits(64), precertified: Bits(64), mask: Bits(64), data: Bits(64)
+  store: Bits(64), address: Bits(64), effective_address: Bits(64), physical: Bits(64), precertified: Bits(64), mask: Bits(64), data: Bits(64)
 )
 
 /* Captures write signals for native settled-cycle interpretation. */
@@ -121,7 +121,7 @@ fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, i
   rhodium_rv5stage_vector_issue.call(
     instance, lane("vector_execution_memory_owner"), capture_lane(issued.completion_tag),
     lane("vector_execution_memory_first"), lane("vector_execution_memory_destination"), lane("vector_execution_memory_packed"),
-    issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address),
+    issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address), lane("vector_execution_memory_effective_address"),
     capture_lane(issued.physical_address), issued.precertified.as_bits().zext(64),
     capture_lane(issued.byte_mask), capture_lane(issued.store_data),
     ~enable: active & flag("vector_execution_memory_issue")

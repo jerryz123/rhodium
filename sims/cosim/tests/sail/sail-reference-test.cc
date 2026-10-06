@@ -222,11 +222,31 @@ void check_wait_and_reset() {
   CHECK(model.step().waiting);
   CHECK(model.step().waiting && model.pc() == ram);
   StepInputs wake;
-  wake.wake_wait = true;
+  wake.wait_release = StepInputs::WaitRelease::Timeout;
   wake.time = 1;
   auto completed = model.step(wake);
   CHECK(!completed.waiting && completed.retired && completed.next_pc == ram + 4);
   CHECK(model.step().retired && model.integer_register(1) == 42);
+}
+
+void check_wrs_release(unsigned xlen, unsigned encoding) {
+  auto config = jsoncons::json::parse(configuration(xlen));
+  config["extensions"]["Zawrs"]["supported"] = true;
+  config["extensions"]["Zawrs"]["nto"]["is_nop"] = false;
+  config["extensions"]["Zawrs"]["sto"]["is_nop"] = false;
+  SailReference model(config.to_string(),ram,backing);
+  program(model,ram,{0x00000097,addi(1,1,128),0x1000a12f,encoding,0x1800a1af,addi(4,0,42)});
+  for (unsigned i=0;i<3;++i) CHECK(model.step().retired);
+  const auto retired = model.csr(0xb02);
+  CHECK(model.step().waiting && model.pc()==ram+12);
+  CHECK(model.step().waiting && model.csr(0xb02)==retired);
+  StepInputs wake;
+  wake.wait_release = StepInputs::WaitRelease::WrsEarlyWake;
+  const auto completed = model.step(wake);
+  CHECK(completed.retired && !completed.waiting && !completed.trap && completed.writes.empty());
+  CHECK(model.pc()==ram+16 && model.csr(0xb02)==retired+1);
+  CHECK(model.step().retired && model.integer_register(3)==0); // Reservation survived.
+  CHECK(model.step().retired && model.integer_register(4)==42);
 }
 
 void check_replay_failures() {
@@ -285,6 +305,133 @@ void check_machine_counters(unsigned xlen) {
   CHECK(absent_inhibit.trap && absent_inhibit.trap->cause == 2);
 }
 
+void check_csr_warl(unsigned xlen) {
+  auto config = jsoncons::json::parse(configuration(xlen));
+  config["base"]["medeleg"]["delegatable_bits"]["value"] = xlen == 64 ? "0xfcb7fe" : "0xcb3fe";
+  config["base"]["hedeleg"]["delegatable_bits"]["value"] = "0xcb1fe";
+  config["base"]["writable_hpm_counters"]["value"] = "0x8";
+  config["base"]["hpm_events"]["restricted"] = true;
+  config["base"]["hpm_events"]["supported"] = jsoncons::json::parse(
+      R"([{"len":32,"value":"0x0"},{"len":32,"value":"0x1"},{"len":32,"value":"0x2"}])");
+  for (unsigned csr : {0x300U, 0x100U, 0x200U}) {
+    if (csr == 0x200 && xlen == 32) continue;
+    SailReference model(config.to_string(), ram, backing);
+    program(model, ram, {addi(1, 0, 16), csrw(csr, 1), csr << 20 | 13 << 7 | 0x2073});
+    CHECK(model.step().retired && model.step().retired && model.step().retired);
+    CHECK((model.integer_register(13) & 16) == 0);
+  }
+  for (unsigned csr : {0x302U, 0x602U}) {
+    if (csr == 0x602 && xlen == 32) continue;
+    SailReference model(config.to_string(), ram, backing);
+    program(model, ram, {addi(1, 0, -1), csrw(csr, 1), csr << 20 | 13 << 7 | 0x2073});
+    CHECK(model.step().retired && model.step().retired && model.step().retired);
+    CHECK(model.integer_register(13) == (csr == 0x602 ? 0xcb1fe : xlen == 64 ? 0xfcb7fe : 0xcb3fe));
+  }
+  for (unsigned csr : {0x323U, 0x324U}) {
+    for (unsigned event : {0U, 1U, 2U, 4U}) {
+      SailReference model(config.to_string(), ram, backing);
+      program(model, ram, {addi(1, 0, event), csrw(csr, 1), csr << 20 | 13 << 7 | 0x2073});
+      CHECK(model.step().retired && model.step().retired && model.step().retired);
+      CHECK(model.integer_register(13) == (csr == 0x323 && event <= 2 ? event : 0));
+    }
+  }
+  // Event legalization does not change OF or privilege filtering, including RV32's high alias.
+  {
+    SailReference model(config.to_string(), ram, backing);
+    const unsigned high_csr = xlen == 32 ? 0x723 : 0x323;
+    program(model, ram, {addi(1, 0, -1), csrw(high_csr, 1), high_csr << 20 | 13 << 7 | 0x2073});
+    CHECK(model.step().retired && model.step().retired && model.step().retired);
+    CHECK(model.integer_register(13) == (xlen == 32 ? 0xfc000000 : 0xfc00000000000000));
+  }
+  if (xlen == 64) {
+    for (bool normalize : {false, true}) {
+      config["base"]["pmm_unsupported_write_to_disabled"] = normalize;
+      for (unsigned csr : {0x10aU, 0x60aU, 0x600U}) {
+        SailReference model(config.to_string(), ram, backing);
+        const unsigned shift = csr == 0x600 ? 48 : 32;
+        program(model, ram, {addi(1, 0, 3), shift << 20 | 1 << 15 | 1 << 12 | 1 << 7 | 0x13,
+                            csrw(csr, 1), csr << 20 | 13 << 7 | 0x2073,
+                            addi(1, 0, 1), shift << 20 | 1 << 15 | 1 << 12 | 1 << 7 | 0x13,
+                            csrw(csr, 1), csr << 20 | 13 << 7 | 0x2073});
+        for (unsigned i = 0; i < 4; ++i) CHECK(model.step().retired);
+        CHECK((model.integer_register(13) >> shift & 3) == 3);
+        for (unsigned i = 0; i < 4; ++i) CHECK(model.step().retired);
+        const auto actual = model.integer_register(13) >> shift & 3;
+        if (actual != (normalize ? 0U : 3U))
+          throw std::runtime_error("PMM CSR " + std::to_string(csr) + " normalize=" +
+                                   std::to_string(normalize) + " actual=" + std::to_string(actual));
+      }
+    }
+  }
+}
+
+void check_sstc_host_time(unsigned xlen) {
+  SailReference model(configuration(xlen), ram, backing);
+  const unsigned env_csr = xlen == 32 ? 0x31a : 0x30a;
+  const unsigned shift = xlen - 1;
+  program(model, ram, {addi(1, 0, 1), shift << 20 | 1 << 15 | 1 << 12 | 1 << 7 | 0x13,
+                      csrw(env_csr, 1), addi(1, 0, 10), csrw(0x14d, 1),
+                      xlen == 32 ? csrw(0x15d, 0) : addi(0, 0, 0),
+                      0x344026f3, 0x344026f3, 0x344026f3,
+                      addi(1, 0, 20), csrw(0x14d, 1), 0x344026f3});
+  StepInputs inputs;
+  inputs.time = 9;
+  for (unsigned i = 0; i < 7; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0xa0) == 0);
+  inputs.time = 10;
+  CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0xa0) == 0x20);
+  inputs.time = 11;
+  inputs.interrupt_inputs = 1 << 7;
+  CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0xa0) == 0xa0);
+  inputs.interrupt_inputs = 1 << 5; // An enabled Sstc comparator overrides the legacy STIP pin.
+  for (unsigned i = 0; i < 3; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0xa0) == 0);
+}
+
+void check_guest_sstc_host_time() {
+  SailReference model(configuration(64), ram, backing);
+  program(model, ram, {addi(1, 0, 1), 0x03f09093, csrw(0x30a, 1), csrw(0x60a, 1),
+                      addi(1, 0, 50), csrw(0x605, 1),
+                      addi(1, 0, 151), csrw(0x24d, 1),
+                      0x344026f3, 0x344026f3, csrw(0x645, 0),
+                      addi(1, 0, 200), csrw(0x24d, 1), 0x344026f3,
+                      addi(1, 0, 64), csrw(0x645, 1), 0x344026f3});
+  StepInputs inputs;
+  inputs.time = 100;
+  for (unsigned i = 0; i < 9; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x40) == 0);
+  inputs.time = 101;
+  CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x40) != 0);
+  for (unsigned i = 0; i < 4; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x40) == 0);
+  for (unsigned i = 0; i < 3; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x40) != 0);
+}
+
+void check_sstc_software_pending() {
+  SailReference model(configuration(64), ram, backing);
+  program(model, ram, {addi(1, 0, 32), csrw(0x344, 1),
+                      addi(1, 0, 200), csrw(0x14d, 1),
+                      addi(1, 0, 1), 0x03f09093, csrw(0x30a, 1), 0x344026f3,
+                      csrw(0x30a, 0), 0x344026f3,
+                      csrw(0x344, 0), csrw(0x14d, 0),
+                      addi(1, 0, 1), 0x03f09093, csrw(0x30a, 1), 0x344026f3,
+                      csrw(0x30a, 0), 0x344026f3});
+  StepInputs inputs;
+  inputs.time = 100;
+  for (unsigned i = 0; i < 8; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x20) == 0);
+  for (unsigned i = 0; i < 2; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x20) != 0);
+  for (unsigned i = 0; i < 6; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x20) != 0);
+  for (unsigned i = 0; i < 2; ++i) CHECK(model.step(inputs).retired);
+  CHECK((model.integer_register(13) & 0x20) == 0);
+}
+
 void check_fesvr_coexistence() {
   // Construct the actual existing transport while Sail is live. No second host
   // service or loader belongs to the reference model, and no target is launched.
@@ -304,10 +451,15 @@ int main() {
     for (unsigned xlen : {32, 64}) {
       check_scalar(xlen); check_mmio(xlen); check_time(xlen); check_machine_counters(xlen);
       check_external_memory(xlen); check_tselect(xlen);
+      check_csr_warl(xlen); check_sstc_host_time(xlen);
     }
     check_faults();
+    check_guest_sstc_host_time();
+    check_sstc_software_pending();
     for (unsigned cause : {1, 3, 5, 7, 9, 11}) check_interrupt(cause);
     check_wait_and_reset();
+    for (unsigned xlen : {32U,64U}) for (unsigned encoding : {0x00d00073U,0x01d00073U})
+      check_wrs_release(xlen,encoding);
     check_replay_failures();
     check_external_replay_failures();
     check_fesvr_coexistence();

@@ -403,11 +403,13 @@ module riscv_csr_tb;
     end
     reset_dut();
 
-    // WARL fields follow the configured privilege profile: UIE is absent,
+    // WARL fields follow the configured privilege profile: UIE/bit 4 are reserved,
     // reserved MPP=2 is legalized, and C makes instruction misalignment
     // impossible while the standard software-check causes remain delegatable.
-    csr_access(CSR_WRITE, CSR_MSTATUS, 64'h1001, RV64_MSTATUS_FIXED);
+    csr_access(CSR_WRITE, CSR_MSTATUS, 64'h1011, RV64_MSTATUS_FIXED);
     csr_access(CSR_SET, CSR_MSTATUS, 64'h0, RV64_MSTATUS_FIXED);
+    csr_access(CSR_WRITE, CSR_SSTATUS, 64'h10, RV64_SSTATUS_FIXED);
+    csr_access(CSR_SET, CSR_SSTATUS, 64'h0, RV64_SSTATUS_FIXED);
     csr_access(CSR_WRITE, CSR_MEDELEG, ~64'd0, 64'h0);
     csr_access(CSR_SET, CSR_MEDELEG, 64'h0, 64'hcb3fe);
     reset_dut();

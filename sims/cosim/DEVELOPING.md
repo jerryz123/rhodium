@@ -69,6 +69,27 @@ PTW, and host-memory callbacks, not patches for virtual addresses, explicit
 attempts, or FP contributions.
 Atomic attempt addresses use Sail's effective-address helpers on pre-execution
 state, including PMM, MPRV, and virtual/Bare extension policy, without a second walk.
+An SC rejected after translation need not report a physical transaction; compare
+its effective VA, width, fault, and absent writes. Completed SC attempts still
+require translated physical provenance, and any reported PA must match Sail.
+Vector issue captures retain both raw scheduling addresses and RTL-normalized
+effective VAs. Packed element identities use the former; fragment/fault offsets
+and architectural memory effects use the latter. Physical provenance stays separate.
+WFI and WRS use Sail's two-call wait lifecycle for one architectural record.
+WRS retirement permits early release without changing the reference reservation;
+a reported timeout trap invokes Sail's independent TW/VTW checks. Never infer a
+trap cause in the checker or execute the following instruction during release.
+
+HPM counting is an explicit external-input boundary. Capture implemented raw
+64-bit counter values before the edge, independently of returned GPR values.
+Carry pre-edge overflow pulses to the following architectural boundary, retaining
+them across idle cycles and deferred completion. The collector freezes these
+inputs at admission. Supply counter values before authorized Sail CSR reads,
+never overwrite the resulting GPR or resample in post-write callbacks. Reject
+inputs for unimplemented slots. Sail owns selector state, sticky OF, pending
+interrupt state, permissions, and RMW semantics; component RTL tests own event
+counting, inhibition, and overflow generation. Clear overflow input on the second
+call of a wait-release step so one event cannot be replayed twice.
 
 RAM stores collapse repeated physical bytes to their last written value; device
 writes retain order and multiplicity. Ordinary reads compare architectural
@@ -83,8 +104,9 @@ state and compare `fflags`, not each instruction's exact contribution.
 Keep every current explicit rejection until its observation path is implemented.
 
 Freeze interrupt/time inputs at architectural admission, not delayed completion.
-Do not feed DUT CSR state into Sail or extract deterministic state merely for
-comparison. Autonomous inputs and counter activity must not become another
+Do not feed deterministic DUT CSR state into Sail or extract it merely for
+comparison. Raw HPM counts and overflow events are the explicit exception above;
+base cycle/time/instret behavior is unchanged. Autonomous inputs must not become another
 instruction's contribution. Privilege includes virtualization; select M, HS, or
 VS trap EPC/TVAL from Sail's actual target mode. Session
 sample barriers surround evaluated rising edges. HTIF exit drains only the

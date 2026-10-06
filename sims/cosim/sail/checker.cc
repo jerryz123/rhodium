@@ -51,6 +51,8 @@ void SailChecker::check(const observation::Record& record) {
   inputs.time = record.environment.time;
   inputs.interrupt_inputs = record.environment.interrupt_inputs;
   inputs.interrupt_boundary = record.environment.interrupt_boundary;
+  inputs.hpm_counters = record.environment.hpm_counters;
+  inputs.hpm_overflows = record.environment.hpm_overflows;
   require(record.environment.cycle >= previous_cycle_, "active cycle moved backwards");
   inputs.clock_ticks = record.environment.cycle - previous_cycle_;
   // A software mcycle write replaced, rather than incremented, the previous edge.
@@ -86,21 +88,24 @@ void SailChecker::check(const observation::Record& record) {
       fp_flags = value->value;
     }
   }
-  // Execute exactly this architectural boundary, including Sail's WFI wake phase.
+  // Complete only this instruction, including Sail's separate wait-release phase.
   StepResult step;
   try {
     step = reference_.step(inputs);
-    if (step.waiting && step.instruction == 0x10500073) {
+    const bool wrs = step.instruction == 0x00d00073 || step.instruction == 0x01d00073;
+    if (step.waiting && (step.instruction == 0x10500073 || wrs)) {
       // Sail first enters its wait state, then completes the same instruction
-      // on a separate call. An observed WFI outcome authorizes this permitted
-      // implementation-dependent wake, not executing the following instruction.
-      require(!step.retired && !step.trap && step.writes.empty(), "effects before WFI wake");
-      inputs.wake_wait = true;
+      // on a separate call. WRS may retire early even under TW/VTW; a reported
+      // trap instead requests timeout so Sail independently checks its cause.
+      require(!step.retired && !step.trap && step.writes.empty(), "effects before wait release");
+      inputs.wait_release = wrs && std::holds_alternative<Retirement>(record.outcome)
+          ? StepInputs::WaitRelease::WrsEarlyWake : StepInputs::WaitRelease::Timeout;
       inputs.clock_ticks = 0;
+      inputs.hpm_overflows = 0;
       inputs.device_reads.clear();
       inputs.external_reads.clear();
       auto completed = reference_.step(inputs);
-      require(completed.pc == step.pc && completed.privilege_before == step.privilege_before && completed.virtualized_before == step.virtualized_before, "WFI wake changed instruction boundary");
+      require(completed.pc == step.pc && completed.privilege_before == step.privilege_before && completed.virtualized_before == step.virtualized_before, "wait release changed instruction boundary");
       completed.instruction = step.instruction;
       completed.instruction_bytes = step.instruction_bytes;
       completed.memory.insert(completed.memory.begin(), step.memory.begin(), step.memory.end());

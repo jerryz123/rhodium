@@ -7,3 +7,7 @@
 0006-embedded-interrupt-boundaries.patch
 0007-clear-vstart-after-empty-whole-register-memory.patch
 0008-configure-tselect-presence.patch
+0009-configure-csr-warl.patch
+0010-sstc-host-time.patch
+0011-embedded-wrs-early-wake.patch
+0012-embedded-hpm-inputs.patch

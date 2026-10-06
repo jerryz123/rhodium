@@ -681,7 +681,6 @@ def FcsrRoundingMode = BitField("fcsr.frm", 7, 5)
 // is therefore materialized by the width-aware RTL adapter.
 def MstatusSIE = BitField("mstatus.SIE", 1, 1)
 def MstatusMIE = BitField("mstatus.MIE", 3, 3)
-def MstatusUPIE = BitField("mstatus.UPIE", 4, 4)
 def MstatusSPIE = BitField("mstatus.SPIE", 5, 5)
 def MstatusMPIE = BitField("mstatus.MPIE", 7, 7)
 def MstatusSPP = BitField("mstatus.SPP", 8, 8)
@@ -792,7 +791,6 @@ export:
   FcsrRoundingMode
   MstatusSIE
   MstatusMIE
-  MstatusUPIE
   MstatusSPIE
   MstatusMPIE
   MstatusSPP

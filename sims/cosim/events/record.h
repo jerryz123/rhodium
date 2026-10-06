@@ -44,8 +44,13 @@ struct MemoryEffect {
 };
 using Effect = std::variant<RegisterWrite, CsrUpdate, MemoryEffect>;
 using Outcome = std::variant<Retirement, Trap>;
-// Pre-edge pins/time and elapsed active cycles, not a CSR or retirement snapshot.
-struct Environment { Word interrupt_inputs = 0, time = 0, cycle = 0; bool interrupt_boundary = false; };
+// Pre-edge inputs; HPM values are raw counter inputs, not deterministic CSR state.
+struct Environment {
+  Word interrupt_inputs = 0, time = 0, cycle = 0;
+  bool interrupt_boundary = false;
+  std::map<unsigned, Word> hpm_counters = {};
+  Word hpm_overflows = 0;
+};
 struct Record {
   Word instance, hart, sample;
   Id id;

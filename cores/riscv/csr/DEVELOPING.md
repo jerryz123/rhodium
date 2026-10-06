@@ -9,6 +9,8 @@ owns reusable state implementation, not a core's pipeline policy.
 ## Ownership and implementation
 
 - `config.rhm` selects bank specialization using existing architectural types.
+  It also owns the bank's delegation masks and exports static WARL choices;
+  RTL and resolved configuration metadata consume the same values.
 - `protocol.rhdl` defines the neutral command and architectural action enum.
 - `file.rhdl` owns state, CSR dispatch, trap/return transitions, interrupt
   selection, FP state, counters, and passive cosim observations.
@@ -27,6 +29,9 @@ Retirement counts come from the caller's successful prefix, not command success.
 Both base and retirement-event HPM counters consume the full count; detect HPM
 overflow with an addition carry, including an increment of two from -2.
 The legacy passive `retired` observation remains a Boolean nonzero-count event.
+The passive HPM taps expose implemented counter 3's pre-edge raw count and
+overflow pulse to simulation. They are external-input evidence, not snapshots
+of deterministic selector or pending state; no observer feeds back into the bank.
 
 ## Change workflow and validation
 

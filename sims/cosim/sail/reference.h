@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -38,16 +39,20 @@ struct MemoryRead {
 };
 
 struct StepInputs {
+  enum class WaitRelease { None, Timeout, WrsEarlyWake };
   bool machine_external_interrupt = false;
   bool supervisor_external_interrupt = false;
   std::uint64_t interrupt_inputs = 0;
   bool interrupt_boundary = true;
-  bool wake_wait = false;
+  WaitRelease wait_release = WaitRelease::None;
   // One-way nondeterminism: permit SC to fail, never manufacture a reservation.
   bool sc_failure = false;
   // Environmental time is independent of instruction count and host wall time.
   std::uint64_t time = 0;
   std::uint64_t clock_ticks = 0;
+  // Raw implemented HPM values before CSR semantics, and preceding wrap events.
+  std::map<unsigned, std::uint64_t> hpm_counters;
+  std::uint64_t hpm_overflows = 0;
   std::vector<MemoryRead> device_reads;
   std::vector<MemoryRead> external_reads;
 };

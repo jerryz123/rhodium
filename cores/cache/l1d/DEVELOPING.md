@@ -223,3 +223,8 @@ SingleCoreRV5StageSoC vvadd with the same ELF and host polling before claiming a
 For internal flow changes, the RV64 cache bench also checks same-cycle demand
 priority over a hint, hint drops during miss service, and retained younger
 demand completion without a delayed hint transaction or duplicate response.
+
+For cache-management changes, the RV64 cache bench checks dirty-data preservation
+for clean, invalidate-as-flush, and flush, including backpressured snoop copyback,
+retry, and Home completion ordering. Keep generic CHI `MakeInvalid` discard
+coverage separate from the RISC-V maintenance policy.

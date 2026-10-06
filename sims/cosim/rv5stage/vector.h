@@ -14,7 +14,8 @@ struct Admission {};
 struct Service { Word allocated, owner, tag, divide, multiply_launch, multiply_tag, divide_launch, divide_tag, multiply_return, multiply_return_tag, divide_return, divide_return_tag; };
 struct FpService { Word allocated, owner, tag, launch, launch_tag, returned, return_tag, flags_valid, flags; };
 struct Dispatch { Word owner, base, eew, instruction, vtype; };
-struct Issue { Word owner, tag, first, destination, packed, enabled, store, address, physical, precertified, mask, data; };
+// Raw address preserves packed element identity; effective address owns faults/VA.
+struct Issue { Word owner, tag, first, destination, packed, enabled, store, address, effective_address, physical, precertified, mask, data; };
 struct Write { Word address, mask, data, local, packed, splat, local_owner, packed_owner, splat_owner; };
 struct ScalarWrite { Word owner, floating, rd, data; };
 struct Direct { Word tag, data; };
@@ -74,7 +75,7 @@ void rhodium_rv5stage_vector_service(std::int64_t instance, std::int64_t allocat
 void rhodium_rv5stage_vector_admission(std::int64_t instance) noexcept;
 void rhodium_rv5stage_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept;
 void rhodium_rv5stage_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept;
-void rhodium_rv5stage_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept;
+void rhodium_rv5stage_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t effective_address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept;
 void rhodium_rv5stage_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept;
 void rhodium_rv5stage_vector_direct(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
 void rhodium_rv5stage_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;

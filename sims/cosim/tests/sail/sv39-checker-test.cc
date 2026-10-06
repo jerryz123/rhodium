@@ -15,12 +15,12 @@ std::vector<std::uint8_t> bytes(std::uint64_t value, unsigned size) {
   for (unsigned i = 0; i != size; ++i) result[i] = value >> (8*i);
   return result;
 }
-std::string configuration() {
+std::string configuration(bool deny_data_write = false) {
   auto config = jsoncons::json::parse(get_default_config());
   config["platform"]["clint"]["supported"] = false;
   config["platform"]["simple_interrupt_generator"]["supported"] = false;
-  config["memory"]["pmp"]["count"] = 0;
-  config["memory"]["pmp"]["usable_count"] = 0;
+  config["memory"]["pmp"]["count"] = deny_data_write ? 16 : 0;
+  config["memory"]["pmp"]["usable_count"] = deny_data_write ? 16 : 0;
   config["extensions"]["Svade"]["supported"] = true;
   config["extensions"]["Svadu"]["supported"] = false;
   config["memory"]["misaligned"]["exceptions"]["load_store"] = jsoncons::json::parse(R"({"None":null})");
@@ -36,10 +36,11 @@ o::MemoryEffect memory(o::AccessKind kind, std::uint64_t virtual_address,
           read ? value : 0,read ? 0 : value,o::AccessResult::Success};
 }
 struct Fixture {
-  SailChecker checker{configuration(),base,{{base,65536}}};
+  SailChecker checker;
   unsigned order = 0, constant = 0, privilege = 3;
   std::uint64_t pc = base;
-  Fixture(unsigned data_flags = 0xc7, unsigned code_flags = 0x4b, std::uint64_t status = 0x800) {
+  Fixture(unsigned data_flags = 0xc7, unsigned code_flags = 0x4b, std::uint64_t status = 0x800, bool deny_data_write = false)
+      : checker(configuration(deny_data_write),base,{{base,65536}}) {
     checker.load(root+8,bytes((middle >> 2)|1,8));
     checker.load(root+16,bytes((base >> 2)|0xcf,8));
     checker.load(middle,bytes((leaf >> 2)|1,8));
@@ -52,6 +53,12 @@ struct Fixture {
     value(5,base+0x400); csr(0x305);
     value(5,code); csr(0x341);
     value(5,(UINT64_C(8)<<60)|(root>>12)); csr(0x180);
+    if (deny_data_write) {
+      value(5,data>>2); csr(0x3b0);
+      value(5,(data+4096)>>2); csr(0x3b1);
+      value(5,UINT64_MAX>>2); csr(0x3b2);
+      value(5,0x0f090f); csr(0x3a0);
+    }
     value(5,status); csr(0x300);
     emit(0x30200073,{}, {}, code, 1);
   }
@@ -92,12 +99,32 @@ void mapped(unsigned mutation = 0) {
   f.emit(0x1005362f,{{{0,0},reg(12,9)},{{2,0},memory(o::AccessKind::Lr,va,data,9)}});
   auto sc = memory(o::AccessKind::Sc,va,data,9);
   if (mutation == 5) sc.physical_address += 8;
-  f.emit(0x18b5362f,{{{0,0},reg(12,0)},{{2,0},sc}});
+  if (mutation == 6) sc.physical_valid = false;
+  const bool failed_sc = mutation >= 7;
+  if (failed_sc) { sc.result = o::AccessResult::ScFailure; sc.write_valid = false; }
+  if (mutation == 7) sc.physical_valid = false;
+  if (mutation == 8) sc.physical_address += 8;
+  f.emit(0x18b5362f,{{{0,0},reg(12,failed_sc ? 1 : 0)},{{2,0},sc}});
   // A real supervisor PTE store and SFENCE change the private mapping.
   f.value(13,leaf); f.value(14,(other>>2)|0xc7);
   f.emit(0x00e6b023,{{{2,0},memory(o::AccessKind::Store,leaf,leaf,(other>>2)|0xc7)}});
   f.emit(0x12000073);
   f.read(other,99);
+}
+
+void translated_sc_fault(bool reservation, unsigned mutation = 0) {
+  Fixture f(0xc7,0x4b,0x800,true);
+  if (reservation)
+    f.emit(0x1005362f,{{{0,0},reg(12,42)},{{2,0},memory(o::AccessKind::Lr,va,data,42)}});
+  auto effect = memory(o::AccessKind::Sc,va,data,0);
+  effect.result = o::AccessResult::Fault;
+  effect.physical_valid = effect.read_valid = effect.write_valid = false;
+  if (mutation == 1) effect.virtual_address += 8;
+  if (mutation == 2) { effect.physical_valid = true; effect.physical_address += 8; }
+  if (mutation == 3) effect.write_valid = true;
+  auto trap = o::Trap{7,f.pc,va,base+0x400,{3,false},false,0,0};
+  if (mutation == 4) trap.cause = 15;
+  f.emit(0x18b5362f,{{{2,0},effect}},trap);
 }
 
 void external_mapping(bool mailbox, bool corrupt = false) {
@@ -286,7 +313,13 @@ int main() {
   sv32();
   rejects([] { sv32(true); });
   mapped();
-  for (unsigned mutation = 1; mutation <= 5; ++mutation) rejects([&] { mapped(mutation); });
+  mapped(9); // A translated, spuriously failed SC still carries its PA.
+  for (unsigned mutation = 1; mutation <= 8; ++mutation) rejects([&] { mapped(mutation); });
+  for (bool reservation : {false,true}) {
+    translated_sc_fault(reservation);
+    for (unsigned mutation = 1; mutation <= 4; ++mutation)
+      rejects([&] { translated_sc_fault(reservation,mutation); });
+  }
   page_fault(0,false); page_fault(7,false); page_fault(0x47,true);
   page_fault(0x43,true); page_fault(0xd7,false); page_fault(0x49,false);
   { Fixture f(0xd7,0x4b,0x40800); f.read(data,42); }

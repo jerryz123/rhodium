@@ -244,11 +244,11 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def paged_memory = config.mmu_type != RiscvMmuType.Bare
   def zero = bits(0, width)
   def mstatus_writable_fields = [
-    MstatusSIE, MstatusMIE, MstatusUPIE, MstatusSPIE, MstatusMPIE,
+    MstatusSIE, MstatusMIE, MstatusSPIE, MstatusMPIE,
     MstatusSPP, MstatusMPP, MstatusMPRV, MstatusMXR, MstatusTVM,
     MstatusTW, MstatusTSR
   ] ++ (if paged_memory | [MstatusSUM] | [])
-  def sstatus_writable_fields = [MstatusSIE, MstatusUPIE, MstatusSPIE, MstatusSPP, MstatusMXR] ++ (if paged_memory | [MstatusSUM] | [])
+  def sstatus_writable_fields = [MstatusSIE, MstatusSPIE, MstatusSPP, MstatusMXR] ++ (if paged_memory | [MstatusSUM] | [])
   def mstatus_write_mask = bits(csr_fields_mask(mstatus_writable_fields ++ (if hypervisor | [MstatusMPV, MstatusGVA] | [])), width)
   def sstatus_write_mask = bits(csr_fields_mask(sstatus_writable_fields), width)
   def xlen64_encoding = bits(XLen64Encoding, MstatusUXL.width)
@@ -256,10 +256,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def rv64_sxl = if xlen == XLen.X32 | zero | csr_field_value(MstatusSXL, xlen64_encoding, width)
   def mstatus_fixed = rv64_sxl ||| rv64_uxl
   def sstatus_fixed = rv64_uxl
-  def medeleg_causes = DelegatableExceptionCauses.filter(
-    ~keep: fun (cause): (!compressed_enabled) || (cause != ExceptionCause.InstructionAddressMisaligned)
-  )
-  def medeleg_mask = bits(exception_mask(medeleg_causes ++ (if hypervisor | HypervisorExceptionCauses | [])), width)
+  def medeleg_mask = bits(config.medeleg_mask, width)
   def sscofpmf = config.sscofpmf
   def lcof_mask = bits(if sscofpmf | interrupt_mask([InterruptCause.LocalCounterOverflow]) | 0, width)
   def hpm_mask = bits(if sscofpmf | 8 | 0, width)
@@ -545,8 +542,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         csr CsrId.Hedeleg:
           read: state.hedeleg
           write value:
-            def guest_causes = medeleg_causes.filter(~keep: fun (cause): cause != ExceptionCause.EnvironmentCallFromSupervisor)
-            state.hedeleg <== value & bits(exception_mask(guest_causes), width)
+            state.hedeleg <== value & bits(config.hedeleg_mask, width)
         csr CsrId.Hcounteren:
           read: state.hcounteren
           write value:
@@ -972,6 +968,9 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   | #void
 
   def csr_taps = {
+    "hpm_counter": hpm.counter,
+    "hpm_enabled": Bool(sscofpmf),
+    "hpm_overflow": hpm.overflow.valid,
     "interrupt_inputs": interrupts,
     "time_input": time_counter,
     "interrupt_boundary": interrupt_boundary & !synchronous_trap.valid,

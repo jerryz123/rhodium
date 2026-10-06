@@ -323,11 +323,7 @@ sync_circuit L1DCache(xlen :: XLen,
     management_requests |> gate_flow(stores.empty & !s2_store_candidate.egress.valid & refill.command.ready & writeback.command.ready & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid & !pending_mutation_valid & !refill_installing & (gather_state === L1DGatherState.Idle))
       |> map_flow(request => CHICacheMaintenanceCommand(p, PhysicalMemoryReq(xlen, Context))):
          address: management_address
-         opcode: mux_lookup(
-           request.access, ~default: CHIReqOpcode.MakeInvalid,
-           [[CacheOperation.CacheBlockClean, CHIReqOpcode.CleanShared],
-            [CacheOperation.CacheBlockFlush, CHIReqOpcode.CleanInvalid]]
-         )
+         opcode: mux(request.access === CacheOperation.CacheBlockClean, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid)
          snoop_me: Bool(#true)
          home_id: management_home.node_id
          pas: CHIPAS.Secure

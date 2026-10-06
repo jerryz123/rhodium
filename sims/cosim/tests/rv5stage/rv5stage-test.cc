@@ -23,6 +23,7 @@ struct Sample {
     cycle.xlen=64; cycle.flen=64;
     header.pc=0x8000; header.instruction=0x13;
     boundary.privilege=3; boundary.next_pc=0x8004; boundary.next_privilege=3;
+    boundary.hpm_enabled=1; boundary.hpm_counter=123;
     request[1].index=1; arithmetic[1].index=1;
   }
 };
@@ -60,6 +61,7 @@ std::string run(unsigned seed) {
       s.cycle.write_valid=1; s.cycle.write_rd=cycle==0?1:6; s.cycle.write_data=cycle==0?11:77;
     }
     if (cycle==1) {
+      s.boundary.hpm_overflow=1;
       s.header.pc=0x8004; s.cycle.wb_retained_memory_accepted=1;
       s.cycle.wb_memory_accepted=1; s.cycle.wb_attempt=1; s.cycle.commit_rd=2;
       s.request[0]={0,0x1000,1,3,0,0,2,1,0,2};
@@ -72,6 +74,7 @@ std::string run(unsigned seed) {
     if (cycle==3) {
       instruction(2); s.cycle.wb_commit_has_multiply=1;
       s.arithmetic[0].accepted=1; s.arithmetic[0].issue_rd=3;
+      s.boundary.hpm_overflow=1;
     }
     if (cycle==4 || cycle==5 || cycle==7) {
       instruction(cycle==4?3:cycle==5?4:5);
@@ -90,6 +93,7 @@ std::string run(unsigned seed) {
       s.boundary.csr_interrupt_take=1; s.boundary.cause=(1ULL<<63)|7;
       s.boundary.target_privilege=3; s.boundary.target_pc=0x9000; s.boundary.epc=0x801c;
     }
+    if (cycle==9) s.boundary.hpm_overflow=1;
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls;
     capture(calls,s,0,0,cycle); capture(calls,s,1,0,cycle);
@@ -98,12 +102,15 @@ std::string run(unsigned seed) {
     binding.check(); binding.check();
     for (const auto& record:collector.end_sample()) {
       if (record.id.order<7) {
+        require(record.environment.hpm_counters.at(3)==123);
+        require(record.environment.hpm_overflows==(record.id.order==2 || record.id.order==3 ? 8 : 0));
         const bool fp=record.id.order>=3 && record.id.order<=5;
         const auto& write=std::get<RegisterWrite>(record.effects.at({fp?3ULL:0ULL,0}));
         require(write.index==registers[record.id.order] && write.value==values[record.id.order]);
         require(write.bank==(fp?Bank::FloatingPoint:Bank::Integer));
         vector_test::save(out,record);
       } else {
+        require(record.environment.hpm_overflows==8);
         require(std::holds_alternative<Interrupt>(record.event));
         require(std::get<Trap>(record.outcome).cause==7 && record.effects.empty());
         out<<"interrupt "<<record.instance<<' '<<record.id.order<<'\n';
@@ -125,6 +132,7 @@ std::string run(unsigned seed) {
     binding.check();
     for (const auto& record:collector.end_sample()) {
       require(record.id.epoch==1 && record.id.order==0);
+      require(record.environment.hpm_overflows==0);
       vector_test::save(out,record); ++count;
     }
   }

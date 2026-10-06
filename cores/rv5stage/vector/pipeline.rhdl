@@ -590,6 +590,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     "memory_destination": operand_fetch.issue.bits.beat.destination,
     "memory_packed": operand_fetch.issue.bits.packed,
     "memory_token": issue.bits,
+    "memory_effective_address": apply_pointer_mask(xlen, issue.bits.address, operand_fetch.issue.bits.context.pointer_masking),
     "memory_decision_valid": decision.valid,
     "memory_decision": decision.bits,
     "replay": replay

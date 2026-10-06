@@ -115,7 +115,15 @@ void HartAdapter::resolve(Collector& collector, Word instance, Hart& h, const Fr
   };
   const Id id = c.wb_pending_exception_valid ? retained(h.exception) : c.wb_vector_return ? retained(h.vector_retained) :
       c.wb_memory_pending || c.wb_reservation_wait_pending ? retained(h.retained) : fresh;
-  collector.sampled_environment(instance,{b.interrupts,b.time,h.cycles++,bool(b.interrupt_boundary)});
+  // A pre-edge overflow pulse changes OF/pending only on this edge. Carry it
+  // forward to the next admitted boundary, across idle and retained cycles.
+  h.hpm_overflows |= h.hpm_previous_overflow;
+  Environment environment{b.interrupts,b.time,h.cycles++,bool(b.interrupt_boundary)};
+  if (b.hpm_enabled) environment.hpm_counters.emplace(3,b.hpm_counter);
+  environment.hpm_overflows = h.hpm_overflows;
+  collector.sampled_environment(instance,std::move(environment));
+  if (allocate || b.csr_interrupt_take) h.hpm_overflows = 0;
+  h.hpm_previous_overflow = b.hpm_overflow ? Word{8} : 0;
   require(!(allocate && b.csr_interrupt_take), "interrupt shares instruction allocation");
   if (allocate) {
     const bool fetch_fault = header.exception && (header.cause == 1 || header.cause == 12 || header.cause == 20);
@@ -249,9 +257,9 @@ extern "C" void rhodium_rv5stage_header(std::int64_t instance, std::int64_t pc, 
     adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), HeaderSample{Word(pc), Word(instruction), Word(exception), Word(cause)});
   });
 }
-extern "C" void rhodium_rv5stage_boundary(std::int64_t instance, std::int64_t csr_interrupt_take, std::int64_t csr_synchronous_trap, std::int64_t csr_commit, std::int64_t csr_retired, std::int64_t privilege, std::int64_t virtualized, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target_pc, std::int64_t target_privilege, std::int64_t target_virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst, std::int64_t next_pc, std::int64_t next_privilege, std::int64_t next_virtualized, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary) noexcept {
+extern "C" void rhodium_rv5stage_boundary(std::int64_t instance, std::int64_t csr_interrupt_take, std::int64_t csr_synchronous_trap, std::int64_t csr_commit, std::int64_t csr_retired, std::int64_t privilege, std::int64_t virtualized, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target_pc, std::int64_t target_privilege, std::int64_t target_virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst, std::int64_t next_pc, std::int64_t next_privilege, std::int64_t next_virtualized, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary, std::int64_t hpm_enabled, std::int64_t hpm_counter, std::int64_t hpm_overflow) noexcept {
   observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), BoundarySample{Word(csr_interrupt_take), Word(csr_synchronous_trap), Word(csr_commit), Word(csr_retired), Word(privilege), Word(virtualized), Word(cause), Word(epc), Word(tval), Word(target_pc), Word(target_privilege), Word(target_virtualized), Word(guest_valid), Word(htval), Word(htinst), Word(next_pc), Word(next_privilege), Word(next_virtualized), Word(interrupts), Word(time), Word(interrupt_boundary)});
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), BoundarySample{Word(csr_interrupt_take), Word(csr_synchronous_trap), Word(csr_commit), Word(csr_retired), Word(privilege), Word(virtualized), Word(cause), Word(epc), Word(tval), Word(target_pc), Word(target_privilege), Word(target_virtualized), Word(guest_valid), Word(htval), Word(htinst), Word(next_pc), Word(next_privilege), Word(next_virtualized), Word(interrupts), Word(time), Word(interrupt_boundary), Word(hpm_enabled), Word(hpm_counter), Word(hpm_overflow)});
   });
 }
 extern "C" void rhodium_rv5stage_request(std::int64_t instance, std::int64_t index, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t data, std::int64_t writeback, std::int64_t integer, std::int64_t fp, std::int64_t rd) noexcept {

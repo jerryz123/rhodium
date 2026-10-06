@@ -244,7 +244,87 @@ void absent_tselect_case(unsigned xlen, unsigned mutation = 0) {
   checker.check(r);
 }
 
+void wrs_case(unsigned encoding, unsigned mode, bool guest, bool tw, bool vtw,
+              bool timeout, bool reservation, unsigned mutation = 0) {
+  auto config = jsoncons::json::parse(configuration());
+  config["extensions"]["Zawrs"]["supported"] = true;
+  config["extensions"]["Zawrs"]["nto"]["is_nop"] = false;
+  config["extensions"]["Zawrs"]["sto"]["is_nop"] = false;
+  config["memory"]["pmp"]["count"] = 0;
+  config["memory"]["pmp"]["usable_count"] = 0;
+  SailChecker checker(config.to_string(),base,{{base,4096}});
+  unsigned order = 0, constant = 0;
+  std::uint64_t pc = base;
+  o::Privilege privilege{3,false};
+  auto bytes = [](std::uint64_t value, unsigned width) {
+    std::vector<std::uint8_t> result(width);
+    for (unsigned i=0;i<width;++i) result[i] = value>>(8*i);
+    return result;
+  };
+  auto emit = [&](unsigned code, std::map<o::EffectId,o::Effect> effects = {},
+                  std::optional<o::Outcome> outcome = {}) {
+    checker.load(pc,bytes(code,4));
+    o::Record r{0,0,order,{0,order},o::Instruction{pc,code,4,4,privilege,0},
+                outcome.value_or(o::Retirement{pc+4,privilege}),{},std::move(effects)};
+    r.environment.cycle = order+1;
+    checker.check(r); ++order;
+    if (auto* retire = std::get_if<o::Retirement>(&r.outcome)) {
+      pc = retire->next_pc; privilege = retire->privilege;
+    }
+  };
+  auto reg = [](unsigned rd, std::uint64_t value) { return o::RegisterWrite{o::Bank::Integer,rd,0,UINT64_MAX,value}; };
+  auto value = [&](unsigned rd, std::uint64_t value) {
+    unsigned offset=0x800-8*(++constant);
+    checker.load(base+offset,bytes(value,8));
+    emit(offset<<20|31<<15|3<<12|rd<<7|3,
+         {{{0,0},reg(rd,value)},{{2,0},o::MemoryEffect{0,0,o::AccessKind::Load,base+offset,false,0,255,true,false,value,0,o::AccessResult::Success}}});
+  };
+  auto csr = [&](unsigned address, std::uint64_t data) { value(5,data); emit(address<<20|5<<15|1<<12|0x73); };
+  emit(0x00000f97,{{{0,0},reg(31,base)}});
+  csr(0x305,base+0x300);
+  if (guest) csr(0x600,vtw ? 1U<<21 : 0);
+  value(10,base+0x900); value(11,9);
+  checker.load(base+0x900,bytes(42,8));
+  if (mode != 3) {
+    csr(0x341,base+0x100);
+    csr(0x300,(std::uint64_t(mode)<<11)|(tw ? 1U<<21 : 0)|(guest ? UINT64_C(1)<<39 : 0));
+    emit(0x30200073,{},o::Retirement{base+0x100,{mode,guest}});
+  }
+  if (reservation)
+    emit(0x1005362f,{{{0,0},reg(12,42)},{{2,0},o::MemoryEffect{0,0,o::AccessKind::Lr,base+0x900,false,0,255,true,false,42,0,o::AccessResult::Success}}});
+  if (timeout) {
+    const auto tval = config["base"]["xtval_nonzero"]["illegal_instruction"].as<bool>() ? encoding : 0U;
+    emit(encoding,{},o::Trap{mutation ? 3U : tw ? 2U : 22U,pc,tval,base+0x300,{3,false},false,0,0});
+  } else {
+    std::map<o::EffectId,o::Effect> effects;
+    if (mutation) effects[{0,0}] = reg(12,0);
+    emit(encoding,effects);
+    // Early release must not consume the reservation or execute the next PC.
+    emit(0x18b5362f,{{{0,0},reg(12,reservation ? 0 : 1)},{{2,0},o::MemoryEffect{0,0,o::AccessKind::Sc,base+0x900,false,0,255,false,reservation,0,9,reservation ? o::AccessResult::Success : o::AccessResult::ScFailure}}});
+    if (mode == 3) {
+      emit(0xb00026f3,{{{0,0},reg(13,order+1)}});
+      emit(0xb02026f3,{{{0,0},reg(13,order)}});
+    }
+    emit(0x00700093,{{{0,0},reg(1,7)}});
+  }
+}
+
 int main() {
+  for (unsigned encoding : {0x00d00073U,0x01d00073U})
+    for (unsigned mode : {0U,1U,3U}) for (bool reservation : {false,true}) {
+      wrs_case(encoding,mode,false,false,false,false,reservation);
+      if (mode != 3) wrs_case(encoding,mode,false,true,false,false,reservation);
+    }
+  for (bool tw : {false,true}) for (bool vtw : {false,true})
+    wrs_case(0x00d00073,1,true,tw,vtw,false,true);
+  wrs_case(0x00d00073,1,false,true,false,true,true);
+  wrs_case(0x00d00073,1,true,false,true,true,true);
+  for (bool timeout : {false,true}) {
+    bool failed=false;
+    try { wrs_case(0x00d00073,1,false,true,false,timeout,true,1); }
+    catch (const std::runtime_error&) { failed=true; }
+    if (!failed) throw std::runtime_error("WRS corruption was not rejected");
+  }
   for (unsigned xlen : {32, 64}) {
     absent_tselect_case(xlen);
     for (unsigned mutation : {1, 2}) {

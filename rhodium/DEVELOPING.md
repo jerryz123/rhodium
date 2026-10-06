@@ -348,6 +348,9 @@ privilege, timer, vector, and feature descriptors, plus `std/bits.rhdl`,
 `cores/riscv/cosim-source.rhm` metadata bridge. It imports no named core.
 `cores/rv5stage/csr.rhdl` projects named configuration/decode controls into its
 neutral configuration and command; `core.rhdl` owns retirement authorization.
+`socs/configs/metadata.rhm` consumes that static specialization and Spike's
+implementation-owned WARL projection for reference configuration. No live CSR
+state or simulator dependency crosses back into the core packages.
 `cores/rv2wide/core.rhdl` also consumes this shared bank, architectural ISA/CSR/
 interrupt descriptors, and the neutral command/action protocol. Its composed
 system decode remains in `cores/rv2wide/decode/`; single-slot serialization,

@@ -14,6 +14,7 @@ import:
   lib("cores/spike/profile.rhm").SpikeConfig
   lib("socs/platform/description.rhm") open
   lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../arch-test/platform.rhm".ActPlatform
 
 def names = TestConfigs.map(fun (config :: SoCSelection): config.key)
@@ -51,6 +52,9 @@ for (config in TestConfigs):
     metadata_fingerprint(config_metadata(resolve_soc_config(config))) ~is metadata_fingerprint(metadata)
     metadata_json(metadata).contains("#<procedure") ~is #false
     metadata_json(metadata).contains("#<function") ~is #false
+    metadata["csr_warl"]["pmm_unsupported_write"] ~is "disabled"
+    metadata["csr_warl"]["medeleg_mask"] ~is (if config.core == CoreKind.RV5Stage | 0xcb3fe | (if resolved.hart.description.mmu_type == RiscvMmuType.Bare | 0x803fe | 0x8b3fe)) bits.or (if config.isa == IsaPreset.RVA23 | 0xf00400 | 0)
+    metadata["csr_warl"]["hedeleg_mask"] ~is (if config.isa == IsaPreset.RVA23 | (if config.core == CoreKind.RV5Stage | 0xcb1fe | 0xcb1ff) | 0)
   when config.core == CoreKind.Spike
   | block:
       def profile :: SpikeConfig = resolved.hart.profile

@@ -158,8 +158,17 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
     CREATE(sail_int)(&step_number);
     CONVERT_OF(sail_int, mach_int)(&step_number, attempts_);
     try {
+      std::uint64_t hpm_mask = 0;
+      for (const auto& [index, value] : inputs.hpm_counters) {
+        (void)value;
+        if (index < 3 || index > 31 || !(zsys_writable_hpm_counters & (UINT64_C(1) << index)))
+          throw std::runtime_error("HPM input for an unimplemented counter");
+        hpm_mask |= UINT64_C(1) << index;
+      }
+      if (inputs.hpm_overflows & ~hpm_mask)
+        throw std::runtime_error("HPM overflow without an implemented counter input");
       for (std::uint64_t tick = 0; tick < inputs.clock_ticks; ++tick) ztick_clock(UNIT);
-      result_.waiting = ztry_step(step_number, inputs.wake_wait);
+      result_.waiting = ztry_step(step_number, inputs.wait_release == StepInputs::WaitRelease::Timeout);
       if (have_exception) throw std::runtime_error("Sail raised an internal model exception");
       if (inputs.sc_failure && (!result_.atomic || result_.atomic->kind != AtomicAccess::Kind::Sc ||
                                 result_.trap || !result_.retired))
@@ -286,8 +295,19 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
                      (std::uint64_t(inputs_->supervisor_external_interrupt) << 9) : 0;
   }
   bool host_interrupt_boundary(unit) override { return !inputs_ || inputs_->interrupt_boundary; }
+  bool host_wrs_early_wake(unit) override { return inputs_ && inputs_->wait_release == StepInputs::WaitRelease::WrsEarlyWake; }
   bool host_time_enabled(unit) override { return true; }
   fbits host_time(unit) override { return inputs_ ? inputs_->time : 0; }
+  fbits host_hpm_counters(unit) override {
+    fbits mask = 0;
+    if (inputs_) for (const auto& [index, value] : inputs_->hpm_counters) {
+      (void)value;
+      mask |= UINT64_C(1) << index;
+    }
+    return mask;
+  }
+  fbits host_hpm_counter(fbits index) override { return inputs_->hpm_counters.at(index); }
+  fbits host_hpm_overflows(unit) override { return inputs_ ? inputs_->hpm_overflows : 0; }
   unit fetch_callback(sbits opcode) override {
     result_.instruction = static_cast<std::uint32_t>(opcode.bits);
     result_.instruction_bytes = opcode.len / 8;

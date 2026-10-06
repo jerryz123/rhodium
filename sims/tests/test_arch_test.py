@@ -73,6 +73,9 @@ def sail_default():
         },
         "base": {
             "tselect_present": True,
+            "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xcb1ff"}},
+            "hpm_events": {"restricted": False, "supported": []},
+            "pmm_unsupported_write_to_disabled": False,
             "mtvec": {"direct": {}, "vectored": {}}, "stvec": {"direct": {}, "vectored": {}},
             "vstvec": {"direct": {}, "vectored": {}},
             "mstatus": {}, "xtval_nonzero": {},
@@ -293,7 +296,6 @@ class ArchTestConfigTest(unittest.TestCase):
         self.assertEqual(config["base"]["writable_hpm_counters"], {"len": 32, "value": "0x0"})
         self.assertEqual(config["base"]["mcounteren_writable_bits"], {"len": 32, "value": "0x7"})
         self.assertEqual(config["base"]["scounteren_writable_bits"], {"len": 32, "value": "0x7"})
-        self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0x8b3ff)
 
     def test_configuration_includes_privileged_tests(self):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
@@ -317,15 +319,17 @@ class ArchTestConfigTest(unittest.TestCase):
             self.assertIs(config["extensions"]["Zawrs"]["nto"]["is_nop"], is_nop)
             self.assertIs(config["extensions"]["Zawrs"]["sto"]["is_nop"], is_nop)
 
-    def test_software_check_delegation_requires_a_cfi_extension(self):
+    def test_software_check_delegation_is_an_implementation_choice(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
-        for extension in ("Zicfilp", "Zicfiss"):
+        for extension in (None, "Zicfilp", "Zicfiss"):
             udb = {"params": architecture_params(), "implemented_extensions": [
                 {"name": "Sm", "version": "= 1.13.0"},
-                {"name": extension, "version": "= 1.0.0"},
             ]}
+            if extension:
+                udb["implemented_extensions"].append({"name": extension, "version": "= 1.0.0"})
             with self.subTest(extension=extension):
-                config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+                policy = {"medeleg_mask": 0xcb3ff, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled"}
+                config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000, policy)
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
 
     def test_architecture_settings_come_from_core_profile(self):
@@ -369,7 +373,6 @@ class ArchTestConfigTest(unittest.TestCase):
                 self.assertIs(config["extensions"]["Svade"]["supported"], svade)
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})
-                self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0x8b3ff)
 
     def test_atomic_misalignment_policies_are_independent(self):
         project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]

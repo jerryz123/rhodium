@@ -66,9 +66,9 @@ def render_rvmodel_macros(template, access_fault_address):
     return template.replace(marker, definition)
 
 
-def sail_config(default, udb, origin, size):
+def sail_config(default, udb, origin, size, csr_warl=None):
     """Compose the shared hart projection with ACT's synthetic environment."""
-    default = project_architecture(default, udb)
+    default = project_architecture(default, udb, csr_warl)
     memory = default["memory"]
     extensions = {entry["name"] for entry in udb["implemented_extensions"]}
     ram = next(region for region in memory["regions"] if region["attributes"]["mem_type"] == "MainMemory")
@@ -127,7 +127,7 @@ def main():
     config_architecture(configuration, args.name, udb)
     configuration_fingerprint = fingerprint(configuration)
     default = model_defaults(sail, udb["params"]["MXLEN"])
-    config = sail_config(default, udb, args.ram_origin, args.ram_bytes)
+    config = sail_config(default, udb, args.ram_origin, args.ram_bytes, configuration["csr_warl"])
     validate_access_fault_region(config, udb["params"], args.access_fault_address, args.access_fault_bytes)
     args.output.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).resolve().parent

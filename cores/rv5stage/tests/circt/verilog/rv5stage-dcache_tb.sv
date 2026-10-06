@@ -1000,7 +1000,7 @@ module rv5stage_dcache_tb;
     expect_core_response(64'h88776655_44332211, WRITEBACK_INTEGER_KIND, 5'd22);
 
     // A maintenance requester keeps snoop service live until Home completion.
-    // Dirty data is preserved by clean/flush and deliberately discarded by inval.
+    // All RISC-V maintenance commands preserve dirty data; inval uses flush.
     for (int operation = 7; operation <= 9; operation++) begin
       reset = 1; tick(); tick(); reset = 0;
       tx_req_pending = 0; tx_rsp_pending = 0; tx_dat_pending = 0;
@@ -1013,7 +1013,7 @@ module rv5stage_dcache_tb;
       evict_dirty_line = LINE; evict_dirty_line[63:0] = STORE_DATA;
       send_core_request(ADDRESS + 63, 4'(operation), ATOMIC_SWAP, 0, 0);
       for (int cycles = 0; !tx_req_pending && cycles < 100; cycles++) tick();
-      assert (tx_req_pending && captured_req.opcode == (operation == 7 ? 7'h0a : operation == 8 ? 7'h08 : 7'h09) && captured_req.address == ADDRESS[43:0] && captured_req.txn_id == 2 && captured_req.excl_snoop_me_cah && captured_req.mem_attr == 4'h4 && !captured_req.exp_comp_ack)
+      assert (tx_req_pending && captured_req.opcode == (operation == 8 ? 7'h08 : 7'h09) && captured_req.address == ADDRESS[43:0] && captured_req.txn_id == 2 && captured_req.excl_snoop_me_cah && captured_req.mem_attr == 4'h4 && !captured_req.exp_comp_ack)
         else $fatal(1, "bad maintenance command");
       tx_req_pending = 0;
       if (operation == 8) begin
@@ -1025,20 +1025,10 @@ module rv5stage_dcache_tb;
         tx_req_pending = 0;
       end
       chi_in.request_data.ready = 0;
-      send_snoop(ADDRESS, 12'h07b, operation == 7 ? 5'h0a : operation == 8 ? 5'h08 : 5'h09);
-      if (operation == 7) begin
-        for (int cycles = 0; !chi_out.requester_responses.valid && cycles < 100; cycles++) begin
-          assert (!chi_out.request_data.valid) else $fatal(1, "CMO invalidate wrote dirty data");
-          tick();
-        end
-        assert (chi_out.requester_responses.valid && chi_out.requester_responses.bits.resp == 0)
-          else $fatal(1, "CMO invalidate did not respond");
-        tick(); tx_rsp_pending = 0;
-      end else begin
-        for (beat = 0; beat < 4; beat++)
-          accept_snoop_data(beat, evict_dirty_line, 12'h07b);
-        tick();
-      end
+      send_snoop(ADDRESS, 12'h07b, operation == 8 ? 5'h08 : 5'h09);
+      for (beat = 0; beat < 4; beat++)
+        accept_snoop_data(beat, evict_dirty_line, 12'h07b);
+      tick();
       repeat (5) begin
         assert (!core_out.response.valid && !core_out.drained) else $fatal(1, "CMO completed before Home");
         tick();
@@ -1049,9 +1039,9 @@ module rv5stage_dcache_tb;
       // The existing dirty-snoop policy relinquishes its local copy, including
       // for CleanShared. Clean is allowed to invalidate after preserving data.
       accept_request(READ_CLEAN, ADDRESS, 0, 6, 1, 0);
-      return_line(ADDRESS, operation == 7 ? LINE : evict_dirty_line, 3'b001);
+      return_line(ADDRESS, evict_dirty_line, 3'b001);
       accept_comp_ack();
-      expect_core_response(operation == 7 ? LINE[63:0] : STORE_DATA, WRITEBACK_INTEGER_KIND, 1);
+      expect_core_response(STORE_DATA, WRITEBACK_INTEGER_KIND, 1);
       assert (!tx_req_pending) else $fatal(1, "unexpected maintenance traffic");
       // A miss still travels to Home; a failed completion must be observable.
       send_core_request(ADDRESS + 64'h1000, 4'd9, ATOMIC_SWAP, 0, 0);

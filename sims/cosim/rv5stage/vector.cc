@@ -129,19 +129,22 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
     const auto element_mask = (Word{1} << instruction.eew) - 1;
     // Misaligned transfers are observed as physical fragments, never again as
     // their final assembled completion.
-    if (!fragment && (issue.address & element_mask)) return;
-    const Word mask = fragment ? fragment->mask : issue.mask >> (issue.address & (word_bytes-1));
-    const Word address = fragment ? fragment->address : issue.address;
+    if (!fragment && (issue.effective_address & element_mask)) return;
+    const Word mask = fragment ? fragment->mask : issue.mask >> (issue.effective_address & (word_bytes-1));
+    const Word address = fragment ? fragment->address : issue.effective_address;
     const Word store_data = fragment ? fragment->store_data : issue.data;
     const bool translated = fragment || (direct ? hart.hit_valid : token.translated);
     require(!fragment || hart.fragment_physical.has_value(), "split response has no accepted physical address");
     const Word physical = fragment ? *hart.fragment_physical :
-        (direct ? hart.hit_physical : (token.translated ? token.physical : issue.address));
+        (direct ? hart.hit_physical : (token.translated ? token.physical : issue.effective_address));
     for (unsigned byte = 0; byte < word_bytes; ++byte) if (mask & (Word{1} << byte)) {
       const Word va = (address + byte) & address_mask;
-      const Word offset = (va - instruction.base) & address_mask;
+      // Identity uses the raw schedule, while fragment offsets and compared VAs
+      // use the RTL-normalized address. No pointer-mask policy lives in C++.
+      const Word within_field = (va - issue.effective_address) & address_mask;
+      const Word offset = (issue.address - instruction.base + within_field) & address_mask;
       const Word access = issue.packed ? offset >> instruction.eew : token.access;
-      const Word within = issue.packed ? offset & element_mask : (va - issue.address) & address_mask;
+      const Word within = issue.packed ? offset & element_mask : within_field;
       emit(issue.owner, MemoryEffect{access, within, issue.store ? AccessKind::Store : AccessKind::Load,
            va, translated, (physical + byte) & address_mask, 1, !bool(issue.store), bool(issue.store),
            (data >> (8*byte)) & 255, (store_data >> (8*byte)) & 255, AccessResult::Success});
@@ -157,7 +160,7 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
     auto& token = slot(hart, fault->tag);
     const auto& instruction = owner(hart, token.issue.owner);
     require(!token.done, "fault follows completed memory slot");
-    const auto offset = (fault->address - token.issue.address) & address_mask;
+    const auto offset = (fault->address - token.issue.effective_address) & address_mask;
     const auto size = Word{1} << instruction.eew;
     require(offset < size, "fault suffix outside field");
     emit(token.issue.owner, MemoryEffect{token.access, offset, token.issue.store ? AccessKind::Store : AccessKind::Load,
@@ -267,9 +270,9 @@ extern "C" void rhodium_rv5stage_vector_dispatch(std::int64_t instance, std::int
     adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Dispatch{Word(owner), Word(base), Word(eew), Word(instruction), Word(vtype)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept {
+extern "C" void rhodium_rv5stage_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t effective_address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept {
   observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(physical), Word(precertified), Word(mask), Word(data)});
+    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(effective_address), Word(physical), Word(precertified), Word(mask), Word(data)});
   });
 }
 extern "C" void rhodium_rv5stage_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept {

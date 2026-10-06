@@ -107,6 +107,10 @@ by their resolved attachment parameters; executable changes are additionally
 bound by the exact source revision. New configuration fields must enter this
 projection and its mutation tests. Keep simulation variants out of the architectural
 description; the simulator attestation adds the normal/trace variant.
+The resolved `csr_warl` map exports the selected core's static delegation masks
+and PMM normalization policy for ACT and embedded Sail. Reuse the shared CSR
+bank's configuration for RV5Stage; keep Spike's pinned implementation choices
+in its own projection. UDB continues to own HPM event IDs and counter presence.
 
 ## Implementation map
 

@@ -1,0 +1,115 @@
+Subject: [PATCH] Configure implementation-owned CSR WARL choices
+
+Purpose: Preserve exact delegation, HPM selector, and pointer-mask policies.
+SPDX-License-Identifier: BSD-2-Clause
+
+Defaults retain upstream behavior. Restricted HPM selectors normalize unsupported
+events to zero without changing Sscofpmf overflow/filter fields or implementing
+counter events. PMM normalization covers all pointer-masking controls.
+
+diff --git a/config/config.json.in b/config/config.json.in
+index 29e21f7..3e5bb8e 100644
+--- a/config/config.json.in
++++ b/config/config.json.in
+@@ -18,6 +18,10 @@
+     "E": false,
+     "writable_misa": true,
+     "writable_fiom": true,
++    // WARL choices preserve the legacy model behavior by default.
++    "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xCB1FF"}},
++    "hpm_events": {"restricted": false, "supported": []},
++    "pmm_unsupported_write_to_disabled": false,
+     // A core without triggers may omit tselect and trap on accesses.
+     // True preserves the legacy no-trigger selector placeholder.
+     "tselect_present": true,
+diff --git a/model/core/counters.sail b/model/core/counters.sail
+index 8cd6463..4379f81 100644
+--- a/model/core/counters.sail
++++ b/model/core/counters.sail
+@@ -149,6 +149,13 @@ function hpmidx_from_bits(b : bits(5)) -> hpmidx = {
+   index
+ }
+ 
++// Empty lists are meaningful when restriction is enabled: all events become zero.
++private function supported_hpm_event(event : bits(32), events : list(bits(32))) -> bool =
++  match events {
++    [||] => false,
++    candidate :: rest => event == candidate | supported_hpm_event(event, rest),
++  }
++
+ function legalize_hpmevent(v : HpmEvent) -> HpmEvent = {
+   [ Mk_HpmEvent(zeros()) with
+     OF = if currentlyEnabled(Ext_Sscofpmf) then v[OF] else 0b0,
+@@ -157,7 +164,9 @@ function legalize_hpmevent(v : HpmEvent) -> HpmEvent = {
+     UINH  = if currentlyEnabled(Ext_Sscofpmf) & currentlyEnabled(Ext_U) then v[UINH] else 0b0,
+     VSINH = if currentlyEnabled(Ext_Sscofpmf) & currentlyEnabled(Ext_H) then v[VSINH] else 0b0,
+     VUINH = if currentlyEnabled(Ext_Sscofpmf) & currentlyEnabled(Ext_H) then v[VUINH] else 0b0,
+-    event = v[event],
++    event = if not(config base.hpm_events.restricted : bool)
++               | supported_hpm_event(v[event], config base.hpm_events.supported)
++            then v[event] else zeros(),
+   ]
+ }
+ 
+diff --git a/model/core/interrupt_regs.sail b/model/core/interrupt_regs.sail
+index 37a3a7d..b1f0a90 100644
+--- a/model/core/interrupt_regs.sail
++++ b/model/core/interrupt_regs.sail
+@@ -392,7 +392,7 @@ function clause write_CSR(0x644, value) = { mip = legalize_hip(mip, value); Ok(l
+ // hedeleg is writable only for the synchronous exceptions that may be
+ // delegated to VS-mode. Codes 0-8, 12, 13, 15, 18, 19, everything else is
+ // read-only zero.
+-let hedeleg_writable_mask : bits(64) = 0x00000000000CB1FF
++let hedeleg_writable_mask : bits(64) = config base.hedeleg.delegatable_bits
+ 
+ private function legalize_hedeleg(_m : Medeleg, v : bits(64)) -> Medeleg =
+   Mk_Medeleg(v & hedeleg_writable_mask)
+diff --git a/model/core/sys_regs.sail b/model/core/sys_regs.sail
+index 507c91a..abc5ad9 100644
+--- a/model/core/sys_regs.sail
++++ b/model/core/sys_regs.sail
+@@ -345,7 +345,7 @@ private function legalize_hstatus(h : Hstatus, v : bits(64)) -> Hstatus = {
+   let v = Mk_Hstatus(v);
+   [h with
+     // HUPMM controls pointer masking for HLV.*/HSV in U-mode (effective VU)
+-    HUPMM = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[HUPMM])) then v[HUPMM] else h[HUPMM],
++    HUPMM = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[HUPMM])) then v[HUPMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else h[HUPMM],
+     // We don't currently support changing VSXL
+     // VSXL = v[VSXL]
+     HUKTE = if currentlyEnabled(Ext_Svukte) then v[HUKTE] else 0b0,
+@@ -397,7 +397,7 @@ private function legalize_mseccfg(o : Seccfg, v : bits(64)) -> Seccfg = {
+ 
+   let v = Mk_Seccfg(v);
+   [o with
+-    PMM   = if currentlyEnabled(Ext_Smmpm) & is_supported_pmm(PM_SMMPM, pmm_mode(v[PMM])) then v[PMM] else o[PMM],
++    PMM   = if currentlyEnabled(Ext_Smmpm) & is_supported_pmm(PM_SMMPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else o[PMM],
+     MLPE  = if hartSupports(Ext_Zicfilp) then v[MLPE] else 0b0,
+     SSEED = if sseed_read_only_zero then 0b0 else v[SSEED],
+     USEED = if useed_read_only_zero then 0b0 else v[USEED],
+@@ -511,7 +511,7 @@ private function legalize_menvcfg(o : MEnvcfg, v : bits(64)) -> MEnvcfg = {
+     CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
+     CBIE = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(o[CBIE], v[CBIE]) else 0b00,
+     STCE = if currentlyEnabled(Ext_Sstc) then v[STCE] else 0b0,
+-    PMM = if currentlyEnabled(Ext_Smnpm) & is_supported_pmm(PM_SMNPM, pmm_mode(v[PMM])) then v[PMM] else o[PMM],
++    PMM = if currentlyEnabled(Ext_Smnpm) & is_supported_pmm(PM_SMNPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else o[PMM],
+     DTE = if hartSupports(Ext_Ssdbltrp) then v[DTE] else 0b0,
+     ADUE = if currentlyEnabled(Ext_Svadu) then v[ADUE] else 0b0,
+     PBMTE = if currentlyEnabled(Ext_Svpbmt) then v[PBMTE] else 0b0,
+@@ -534,7 +534,7 @@ private function legalize_senvcfg(o : SEnvcfg, v : bits(64)) -> SEnvcfg = {
+     CBZE = if currentlyEnabled(Ext_Zicboz) then v[CBZE] else 0b0,
+     CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
+     CBIE = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(o[CBIE], v[CBIE]) else 0b00,
+-    PMM = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else o[PMM],
++    PMM = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else o[PMM],
+     UKTE = if currentlyEnabled(Ext_Svukte) then v[UKTE] else 0b0,
+     // Other extensions are not implemented yet so all other fields are read only zero.
+   ]
+@@ -550,7 +550,7 @@ private function legalize_henvcfg(h : HEnvcfg, v : bits(64)) -> HEnvcfg = {
+     PBMTE = if currentlyEnabled(Ext_Svpbmt) & menvcfg[PBMTE] == 0b1 then v[PBMTE] else 0b0,
+     ADUE  = if currentlyEnabled(Ext_Svadu) & menvcfg[ADUE] == 0b1 then v[ADUE] else 0b0,
+     DTE   = if currentlyEnabled(Ext_Ssdbltrp) then v[DTE] else 0b0,
+-    PMM  = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else h[PMM],
++    PMM  = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else h[PMM],
+     CBZE  = if currentlyEnabled(Ext_Zicboz) then v[CBZE]  else 0b0,
+     CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
+     CBIE  = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(h[CBIE], v[CBIE]) else 0b00,

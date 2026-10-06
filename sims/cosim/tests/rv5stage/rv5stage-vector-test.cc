@@ -27,7 +27,7 @@ void test_rv5stage_vector_dispatch(std::int64_t instance, std::int64_t epoch, st
 }
 void test_rv5stage_vector_issue(std::int64_t instance, std::int64_t epoch, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept {
   observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(physical), Word(precertified), Word(mask), Word(data)});
+    adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(address), Word(physical), Word(precertified), Word(mask), Word(data)});
   });
 }
 void test_rv5stage_vector_write(std::int64_t instance, std::int64_t epoch, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept {
@@ -290,7 +290,72 @@ std::string fp_services(unsigned seed,unsigned mutation=0,bool reduction=false) 
     []{rhodium_rv5stage_vector_drain(0,0);}});
   collector.finish(); return output.str();
 }
+void address_domains(Word raw_base, Word effective_base, bool packed, bool fault,
+                     bool store, bool corrupt_fault = false) {
+  Collector collector; collector.reset(0,0,reset_state()); DpiBinding binding(collector);
+  Word cycle=0;
+  auto begin = [&] {
+    collector.begin_sample(cycle++);
+    test_rv5stage_vector_cycle(0,0,64,128,2,0,0,fault,1,0);
+  };
+  auto end = [&] { binding.check(); return collector.end_sample(); };
+  const Word code = store ? (load & ~Word{127})|0x27 : load;
+  begin();
+  collector.instruction(0,{0,0},instruction(0x8000,code));
+  test_rv5stage_vector_allocate(0,0,0,1,1,code);
+  test_rv5stage_vector_dispatch(0,0,0,raw_base,2,code,16);
+  end();
+  const Word offset = fault ? 7 : 8;
+  begin();
+  rhodium_rv5stage_vector_issue(0,0,0,2,8,packed,1,store,raw_base+offset,
+                              effective_base+offset,0x2000+offset,!fault,packed ? 255 : 15,0x8877665544332211);
+  test_rv5stage_vector_decision(0,0,0,0);
+  if (fault) test_rv5stage_vector_fragment_start(0,0,0x2007);
+  end();
+  if (fault) {
+    begin();
+    test_rv5stage_vector_fragment(0,0,0,effective_base+7,1,0x11,0x11);
+    end();
+  }
+  begin();
+  if (fault) {
+    test_rv5stage_vector_fault(0,0,0,effective_base+(corrupt_fault ? 11 : 8));
+    collector.exception(0,{0,0},{store ? 7U : 5U,0x8000,effective_base+8,0,{3,false},false,0,0});
+  } else {
+    test_rv5stage_vector_complete(0,0,0,0x8877665544332211);
+    collector.retire(0,{0,0},{0x8004,{3,false}});
+  }
+  test_rv5stage_vector_drain(0,0,0);
+  const auto records = end();
+  require(records.size()==1 && records.front().effects.size()==(fault ? 2U : packed ? 8U : 4U));
+  unsigned byte=0;
+  for (const auto& [id,effect] : records.front().effects) {
+    (void)id;
+    const auto& memory = std::get<MemoryEffect>(effect);
+    require(memory.virtual_address==effective_base+offset+byte);
+    require(memory.access_id==(packed ? (offset+byte)/4 : 2));
+    require(memory.fragment_offset==(packed ? (offset+byte)%4 : byte));
+    require(memory.result==(fault && byte ? AccessResult::Fault : AccessResult::Success));
+    if (memory.result==AccessResult::Success) require(memory.physical_address==0x2000+offset+byte);
+    ++byte;
+  }
+  collector.finish();
+}
+
 int main() {
+  for (const auto [raw,effective] : {std::pair{Word{0x7f00000000001000},Word{0x1000}},
+                                   std::pair{Word{0x1234000000001000},Word{0x1000}},
+                                   std::pair{Word{0x1234fffffffff000},Word{0xfffffffffffff000}}}) {
+    for (bool store : {false,true}) {
+      address_domains(raw,effective,false,false,store);
+      address_domains(raw,effective,true,false,store);
+      address_domains(raw,effective,false,true,store);
+      bool failed=false;
+      try { address_domains(raw,effective,false,true,store,true); }
+      catch (const std::runtime_error&) { failed=true; }
+      require(failed);
+    }
+  }
   const auto baseline=run(0);
   for(unsigned seed=1;seed<64;++seed) require(run(seed)==baseline);
   for(unsigned mutation=0;mutation<5;++mutation) invalid(mutation);
