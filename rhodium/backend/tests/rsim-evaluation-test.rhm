@@ -189,6 +189,7 @@ fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, bo
     for (sink in region.sinks): sinks.add(sink)
     check:
       region.steps.length() + region.sinks.length() > 0 ~is #true
+      region.steps.length() == 0 || region.sinks.length() == 0 ~is #true
       region.cost <= budget || region.steps.length() + region.sinks.length() == 1 ~is #true
   check:
     steps.snapshot() ~is body.steps
@@ -204,8 +205,9 @@ fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, bo
     for (index in region.steps):
       if evaluation.constants.has_key(index)
       | constant_uses.add(index)
-      | for (operand in evaluation.dependencies[index].values): uses.add(operand)
-        for (read in evaluation.dependencies[index].storage): resources.add(read)
+      | def dependencies = (if body.conditionals.has_key(index) | body.conditionals[index].dependencies | evaluation.dependencies[index])
+        for (operand in dependencies.values): uses.add(operand)
+        for (read in dependencies.storage): resources.add(read)
     for (sink in region.sinks):
       for (value in sink.dependencies.values): uses.add(value)
       for (read in sink.dependencies.storage): resources.add(read)
@@ -233,13 +235,18 @@ for (scheduled in [schedule, repeated, unused, scalar, rom]):
   for (body in [planned.pre_edge, planned.outputs]):
     for (budget in [1, 24, 4096]): check_regions(scheduled, planned, body, budget)
 
-// A single region keeps every intermediate local, including values needed by
-// its final frame consumers. An outputless body produces no empty helper region.
+// Even a generous budget separates values from frame preparation. The cut
+// exports only consumed values; an outputless body has no empty helper region.
 def together = build_regions(schedule, evaluation, evaluation.pre_edge, ~budget: 1000000)
 check:
-  together.length() ~is 1
+  together.length() ~is 2
+  together[0].steps ~is evaluation.pre_edge.steps
+  together[0].sinks ~is []
+  together[1].steps ~is []
+  together[1].sinks ~is evaluation.pre_edge.sinks
   together[0].inputs ~is []
-  together[0].outputs ~is []
+  together[0].outputs ~is together[1].inputs
+  together[1].outputs ~is []
   build_regions(unused, unused_plan, unused_plan.outputs) ~is []
 
 // With one item per region, reset remains live directly from its producer to
@@ -281,7 +288,7 @@ def narrow_copy = copy_regions(Bits(5))
 def wide_copy = copy_regions(Bits(512))
 def aggregate_copy = copy_regions(RecordType([RecordField("tag", Bits(5)), RecordField("words", VectorType(4, Bits(512)))]))
 check:
-  narrow_copy.length() ~is 1
+  narrow_copy.length() ~is 2
   wide_copy.length() ~is 2
   aggregate_copy.length() ~is 2
   wide_copy[0].cost > narrow_copy[0].cost ~is #true
@@ -302,13 +309,19 @@ for (budget in [1, 24, 4096]):
   check: contents ~is emit_rsim(schedule, ~region_budget: budget)
   for (body in [emission_evaluation.pre_edge, emission_evaluation.outputs], phase in ["pre", "output"]):
     def regions = build_regions(schedule, emission_evaluation, body, ~budget: budget)
-    def split = regions.length() > 1
+    def split = contents[0].contains("struct " ++ phase ++ "Scratch")
+    when budget == 1 && regions.length() > 1 | check: split ~is #true
     check:
-      contents[0].contains("struct " ++ phase ++ "Scratch") ~is split
       contents[1].split("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region").length() - 1 ~is (if split | regions.length() | 0)
     when split
     | for (region in regions, number in 0..regions.length()):
         def helper = contents[1].split("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
+        def signature = helper.split(") const {")[0]
+        def consumer = region.sinks.length() > 0
+        check:
+          signature.contains("const " ++ phase ++ "Scratch& scratch") ~is consumer
+          signature.contains(if phase == "pre" | "State& next" | "Outputs& next_outputs") ~is consumer
+          signature.contains("Frame& frame") ~is (consumer && phase == "pre")
         for (value in region.outputs):
           check: helper.contains("const auto& v" ++ to_string(value) ++ " = scratch.") ~is #true
         for (value in region.steps):
@@ -412,7 +425,7 @@ check:
 
 // Aggregate register and synchronous-read roots bind the current model directly
 // in both producers and consumers. The same roots remain local references when
-// the whole body fits in one region, including nested records with wide leaves.
+// the whole body fits the inline budget, including nested records with wide leaves.
 for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
   def planned = build_schedule(prepare_rtl(program, CompileOptions(), "state bindings").rtl)
   def evaluated = plan_conditionals(planned, build_evaluation_plan(planned))
@@ -427,7 +440,7 @@ for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
       def regions = build_regions(planned, evaluated, body, ~budget: budget)
       for (region in regions, number in 0..regions.length()):
         def scope:
-          if regions.length() > 1
+          if emitted[0].contains("struct " ++ phase ++ "Scratch")
           | emitted[1].split("void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
           | emitted[1].split(if phase == "pre" | "Model::Frame Model::evaluate(" | "void Model::eval()")[1].split("\n}")[0]
         for (index in region.steps ++ region.inputs):
@@ -600,6 +613,7 @@ for (program in [make_branches(), make_conditionals()]):
         for (operand in dependencies.values):
           check: operand in available && operand < value ~is #true
       for (budget in [1, 24, 1000000]):
+        check_regions(planned, conditional, body, budget)
         for (region in build_regions(planned, conditional, body, ~budget: budget)):
           def visible = for Set (value in region.steps ++ region.inputs ++ region.constants): value
           for (sink in region.sinks):

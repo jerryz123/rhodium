@@ -224,7 +224,10 @@ coordinator ordering, and all effect operands still sample pre-edge state.
 Keep the ordinary step renderer's normalization and aggregate representation
 when moving computations into a branch.
 
-`build_regions` partitions each body's remaining step-then-consumer sequence.
+`build_regions` partitions each body's remaining values and consumers separately,
+preserving their step-then-consumer order. A region contains only ordinary value
+steps or only consumers. Conditional producers and fused array assignments stay
+attached to their owners; the separation must not make guarded work eager.
 The private default budget of 4096 estimates expanded carrier work: aggregate
 leaves, wide limbs, selection/decode arms, and frame/output copies. Masked writes
 also charge merge granules. It is a starting heuristic, not a compiler resource
@@ -252,10 +255,21 @@ maps of rendered expressions. `emit.rhm` owns C++ names, dereferences, projectio
 parentheses, and declarations. Keep allocation deterministic and independent of
 rendering; this is private backend storage policy, not a new RTL representation.
 
-The emitter renders multi-region bodies as private C++ helpers and leaves
-single-region bodies inline in their coordinator. Aggregate current-state roots
-bind directly to their model's active `State` bank by const reference, including
-registers and synchronous-read results with nested/wide payloads. Crossing roots
+The emitter renders bodies exceeding the budget as private C++ helpers. Bodies
+whose total cost fits the budget, or which consist of a single oversized item, stay
+inline in their coordinator. The mandatory value/consumer cut alone does not
+force small bodies into helper calls. Value helpers receive writable
+scratch and read-only current state, with no next-state, frame, or output
+destination. Consumer helpers receive read-only scratch and their preparation
+destinations. All helpers still execute on every invocation. Assertion reporting,
+DPI execution, state publication, and output publication stay in the coordinators.
+This separation does not add cross-tick caching: region budgets bound generated
+C++ functions, while evaluation dependencies describe the computation and layout
+owns storage lifetime. The change grants no cross-tick validity to borrowed pointers.
+
+Aggregate current-state roots bind directly to their model's active `State` bank
+by const reference, including registers and synchronous-read results with
+nested/wide payloads. Crossing roots
 need no scratch payload or pointer slot; each consumer helper resolves its binding
 afresh. Local roots use the same reference policy. State stays unchanged until
 all pre-edge consumers finish; frame and output sinks copy their values, while

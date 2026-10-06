@@ -1,5 +1,5 @@
 #lang rhombus
-/* Renders bounded rsim C++ evaluators with typed scratch and double-buffered state commits. */
+/* Renders separate value and consumer helpers with typed scratch and double-buffered state commits. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/types.rhm" open
@@ -404,26 +404,40 @@ fun array_construction(index :: Nat, step :: RsimStep, types :: CppTypes, bindin
       ++ "\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ target ++ ";"
   | #false
 
+/* Keep a body inline when its total work fits the budget, even though planning
+   separates values and consumers. A lone oversized item still needs no helper
+   boundary; separation alone must not add calls to otherwise small models. */
+fun needs_helpers(regions :: List.of(RsimRegion), budget :: PosInt) :: Boolean:
+  def mutable cost = 0
+  for (region in regions): cost := cost + region.cost
+  regions.length() > 1 && cost > budget
+
 /* Declare phase-local reusable buffers and bounded sampling helpers. Scratch is
    overwritten before every read, never a cache; initialization happens once per
    model, not per evaluation. Current/next references select distinct banks for
-   the whole pre-edge phase. No scratch reference escapes into the frame. */
-fun declare_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, header :: MutableList):
-  when regions.length() > 1
+   the whole pre-edge phase. Pure helpers write only scratch; consumer helpers
+   read scratch and prepare their destinations. No scratch reference escapes
+   into the frame. */
+fun declare_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, helpers :: Boolean, header :: MutableList):
+  when helpers
   | def declarations = for List (group in layout.groups, index in 0..layout.groups.length()):
       def carrier = (if group.indirect | "const " | "") ++ group.carrier ++ (if group.indirect | "*" | "")
       "    std::array<" ++ carrier ++ ", " ++ to_string(group.count) ++ "> g" ++ to_string(index) ++ ";"
     header.add("  struct " ++ phase ++ "Scratch {\n" ++ String.join(declarations, "\n") ++ "\n  };\n  mutable " ++ phase ++ "Scratch " ++ phase ++ "_scratch_{};")
-    for (index in 0..regions.length()):
-      header.add("  void " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "Scratch& scratch, const State& current, " ++ destination ++ ") const;")
+    for (region in regions, index in 0..regions.length()):
+      def consumer = region.sinks.length() > 0
+      header.add("  void " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ (if consumer | "const " | "") ++ phase ++ "Scratch& scratch, const State& current" ++ (if consumer | ", " ++ destination | "") ++ ") const;")
 
 /* Emit helpers in schedule order, importing only direct boundary operands and
    shared constants. Store crossing results directly in their slots; local-only
-   computations keep ordinary locals. Effects and publication stay outside. */
-fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
-  when regions.length() > 1
+   computations keep ordinary locals. Value helpers have no next-state, frame,
+   or output destination. Consumer helpers cannot overwrite scratch. Effects
+   and publication stay outside both kinds of helper. */
+fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, helpers :: Boolean, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
+  when helpers
   | for (region in regions, index in 0..regions.length()):
-      source.add("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(index) ++ "([[maybe_unused]] " ++ phase ++ "Scratch& scratch, [[maybe_unused]] const State& current, [[maybe_unused]] " ++ destination ++ ") const {")
+      def consumer = region.sinks.length() > 0
+      source.add("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(index) ++ "([[maybe_unused]] " ++ (if consumer | "const " | "") ++ phase ++ "Scratch& scratch, [[maybe_unused]] const State& current" ++ (if consumer | ", [[maybe_unused]] " ++ destination | "") ++ ") const {")
       for (input in region.inputs):
         source.add("  [[maybe_unused]] const auto& " ++ ref(input) ++ " = " ++ storage_reference(layout.bindings[input], constants) ++ ";")
       for (constant in region.constants):
@@ -449,10 +463,10 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
 
 /* Small bodies stay inline in their coordinator. Larger bodies execute every
    helper exactly once, passing buffers by reference without copying or clearing. */
-fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destination :: String, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
-  if regions.length() > 1
-  | for (index in 0..regions.length()):
-      source.add("  " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "_scratch_, current, " ++ destination ++ ");")
+fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destination :: String, helpers :: Boolean, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
+  if helpers
+  | for (region in regions, index in 0..regions.length()):
+      source.add("  " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "_scratch_, current" ++ (if region.sinks.length() > 0 | ", " ++ destination | "") ++ ");")
   | for (region in regions):
       for (index in region.steps):
         if region.conditionals.has_key(index)
@@ -469,6 +483,8 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   def evaluation = plan_conditionals(plan, build_evaluation_plan(plan))
   def pre_regions = build_regions(plan, evaluation, evaluation.pre_edge, ~budget: region_budget)
   def output_regions = build_regions(plan, evaluation, evaluation.outputs, ~budget: region_budget)
+  def pre_helpers = needs_helpers(pre_regions, region_budget)
+  def output_helpers = needs_helpers(output_regions, region_budget)
   def namespace = "rsim_" ++ cpp_name(plan.name)
   def types = CppTypes()
   for (step in plan.steps):
@@ -520,8 +536,8 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     def prefix = "write" ++ to_string(index)
     header.add("    std::uint64_t " ++ prefix ++ "_address;\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data;\n    bool " ++ prefix ++ "_enable;")
   header.add("  };\n  Outputs outputs_;\n  Frame evaluate(const State& current, State& next) const;")
-  declare_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", header)
-  declare_regions(output_regions, output_layout, "output", "Outputs& next_outputs", header)
+  declare_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", pre_helpers, header)
+  declare_regions(output_regions, output_layout, "output", "Outputs& next_outputs", output_helpers, header)
   header.add("};\n}")
   def source = MutableList["// Evaluates " ++ plan.name ++ " with simultaneous state commits.",
                            "// SPDX-License-Identifier: Apache-2.0", "#include \"" ++ plan.name ++ ".hpp\"", "#include <cstddef>"]
@@ -568,20 +584,20 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
   for (line in types.constant_declarations): source.add(line)
-  when pre_regions.length() > 1 || output_regions.length() > 1
+  when pre_helpers || output_helpers
   | // Preserve the compilation boundary even under optimization/LTO. Applying
     // this only to region helpers leaves expression/runtime helpers optimizable.
     source.add("#if defined(_MSC_VER)\n#define RHODIUM_RSIM_NOINLINE __declspec(noinline)\n#elif defined(__GNUC__) || defined(__clang__)\n#define RHODIUM_RSIM_NOINLINE __attribute__((noinline))\n#else\n#define RHODIUM_RSIM_NOINLINE\n#endif")
-    emit_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", plan, types, constants, source)
-    emit_regions(output_regions, output_layout, "output", "Outputs& next_outputs", plan, types, constants, source)
+    emit_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", pre_helpers, plan, types, constants, source)
+    emit_regions(output_regions, output_layout, "output", "Outputs& next_outputs", output_helpers, plan, types, constants, source)
     source.add("#undef RHODIUM_RSIM_NOINLINE")
   // Every next-state and frame field is assigned on each attempt, including
   // disabled-call holds. Failed assertions may dirty the inactive bank, but
   // retries overwrite it without reading stale values or clearing either bank.
   source.add("Model::Frame Model::evaluate([[maybe_unused]] const State& current, [[maybe_unused]] State& next) const {\n  Frame frame;")
-  emit_region_calls(pre_regions, "pre", "next, frame", plan, types, constants, source)
+  emit_region_calls(pre_regions, "pre", "next, frame", pre_helpers, plan, types, constants, source)
   source.add("  return frame;\n}\nvoid Model::eval() {\n  [[maybe_unused]] const State& current = states_[active_state_];\n  Outputs next_outputs{};")
-  emit_region_calls(output_regions, "output", "next_outputs", plan, types, constants, source)
+  emit_region_calls(output_regions, "output", "next_outputs", output_helpers, plan, types, constants, source)
   // Publish only after every output has sampled the current inputs/storage.
   // The pre-edge frame and all assertion/foreign/commit sequencing stay in tick.
   source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n  const unsigned next_index = active_state_ ^ 1u;\n  State& next = states_[next_index];\n  [[maybe_unused]] auto before = evaluate(states_[active_state_], next);")
