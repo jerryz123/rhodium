@@ -46,6 +46,7 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/array-updates.rhm` | Exact array-update recovery, read forwarding, and unused-value pruning |
 | `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
+| `rsim/conditional.rhm` | Bounded exclusive pure producers placed beneath mux selections and explicit consumer guards in each evaluation phase |
 | `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/layout.rhm` | Structured backing references, aggregate borrowing, and typed scratch allocation for each evaluation body |
@@ -195,7 +196,29 @@ or skipping an effect. Both bodies sample afresh and can observe different state
 When adding a storage-reading step or a pre-edge consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
-`build_regions` partitions each body's unchanged step-then-consumer sequence.
+After evaluation planning, `plan_conditionals` applies one ownership rule to
+both pre-edge and output bodies. A lookup mux owns its single-use pure branch
+producers; its result remains available to every consumer. Explicit register
+reset, memory-port, foreign-call, and assertion guards can also own exclusive
+data operands. Uses are counted independently in each body. Shared values,
+selectors, constants, input/storage roots, and existing fused array assignments
+retain their ordinary scheduling. This is conditional evaluation within one
+invocation, with no cached results or activity comparison across cycles.
+
+Moved work is bounded per owner by the same step-cost estimate as regions
+(default 4096), and at most 128 producers. A subtree beyond either limit stays
+unconditional, retaining existing helper splitting. Each owner is one atomic
+region item; its cost includes moved producers and its external leaves replace
+the original dependencies before boundary/storage planning. Nested muxes follow
+lookup priority. Conditional mux results own their storage so branch-local
+references cannot escape. Register paths assign the complete inactive-bank
+destination, including holds, with reset precedence. Disabled frame fields and
+synchronous-read results remain initialized. Assertions and DPI retain their
+coordinator ordering, and all effect operands still sample pre-edge state.
+Keep the ordinary step renderer's normalization and aggregate representation
+when moving computations into a branch.
+
+`build_regions` partitions each body's remaining step-then-consumer sequence.
 The private default budget of 4096 estimates expanded carrier work: aggregate
 leaves, wide limbs, selection/decode arms, and frame/output copies. Masked writes
 also charge merge granules. It is a starting heuristic, not a compiler resource
@@ -794,6 +817,14 @@ Structural emission checks protect output-only evaluation at state roots and
 empty output dependency sets while retaining pre-edge updates and foreign
 effects. Behavioral scoreboards cover the resulting output and edge semantics;
 CI does not impose runtime thresholds for this optimization.
+`tests/rsim/branches.py` checks conditional computation against independent
+oracles and direct SV. Native-only execution counters verify skipped arithmetic
+under output muxes, register capture/reset, memory read/write enables, DPI
+enables, and assertion guards. Nested selections, aggregate captures, shared
+producers and mux results, datapath-derived enables, resetless state, model
+copying, and failed-edge retries retain their behavior. The ordinary and
+forced-region native runners both include these fixtures.
+
 `tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,
 storage dependencies, shared output computation, and occurrence identity with
 Builder fixtures. Small forced budgets check region boundaries against an

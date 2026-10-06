@@ -16,6 +16,7 @@ import memory
 import sync_memory
 import selection
 import assertions
+import branches
 import foreign
 import uart
 import sv_bridge
@@ -293,6 +294,10 @@ def main():
         selection_count = selection.run_suite(work, run, compare, args.differential)
         foreign_count = foreign.run_suite(work, run, compare, args.differential)
         assertion_count = assertions.run_suite(work, run, args.differential)
+        branch_count = branches.run_suite(work, run, compare, args.differential)
+        print(f"rsim: {branch_count} conditional register observations and execution counts passed" + (" with SV comparison" if args.differential else ""))
+        conditional_count = branches.run_conditional_suite(work, run, compare, args.differential)
+        print(f"rsim: {conditional_count} general conditional observations and execution counts passed" + (" with SV comparison" if args.differential else ""))
         wide_count = wide.run_suite(work, run, args.differential)
         print(f"rsim: {wide_count} wide data/state observations passed" + (" on both backends" if args.differential else ""))
         uart_count = uart.run_suite(work, run, args.differential)

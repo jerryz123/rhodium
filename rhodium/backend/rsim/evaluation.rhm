@@ -9,6 +9,7 @@ export:
   RsimStorageRead
   RsimDependencies
   RsimSink
+  RsimConditional
   RsimEvaluation
   RsimEvaluationPlan
   pre_edge_sinks
@@ -22,16 +23,23 @@ class RsimStorageRead(kind :: String, slot :: Nat, result :: maybe(Nat) = #false
    conservative evaluation dependencies, not permissions to cache or skip work. */
 class RsimDependencies(values :: List.of(Nat), storage :: List.of(RsimStorageRead))
 
+/* Own exclusive pure producers under a selection or an explicit sink guard.
+   External dependencies remain scheduled; cost bounds one conditional unit. */
+class RsimConditional(steps :: Set, dependencies :: RsimDependencies, cost :: PosInt)
+
 /* Identifies a final consumer in the schedule's corresponding descriptor list.
    Dependencies include pending-state and frame reads without a standalone value
-   step. An optional register-array tree replaces exclusive intermediate values
-   with a destination assignment; its external leaves are the sink's value uses. */
+   step. An optional register-array or conditional branch plan replaces exclusive
+   intermediate values with a destination assignment; its external leaves are
+   the sink's value uses. These two assignment plans never share ownership. */
 class RsimSink(kind :: String, index :: Nat, dependencies :: RsimDependencies,
-               array :: maybe(RsimArrayAssignment) = #false)
+               array :: maybe(RsimArrayAssignment) = #false,
+               conditional :: maybe(RsimConditional) = #false)
 
-/* Selects original step IDs in dependency order, then ordered final consumers.
-   Values and storage are sampled afresh on each invocation of this body. */
-class RsimEvaluation(steps :: List.of(Nat), sinks :: List.of(RsimSink))
+/* Select original step IDs and ordered consumers for one storage snapshot.
+   Conditional step owners replace their ordinary operands with external leaves;
+   their private producers are absent from steps and emitted inside the owner. */
+class RsimEvaluation(steps :: List.of(Nat), sinks :: List.of(RsimSink), conditionals :: Map = {})
 
 /* Shares one dependency inventory between full pre-edge sampling and output
    refresh. The two bodies can observe different storage snapshots. */

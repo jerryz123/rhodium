@@ -1,0 +1,97 @@
+#lang rhombus
+/* Plans bounded exclusive computations beneath lookup selections and explicit consumer guards in each evaluation phase. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "plan.rhm" open
+  "evaluation.rhm" open
+  "regions.rhm".step_cost
+
+export plan_conditionals
+
+/* Identify data roots demanded only by a consumer's explicit guard. Register
+   selection trees also qualify without reset; reset values and all controls
+   stay unconditional. Fused array destinations retain their existing owner. */
+fun guarded_roots(sink :: RsimSink, schedule :: RsimSchedule) :: List.of(Nat):
+  match sink.kind
+  | "register":
+      def reg = schedule.registers[sink.index]
+      if !sink.array && (reg.reset != #false || schedule.steps[reg.next_value].opcode == "rtl.mux_lookup")
+      | [reg.next_value]
+      | []
+  | "foreign": schedule.foreign_calls[sink.index].arguments
+  | "assertion": [schedule.assertions[sink.index].condition]
+  | "sync_read": [schedule.reads[sink.index].address]
+  | "write":
+      def write = schedule.writes[sink.index]
+      [write.address, write.data] ++ (if write.mask_value == #false | [] | [write.mask_value])
+  | ~else: []
+
+/* Plan one invocation independently: a value used by another phase need not
+   stay eager here. Shared producers within this body remain unconditional.
+   Each original value has one owner; processing outer muxes first prevents
+   nested conditional plans from claiming the same producers. */
+fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
+                     body :: RsimEvaluation, budget :: PosInt) :: RsimEvaluation:
+  def available = for Set (value in body.steps): value
+  def uses = MutableMap{}
+  for (value in body.steps): uses[value] := 0
+  for (value in body.steps):
+    for (operand in schedule.steps[value].operands): uses[operand] := uses.get(operand, 0) + 1
+  for (sink in body.sinks):
+    for (value in sink.dependencies.values): uses[value] := uses.get(value, 0) + 1
+  def removed = MutableSet{}
+  /* Scheduled rtl.* values are pure; storage roots and effects have separate
+     schedule descriptors. Grow a bounded tree without traversing those roots, constants,
+     selectors, or shared values. A retained mux may have multiple consumers:
+     its result remains scheduled once, while its exclusive arms become private.
+     Unabsorbed subtrees preserve ordinary splitting and normalization. */
+  fun plan(roots :: List.of(Nat), dependencies :: RsimDependencies,
+           retained :: maybe(Nat) = #false) :: maybe(RsimConditional):
+    def absorbed = MutableSet{}
+    def mutable cost = 0
+    /* Single-use edges make recursion a tree and keep declarations scoped to
+       their only consumer. The node cap also bounds host/emitter recursion. */
+    fun absorb(value :: Nat):
+      def step = schedule.steps[value]
+      when value in available && !(value in removed)
+            && (value == retained || uses[value] == 1) && step.opcode.starts_with("rtl.")
+            && !evaluation.constants.has_key(value) && absorbed.length() < 128
+      | def amount = step_cost(value, schedule, evaluation.constants)
+        when cost + amount <= budget
+        | absorbed.add(value)
+          cost := cost + amount
+          def operands = if step.opcode == "rtl.mux_lookup" | step.operands.drop(1) | step.operands
+          for (operand in operands): absorb(operand)
+    for (value in roots): absorb(value)
+    if absorbed.length() <= (if retained == #false | 0 | 1)
+    | #false
+    | def leaves = MutableSet{}
+      for (value in absorbed):
+        unless value == retained | removed.add(value)
+        for (operand in schedule.steps[value].operands):
+          unless operand in absorbed | leaves.add(operand)
+      for (value in dependencies.values):
+        unless value in absorbed | leaves.add(value)
+      def ordered = for List (value in leaves): value
+      RsimConditional(absorbed.snapshot(), RsimDependencies(ordered.sort(), dependencies.storage), cost)
+  def sinks = for List (sink in body.sinks):
+    def selected = plan(guarded_roots(sink, schedule), sink.dependencies)
+    if selected
+    | RsimSink(sink.kind, sink.index, selected.dependencies, sink.array, selected)
+    | sink
+  def conditionals = MutableMap{}
+  for (offset in 0..body.steps.length()):
+    def value = body.steps[body.steps.length() - 1 - offset]
+    when !(value in removed) && schedule.steps[value].opcode == "rtl.mux_lookup"
+    | def selected = plan([value], evaluation.dependencies[value], value)
+      when selected | conditionals[value] := selected
+  RsimEvaluation(body.steps.filter(~keep: fun (value): !(value in removed)), sinks, conditionals.snapshot())
+
+/* Use the same bounded ownership rule for muxes, registers, and guarded effect
+   operands. Only pure computations move; effect ordering and output publication
+   remain in their coordinators. No values are cached between invocations. */
+fun plan_conditionals(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
+                      ~budget: budget :: PosInt = 4096) :: RsimEvaluationPlan:
+  RsimEvaluationPlan(evaluation.dependencies, evaluation.constants,
+                     conditional_body(schedule, evaluation, evaluation.pre_edge, budget),
+                     conditional_body(schedule, evaluation, evaluation.outputs, budget))

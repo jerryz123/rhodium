@@ -1,0 +1,91 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+
+export make_branches make_conditionals
+
+fun make_branches():
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("RsimBranches")
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def enable = b.input(top, "enable", Bits(1))
+  def select = b.input(top, "select", Bits(2))
+  def allow = b.input(top, "allow", Bits(1))
+  def a = b.input(top, "a", Bits(17))
+  def z = b.input(top, "b", Bits(17))
+  def zero = b.constant(top, Bits(17), 0)
+  def q = b.register(top, "q_state", Bits(17), clock, reset, zero)
+  // Only this multiplication belongs exclusively to the enabled capture.
+  // The native test counts actual executions of this one emitted operator.
+  def product = b.mul(top, a, z)
+  def selected = b.mux_lookup(top, select, q.current, [[1, b.add(top, product, q.current)], [2, b.bit_not(top, z)]])
+  b.drive(q.next, b.mux_lookup(top, enable, q.current, [[1, selected]]))
+  b.drive(b.output(top, "q", Bits(17)), q.current)
+  def shared = b.add(top, a, z)
+  b.drive(b.output(top, "shared", Bits(17)), shared)
+  // Capture and output consumers keep this producer outside the branch.
+  def peer = b.register(top, "peer_state", Bits(17), clock, reset, zero)
+  b.drive(peer.next, b.mux_lookup(top, enable, peer.current, [[1, b.bit_not(top, shared)]]))
+  b.drive(b.output(top, "peer", Bits(17)), peer.current)
+  // Control depends on datapath arithmetic; it must precede conditional work.
+  def control = b.ult(top, shared, z)
+  def carried = b.register(top, "carried_state", Bits(17), clock)
+  b.drive(carried.next, b.mux_lookup(top, control, carried.current, [[1, b.bit_not(top, a)]]))
+  b.drive(b.output(top, "carried", Bits(17)), carried.current)
+  // Exclusive nested aggregate construction and old-state reads, with a
+  // dynamic reset value, must survive both local and boundary representations.
+  def pair = RecordType([RecordField("x", Bits(17)), RecordField("y", Bits(17))], "BranchPair")
+  def reset_pair = b.record_create(top, pair, [["x", a], ["y", z]])
+  def packet = b.register(top, "packet", pair, clock, reset, reset_pair)
+  def next_pair = b.record_create(top, pair, [["x", b.add(top, q.current, a)], ["y", b.bit_not(top, z)]])
+  b.drive(packet.next, b.mux_lookup(top, enable, packet.current, [[1, next_pair]]))
+  b.drive(b.output(top, "x", Bits(17)), b.record_get(top, packet.current, "x"))
+  b.drive(b.output(top, "y", Bits(17)), b.record_get(top, packet.current, "y"))
+  b.assert(top, allow, clock, reset, b.constant(top, Bits(1), 1), "branch_retry")
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_conditionals():
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("RsimConditionals")
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def select = b.input(top, "select", Bits(2))
+  def write_enable = b.input(top, "write_enable", Bits(1))
+  def read_enable = b.input(top, "read_enable", Bits(1))
+  def call_enable = b.input(top, "call_enable", Bits(1))
+  def check_enable = b.input(top, "check_enable", Bits(1))
+  def expected = b.input(top, "expected", Bits(32))
+  def index = b.input(top, "index", Bits(2))
+  def products = for List (name in ["comb_data", "default_data", "shared_data", "write_data", "call_data", "check_data", "read_index"]):
+    b.mul(top, b.input(top, name, Bits(32)), b.constant(top, Bits(32), 3))
+  // Both arms compute; default must also be lazy. Multiple uses of the mux
+  // result must not duplicate or eagerly evaluate its exclusive producers.
+  def selected = b.mux_lookup(top, select, products[1], [[1, products[0]], [2, products[2]]])
+  b.drive(b.output(top, "combined", Bits(32)), b.add(top, selected, products[2]))
+  b.drive(b.output(top, "inverted", Bits(32)), b.bit_not(top, selected))
+  b.drive(b.output(top, "shared", Bits(32)), products[2])
+  // Pure register inputs need no hold branch to skip work during reset.
+  def captured = b.register(top, "capture_state", Bits(32), clock, reset, b.constant(top, Bits(32), 17))
+  b.drive(captured.next, b.bit_not(top, selected))
+  b.drive(b.output(top, "captured", Bits(32)), captured.current)
+  def memory = b.sync_memory(top, "memory", 4, Bits(32), clock, #true, #true, #false)
+  def read = memory.read_ports[0]
+  b.drive(read.address, b.trunc(top, products[6], 2))
+  b.drive(read.enable, read_enable)
+  def write = memory.write_ports[0]
+  b.drive(write.address, index)
+  b.drive(write.enable, write_enable)
+  b.drive(write.data, products[3])
+  b.drive(b.output(top, "read_data", Bits(32)), read.data)
+  def imp = b.dpi_import("rsim_conditional_call", ["arg"], [Bits(32)], "result", Bits(32))
+  def result = b.dpi_register(top, "held_call", imp, [products[4]], clock, call_enable)
+  b.drive(b.output(top, "call_result", Bits(32)), result)
+  b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_check")
+  b.finish(top)
+  ElaboratedProgram(design, top)

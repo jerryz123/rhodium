@@ -6,6 +6,7 @@ import:
   "plan.rhm" open
   "evaluation.rhm" open
   "regions.rhm" open
+  "conditional.rhm".plan_conditionals
   "layout.rhm" open
   "arrays.rhm" open
   "types.rhm" open
@@ -200,55 +201,132 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
       | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
       | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
+/* Materialize an exclusive producer at its sole use, retaining ordinary type
+   normalization. Nested selections assign a local on every selected path;
+   shared operands and selectors already have unconditional schedule bindings. */
+fun emit_branch_producer(value :: Nat, absorbed :: Set, steps :~ List.of(RsimStep), types :: CppTypes,
+                         constants :: Map, source :: MutableList, indent :: String):
+  when value in absorbed
+  | def step = steps[value]
+    if step.opcode == "rtl.mux_lookup"
+    | source.add(indent ++ types.name(step.type) ++ " " ++ ref(value) ++ ";")
+      emit_branch_assignment(value, absorbed, ref(value), steps, types, constants, source, indent)
+    | for (operand in step.operands): emit_branch_producer(operand, absorbed, steps, types, constants, source, indent)
+      source.add(indent ++ step_declaration(value, steps, types, constants).trim())
+
+/* Evaluate only the selected pure cone, assigning the complete destination on
+   every path, including holds. Lookup order and the default match expression
+   emission; current state remains immutable throughout all conditional work. */
+fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, steps :~ List.of(RsimStep),
+                           types :: CppTypes, constants :: Map, source :: MutableList, indent :: String):
+  def step = steps[value]
+  if value in absorbed && step.opcode == "rtl.mux_lookup"
+  | def selector = step.operands[0]
+    for (key in step.attributes["keys"], branch in 0..step.attributes["keys"].length()):
+      source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
+      emit_branch_assignment(step.operands[branch + 2], absorbed, target, steps, types, constants, source, indent ++ "  ")
+      source.add(indent ++ "}")
+    when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
+    emit_branch_assignment(step.operands[1], absorbed, target, steps, types, constants, source,
+                           indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""))
+    when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
+  | emit_branch_producer(value, absorbed, steps, types, constants, source, indent)
+    source.add(indent ++ target ++ " = " ++ ref(value) ++ ";")
+
+/* Materialize a scheduled conditional result in owned local or scratch storage.
+   Branch-local references cannot escape their scope; consumers see one fully
+   assigned value regardless of how many uses the mux result has. */
+fun emit_conditional_step(value :: Nat, conditional :: RsimConditional, destination :: maybe(String),
+                          plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
+  unless destination | source.add("  [[maybe_unused]] " ++ types.name(plan.steps[value].type) ++ " " ++ ref(value) ++ ";")
+  emit_branch_assignment(value, conditional.steps, destination || ref(value), plan.steps, types, constants, source, "  ")
+  when destination | source.add("  [[maybe_unused]] const auto& " ++ ref(value) ++ " = " ++ destination ++ ";")
+
 /* Render one planned final consumer without executing effects or publishing
    staged state. The planner owns its value/storage uses and sampling order; this
    renderer owns C++ expressions and the frame/output representation. */
-fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source :: MutableList):
+fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
   def index = sink.index
   match sink.kind
   | "foreign":
       def call = plan.foreign_calls[index]
       def slot = to_string(index)
       source.add("  frame.call" ++ slot ++ "_enable = " ++ ref(call.enable) ++ " != 0;")
-      for (argument in call.arguments, arg in 0..call.arguments.length()):
-        source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
+      if sink.conditional
+      | for (arg in 0..call.arguments.length()): source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = {};")
+        source.add("  if (frame.call" ++ slot ++ "_enable) {")
+        for (argument in call.arguments, arg in 0..call.arguments.length()):
+          emit_branch_producer(argument, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+          source.add("    frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
+        source.add("  }")
+      | for (argument in call.arguments, arg in 0..call.arguments.length()):
+          source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
       for (result_index in 0..call.import_decl.results.length()):
         def name = foreign_slot(index, result_index)
         source.add("  next." ++ name ++ " = current." ++ name ++ ";")
   | "assertion":
       // Only sample predicates here; tick reports failures before any effects.
       def assertion = plan.assertions[index]
-      source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0 && " ++ ref(assertion.condition) ++ " == 0;")
+      def active = ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0"
+      if sink.conditional
+      | source.add("  frame.assertion" ++ to_string(index) ++ "_failed = false;\n  if (" ++ active ++ ") {")
+        emit_branch_producer(assertion.condition, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+        source.add("    frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.condition) ++ " == 0;\n  }")
+      | source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ active ++ " && " ++ ref(assertion.condition) ++ " == 0;")
   | "register":
       def reg = plan.registers[index]
       def target = "next.s" ++ to_string(index)
-      if sink.array
-      | when reg.reset != #false
-        | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
-        emit_array_assignment(reg.next_value, sink.array.steps, target, plan.steps, types, source, if reg.reset != #false | "    " | "  ")
-        when reg.reset != #false | source.add("  }")
-      | def value:
-          if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
-        source.add("  " ++ target ++ " = " ++ value ++ ";")
+      cond
+      | sink.conditional:
+          when reg.reset != #false
+          | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
+          emit_branch_assignment(reg.next_value, sink.conditional.steps, target, plan.steps, types, constants, source,
+                                 if reg.reset != #false | "    " | "  ")
+          when reg.reset != #false | source.add("  }")
+      | sink.array:
+          when reg.reset != #false
+          | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
+          emit_array_assignment(reg.next_value, sink.array.steps, target, plan.steps, types, source, if reg.reset != #false | "    " | "  ")
+          when reg.reset != #false | source.add("  }")
+      | ~else:
+          def value:
+            if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
+          source.add("  " ++ target ++ " = " ++ value ++ ";")
   | "sync_read":
       // Ports and consumers sample old storage; disabled results are unspecified.
       def read = plan.reads[index]
       def enabled = ref(read.enable) ++ " != 0" ++ (if read.write_mode | " && " ++ ref(read.write_mode) ++ " == 0" | "")
       def value = "vector_index(memory" ++ to_string(read.memory) ++ "_, " ++ ref(read.address) ++ ")"
-      source.add("  next.r" ++ to_string(index) ++ " = (" ++ enabled ++ ") ? " ++ value ++ " : " ++ types.name(plan.memories[read.memory].type) ++ "{};")
+      if sink.conditional
+      | source.add("  if (" ++ enabled ++ ") {")
+        emit_branch_producer(read.address, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+        source.add("    next.r" ++ to_string(index) ++ " = " ++ value ++ ";\n  } else {\n    next.r" ++ to_string(index) ++ " = {};\n  }")
+      | source.add("  next.r" ++ to_string(index) ++ " = (" ++ enabled ++ ") ? " ++ value ++ " : " ++ types.name(plan.memories[read.memory].type) ++ "{};")
   | "write":
       def write = plan.writes[index]
       def prefix = "frame.write" ++ to_string(index)
       def enabled = ref(write.enable) ++ " != 0" ++ (if write.write_mode | " && " ++ ref(write.write_mode) ++ " != 0" | "")
-      if write.mask_value
-      | // Skip old-word loads and merges for disabled ports, including shared
+      cond
+      | sink.conditional:
+          source.add("  " ++ prefix ++ "_enable = " ++ enabled ++ ";\n  " ++ prefix ++ "_address = 0;\n  " ++ prefix ++ "_data = {};\n  if (" ++ prefix ++ "_enable) {")
+          for (value in [write.address, write.data] ++ (if write.mask_value == #false | [] | [write.mask_value])):
+            emit_branch_producer(value, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+          source.add("    " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";")
+          if write.mask_value
+          | def old = "write" ++ to_string(index) ++ "_old"
+            def data = types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
+            source.add("    const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");\n    " ++ prefix ++ "_data = " ++ data ++ ";")
+          | source.add("    " ++ prefix ++ "_data = " ++ ref(write.data) ++ ";")
+          source.add("  }")
+      | write.mask_value:
+        // Skip old-word loads and merges for disabled ports, including shared
         // ports in read mode. Still initialize every frame field on each attempt.
         // Enabled merges sample old storage before any commit, even when the
         // mask comes from a stored read result; vector_index handles bad addresses.
-        def old = "write" ++ to_string(index) ++ "_old"
-        def data = types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
-        source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";\n  " ++ prefix ++ "_data = {};\n  if (" ++ prefix ++ "_enable) {\n    const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");\n    " ++ prefix ++ "_data = " ++ data ++ ";\n  }")
-      | source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ ref(write.data) ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
+          def old = "write" ++ to_string(index) ++ "_old"
+          def data = types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
+          source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";\n  " ++ prefix ++ "_data = {};\n  if (" ++ prefix ++ "_enable) {\n    const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");\n    " ++ prefix ++ "_data = " ++ data ++ ";\n  }")
+      | ~else: source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ ref(write.data) ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
   | "output":
       def port = plan.outputs[index]
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
@@ -339,6 +417,8 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
         | def binding = layout.bindings.get(step, #false)
           def slot = scratch_slot(binding)
           cond
+          | region.conditionals.has_key(step):
+              emit_conditional_step(step, region.conditionals[step], if slot | scratch_reference(slot) | #false, plan, types, constants, source)
           // All branches are normalized aggregate lvalues backed for this whole
           // invocation. Taking the selected lvalue's address performs no copy.
           | slot && slot.indirect:
@@ -348,7 +428,7 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
               // which crossing projections borrow and which require a copy.
               def destination = if slot | scratch_reference(slot) | #false
               source.add(step_declaration(step, plan.steps, types, constants, ~destination: destination, ~bindings: layout.bindings))
-      for (sink in region.sinks): emit_sink(sink, plan, types, source)
+      for (sink in region.sinks): emit_sink(sink, plan, types, constants, source)
       source.add("}")
 
 /* Small bodies stay inline in their coordinator. Larger bodies execute every
@@ -358,8 +438,11 @@ fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destinati
   | for (index in 0..regions.length()):
       source.add("  " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "_scratch_, current, " ++ destination ++ ");")
   | for (region in regions):
-      for (index in region.steps): source.add(step_declaration(index, plan.steps, types, constants))
-      for (sink in region.sinks): emit_sink(sink, plan, types, source)
+      for (index in region.steps):
+        if region.conditionals.has_key(index)
+        | emit_conditional_step(index, region.conditionals[index], #false, plan, types, constants, source)
+        | source.add(step_declaration(index, plan.steps, types, constants))
+      for (sink in region.sinks): emit_sink(sink, plan, types, constants, source)
 
 /* Produce model sources and optional wide support, with private state per model object.
    The evaluator writes only inactive state; tick publishes it only after every
@@ -367,7 +450,7 @@ fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destinati
    arrays live outside the frame, so evaluation never copies whole memories.
    The private budget permits boundary stress tests without a target option. */
 fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 4096) :: List.of(String):
-  def evaluation = build_evaluation_plan(plan)
+  def evaluation = plan_conditionals(plan, build_evaluation_plan(plan))
   def pre_regions = build_regions(plan, evaluation, evaluation.pre_edge, ~budget: region_budget)
   def output_regions = build_regions(plan, evaluation, evaluation.outputs, ~budget: region_budget)
   def namespace = "rsim_" ++ cpp_name(plan.name)

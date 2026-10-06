@@ -11,6 +11,7 @@ import:
   "dynamic-fixtures.rhm".make_dynamic
   "memory-fixtures.rhm".make_memory
   "sync-memory-fixtures.rhm".make_sync_memory
+  "branch-fixtures.rhm" open
   "../../../compile/program.rhm".compile_program
   "region-target.rhm".rsim_target
   "../../verilog-target.rhm".verilog_target
@@ -57,6 +58,13 @@ def assertion_result = compile_program(make_assertions(), target)
 for (artifact in assertion_result.artifacts):
   file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
 
+def branch_result = compile_program(make_branches(), target)
+for (artifact in branch_result.artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
 def foreign_result = compile_program(make_foreign(), target)
 for (artifact in foreign_result.artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+for (artifact in compile_program(make_conditionals(), target).artifacts):
   file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})

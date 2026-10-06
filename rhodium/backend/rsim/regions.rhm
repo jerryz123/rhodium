@@ -6,15 +6,16 @@ import:
   "plan.rhm" open
   "evaluation.rhm" open
 
-export RsimRegion build_regions
+export RsimRegion build_regions step_cost
 
 /* Inputs are values consumed here but defined earlier; outputs are values
    defined here and consumed later. Neither includes shared constants or values
    merely passing across an unused region. Storage reads sample this invocation.
+   Conditional step owners carry private producers omitted from region steps.
    Cost is an estimate, not a native compiler resource bound. */
 class RsimRegion(steps :: List.of(Nat), sinks :: List.of(RsimSink),
                  inputs :: List.of(Nat), outputs :: List.of(Nat), constants :: List.of(Nat),
-                 storage :: List.of(RsimStorageRead), cost :: PosInt)
+                 storage :: List.of(RsimStorageRead), cost :: PosInt, conditionals :: Map = {})
 
 /* Estimate expanded carrier work, counting aggregate leaves and wide limbs.
    Vector size multiplies its element cost without expanding a host-side list. */
@@ -59,9 +60,10 @@ fun storage_cost(read :: RsimStorageRead, schedule :: RsimSchedule) :: Nat:
 
 /* Include final frame/output work in the same budget as value computations.
    Mask granules account for merge expansion. Fused array trees charge element
-   writes and comparisons in addition to copying their external leaf values. */
+   writes and comparisons in addition to copying their external leaf values.
+   Conditional consumers include the cost of their deferred producers. */
 fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
-  def mutable cost = 1
+  def mutable cost = 1 + (if sink.conditional | sink.conditional.cost | 0)
   for (value in sink.dependencies.values): cost := cost + type_cost(schedule.steps[value].type)
   for (read in sink.dependencies.storage): cost := cost + storage_cost(read, schedule)
   when sink.array
@@ -103,7 +105,7 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
     cost := cost + amount
   for (index in body.steps):
     unless index < schedule.steps.length() | error(~who: #'rsim, "region step is outside the schedule")
-    reserve(step_cost(index, schedule, evaluation.constants))
+    reserve(if body.conditionals.has_key(index) | body.conditionals[index].cost | step_cost(index, schedule, evaluation.constants))
     steps.add(index)
   for (sink in body.sinks):
     reserve(sink_cost(sink, schedule))
@@ -141,9 +143,12 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
       previous := index
       if evaluation.constants.has_key(index)
       | constants[region][index] := #true
-      | use_dependencies(evaluation.dependencies[index], region)
+      | use_dependencies(if body.conditionals.has_key(index) | body.conditionals[index].dependencies | evaluation.dependencies[index], region)
         producer[index] := region
     for (sink in chunk.sinks): use_dependencies(sink.dependencies, region)
   for List (chunk in chunks, region in 0..chunks.length()):
+    def conditionals = MutableMap{}
+    for (index in chunk.steps):
+      when body.conditionals.has_key(index) | conditionals[index] := body.conditionals[index]
     RsimRegion(chunk.steps, chunk.sinks, inputs[region].keys().sort(), outputs[region].keys().sort(),
-               constants[region].keys().sort(), storage[region].snapshot(), costs[region])
+               constants[region].keys().sort(), storage[region].snapshot(), costs[region], conditionals.snapshot())

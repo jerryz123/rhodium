@@ -12,6 +12,10 @@ import:
   "../rsim/arrays.rhm" open
   "../rsim/types.rhm".CppTypes
   "../rsim/emit.rhm".emit_rsim
+  "../rsim/conditional.rhm".plan_conditionals
+  "../rsim/cse.rhm".share_scalar_expressions
+  "../rsim/array-updates.rhm".compact_array_updates
+  "rsim/branch-fixtures.rhm" open
   "rsim/fixtures.rhm".make_scalar
   "rsim/aggregate-fixtures.rhm".make_aggregate
   "rsim/wide-fixtures.rhm".make_constant_rom
@@ -93,6 +97,7 @@ check:
   storage(writes[1].dependencies.storage) ~is [["memory", memory_slots["sync"], #false]]
 
 // Next-state and frame storage are fully assigned in split and inline bodies.
+// Conditional sinks assign complete fields on alternative paths.
 // Both banks initialize once; only the active index changes at publication.
 // Omit redundant scalar/vector defaults from temporary frame carriers.
 for (budget in [1, 1000000]):
@@ -108,7 +113,7 @@ for (budget in [1, 1000000]):
   for (field in ["call0_enable", "call0_arg0", "assertion0_failed",
                  "write0_address", "write0_data", "write0_enable",
                  "write1_address", "write1_enable"]):
-    check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is 1
+    check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is (if field == "assertion0_failed" | 2 | 1)
   // Masked writes initialize disabled data and guard both the old-word load
   // and merge with the effective enable, including shared-port write mode.
   def guarded_write = sampling.split("  if (frame.write1_enable) {")[1].split("\n  }")[0]
@@ -120,7 +125,7 @@ for (budget in [1, 1000000]):
     guarded_write.contains("frame.write1_data = ") ~is #true
     sampling.split("frame.write1_data = ").length() - 1 ~is 2
   for (field in ["s0", "r0", "f0_0", "f0_1"]):
-    check: sampling.split("next." ++ field ++ " = ").length() - 1 ~is 1
+    check: sampling.split("next." ++ field ++ " = ").length() - 1 ~is (if field == "s0" | 2 | 1)
   check:
     frame_fields.contains("State next") ~is #false
     emitted[1].split("  active_state_ = next_index;").length() ~is 2
@@ -291,11 +296,12 @@ check:
 
 // Protect the emitted compilation boundary and storage contract in addition to
 // the planner's liveness checks. Native fixtures test the resulting semantics.
+def emission_evaluation = plan_conditionals(schedule, evaluation)
 for (budget in [1, 24, 4096]):
   def contents = emit_rsim(schedule, ~region_budget: budget)
   check: contents ~is emit_rsim(schedule, ~region_budget: budget)
-  for (body in [evaluation.pre_edge, evaluation.outputs], phase in ["pre", "output"]):
-    def regions = build_regions(schedule, evaluation, body, ~budget: budget)
+  for (body in [emission_evaluation.pre_edge, emission_evaluation.outputs], phase in ["pre", "output"]):
+    def regions = build_regions(schedule, emission_evaluation, body, ~budget: budget)
     def split = regions.length() > 1
     check:
       contents[0].contains("struct " ++ phase ++ "Scratch") ~is split
@@ -314,8 +320,8 @@ for (budget in [1, 24, 4096]):
           helper.contains("active_state_ =") ~is #false
 
 // A crossing mux can borrow only storage that outlives its producer. With a
-// one-step budget both branches cross; at 22 both branches are helper locals
-// and only the result crosses into the output consumer.
+// one-step budget both branches cross; at 22 the input branch is helper-local,
+// so the crossing result needs owned storage despite the shared constructor.
 def borrow_design = Design()
 def borrow_builder = Builder(borrow_design)
 def borrow_top = borrow_builder.module("BoundaryMux")
@@ -326,6 +332,8 @@ def borrow_scalar = borrow_builder.input(borrow_top, "scalar", Bits(5))
 def borrow_local = borrow_builder.vector_create(borrow_top, borrow_type, [borrow_scalar, borrow_scalar])
 def borrow_mux = borrow_builder.mux_lookup(borrow_top, borrow_select, borrow_data, [[1, borrow_local]])
 borrow_builder.drive(borrow_builder.output(borrow_top, "result", borrow_type), borrow_mux)
+// A second consumer keeps the constructor eager, exercising ordinary borrowing.
+borrow_builder.drive(borrow_builder.output(borrow_top, "constructed", borrow_type), borrow_local)
 borrow_builder.finish(borrow_top)
 def borrow_schedule = build_schedule(prepare_rtl(ElaboratedProgram(borrow_design, borrow_top), CompileOptions(), "borrow lifetime").rtl)
 def borrow_evaluation = build_evaluation_plan(borrow_schedule)
@@ -345,19 +353,19 @@ for (budget in [1, 22]):
     check: slots.filter(~keep: fun (index): index != #false).sort() ~is for List (index in 0..group.count): index
 check:
   local_regions.length() ~is 2
-  local_regions[0].outputs ~is [borrow_schedule.outputs[0].value]
+  borrow_schedule.outputs[0].value in local_regions[0].outputs ~is #true
   local_regions[0].inputs ~is []
   emit_rsim(borrow_schedule, ~region_budget: 1)[1].contains(" = &(") ~is #true
   emit_rsim(borrow_schedule, ~region_budget: 1)[0].contains("const std::array<std::uint8_t, 2>*") ~is #true
   emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains(" = &(") ~is #false
-  emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint8_t, 2>, 1>") ~is #true
+  emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint8_t, 2>, ") ~is #true
 
 // A boundary vector fills its unique slot before binding the result. The same
 // constructor remains an ordinary initializer when it is helper-local.
 def vector_step = borrow_schedule.steps.index(borrow_schedule.steps.find(fun (step): step.opcode == "rtl.vector_create"))
 def vector_name = "v" ++ to_string(vector_step)
 def vector_source = emit_rsim(borrow_schedule, ~region_budget: 1)[1]
-for (body in [borrow_evaluation.pre_edge, borrow_evaluation.outputs], phase in ["pre", "output"]):
+for (body in [borrow_evaluation.outputs], phase in ["output"]):
   def regions = build_regions(borrow_schedule, borrow_evaluation, body, ~budget: 1)
   def producer = regions.index(regions.find(fun (region): vector_step in region.steps))
   def helper = vector_source.split("void Model::" ++ phase ++ "_region" ++ to_string(producer) ++ "(")[1].split("\n}")[0]
@@ -383,16 +391,31 @@ check:
   // directions and strides, while leaving regions and state timing unchanged.
   aggregate_emission[1].contains(" + i * 2]") ~is #true
   aggregate_emission[1].contains(" - i * 1]") ~is #true
-  (for any (line in aggregate_emission[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = *scratch.")) ~is #true
   (for any (line in aggregate_emission[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = scratch.")) ~is #true
   emit_rsim(aggregate_schedule, ~region_budget: 1000000)[1].contains("for (std::size_t i = 0; i < 8;") ~is #true
+
+// A gather of independent mux results retains stable borrowed sources. None
+// of their constant/input arms has exclusive work for conditional planning.
+def kernel_design = Design()
+def kernel_builder = Builder(kernel_design)
+def kernel_top = kernel_builder.module("BorrowedGather")
+def kernel_data = kernel_builder.input(kernel_top, "data", borrow_type)
+def kernel_values = for List (index in 0..4):
+  def select = kernel_builder.input(kernel_top, "select" ++ to_string(index), Bits(1))
+  kernel_builder.mux_lookup(kernel_top, select, kernel_data, [[1, kernel_builder.cast(kernel_top, kernel_builder.constant(kernel_top, Bits(10), index), borrow_type)]])
+def kernel_type = VectorType(4, borrow_type)
+kernel_builder.drive(kernel_builder.output(kernel_top, "gather", kernel_type), kernel_builder.vector_create(kernel_top, kernel_type, kernel_values))
+kernel_builder.finish(kernel_top)
+def kernel_schedule = build_schedule(prepare_rtl(ElaboratedProgram(kernel_design, kernel_top), CompileOptions(), "borrowed gather").rtl)
+check:
+  (for any (line in emit_rsim(kernel_schedule, ~region_budget: 1)[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = *scratch.")) ~is #true
 
 // Aggregate register and synchronous-read roots bind the current model directly
 // in both producers and consumers. The same roots remain local references when
 // the whole body fits in one region, including nested records with wide leaves.
 for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
   def planned = build_schedule(prepare_rtl(program, CompileOptions(), "state bindings").rtl)
-  def evaluated = build_evaluation_plan(planned)
+  def evaluated = plan_conditionals(planned, build_evaluation_plan(planned))
   def roots = MutableMap{}
   for (step in planned.steps, index in 0..planned.steps.length()):
     when step.opcode in ["state", "sync_read"] && (record_type(step.type) || vector_type(step.type))
@@ -541,3 +564,47 @@ for (indirect in [#false, #true]):
     plan_array([0, 1, 2, 3], bindings) ~is [ArrayGather(0, 4, ScratchSlot(0, 0, indirect), 1)]
     plan_array([7, 5, 3, 1], bindings) ~is [ArrayGather(0, 4, ScratchSlot(0, 7, indirect), -2)]
     plan_array([20, 20, 20, 20], bindings) ~is [ArrayFill(0, 4, 20)]
+
+// Conditional consumers retain complete external dependencies even when helper
+// splitting separates every producer. Shared output/control values stay live;
+// the native companion observes actual skipped multiply executions and retries.
+for (program in [make_branches(), make_conditionals()]):
+  def planned = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(program, CompileOptions(), "conditional evaluation").rtl)))
+  def base = build_evaluation_plan(planned)
+  for (limit in [24, 4096]):
+    def conditional = plan_conditionals(planned, base, ~budget: limit)
+    check:
+      conditional ~is plan_conditionals(planned, base, ~budget: limit)
+      conditional.dependencies ~is base.dependencies
+      conditional.pre_edge.sinks.filter(~keep: fun (sink): sink.conditional != #false).length() > 0 ~is #true
+    for (body in [conditional.pre_edge, conditional.outputs]):
+      def owners = MutableSet{}
+      def available = for Set (value in body.steps): value
+      def mutable plans = body.sinks.filter(~keep: fun (sink): sink.conditional != #false).map(fun (sink): sink.conditional)
+      for ((value, owner) in body.conditionals): plans := plans ++ [owner]
+      for (owner in plans):
+        check:
+          owner.cost <= limit ~is #true
+          owner.steps.length() <= 128 ~is #true
+        for (value in owner.dependencies.values):
+          check: value in available ~is #true
+        for (value in owner.steps):
+          check:
+            (value in available) ~is body.conditionals.has_key(value)
+            value in owners ~is #false
+          owners.add(value)
+          for (operand in planned.steps[value].operands):
+            check: operand in owner.steps || operand in owner.dependencies.values ~is #true
+      for (value in body.steps):
+        def dependencies = if body.conditionals.has_key(value) | body.conditionals[value].dependencies | conditional.dependencies[value]
+        for (operand in dependencies.values):
+          check: operand in available && operand < value ~is #true
+      for (budget in [1, 24, 1000000]):
+        for (region in build_regions(planned, conditional, body, ~budget: budget)):
+          def visible = for Set (value in region.steps ++ region.inputs ++ region.constants): value
+          for (sink in region.sinks):
+            for (value in sink.dependencies.values):
+              check: value in visible ~is #true
+          for ((value, owner) in region.conditionals):
+            for (operand in owner.dependencies.values):
+              check: operand in visible ~is #true

@@ -81,7 +81,8 @@ fun scratch_slot(binding :: maybe(StorageRef)) :: maybe(ScratchSlot):
 
 /* Allocate crossing values in deterministic region/value order, sharing groups
    only by physical carrier and indirection. Borrow mux branches only when they
-   already have stable backing; decode rows always do. Never recycle slots. State and
+   already have stable backing; conditional branch locals cannot escape this way.
+   Decode rows always have stable backing. Never recycle slots. State and
    backed projections keep their original roots without extra payload/pointers. */
 fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map) :: BoundaryStorage:
   def bindings = MutableMap{}
@@ -96,6 +97,7 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
       | bindings[index] := direct
       | def borrow_mux:
           step.opcode == "rtl.mux_lookup" && (record_type(step.type) || vector_type(step.type))
+            && !region.conditionals.has_key(index)
             && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
         def borrow = aggregate_decode(step) || borrow_mux
         def carrier = [types.name(step.type), borrow]
