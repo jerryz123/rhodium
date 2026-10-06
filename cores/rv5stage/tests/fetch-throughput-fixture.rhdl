@@ -9,7 +9,7 @@ import:
   lib("cores/rv5stage/fetch/bpd/protocol.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
   lib("cores/rv5stage/mmu/protocol.rhdl") open
-  lib("cores/rv5stage/csr.rhdl").PrivilegeMode
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("cores/rv5stage/instruction-memory-router.rhdl") open
   lib("cores/cache/l1i/cache.rhdl") open
   lib("cores/rv5stage/icache/protocol.rhdl") open

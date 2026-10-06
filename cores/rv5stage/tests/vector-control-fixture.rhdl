@@ -4,12 +4,13 @@
 
 import:
   "../csr.rhdl" open
+  "../../riscv/csr/file.rhdl" open
+  "../../riscv/csr/protocol.rhdl".RiscvCsrCommand
   "../profile.rhm" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
-  "../vector/csr.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -37,7 +38,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   output(mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, fp_zvfhmin_e16, fp_zvfh_e8, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions))
   inst base_decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
-  inst csrs(RV5StageCsrFile(RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions, ~vector_length: vlen)))
+  inst csrs(RiscvCsrFile(rv5stage_csr_config(RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions, ~vector_length: vlen))))
   inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, selected_vector_extensions))
   inst full_half_operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, full_half_vector_extensions))
   decoder.instruction <== instruction
@@ -94,12 +95,13 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   csrs.fp_update.bits <== bits(0, 5)
   csrs.cbo_operation <== CboManagementOperation.Invalidate
   csrs.commit.valid <== commit_valid
-  csrs.commit.bits <== RV5StageCsrCommit(xlen):
+  csrs.retire <== csrs.command_success
+  csrs.commit.bits <== RiscvCsrCommand(xlen):
     pc: bits(0x100, xlen.width)
     instruction: instruction
     rd: instruction[7..12]
-    system: decoder.control.system
-    fence: decoder.control.fence
+    csr_operation: decoder.control.system.csr
+    action: rv5stage_csr_action(decoder.control.system, decoder.control.fence)
     csr_address: instruction[20..32]
     csr_source: mux(decoder.control.system.immediate, instruction[15..20].zext(xlen.width), scalar1)
     vector_config: vector_configuration_request(xlen, decoder.control.vector.configure, instruction, scalar1, scalar2)

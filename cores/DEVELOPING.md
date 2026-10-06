@@ -15,13 +15,13 @@ Before adding a component, decide who owns its policy:
   interface is useful to more than one processor and it does not depend on an
   instruction catalog, named core, backend, example, or test.
 - Put reusable mappings from RISC-V instruction catalogs onto those shared
-  components and implementation-neutral RISC-V protocol attachments under
+  components, reusable CSR/trap state, and implementation-neutral protocol attachments under
   `cores/riscv/`. These definitions may depend on `riscv/`, root `cores/`
   components, and shared protocol libraries, but not on any named core.
 - Put reusable cache geometry, physical protocols, L1I/L1D state, and cache-side
   CHI engines in [`cache/`](cache/DEVELOPING.md). Completion context belongs
   to the caller and must remain opaque inside shared cache hardware.
-- Put instruction decode, architectural state, pipeline policy, adapters, and
+- Put instruction decode, core-specific architectural integration, pipeline policy, adapters, and
   integrated tests under `cores/<name>/`.
 - Put direct tests for a reusable component in [`tests/`](tests/). Put a named
   core's tests under its own `tests/` directory.

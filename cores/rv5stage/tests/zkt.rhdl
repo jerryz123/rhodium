@@ -14,7 +14,7 @@ import:
   "../register-file.rhdl" open
   "../icache/protocol.rhdl" open
   "../memory-context.rhdl" open
-  "../csr.rhdl".PrivilegeMode
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageZkt(profile :: RV5StageConfig):

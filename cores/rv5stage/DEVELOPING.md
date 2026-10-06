@@ -43,7 +43,7 @@ completion adaptation and instruction/uncached integration.
 | [`data-port-arbiter.rhdl`](data-port-arbiter.rhdl) | Core-first physical core/PTW arbitration, paired L1D index selection, and origin-tagged response routing before PMA/uncached routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in XLEN-wide Zve/V WB-launched sequencer, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
-| [`csr.rhdl`](csr.rhdl) | RV5Stage privileged-state storage and commit policy over reusable RISC-V CSR, trap, and interrupt semantics |
+| [`csr.rhdl`](csr.rhdl) | Projects RV5Stage configuration and decode controls into the shared CSR/trap service; `core.rhdl` owns WB authorization and retirement |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
 | [`cache.rhdl`](../cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
@@ -301,7 +301,7 @@ adapter; `rv5stage-vector-muldiv` covers shared scalar/vector execution.
 ## Pointer-masking ownership
 
 The opt-in RV64 Ssnpm path uses reusable policy and address helpers from
-`riscv/rtl/pointer-masking.rhdl`. `csr.rhdl` owns PMM state and WARL writes,
+`riscv/rtl/pointer-masking.rhdl`. The shared `cores/riscv/csr/file.rhdl` owns PMM state and WARL writes,
 and reexports the shared `PrivilegeMode` for existing core consumers.
 ID captures `PointerMaskControl` in `DecodeExecute`; EX transforms only the
 effective memory address and leaves the integer result and low 48 bits intact.
@@ -317,7 +317,7 @@ it too. `henvcfg.PMM` and `hstatus.HUPMM` use the same WARL modes as senvcfg.
 HS and VS MXR both suppress guest masking. Vector descriptors capture the control,
 and WB rejects mismatching early certificates. Existing CSR drain closes older
 vector windows before policy changes; PMM never changes PTE interpretation.
-Use the host/guest policy sweep and `rv5stage-hypervisor-csr` plus
+Use the host/guest policy sweep and `riscv-hypervisor-csr` plus
 `rv5stage-hypervisor-core` for WARL, restart, nested memory and fault coverage.
 
 CSR serialization keeps policy stable across younger ID admissions. A committed
@@ -332,7 +332,7 @@ the core mechanism, while `supm` is legal only with `ssnpm` and publishes the
 validated user-environment contract. The generic defaults remain disabled;
 `SingleCoreRV5StageSoC` is the validated concrete profile that enables both.
 Run `pointer-masking-test.rhm`, `profile-test.rhm`, `riscv-pointer-masking`,
-`rv5stage-pointer-masking`, and `rv5stage-csr`; include `rv5stage-mmu-replay`
+`rv5stage-pointer-masking`, and `riscv-csr`; include `rv5stage-mmu-replay`
 when modifying the shared effective-data-privilege helper. The core fixture
 checks policy changes, tagged payload preservation, replay, all prefetch kinds,
 and transformed access-fault trap values without relying on internal nets.
@@ -574,16 +574,16 @@ must not inherit TVM/VTVM denial. Its U/VU privilege check remains in CSR
 commit policy; no speculative or denied instruction can invalidate state.
 Run `riscv/tests/svinval-test.rhm`, `cores/rv5stage/tests/core-ctrl-test.rhm`,
 and `cores/rv5stage/tests/profile-test.rhm` through `tools/run-racket-tests.sh`.
-The `rv5stage-hypervisor-csr` fixture sweeps all five operations across
+The `riscv-hypervisor-csr` fixture sweeps all five operations across
 M/HS/U/VS/VU and independent TVM/VTVM settings. `rv5stage-hypervisor-core`
 checks paged VS/G remapping after delayed PTE stores, batched invalidations,
 and precise guest denial without younger stores. Pair with
 `rv5stage-guest-translation` for invalidation on refill and accepted-response
-edges and orphan-response draining, and `rv5stage-csr` for ordinary privilege
+edges and orphan-response draining, and `riscv-csr` for ordinary privilege
 regressions. Svinval selection does not itself advertise H, Sha, or RVA23.
 
 State-enable descriptors live in `riscv/isa/csr.rhm`; the stateless hierarchy
-and denial priority live in `riscv/rtl/state-enable.rhdl`. `csr.rhdl` generates
+and denial priority live in `riscv/rtl/state-enable.rhdl`. The shared CSR bank generates
 four descriptor-driven banks with optional M/H storage. Only SE and ENVCFG
 are writable for the current core; S-state views are shared constant-zero CSRs,
 not virtualized duplicates. Parent-masked H bits ignore writes. Bank writes
@@ -599,7 +599,7 @@ precise fault PCs/values and suppression of younger stores. Its common machine
 bootstrap explicitly initializes state access for preexisting guest programs.
 
 Sstc's full-width compares and privilege-gate classification use
-`riscv/rtl/timer.rhdl`; comparator storage and CSR writes stay in `csr.rhdl`.
+`riscv/rtl/timer.rhdl`; comparator storage and CSR writes live in `cores/riscv/csr/file.rhdl`.
 Keep its optional state absent from non-Sstc specializations. RV32 low/high
 writes preserve the other half. Never use V-gated `time` CSR readback as the
 guest comparator input: virtual time advances while HS/M executes too.
@@ -607,8 +607,8 @@ STCE switches pending-bit ownership, not just access permissions; an enabled
 host comparator replaces physical/software STIP, whereas guest comparison
 ORs with injection. Machine denial precedes guest virtual-instruction denial.
 The existing WB drain and interrupt boundary remain the only entry authority.
-Run `rv5stage-sstc-rv32`, `rv5stage-hypervisor-csr`, and
-`rv5stage-hypervisor-core`, plus ordinary `rv5stage-csr`. The guest core cases
+Run `riscv-sstc-rv32`, `riscv-hypervisor-csr`, and
+`rv5stage-hypervisor-core`, plus ordinary `riscv-csr`. The guest core cases
 exercise comparator delivery during delayed loads, WFI/rearm/SRET, and vector
 completion drain. Profile and CSR catalog changes use the focused host tests.
 
@@ -645,7 +645,7 @@ No denied CMO can issue a cache request. `senvcfg` remains shared. Existing
 full-drain FENCE serialization is stronger than FIOM requires. Device regions
 cannot be cacheable, and the uncached IO-MSHR rejects atomic accesses, so no
 FIOM-specific request bit or new queue is needed.
-Use `riscv-cmo` for exhaustive policy checks, `rv5stage-hypervisor-csr` for
+Use `riscv-cmo` for exhaustive policy checks, `riscv-hypervisor-csr` for
 WARL/access/readback, and `rv5stage-hypervisor-core` for paged CMO trap priority,
 WB acceptance, invalidate conversion, and delayed CBO/FENCE ordering.
 
@@ -671,10 +671,10 @@ MIDELEG bits fixed one. `riscv/rtl/interrupt.rhdl` owns stateless destination,
 priority, enable, and cause-renumbering policy. The existing interrupt request
 stops younger admission and WB drains accepted effects before entry; never
 flush an accepted load just because an injected interrupt becomes eligible.
-`rv5stage-hypervisor-csr` checks CSR aliases and M/HS/VS selection;
+`riscv-hypervisor-csr` checks CSR aliases and M/HS/VS selection;
 `rv5stage-hypervisor-core` runs all three injected interrupts through paged
 guest handlers, WFI wake, deferred loads, and SRET. Pair these with ordinary
-`rv5stage-csr`, `rv5stage-interrupt`, and `rv5stage-wfi` regressions.
+`riscv-csr`, `rv5stage-interrupt`, and `rv5stage-wfi` regressions.
 
 Fetch result/packet and scalar pipeline bundle generators take an explicit
 `hypervisor` argument. The false specialization omits guest metadata and its
@@ -714,10 +714,10 @@ Select `rv5stage-hypervisor-core` for real core/frontend/MMU execution against
 delayed physical memory, precise guest faults, delegated VS traps, HS returns,
 MPRV/MPV accesses, ordered HFENCE remapping, and explicit guest memory widths,
 HU/SPVP legality, warm permissions, and precise denied-store behavior. Pair it with the host core and
-MMU replay regressions and `rv5stage-hypervisor-csr` when changing this boundary.
+MMU replay regressions and `riscv-hypervisor-csr` when changing this boundary.
 
-Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/rv5stage/tests/csr-test.rhm`
-and `FIXTURES='rv5stage-hypervisor-csr rv5stage-csr' bash tools/testing/circt/run.sh`
+Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/riscv/tests/csr-test.rhm`
+and `FIXTURES='riscv-hypervisor-csr riscv-csr' bash tools/testing/circt/run.sh`
 when changing this boundary. The [SoC mandatory-requirement gate](../../socs/tests/udb-test.rhm)
 checks the published RVA23 declarations.
 
@@ -935,8 +935,8 @@ of physical clock gating. Select Zawrs through `RV5StageExtensions`, keeping
 core decoder selection, ISA descriptions, and UDB claims derived from that
 same profile. The UDB database names the ratified extension version `1.0.0`.
 
-For the optional Sscofpmf integration, select `rv5stage-sscofpmf-rv32`,
-`rv5stage-sscofpmf-rv64`, and `rv5stage-sscofpmf-rv64h`. These drive the real
+For the optional Sscofpmf integration, select `riscv-sscofpmf-rv32`,
+`riscv-sscofpmf-rv64`, and `riscv-sscofpmf-rv64h`. These drive the real
 CSR commit and interrupt-boundary interfaces; the reusable `riscv-hpm-*`
 fixtures own exhaustive mode-filter combinations. Keep counter events attached
 to the existing precise WB retirement signal. Pending interrupt state belongs
@@ -949,7 +949,7 @@ For Zihpm CSR catalogs, profile claims, and access semantics, run:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/csr-test.rhm riscv/rtl/tests/riscv-csr-bank-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm
-FIXTURES='rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-csr' \
+FIXTURES='riscv-zihpm-rv32 riscv-zihpm-rv64 riscv-csr' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 
@@ -986,7 +986,7 @@ and self-snooped cache fixtures:
 
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicbom-test.rhm cores/rv5stage/tests/rv5stage-test.rhm cores/rv5stage/tests/udb-test.rhm
-FIXTURES='rv5stage-zicbom rv5stage-csr rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' \
+FIXTURES='rv5stage-zicbom riscv-csr rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 
@@ -1015,7 +1015,7 @@ both XLEN SRAM sequences as well as the one-completion uncached sequence:
 
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicboz-test.rhm
-FIXTURES='rv5stage-zicboz rv5stage-csr rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' \
+FIXTURES='rv5stage-zicboz riscv-csr rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 

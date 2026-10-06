@@ -6,7 +6,6 @@ import:
   lib("cores/riscv/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("hardfloat/main.rhdl").RoundingMode
-  "csr.rhdl" open
   "packed-bundles.rhdl" open
   "register-file.rhdl" open
   "../decode/vector-ctrl.rhdl" open

@@ -10,7 +10,7 @@ import:
   "../icache/protocol.rhdl" open
   "../memory-context.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
-  "../csr.rhdl".PrivilegeMode
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../mmu/protocol.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../../../riscv/isa/xlen.rhm" open

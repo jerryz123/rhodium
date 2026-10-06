@@ -11,7 +11,7 @@ import:
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open
   "../profile.rhm" open
-  "../csr.rhdl" open
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "params.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../../../riscv/isa/xlen.rhm" open

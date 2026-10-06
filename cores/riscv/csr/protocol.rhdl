@@ -1,0 +1,40 @@
+#lang rhodium
+/* Defines authorized CSR/trap commands without instruction-pipeline payloads or scheduling controls. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
+  lib("riscv/rtl/vector.rhdl").RiscvVectorConfigRequest
+
+/* Selects architectural effects or permission checks; cache/TLB execution and waits remain caller-owned. */
+hardware_enum RiscvCsrAction:
+  None
+  Ecall
+  Ebreak
+  Mret
+  Sret
+  Wfi
+  VectorConfig
+  SfenceVma
+  HfenceVvma
+  HfenceGvma
+  TranslationOrder
+
+/* Carries one irrevocably authorized operation, raw instruction, destination, and precise fault context. */
+bundle RiscvCsrCommand(xlen :: XLen):
+  pc: Bits(xlen.width)
+  instruction: Bits(32)
+  rd: Bits(5)
+  csr_operation: RiscvCsrOperation
+  action: RiscvCsrAction
+  csr_address: Bits(12)
+  csr_source: Bits(xlen.width)
+  vector_config: RiscvVectorConfigRequest(xlen)
+  exception_valid: Bool
+  exception_cause: Bits(xlen.width)
+  exception_value: Bits(xlen.width)
+
+export:
+  RiscvCsrAction
+  RiscvCsrCommand

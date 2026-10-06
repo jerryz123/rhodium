@@ -5,8 +5,8 @@
     word_t pc;
     logic [31:0] instruction;
     logic [4:0] rd;
-    struct packed { logic [1:0] csr; logic immediate; logic [3:0] action; } system;
-    struct packed { logic [2:0] action; } fence;
+    logic [1:0] csr_operation;
+    logic [3:0] action;
     logic [11:0] csr_address;
     word_t csr_source;
     struct packed { word_t vtype; word_t avl; logic maximum; logic keep_vl; } vector_config;
@@ -24,7 +24,8 @@
   struct packed { logic valid; commit_bits_t bits; } commit_in;
   logic [5:0] fp_update_in = 0;
   struct packed { logic valid; word_t bits; } redirect_out;
-  logic interrupt_request, wfi_retired, wfi_wake, writeback_valid;
+  logic command_success;
+  logic interrupt_request, wfi, wfi_wake, writeback_valid;
   word_t writeback_value, mstatus, satp;
   logic [1:0] privilege;
   logic [2:0] frm;
@@ -37,14 +38,14 @@
 `ifdef RHODIUM_HPM_TEST_H
     struct packed { logic [1:0] privilege; logic virtualized; } execution_context;
     assign virtualized = execution_context.virtualized;
-    RV5StageCsrFile dut (.guest_fault_in('0), .execution_context(execution_context),
-      .guest_translation(), .guest_pointer_masking(), .pbmte(), .retired(), .vector_state(),
+    RiscvCsrFile dut (.retire(command_success), .guest_fault_in('0), .execution_context(execution_context),
+      .guest_translation(), .guest_pointer_masking(), .pbmte(), .vector_state(),
       .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0),
       .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(),
       .pointer_masking_changed(), .*);
 `else
     assign virtualized = 0;
-  RV5StageCsrFile dut (.pbmte(), .retired(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
+  RiscvCsrFile dut (.retire(command_success), .pbmte(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
 `endif
   always #5 clock = ~clock;
 
@@ -67,8 +68,7 @@
     commit_in.bits.pc = 'h100;
     commit_in.bits.instruction = instruction;
     commit_in.bits.rd = rd;
-    commit_in.bits.system.csr = operation;
-    commit_in.bits.system.immediate = immediate;
+    commit_in.bits.csr_operation = operation;
     commit_in.bits.csr_address = address;
     commit_in.bits.csr_source = source;
     #1;
@@ -110,7 +110,7 @@
     commit_in = '0;
     commit_in.valid = 1;
     commit_in.bits.instruction = 32'h30200073;
-    commit_in.bits.system.action = 3;
+    commit_in.bits.action = 3;
     #1;
     assert (redirect_out.valid && redirect_out.bits == 'h200)
       else $fatal(1, "MRET failed before HPM privilege check");
@@ -148,7 +148,7 @@
     wr('h300, (word_t'(1) << 39) | (word_t'(mode) << 11));
     wr('h341, 'h200);
     @(negedge clock); commit_in = '0; commit_in.valid = 1;
-    commit_in.bits.system.action = 3; commit_in.bits.instruction = 'h30200073;
+    commit_in.bits.action = 3; commit_in.bits.instruction = 'h30200073;
     @(posedge clock); #1; commit_in = '0;
     assert (virtualized && privilege == mode) else $fatal(1, "guest entry");
   endtask
@@ -236,11 +236,11 @@
     repeat (5) @(posedge clock);
     freeze();
     @(negedge clock); commit_in = '0; commit_in.valid = 1;
-    commit_in.bits.system.csr = 2; commit_in.bits.csr_address = 'hb03; commit_in.bits.rd = 1;
+    commit_in.bits.csr_operation = 2; commit_in.bits.csr_address = 'hb03; commit_in.bits.rd = 1;
     #1; assert (writeback_valid && writeback_value >= 5) else $fatal(1, "cycle event read valid=%b value=%h", writeback_valid, writeback_value);
     @(posedge clock); #1; commit_in = '0;
 
-    // A retired CSR clearing pending on the wrap cycle cannot lose overflow.
+    // A retiring CSR clearing pending on the wrap cycle cannot lose overflow.
     reset_state(); wr64('h323, 2); wr64('hb03, '1);
     wr('h344, 0); freeze();
     rd('hda0, 8); rd('h344, 'h2000);

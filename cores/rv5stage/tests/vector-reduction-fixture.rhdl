@@ -6,7 +6,6 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../vector/pipeline.rhdl" open
   "../vector/bundles.rhdl" open
-  "../vector/csr.rhdl" open
   "../register-file.rhdl".RegisterFileWrite
   "../decode/core-ctrl.rhdl" open
   "../decode/vector-ctrl.rhdl" open

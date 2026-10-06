@@ -1,13 +1,13 @@
 // Verifies RV32 timer/state-enable high halves, privilege gates, and supervisor delivery.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_sstc_rv32_tb;
+module riscv_sstc_rv32_tb;
   struct packed {
     logic valid;
     struct packed {
       logic [31:0] pc, instruction;
       logic [4:0] rd;
-      struct packed { logic [1:0] csr; logic immediate; logic [3:0] action; } system;
-      struct packed { logic [2:0] action; } fence;
+      logic [1:0] csr_operation;
+    logic [3:0] action;
       logic [11:0] csr_address;
       logic [31:0] csr_source;
       struct packed { logic [31:0] vtype, avl; logic maximum, keep_vl; } vector_config;
@@ -21,15 +21,15 @@ module rv5stage_sstc_rv32_tb;
   logic [63:0] time_counter = 64'h12345678ffffffff;
   logic [31:0] hart_id = 0, interrupt_pc = 'h888;
   logic interrupt_boundary = 0;
-  logic retired, writeback_valid, interrupt_request, wfi_wake;
+  logic command_success, writeback_valid, interrupt_request, wfi_wake;
   logic [31:0] writeback_value;
   logic [1:0] privilege;
-  RV5StageCsrFile dut (
+  RiscvCsrFile dut (.retire(command_success),
     .clock, .reset, .interrupts, .time_counter, .hart_id, .interrupt_pc, .interrupt_boundary,
-    .commit_in, .redirect_out, .retired, .writeback_valid, .writeback_value, .privilege,
+    .commit_in, .redirect_out, .command_success, .writeback_valid, .writeback_value, .privilege,
     .interrupt_request, .wfi_wake, .fp_update_in('0), .vector_retire_in('0),
     .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0),
-    .cbo_operation('0), .wfi_retired(), .mstatus(), .satp(), .frm(), .fp_enabled(),
+    .cbo_operation('0), .wfi(), .mstatus(), .satp(), .frm(), .fp_enabled(),
     .vector_enabled(), .vector_state(), .cbo_zero_access(), .cbo_permission(),
     .translation_flush(), .pbmte(), .pointer_masking(), .pointer_masking_changed()
   );
@@ -39,10 +39,10 @@ module rv5stage_sstc_rv32_tb;
                      input logic [31:0] value, input logic [31:0] expected = 0);
     @(negedge clock); commit_in = '0;
     commit_in.valid = 1; commit_in.bits.rd = 1;
-    commit_in.bits.system.csr = write ? 1 : 2;
+    commit_in.bits.csr_operation = write ? 1 : 2;
     commit_in.bits.csr_address = address; commit_in.bits.csr_source = value;
     #1;
-    assert (retired && writeback_valid && !redirect_out.valid)
+    assert (command_success && writeback_valid && !redirect_out.valid)
       else $fatal(1,"unexpected RV32 timer CSR trap %h",address);
     if (!write) assert (writeback_value == expected)
       else $fatal(1,"CSR %h got %h expected %h",address,writeback_value,expected);
@@ -51,7 +51,7 @@ module rv5stage_sstc_rv32_tb;
 
   task automatic enter_supervisor;
     csr(1,'h300,'h800); csr(1,'h341,'h800);
-    @(negedge clock); commit_in = '0; commit_in.valid = 1; commit_in.bits.system.action = 3;
+    @(negedge clock); commit_in = '0; commit_in.valid = 1; commit_in.bits.action = 3;
     @(posedge clock); #1; commit_in = '0;
     assert (privilege == 1) else $fatal(1,"S entry failed");
   endtask
@@ -59,10 +59,10 @@ module rv5stage_sstc_rv32_tb;
   task automatic denied(input logic [11:0] address);
     @(negedge clock); commit_in = '0; commit_in.valid = 1;
     commit_in.bits.pc = 'h880; commit_in.bits.rd = 1;
-    commit_in.bits.system.csr = 1; commit_in.bits.csr_address = address;
+    commit_in.bits.csr_operation = 1; commit_in.bits.csr_address = address;
     commit_in.bits.csr_source = '1;
     #1;
-    assert (!retired && !writeback_valid && redirect_out.valid && redirect_out.bits == 'h1000)
+    assert (!command_success && !writeback_valid && redirect_out.valid && redirect_out.bits == 'h1000)
       else $fatal(1,"RV32 state-enable did not deny %h",address);
     @(posedge clock); #1; commit_in = '0;
     csr(0,'h342,0,2); csr(0,'h341,0,'h880);
@@ -105,7 +105,7 @@ module rv5stage_sstc_rv32_tb;
     csr(1,'h344,0); csr(1,'h31a,'h80000000);
     csr(1,'h306,2); csr(1,'h303,'h20); csr(1,'h304,'h20);
     csr(1,'h300,'h802); csr(1,'h341,'h800);
-    @(negedge clock); commit_in = '0; commit_in.valid = 1; commit_in.bits.system.action = 3;
+    @(negedge clock); commit_in = '0; commit_in.valid = 1; commit_in.bits.action = 3;
     @(posedge clock); #1; commit_in = '0;
     assert (privilege == 1) else $fatal(1,"MRET failed");
     csr(0,'h15d,0,'h80000000); csr(1,'h14d,2);

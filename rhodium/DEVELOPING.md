@@ -309,13 +309,18 @@ policy without importing a concrete processor.
 privilege adapters, and `std/ready-valid.rhdl`. It owns reusable single-counter
 filtering and overflow state; event selection, CSR access control, and local
 interrupt-pending storage remain with the integrating core.
-`cores/rv5stage/csr.rhdl` consumes that adapter for its optional Sscofpmf
-counter; the dependency remains core-to-architecture, with no reverse edge.
+`cores/riscv/csr/file.rhdl` consumes that adapter for its optional Sscofpmf
+counter. The shared CSR package uses existing ISA/RTL CSR, trap, interrupt,
+privilege, timer, vector, and feature descriptors, plus `std/bits.rhdl`,
+`std/ready-valid.rhdl`, the stable generator-parameter contract, and the passive
+`cores/riscv/cosim-source.rhm` metadata bridge. It imports no named core.
+`cores/rv5stage/csr.rhdl` projects named configuration/decode controls into its
+neutral configuration and command; `core.rhdl` owns retirement authorization.
 
 `riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
 plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.
 `sv39.rhdl` imports its page-memory-type representation and retains its existing
-`std/bits.rhdl` dependency. RV5Stage CSR storage and translation components
+`std/bits.rhdl` dependency. Shared CSR storage and RV5Stage translation components
 consume these adapters without moving implementation policy into `riscv/`.
 `riscv/rtl/hypervisor.rhdl` imports pure CSR/trap descriptors and the CSR
 and privilege adapters; it adds no direct Rhodium-library import. The optional

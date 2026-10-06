@@ -38,6 +38,10 @@ behavior; datapath covers FP, integer execution, writeback, retirement, and
 integrated cores. Keep the three leaves nonempty, disjoint, and exhaustive
 when adding a fixture.
 
+Shared `riscv-csr`, `riscv-hypervisor-csr`, `riscv-sstc-rv32`, `riscv-zihpm-*`,
+and `riscv-sscofpmf-*` fixtures belong to `cores-components`; named-core
+retirement and interrupt integration remain in `cores-execution-control`.
+
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or
 `cores-vector-functional-2` for the default functional configurations, or
 `cores-vector-configurations` for alternate XLEN, VLEN, queue depth, and slot

@@ -421,7 +421,7 @@ Machine data accesses modified by `MPRV`/`MPP`, `SUM`, `MXR`, and Svade fault
 behavior. The CSR block accepts RV64 Bare and Sv39 `satp` modes, forces the ASID
 field to zero, and requests a conservative whole-MMU invalidation after an
 accepted `satp` write or legal `SFENCE.VMA`; that architectural sequencing is
-owned by [`csr.rhdl`](../csr.rhdl) and the
+owned by [shared CSR state](../../riscv/csr/README.md) and the
 [parent ordering contract](../README.md#control-hazards-and-ordering).
 
 Deliberate limits are:

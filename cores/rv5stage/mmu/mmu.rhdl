@@ -16,7 +16,7 @@ import:
   "tlb.rhdl" open
   "walker.rhdl" open
   "vector-window.rhdl" open
-  "../csr.rhdl" open
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../../cache/operation.rhdl" open
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open

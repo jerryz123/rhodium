@@ -39,6 +39,9 @@ import:
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
   "csr.rhdl" open
+  "../riscv/csr/file.rhdl" open
+  "../riscv/csr/protocol.rhdl".RiscvCsrCommand
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "profile.rhm".RV5StageConfig
   "profile.rhm".RV5StageMultiplierKind
   "profile.rhm".rv5stage_execution_half_precision
@@ -226,7 +229,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst wb_fp_integer_scoreboard(Scoreboard(register_count))
   def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpScalar(xlen, effective_fp_profile, Bits(width), ~half_precision: execution_half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst wb_fp(wb_fp_module)
-  inst wb_csrs(RV5StageCsrFile(core_profile))
+  inst wb_csrs(RiscvCsrFile(rv5stage_csr_config(core_profile)))
   if hypervisor
   | block:
       output guest_translation: RiscvHypervisorTranslation()
@@ -435,7 +438,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_redirect_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path, wb_trace_path) = wb_commit |> fork_valid(9)
   // Retirement is a final observation; replay and memory consumers retain their
   // own lineage even when this instruction does not retire.
-  def wb_retired_event = wb_trace_path |> trace_valid_event("core/s5.wb", ~when: wb_csrs.retired, ~fields: operation):
+  def wb_retired_event = wb_trace_path |> trace_valid_event("core/s5.wb", ~when: wb_csrs.command_success, ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
     branch_prediction(~format: "enum"): operation.branch_prediction
@@ -550,7 +553,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   when (wb_csrs.wfi_wake ||| wb_csrs.redirect.valid):
     if_waiting_for_interrupt <== Bool(#false)
-  elsewhen (wb_csrs.wfi_retired):
+  elsewhen (wb_csrs.wfi):
     if_waiting_for_interrupt <== Bool(#true)
 
   def id_decode_valid = id_instructions.fetched.valid & !if_squash
@@ -1491,12 +1494,15 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
                                wb_commit_bits.pc,
                                mux(wb_commit_valid, wb_commit_bits.resume_pc, if_architectural_pc))
   wb_csrs.commit.valid <== wb_pending_exception_ready ||| (wb_macro_retire & !wb_current_exception_wait)
-  wb_csrs.commit.bits <== RV5StageCsrCommit(xlen):
+  // RV5Stage retires exactly one authorized macro when CSR/trap checks succeed.
+  // The shared bank consumes this event but owns no pipeline-retirement policy.
+  wb_csrs.retire <== wb_csrs.command_success
+  wb_csrs.commit.bits <== RiscvCsrCommand(xlen):
     pc: wb_architectural_commit.pc
     instruction: wb_architectural_commit.raw_instruction
     rd: wb_architectural_commit.rd
-    system: wb_architectural_commit.system
-    fence: wb_architectural_commit.fence
+    csr_operation: wb_architectural_commit.system.csr
+    action: rv5stage_csr_action(wb_architectural_commit.system, wb_architectural_commit.fence)
     csr_address: wb_architectural_commit.csr_address
     csr_source: wb_architectural_commit.csr_source
     vector_config: wb_architectural_commit.vector_config

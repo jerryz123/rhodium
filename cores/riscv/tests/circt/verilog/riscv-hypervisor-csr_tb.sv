@@ -1,12 +1,12 @@
 // Exercises guest CSR state, state-enable and timer gates, interrupt priority, traps, and returns.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_hypervisor_csr_tb;
+module riscv_hypervisor_csr_tb;
   typedef struct packed {
     logic [63:0] pc;
     logic [31:0] instruction;
     logic [4:0] rd;
-    struct packed { logic [1:0] csr; logic immediate; logic [3:0] action; } system;
-    struct packed { logic [2:0] action; } fence;
+    logic [1:0] csr_operation;
+    logic [3:0] action;
     logic [11:0] csr_address;
     logic [63:0] csr_source;
     struct packed { logic [63:0] vtype; logic [63:0] avl; logic maximum; logic keep_vl; } vector_config;
@@ -32,13 +32,13 @@ module rv5stage_hypervisor_csr_tb;
   logic [1:0] cbo_operation = 0;
   logic [3:0] cbo_permission;
   logic [1:0] cbo_zero_access;
-  logic interrupt_request, retired, wfi_retired, wfi_wake, writeback_valid;
+  logic interrupt_request, command_success, wfi, wfi_wake, writeback_valid;
   logic [63:0] writeback_value, mstatus, satp;
   logic [1:0] privilege;
   logic [2:0] frm, pointer_masking, guest_pointer_masking;
   logic fp_enabled, vector_enabled, translation_flush, pbmte, pointer_masking_changed;
   struct packed {logic vs_pbmte, virtualized; logic [63:0] hstatus, vsstatus, vsatp, hgatp;} guest_translation;
-  RV5StageCsrFile dut (.vector_state(), .vector_retire_in('0),
+  RiscvCsrFile dut (.retire(command_success), .vector_state(), .vector_retire_in('0),
     .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .*);
   always #5 clock = ~clock;
 
@@ -64,7 +64,7 @@ module rv5stage_hypervisor_csr_tb;
     clear_commit();
     commit_in.valid = 1;
     commit_in.bits.rd = 1;
-    commit_in.bits.system.csr = write ? 1 : 2;
+    commit_in.bits.csr_operation = write ? 1 : 2;
     commit_in.bits.csr_address = address;
     commit_in.bits.csr_source = value;
     #1;
@@ -72,7 +72,7 @@ module rv5stage_hypervisor_csr_tb;
       assert (translation_flush == 1'(expected_flush)) else $fatal(1,"PBMTE flush mismatch CSR=%h",address);
     if (expected_mask_change >= 0)
       assert (pointer_masking_changed == 1'(expected_mask_change)) else $fatal(1,"PMM restart mismatch CSR=%h",address);
-    assert (retired && writeback_valid && !redirect_out.valid)
+    assert (command_success && writeback_valid && !redirect_out.valid)
       else $fatal(1, "unexpected trap accessing CSR %h", address);
     if (!write)
       assert (writeback_value == expected)
@@ -85,11 +85,11 @@ module rv5stage_hypervisor_csr_tb;
     @(negedge clock);
     clear_commit();
     commit_in.valid = 1;
-    commit_in.bits.system.action = action;
+    commit_in.bits.action = action;
     commit_in.bits.pc = pc;
     commit_in.bits.instruction = action == 4 ? 32'h10200073 : 32'h00000073;
     #1;
-    assert (redirect_out.valid && redirect_out.bits == target && retired == !traps)
+    assert (redirect_out.valid && redirect_out.bits == target && command_success == !traps)
       else $fatal(1, "wrong command redirect: action %d target %h expected %h", action, redirect_out.bits, target);
     @(posedge clock); #1; clear_commit();
   endtask
@@ -129,7 +129,7 @@ module rv5stage_hypervisor_csr_tb;
     guest_fault_in.bits.guest_physical_address = fault_address;
     guest_fault_in.bits.access = implicit_pte;
     #1;
-    assert (!retired && redirect_out.valid && redirect_out.bits == (to_machine ? 'h1000 : 'h2000))
+    assert (!command_success && redirect_out.valid && redirect_out.bits == (to_machine ? 'h1000 : 'h2000))
       else $fatal(1, "guest fault went to wrong handler");
     @(posedge clock); #1; clear_commit();
     check_context(to_machine ? 3 : 1, 0);
@@ -143,11 +143,11 @@ module rv5stage_hypervisor_csr_tb;
                             input logic write = 0);
     @(negedge clock); clear_commit();
     commit_in.valid = 1; commit_in.bits.pc = 'h884; commit_in.bits.rd = 1;
-    commit_in.bits.system.csr = write ? 1 : 2;
+    commit_in.bits.csr_operation = write ? 1 : 2;
     commit_in.bits.csr_address = address; commit_in.bits.csr_source = 'hffff;
     commit_in.bits.instruction = {address, 20'h020f3};
     #1;
-    assert (!retired && !writeback_valid && !translation_flush &&
+    assert (!command_success && !writeback_valid && !translation_flush &&
             redirect_out.valid && redirect_out.bits == 'h2000)
       else $fatal(1, "CSR %h was not rejected", address);
     @(posedge clock); #1; clear_commit(); check_context(1, 0);
@@ -159,10 +159,10 @@ module rv5stage_hypervisor_csr_tb;
     @(negedge clock); clear_commit();
     commit_in.valid = 1;
     commit_in.bits.pc = 'h888;
-    commit_in.bits.fence.action = action;
+    commit_in.bits.action = 4'(action + 4);
     commit_in.bits.instruction = action == 4 ? 32'h22000073 : 32'h62000073;
     #1;
-    assert (retired == legal && translation_flush == legal && redirect_out.valid == !legal)
+    assert (command_success == legal && translation_flush == legal && redirect_out.valid == !legal)
       else $fatal(1, "HFENCE legality/flush mismatch");
     @(posedge clock); #1; clear_commit();
     if (!legal) csr(0, 'h142, 0, 64'(cause));
@@ -251,7 +251,7 @@ module rv5stage_hypervisor_csr_tb;
     @(negedge clock); clear_commit(); interrupt_boundary = 1; interrupt_pc = 'hccc;
     commit_in.valid = 1; commit_in.bits.pc = 'h888;
     commit_in.bits.exception_valid = 1; commit_in.bits.exception_cause = 2;
-    #1; assert (!retired && redirect_out.bits == 'h2000) else $fatal(1, "interrupt beat exception");
+    #1; assert (!command_success && redirect_out.bits == 'h2000) else $fatal(1, "interrupt beat exception");
     @(posedge clock); #1; clear_commit(); csr(0, 'h142, 0, 2); csr(0, 'h141, 0, 'h888);
     csr(0, 'h645, 0, 4);
   endtask
@@ -556,9 +556,9 @@ module rv5stage_hypervisor_csr_tb;
           if (mode != 0) begin csr(1,'h341,'h800); command(3,'h800); end
           @(negedge clock); clear_commit();
           commit_in.valid = 1; commit_in.bits.pc = 'h888;
-          commit_in.bits.instruction = instruction; commit_in.bits.fence.action = action;
+          commit_in.bits.instruction = instruction; commit_in.bits.action = 4'(action + 4);
           #1;
-          assert (retired == !denied && !writeback_valid && redirect_out.valid == denied &&
+          assert (command_success == !denied && !writeback_valid && redirect_out.valid == denied &&
                   translation_flush == (!denied && action != 6))
             else $fatal(1,"Svinval permission op=%0d mode=%0d controls=%0d",op,mode,controls);
           @(posedge clock); #1; clear_commit();
@@ -619,7 +619,7 @@ module rv5stage_hypervisor_csr_tb;
       commit_in.bits.exception_valid=1; commit_in.bits.exception_cause=cause;
       commit_in.bits.exception_value=value;
       #1;
-      assert (!retired && redirect_out.valid && redirect_out.bits == 'h3000)
+      assert (!command_success && redirect_out.valid && redirect_out.bits == 'h3000)
         else $fatal(1,"VS trap destination cause=%0d",cause);
       @(posedge clock); #1; clear_commit(); check_context(1,1);
       csr(0,'h142,0,cause); csr(0,'h143,0,value); csr(0,'h141,0,'h888);
@@ -718,10 +718,10 @@ module rv5stage_hypervisor_csr_tb;
     csr(1, 'h341, 'h800);
     command(3, 'h800);
     @(negedge clock); clear_commit();
-    commit_in.valid = 1; commit_in.bits.rd = 1; commit_in.bits.system.csr = 2;
+    commit_in.valid = 1; commit_in.bits.rd = 1; commit_in.bits.csr_operation = 2;
     commit_in.bits.csr_address = 'h180; commit_in.bits.instruction = 'h180020f3;
     #1;
-    assert (!retired && !writeback_valid && !translation_flush && redirect_out.bits == 'h2000)
+    assert (!command_success && !writeback_valid && !translation_flush && redirect_out.bits == 'h2000)
       else $fatal(1, "VTVM access escaped virtual-instruction trap");
     @(posedge clock); #1; clear_commit();
     csr(0, 'h142, 0, 22); csr(0, 'h143, 0, 'h180020f3);
@@ -768,12 +768,12 @@ module rv5stage_hypervisor_csr_tb;
     // CSR side effects require a nonspeculative, nontrapping commit.
     reset_dut();
     @(negedge clock); clear_commit();
-    commit_in.bits.system.csr = 1; commit_in.bits.csr_address = 'h240;
+    commit_in.bits.csr_operation = 1; commit_in.bits.csr_address = 'h240;
     commit_in.bits.csr_source = 'hbad;
     repeat (2) @(posedge clock);
     #1; clear_commit(); csr(0, 'h240, 0, 0);
     @(negedge clock); clear_commit();
-    commit_in.valid = 1; commit_in.bits.system.csr = 1;
+    commit_in.valid = 1; commit_in.bits.csr_operation = 1;
     commit_in.bits.csr_address = 'h240; commit_in.bits.csr_source = 'hbad;
     commit_in.bits.exception_valid = 1; commit_in.bits.exception_cause = 2;
     @(posedge clock); #1; clear_commit(); csr(0, 'h240, 0, 0);

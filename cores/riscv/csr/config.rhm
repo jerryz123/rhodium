@@ -1,0 +1,56 @@
+#lang rhombus
+/* Selects architectural state implemented by the shared CSR bank, independently of pipeline policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("riscv/isa/profile.rhm").RiscvIsaProfile
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/c.rhm") open
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/isa/vector-profile.rhm") open
+
+/* Describes state-bank specialization; the integrating core owns ISA claims and feature compatibility. */
+class RiscvCsrConfig(isa_profile :: RiscvIsaProfile,
+                     mmu_type :: RiscvMmuType,
+                     floating_point :: FloatingPointProfile,
+                     compressed :: List.of(CompressedExtension),
+                     vector :: VectorProfile,
+                     vector_length :: VectorLength,
+                     hypervisor :: Boolean,
+                     sscofpmf :: Boolean,
+                     sstc :: Boolean,
+                     smstateen :: Boolean,
+                     zicboz :: Boolean,
+                     zicbom :: Boolean,
+                     ssnpm :: Boolean,
+                     svpbmt :: Boolean):
+  implements StableCircuitParam
+
+  /* Defaults optional banks off and rejects translation or guest state unavailable at RV32. */
+  constructor (isa_profile :: RiscvIsaProfile,
+               ~mmu_type: mmu_type :: RiscvMmuType = RiscvMmuType.Bare,
+               ~floating_point: floating_point :: FloatingPointProfile = FloatingPointProfile.None,
+               ~compressed: compressed :: List.of(CompressedExtension) = [],
+               ~vector: vector :: VectorProfile = VectorProfile.None,
+               ~vector_length: vector_length :: VectorLength = 128,
+               ~hypervisor: hypervisor :: Boolean = #false,
+               ~sscofpmf: sscofpmf :: Boolean = #false,
+               ~sstc: sstc :: Boolean = #false,
+               ~smstateen: smstateen :: Boolean = #false,
+               ~zicboz: zicboz :: Boolean = #false,
+               ~zicbom: zicbom :: Boolean = #false,
+               ~ssnpm: ssnpm :: Boolean = #false,
+               ~svpbmt: svpbmt :: Boolean = #false):
+    when isa_profile.xlen == XLen.X32 && (hypervisor || mmu_type != RiscvMmuType.Bare)
+    | error(~who: #'RiscvCsrConfig, "guest state and Sv39 require RV64")
+    super(isa_profile, mmu_type, floating_point, compressed, vector, vector_length,
+          hypervisor, sscofpmf, sstc, smstateen, zicboz, zicbom, ssnpm, svpbmt)
+
+  /* Uses the architecture's XLEN for all CSR operands and state. */
+  property xlen :: XLen: isa_profile.xlen
+
+export:
+  RiscvCsrConfig

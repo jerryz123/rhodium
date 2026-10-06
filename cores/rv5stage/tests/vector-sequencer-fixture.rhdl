@@ -7,7 +7,6 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../vector/bundles.rhdl" open
   "../vector/packed-bundles.rhdl" open
-  "../vector/csr.rhdl" open
   "../vector/operand-fetch.rhdl" open
   "../vector/sequencer.rhdl" open
   "../vector/register-file.rhdl" open

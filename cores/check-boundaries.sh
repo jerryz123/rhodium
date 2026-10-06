@@ -52,7 +52,7 @@ if [[ -n "$component_domain_imports" ]]; then
   exit 1
 fi
 
-riscv_mapping_named_core_imports="$(search_sources '^[[:space:]]+"[^" ]*rv5stage/' cores/riscv || true)"
+riscv_mapping_named_core_imports="$(search_sources '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' cores/riscv || true)"
 if [[ -n "$riscv_mapping_named_core_imports" ]]; then
   echo "reusable RISC-V component mappings must not import named cores" >&2
   echo "$riscv_mapping_named_core_imports" >&2

@@ -398,7 +398,7 @@ ownership, simultaneous hit/response completion, and precise restart.
 `riscv/isa/v.rhm` owns initial instruction formats and encodings, and
 `riscv/rtl/vector.rhdl` materializes stateless vtype/AVL rules. Core decode owns
 the vector control column; `decode/core-ctrl.rhdl` alone adds scalar source and
-system controls. `vector/csr.rhdl` owns retained vector state. Its parent CSR
+system controls. The shared `cores/riscv/csr/vector.rhdl` owns retained vector state. Its parent CSR
 file gates writes on successful WB, enforces VS access, and handles traps.
 The candidate configuration input is a combinational preview; a separate
 `Pulse` authorizes it only after legality and exception checks. Keep preview
@@ -922,8 +922,8 @@ destination groups, cancellation, and writes to the `v0` shadow.
 The production reduction fixture uses guaranteed-overflow clips to prove that
 mature beats pulse saturation once, and cancellation exposes only its
 already-written prefix.
-Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
-`rv5stage-zihpm-*` fixtures. These fixtures belong to `cores-execution`.
+Changes to shared CSR payloads also require `riscv-csr` and the RV32/RV64
+`riscv-zihpm-*` fixtures. Shared CSR fixtures belong to `cores-components`.
 
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer

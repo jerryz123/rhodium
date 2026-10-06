@@ -20,6 +20,11 @@ microarchitectural policy in the named core.
 
 ## Implementation map
 
+[`csr/`](csr/DEVELOPING.md) owns reusable CSR storage, privilege transitions,
+and trap/interrupt machinery. Its command and configuration use architectural
+types, not named-core configuration or pipeline bundles. Retirement events,
+precise boundaries, and pipeline draining remain caller policy.
+
 [`alu-decode.rhdl`](alu-decode.rhdl),
 [`branch-decode.rhdl`](branch-decode.rhdl),
 [`multiply-decode.rhdl`](multiply-decode.rhdl), and

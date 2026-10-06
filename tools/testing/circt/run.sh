@@ -266,7 +266,7 @@ fixture_in_group() {
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
-    cores-components:cosim-hooks|cores-components:riscv-hpm-*|cores-execution-control:rv5stage-sscofpmf-*)
+    cores-components:cosim-hooks|cores-components:riscv-hpm-*|cores-components:riscv-sscofpmf-*|cores-execution-control:rv5stage-sscofpmf-*)
       return 0
       ;;
     std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
@@ -281,7 +281,7 @@ fixture_in_group() {
     cores-execution-frontend:rv5stage-access-fault|cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-btb|cores-execution-frontend:rv5stage-ras|cores-execution-frontend:rv5stage-return-prediction|cores-execution-frontend:rv5stage-instruction-buffer|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput|cores-execution-frontend:rv5stage-branch-prediction|cores-execution-frontend:rv5stage-data-fault|cores-execution-frontend:rv5stage-zcb|cores-execution-frontend:rv5stage-mop)
       return 0
       ;;
-    cores-execution-control:rv5stage-csr|cores-execution-control:rv5stage-zihpm-*|cores-execution-control:rv5stage-hypervisor-csr|cores-execution-control:rv5stage-hypervisor-core|cores-execution-control:rv5stage-sstc-rv32|cores-execution-control:rv5stage-interrupt|cores-execution-control:rv5stage-wfi|cores-execution-control:rv5stage-zawrs|cores-execution-control:rv5stage-pause)
+    cores-components:riscv-csr|cores-components:riscv-zihpm-*|cores-components:riscv-hypervisor-csr|cores-execution-control:rv5stage-hypervisor-core|cores-components:riscv-sstc-rv32|cores-execution-control:rv5stage-interrupt|cores-execution-control:rv5stage-wfi|cores-execution-control:rv5stage-zawrs|cores-execution-control:rv5stage-pause)
       return 0
       ;;
     cores-execution-datapath:rv5stage-fp-*|cores-execution-datapath:rv5stage-register-file|cores-execution-datapath:rv5stage-core|cores-execution-datapath:rv5stage-zkt-*|cores-execution-datapath:rv5stage-core-rv32f|cores-execution-datapath:rv5stage-core-rv64d|cores-execution-datapath:rv5stage-integer-execution|cores-execution-datapath:rv5stage-multiply|cores-execution-datapath:rv5stage-divide|cores-execution-datapath:rv5stage-writeback)
@@ -930,16 +930,16 @@ direct_fixture_specs=(
   'rv5stage-fp-service|rv5stage_fp_service_tb'
   'rv5stage-fp-scheduled|rv5stage_fp_service_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
-  'rv5stage-csr|rv5stage_csr_tb'
-  'rv5stage-hypervisor-csr|rv5stage_hypervisor_csr_tb'
-  'rv5stage-sstc-rv32|rv5stage_sstc_rv32_tb'
+  'riscv-csr|riscv_csr_tb'
+  'riscv-hypervisor-csr|riscv_hypervisor_csr_tb'
+  'riscv-sstc-rv32|riscv_sstc_rv32_tb'
   'rv5stage-hypervisor-core|rv5stage_hypervisor_core_tb'
   'rv5stage-pointer-masking|rv5stage_pointer_masking_tb'
-  'rv5stage-zihpm-rv32|rv5stage_zihpm_rv32_tb'
-  'rv5stage-zihpm-rv64|rv5stage_zihpm_rv64_tb'
-  'rv5stage-sscofpmf-rv32|rv5stage_sscofpmf_rv32_tb'
-  'rv5stage-sscofpmf-rv64|rv5stage_sscofpmf_rv64_tb'
-  'rv5stage-sscofpmf-rv64h|rv5stage_sscofpmf_rv64h_tb'
+  'riscv-zihpm-rv32|riscv_zihpm_rv32_tb'
+  'riscv-zihpm-rv64|riscv_zihpm_rv64_tb'
+  'riscv-sscofpmf-rv32|riscv_sscofpmf_rv32_tb'
+  'riscv-sscofpmf-rv64|riscv_sscofpmf_rv64_tb'
+  'riscv-sscofpmf-rv64h|riscv_sscofpmf_rv64h_tb'
   'rv5stage-sscofpmf-core|rv5stage_sscofpmf_core_tb'
   'riscv-atomic|riscv_atomic_tb'
   'rv5stage-access-fault|rv5stage_access_fault_tb'

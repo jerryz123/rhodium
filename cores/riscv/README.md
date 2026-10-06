@@ -9,6 +9,10 @@ also owns [`chi-hart.rhdl`](chi-hart.rhdl), the implementation-neutral CHI
 attachment description shared by RISC-V cores and SoCs. It does not define a
 complete processor pipeline or a named core's extension mix.
 
+The shared [CSR/trap service](csr/README.md) implements architectural state
+behind a core-neutral authorized-command interface. Each core retains its own
+retirement, interrupt-boundary, and pipeline-drain policy.
+
 Named cores import these mappings and compose them with their own complete
 decode relation.
 

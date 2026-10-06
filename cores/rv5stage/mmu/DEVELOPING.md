@@ -251,7 +251,7 @@ Svnapot/Svpbmt flags; the shared RVA23 preset selects both. Keep component
 validation and exact-profile ACT projection distinct from full RVA23
 conformance, which enabling these extensions alone does not establish.
 
-For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `rv5stage-csr`,
+For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `riscv-csr`,
 and `rv5stage-mmu-replay`. PBMTE is captured at walk admission; do not sample
 the caller's next request while validating later PTE replies. PBMT travels
 with translation results and TLB entries, including the prefetch probe.

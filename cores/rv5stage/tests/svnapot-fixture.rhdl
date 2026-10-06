@@ -6,7 +6,7 @@ import:
   "../mmu/walker.rhdl" open
   "../mmu/tlb.rhdl" open
   "../mmu/protocol.rhdl" open
-  "../csr.rhdl".PrivilegeMode
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("riscv/rtl/sv39.rhdl") open
   lib("flow/main.rhdl") open
 

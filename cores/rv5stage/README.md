@@ -1278,11 +1278,14 @@ response stability are specified by the subsystem documents:
 
 ## Privileged and architectural state
 
-[`csr.rhdl`](csr.rhdl) owns user, machine, and supervisor CSRs, current
+The shared [CSR/trap bank](../riscv/csr/README.md) owns user, machine, and supervisor CSRs, current
 privilege, trap entry, interrupt selection, and `MRET`/`SRET`. FP profiles add
 the aliased `fflags`, `frm`, and `fcsr` views, `mstatus.FS` state, and derived
 `SD`. The `csr_bank` declaration is the single source for recognized IDs, read
 values, storage, aliases, WARL masks, and ordinary write dispatch.
+[`csr.rhdl`](csr.rhdl) projects RV5Stage's configuration and decoded actions
+to that service. `core.rhdl` authorizes commands at WB, supplies retirement
+events, and chooses precise interrupt boundaries after older work drains.
 
 The integer register file has 32 XLEN-wide registers with `x0` hardwired to
 zero. An FP profile adds 32 raw FLEN-wide registers (32 bits for F, 64 bits for

@@ -75,10 +75,10 @@ implementation.
 The `riscv-control-policy` fixture checks M/S destination-first interrupt
 arbitration for RV32/RV64, per-cause enables and privilege gates, and ELEN32/64
 vtype normalization. Pair it with `riscv/tests/vector-test.rhm` for host geometry
-changes and `rv5stage-hypervisor-csr` when interrupt selection changes.
+changes and `riscv-hypervisor-csr` when interrupt selection changes.
 
 For guest execution contracts, pair `riscv/tests/hypervisor-test.rhm` and
-`riscv/tests/csr-test.rhm` with the `rv5stage-hypervisor-csr` fixture.
+`riscv/tests/csr-test.rhm` with the `riscv-hypervisor-csr` fixture.
 Keep opcode/CSR catalogs pure, substitution/delegation helpers here, and
 commit-owned state in the core. Add nested-translation request ownership and
 continuation types with the walker consumer; do not infer fault provenance
@@ -95,7 +95,7 @@ permissions, ordinary superpages, prefetch probes, and vector-window reuse.
 The `rv5stage-svpbmt` fixture combines the reusable Svpbmt helpers with the
 production walker/TLB and checks all PBMT encodings, PMA overrides, reserved
 bits, held results, superpages, Bare bypass, and invalidation. Pair it with
-`rv5stage-csr` for profile-controlled PBMTE writes and flush notification.
+`riscv-csr` for profile-controlled PBMTE writes and flush notification.
 
 For pointer masking, run `riscv/tests/pointer-masking-test.rhm` and the
 `riscv-pointer-masking` backend fixture. The latter sweeps PMM, MPRV/MPP,
@@ -103,15 +103,15 @@ MXR, Bare/virtual sign behavior, and disabled/RV32 specialization. The H sweep
 adds independent senvcfg/henvcfg/HUPMM selection, explicit guest accesses,
 MPRV/MPV, HS/VS MXR and HLVX exclusion to that same behavioral sweep. Integrating
 cores own policy capture, serialization, replay, and architectural fault tests;
-RV5Stage covers those with `rv5stage-pointer-masking` and `rv5stage-csr`.
+RV5Stage covers those with `rv5stage-pointer-masking` and `riscv-csr`.
 
 For CMO permission changes, select the `riscv-cmo` backend fixture. It sweeps
 M/HS/U/VS/VU privilege and all three xenvcfg controls, denial priority and
 invalidate-to-flush conversion, RV32/RV64 WARL images, all Sv39 access
 classes and low PTE permission/A/D combinations, and physical attributes.
-Include `rv5stage-csr`, `rv5stage-zicboz`, and `rv5stage-mmu-replay` when shared
+Include `riscv-csr`, `rv5stage-zicboz`, and `rv5stage-mmu-replay` when shared
 CSR or translation behavior changes. These fixtures check behavior, not IR
-shape; pair with `rv5stage-hypervisor-csr` and `rv5stage-hypervisor-core` for
+shape; pair with `riscv-hypervisor-csr` and `rv5stage-hypervisor-core` for
 guest environment storage and precise denied-operation behavior. Use the
 [backend guide](../../tools/testing/circt/DEVELOPING.md) for invocation.
 

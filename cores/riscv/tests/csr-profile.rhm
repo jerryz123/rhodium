@@ -1,0 +1,19 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+fun csr_test_isa(xlen :: XLen, ~fp: fp :: Boolean = #false,
+                 ~compressed: compressed :: Boolean = #false,
+                 ~hypervisor: hypervisor :: Boolean = #false,
+                 ~vector: vector :: Boolean = #false):
+  RiscvIsaProfile(
+    xlen,
+    ["i", "m", "a", "b", "zicsr", "zicntr", "zihpm"] ++ (if fp | ["f", "d"] | []) ++ (if compressed | ["c"] | []) ++ (if hypervisor | ["h"] | []) ++ (if vector | ["v"] | []),
+    [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U] ++ (if fp | [MisaExtension.F, MisaExtension.D] | []) ++ (if compressed | [MisaExtension.C] | []) ++ (if hypervisor | [MisaExtension.H] | []) ++ (if vector | [MisaExtension.V] | [])
+  )
+
+export:
+  csr_test_isa

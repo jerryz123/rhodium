@@ -1,6 +1,6 @@
-// Verifies RV5Stage CSR state, supervisor guarantees, retirement, traps, and privilege returns.
+// Verifies shared CSR state, supervisor guarantees, caller retirement, traps, and privilege returns.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_csr_tb;
+module riscv_csr_tb;
   logic [1:0] cbo_operation = 0;
   logic [3:0] cbo_permission;
   typedef struct packed {
@@ -12,19 +12,11 @@ module rv5stage_csr_tb;
     logic machine_external;
   } interrupts_t;
   typedef struct packed {
-    logic [1:0] csr;
-    logic immediate;
-    logic [3:0] action;
-  } system_control_t;
-  typedef struct packed {
-    logic [2:0] action;
-  } fence_control_t;
-  typedef struct packed {
     logic [63:0] pc;
     logic [31:0] instruction;
     logic [4:0] rd;
-    system_control_t system;
-    fence_control_t fence;
+    logic [1:0] csr_operation;
+    logic [3:0] action;
     logic [11:0] csr_address;
     logic [63:0] csr_source;
     struct packed { logic [63:0] vtype; logic [63:0] avl; logic maximum; logic keep_vl; } vector_config;
@@ -103,8 +95,11 @@ module rv5stage_csr_tb;
   fp_update_in_t fp_update_in;
   redirect_out_t redirect_out;
   logic interrupt_request;
-  logic retired;
-  logic wfi_retired;
+  logic command_success;
+  logic count_commands = 1;
+  logic independent_retire = 0;
+  wire retire = count_commands ? command_success : independent_retire;
+  logic wfi;
   logic wfi_wake;
   logic writeback_valid;
   logic [63:0] writeback_value;
@@ -119,7 +114,7 @@ module rv5stage_csr_tb;
   logic [2:0] pointer_masking;
   logic pointer_masking_changed;
 
-  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .*);
+  RiscvCsrFile dut (.vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .*);
   always #5 clock = ~clock;
 
   task automatic clear_commit;
@@ -138,7 +133,7 @@ module rv5stage_csr_tb;
     reset = 1'b0;
     assert (privilege == PRIVILEGE_M && satp == 0 && mstatus == RV64_MSTATUS_FIXED && !fp_enabled && frm == 0)
       else $fatal(1, "CSR file did not reset into M mode with bare translation");
-    assert (!retired && !wfi_retired && !wfi_wake)
+    assert (!command_success && !wfi && !wfi_wake)
       else $fatal(1, "CSR file exposed a WFI event after reset");
   endtask
 
@@ -183,13 +178,13 @@ module rv5stage_csr_tb;
     clear_commit();
     commit_in.valid = 1'b1;
     commit_in.bits.rd = 5'd1;
-    commit_in.bits.system.csr = operation;
+    commit_in.bits.csr_operation = operation;
     commit_in.bits.csr_address = address;
     commit_in.bits.csr_source = source;
     if ((operation == CSR_SET || operation == CSR_CLEAR) && source != 0)
       commit_in.bits.instruction[19:15] = 5'd1;
     #1;
-    assert (retired && writeback_valid && writeback_value == expected_old)
+    assert (command_success && writeback_valid && writeback_value == expected_old)
       else $fatal(1, "CSR %03h returned %016h instead of %016h",
                   address, writeback_value, expected_old);
     assert (!redirect_out.valid && translation_flush == expect_flush)
@@ -213,10 +208,10 @@ module rv5stage_csr_tb;
     clear_commit();
     commit_in.valid = 1'b1;
     commit_in.bits.rd = 5'd1;
-    commit_in.bits.system.csr = CSR_SET;
+    commit_in.bits.csr_operation = CSR_SET;
     commit_in.bits.csr_address = address;
     #1;
-    assert (retired && writeback_valid && !redirect_out.valid && !translation_flush)
+    assert (command_success && writeback_valid && !redirect_out.valid && !translation_flush)
       else $fatal(1, "legal CSR %03h read trapped", address);
     @(posedge clock);
     #1;
@@ -232,11 +227,11 @@ module rv5stage_csr_tb;
     clear_commit();
     commit_in.valid = 1'b1;
     commit_in.bits.rd = 5'd1;
-    commit_in.bits.system.csr = operation;
+    commit_in.bits.csr_operation = operation;
     commit_in.bits.csr_address = address;
     commit_in.bits.instruction[19:15] = source_specifier;
     #1;
-    assert (!retired && !writeback_valid && redirect_out.valid)
+    assert (!command_success && !writeback_valid && redirect_out.valid)
       else $fatal(1, "illegal CSR %03h write intent did not trap", address);
     assert (!pointer_masking_changed) else $fatal(1, "illegal CSR access changed pointer policy");
     @(posedge clock);
@@ -260,7 +255,7 @@ module rv5stage_csr_tb;
       SYSTEM_WFI: commit_in.bits.instruction = 32'h10500073;
       default: commit_in.bits.instruction = 32'h00000073;
     endcase
-    commit_in.bits.system.action = operation;
+    commit_in.bits.action = operation;
     #1;
     assert (redirect_out.valid && redirect_out.bits == expected_target)
       else $fatal(1, "system operation selected the wrong trap or return target");
@@ -304,21 +299,20 @@ module rv5stage_csr_tb;
     commit_in.valid = 1'b1;
     commit_in.bits.pc = pc;
     commit_in.bits.instruction = instruction;
-    commit_in.bits.system.action = system_operation;
-    commit_in.bits.fence.action = fence_operation;
+    commit_in.bits.action = fence_operation == FENCE_NONE ? system_operation : 4'd7;
     #1;
     assert (redirect_out.valid == expect_trap)
       else $fatal(1, "privileged operation trap decision was incorrect");
-    assert (retired == !expect_trap)
+    assert (command_success == !expect_trap)
       else $fatal(1, "retirement did not agree with privileged operation legality");
     if (expect_trap)
       assert (redirect_out.bits == 64'h100)
         else $fatal(1, "illegal privileged operation selected the wrong trap target");
     if (system_operation == SYSTEM_WFI)
-      assert (wfi_retired == !expect_trap)
+      assert (wfi == !expect_trap)
         else $fatal(1, "WFI retirement did not agree with its legality decision");
     else
-      assert (!wfi_retired)
+      assert (!wfi)
         else $fatal(1, "a non-WFI operation produced a WFI retirement event");
     assert (translation_flush == expect_flush)
       else $fatal(1, "privileged operation translation-flush decision was incorrect");
@@ -338,7 +332,7 @@ module rv5stage_csr_tb;
     commit_in.bits.pc = pc;
     commit_in.bits.instruction = instruction;
     commit_in.bits.rd = 5'd1;
-    commit_in.bits.system.csr = CSR_SET;
+    commit_in.bits.csr_operation = CSR_SET;
     commit_in.bits.csr_address = address;
     #1;
     assert (!writeback_valid && redirect_out.valid && redirect_out.bits == 64'h100)
@@ -613,7 +607,7 @@ module rv5stage_csr_tb;
     privileged_action(SYSTEM_WFI, FENCE_NONE, 64'h218, 32'h10500073, 1'b1, 1'b0);
     check_illegal_trap(64'h218, 32'h10500073);
 
-    // RV5Stage has no bounded U-mode WFI timeout, so U-mode WFI traps instead
+    // The CSR service has no bounded U-mode WFI timeout, so U-mode WFI traps instead
     // of entering an indefinitely waiting state even when TW is clear.
     reset_dut();
     enter_supervisor(64'h0);
@@ -652,7 +646,7 @@ module rv5stage_csr_tb;
     csr_access(CSR_WRITE, CSR_FFLAGS, 64'h2, 64'h15);
     csr_access(CSR_SET, CSR_FCSR, 64'h0, 64'h82);
 
-    $display("RV5Stage CSR and privilege transitions passed");
+    $display("Shared CSR and privilege transitions passed");
     reset_dut();
     assert (cbo_zero_access == 0) else $fatal(1, "M mode must allow CBO.ZERO");
     assert (!pbmte) else $fatal(1, "PBMTE must reset disabled");
@@ -688,17 +682,30 @@ module rv5stage_csr_tb;
     @(negedge clock);
     clear_commit();
     commit_in.valid = 1'b1;
-    commit_in.bits.system.csr = CSR_WRITE;
+    commit_in.bits.csr_operation = CSR_WRITE;
     commit_in.bits.csr_address = CSR_MENVCFG;
     commit_in.bits.csr_source = 64'h4000000000000000;
     commit_in.bits.exception_valid = 1'b1;
     commit_in.bits.exception_cause = 64'd2;
     #1;
-    assert (!retired && !translation_flush && redirect_out.valid)
+    assert (!command_success && !translation_flush && redirect_out.valid)
       else $fatal(1, "faulting PBMTE write generated a translation change");
     @(posedge clock); #1;
     clear_commit();
     assert (!pbmte) else $fatal(1, "faulting PBMTE write changed CSR state");
+    // A successful command is not a retirement policy. Count only caller events,
+    // including ordinary retirements with no CSR command presented.
+    reset_dut();
+    count_commands = 0;
+    csr_access(CSR_WRITE, CSR_MSCRATCH, 64'h55, 0);
+    csr_access(CSR_SET, CSR_MINSTRET, 0, 0);
+    @(negedge clock); independent_retire = 1;
+    repeat (3) begin @(posedge clock); #1; end
+    @(negedge clock); independent_retire = 0;
+    csr_access(CSR_SET, CSR_INSTRET, 0, 3);
+    csr_access(CSR_SET, CSR_MSCRATCH, 0, 64'h55);
+    csr_access(CSR_SET, CSR_MINSTRET, 0, 3);
+    $display("Shared CSR state and caller-owned retirement passed");
     $finish;
   end
 endmodule

@@ -7,7 +7,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  "../csr.rhdl" open
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../memory-context.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
