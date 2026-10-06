@@ -88,6 +88,20 @@ ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
 
+`CppTypes.name` keeps standalone scalar expressions, registers, and boundary
+slots in uint64_t through 64 hardware bits. `storage_name` narrows scalar leaves
+of records, vectors, and persistent memory arrays to unsigned 8/16/32/64-bit
+words; wider leaves retain the wide carrier. Public aggregate ports use that
+same recursive representation. Keep named records and native alignment; no
+packing or reinterpretation of C++ object bytes defines hardware bit order.
+Aggregate construction explicitly casts normalized scalar members to their
+storage word, while scalar projections materialize ordinary arithmetic carriers.
+Canonical packing widens compact leaves before shifting: C++ integer promotion
+must never turn a byte/halfword shift into signed arithmetic or truncate a
+32-bit member shifted into a 64-bit packed result. Vector-write helpers infer
+enable, index, and element carriers independently. These representation choices
+do not change evaluation, borrowing, bank selection, or commit ordering.
+
 Both rsim targets apply `share_scalar_expressions` after scheduling and before
 binding validation or evaluation planning. It retains the first matching pure
 scalar expression in dependency order, matching opcode, ordered remapped operands,
@@ -602,6 +616,11 @@ concatenation and cross-boundary slices, and modular results before widening.
 `tests/rsim/aggregate.py` adds field-level oracles for nested records/vectors,
 lengths 1/3/4, totals through 341 bits, preferred-name collisions, aggregate
 reset/swap/hold behavior, independent instances, and 64-bit canonical packing.
+The baseline matrix crosses 8/9, 16/17, and 32/33-bit storage boundaries as well
+as 1/5/63/64 bits. Native aggregate checks assert leaf storage sizes; numeric
+transcripts explicitly widen byte leaves. Projected-member multiplication and
+high-offset packing run under UBSan to expose accidental signed promotions or
+narrow shifts, alongside the independent packed SV oracle.
 A nested cast-to-record/vector projection covers computed parents whose subobjects
 may need copies across helper boundaries.
 Its record/vector feedback through lookup and one-hot muxes has acyclic field

@@ -348,9 +348,9 @@ check:
   local_regions[0].outputs ~is [borrow_schedule.outputs[0].value]
   local_regions[0].inputs ~is []
   emit_rsim(borrow_schedule, ~region_budget: 1)[1].contains(" = &(") ~is #true
-  emit_rsim(borrow_schedule, ~region_budget: 1)[0].contains("const std::array<std::uint64_t, 2>*") ~is #true
+  emit_rsim(borrow_schedule, ~region_budget: 1)[0].contains("const std::array<std::uint8_t, 2>*") ~is #true
   emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains(" = &(") ~is #false
-  emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint64_t, 2>, 1>") ~is #true
+  emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint8_t, 2>, 1>") ~is #true
 
 // A boundary vector fills its unique slot before binding the result. The same
 // constructor remains an ordinary initializer when it is helper-local.
@@ -369,7 +369,7 @@ for (body in [borrow_evaluation.pre_edge, borrow_evaluation.outputs], phase in [
     helper.contains(String.join(writes ++ [alias ++ slot ++ ";"], "\n")) ~is #true
     helper.contains("  " ++ slot ++ " = std::array") ~is #false
 check:
-  emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains("const std::array<std::uint64_t, 2> " ++ vector_name ++ " = ") ~is #true
+  emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains("const std::array<std::uint8_t, 2> " ++ vector_name ++ " = ") ~is #true
 
 // Native aggregate scoreboards include constants, chained/multi-arm lookup
 // muxes, nested records/vectors, state capture, and dirty input padding. Protect

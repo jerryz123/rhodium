@@ -151,7 +151,7 @@ def native_driver():
     for config, (length, record) in enumerate(CONFIGS):
         name = model_name(length, record)
         includes.append(f'#include "{name}.hpp"')
-        values = [f'dut.outputs().p{port}{path}' for port, _, fields in ports(length, record) for path, _, _ in fields]
+        values = [f'std::uint64_t(dut.outputs().p{port}{path})' for port, _, fields in ports(length, record) for path, _, _ in fields]
         values += ['UINT64_C(0)'] * (OUTPUT_COUNT - len(values))
         output = " << ' ' << ".join(values)
         cases.append(f'''case {config}: {{

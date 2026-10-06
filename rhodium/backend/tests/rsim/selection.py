@@ -135,7 +135,7 @@ def native_driver():
     for config, width in enumerate(WIDTHS):
         includes.append(f'#include "Selection{width}.hpp"')
         assignments = ' '.join(f'dut.inputs.{encoded(port)} = {port};' for port in INPUTS)
-        outputs = " << ' ' << ".join(f'dut.outputs().{encoded(port)}{path}'
+        outputs = " << ' ' << ".join(f'std::uint64_t(dut.outputs().{encoded(port)}{path})'
                                     for port, _, fields in ports(width) for path, _, _ in fields)
         cases.append(f'''case {config}: {{
   static rsim_pSelection{width}::Model dut;

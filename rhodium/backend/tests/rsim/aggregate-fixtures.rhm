@@ -168,5 +168,9 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   def lane_box = RecordType([RecordField("entries", VectorType(2, lane))])
   def cast_box = b.cast(top, packed, lane_box)
   b.drive(b.output(top, "cast_lane", lane), b.vector_get(top, b.record_get(top, cast_box, "entries"), 1))
+  // Projected storage leaves must enter unsigned arithmetic before multiplying;
+  // a uint16_t product can overflow signed int after the usual C++ promotions.
+  def first_b = b.vector_get(top, b.record_get(top, tb, "payload"), 0)
+  b.drive(b.output(top, "projected_product", Bits(width)), b.mul(top, b.record_get(top, first_input, "class"), b.record_get(top, first_b, "class")))
   b.finish(top)
   ElaboratedProgram(design, top)

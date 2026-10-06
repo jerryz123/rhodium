@@ -1,5 +1,5 @@
 #lang rhombus
-/* Maps hardware types to C++ structures, canonical bit layouts, and typed partial operations. */
+/* Maps hardware types to compact C++ aggregate storage, unsigned arithmetic carriers, and canonical bit operations. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/types.rhm" open
@@ -53,18 +53,19 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
       constant_declarations.add("[[maybe_unused]] static constexpr " ++ this.name(type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
     constant_names[key]
 
-  /* Intern records after their children and render vectors with logical index order. */
+  /* Keep standalone scalar values in unsigned arithmetic carriers. Aggregate
+     members use compact storage, recursively interned in logical field/index order. */
   method name(type :: HardwareType) :: String:
     cond
     | record_type(type):
         def key = shape(type)
         unless names.has_key(key)
-        | def fields = type.fields.map(fun (field): "  " ++ this.name(field.type) ++ " " ++ cpp_name(field.name) ++ "{};")
+        | def fields = type.fields.map(fun (field): "  " ++ this.storage_name(field.type) ++ " " ++ cpp_name(field.name) ++ "{};")
           def name = "Record" ++ to_string(names.length())
           names[key] := name
           declarations.add("struct " ++ name ++ " {\n" ++ String.join(fields, "\n") ++ "\n};")
         names[key]
-    | vector_type(type): "std::array<" ++ this.name(type.element_type) ++ ", " ++ to_string(type.length) ++ ">"
+    | vector_type(type): "std::array<" ++ this.storage_name(type.element_type) ++ ", " ++ to_string(type.length) ++ ">"
     | ~else:
         def width = scalar_carrier_width(type)
         if width <= 64
@@ -72,9 +73,27 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         | wide := #true
           "rhodium_rsim::WideBits<" ++ to_string(width) ++ ">"
 
-  /* Construct a value in declaration/index order without C++ object-layout assumptions. */
+  /* Choose the smallest standard unsigned storage word for a scalar leaf.
+     Bool uses a byte so nonzero padding cannot implicitly become true. */
+  method storage_name(type :: HardwareType) :: String:
+    if record_type(type) || vector_type(type) || scalar_carrier_width(type) > 32
+    | this.name(type)
+    | def width = scalar_carrier_width(type)
+      "std::uint" ++ (if width <= 8 | "8" | (if width <= 16 | "16" | "32")) ++ "_t"
+
+  /* Explicitly narrow already-normalized members at brace construction sites.
+     This is a storage conversion, not an additional hardware-width truncation. */
+  method storage_value(type :: HardwareType, value :: String) :: String:
+    if !record_type(type) && !vector_type(type) && scalar_carrier_width(type) <= 32
+    | "static_cast<" ++ this.storage_name(type) ++ ">(" ++ value ++ ")"
+    | value
+
+  /* Construct in declaration/index order with explicit scalar storage conversion;
+     aggregate members retain their exact type without repacking or copying here. */
   method construct(type :: HardwareType, members :: List.of(String)) :: String:
-    this.name(type) ++ (if vector_type(type) | "{{" | "{") ++ String.join(members, ", ") ++ (if vector_type(type) | "}}" | "}")
+    def stored = for List (member in members, index in 0..members.length()):
+      this.storage_value(if vector_type(type) | type.element_type | type.fields[index].type, member)
+    this.name(type) ++ (if vector_type(type) | "{{" | "{") ++ String.join(stored, ", ") ++ (if vector_type(type) | "}}" | "}")
 
   /* Normalize external inputs leaf by leaf; internal aggregate copies preserve
      this invariant because every constructed member is already normalized. */
@@ -207,7 +226,12 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         def terms = for List (index in 0..type.length):
           "(" ++ this.pack(type.element_type, value ++ "[" ++ to_string(index) ++ "]") ++ " << " ++ to_string(index * type.element_type.packed_width()) ++ ")"
         "(" ++ String.join(terms, " | ") ++ ")"
-    | ~else: value
+    | ~else:
+        // A narrow aggregate member would otherwise promote to signed int before
+        // a shift, or shift a uint32_t by 32 or more when packing a 64-bit value.
+        if scalar_carrier_width(type) <= 32
+        | "static_cast<std::uint64_t>(" ++ value ++ ")"
+        | value
 
   /* Reconstruct typed leaves from one packed value. Carry its original width
      and canonical offset through recursion so wide slicing never truncates it. */

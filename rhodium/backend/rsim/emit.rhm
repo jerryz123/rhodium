@@ -408,7 +408,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
       header.add("    " ++ types.name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "; // held foreign result")
   header.add("  };\n  State states_[2]{};\n  unsigned active_state_ = 0;")
   for (memory in plan.memories, index in 0..plan.memories.length()):
-    header.add("  std::array<" ++ types.name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
+    header.add("  std::array<" ++ types.storage_name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
   header.add("  struct Frame {")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     def prefix = "call" ++ to_string(index)
@@ -459,7 +459,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   when "rtl.vector_index" in opcodes || "memory_read" in opcodes || plan.reads.length() > 0 || masked_writes.length() > 0
   | source.add("template <typename T, std::size_t N>\nstatic T vector_index(const std::array<T, N>& value, std::uint64_t index) {\n  return index < N ? value[index] : T{};\n}")
   when "rtl.vector_write_set" in opcodes
-  | source.add("template <typename T, std::size_t N, std::size_t P>\nstatic std::array<T, N> vector_write_set(std::array<T, N> value, const std::array<std::uint64_t, P>& enables, const std::array<std::uint64_t, P>& indices, const std::array<T, P>& elements) {\n  for (std::size_t port = 0; port < P; ++port) {\n    if (enables[port] != 0 && indices[port] < N) value[indices[port]] = elements[port];\n  }\n  return value;\n}")
+  | source.add("template <typename T, std::size_t N, typename Enable, typename Index, std::size_t P>\nstatic std::array<T, N> vector_write_set(std::array<T, N> value, const std::array<Enable, P>& enables, const std::array<Index, P>& indices, const std::array<T, P>& elements) {\n  for (std::size_t port = 0; port < P; ++port) {\n    if (enables[port] != 0 && indices[port] < N) value[indices[port]] = elements[port];\n  }\n  return value;\n}")
   // Emit narrow helpers only when called; models with exclusively wide shift
   // operations use the shared support header and need no unused local functions.
   def narrow_shifts = plan.steps.filter(~keep: fun (step): step.opcode in ["rtl.shl", "rtl.shru", "rtl.shrs"] && scalar_carrier_width(step.type) <= 64 && scalar_carrier_width(plan.steps[step.operands[1]].type) <= 64).map(fun (step): step.opcode)

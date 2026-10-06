@@ -109,7 +109,13 @@ to drive a wide input. Input padding is ignored and output padding is zero.
 There is no implicit conversion from a wide carrier to an integer or Boolean.
 Records use C++ structs with encoded field names, and vectors use `std::array`
 with the same logical indices as the hardware. These representations nest
-recursively, with narrow or wide scalar leaves. For example, a record input `packet` with a vector
+recursively. Scalar leaves inside records and vectors use the smallest of
+`std::uint8_t`, `std::uint16_t`, `std::uint32_t`, and `std::uint64_t` that holds
+their hardware width; wider leaves use `WideBits<W>`. A one-bit leaf uses
+`uint8_t`, so only its low bit is consumed, even if the supplied byte is nonzero.
+These are ordinary structs and arrays with native alignment, not packed C++ bit
+fields. Cast byte leaves to an integer when printing them through C++ streams.
+Standalone scalar ports retain the carriers described above. For example, a record input `packet` with a vector
 field `lanes` is accessed as `model.inputs.ppacket.planes[0]`. Generated record
 type names are implementation details; access them through ports or `decltype`.
 Static field/index projections through constructors and lookup/one-hot muxes

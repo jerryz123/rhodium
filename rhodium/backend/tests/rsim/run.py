@@ -24,7 +24,7 @@ import wide
 
 ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).resolve().parent
-WIDTHS = (1, 5, 63, 64)
+WIDTHS = (1, 5, 8, 9, 16, 17, 32, 33, 63, 64)
 SCALAR = ("sum", "inverted", "difference", "product", "both", "either",
           "parity", "equal", "less", "selected", "wrapped", "class", "__class__")
 STATE = ("first_left", "first_right", "second_left", "second_right", "count", "sample")
@@ -101,7 +101,7 @@ def stimuli():
 
 def native_driver():
     includes = "\n".join(f'#include "{kind}{w}.hpp"' for w in WIDTHS for kind in ("Scalar", "Swap", "Arithmetic", "Aggregate"))
-    cases, startup = [], []
+    cases, startup, observers = [], [], []
     for width in WIDTHS:
         scalar = " << ' ' << ".join(f"comb.outputs().p{name.replace('_', '_u')}" for name in SCALAR)
         state = " << ' ' << ".join(f"dut.outputs().p{name.replace('_', '_u')}" for name in STATE)
@@ -124,7 +124,12 @@ def native_driver():
     model->~Model();
   }}
 }}""")
-        cases.append(f"""case {width}: {{
+        # Bound optimizer work in the sanitizer harness as the width matrix
+        # grows; each observer keeps its own persistent model instances.
+        cases.append(f"case {width}: if (int status = observe{width}(tick, reset, enable, load, a, b, amount)) return status; break;")
+        observers.append(f"""[[gnu::noinline]] static int observe{width}(
+    std::uint64_t tick, std::uint64_t reset, std::uint64_t enable,
+    std::uint64_t load, std::uint64_t a, std::uint64_t b, std::uint64_t amount) {{
   {aggregate.native_setup(width)}
   static rsim_pScalar{width}::Model comb;
   static rsim_pSwap{width}::Model dut;
@@ -142,7 +147,7 @@ def native_driver():
       untouched.outputs().pfirst_uright != 0 || untouched.outputs().psecond_uleft != 0 ||
       untouched.outputs().psecond_uright != 0 || untouched.outputs().psample != 0) return 2;
   std::cout << {scalar} << ' ' << {state} << ' ' << {bits} << ' ' << {aggregate_values} << '\\n';
-  break;
+  return 0;
 }}""")
     return f"""// SPDX-License-Identifier: Apache-2.0
 #include <iostream>
@@ -150,6 +155,7 @@ def native_driver():
 #include <cstring>
 #include <new>
 {includes}
+{" ".join(observers)}
 int main() {{
   {" ".join(startup)}
   std::uint64_t width, tick, reset, enable, load, a, b, amount;
@@ -260,7 +266,11 @@ def main():
         run(shlex.split(os.environ.get("CXX", "c++")) +
             ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror",
              "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined",
-             *map(str, sorted(p for p in work.glob("*.cpp") if p.name != "DpiNative.cpp")), "-o", str(work / "rsim")], work, "build")
+             # Other emitted families compile in their own runners below. Limit
+             # this executable to its baseline models as the width matrix grows.
+             *[str(work / f"{kind}{width}.cpp") for width in WIDTHS
+               for kind in ("Scalar", "Swap", "Arithmetic", "Aggregate")],
+             str(source), "-o", str(work / "rsim")], work, "build")
         vectors, expected = stimuli()
         compare(run([str(work / "rsim")], work, "rsim", vectors), expected, "rsim")
         if args.differential:

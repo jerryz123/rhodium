@@ -113,7 +113,7 @@ def native_driver():
         name = model_name(depth, record)
         includes.append(f'#include "{name}.hpp"')
         assignments = ' '.join(f'dut.inputs.{encoded(port)} = {port};' for port in INPUTS)
-        values = [f'dut.outputs().{encoded(port)}{path}' for port, _, fields in ports(depth, record) for path, _, _ in fields]
+        values = [f'std::uint64_t(dut.outputs().{encoded(port)}{path})' for port, _, fields in ports(depth, record) for path, _, _ in fields]
         values += ['UINT64_C(0)'] * (OUTPUT_COUNT - len(values))
         output = " << ' ' << ".join(values)
         cases.append(f'''case {config}: {{
