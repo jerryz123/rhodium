@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../cache/l1i/protocol.rhdl" open
   "icache/protocol.rhdl" open
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
@@ -12,7 +13,7 @@ import:
    Redirects detach uncached consumers while the engine drains accepted traffic. */
 sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   interface core(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: responder)
-  interface cache(RV5StageInstructionLookup(RV5StageInstructionReq(xlen)), ~role: requester)
+  interface cache(InstructionCacheLookup(xlen.width, 32), ~role: requester)
   interface uncached(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
 
   inst s2(ValidPipeAlwaysCapture(RV5StagePhysicalInstructionReq(xlen), 1), ~reset_when: core.flush)
@@ -21,7 +22,7 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   cache.invalidate_all <== core.invalidate_all
   cache.s1_kill <== core.s1_kill
   (core.request |> filter_valid(request => request.cacheable & !core.s1_kill & !core.flush)
-    |> map_valid(request => RV5StageInstructionReq(xlen)):
+    |> map_valid(request => InstructionCacheReq(xlen.width)):
       address: request.address
   ) |> cache.request
 
@@ -44,10 +45,17 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   def uncached_result = RV5StageFetchResult(#false):
     response: response
     replay: !completed_match
+  def cached_result = RV5StageFetchResult(#false):
+    response:
+      RV5StageInstructionResp(#false):
+        word: cache.response.bits.data
+        page_fault: Bool(#false)
+        access_fault: cache.response.bits.access_fault
+    replay: cache.response.bits.replay
   // Every live S2 gets an outcome, including a retry when the selected
   // implementation has no result. Do not arbitrate only available replies.
   s2.egress |> filter_valid(_request => !core.flush)
-    |> map_valid(request => mux(request.cacheable, mux(cache.response.valid, cache.response.bits, unavailable), uncached_result))
+    |> map_valid(request => mux(request.cacheable, mux(cache.response.valid, cached_result, unavailable), uncached_result))
     |> core.response
   when (core.flush):
     pending <== Bool(#false)

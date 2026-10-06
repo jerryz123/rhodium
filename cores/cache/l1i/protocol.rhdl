@@ -1,0 +1,36 @@
+#lang rhodium
+/* Defines physical instruction-block lookups and fixed-cycle hit, error, or replay outcomes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+
+/* Names an aligned physical fetch block; the caller owns permission and translation checks. */
+bundle InstructionCacheReq(address_width :: PosInt):
+  address: Bits(address_width)
+
+/* Returns a complete fetch block or an access error; replay requires a fresh lookup. */
+bundle InstructionCacheResult(fetch_bits :: PosInt):
+  data: Bits(fetch_bits)
+  access_fault: Bool
+  replay: Bool
+
+/* Pairs S1 physical resolution with a registered S2 outcome for a preceding S0 array read.
+   Flush detaches speculative consumers; invalidation additionally prevents old installation.
+   Neither cancels accepted CHI traffic. */
+interface InstructionCacheLookup(address_width :: PosInt, fetch_bits :: PosInt):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    invalidate_all: Bool
+    s1_kill: Bool
+    request: Valid(InstructionCacheReq(address_width))
+  responder -> requester:
+    response: Valid(InstructionCacheResult(fetch_bits))
+
+export:
+  InstructionCacheReq
+  InstructionCacheResult
+  InstructionCacheLookup

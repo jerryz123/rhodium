@@ -10,7 +10,7 @@ module rv5stage_instruction_memory_router_tb;
   typedef struct packed { result_t response; } pipeline_out_t;
   typedef struct packed {
     logic flush, invalidate_all, s1_kill;
-    struct packed { logic valid; RV5StageInstructionReq bits; } request;
+    struct packed { logic valid; InstructionCacheReq bits; } request;
   } cache_out_t;
   typedef struct packed {
     ready_t request;
@@ -23,7 +23,8 @@ module rv5stage_instruction_memory_router_tb;
   } uncached_out_t;
   logic clock=0, reset=1;
   core_in_t core_in='0;
-  pipeline_out_t core_out, cache_in='0;
+  pipeline_out_t core_out;
+  struct packed { struct packed { logic valid; InstructionCacheResult bits; } response; } cache_in='0;
   cache_out_t cache_out;
   uncached_in_t uncached_in='0;
   uncached_out_t uncached_out;
@@ -35,7 +36,7 @@ module rv5stage_instruction_memory_router_tb;
     if(reset || cache_out.flush) cache_in.response <= '0;
     else begin
       cache_in.response.valid <= cache_out.request.valid;
-      cache_in.response.bits <= '{response:'{word:cache_out.request.bits.address[31:0],page_fault:0,access_fault:0},replay:cache_replay};
+      cache_in.response.bits <= '{data:cache_out.request.bits.address[31:0],access_fault:0,replay:cache_replay};
     end
     if(!reset && uncached_out.request.valid && uncached_in.request.ready) transactions++;
   end

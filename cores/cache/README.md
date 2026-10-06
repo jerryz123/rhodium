@@ -3,10 +3,11 @@
 
 # Shared processor caches
 
-This package owns the physical L1D used by RV5Stage and RV2Wide, fixed-line
+This package owns reusable physical L1I/L1D implementations, fixed-line
 cache geometry, IO retention, and refill, copyback, snoop, and nonallocating CHI engines. It contains no
 register destinations, vector completion slots, translation state, or retirement
-policy. Contributors should read [DEVELOPING.md](DEVELOPING.md).
+policy. RV5Stage uses both caches; RV2Wide currently uses L1D.
+Contributors should read [DEVELOPING.md](DEVELOPING.md).
 
 ## Entry point
 
@@ -73,6 +74,14 @@ semantics. `drained` includes committed stores and every accepted demand stage.
 Maintenance may return an access error; ordinary accepted requests require
 the integrating memory system's successful-completion guarantee.
 
+## Instruction snapshots
+
+The [shared L1I](l1i/README.md) separately returns aligned 32-bit or 64-bit
+instruction blocks. It retains ownership-free snapshots through coherent
+`ReadOnce` or immutable-ROM `ReadNoSnp` in `CacheLineRead`. Fetch width is
+explicit and independent of XLEN; translation, assembly, and architectural
+fault metadata stay with the caller.
+
 ## Non-cacheable service
 
 Cached and uncached services share the physical payload and opaque context.
@@ -107,7 +116,7 @@ is not an arbitrary late-faulting memory interface.
 
 [RV5Stage](../rv5stage/README.md) directly specializes these services with its
 architectural destination and core/PTW origin context. [RV2Wide](../rv2wide/README.md)
-owns an ordered completion FIFO and requests raw beats. L1I, MMUs, and named
+owns an ordered completion FIFO and requests raw beats. Frontends, MMUs, and named
 core CHI endpoint composition remain outside this package. Fetch cancellation,
 instruction/data arbitration, and ordering between cached and IO traffic belong
 to the integrating core, not the shared transport.

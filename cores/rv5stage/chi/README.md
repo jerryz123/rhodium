@@ -37,7 +37,7 @@ one specialized core can be instantiated at multiple locations.
 
 ## Instruction snapshot read
 
-`RV5StageLineRead` issues retryable 64-byte `ReadOnce` requests through RN-I
+`CacheLineRead` issues retryable 64-byte `ReadOnce` requests through RN-I
 channels. It obtains coherent data but no snoopable ownership or dirty
 responsibility. It retains context and collects the complete packet set before
 acknowledging Home and exposing line data plus an access-fault flag. A consumer

@@ -1211,7 +1211,9 @@ immutable BootROM can opt in independently and fill L1I with 64-byte HN-I
 `ReadNoSnp` requests; PBMT-overridden coherent RAM uses nonallocating `ReadOnce`
 instead, preserving its physical coherence domain. All executable regions must
 be read-idempotent. See the
-[instruction-cache contract](icache/README.md). L1D is a single-miss write-back/
+[shared instruction-cache contract](../cache/l1i/README.md). RV5Stage selects
+32-bit fetch blocks and adapts the physical result in its memory router.
+L1D is a single-miss write-back/
 write-allocate cache supporting loads, stores, LR/SC, and AMOs, with independent
 pipeline load hits permitted under ordinary demand misses. All
 non-cacheable instruction and data requests arbitrate onto the same
@@ -1267,7 +1269,8 @@ The parent core owns only integration-level ordering. Array organization,
 replacement, refill, dirty writeback, snoop behavior, DVM handling, and CHI
 response stability are specified by the subsystem documents:
 
-- [`icache/README.md`](icache/README.md) — instruction protocol and nonsnooping L1I
+- [`icache/README.md`](icache/README.md) — named fetch metadata and shared-L1I attachment
+- [`../cache/l1i/README.md`](../cache/l1i/README.md) — nonsnooping instruction-cache implementation
 - [`../cache/README.md`](../cache/README.md) — shared physical protocols, write-back L1D, and uncached service
 - [`mmu/README.md`](mmu/README.md) — Sv39 translation and L1D walker arbitration
 - [`chi/README.md`](chi/README.md) — shared CHI configuration, cache transaction

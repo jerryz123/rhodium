@@ -48,7 +48,7 @@ completion adaptation and instruction/uncached integration.
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
 | [`cache.rhdl`](../cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
-| [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`../cache/DEVELOPING.md`](../cache/DEVELOPING.md) | Named instruction cache and shared physical data-cache implementation |
+| [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`../cache/DEVELOPING.md`](../cache/DEVELOPING.md) | Named fetch metadata and shared physical instruction/data caches |
 | [`memory-context.rhdl`](memory-context.rhdl) | Architectural destination and core/PTW ownership, opaque to shared services |
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
 
@@ -722,7 +722,7 @@ when changing this boundary. The [SoC mandatory-requirement gate](../../socs/tes
 checks the published RVA23 declarations.
 
 For shared replacement-policy changes, run `cache-replacement`,
-`rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32`. The standalone
+`cache-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32`. The standalone
 fixture covers four-way tree ordering, invalid-way priority, and a padded
 three-way tree; the cache fixtures cover access and installation updates in
 their real pipelines.
@@ -799,7 +799,7 @@ regression as a proof for every translation and fabric-fairness scenario. In par
 extending the reservation timer alone does not establish progress across
 translation arbitration and replay.
 
-For Ziccif/Ziccamoa validation, select `rv5stage-fetch`, `rv5stage-icache`,
+For Ziccif/Ziccamoa validation, select `rv5stage-fetch`, `cache-icache`,
 `rv5stage-dcache`, `rv5stage-dcache-rv32`, `rv5stage-memory-router`,
 `chi-coherent-home`, and `chi-inclusive-home`. The L1I regression cancels lookup and refill installation on architectural
 invalidation and checks fresh words at all sixteen offsets, with reversed/gapped
@@ -835,7 +835,7 @@ RV64 UDB configurations as described above; `Za64rs` requires the implied
 Account for the [UDB 0.1.17 applicability limitation](README.md#cache-block-and-reservation-bounds)
 when validating CMO-free configurations. Do not omit the hardware fact or
 silently enable CMO decode to satisfy that database version.
-Select `rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32` for
+Select `cache-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32` for
 CIRCT/Verilator validation. The data-cache benches cover all 64 CBO byte offsets,
 aligned word/doubleword LR/SC sites on both sides of a 64-byte boundary,
 neighboring-line isolation, exact SC matching, and one-shot reservation use;

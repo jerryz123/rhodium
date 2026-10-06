@@ -1,0 +1,106 @@
+<!-- Guides shared instruction-cache ownership, fetch-width changes, and focused validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Developing the shared instruction cache
+
+Read the L1I [README](README.md) for its public request/response, hit, refill,
+replacement, flush, invalidation and deliberate-limit contracts. This
+guide owns implementation placement and contributor validation.
+
+## Architecture and ownership
+
+The L1I package owns the instruction-access protocol, synchronous arrays,
+lookup pipeline, replay outcomes, clean-line replacement, local flush and
+invalidation behavior. The parent core owns virtual
+translation, Fetch correlation, `FENCE.I` serialization, physical-region
+checks, and the external CHI boundary.
+
+Keep L1I independent of L1D and named cores. Reuse shared cache parameters and CHI
+line-read machinery rather than importing the data-cache
+package. [`../../check-boundaries.sh`](../../check-boundaries.sh) enforces that
+separation.
+
+## Implementation map
+
+| Concern | Owner |
+|---|---|
+| Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
+| Demand-priority lookup, best-effort prefetch admission, arrays, S2 outcomes, refill installation, replacement, flush, invalidation | [`cache.rhdl`](cache.rhdl) |
+| Shared cache geometry | [`../geometry.rhdl`](../geometry.rhdl) |
+| Reusable invalid-first tree-PLRU policy | [`../../../rhodium/std/plru.rhdl`](../../../rhodium/std/plru.rhdl) |
+| Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
+| Core/MMU/CHI integration | [RV5Stage](../../rv5stage/rv5stage.rhdl) |
+| Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
+| CIRCT/Verilator fixtures | [Shared cache](../tests/circt/), [RV5Stage integration](../../rv5stage/tests/circt/) |
+
+## Change the cache
+
+1. Preserve fixed-latency S1-to-S2 Valid outcomes. Response storage and replay
+   belong to the frontend, not the cache. Keep S0 virtual SRAM admission
+   independent of S1 physical resolution. Pair a surviving physical request
+   with the preceding read; kill younger S1 reads on frontend replay.
+   Common geometry rejection belongs to `../config.rhm`; fetch width is checked here.
+2. S1 compares the returned tags with the translated address; S2 always captures
+   the selected word, hit decision, and refill context. Keep these fixed-latency
+   stages distinct from frontend replay and the blocking refill path. A miss returns replay while accepted refill work continues independently;
+   retain a demand read error until a matching retry consumes one access fault.
+3. Publish tag and validity only after the final installation word so a
+   partial line cannot hit or satisfy a snoop.
+4. Keep speculative `flush` separate from architectural `invalidate_all`,
+   including their different treatment of resident and in-flight refill state.
+   Either control clears old lookup contexts, but a simultaneous transferred
+   demand replaces S0 and must survive into S1. Never extend that exception to
+   a prefetch, and let SRAM installation backpressure retain the restart upstream.
+5. Keep lookup and refill installation mutually exclusive on SRAM ports. Preserve
+   accepted CHI transaction ownership through flush and architectural invalidation.
+6. Keep a prefetch response-free and lower priority than a simultaneous demand;
+   once admitted, reuse the ordinary coherent refill and installation path.
+7. Update [README.md](README.md) when ports, timing, geometry, coherence,
+   replacement, or deliberate limits change.
+
+Fetch width is explicit and independent of XLEN. Rows use `max(XLEN, fetch_bits)`
+bits so RV5Stage's 32-bit fetch specializations preserve storage and installation
+timing. Widening changes payload and row geometry, not pipeline depth. Keep
+block selection within one row, line, and page. The physical response has no
+page-fault or guest-state fields; the integrating memory router supplies those.
+
+## Focused validation
+
+Lookup stages use intrinsic flushable always-capture pipes. S2 clears on
+`core.flush ||| core.invalidate_all`; S1 preserves a simultaneously admitted
+replacement demand, otherwise clearing on that same condition. Preserve the global
+reset epoch and existing same-cycle kill filters. Ordinary Flow carries the
+accepted S0 parent through demand arbitration, both lookup stages, miss
+selection, and refill-command acceptance. The line-read engine retains that
+parent across CHI attempts; neither speculative flush nor invalidation cancels
+accepted transaction ownership. Prefetch input ancestry remains caller-owned.
+
+`rv5stage-fetch-throughput` instruments the production frontend/MMU/router/L1I
+composition. Its public-transfer scoreboard checks exact S0-to-TXREQ parents,
+delayed retry/credit and request backpressure, redirect during a retained miss,
+pending reset, and distinct repeated-PC occurrences, alongside cold/warm
+aligned, straddling, compressed, and stalled instruction delivery.
+
+The `rv5stage-icache-coherence` and `rv5stage-icache-coherence-flat`
+fixtures connect real I/D caches to the inclusive and noncaching Homes. They
+check dirty-code visibility after instruction invalidation and retention under
+outer replacement. The standalone `cache-icache` bench checks retry,
+backpressure, read errors, and cancellation before and during installation,
+including instruction-only cacheable ROM reads with no CompAck.
+
+Use the host check for geometry and public protocol contracts:
+
+```sh
+tools/run-racket-tests.sh cores/cache/tests/icache-test.rhm
+FIXTURES='cache-icache cache-icache64 cache-compack' bash tools/testing/circt/run.sh --simulate-only
+make check-boundaries
+```
+
+Test 32-bit snapshots, refill, invalidation, and access-error behavior in
+`cache-icache`. `cache-icache64` checks every 64-bit block position, page-end and
+next-page reads, consecutive hits, redirect survival, invalidation, errors, and
+ROM. `cache-compack` checks retained line-read and acknowledgement ancestry.
+Use the [RV5Stage guide](../../rv5stage/DEVELOPING.md#focused-validation) when a change crosses
+refill, snoop, MMU, Fetch, or complete-core integration, and use the backend test
+[`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
+modes. Repository wrappers provide the persistent worktree-specific root.

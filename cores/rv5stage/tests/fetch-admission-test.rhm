@@ -11,7 +11,7 @@ import:
   "../fetch/frontend.rhdl".RV5StageFrontend
   "../mmu/mmu.rhdl".RV5StageMmu
   "../profile.rhm" open
-  "../icache/cache.rhdl".RV5StageL1ICache
+  "../../cache/l1i/cache.rhdl".L1ICache
   "../../cache/geometry.rhdl".CacheConfig
   "params.rhdl" as test_params
 
@@ -93,12 +93,12 @@ for (path in [["valid"], ["bits"]]):
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["response", "bits", "replay"])
 check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_memory_in", ["response", "bits", "replay"])
 
-def cache = embedded.run_elaboration_with_top(fun (): RV5StageL1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config))
+def cache = embedded.run_elaboration_with_top(fun (): L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config, ~fetch_bits: 32))
 for (path in [["s1_kill"], ["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", path)
 check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"], #true)
 
 // Physical S1 data must cross a register before affecting the S2 result.
-for (path in [["response", "valid"], ["response", "bits", "replay"], ["response", "bits", "response", "word"]]):
+for (path in [["response", "valid"], ["response", "bits", "replay"], ["response", "bits", "data"]]):
   for (input_path in [["request", "valid"], ["request", "bits", "address"], ["s1_kill"]]):
     check_dependency(cache.top, "core_out", path, "core_in", input_path)

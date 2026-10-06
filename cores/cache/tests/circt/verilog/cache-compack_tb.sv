@@ -1,6 +1,6 @@
 // Tests line-completing packet ownership across reordered data, stalled CompAck, ROM, and reset.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_compack_tb;
+module cache_compack_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
   typedef struct packed { logic valid; CHIDatFlit bits; } dat_t;

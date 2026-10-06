@@ -19,7 +19,7 @@ it uses the shared physical protocol specialized with `RV5StageMemoryContext`.
 hart attachment configuration, capabilities, and identities. `foundation.rhdl`
 owns RV5Stage's endpoint capability projection and re-exports shared constructors.
 `cores/cache/chi/flits.rhdl` owns transaction profiles and flit construction;
-shared refill, copyback, snoop, WriteUnique, and uncached engines have no RV5Stage dependency.
+shared line-read, refill, copyback, snoop, WriteUnique, and uncached engines have no RV5Stage dependency.
 Writeback directly composes CHI retry control
 and the shared copyback packet constructor, not the scalar write-unique engine.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
@@ -62,7 +62,7 @@ including nonzero trace/QoS.
 | [`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
 | [`foundation.rhdl`](foundation.rhdl) | RV5Stage endpoint capabilities and shared constructor exports |
 | [`../../cache/chi/flits.rhdl`](../../cache/chi/flits.rhdl) | Shared cache response profiles and flit constructors |
-| [`line-read.rhdl`](line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
+| [`../../cache/chi/line-read.rhdl`](../../cache/chi/line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
 | [`refill.rhdl`](../../cache/chi/refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
 | [`write-unique.rhdl`](../../cache/chi/write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
 | [`writeback.rhdl`](../../cache/chi/writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
@@ -130,10 +130,10 @@ tools/run-racket-tests.sh \
   cores/rv5stage/tests/rv5stage-test.rhm
 ```
 
-Use the `rv5stage-uncached`, `rv5stage-icache`, and `rv5stage-dcache` CIRCT
+Use the `rv5stage-uncached`, `cache-icache`, and `rv5stage-dcache` CIRCT
 fixtures for cycle-visible traffic, retry, refill, writeback, and snoop
 behavior. `cache-copyback` also checks residency start/end cycles against
-public commands and completions at all DAT widths. `rv5stage-compack` checks
+public commands and completions at all DAT widths. `cache-compack` checks
 exact refill residency boundaries and last-packet event ownership in both
 line engines through stalls, reordered packets, ROM reads, and pending reset.
 Include the composed RV5Stage or SoC owner when configuration or

@@ -296,13 +296,13 @@ fixture_in_group() {
     cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-sequencer-rv32|cores-vector-configurations:rv5stage-vector-sequencer-1024)
       return 0
       ;;
-    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:cache-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-svpbmt|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:cache-compack|cores-memory:cache-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-svpbmt|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
     cores-memory:rv5stage-svnapot|cores-memory:rv5stage-nested-walker|cores-memory:rv5stage-guest-translation)
       return 0
       ;;
-    cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:cache-store-buffer|cores-cache:rv5stage-lrsc-*)
+    cores-cache:rv5stage-load-hit|cores-cache:cache-icache*|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:cache-store-buffer|cores-cache:rv5stage-lrsc-*)
       return 0
       ;;
     *)
@@ -563,7 +563,7 @@ verify_fixture() {
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-vector || "$fixture" == rv5stage-vector-config || "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-compack ]]; then
+  elif [[ "$fixture" == event-vector || "$fixture" == rv5stage-vector-config || "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-fetch-prediction || "$fixture" == cache-compack ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -807,7 +807,7 @@ direct_fixture_specs=(
   'event-frontend|event_frontend_tb'
   'event-home|event_home_tb'
   'event-subordinate|event_subordinate_tb'
-  'rv5stage-compack|rv5stage_compack_tb'
+  'cache-compack|cache_compack_tb'
   'rv5stage-walk-trace|rv5stage_walk_trace_tb'
   'rv5stage-fetch-source|rv5stage_fetch_source_tb'
   'event-offer-register|event_offer_register_tb'
@@ -984,7 +984,8 @@ direct_fixture_specs=(
   'rv5stage-integer-execution|rv5stage_integer_execution_tb'
   'rv5stage-writeback|rv5stage_writeback_tb'
   'rv5stage-divide|rv5stage_divide_tb'
-  'rv5stage-icache|rv5stage_icache_tb'
+  'cache-icache|cache_icache_tb'
+  'cache-icache64|cache_icache_tb'
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb'
   'rv5stage-icache-coherence-flat|rv5stage_icache_coherence_tb'
   'rv5stage-dcache|rv5stage_dcache_tb'

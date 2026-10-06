@@ -63,7 +63,7 @@ Choose the lowest package that owns the behavior before editing:
 | RV5Stage floating-point execution | [`cores/rv5stage/fp/DEVELOPING.md`](cores/rv5stage/fp/DEVELOPING.md) |
 | RV5Stage CHI configuration or transaction engines | [`cores/rv5stage/chi/DEVELOPING.md`](cores/rv5stage/chi/DEVELOPING.md) |
 | RV5Stage translation | [`cores/rv5stage/mmu/DEVELOPING.md`](cores/rv5stage/mmu/DEVELOPING.md) |
-| RV5Stage instruction cache and shared physical data cache | [`cores/rv5stage/icache/DEVELOPING.md`](cores/rv5stage/icache/DEVELOPING.md), [`cores/cache/DEVELOPING.md`](cores/cache/DEVELOPING.md) |
+| Shared physical instruction/data caches and RV5Stage fetch metadata | [`cores/cache/DEVELOPING.md`](cores/cache/DEVELOPING.md), [`cores/rv5stage/icache/DEVELOPING.md`](cores/rv5stage/icache/DEVELOPING.md) |
 | SRAM occurrence mapping or schemas | [`sram/DEVELOPING.md`](sram/DEVELOPING.md) |
 | Sky130 SRAM catalog or model | [`sram/sky130/DEVELOPING.md`](sram/sky130/DEVELOPING.md) |
 | VLSI prototype or physical handoff | [`vlsi/DEVELOPING.md`](vlsi/DEVELOPING.md) |

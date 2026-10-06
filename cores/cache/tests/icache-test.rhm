@@ -1,27 +1,29 @@
 #lang rhombus
-// Checks RV5Stage instruction-cache geometry, public protocol types, and invalid configuration.
+// Checks shared instruction-cache geometry, public protocol types, and invalid configuration.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
-  "../../cache/geometry.rhdl" open
-  "../icache/cache.rhdl" as l1i
-  "../icache/protocol.rhdl" as protocol
+  "../geometry.rhdl" open
+  "../l1i/cache.rhdl" as l1i
+  "../l1i/protocol.rhdl" as protocol
   "params.rhdl" as test_params
-  "../chi/foundation.rhdl" open
+  "../chi/flits.rhdl" open
   "../../../riscv/rtl/pma.rhdl" open
   "../../../rhodium/std/interconnect.rhdl".AddressSet
 
-def config = test_params.test_rv5stage_chi_config
+def config = test_params.test_cache_chi_config
 def direct_cache = CacheConfig(8, 1)
 def associative_cache = CacheConfig(8, 2)
-def instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(XLen.X64, direct_cache, ~chi: config))
-def instruction_cache = instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
-def rv32_instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(XLen.X32, direct_cache, ~chi: config))
-def rv32_instruction_cache = rv32_instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
-def instruction_access_type = protocol.RV5StageInstructionLookup(protocol.RV5StageInstructionReq(XLen.X64))
+def instruction_design = embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 32))
+def instruction_cache = instruction_design.modules.find(fun (module_def): module_def.name == "L1ICache")
+def rv32_instruction_design = embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X32, direct_cache, ~chi: config, ~fetch_bits: 32))
+def rv32_instruction_cache = rv32_instruction_design.modules.find(fun (module_def): module_def.name == "L1ICache")
+def wide_design = embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X32, direct_cache, ~chi: config, ~fetch_bits: 64))
+def wide_cache = wide_design.modules.find(fun (module_def): module_def.name == "L1ICache")
+def instruction_access_type = protocol.InstructionCacheLookup(64, 32)
 def instruction_request_member = instruction_access_type.members.find(
   fun (member): member.name == "request"
 )
@@ -29,20 +31,22 @@ def instruction_response_member = instruction_access_type.members.find(
   fun (member): member.name == "response"
 )
 check:
+  wide_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 64
+  embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 48)) ~throws "fetch block"
   RiscvHartCHIConfig(
     config.flit,
     64,
     [RiscvHartCHIRegion(
        RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~instruction_cacheable: #false)),
-       test_params.test_rv5stage_home)]
+       test_params.test_cache_home)]
   ) ~throws "coherent hart regions require instruction cacheability"
   RiscvHartCHIConfig(
     config.flit,
     64,
-    [test_params.test_rv5stage_uncached_config.regions[0],
+    [test_params.test_cache_uncached_config.regions[0],
      RiscvHartCHIRegion(
        RiscvPhysicalMemoryRegion(AddressSet(0xc000, 31), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)),
-       test_params.test_rv5stage_uncached_home)]
+       test_params.test_cache_uncached_home)]
   ) ~throws "complete cache lines"
   associative_cache.set_width ~is 3
   associative_cache.way_width ~is 1
@@ -56,13 +60,13 @@ check:
   instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 64
   scalar_width(instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
-  instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("response").type.field("word").type.width ~is 32
+  instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 32
   instruction_cache.find_output("chi_out").type.field("req").type.field("bits").type.field("address").type.width ~is 44
   rv32_instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 32
   scalar_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
-  rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("response").type.field("word").type.width ~is 32
+  rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 32
   embedded.run_elaboration(
     fun (): CacheConfig(3, 1)
   ) ~throws "Pow2Int"

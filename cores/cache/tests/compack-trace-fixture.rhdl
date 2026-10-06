@@ -3,17 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "params.rhdl" open
-  "../chi/foundation.rhdl" open
-  "../../cache/chi/refill.rhdl" open
+  "../chi/flits.rhdl" open
+  "../chi/refill.rhdl" open
   "../chi/line-read.rhdl" open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("riscv/rtl/pma.rhdl") open
 
-def config = RiscvHartCHIConfig(test_rv5stage_flit, 64, [
-  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), test_rv5stage_memory_attributes), test_rv5stage_home),
-  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_rv5stage_uncached_home)
+def config = RiscvHartCHIConfig(test_cache_flit, 64, [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), test_cache_memory_attributes), test_cache_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_cache_uncached_home)
 ])
 
 sync_circuit EventCompAck():
@@ -31,7 +31,7 @@ sync_circuit EventCompAck():
   interface dack(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface iack(Decoupled(CHIRspFlit(p)), ~role: producer)
   inst refill(CacheLineRefill(Bits(8), 32, config))
-  inst read(RV5StageLineRead(Bits(8), 32, config))
+  inst read(CacheLineRead(Bits(8), 32, config))
   refill.node_id <== bits(3, p.node_id_width)
   read.node_id <== bits(2, p.node_id_width)
   command_ready <== refill.command.ready & read.command.ready
@@ -41,7 +41,7 @@ sync_circuit EventCompAck():
     line_address: bits(0x1000, 32)
     opcode: CHIReqOpcode.ReadClean
     context: bits(42, 8)
-  read.command.bits <== RV5StageLineReadCommand(Bits(8), 32):
+  read.command.bits <== CacheLineReadCommand(Bits(8), 32):
     line_address: mux(instruction_rom, bits(0x8000, 32), bits(0x1000, 32))
     context: bits(42, 8)
   refill.requests |> dreq

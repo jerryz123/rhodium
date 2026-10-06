@@ -2,9 +2,10 @@
 // Exercises nonsnooping instruction snapshots against a real dirty L1D and either Home implementation.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../../cache/l1i/protocol.rhdl" open
   "../../cache/protocol.rhdl" open
   "../../cache/geometry.rhdl" open
-  "../icache/cache.rhdl" open
+  "../../cache/l1i/cache.rhdl" open
   "../icache/protocol.rhdl" open
   "../../cache/l1d/cache.rhdl" open
   "../memory-context.rhdl" open
@@ -26,12 +27,12 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   def ram_config = CHIRamConfig(p, 65536, ~max_outstanding: 1, ~max_transfer_bytes: 64)
   def nodes = RV5StageCHIParams(config, 2, 3)
   def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer()], 65535, ram_config.requests)
-  interface fetch(RV5StageInstructionLookup(RV5StageInstructionReq(XLen.X64)), ~role: responder)
+  interface fetch(InstructionCacheLookup(64, 32), ~role: responder)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: consumer)
   interface host(CacheAccess(XLen.X64, RV5StageMemoryContext(8)), ~role: responder)
   output instruction_request: Bool
   output instruction_fence: Bool
-  inst icache(RV5StageL1ICache(XLen.X64, CacheConfig(32, 1), ~chi: config))
+  inst icache(L1ICache(XLen.X64, CacheConfig(32, 1), ~chi: config, ~fetch_bits: 32))
   inst dcache(L1DCache(XLen.X64, CacheConfig(2, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
   inst home(if inclusive | CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)) | CHIHNF(home_config))
   inst ram(CHIRam(ram_config))

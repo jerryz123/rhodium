@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/geometry.rhdl" open
-  "foundation.rhdl" open
+  "../geometry.rhdl" open
+  "flits.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -13,12 +13,12 @@ import:
   lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
 
 /* Names an instruction snapshot line and retains an opaque lookup context. */
-bundle RV5StageLineReadCommand(Context :: DataType, address_width :: PosInt):
+bundle CacheLineReadCommand(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
 
 /* Returns an ownership-free line snapshot and accumulated poison/response-error status. */
-bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
+bundle CacheLineReadResult(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
   line: Vec(CacheLineBytes / 8, Bits(64))
@@ -27,21 +27,21 @@ bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
 /* Reads coherent RAM with ReadOnce/CompAck or immutable ROM with ReadNoSnp and no ack.
    Assembles packets by DataID, retaining the command until the caller accepts the complete
    line. */
-sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig):
+sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
   unless CacheLineBytes >= p.data_bytes
-  | error(~who: #'RV5StageLineRead,
+  | error(~who: #'CacheLineRead,
           "cache line must span at least one complete CHI data packet")
   unless address_width >= alignment_bits(CacheLineBytes)
-  | error(~who: #'RV5StageLineRead,
+  | error(~who: #'CacheLineRead,
           "address width must cover the line offset")
   def packet_count = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
 
   input node_id: Bits(p.node_id_width)
-  interface command(Decoupled(RV5StageLineReadCommand(Context, address_width)),
+  interface command(Decoupled(CacheLineReadCommand(Context, address_width)),
                     ~role: consumer)
-  interface completion(Irrevocable(RV5StageLineReadResult(Context, address_width)), ~role: producer)
+  interface completion(Irrevocable(CacheLineReadResult(Context, address_width)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
   interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
@@ -154,7 +154,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
   def acknowledgement_fire = acknowledgements.fire()
 
   completion.valid <== control.active & all_data_received & (!coherent ||| acknowledgement_sent)
-  completion.bits <== RV5StageLineReadResult(Context, address_width):
+  completion.bits <== CacheLineReadResult(Context, address_width):
     line_address: line_address
     context: context
     line: line.as_vec(Bits(64))
@@ -192,6 +192,6 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
     acknowledgement_sent <== Bool(#true)
 
 export:
-  RV5StageLineReadCommand
-  RV5StageLineReadResult
-  RV5StageLineRead
+  CacheLineReadCommand
+  CacheLineReadResult
+  CacheLineRead

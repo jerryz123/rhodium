@@ -4,7 +4,7 @@
 import:
   "../../../../rhodium/event/main.rhm" open
   "../../../../rhodium/backend/circt.rhm".emit_circt
-  "../../../../cores/rv5stage/tests/compack-trace-fixture.rhdl".traced_compack
+  "../compack-trace-fixture.rhdl".traced_compack
 def traced = instrument_events(traced_compack, EventInstrumentationConfig(~partial: #true))
 def site_constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
   "inline constexpr unsigned " ++ site.label.replace("/", "_") ++ " = " ++ to_string(index) ++ ";\n"

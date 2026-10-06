@@ -1,0 +1,34 @@
+#lang rhodium
+// Defines implementation-neutral coherent RAM and immutable ROM for shared cache fixtures.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../chi/flits.rhdl" open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/link.rhdl").CHINodeKind
+  lib("chi/protocol/fabric.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+
+def test_cache_flit = CHIFlitParams()
+def test_cache_home = CHIHomeParams("cache-test-ram", 1, CHINodeKind.HNF, ~max_outstanding: 2)
+def test_cache_uncached_home = CHIHomeParams("cache-test-rom", 4, CHINodeKind.HNI, ~max_outstanding: 1)
+def test_cache_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+def test_cache_chi_config = RiscvHartCHIConfig(test_cache_flit, 64, [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, (1 << test_cache_flit.request_address_width) - 1), test_cache_memory_attributes), test_cache_home)
+])
+def test_cache_uncached_config = RiscvHartCHIConfig(test_cache_flit, 64, [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), test_cache_memory_attributes), test_cache_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x3fff), RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)), test_cache_uncached_home)
+])
+def test_instruction_cache_config = RiscvHartCHIConfig(test_cache_flit, 64, [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x100000000, 0xffffffff), test_cache_memory_attributes), test_cache_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0x1fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_cache_uncached_home)
+])
+export:
+  test_cache_flit
+  test_cache_home
+  test_cache_uncached_home
+  test_cache_memory_attributes
+  test_cache_chi_config
+  test_cache_uncached_config
+  test_instruction_cache_config

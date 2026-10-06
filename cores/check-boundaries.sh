@@ -135,10 +135,10 @@ if [[ -n "$fetch_protocol_implementation_imports" ]]; then
 fi
 
 chi_cache_implementation_imports="$(search_sources \
-  '^[[:space:]]+(lib\()?"[^" ]*(icache|dcache|l1d)/cache\.rhdl"' \
+  '^[[:space:]]+(lib\()?"[^" ]*(icache|dcache|l1i|l1d)/cache\.rhdl"' \
   cores/rv5stage/chi cores/cache/chi || true)"
 if [[ -n "$chi_cache_implementation_imports" ]]; then
-  echo "RV5Stage CHI engines may import cache protocols but not cache implementations" >&2
+  echo "CHI engines may import cache protocols but not cache implementations" >&2
   echo "$chi_cache_implementation_imports" >&2
   exit 1
 fi

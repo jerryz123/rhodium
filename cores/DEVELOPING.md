@@ -18,7 +18,7 @@ Before adding a component, decide who owns its policy:
   components and implementation-neutral RISC-V protocol attachments under
   `cores/riscv/`. These definitions may depend on `riscv/`, root `cores/`
   components, and shared protocol libraries, but not on any named core.
-- Put reusable cache geometry, physical protocols, L1D state, and cache-side
+- Put reusable cache geometry, physical protocols, L1I/L1D state, and cache-side
   CHI engines in [`cache/`](cache/DEVELOPING.md). Completion context belongs
   to the caller and must remain opaque inside shared cache hardware.
 - Put instruction decode, architectural state, pipeline policy, adapters, and

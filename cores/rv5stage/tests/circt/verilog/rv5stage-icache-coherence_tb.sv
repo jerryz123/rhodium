@@ -8,8 +8,7 @@ module rv5stage_icache_coherence_tb;
   typedef struct packed { host_req_t request; ready_t response; } host_in_t;
   typedef struct packed { ready_t request; logic request_fault, request_access_fault; host_resp_t response; logic drained, reservation_valid; } host_out_t;
   typedef struct packed { logic valid; logic [63:0] bits; } fetch_req_t;
-  typedef struct packed { logic [31:0] word; logic page_fault, access_fault; } instruction_t;
-  typedef struct packed { instruction_t response; logic replay; } result_t;
+  typedef struct packed { logic [31:0] data; logic access_fault, replay; } result_t;
   typedef struct packed { logic valid; result_t bits; } fetch_resp_t;
   typedef struct packed { logic flush, invalidate_all, s1_kill; fetch_req_t request; } fetch_in_t;
   typedef struct packed { fetch_resp_t response; } fetch_out_t;
@@ -71,9 +70,9 @@ module rv5stage_icache_coherence_tb;
       fetch_in.request.valid=0;
       done=fetch_out.response.valid && !fetch_out.response.bits.replay;
     end
-    assert (fetch_out.response.valid && !fetch_out.response.bits.response.page_fault &&
-            !fetch_out.response.bits.response.access_fault && fetch_out.response.bits.response.word == expected)
-      else $fatal(1, "instruction %h, expected %h", fetch_out.response.bits.response.word, expected);
+    assert (fetch_out.response.valid &&
+            !fetch_out.response.bits.access_fault && fetch_out.response.bits.data == expected)
+      else $fatal(1, "instruction %h, expected %h", fetch_out.response.bits.data, expected);
     tick();
   endtask
   task automatic fence_i;

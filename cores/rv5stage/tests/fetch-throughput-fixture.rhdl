@@ -11,7 +11,7 @@ import:
   lib("cores/rv5stage/mmu/protocol.rhdl") open
   lib("cores/rv5stage/csr.rhdl").PrivilegeMode
   lib("cores/rv5stage/instruction-memory-router.rhdl") open
-  lib("cores/rv5stage/icache/cache.rhdl") open
+  lib("cores/cache/l1i/cache.rhdl") open
   lib("cores/rv5stage/icache/protocol.rhdl") open
   lib("cores/rv5stage/memory-context.rhdl") open
   lib("cores/cache/geometry.rhdl") open
@@ -45,7 +45,7 @@ sync_circuit RV5StageFetchThroughput():
   mmu.vector_fast.pipeline_physical <== Bool(#false)
   mmu.vector_fast.request_physical <== Bool(#false)
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
-  inst cache(RV5StageL1ICache(XLen.X64, CacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
+  inst cache(L1ICache(XLen.X64, CacheConfig(32, 1), ~chi: test_rv5stage_chi_config, ~fetch_bits: 32))
   fetch.control.active <== active
   inject_interface(Pulse(), ~valid: Bool(#false)) |> fetch.control.flush
   inject_interface(Valid(Bits(64)), ~valid: restart, ~bits: start_pc) |> fetch.control.restart

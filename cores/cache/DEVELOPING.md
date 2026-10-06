@@ -5,7 +5,7 @@
 
 Read [README.md](README.md) for the public protocol and timing contract, then
 [core ownership](../DEVELOPING.md). This guide owns the shared physical cache,
-not named-core LSU, translation, or retirement policy.
+not named-core frontend, LSU, translation, or retirement policy.
 
 ## Architecture and ownership
 
@@ -22,6 +22,8 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
+| `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |
+| `chi/line-read.rhdl` | Ownership-free coherent RAM and immutable ROM snapshots with opaque context |
 | `l1d/arrays.rhdl`, `l1d/store-buffer.rhdl` | Synchronous storage and committed byte hazards |
 | `chi/flits.rhdl` | Transaction response profiles and flit construction |
 | `chi/refill.rhdl`, `chi/writeback.rhdl`, `chi/snoop.rhdl` | Retained acquisition, victim, and snoop lifetimes |
@@ -62,11 +64,11 @@ The RV5Stage cache fixtures specialize L1D with architectural context and
 exercise tags, byte masks, LR/SC, atomics, snoops, backpressure, and refill.
 The RV2Wide fixture exercises the real shared L1D from two-wide instruction
 issue through retirement, delayed completion, replay, and physical faults.
-For CHI engine changes also run `rv5stage-compack` and `cache-copyback`;
+For CHI engine changes also run `cache-compack` and `cache-copyback`;
 for store-buffer changes run `cache-store-buffer`.
-The standalone copyback and store-buffer fixtures live in this package's
-`tests/`; RV5Stage's acknowledgement fixture also exercises its instruction
-line reader and therefore stays with that core.
+The standalone copyback, store-buffer, instruction-cache, and acknowledgement
+fixtures live in this package's `tests/`. Follow the [L1I guide](l1i/DEVELOPING.md)
+for 32/64-bit block tests and named-core fetch integration coverage.
 
 For nonallocating service changes, run `rv5stage-uncached`, `rv5stage-io-mshr`,
 and `rv5stage-memory-router`. These integrated fixtures cover fetch cancellation,

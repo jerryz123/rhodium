@@ -124,7 +124,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
 | [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
-| [`../cores/cache/`](../cores/cache/README.md) | Shared physical L1D, opaque-context cache protocols, geometry, and cache-side CHI engines | Public Rhodium/Flow, shared execution components, CHI, and RISC-V physical-operation/map vocabulary; no named core |
+| [`../cores/cache/`](../cores/cache/README.md) | Shared physical L1I/L1D, cache protocols, geometry, and cache-side CHI engines | Public Rhodium/Flow, shared execution components, CHI, and RISC-V physical-operation/map vocabulary; no named core |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, RISC-V PMA descriptors, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; explicit compilation targets; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
@@ -216,6 +216,11 @@ atomic, and locality types. `config.rhm` uses core index-width calculation and
 the stable generator-parameter contract. L1D uses Flow, `std/bits.rhdl`,
 `std/plru.rhdl`, and `std/read-write.rhdl`; arrays additionally use
 `std/sync-ram.rhdl`, and the store buffer uses `std/reduction.rhdl`.
+L1I uses the same Flow, Bits, PLRU, read-write, and SyncRam APIs, plus shared
+prefetch types. Its physical block result contains data/access-fault/replay,
+never named-core translation metadata. The RV5Stage instruction-memory router
+adapts it to the core's 32-bit fetch result using ordinary combinational Flow.
+The shared line-read engine owns coherent RAM/immutable-ROM snapshot transport.
 Cache-side CHI engines consume shared flits, retry control, and the neutral
 `cores/riscv/chi-hart.rhdl` map, never named-core code. Nonallocating CHI uses
 the shared LoadGen/StoreGen components; IO retention uses the same physical
