@@ -11,14 +11,17 @@ import:
   "../cache/l1i/cache.rhdl" open
   "../riscv/chi-hart.rhdl" open
   lib("riscv/isa/xlen.rhm") open
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open
   lib("chi/protocol/channels.rhdl") open
 
-/* Starts from a physical PC and reports ordered retirement and precise stops.
-   Branches/replays restart fetch internally; faults halt until a new start pulse.
+/* Starts from a physical PC and reports ordered retirement and architectural redirects.
+   Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct RN-I and RN-F identities separate retained I/D transactions. */
 sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache):
   input(instruction_node_id, data_node_id): Bits(config.flit.node_id_width)
+  input interrupts: RiscvInterrupts()
+  input(hart_id, time_counter): Bits(64)
   interface start(Valid(Bits(64)), ~role: consumer)
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
   interface completed(Valid(RV2WideRetirement()), ~role: producer)
@@ -26,8 +29,13 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
   interface data_chi(CHIRNChannels(config.flit), ~role: node)
   output halted: Bool
+  output sleeping: Bool
   output(issued, retired_count): Bits(2)
   inst core(RV2WideCore())
+  core.interrupts <== interrupts
+  core.hart_id <== hart_id
+  core.time_counter <== time_counter
+  sleeping <== core.sleeping
   inst frontend(RV2WideFrontend(config))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(RV2WideL1D(cache, ~chi: config))
@@ -53,8 +61,6 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   reg stopped(~init: Bool(#true))
   when (start.valid):
     stopped <== Bool(#false)
-  elsewhen (core.redirect.valid & (core.redirect.bits.resolution.disposition === RV2WideDisposition.Fault)):
-    stopped <== Bool(#true)
   halted <== stopped
   when (start.valid):
     assert(stopped & data.memory.drained, "rv2wide_start_at_quiescent_boundary")

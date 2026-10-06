@@ -23,6 +23,10 @@ not learn about WB bundles, stalls, replay, or deferred completion.
 Preserve CSR write priority over counting and synchronous-trap priority over
 interrupts. Keep passive observation names/timing stable; RV5Stage exposes the
 bank directly as its CSR observation component without a hierarchy wrapper.
+Retirement counts come from the caller's successful prefix, not command success.
+Both base and retirement-event HPM counters consume the full count; detect HPM
+overflow with an addition carry, including an increment of two from -2.
+The legacy passive `retired` observation remains a Boolean nonzero-count event.
 
 ## Change workflow and validation
 
@@ -40,3 +44,5 @@ filters, and overflow. `rv5stage-vector-control`, `rv5stage-core`,
 `rv5stage-interrupt`, and `rv5stage-wfi` cover adapter/precise-WB integration.
 Run cosim pass tests if observation metadata changes, and
 `make check-boundaries` after moving modules or changing imports.
+`rv2wide-core` covers dual-retire accounting and the precise shared-bank WB cut;
+`rv2wide-fetch` executes a trap handler through the production fetching top.

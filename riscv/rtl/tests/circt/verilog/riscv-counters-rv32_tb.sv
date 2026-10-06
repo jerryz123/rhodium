@@ -17,7 +17,7 @@ module riscv_counters_rv32_tb;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
-  logic retire;
+  logic [1:0] retire_count;
   machine_write_in_t machine_write_in;
   logic [63:0] cycle;
   logic [63:0] instret;
@@ -26,13 +26,13 @@ module riscv_counters_rv32_tb;
   always #5 clock = ~clock;
 
   task automatic step(
-    input logic retire_value,
+    input logic [1:0] retire_value,
     input logic write_valid,
     input logic [11:0] write_address,
     input logic [31:0] write_value
   );
     @(negedge clock);
-    retire = retire_value;
+    retire_count = retire_value;
     machine_write_in.valid = write_valid;
     machine_write_in.bits.address = write_address;
     machine_write_in.bits.value = write_value;
@@ -41,7 +41,7 @@ module riscv_counters_rv32_tb;
   endtask
 
   initial begin
-    retire = 1'b0;
+    retire_count = 2'd0;
     machine_write_in = '0;
     repeat (2) @(posedge clock);
     #1;
@@ -49,32 +49,40 @@ module riscv_counters_rv32_tb;
     assert (cycle == 0 && instret == 0)
       else $fatal(1, "base counters did not reset to zero");
 
-    step(1'b0, 1'b0, '0, '0);
+    step(2'd0, 1'b0, '0, '0);
     assert (cycle == 1 && instret == 0)
       else $fatal(1, "cycle or idle instret update was incorrect");
-    step(1'b1, 1'b0, '0, '0);
+    step(2'd1, 1'b0, '0, '0);
     assert (cycle == 2 && instret == 1)
       else $fatal(1, "retirement did not increment instret");
 
-    step(1'b1, 1'b1, CSR_MINSTRET, 32'hffffffff);
+    step(2'd1, 1'b1, CSR_MINSTRET, 32'hffffffff);
     assert (cycle == 3 && instret == 64'h00000000ffffffff)
       else $fatal(1, "low minstret write did not suppress retirement increment");
-    step(1'b1, 1'b1, CSR_MINSTRETH, 32'hffffffff);
+    step(2'd1, 1'b1, CSR_MINSTRETH, 32'hffffffff);
     assert (cycle == 4 && instret == 64'hffffffffffffffff)
       else $fatal(1, "high minstret write did not preserve the low half");
-    step(1'b1, 1'b0, '0, '0);
+    step(2'd1, 1'b0, '0, '0);
     assert (cycle == 5 && instret == 0)
       else $fatal(1, "minstret did not carry across its 64-bit boundary");
 
-    step(1'b0, 1'b1, CSR_MCYCLE, 32'hffffffff);
+    step(2'd0, 1'b1, CSR_MCYCLE, 32'hffffffff);
     assert (cycle == 64'h00000000ffffffff && instret == 0)
       else $fatal(1, "low mcycle write did not suppress the cycle increment");
-    step(1'b0, 1'b1, CSR_MCYCLEH, 32'h12345678);
+    step(2'd0, 1'b1, CSR_MCYCLEH, 32'h12345678);
     assert (cycle == 64'h12345678ffffffff)
       else $fatal(1, "high mcycle write did not preserve the low half");
-    step(1'b0, 1'b0, '0, '0);
+    step(2'd0, 1'b0, '0, '0);
     assert (cycle == 64'h1234567900000000)
       else $fatal(1, "mcycle did not carry across its low half");
+
+    step(2, 0, '0, '0);
+    assert (instret == 2) else $fatal(1, "dual retirement count");
+    step(2, 1, CSR_MINSTRET, 32'hfffffffe);
+    step(2, 1, CSR_MINSTRETH, 32'hffffffff);
+    assert (instret == 64'hfffffffffffffffe) else $fatal(1, "write priority over dual retirement");
+    step(2, 0, '0, '0);
+    assert (instret == 0) else $fatal(1, "dual retirement wrap");
 
     $display("RISC-V RV32 base counters passed");
     $finish;

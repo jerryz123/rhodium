@@ -5,10 +5,11 @@
 
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
-it is physical-addressed, without privileged state. `RV2WideCore()` remains the
+it is physical-addressed, with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
 independently usable RR-through-WB execution slice. It executes RV64I
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
+It also executes Zicsr, ECALL/EBREAK, MRET/SRET, and WFI at WB.
 See [DEVELOPING.md](DEVELOPING.md) for ownership and validation.
 
 ## Entry point
@@ -28,13 +29,14 @@ selects different L1I geometry; otherwise both use the supplied geometry.
 Connect separate `instruction_chi` RN-I and `data_chi` RN-F endpoints and
 distinct `instruction_node_id` / `data_node_id` inputs. Pulse
 `start: Valid(Bits(64))` with the initial physical PC after reset. `halted`
-is initially true and becomes true again after a precise fault is reported;
-only then may another start pulse resume execution. Restart does not reset GPRs
-or cache residency. A reset must reset the external memory-service epoch too.
+is initially true and clears at start; starting again requires reset. Connect
+architectural `interrupts: RiscvInterrupts()`, `hart_id`, and `time_counter` inputs.
+`sleeping` reports WFI wait, not permission to start again. A reset must reset
+the external memory-service epoch too.
 
 Retirement, completion, redirect, and issue-count outputs remain observable.
-Successful branches and memory replays redirect fetch internally. Faults are
-reported at WB and halt fetching; there is no implicit trap handler.
+Successful branches, memory replays, traps, and privilege returns redirect fetch
+internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D` adapter.
 
 When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket())`. Each packet has a `count`
@@ -194,6 +196,33 @@ all older effects and deferred GPR writes complete. This also covers an accepted
 older load paired with a faulting younger instruction. No global memory-busy
 interlock serializes independent ALUs or cache hits.
 
+## CSR, traps, and interrupts
+
+The shared `cores/riscv/csr` bank owns architectural state and permission checks;
+RV2Wide owns precise ordering. System instructions issue alone only after older
+pipeline work and accepted memory transactions (including GPR completion writes)
+drain. They execute once at WB. Younger instructions may execute speculatively,
+but WB system recovery squashes them and overrides same-cycle MEM branch recovery.
+A successful CSR instruction refetches its successor; returns select mepc/sepc.
+CSR register-source and immediate-source forms retain the architectural source
+index, so CSRRS/CSRRC with a nonzero source register containing zero still attempt
+a write, while a zero source index suppresses it.
+
+WB retires only the successful prefix: an older instruction still retires if its
+younger peer faults. `minstret` receives an explicit count of zero, one, or two;
+delayed load completion is not a second retirement. Counter writes take priority
+over that instruction's count. Interrupts enter before the oldest unretired WB
+instruction, or at the saved next PC when the pipeline is empty. Synchronous
+faults already selected at WB take priority. Entry waits for accepted work to
+drain, and a canceled interrupt restarts at its retained boundary without losing
+an instruction. No handler observes an outstanding older GPR write.
+
+WFI retires once and flushes younger work, then sleeps until a locally enabled
+interrupt is pending. A globally enabled interrupt takes the normal trap path;
+otherwise fetch resumes at WFI's successor without an interrupt trap. Trap entry,
+return legality, delegation, and direct-vector semantics come from the shared
+bank. Translation remains Bare; this is not a supervisor virtual-memory system.
+
 The boundary requires admission-certified aligned transactions, not an arbitrary
 bus that may raise a late synchronous exception. A future fault-capable service
 such as split-page accesses must retain retirement ownership until its final
@@ -217,8 +246,11 @@ to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
 - Continue: a taken branch at MEM; `target` is the resolved destination. This
   is speculative recovery, not a retirement notification.
 - Replay: restart at `pc`; the instruction has not committed.
-- Fault: `pc`, cause, and fault value are reported; `target` is the faulting PC,
-  **not a privileged trap vector**. The surrounding controller must handle it.
+- Fault: a synchronous trap; `pc`, cause, and fault value are reported, and
+  `target` is the architectural trap vector.
+- System: WB serialization/return recovery, WFI wake, or an interrupt boundary.
+  `target` is the selected successor, return PC, or trap vector. Cause/value are
+  meaningful for an interrupt trap (cause has its interrupt bit set).
 
 With no C support yet, instruction PCs and taken targets require four-byte
 alignment. JALR clears bit zero before the alignment check. A misaligned target
@@ -230,8 +262,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no C expansion, MMU, CSR/trap-state unit,
-interrupt handling, M/A/B decode, or SoC binding yet. Naturally misaligned
+There is no C expansion, MMU, M/A/B decode, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
 claim. It is not selectable through the SoC configuration resolver.

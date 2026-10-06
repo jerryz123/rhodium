@@ -95,7 +95,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   csrs.fp_update.bits <== bits(0, 5)
   csrs.cbo_operation <== CboManagementOperation.Invalidate
   csrs.commit.valid <== commit_valid
-  csrs.retire <== csrs.command_success
+  csrs.retire_count <== csrs.command_success.as_bits().zext(2)
   csrs.commit.bits <== RiscvCsrCommand(xlen):
     pc: bits(0x100, xlen.width)
     instruction: instruction

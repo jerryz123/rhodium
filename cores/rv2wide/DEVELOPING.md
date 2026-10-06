@@ -31,11 +31,12 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 |---|---|
 | `decode/operand-ctrl.rhdl` | Source-use bits, ALU operands, canonical immediate selection |
 | `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
+| `decode/system-ctrl.rhdl` | Architectural CSR operation/source and trap/return/wait columns |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
 | `frontend.rhdl` | Reserved-capacity block fetch, physical permissions, local replay, and fault packet assembly |
-| `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component instances, register state, precise stops |
+| `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `cache.rhdl` | Physical RAM permission checks and raw-beat adaptation to the shared L1D |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
@@ -83,7 +84,7 @@ branch recovery; its WB redirect must override that speculative target and
 suppress the younger branch's retirement. No branch prediction is involved.
 
 A pending fault squashes younger pipeline/window work immediately, but its
-public redirect waits for both the owner FIFO and memory service to drain.
+CSR trap command and public redirect wait for both the owner FIFO and memory service to drain.
 Same-group older acceptance participates in that drain decision. Branch and
 replay redirects do not cancel or wait for successful accepted work.
 Reset is coordinated with the memory service; it ends the entire response epoch.
@@ -104,9 +105,35 @@ fault, before its drained public redirect. A simultaneous redirect supplies the
 new cursor; otherwise fetch remains stopped. Buffer credits alone cannot express
 this cancellation because a cleared buffer can still be rejecting admission.
 
-Keep `start` quiescent-only: reset or completed fault delivery, after the data
-service drains. It is not an asynchronous core flush input. The integrated
-top automatically restarts branches/replays and stops on a reported fault.
+Keep `start` reset-only, with the data service drained. It is not an asynchronous
+core flush input. The integrated top follows CSR trap/return redirects as well
+as branches/replays; WFI has a separate sleep indication.
+
+## System operations and precise boundaries
+
+RR serializes system instructions after older pipeline and accepted memory work
+drain and never admits a system instruction as the younger slot. CSR results
+are unavailable to speculative forwarding; WB writes the shared bank's result.
+Younger ordinary instructions may issue, but every WB system command flushes
+their effects and refetches from the architectural successor or trap/return PC.
+This cut gives WB CSR recovery priority over a younger MEM branch without
+making feed-forward stage registers elastic.
+
+The WB retention register holds a faulting token or interrupt boundary independently
+of the speculative pipes. An older accepted load paired with a younger fault
+retires once, preserves its completion owner, and delays trap entry until the
+owner FIFO, service, and unflushable completion pipe are all empty. Interrupts
+inhibit new WB memory acceptance before retaining the oldest unretired PC.
+If an interrupt disappears while draining, recover to that PC without trap entry.
+An empty-pipeline boundary uses the last retired successor (including branch
+targets), never an arbitrary fetch cursor.
+
+Only system/fault commands enter `RiscvCsrFile.commit`; ordinary instructions
+feed the explicit two-bit retirement count. RV2Wide may count an older successful
+slot on the same edge as a younger synchronous trap. RV5Stage continues to supply
+zero/one. Keep CSR write priority and pre-transition privilege filtering in the
+shared counters; completion is not retirement. Architectural CSR descriptors and
+trap selection are reused, not copied into named-core control logic.
 
 ## Validation
 
@@ -124,6 +151,10 @@ retirement, packet coalescing, RAW/WAW and x0, youngest-producer forwarding,
 RV64/word ALU operations, seeded dependency-heavy arithmetic, signed/unsigned
 branches and jumps in either slot, JALR masking, misalignment/illegal faults,
 MEM qualification, replay/restart, older-fault priority, and reset cancellation.
+It also checks all six CSR forms, source-index write intent, counter counts and
+write priority, M/S trap state and returns, younger-fault older retirement,
+WB-over-MEM CSR recovery, accepted-load drain before CSR/interrupt entry, live
+and idle interrupt boundaries, and WFI local wake versus interrupt trap.
 It checks branch recovery against the public MEM token before WB retirement,
 simultaneous older WB recovery, same-group authorization failure after a MEM
 branch, and filling the instruction buffer under issue backpressure.
@@ -145,9 +176,11 @@ CHI backing-memory oracle. It checks sustained warm dual retirement, upper-only
 restart packets, dependency/backpressure retention, cold I/D misses, masked
 store/load execution, reordered instruction refill packets, wrong-path refill
 errors across redirects, last-word-of-page retirement, precise unmapped/read-error
-faults, misaligned starts, and restart after fault. It also covers a younger
+faults, misaligned starts, and reset/restart after fault. It also covers a younger
 illegal instruction while an older load drains, with fetch cancellation preceding
-the fault report. The existing cache-only
+the fault report. Fault scenarios end with a coordinated reset, while a handler
+scenario programs mtvec, executes ECALL, reads mepc/mcause, returns with MRET,
+and reaches WFI through real instruction-cache fetching. The existing cache-only
 fixture composes the same production core and L1D adapter with packet stimulus;
 it does not add a second public cached-core wrapper.
 

@@ -5,6 +5,7 @@
 import:
   "decode/core-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
+  "decode/system-ctrl.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Retains the architectural cause and faulting address independently of instruction data. */
@@ -24,11 +25,12 @@ bundle RV2WidePacket():
   count: Bits(2)
   entries: Vec(2, RV2WideInstruction())
 
-/* Distinguishes successful continuation from a precise fault or preacceptance replay. */
+/* Distinguishes MEM continuation, synchronous trap, preacceptance replay, and WB system recovery. */
 hardware_enum RV2WideDisposition:
   Continue
   Fault
   Replay
+  System
 
 /* Supplies a same-cycle MEM outcome; fault payload is observed only for Fault. */
 bundle RV2WideResolution():
@@ -67,6 +69,8 @@ bundle RV2WideResult():
   address: Bits(64)
   store_data: Bits(64)
   cache_outcome: RV2WideCacheOutcome
+  system: RV2WideSystemControl()
+  csr_source: Bits(64)
   resolution: RV2WideResolution()
 
 /* Carries a byte address with positioned store data and accessed-byte mask in its aligned beat. */

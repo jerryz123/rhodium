@@ -32,6 +32,9 @@ module rv2wide_core_tb;
   logic [1:0] issued, retired_count;
   logic [3:0] instruction_capacity;
   logic fetch_flush;
+  logic [5:0] interrupts = 0;
+  logic sleeping;
+  logic [63:0] trap_target = 0;
   int mem_branch_redirects = 0, wb_overrides = 0;
   int minimum_instruction_capacity = 8;
   logic inject_enable;
@@ -63,6 +66,7 @@ module rv2wide_core_tb;
   int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
 
   RV2WideCore dut(
+    .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
     .memory_stage_0_out(memory_stage[0]), .memory_stage_1_out(memory_stage[1]),
@@ -138,6 +142,10 @@ module rv2wide_core_tb;
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
+      if(memory_stage[0].valid && memory_stage[0].bits.instruction[6:0]==7'h73)
+        assert(!memory_stage[1].valid) else $fatal(1,"system instruction did not issue alone");
+      if(memory_stage[1].valid)
+        assert(memory_stage[1].bits.instruction[6:0]!=7'h73) else $fatal(1,"system instruction in younger slot");
       if (retired[0].valid && retired[1].valid && retired[0].bits.write && retired[1].bits.write)
         assert (retired[0].bits.rd != retired[1].bits.rd) else $fatal(1, "same-group WAW was not split");
       assert (int'(retired_count) == int'(retired[0].valid) + int'(retired[1].valid)) else $fatal(1, "retirement count mismatch");
@@ -366,12 +374,13 @@ module rv2wide_core_tb;
   endtask
   task automatic stop_at(logic [63:0] pc, logic [63:0] target, int disposition = 0, logic [63:0] cause = 0, logic [63:0] value = 0);
     redirect_t item;
-    item = '{pc: pc, target: target, resolution: '{disposition: 2'(disposition), cause: cause, value: value}};
+    item = '{pc: pc, target: disposition == 1 ? trap_target : target, resolution: '{disposition: 2'(disposition), cause: cause, value: value}};
     expected_redirects.push_back(item);
   endtask
   task automatic reset_core;
     canceled += response_count;
     reset = 1; instructions = '0; inject_enable = 0; inject_pc = 0; inject_result = '0;
+    interrupts = 0; trap_target = 0;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
@@ -381,6 +390,24 @@ module rv2wide_core_tb;
     end
     repeat (2) tick();
     reset = 0;
+  endtask
+
+  function automatic logic [31:0] csr(int f3, rd, rs1, address);
+    return {12'(address), 5'(rs1), 3'(f3), 5'(rd), 7'h73};
+  endfunction
+  task automatic expect_system(logic [63:0] pc, logic [31:0] word, logic [63:0] value=0);
+    retirement_t item;
+    item='0; item.fetched.pc=pc; item.fetched.instruction=word;
+    item.rd=word[11:7]; item.write=word[14:12]!=0 && item.rd!=0; item.data=value;
+    if(item.write) model[item.rd]=value;
+    expected.push_back(item);
+  endtask
+  task automatic csr_access(logic [63:0] pc, int f3, rd, rs1, address, logic [63:0] old_value);
+    logic [31:0] word=csr(f3,rd,rs1,address);
+    expect_system(pc,word,old_value);
+    stop_at(pc,pc+4,3);
+    send(pc,word,0,1,0,0);
+    drain();
   endtask
 
   initial begin
@@ -738,6 +765,157 @@ module rv2wide_core_tb;
     send('h5210, imm(13, 12, 1), imm(14, 0, 1)); drain();
     assert (stores > 10 && hits > 10 && stall_cycles >= 2) else $fatal(1, "missing memory scenarios");
     assert (requests == responses + canceled && canceled == 1) else $fatal(1, "lost/duplicate completion or reset ownership");
+
+    // Real CSR commands return the old value, preserve source-index write intent,
+    // and serialize even without a GPR destination. Younger work is refetched.
+    reset_core();
+    send('h6000, imm(1,0,'h55), imm(2,0,0)); drain();
+    csr_access('h6008,1,3,1,'h340,0);     // CSRRW mscratch <- x1
+    csr_access('h600c,6,4,10,'h340,'h55); // CSRRSI adds bits 1 and 3
+    csr_access('h6010,7,5,3,'h340,'h5f);  // CSRRCI removes bits 0 and 1
+    csr_access('h6014,2,6,0,'h340,'h5c);  // rs1=x0 is read-only
+    csr_access('h6018,3,7,2,'h340,'h5c);  // nonzero rs1 containing zero is still a write
+    csr_access('h601c,5,0,0,'h340,'h5c);  // CSRRWI with zero clears, even rd=x0
+    csr_access('h6020,2,8,0,'h340,0);
+    csr_access('h6024,2,9,0,'hf14,7);     // read-only mhartid
+    stop_at('h6028,0,1,2,64'(csr(2,10,2,'hf14)));
+    send('h6028,csr(2,10,2,'hf14),0,1,0,0); drain();
+    csr_access('h602c,2,11,0,'h343,64'(csr(2,10,2,'hf14)));
+
+    // CSR WB recovery wins over a younger taken branch in MEM, and kills a
+    // speculative store before authorization. All issue groups remain single-slot.
+    begin
+      int before_override=wb_overrides;
+      expect_system('h6040,csr(5,12,19,'h340),0);
+      stop_at('h6040,'h6044,3);
+      send('h6040,csr(5,12,19,'h340),0,1,0,0);
+      send('h6044,jump(13,64),store(1,0,0,3),2,0,0);
+      drain();
+      assert(wb_overrides>before_override) else $fatal(1,"CSR did not cover simultaneous MEM recovery");
+      csr_access('h6048,2,14,0,'h340,19);
+    end
+
+    // Count the successful prefix: two ordinary instructions add two, a
+    // younger fault adds only its older peer, and an older fault adds zero.
+    reset_core();
+    csr_access('h6100,1,0,0,'hb02,0); // explicit counter write wins over its own retirement
+    send('h6104,imm(1,0,1),imm(2,0,2)); drain();
+    csr_access('h610c,2,3,0,'hb02,2);
+    stop_at('h6114,0,1,1,'h6114);
+    send('h6110,imm(4,0,4),imm(5,0,5),2,1,0,1); drain();
+    csr_access('h6118,2,6,0,'hb02,4);
+    csr_access('h611c,2,7,0,'h341,'h6114);
+    csr_access('h6120,2,8,0,'h342,1);
+    csr_access('h6124,2,9,0,'h343,'h6114);
+    stop_at('h6128,0,1,2,64'hffffffff);
+    send('h6128,32'hffffffff,imm(10,0,10),2,0,0); drain();
+    csr_access('h6130,2,11,0,'hb02,8);
+    csr_access('h6134,2,12,0,'h341,'h6128);
+
+    // Trap-vector/return state is architectural, not a controller stop.
+    reset_core();
+    send('h6200,imm(1,0,'h700),imm(2,0,'h400)); drain();
+    csr_access('h6208,1,0,1,'h305,0); trap_target='h700;
+    stop_at('h6210,0,1,11,0);
+    send('h6210,32'h00000073,imm(15,0,99),2,0,0); drain();
+    csr_access('h700,2,3,0,'h341,'h6210);
+    csr_access('h704,2,4,0,'h342,11);
+    csr_access('h708,2,5,0,'h343,0);
+    csr_access('h70c,1,0,2,'h341,'h6210);
+    expect_system('h710,32'h30200073); stop_at('h710,'h400,3);
+    send('h710,32'h30200073,0,1,0,0); drain();
+    stop_at('h400,0,1,3,0);
+    send('h400,32'h00100073,0,1,0,0); drain();
+    csr_access('h714,2,6,0,'h341,'h400);
+    csr_access('h718,2,7,0,'h342,3);
+
+    // MRET enters S, SRET enters U; denied CSR access traps back to M with the
+    // original encoding. S-mode exception delegation uses stvec/sepc/scause.
+    reset_core();
+    send('h6300,imm(1,0,'h700),imm(2,0,'h740)); drain();
+    csr_access('h6308,1,0,1,'h305,0); trap_target='h700;
+    csr_access('h630c,1,0,2,'h105,0);
+    send('h6310,imm(3,0,1),imm(4,0,'h500)); drain();
+    send('h6318,imm(3,3,11,1),imm(5,0,'h540)); drain(); // x3 = MPP.S
+    csr_access('h6320,1,0,3,'h300,64'ha00000000);
+    csr_access('h6324,1,0,4,'h341,0);
+    csr_access('h6328,1,0,5,'h141,0);
+    expect_system('h632c,32'h30200073); stop_at('h632c,'h500,3);
+    send('h632c,32'h30200073,0,1,0,0); drain();
+    expect_system('h500,32'h10200073); stop_at('h500,'h540,3);
+    send('h500,32'h10200073,0,1,0,0); drain();
+    stop_at('h540,0,1,2,64'(csr(2,6,0,'h340)));
+    send('h540,csr(2,6,0,'h340),0,1,0,0); drain();
+    csr_access('h700,2,7,0,'h341,'h540);
+    csr_access('h704,2,8,0,'h343,64'(csr(2,6,0,'h340)));
+    csr_access('h708,5,0,8,'h302,0); // delegate breakpoint
+    csr_access('h70c,1,0,3,'h300,64'ha00000000);
+    csr_access('h710,1,0,4,'h341,'h540);
+    expect_system('h714,32'h30200073); stop_at('h714,'h500,3);
+    send('h714,32'h30200073,0,1,0,0); drain();
+    trap_target='h740;
+    stop_at('h500,0,1,3,0); send('h500,32'h00100073,0,1,0,0); drain();
+    csr_access('h740,2,9,0,'h141,'h500);
+    csr_access('h744,2,10,0,'h142,3);
+
+    // An accepted load must finish and write its reserved port before the
+    // following system command can read its source or mutate CSR state.
+    reset_core(); hold_responses=1;
+    send('h6400,imm(1,0,0,3,'h03),imm(2,0,2));
+    expect_system('h6408,csr(1,3,1,'h340),0); stop_at('h6408,'h640c,3);
+    send('h6408,csr(1,3,1,'h340),0,1,0,0);
+    repeat(10) tick();
+    assert(response_count==1 && expected.size()==1 && expected_redirects.size()==1) else $fatal(1,"CSR escaped accepted-load drain");
+    hold_responses=0; drain();
+    csr_access('h640c,2,4,0,'h340,model[1]);
+
+    // Interrupts stop before the oldest unretired instruction and retain the
+    // precise boundary while already retired load owners drain.
+    reset_core();
+    send('h6500,imm(1,0,'h700),imm(2,0,8)); drain();
+    csr_access('h6508,1,0,1,'h305,0); trap_target='h700;
+    csr_access('h650c,1,0,2,'h304,0);
+    csr_access('h6510,1,0,2,'h300,64'ha00000000);
+    hold_responses=1;
+    send('h6514,imm(3,0,0,3,'h03),imm(4,0,4));
+    repeat(8) tick();
+    stop_at('h651c,'h700,3); interrupts=6'b010000;
+    repeat(10) tick();
+    assert(expected_redirects.size()==1 && response_count==1) else $fatal(1,"interrupt entered before load drain");
+    hold_responses=0; drain(); interrupts=0;
+    csr_access('h700,2,5,0,'h341,'h651c);
+    csr_access('h704,2,6,0,'h342,64'h8000000000000003);
+    csr_access('h708,2,7,0,'h343,0);
+    // Return with MIE restored, then intercept a live pair at WB, neither retires.
+    expect_system('h70c,32'h30200073); stop_at('h70c,'h651c,3);
+    send('h70c,32'h30200073,0,1,0,0); drain();
+    send('h651c,imm(8,0,8),imm(9,0,9),2,0,0);
+    wait(memory_stage[0].valid); @(negedge clock);
+    stop_at('h651c,'h700,3); interrupts=6'b010000;
+    drain(); interrupts=0;
+    csr_access('h710,2,10,0,'h341,'h651c);
+
+    // WFI retires once, blocks younger effects, and wakes on locally enabled
+    // pending interrupts even with global MIE clear. With MIE set it traps.
+    reset_core();
+    csr_access('h6600,5,0,8,'h304,0);
+    expect_system('h6604,32'h10500073);
+    send('h6604,32'h10500073,imm(11,0,11),2,0,0); drain();
+    assert(sleeping) else $fatal(1,"WFI did not sleep");
+    stop_at('h6608,'h6608,3); interrupts=6'b010000;
+    repeat(3) tick(); interrupts=0; drain();
+    assert(!sleeping) else $fatal(1,"WFI failed local wake");
+    csr_access('h6608,2,12,0,'hb02,2);
+    send('h660c,imm(1,0,'h700),imm(2,0,8)); drain();
+    csr_access('h6614,1,0,1,'h305,0); trap_target='h700;
+    csr_access('h6618,1,0,2,'h300,64'ha00000000);
+    expect_system('h661c,32'h10500073);
+    send('h661c,32'h10500073,0,1,0,0); drain();
+    stop_at('h6620,'h700,3); interrupts=6'b010000;
+    drain(); interrupts=0;
+    csr_access('h700,2,13,0,'h341,'h6620);
+    assert(!sleeping) else $fatal(1,"interrupt left core asleep");
+
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops", commits, dual_commits, stops);
     $finish;

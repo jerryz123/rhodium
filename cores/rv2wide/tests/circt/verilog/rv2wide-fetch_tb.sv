@@ -22,7 +22,7 @@ module rv2wide_fetch_tb;
   typedef struct packed { req_t req; irsp_out_t rsp; idat_out_t dat; } ichi_out_t;
   typedef struct packed { ready_t requests, requester_responses, request_data; rsp_t responses; dat_t response_data; snp_t snoops; } dchi_in_t;
   typedef struct packed { req_t requests; rsp_t requester_responses; dat_t request_data; ready_t responses, response_data, snoops; } dchi_out_t;
-  logic clock=0, reset=1, halted;
+  logic clock=0, reset=1, halted, sleeping;
   start_t start_in;
   retirement_flow_t retired[2], completed;
   redirect_flow_t redirect;
@@ -32,6 +32,7 @@ module rv2wide_fetch_tb;
   dchi_in_t data_chi_in;
   dchi_out_t data_chi_out;
   RV2Wide dut(.clock(clock), .reset(reset), .instruction_node_id(7'd2), .data_node_id(7'd3),
+    .interrupts('0), .hart_id(64'd0), .time_counter(64'd0), .sleeping(sleeping),
     .start_in(start_in), .halted(halted), .retired_0_out(retired[0]), .retired_1_out(retired[1]),
     .completed_out(completed), .redirect_out(redirect), .issued(issued), .retired_count(retired_count),
     .instruction_chi_in(instruction_chi_in), .instruction_chi_out(instruction_chi_out),
@@ -44,6 +45,7 @@ module rv2wide_fetch_tb;
   int cycles=0, reference_pc=0, commits=0, dual_run=0, longest_dual=0;
   int ireads=0, dreads=0, acks=0, replay_count=0, branch_count=0, faults=0, phase=0;
   int wrong_path_reads=0, detached_refills=0, completions_seen=0;
+  int reset_canceled_refills=0;
   bit iactive=0, dactive=0, wactive=0;
   CHIReqFlit irequest, drequest, wrequest;
   int idue, ipacket, ddue, dpacket;
@@ -121,7 +123,7 @@ module rv2wide_fetch_tb;
     retirement_t expected;
     bit write_rd;
     int rd, rs1, rs2;
-    assert((phase==0 || phase==4) && got.fetched.pc==64'(reference_pc) && !got.fetched.fault.valid)
+    assert((phase==0 || phase==4 || phase==5) && got.fetched.pc==64'(reference_pc) && !got.fetched.fault.valid)
       else $fatal(1,"retired wrong path/fault pc=%h expected=%h phase=%0d",got.fetched.pc,reference_pc,phase);
     word=instruction_at(reference_pc);
     assert(got.fetched.instruction==word) else $fatal(1,"fetch payload at %h",got.fetched.pc);
@@ -145,6 +147,16 @@ module rv2wide_fetch_tb;
       7'h23: begin
         imm=64'($signed({word[31:25],word[11:7]})); address=registers[rs1]+imm;
         for(int b=0;b<8;b++) model_bytes[int'(address)+b]=registers[rs2][b*8+:8];
+      end
+      7'h73: begin
+        assert(phase==5) else $fatal(1,"unexpected system instruction");
+        case(got.fetched.pc)
+          'h304, 'h38c, 'h310: begin end // CSRRW x0 and WFI
+          'h380: begin value=11; write_rd=1; end // mcause
+          'h384: begin value='h308; write_rd=1; end // mepc
+          'h390: reference_pc='h30c; // MRET
+          default: $fatal(1,"unexpected CSR PC");
+        endcase
       end
       default: $fatal(1,"oracle instruction %h",word);
     endcase
@@ -181,11 +193,13 @@ module rv2wide_fetch_tb;
           assert(redirect.bits.pc==64'(expected_fault_pc) && redirect.bits.resolution.cause==64'(expected_fault_cause) && redirect.bits.resolution.value==expected_fault_value)
             else $fatal(1,"fault phase=%0d pc=%h cause=%h value=%h",phase,redirect.bits.pc,redirect.bits.resolution.cause,redirect.bits.resolution.value);
           assert(completions.size()==0) else $fatal(1,"fault before accepted work drains");
+          assert(redirect.bits.target==(phase==5 ? 'h380 : 0) && !halted) else $fatal(1,"trap did not target mtvec");
           if(phase==0) assert(reference_pc==4096 && registers[30]==77) else $fatal(1,"lost page-end instruction");
           if(phase==4) assert(reference_pc==652) else $fatal(1,"lost older load or retired after illegal instruction");
+          if(phase==5) reference_pc=int'(redirect.bits.target);
           faults++;
         end
-        default: $fatal(1,"redirect disposition");
+        3: assert(phase==5) else $fatal(1,"unexpected system recovery");
       endcase
     end
     if(instruction_chi_out.req.valid && instruction_chi_in.req.ready) begin
@@ -218,14 +232,22 @@ module rv2wide_fetch_tb;
   end
 
   task automatic launch(int address, cause, fault_pc, logic [63:0] fault_value='1);
+    int before_faults=faults;
     @(negedge clock);
     assert(halted) else $fatal(1,"start before halt");
     expected_fault_pc=fault_pc; expected_fault_cause=cause;
     expected_fault_value=fault_value=='1 ? 64'(fault_pc) : fault_value;
     start_in='{valid:1'b1,bits:64'(address)};
     @(negedge clock); start_in='0;
-    wait(halted);
-    repeat(6) @(negedge clock);
+    wait(faults>before_faults);
+    // The real core resumes at mtvec now. End this scenario with a coordinated
+    // reset before executing the handler, including the external CHI epoch.
+    @(negedge clock); reset=1;
+    reset_canceled_refills=ireads-acks;
+    iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    repeat(3) @(negedge clock);
+    reset=0;
   endtask
 
   initial begin
@@ -259,7 +281,24 @@ module rv2wide_fetch_tb;
     phase=2; launch(514,0,514); // bad PC faults without issuing an aligned read
     phase=3; launch(4096,1,4096); // unmapped restart never reaches CHI
     phase=4; reference_pc=640; launch(640,2,652,64'hffffffff);
-    assert(faults==5 && acks==ireads) else $fatal(1,"lost fault or retained acknowledgement faults=%0d ack=%0d read=%0d",faults,acks,ireads);
+    assert(faults==5 && acks+reset_canceled_refills==ireads) else $fatal(1,"lost fault or retained acknowledgement faults=%0d ack=%0d read=%0d",faults,acks,ireads);
+    // Execute a real handler through L1I: program mtvec, take ECALL, read
+    // architectural trap state, advance mepc, return, then sleep after a marker.
+    phase=5; reference_pc='h300;
+    insn('h300,addi(1,0,'h380));
+    insn('h304,{12'h305,5'd1,3'b001,5'd0,7'h73});
+    insn('h308,32'h00000073); insn('h30c,addi(12,0,99)); insn('h310,32'h10500073);
+    insn('h380,{12'h342,5'd0,3'b010,5'd10,7'h73});
+    insn('h384,{12'h341,5'd0,3'b010,5'd11,7'h73});
+    insn('h388,addi(11,11,4));
+    insn('h38c,{12'h341,5'd11,3'b001,5'd0,7'h73});
+    insn('h390,32'h30200073);
+    expected_fault_pc='h308; expected_fault_cause=11; expected_fault_value=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(reference_pc=='h314 && registers[10]==11 && registers[11]=='h30c && registers[12]==99 && faults==6)
+      else $fatal(1,"trap handler/return execution failed");
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults",commits,longest_dual,ireads,dreads,faults);
     $finish;
   end

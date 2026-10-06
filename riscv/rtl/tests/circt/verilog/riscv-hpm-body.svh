@@ -4,6 +4,7 @@
   localparam logic [63:0] OF = 64'h8000000000000000;
   localparam logic [63:0] CONTROL_MASK = HYPERVISOR ? 64'hfcffffffffffffff : 64'hf0ffffffffffffff;
   logic clock = 0, reset = 1, inhibit = 0;
+  logic [1:0] event_count = 1;
   struct packed {
     logic valid;
     struct packed { logic [1:0] privilege; logic virtualized; } bits;
@@ -30,12 +31,13 @@
     input bit pulse = 0, input logic [1:0] mode = 3, input bit guest = 0,
     input bit stopped = 0, input bit cw = 0, input bit ch = 0,
     input logic [63:0] cv = 0, input bit sw = 0, input bit sh = 0,
-    input logic [63:0] sv = 0
+    input logic [63:0] sv = 0, input logic [1:0] amount = 1
   );
     int filter_bit;
     bit blocked, increment, wrap, request;
     @(negedge clock);
     event_in = {pulse, mode, guest};
+    event_count = amount;
     inhibit = stopped;
     counter_write_in = write_port(cw, ch, cv);
     selector_write_in = write_port(sw, sh, sv);
@@ -43,7 +45,7 @@
     if (HYPERVISOR && guest && mode != 3) filter_bit -= 2;
     blocked = expected_control[filter_bit];
     increment = pulse && !stopped && !blocked && !cw && !sw;
-    wrap = increment && expected_count == '1;
+    wrap = increment && ({1'b0, expected_count} + 65'(amount)) > {1'b0, 64'hffffffffffffffff};
     request = wrap && !expected_control[63];
     #1;
     assert (overflow_out == request)
@@ -52,7 +54,7 @@
       if (XLEN == 64) expected_count = cv;
       else if (ch) expected_count[63:32] = cv[31:0];
       else expected_count[31:0] = cv[31:0];
-    end else if (increment) expected_count++;
+    end else if (increment) expected_count += 64'(amount);
     if (sw) begin
       if (XLEN == 64) expected_control = sv;
       else if (sh) expected_control[63:32] = sv[31:0];
@@ -101,6 +103,10 @@
     step(1); // OF does not stop counting or continually assert a request.
     set_count('1);
     step(1); // A second wrap with OF set cannot generate another request.
+    set_selector(0);
+    set_count(64'hfffffffffffffffe);
+    step(1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 2); // Dual retirement crosses overflow from -2.
+    step(1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0); // Zero events do not increment.
     set_selector(0);
     set_count('1);
     step(1); // Software rearming permits the next overflow.

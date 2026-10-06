@@ -34,7 +34,7 @@
   logic [1:0] cbo_operation = 0;
   logic [3:0] cbo_permission;
 
-  RiscvCsrFile dut (.retire(command_success), .pbmte(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
+  RiscvCsrFile dut (.trap_event(), .retire_count({1'b0, command_success}), .pbmte(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
   always #5 clock = ~clock;
 
   task automatic access_csr(

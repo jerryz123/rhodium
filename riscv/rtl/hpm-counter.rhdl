@@ -15,9 +15,10 @@ bundle RiscvHpmWrite(xlen :: XLen):
     high: Bool
   value: Bits(xlen.width)
 
-/* Counts externally selected events with privilege/inhibit filtering, write precedence, sticky overflow state, and a first-overflow pulse. */
+/* Counts zero/one/two selected events with privilege filtering, write precedence, and carry-based sticky overflow. */
 sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false):
   interface event(Valid(RiscvExecutionContext()), ~role: consumer)
+  input event_count: Bits(2)
   input inhibit: Bool
   interface counter_write(Valid(RiscvHpmWrite(xlen)), ~role: consumer)
   interface selector_write(Valid(RiscvHpmWrite(xlen)), ~role: consumer)
@@ -41,7 +42,8 @@ sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = 
   )
   // Reconfiguration and explicit writes take precedence over counting.
   def increment = event.valid & !inhibit & !mode_inhibited & !counter_write.valid & !selector_write.valid
-  def wrapped = increment & count.and_reduce()
+  def sum = count +& event_count.zext(64)
+  def wrapped = increment & sum[64].into(Bool)
   overflow.valid <== wrapped & !csr_flag(control, MhpmeventOF)
 
   def counter_replacement:
@@ -55,7 +57,7 @@ sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = 
   when (counter_write.valid):
     count <== counter_replacement
   elsewhen increment:
-    count <== count + bits(1, 64)
+    count <== sum[0..64]
   when (selector_write.valid):
     control <== selector_replacement & control_mask
   elsewhen wrapped:

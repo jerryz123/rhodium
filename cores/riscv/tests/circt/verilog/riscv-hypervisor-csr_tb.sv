@@ -38,7 +38,7 @@ module riscv_hypervisor_csr_tb;
   logic [2:0] frm, pointer_masking, guest_pointer_masking;
   logic fp_enabled, vector_enabled, translation_flush, pbmte, pointer_masking_changed;
   struct packed {logic vs_pbmte, virtualized; logic [63:0] hstatus, vsstatus, vsatp, hgatp;} guest_translation;
-  RiscvCsrFile dut (.retire(command_success), .vector_state(), .vector_retire_in('0),
+  RiscvCsrFile dut (.trap_event(), .retire_count({1'b0, command_success}), .vector_state(), .vector_retire_in('0),
     .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .*);
   always #5 clock = ~clock;
 

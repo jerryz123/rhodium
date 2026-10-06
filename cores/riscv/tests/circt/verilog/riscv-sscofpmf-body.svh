@@ -25,6 +25,9 @@
   logic [5:0] fp_update_in = 0;
   struct packed { logic valid; word_t bits; } redirect_out;
   logic command_success;
+  logic count_commands = 1;
+  logic [1:0] independent_retire = 0;
+  wire [1:0] retire_count = count_commands ? {1'b0, command_success} : independent_retire;
   logic interrupt_request, wfi, wfi_wake, writeback_valid;
   word_t writeback_value, mstatus, satp;
   logic [1:0] privilege;
@@ -38,14 +41,14 @@
 `ifdef RHODIUM_HPM_TEST_H
     struct packed { logic [1:0] privilege; logic virtualized; } execution_context;
     assign virtualized = execution_context.virtualized;
-    RiscvCsrFile dut (.retire(command_success), .guest_fault_in('0), .execution_context(execution_context),
+    RiscvCsrFile dut (.trap_event(), .guest_fault_in('0), .execution_context(execution_context),
       .guest_translation(), .guest_pointer_masking(), .pbmte(), .vector_state(),
       .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0),
       .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(),
       .pointer_masking_changed(), .*);
 `else
     assign virtualized = 0;
-  RiscvCsrFile dut (.retire(command_success), .pbmte(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
+  RiscvCsrFile dut (.trap_event(), .pbmte(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
 `endif
   always #5 clock = ~clock;
 
@@ -300,6 +303,12 @@
       assert (!virtualized && privilege == 1) else $fatal(1, "HS LCOFI must outrank VS interrupt");
       rd('h142, (word_t'(1) << 63) | 13);
     end
+    reset_state(); count_commands=0;
+    wr64('h323, 2); wr64('hb03, 64'hfffffffffffffffe);
+    @(negedge clock); independent_retire=2;
+    @(posedge clock); #1;
+    @(negedge clock); independent_retire=0;
+    rd('hb03,0); rd('hda0,8); rd('h344,'h2000);
     $display("PASS integrated Sscofpmf RV%0d H=%0d", XLEN, HYPERVISOR);
     $finish;
   end

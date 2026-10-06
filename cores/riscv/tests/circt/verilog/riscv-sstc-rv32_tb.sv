@@ -24,7 +24,7 @@ module riscv_sstc_rv32_tb;
   logic command_success, writeback_valid, interrupt_request, wfi_wake;
   logic [31:0] writeback_value;
   logic [1:0] privilege;
-  RiscvCsrFile dut (.retire(command_success),
+  RiscvCsrFile dut (.trap_event(), .retire_count({1'b0, command_success}),
     .clock, .reset, .interrupts, .time_counter, .hart_id, .interrupt_pc, .interrupt_boundary,
     .commit_in, .redirect_out, .command_success, .writeback_valid, .writeback_value, .privilege,
     .interrupt_request, .wfi_wake, .fp_update_in('0), .vector_retire_in('0),

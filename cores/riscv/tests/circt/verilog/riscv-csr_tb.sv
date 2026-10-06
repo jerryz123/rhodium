@@ -97,8 +97,8 @@ module riscv_csr_tb;
   logic interrupt_request;
   logic command_success;
   logic count_commands = 1;
-  logic independent_retire = 0;
-  wire retire = count_commands ? command_success : independent_retire;
+  logic [1:0] independent_retire = 0;
+  wire [1:0] retire_count = count_commands ? {1'b0, command_success} : independent_retire;
   logic wfi;
   logic wfi_wake;
   logic writeback_valid;
@@ -114,7 +114,7 @@ module riscv_csr_tb;
   logic [2:0] pointer_masking;
   logic pointer_masking_changed;
 
-  RiscvCsrFile dut (.vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .*);
+  RiscvCsrFile dut (.trap_event(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .*);
   always #5 clock = ~clock;
 
   task automatic clear_commit;
@@ -705,6 +705,10 @@ module riscv_csr_tb;
     csr_access(CSR_SET, CSR_INSTRET, 0, 3);
     csr_access(CSR_SET, CSR_MSCRATCH, 0, 64'h55);
     csr_access(CSR_SET, CSR_MINSTRET, 0, 3);
+    @(negedge clock); independent_retire = 2;
+    repeat (3) begin @(posedge clock); #1; end
+    @(negedge clock); independent_retire = 0;
+    csr_access(CSR_SET, CSR_MINSTRET, 0, 9);
     $display("Shared CSR state and caller-owned retirement passed");
     $finish;
   end

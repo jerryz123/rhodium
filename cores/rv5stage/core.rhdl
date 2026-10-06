@@ -1496,7 +1496,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_csrs.commit.valid <== wb_pending_exception_ready ||| (wb_macro_retire & !wb_current_exception_wait)
   // RV5Stage retires exactly one authorized macro when CSR/trap checks succeed.
   // The shared bank consumes this event but owns no pipeline-retirement policy.
-  wb_csrs.retire <== wb_csrs.command_success
+  wb_csrs.retire_count <== wb_csrs.command_success.as_bits().zext(2)
   wb_csrs.commit.bits <== RiscvCsrCommand(xlen):
     pc: wb_architectural_commit.pc
     instruction: wb_architectural_commit.raw_instruction

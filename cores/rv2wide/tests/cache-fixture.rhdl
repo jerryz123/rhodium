@@ -32,6 +32,9 @@ sync_circuit RV2WideCacheFixture():
   interface chi(CHIRNChannels(test_flit), ~role: node)
   output(issued, retired_count): Bits(2)
   inst core(RV2WideCore())
+  core.interrupts <== literal(core.interrupts.type, 0)
+  core.hart_id <== bits(0, 64)
+  core.time_counter <== bits(0, 64)
   inst data(RV2WideL1D(test_cache, ~chi: test_chi))
   instructions |> core.instructions
   core.retired <=> retired

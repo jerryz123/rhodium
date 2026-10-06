@@ -18,7 +18,7 @@ are explicit. The caller must keep those choices consistent with its ISA.
 
 ```text
 core's precise boundary -> Valid(RiscvCsrCommand) -> CSR/trap bank
-core's retirement event ------------------------> counters
+core's retirement count (0, 1, or 2) ------------> counters
 core's interrupt boundary + next PC ------------> interrupt entry
                          <- result, redirect, live architectural state
 ```
@@ -31,8 +31,8 @@ core's interrupt boundary + next PC ------------> interrupt entry
   `writeback_valid/value` report legal CSR/configuration results for nonzero
   `rd`. `wfi` reports an authorized, legal WFI; sleeping remains caller policy.
   `wfi_wake` exposes locally enabled pending interrupts.
-- `retire` independently counts one architectural retirement in `minstret`
-  and the optional retirement HPM event. Ordinary instructions need not send
+- `retire_count: Bits(2)` independently counts zero, one, or two architectural
+  retirements in `minstret` and the optional retirement HPM event. Ordinary instructions need not send
   commands. Command success does not itself increment counters. Counter CSR
   writes retain priority over increments.
 - The caller asserts `interrupt_boundary` with precise `interrupt_pc` only
@@ -42,6 +42,8 @@ core's interrupt boundary + next PC ------------> interrupt entry
 - Redirects, translation-flush notifications, pointer-mask changes, permissions,
   and live translation context are outputs. Draining older work, squashing
   younger work, cache/TLB invalidation, and resumption remain core policy.
+  `trap_event: RiscvTrapDecision` exposes the selected synchronous or interrupt
+  cause, value, and destination privilege on the trap-entry edge.
 - FP/vector completion inputs update flags/status and vector progress. Drain
   outstanding updates before changing the host/guest context owning them.
 
@@ -49,8 +51,8 @@ core's interrupt boundary + next PC ------------> interrupt entry
 
 The bank preserves the existing RV32 Bare and RV64 Bare/Sv39 behavior,
 including optional RV64 hypervisor state. Trap vectors are direct. Retirement
-accounting accepts zero or one instruction per cycle; multi-retire integration
-must extend counter accounting explicitly. There is no instruction decoder,
+accounting accepts at most two instructions per cycle from one execution context.
+The integrating core must serialize privilege transitions. There is no instruction decoder,
 page walker, cache engine, or issue/retirement queue here.
 
 CSR IDs, masks, WARL helpers, and architectural semantics remain in

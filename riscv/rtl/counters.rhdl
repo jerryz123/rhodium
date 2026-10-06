@@ -13,9 +13,9 @@ bundle RiscvCounterWrite(xlen :: XLen):
   address: Bits(12)
   value: Bits(xlen.width)
 
-/* Maintains reset-zero 64-bit cycle/retirement counters with explicit CSR writes taking precedence over increments. */
+/* Counts cycles and zero/one/two retirements with explicit CSR writes taking precedence over increments. */
 sync_circuit RiscvBaseCounters(xlen :: XLen):
-  input retire: Bool
+  input retire_count: Bits(2)
   interface machine_write(Valid(RiscvCounterWrite(xlen)), ~role: consumer)
   output cycle: Bits(64)
   output instret: Bits(64)
@@ -47,8 +47,8 @@ sync_circuit RiscvBaseCounters(xlen :: XLen):
 
   when (instret_low_write ||| instret_high_write):
     instret_counter <== instret_replacement
-  elsewhen retire:
-    instret_counter <== instret_counter + bits(1, 64)
+  otherwise:
+    instret_counter <== instret_counter + retire_count.zext(64)
 
   cycle <== cycle_counter
   instret <== instret_counter

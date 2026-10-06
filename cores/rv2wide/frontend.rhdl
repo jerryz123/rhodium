@@ -53,7 +53,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
     active <== Bool(#true)
     pc <== start.bits
   elsewhen (redirect.valid):
-    active <== redirect.bits.resolution.disposition =/= RV2WideDisposition.Fault
+    active <== Bool(#true)
     pc <== redirect.bits.target
   elsewhen (flush.valid):
     active <== Bool(#false)

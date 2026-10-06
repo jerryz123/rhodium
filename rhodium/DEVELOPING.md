@@ -316,6 +316,11 @@ privilege, timer, vector, and feature descriptors, plus `std/bits.rhdl`,
 `cores/riscv/cosim-source.rhm` metadata bridge. It imports no named core.
 `cores/rv5stage/csr.rhdl` projects named configuration/decode controls into its
 neutral configuration and command; `core.rhdl` owns retirement authorization.
+`cores/rv2wide/core.rhdl` also consumes this shared bank, architectural ISA/CSR/
+interrupt descriptors, and the neutral command/action protocol. Its composed
+system decode remains in `cores/rv2wide/decode/`; single-slot serialization,
+dual retirement counts, deferred-memory drain, and precise interrupt boundaries
+remain RV2Wide policy, without imports from another named core.
 
 `riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
 plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.

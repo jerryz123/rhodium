@@ -280,10 +280,11 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   input time_counter: Bits(64)
   input interrupt_boundary: Bool
   input interrupt_pc: Bits(width)
-  input retire: Bool
+  input retire_count: Bits(2)
   interface commit(Valid(RiscvCsrCommand(xlen)), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: consumer)
   interface redirect(Valid(Bits(width)), ~role: producer)
+  output trap_event: RiscvTrapDecision(xlen)
   output interrupt_request: Bool
   output command_success: Bool
   output wfi: Bool
@@ -759,6 +760,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     value: mux(synchronous_trap.valid, synchronous_trap.value, zero)
     target: mux(synchronous_trap.valid, synchronous_target, interrupt.target)
   def trap_pc = mux(interrupt_take, interrupt_pc, commit.bits.pc)
+  trap_event <== trap
   def trap_to_guest = trap.target === RiscvTrapTarget.VirtualSupervisor
   def trap_to_supervisor = trap.target === RiscvTrapTarget.Supervisor
 
@@ -814,13 +816,14 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
                                           csr_bits(CsrId.Mcycleh),
                                           csr_bits(CsrId.Minstreth))
   command_success <== commit.valid & !synchronous_trap.valid
-  counters.retire <== retire
+  counters.retire_count <== retire_count
   counters.machine_write.valid <== csr_write & machine_counter_csr
   counters.machine_write.bits <== RiscvCounterWrite(xlen):
     address: csr
     value: csr_replacement
   // Events use the retiring context, not speculative issue or individual vector beats.
-  hpm.event.valid <== Bool(sscofpmf) & ((hpm_selector[0..56] === bits(1, 56)) ||| ((hpm_selector[0..56] === bits(2, 56)) & retire))
+  hpm.event.valid <== Bool(sscofpmf) & ((hpm_selector[0..56] === bits(1, 56)) ||| ((hpm_selector[0..56] === bits(2, 56)) & retire_count.or_reduce()))
+  hpm.event_count <== mux(hpm_selector[0..56] === bits(2, 56), retire_count, bits(1, 2))
   hpm.event.bits <== context
   hpm.inhibit <== hpm_inhibit ||| Bool(!sscofpmf)
   hpm.counter_write.valid <== Bool(sscofpmf) & csr_write & csr.is_one_of(csr_bits(CsrId.Mhpmcounter3), csr_bits(CsrId.Mhpmcounter3h))
@@ -975,7 +978,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     "interrupt_take": interrupt_take,
     "synchronous_trap": synchronous_trap.valid,
     "commit": commit.valid,
-    "retired": retire,
+    "retired": retire_count.or_reduce(),
     "privilege": privilege_state,
     "virtualized": virtualized,
     "trap_cause": trap.cause,
