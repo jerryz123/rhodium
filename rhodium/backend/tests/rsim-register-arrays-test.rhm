@@ -81,3 +81,30 @@ for (budget in [1, 1000000]):
     emitted.contains("if (v0)") ~is #true
     emitted.contains("array4") ~is #false
     emitted.contains("array5") ~is #false
+
+// A row observer formerly made the inner update shared. Forwarding its read
+// leaves one whole-array consumer, so existing fusion can absorb both writes.
+def observed_steps = steps ++ [RsimStep("rtl.vector_index", Bits(129), [4, 2], {})]
+def observed = RsimSchedule(original.name, inputs, [RsimPort("row", Bits(129), 7)], observed_steps,
+                            original.registers, [], [], [], [], [])
+def before_forward = build_evaluation_plan(observed)
+def after_forward = compact_array_updates(observed)
+def after_plan = build_evaluation_plan(after_forward)
+check:
+  before_forward.pre_edge.sinks[0].array.steps.length() ~is 2
+  after_plan.pre_edge.sinks[0].array.steps.length() ~is 3
+  after_forward ~is compact_array_updates(after_forward)
+// A genuine output of the same whole version still stops fusion.
+def shared_observed = RsimSchedule(observed.name, inputs, observed.outputs ++ [RsimPort("whole", vector, 4)], observed_steps,
+                                   original.registers, [], [], [], [], [])
+check: build_evaluation_plan(compact_array_updates(shared_observed)).pre_edge.sinks[0].array.steps.length() ~is 2
+
+// Distinct reads that become one forwarded value must not leave C++ self-
+// comparisons behind. Preserve the original equality/ordering result.
+for (opcode in ["rtl.eq", "rtl.ult", "rtl.slt"]):
+  def compared_steps = observed_steps ++ [RsimStep("rtl.vector_index", Bits(129), [4, 2], {}), RsimStep(opcode, Bits(1), [7, 8], {})]
+  def compared = RsimSchedule("ForwardedComparison", inputs, [RsimPort("same", Bits(1), 9)], compared_steps, [], [], [], [], [], [])
+  def result = compact_array_updates(compared)
+  check:
+    result.steps[result.outputs[0].value].opcode ~is "rtl.constant"
+    result.steps[result.outputs[0].value].attributes["value"] ~is (if opcode == "rtl.eq" | 1 | 0)

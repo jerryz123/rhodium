@@ -43,7 +43,7 @@ a shared semantic responsibility actually belongs in core.
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Standalone and SV-binding targets sharing one prepared model plan |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
-| `rsim/array-updates.rhm` | Exact recovery of single-index array updates and unused-value pruning |
+| `rsim/array-updates.rhm` | Exact array-update recovery, read forwarding, and unused-value pruning |
 | `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
 | `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
@@ -111,8 +111,22 @@ ordered mux keys and defaults, and matching projections for every lane. Only
 diagnostic names are ignored. Keep original constructor provenance during this
 comparison, including constructors already recognized as updates. Candidate
 buckets and recursion depth are bounded; an unproven match retains its ordinary
-computation. This does not create new whole-value dependencies during scheduling
-or forward reads through updates.
+computation. This does not create new whole-value dependencies during scheduling.
+
+After recovery, forward static and dynamic reads through updates and bounded
+lookup-mux trees, carrying nested field/lane paths into the selected element.
+Later updates retain priority. Dynamic comparisons explicitly zero-extend unequal
+index widths and guard the read index against the array length: equal invalid
+indices still produce rsim's zero element. Static lanes beyond an update index's
+representable range cannot select that replacement. These preserve native choices
+for partial operations without defining new public HDL behavior.
+
+Each query visits at most 64 distinct value/path pairs before declining the whole
+rewrite. Query-local recipes use shallow IDs and are materialized once per accepted
+node, so shared mux DAGs do not expand exponentially. Repeated queries and newly
+generated expressions share exact results; expression sharing checks hardware
+`type_equal`. Constructors and muxes are traversed only to plan these queries;
+queries that expose no update leave the original computation intact.
 
 The pass uses the existing `rtl.vector_inject` schedule operation, then removes
 unused value producers in dependency order. Inputs, outputs, state sinks, every
@@ -601,7 +615,11 @@ selector dependencies but omit unrelated sibling-field dependencies.
 1/3/4 for scalar and nested record elements, write-port permutation, disabled
 invalid indices, and pre-edge read capture with vector state updates. Invalid
 partial results are masked by fixture muxes; only defined outputs are compared.
-Its separate native harness uses address/undefined-behavior sanitization at
+Additional raw reads through update chains cover full-width update indices and
+nested field projections. Their native oracle checks zero-on-miss reads; the SV
+oracle ignores precisely those additional outputs whose original HDL operation
+has an out-of-range index. Its separate native harness uses
+address/undefined-behavior sanitization at
 `-O0` to keep eager partial computations visible to bounds checks; the baseline
 harness retains its optimized build.
 `tests/rsim/memory.py` tracks per-word definedness across two occurrences at
@@ -769,17 +787,24 @@ independently authored duplicate arithmetic and existing state, memory, assertio
 and DPI fixtures at ordinary and forced-small region budgets.
 `tests/rsim-array-updates-test.rhm` checks exact lane matching, wrapped-index
 non-matches, retained shared consumers, deterministic pruning, and effect/resource
-remapping. Projected nested muxes must match every lane, selector, and ordered key
+remapping. An independent schedule interpreter compares original and forwarded
+reads with mixed 1/2/64-bit indices, 129-bit nested leaves, equal invalid indices,
+update priority, and ordered lookup arms. Bounded-query and shared-DAG cases
+check deterministic/idempotent rewriting and dependency order. Projected nested
+muxes must match every lane, selector, and ordered key
 before reusing an earlier aggregate. Dynamic native/direct-SV scoreboards observe
 expanded updates, a prioritized work/grant chain with shared whole-array and row
 consumers, and old-state capture across reset, eval-only calls, and out-of-range
 indices. Constant-ROM fixtures cover aggregate updates containing wide leaves.
 `tests/rsim-register-arrays-test.rhm` checks exclusive destination assignments,
 retained shared versions, reset at step zero, unchanged schedule identities, and
-leaf availability across region boundaries. Dynamic scoreboards cover chained
-write priority, shared output/register consumers, old-state reads, reset and
+leaf availability across region boundaries. A row-only observer must stop holding
+an update live after forwarding, while a genuine whole-array observer still blocks
+fusion. Dynamic scoreboards cover chained write priority, shared output/register consumers, old-state reads, reset and
 unreset destinations; wide fixtures add wide record leaves and mux keys.
-Assertion fixtures include partially updated arrays in failure/retry snapshots.
+Assertion fixtures observe forwarded pending-array reads in failure/retry
+snapshots. Foreign fixtures consume forwarded reads as effect-only arguments while
+retaining the existing call-order, feedback, and reset oracle.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
 Planner checks validate structured backing, borrowing and helper-local fallback,
 deterministic slot allocation, and array-run expansion against the original

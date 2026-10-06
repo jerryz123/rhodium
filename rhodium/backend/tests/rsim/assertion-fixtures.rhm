@@ -36,12 +36,17 @@ fun make_assertions():
   def array_type = VectorType(2, Bits(8))
   def array_zero = b.vector_create(leaf, array_type, [b.constant(leaf, Bits(8), 0), b.constant(leaf, Bits(8), 0)])
   def array = b.register(leaf, "qarray", array_type, b.read(alias), reset, array_zero)
-  b.drive(array.next, b.vector_inject(leaf, array.current, write_address, next_state))
+  def array_next = b.vector_inject(leaf, array.current, write_address, next_state)
+  b.drive(array.next, array_next)
   for (index in 0..2):
     b.drive(b.output(leaf, "array" ++ to_string(index), Bits(8)), b.vector_get(leaf, array.current, index))
   def reset_bits = b.mux_lookup(leaf, late_mode, b.cast(leaf, reset, Bits(1)), [[1, late.current], [2, b.bit_not(leaf, late.current)]])
   def assertion_reset = b.cast(leaf, reset_bits, Reset)
-  b.assert(leaf, condition, b.read(alias), assertion_reset, guard, "named_check", Location("assert-fixture.rhdl", 30, 2))
+  // The named failure condition observes the pending array version. Forwarding
+  // this read must not change assertion ordering or expose a failed bank on retry.
+  def checked_next = b.vector_index(leaf, array_next, write_address)
+  def expected_next = b.mux_lookup(leaf, condition, b.bit_xor(leaf, next_state, b.constant(leaf, Bits(8), 1)), [[1, next_state]])
+  b.assert(leaf, b.eq(leaf, checked_next, expected_next), b.read(alias), assertion_reset, guard, "named_check", Location("assert-fixture.rhdl", 30, 2))
   b.assert(leaf, unnamed_condition, b.read(alias), reset, unnamed_guard, #false, Location("dir/\"quoted\"\\checks\nline.rhdl", 41, 7))
   b.assert(leaf, b.eq(leaf, state.current, expected), b.read(alias), reset, sample_guard, "sample_check", Location("assert-fixture.rhdl", 42, 0))
   def address = b.constant(leaf, Bits(1), 0)

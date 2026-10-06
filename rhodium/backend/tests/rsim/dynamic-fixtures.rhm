@@ -101,7 +101,7 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   def nested_old = b.register(top, "nested_old", element_type, clock, reset, zero_element)
   fun expanded_update(source :: Value, index :: Value, replacement :: Value):
     def lanes = for List (lane in 0..length):
-      b.mux_lookup(top, b.eq(top, index, b.constant(top, Bits(index_width), lane)), b.vector_get(top, source, lane), [[1, replacement]])
+      b.mux_lookup(top, b.eq(top, index, b.constant(top, Bits(index.type.packed_width()), lane)), b.vector_get(top, source, lane), [[1, replacement]])
     b.vector_create(top, vector, lanes)
   def work_low = expanded_update(nested.current, index0, element(67))
   def work_high = expanded_update(nested.current, index1, element(71))
@@ -115,5 +115,13 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   b.drive(b.output(top, "nestedstate", vector), nested.current)
   b.drive(b.output(top, "nestedold", element_type), nested_old.current)
   b.drive(b.output(top, "nestedrow", element_type), b.mux_lookup(top, read_ok, zero_element, [[1, b.vector_index(top, work, selector)]]))
+  // Raw reads qualify native zero-on-miss choices; the SV oracle ignores only
+  // out-of-range partial results. Mixed widths must compare full indices.
+  b.drive(b.output(top, "forwardread", element_type), b.vector_index(top, chained, selector))
+  def wide_chain = expanded_update(expanded_update(base, index0, element(83)), a, element(89))
+  b.drive(b.output(top, "forwardwide", element_type), b.vector_index(top, wide_chain, selector))
+  def last_row = b.vector_get(top, chained, length - 1)
+  def last_leaf = if aggregate | b.vector_get(top, b.record_get(top, last_row, "lanes"), 1) | last_row
+  b.drive(b.output(top, "forwardleaf", Bits(64)), last_leaf)
   b.finish(top)
   ElaboratedProgram(design, top)

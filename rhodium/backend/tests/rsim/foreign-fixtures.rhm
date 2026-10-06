@@ -32,7 +32,13 @@ fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_w
     def data = b.input(leaf, "data" ++ suffix, type)
     def imp = b.dpi_import((if width == 8 | byte_function_name | "rsim_foreign" ++ suffix), ["tag", "data"], [Bits(8), type], "result", type)
     def argument = b.wire(leaf, "argument" ++ suffix, type)
-    def result = b.dpi_register(leaf, "held" ++ suffix, imp, [tag, b.read(argument)], b.read(alias), enable)
+    // Forward a read into an effect-only argument without changing call order,
+    // reset behavior, or feedback through the held foreign result.
+    def index = b.extract(leaf, tag, 0, 0)
+    def array = b.vector_create(leaf, VectorType(2, type), [data, data])
+    def updated = b.vector_inject(leaf, array, index, b.read(argument))
+    def observed = b.vector_index(leaf, updated, index)
+    def result = b.dpi_register(leaf, "held" ++ suffix, imp, [tag, observed], b.read(alias), enable)
     // Exercise a true feedback edge through foreign result state. Reset selects
     // an initializing argument, but never suppresses the enabled call.
     b.drive(argument, if width == 32 | b.mux_lookup(leaf, b.cast(leaf, reset, Bits(1)), b.bit_xor(leaf, data, result), [[1, data]]) | data)

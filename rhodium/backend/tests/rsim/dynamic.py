@@ -31,7 +31,9 @@ def ports(length, record):
             ('sharedcopy', length*bits, vector), ('sharedupdate', length*bits, vector),
             ('unreset', length*bits, vector), ('nestedbase', length*bits, vector),
             ('nestednext', length*bits, vector), ('nestedstate', length*bits, vector),
-            ('nestedold', bits, element), ('nestedrow', bits, element)]
+            ('nestedold', bits, element), ('nestedrow', bits, element),
+            ('forwardread', bits, element), ('forwardwide', bits, element),
+            ('forwardleaf', 64, [('', 64, 0)])]
 
 
 OUTPUT_COUNT = sum(len(fields) for _, _, fields in ports(4, True))
@@ -56,7 +58,7 @@ def nested_versions(state, a, b, record, enables, i0, i1, selector, valid):
     return work, grant
 
 
-def stimuli():
+def stimuli(differential=False):
     rng = random.Random(439)
     rows, expected = [], []
     for config, (length, record) in enumerate(CONFIGS):
@@ -66,6 +68,10 @@ def stimuli():
         for selector, i0, i1, enables in itertools.product(range(encodings), range(encodings), range(encodings), range(4)):
             commands.append((rng.randrange(2), 0, selector, i0, i1, enables,
                              rng.choice((0, 1, MASK64, 1 << 63)), rng.getrandbits(64)))
+        edges = sorted({0, 1, length - 1, length, 1 << 32, 1 << 63, MASK64})
+        commands += [(0, 0, selector, i0, i1, 3, a, b)
+                     for selector, i0, i1 in ((0, 0, 0), (length - 1, 0, length - 1))
+                     for a, b in itertools.product(edges, edges)]
         commands += [(rng.randrange(2), int(rng.randrange(17) == 0), rng.getrandbits(64),
                       rng.getrandbits(64), rng.getrandbits(64), rng.getrandbits(64),
                       rng.getrandbits(64), rng.getrandbits(64)) for _ in range(100)]
@@ -113,6 +119,27 @@ def stimuli():
             results += fused + [fused_old] + shared + shared_copy + shared_update + unreset
             work, grant = nested_versions(nested, a, b, record, enables, i0, i1, selector, valid)
             results += work + grant + nested + [nested_old, work[selector] if selector < length else zero]
+            chain = list(fused)
+            if i0 < length:
+                chain[i0] = element(a, b, 37, record)
+            if i1 < length:
+                chain[i1] = element(a, b, 41, record)
+            wide = list(base)
+            if i0 < length:
+                wide[i0] = element(a, b, 83, record)
+            if a < length:
+                wide[a] = element(a, b, 89, record)
+            forward_read = chain[selector] if selector < length else zero
+            forward_wide = wide[selector] if selector < length else zero
+            forward_leaf = (chain[-1][-1],)
+            if differential:
+                if i0 >= length or i1 >= length or selector >= length:
+                    forward_read = (None,) * len(zero)
+                if selector >= length:
+                    forward_wide = (None,) * len(zero)
+                if i0 >= length or i1 >= length:
+                    forward_leaf = (None,)
+            results += [forward_read, forward_wide, forward_leaf]
             flat = [value for result in results for value in result]
             expected.append(flat + [0] * (OUTPUT_COUNT - len(flat)))
             rows.append([config, tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, int(valid), a, b])
@@ -231,5 +258,5 @@ def run_suite(work, run, compare, differential):
              '--Mdir', str(work / 'dynamic-obj'), *map(str, sorted(work.glob('Dynamic*.sv'))),
              str(driver)], work, 'dynamic-verilator')
         compare(run([str(work / 'dynamic-obj/VDynamicReference')], work, 'dynamic-reference', vectors),
-                expected, 'Verilator dynamic')
+                stimuli(differential=True)[1], 'Verilator dynamic')
     return len(expected)

@@ -149,3 +149,112 @@ check:
   grant.opcode ~is "rtl.vector_inject"
   grant.operands[0] ~is nested_base
   plan.schedule ~is compact_array_updates(plan.schedule)
+
+// An independent value interpreter checks the rewrite itself, including rsim's
+// native choices for out-of-range reads/writes (not public HDL guarantees).
+fun zero(type):
+  cond
+  | vector_type(type): for List (_ in 0..type.length): zero(type.element_type)
+  | record_type(type): for Map (field in type.fields): values(field.name, zero(field.type))
+  | ~else: 0
+fun observe(schedule, inputs):
+  def computed = MutableList[]
+  for (step in schedule.steps):
+    def args = step.operands.map(fun (value): computed[value])
+    def result = match step.opcode
+    | "input": inputs[step.attributes["name"]]
+    | "rtl.constant": step.attributes["value"]
+    | "rtl.eq": (if args[0] == args[1] | 1 | 0)
+    | "rtl.ult": (if args[0] < args[1] | 1 | 0)
+    | "rtl.and": (if args[0] != 0 && args[1] != 0 | 1 | 0)
+    | "rtl.zext": args[0]
+    | "rtl.vector_inject":
+        for List (old in args[0], lane in 0..args[0].length()): if lane == args[1] | args[2] | old
+    | "rtl.vector_get": args[0][step.attributes["index"]]
+    | "rtl.vector_index": (if args[1] < args[0].length() | args[0][args[1]] | zero(step.type))
+    | "rtl.record_get": args[0][step.attributes["field"]]
+    | "rtl.mux_lookup":
+        def index = step.attributes["keys"].index(args[0])
+        if index == #false | args[1] | args[index + 2]
+    | ~else: error(step.opcode)
+    computed.add(result)
+  schedule.outputs.map(fun (port): computed[port.value])
+
+fun read_fixture(length, write_width, read_width, shared = #false):
+  def element = RecordType([RecordField("data", VectorType(2, Bits(129))), RecordField("tag", Bits(3))])
+  def vector = VectorType(length, element)
+  def steps = MutableList[
+    RsimStep("input", vector, [], {"name": "base"}),
+    RsimStep("input", Bits(write_width), [], {"name": "i"}),
+    RsimStep("input", Bits(read_width), [], {"name": "j"}),
+    RsimStep("input", element, [], {"name": "x"}),
+    RsimStep("input", element, [], {"name": "y"}),
+    RsimStep("input", Bits(2), [], {"name": "choice"})]
+  fun add(opcode, type, operands, attributes = {}):
+    def id = steps.length()
+    steps.add(RsimStep(opcode, type, operands, attributes))
+    id
+  def first = add("rtl.vector_inject", vector, [0, 1, 3])
+  def second = add("rtl.vector_inject", vector, [first, 2, 4])
+  def selected = add("rtl.mux_lookup", vector, [5, first, second, 0], {"keys": [3, 1]})
+  def read = add("rtl.vector_index", element, [selected, 2])
+  def repeated = add("rtl.vector_index", element, [selected, 2])
+  def field = add("rtl.record_get", element.field("data").type, [read], {"field": "data"})
+  def leaf = add("rtl.vector_get", Bits(129), [field], {"index": 1})
+  def last = add("rtl.vector_get", element, [first], {"index": length - 1})
+  def reset = add("rtl.constant", Bits(1), [], {"value": 0})
+  def enable = add("rtl.constant", Bits(1), [], {"value": 1})
+  def condition = add("rtl.eq", Bits(1), [leaf, leaf])
+  def imp = Builder(Design()).dpi_import_results("consume_forwarded", ["value"], [Bits(129)], [])
+  RsimSchedule("ForwardReads", for List (step in steps.snapshot().take(6), index in 0..6): RsimPort(step.attributes["name"], step.type, index),
+               [RsimPort("read", element, read), RsimPort("again", element, repeated), RsimPort("leaf", Bits(129), leaf), RsimPort("last", element, last)]
+                 ++ (if shared | [RsimPort("shared", vector, first)] | []),
+               steps.snapshot(), [RsimRegister([], "q", vector, selected, reset, 0)],
+               [RsimMemory([], "ram", 8, Bits(129))], [RsimWrite(0, 1, leaf, enable)], [],
+               [RsimAssertion([], "forwarded", "fixture", condition, reset, enable)], [RsimForeign(imp, enable, [leaf])])
+
+for (length in [1, 3, 8]):
+  for ([write_width, read_width] in [[1, 2], [2, 1], [2, 64], [64, 2], [64, 64]]):
+    for (shared in [#false, #true]):
+      def source = read_fixture(length, write_width, read_width, shared)
+      def result = compact_array_updates(source)
+      check:
+        result.outputs[0].value ~is result.outputs[1].value
+        result ~is compact_array_updates(result)
+        result ~is compact_array_updates(source)
+        result.foreign_calls[0].arguments ~is [result.outputs[2].value]
+        result.writes[0].data ~is result.outputs[2].value
+        result.assertions[0].label ~is "forwarded"
+        source.steps[source.outputs[0].value].opcode ~is "rtl.vector_index"
+      for (step in result.steps, index in 0..result.steps.length()):
+        check: (for all (operand in step.operands): operand < index) ~is #true
+      for (i in [0, 1, length - 1, length, 2 ** write_width - 1]):
+        for (j in [0, 1, length - 1, length, 2 ** read_width - 1]):
+          for (choice in 0..4):
+            def base = for List (lane in 0..length): {"data": [lane, 2 ** 128 + lane], "tag": lane mod 8}
+            def input = {"base": base,
+                         "i": i mod (2 ** write_width), "j": j mod (2 ** read_width),
+                         "x": {"data": [17, 2 ** 128 + 37], "tag": 3}, "y": {"data": [29, 41], "tag": 5}, "choice": choice}
+            check: observe(result, input) ~is observe(source, input)
+
+// A shared mux DAG must not expand into an exponential expression tree. An
+// oversized query declines as a whole and keeps the same immutable schedule.
+for ([depth, dag] in [[24, #true], [80, #false]]):
+  def source = read_fixture(3, 2, 2)
+  def vector = source.inputs[0].type
+  def steps = MutableList[]
+  for (step in source.steps.take(7)): steps.add(step)
+  def mutable value = 6
+  for (_ in 0..depth):
+    def added = if dag
+    | RsimStep("rtl.mux_lookup", vector, [5, value, value], {"keys": [3]})
+    | RsimStep("rtl.vector_inject", vector, [value, 1, 3], {})
+    steps.add(added)
+    value := steps.length() - 1
+  steps.add(RsimStep("rtl.vector_index", vector.element_type, [value, 2], {}))
+  def schedule = RsimSchedule("BoundedReads", source.inputs, [RsimPort("read", vector.element_type, steps.length() - 1)], steps.snapshot(), [], [], [], [], [], [])
+  def result = compact_array_updates(schedule)
+  check:
+    result ~is compact_array_updates(result)
+    result.steps.length() < depth * 3 + 30 ~is #true
+  unless dag | check: result === schedule ~is #true
