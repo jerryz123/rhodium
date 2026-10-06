@@ -99,6 +99,30 @@ void mapped(unsigned mutation = 0) {
   f.emit(0x12000073);
   f.read(other,99);
 }
+
+void external_mapping(bool mailbox, bool corrupt = false) {
+  Fixture f;
+  // Page walks and instruction fetch remain independent even when their
+  // backing addresses also have an environmental data-read policy.
+  for (auto address : {root + 8, middle, leaf, leaf + 8, text})
+    f.checker.external_memory({address, 8});
+  if (mailbox) {
+    f.checker.external_memory({data, 8});
+    f.checker.host_write(f.order + 1, data, bytes(99, 8));
+  }
+  f.read(data, mailbox ? 99 : 42, corrupt ? 4 : 0);
+}
+
+void external_page_fault(bool reported_success = false) {
+  Fixture f(0xc9); // Execute-only page with MXR clear: a load must fault.
+  f.checker.external_memory({data, 8});
+  if (reported_success) { f.read(data, 99); return; }
+  auto effect = memory(o::AccessKind::Load, va, 0, 0);
+  effect.result = o::AccessResult::Fault;
+  effect.physical_valid = effect.read_valid = effect.write_valid = false;
+  o::Trap trap{13, f.pc, va, base + 0x400, {3, false}, false, 0, 0};
+  f.emit(0x00053603, {{{2, 0}, effect}}, trap);
+}
 void page_fault(unsigned flags, bool store, unsigned mutation = 0) {
   Fixture f(flags);
   o::Trap trap{store ? 15ULL : 13ULL,f.pc,va,base+0x400,{3,false},false,0,0};
@@ -249,6 +273,16 @@ template<class F> void rejects(F action) {
 }
 }
 int main() {
+  external_page_fault();
+  bool denied = false;
+  try { external_page_fault(true); } catch (const std::runtime_error&) { denied = true; }
+  if (!denied) throw std::runtime_error("external-memory replay bypassed page permissions");
+  for (bool mailbox : {false, true}) {
+    external_mapping(mailbox);
+    bool failed = false;
+    try { external_mapping(mailbox, true); } catch (const std::runtime_error&) { failed = true; }
+    if (!failed) throw std::runtime_error("translated external-memory corruption was not rejected");
+  }
   sv32();
   rejects([] { sv32(true); });
   mapped();

@@ -72,6 +72,7 @@ def sail_default():
             "Stateen": {"Smstateen": {"supported": False}, "Ssstateen": {"supported": False}},
         },
         "base": {
+            "tselect_present": True,
             "mtvec": {"direct": {}, "vectored": {}}, "stvec": {"direct": {}, "vectored": {}},
             "vstvec": {"direct": {}, "vectored": {}},
             "mstatus": {}, "xtval_nonzero": {},

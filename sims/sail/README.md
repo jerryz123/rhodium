@@ -22,6 +22,9 @@ VLEN/ELEN, privilege versions, translation, CSR masks, trap choices, CBO geometr
 and reservation constraints. It leaves memory regions and reference devices
 untouched for the caller to replace. Unsupported mappings fail explicitly.
 The projection preserves `mcountinhibit` presence and its exact writable mask.
+Our no-trigger harts set `base.tselect_present` false so optional selector accesses
+trap, including OpenSBI's trigger probe. The patched model retains its legacy
+placeholder by default; this control does not implement or advertise Sdtrig.
 For H profiles, the current supported transformed-instruction policy is the
 UDB's always-zero choice; other policies fail instead of inheriting Sail defaults.
 

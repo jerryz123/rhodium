@@ -121,6 +121,81 @@ void check_faults() {
   CHECK(illegal.trap && illegal.trap->cause == 2 && !illegal.retired && illegal.next_pc == ram + 256);
 }
 
+void check_external_memory(unsigned xlen) {
+  SailReference model(configuration(xlen), ram, backing);
+  program(model, ram, {0x00000517, load(1, 10, 128, 0), store(1, 10, 129, 0)});
+  model.external_memory({ram + 128, 8});
+  CHECK(model.externally_mutable(ram + 128, 8));
+  CHECK(!model.externally_mutable(ram + 136, 1));
+  rejects<std::out_of_range>([&] { model.externally_mutable(ram + 127, 2); });
+  rejects<std::invalid_argument>([&] { model.external_memory({ram + 128, 1}); });
+  rejects<std::invalid_argument>([&] { model.external_memory({ram, 0}); });
+  rejects<std::invalid_argument>([&] { model.external_memory({UINT64_MAX, 2}); });
+  rejects<std::invalid_argument>([&] { model.external_memory({ram + 0x10000, 8}); });
+  rejects<std::invalid_argument>([&] { model.external_memory({0x02000000, 8}); });
+  CHECK(model.step().retired);
+  StepInputs inputs;
+  inputs.external_reads = {{ram + 128, {0x80}}};
+  auto read = model.step(inputs);
+  CHECK(read.retired && written(read, 1, xlen == 32 ? 0xffffff80 : 0xffffffffffffff80));
+  CHECK(std::any_of(read.memory.begin(), read.memory.end(), [](const auto& access) {
+    return !access.instruction && !access.device && access.address == ram + 128 && access.value == std::vector<std::uint8_t>({0x80});
+  }));
+  // Replayed bytes are input, not repair of the independent RAM image.
+  CHECK(model.read_memory(ram + 128, 1) == std::vector<std::uint8_t>({0}));
+  CHECK(model.step().retired);
+  CHECK(model.read_memory(ram + 129, 1) == std::vector<std::uint8_t>({0x80}));
+}
+
+void check_external_replay_failures() {
+  for (unsigned kind = 0; kind != 7; ++kind) {
+    SailReference model(configuration(64), ram, backing);
+    program(model, ram, {0x00000517, load(1, 10, 128, 0)});
+    if (kind != 4) model.external_memory({ram + 128, 8});
+    CHECK(model.step().retired);
+    StepInputs replay;
+    if (kind != 0) replay.external_reads = {{ram + 128, {0x80}}};
+    if (kind == 1) replay.external_reads[0].address += 1;
+    if (kind == 2) replay.external_reads[0].value.push_back(0);
+    if (kind == 3) replay.external_reads.push_back({ram + 128, {0x81}});
+    if (kind == 5) { replay.device_reads = replay.external_reads; replay.external_reads.clear(); }
+    if (kind == 6) { // Fetch must never consume environmental bytes.
+      model.external_memory({ram + 4, 4});
+      replay.external_reads.insert(replay.external_reads.begin(), {ram + 4, {0, 0, 0, 0}});
+    }
+    rejects<std::runtime_error>([&] { model.step(replay); });
+    rejects<std::logic_error>([&] { model.step(); });
+  }
+  // Registering a read-only region does not grant store permission.
+  SailReference model(configuration(64), ram, backing);
+  model.external_memory({0x1000, 8});
+  program(model, ram, {0x000010b7, store(0, 1, 0, 2)});
+  CHECK(model.step().retired);
+  auto denied = model.step();
+  CHECK(denied.trap && denied.trap->cause == 7);
+}
+
+void check_tselect(unsigned xlen) {
+  auto config = jsoncons::json::parse(configuration(xlen));
+  CHECK(config["base"]["tselect_present"].as<bool>());
+  {
+    SailReference model(config.to_string(), ram, backing);
+    program(model, ram, {csrw(0x7a0, 0), 0x7a0020f3});
+    CHECK(model.step().retired);
+    CHECK(written(model.step(), 1, xlen == 32 ? UINT32_MAX : UINT64_MAX));
+  }
+  config["base"]["tselect_present"] = false;
+  for (unsigned encoding : {0x7a0020f3U, csrw(0x7a0, 0), 0x7a0060f3U}) {
+    SailReference model(config.to_string(), ram, backing);
+    program(model, ram, {encoding});
+    auto absent = model.step();
+    CHECK(absent.trap && absent.trap->cause == 2 && absent.trap->epc == ram);
+    CHECK(!absent.retired && std::all_of(absent.writes.begin(), absent.writes.end(), [](const auto& write) {
+      return write.bank == RegisterWrite::Bank::Csr && write.index != 0x7a0;
+    })); // Trap entry updates CSRs, but never the selector or a destination.
+  }
+}
+
 void check_interrupt(unsigned cause) {
   SailReference model(configuration(64), ram, backing);
   program(model, ram, {0x00000517, addi(5, 10, 256), csrw(0x305, 5),
@@ -228,11 +303,13 @@ int main() {
   try {
     for (unsigned xlen : {32, 64}) {
       check_scalar(xlen); check_mmio(xlen); check_time(xlen); check_machine_counters(xlen);
+      check_external_memory(xlen); check_tselect(xlen);
     }
     check_faults();
     for (unsigned cause : {1, 3, 5, 7, 9, 11}) check_interrupt(cause);
     check_wait_and_reset();
     check_replay_failures();
+    check_external_replay_failures();
     check_fesvr_coexistence();
     std::cout << "Sail embedding: RV32/RV64, traps, interrupts, MMIO, lifecycle, FESVR passed\n";
     return 0;

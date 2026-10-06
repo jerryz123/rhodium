@@ -44,15 +44,25 @@ class SailConfigurationTest(unittest.TestCase):
                     self.assertEqual(model_defaults("sail", xlen), default)
                     args = invoke.call_args.args[0]
                     self.assertEqual("--rv32" in args, xlen == 32)
-            for key in ("mcountinhibit", "transformed_instruction"):
+            for key in ("mcountinhibit", "transformed_instruction", "tselect_present"):
                 old = copy.deepcopy(default)
-                del (old["base"] if key == "mcountinhibit" else old["extensions"]["H"])[key]
+                del (old["extensions"]["H"] if key == "transformed_instruction" else old["base"])[key]
                 with patch("sail.soc_config.subprocess.check_output", side_effect=["0.14.1", json.dumps(old)]):
                     with self.assertRaisesRegex(ValueError, "rebuild with arch-test-sail-setup"):
                         model_defaults("old-sail", 64)
             with patch("sail.soc_config.subprocess.check_output", return_value="0.14.2"):
                 with self.assertRaisesRegex(ValueError, "expected Sail 0.14.1"):
                     model_defaults("other-sail", 64)
+
+    def test_no_trigger_harts_omit_tselect_in_both_projections(self):
+        for xlen in (32, 64):
+            udb = vector_udb()
+            udb["params"]["MXLEN"] = xlen
+            self.assertFalse(project_architecture(self.default(), udb)["base"]["tselect_present"])
+        udb = vector_udb()
+        udb["implemented_extensions"].append({"name": "Sdtrig", "version": "1.0.0"})
+        with self.assertRaisesRegex(ValueError, "Sdtrig"):
+            project_architecture(self.default(), udb)
 
     def test_mcountinhibit_projects_presence_and_exact_writable_mask(self):
         for supported, enabled in ((False, ()), (True, ()), (True, (0, 2)), (True, (3, 31))):

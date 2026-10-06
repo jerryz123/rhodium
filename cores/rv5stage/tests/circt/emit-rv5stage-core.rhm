@@ -10,7 +10,7 @@ import:
   "../../../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../../../cores/rv5stage/profile.rhm".RV5StageConfig
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100000000))
+def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100000000, ~split_memory: #true))
 
 // This timing contract stops at the three always-captured pipeline payloads.
 // In particular, retirement arbitration must not become an EX operand source.

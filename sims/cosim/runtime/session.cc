@@ -28,6 +28,11 @@ template<class F> int boundary(F&& action) noexcept {
 }
 }
 namespace rhodium::cosim {
+void simulation_htif_mailboxes(std::uint64_t tohost, std::uint64_t fromhost) {
+  if (!checker) throw std::runtime_error("HTIF mailboxes before cosim initialization");
+  for (auto address : {tohost, fromhost})
+    if (address) checker->external_memory({address, 8});
+}
 void simulation_host_write(std::uint64_t address, std::span<const std::uint8_t> data) {
   if (!checker) throw std::runtime_error("host write before cosim initialization");
   checker->host_write(sample, address, data);

@@ -23,6 +23,7 @@ bool SailChecker::backed(std::uint64_t address, std::size_t size) const {
   return false;
 }
 void SailChecker::load(std::uint64_t address, std::span<const std::uint8_t> data) { reference_.load(address, data); }
+void SailChecker::external_memory(MemoryRange range) { reference_.external_memory(range); }
 void SailChecker::host_write(std::uint64_t sample, std::uint64_t address, std::span<const std::uint8_t> data) {
   // Device effects occur in the DUT only. Device reads are replayed when stepping.
   if (backed(address, data.size())) writes_.push_back({sample, address, {data.begin(), data.end()}});
@@ -61,7 +62,7 @@ void SailChecker::check(const observation::Record& record) {
   previous_cycle_write_ = false;
   previous_sample_ = record.sample;
   // Validate effects and supply only permitted environmental nondeterminism.
-  MemoryCheck memory(vector, require, backed_range);
+  MemoryCheck memory(vector, require, backed_range, [this](std::uint64_t address, std::size_t size) { return reference_.externally_mutable(address, size); });
   std::map<std::pair<Bank, unsigned>, const observation::RegisterWrite*> registers;
   std::vector<const observation::RegisterWrite*> vector_writes;
   std::optional<std::uint64_t> fp_flags;
@@ -97,6 +98,7 @@ void SailChecker::check(const observation::Record& record) {
       inputs.wake_wait = true;
       inputs.clock_ticks = 0;
       inputs.device_reads.clear();
+      inputs.external_reads.clear();
       auto completed = reference_.step(inputs);
       require(completed.pc == step.pc && completed.privilege_before == step.privilege_before && completed.virtualized_before == step.virtualized_before, "WFI wake changed instruction boundary");
       completed.instruction = step.instruction;

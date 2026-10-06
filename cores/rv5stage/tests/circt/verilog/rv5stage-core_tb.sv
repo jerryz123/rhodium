@@ -1,4 +1,4 @@
-// Verifies RV5StageCore forwarding, replay, redirects, misaligned WB requests, and ordered commit.
+// Checks forwarding, replay, branch-over-deferred-load hazards, and retained split completion.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_core_tb;
@@ -54,6 +54,9 @@ module rv5stage_core_tb;
   data_in_t data_access_in;
   instruction_out_t instruction_access_out;
   data_out_t data_access_out;
+  struct packed { logic valid; RV5StageSplitResult bits; } split_completion_in;
+  bit split_pending, split_load_done, split_store_done;
+  logic [3:0] split_delay;
 
   logic [1:0] privilege;
   logic [63:0] mstatus;
@@ -88,7 +91,7 @@ module rv5stage_core_tb;
     case (address)
       64'h00000001_00000000: instruction_at = 32'h00003283;  // ld x5, 0(x0)
       64'h00000001_00000004: instruction_at = 32'h00028533;  // add x10, x5, x0
-      64'h00000001_00000008: instruction_at = 32'h01103403;  // ld x8, 17(x0), handled at WB
+      64'h00000001_00000008: instruction_at = 32'h01003403;  // ld x8, 16(x0), deferred past branch
       64'h00000001_0000000c: instruction_at = 32'h00100313; // addi x6, x0, 1
       64'h00000001_00000010: instruction_at = 32'h02031863; // bne x6, x0, +48
       64'h00000001_00000014: instruction_at = 32'h02603023; // sd x6, 32(x0), must be squashed
@@ -116,7 +119,9 @@ module rv5stage_core_tb;
       64'h00000001_00000094: instruction_at = 32'h011809b3; // add x19, x16, x17; WB-to-ID capture
       64'h00000001_00000098: instruction_at = 32'h05303023; // sd x19, 64(x0)
       64'h00000001_0000009c: instruction_at = 32'h04003423; // sd x0, 72(x0)
-      64'h00000001_000000a0: instruction_at = 32'h04b038a3; // sd x11, 81(x0), handled at WB
+      64'h00000001_000000a0: instruction_at = 32'h01103a03; // ld x20, 17(x0), retained until split completion
+      64'h00000001_000000a4: instruction_at = 32'h05403c23; // sd x20, 88(x0), checks split load writeback
+      64'h00000001_000000a8: instruction_at = 32'h04b038a3; // sd x11, 81(x0), retained until split completion
       default: instruction_at = 32'h00000013;
     endcase
   endfunction
@@ -159,7 +164,21 @@ module rv5stage_core_tb;
       saw_fence_i_invalidate <= 1'b0;
       saw_fence_i_refetch <= 1'b0;
       fetch_flushes <= '0;
+      split_completion_in <= '0;
+      split_pending <= 0;
+      split_delay <= '0;
+      split_load_done <= 0;
+      split_store_done <= 0;
     end else begin
+      split_completion_in.valid <= 0;
+      if (split_completion_in.valid) begin
+        split_pending <= 0;
+        if (split_completion_in.bits.response.context_0.writeback == memory_integer(5'd20)) split_load_done <= 1;
+        else split_store_done <= 1;
+      end else if (split_pending) begin
+        if (split_delay != 0) split_delay <= split_delay - 1'b1;
+        else split_completion_in.valid <= 1;
+      end
       if (instruction_access_out.flush) begin
         instruction_response_valid <= 1'b0;
         saw_fetch_flush <= 1'b1;
@@ -188,6 +207,13 @@ module rv5stage_core_tb;
         if (instruction_access_out.request.bits.address == 64'h00000001_0000004c &&
             (saw_fence_i_invalidate || instruction_access_out.invalidate_all))
           saw_fence_i_refetch <= 1'b1;
+        if (instruction_access_out.request.bits.address == 64'h00000001_000000ac &&
+            (split_store_done || (split_completion_in.valid && split_completion_in.bits.response.context_0.writeback[8:7] == WRITEBACK_ACK_KIND))) begin
+          assert (instruction_access_out.flush && split_load_done && stores_seen == 10 && load_requests == 3)
+            else $fatal(1, "split store did not complete and restart exactly once");
+          $display("RV5Stage forwarding, operand capture, replay, redirect, deferred and split completion passed");
+          $finish;
+        end
       end
 
       if (data_access_out.request.valid && !data_access_in.request.ready) begin
@@ -242,12 +268,23 @@ module rv5stage_core_tb;
                     data_access_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
                     memory_rd(data_access_out.request.bits.writeback) == 5'd5)
               else $fatal(1, "first load lost its address or destination register");
-          end else
+          end else if (load_requests == 1)
             assert (load_requests == 1 &&
-                    data_access_out.request.bits.address == 64'd17 &&
+                    data_access_out.request.bits.address == 64'd16 &&
                     data_access_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
                     memory_rd(data_access_out.request.bits.writeback) == 5'd8)
               else $fatal(1, "second load lost its address or destination register");
+          else begin
+            assert (load_requests == 2 && stores_seen == 8 && !split_pending && !split_load_done &&
+                    data_access_out.request.bits.address == 17 &&
+                    data_access_out.request.bits.writeback == memory_integer(5'd20))
+              else $fatal(1, "unexpected split load request");
+            split_pending <= 1;
+            split_delay <= 6;
+            split_completion_in.bits <= '0;
+            split_completion_in.bits.response.data <= 100;
+            split_completion_in.bits.response.context_0.writeback <= memory_integer(5'd20);
+          end
           if (load_requests == 0)
             first_response_delay <= 2'd1;
           load_requests <= load_requests + 1'b1;
@@ -295,10 +332,17 @@ module rv5stage_core_tb;
               7: assert (data_access_out.request.bits.address == 72 && data_access_out.request.bits.data == 0)
                 else $fatal(1, "x0 store operand was not zero");
               8: begin
+                assert (split_load_done && !split_pending && data_access_out.request.bits.address == 88 && data_access_out.request.bits.data == 100)
+                  else $fatal(1, "split load failed to retire before its dependent store");
+              end
+              9: begin
                 assert (data_access_out.request.bits.address == 81 && data_access_out.request.bits.data == 3)
                   else $fatal(1, "captured register-file operand was stale");
-                $display("RV5Stage forwarding, operand capture, replay, redirect, and deferred completion passed");
-                $finish;
+                assert (!split_pending && !split_store_done) else $fatal(1, "split store was reissued");
+                split_pending <= 1;
+                split_delay <= 6;
+                split_completion_in.bits <= '0;
+                split_completion_in.bits.response.context_0.writeback <= data_access_out.request.bits.writeback;
               end
               default: $fatal(1, "unexpected forwarding test store");
             endcase

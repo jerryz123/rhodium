@@ -57,8 +57,16 @@ arithmetic or an opcode qualification whitelist. Validate vector execution geome
 only after Sail determines legality; IllegalInstruction still checks its trap and
 unchanged architectural state. `MemoryCheck` compares physical
 store outcomes independently of beat decomposition and supplies physical-address
-MMIO replay. Sail embedding uses existing register, trap, PTW, and host-memory
-callbacks, not patches for virtual addresses, explicit attempts, or FP contributions.
+MMIO and registered external-memory replay. `SailReference::external_memory`
+owns validated, nonoverlapping ranges inside private backing; it does not change
+PMAs or update RAM with observed load bytes. The checker prepares separate read
+queues, and the reference requires exact address/width and complete consumption.
+Fetch and PTW callbacks never use external-memory replay. FESVR discovers mailbox
+addresses after ELF loading; the session registers their eight-byte ranges before
+boot publication. Keep admission-time environment samples unchanged when a
+delayed load sees a later host write. Sail embedding uses existing register, trap,
+PTW, and host-memory callbacks, not patches for virtual addresses, explicit
+attempts, or FP contributions.
 Atomic attempt addresses use Sail's effective-address helpers on pre-execution
 state, including PMM, MPRV, and virtual/Bare extension policy, without a second walk.
 

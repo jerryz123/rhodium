@@ -1,4 +1,4 @@
-// Compares physical store outcomes and coordinates MMIO without changing either memory model.
+// Compares physical stores and prepares scoped environmental reads without RAM repair.
 // SPDX-License-Identifier: Apache-2.0
 #include "memory.h"
 #include <bit>
@@ -35,6 +35,10 @@ void MemoryCheck::add(const MemoryEffect& effect, const Record& record, StepInpu
     require(fault || backed(address, size), "device atomics are not qualified");
   if (value->read_valid && !backed(address, size))
     inputs.device_reads.push_back({address, bytes(value->read_data, size)});
+  else if (value->read_valid && externally_mutable(address, size)) {
+    require(value->kind == AccessKind::Load, "external-memory replay requires an ordinary load");
+    inputs.external_reads.push_back({address, bytes(value->read_data, size)});
+  }
 }
 void MemoryCheck::check_atomic(const StepResult& step) const {
   // A pre-dispatch fault has no memory effect. Sail must independently trap;

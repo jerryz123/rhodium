@@ -1,4 +1,4 @@
-// Embeds the pinned Sail model with private RAM and strictly replayed device reads.
+// Embeds Sail with private RAM and scoped device/external-memory read inputs.
 // SPDX-License-Identifier: Apache-2.0
 #include "reference.h"
 
@@ -125,10 +125,30 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
     return bytes;
   }
 
+  void external_memory(MemoryRange range) {
+    if (!range.size || range.size - 1 > UINT64_MAX - range.address || !backed(range.address, range.size))
+      throw std::invalid_argument("external memory must fit private backing");
+    for (const auto& other : external_)
+      if (range.address <= other.address + other.size - 1 && other.address <= range.address + range.size - 1)
+        throw std::invalid_argument("overlapping external-memory ranges");
+    external_.push_back(range);
+  }
+
+  bool externally_mutable(std::uint64_t address, std::size_t size) const {
+    if (!size || size - 1 > UINT64_MAX - address) throw std::invalid_argument("invalid external-memory access range");
+    for (const auto& range : external_)
+      if (address >= range.address && address - range.address < range.size && size <= range.size - (address - range.address)) return true;
+    for (const auto& range : external_)
+      if (address <= range.address + range.size - 1 && range.address <= address + size - 1)
+        throw std::out_of_range("physical access crosses an external-memory boundary");
+    return false;
+  }
+
   StepResult step(const StepInputs& inputs) {
     if (poisoned_) throw std::logic_error("Sail reference is poisoned after a failed step");
     inputs_ = &inputs;
     next_read_ = 0;
+    next_external_read_ = 0;
     result_ = {};
     page_table_ = false;
     result_.pc = zPC.bits;
@@ -145,6 +165,7 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
                                 result_.trap || !result_.retired))
         throw std::runtime_error("SC failure input without a completed SC");
       if (next_read_ != inputs.device_reads.size()) throw std::runtime_error("unconsumed MMIO read replay");
+      if (next_external_read_ != inputs.external_reads.size()) throw std::runtime_error("unconsumed external-memory read replay");
       result_.next_pc = zPC.bits;
       result_.privilege_after = privilege();
       result_.virtualized_after = virtualized();
@@ -238,6 +259,13 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
       if (replay.address != address || replay.value.size() != static_cast<std::size_t>(width))
         throw std::runtime_error("MMIO replay address or width mismatch");
       bytes = replay.value;
+    } else if (!instruction && !page_table_ && externally_mutable(address, width)) {
+      if (!inputs_ || next_external_read_ == inputs_->external_reads.size())
+        throw std::runtime_error("unexpected external-memory read");
+      const auto& replay = inputs_->external_reads[next_external_read_++];
+      if (replay.address != address || replay.value.size() != static_cast<std::size_t>(width))
+        throw std::runtime_error("external-memory replay address or width mismatch");
+      bytes = replay.value;
     } else {
       bytes = read(address, width);
     }
@@ -318,6 +346,7 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
   int64_t attempts_ = 0;
   const StepInputs* inputs_ = nullptr;
   std::size_t next_read_ = 0;
+  std::size_t next_external_read_ = 0;
   StepResult result_;
   bool page_table_ = false;
   std::optional<std::uint64_t> reservation_;
@@ -325,6 +354,7 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
   bool reservation_exact_ = false, reservation_store_invalidates_ = false;
   std::vector<Region> regions_;
   std::vector<MemoryRange> backing_;
+  std::vector<MemoryRange> external_;
   std::map<std::uint64_t, std::array<std::uint8_t, 4096>> pages_;
 };
 
@@ -332,6 +362,8 @@ SailReference::SailReference(const std::string& json, std::uint64_t reset_pc, st
     : implementation_(std::make_unique<Implementation>(json, reset_pc, private_memory)) {}
 SailReference::~SailReference() = default;
 void SailReference::load(std::uint64_t address, std::span<const std::uint8_t> bytes) { implementation_->load(address, bytes); }
+void SailReference::external_memory(MemoryRange range) { implementation_->external_memory(range); }
+bool SailReference::externally_mutable(std::uint64_t address, std::size_t size) const { return implementation_->externally_mutable(address, size); }
 std::vector<std::uint8_t> SailReference::read_memory(std::uint64_t address, std::size_t size) const { return implementation_->read(address, size); }
 StepResult SailReference::step(const StepInputs& inputs) { return implementation_->step(inputs); }
 std::uint64_t SailReference::pc() const { return implementation_->zPC.bits; }

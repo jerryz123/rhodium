@@ -74,15 +74,23 @@ not export privileged or vector CSR-bank snapshots. Sail evolves deterministic
 CSR state itself; software CSR reads are checked through their register results.
 The generic hook API still accepts explicitly authored CSR effects, but does not
 require them for deterministic internal state.
-Sail has private RAM and independent page-table walks. Only device-read bytes
-are supplied from the DUT environment, before Sail's load semantics; writes are
-never repeated against real devices. Neither registers nor memory are repaired
-using DUT results.
+Sail has private RAM and independent page-table walks. Device reads and explicitly
+registered externally mutable memory reads receive physical bytes from the DUT
+environment, before Sail's load semantics. Writes are never repeated against real
+devices. Neither registers nor private memory are repaired using DUT results.
 
 Successful FESVR loading and host writes are mirrored into reference memory.
-Host writes precede records at or after their completion sample; races with
-in-flight hart accesses are not yet supported. The real BootROM/DTB is embedded
-with the exact configuration.
+Host writes precede records at or after their completion sample. FESVR registers
+the ELF's eight-byte `tohost` and `fromhost` mailboxes before publishing the boot
+entry. A load admitted before a host write completes may observe the old or new
+mailbox bytes; replay makes that observation an explicit environmental input.
+Mailboxes retain their normal RAM PMAs and checked stores. Address, width, and
+complete replay consumption are checked; Sail still translates and checks access
+permissions, extends the load, and computes its destination. Instruction fetch
+and page walks never use mailbox replay. Ordinary RAM remains independently
+checked; other host/hart memory races need an explicit policy before use.
+This mailbox policy does not independently verify HTIF/coherence ordering or the
+host's returned data. The real BootROM/DTB is embedded with the exact configuration.
 
 Checking runs after all callbacks for an edge settle. HTIF exit freezes the
 admitted instruction boundary, then the simulator clocks until its delayed
@@ -119,7 +127,7 @@ failure does not establish LR/SC progress, coherence correctness, or cross-hart
 ordering. Cache-block zero is checked as ordinary physical zero stores. Clean,
 flush, and invalidate have no architectural byte effect; Sail checks their
 permissions and trap/retirement outcomes, not cache residency or writeback timing.
-Device atomics, hardware A/D updates, HPM event/filter
+Device and external-memory atomics, hardware A/D updates, HPM event/filter
 behavior remain outside runtime support.
 
 `cosim-smoke` also injects deliberate GPR corruption to confirm mismatch detection.

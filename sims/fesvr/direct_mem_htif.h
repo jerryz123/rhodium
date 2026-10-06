@@ -1,4 +1,4 @@
-// Declares exact-width FESVR transactions and software-owned boot entry publication.
+// Declares exact FESVR transfers, mailbox discovery, and software-owned boot release.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
@@ -29,10 +29,13 @@ struct DirectMemoryRequest {
 class DirectMemoryHtif : public htif_t {
  public:
   using WriteObserver = std::function<void(std::uint64_t, std::span<const std::uint8_t>)>;
+  // ELF-resolved tohost/fromhost addresses, delivered before boot publication.
+  using MailboxObserver = std::function<void(std::uint64_t, std::uint64_t)>;
   DirectMemoryHtif(int argc, char** argv, int expected_xlen,
                    std::uint64_t boot_address_register,
                    std::vector<std::uint32_t> boot_harts = {0},
-                   ImageMemoryMap image_memories = {}, WriteObserver write_observer = {});
+                   ImageMemoryMap image_memories = {}, WriteObserver write_observer = {},
+                   MailboxObserver mailbox_observer = {});
   ~DirectMemoryHtif() override = default;
 
   void tick(bool request_ready,
@@ -79,6 +82,7 @@ class DirectMemoryHtif : public htif_t {
   bool loading_ = true;
   ImageMemoryMap image_memories_;
   WriteObserver write_observer_;
+  MailboxObserver mailbox_observer_;
 };
 
 }  // namespace rhodium::fesvr

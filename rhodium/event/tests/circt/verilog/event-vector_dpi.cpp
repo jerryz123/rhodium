@@ -28,7 +28,7 @@ unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, launch_stall
 constexpr std::array<const char*,7> launch_reasons={"setup_wait","vs2_wait","vs1_wait",
   "destination_wait","mask_wait","gather_source_wait","fetch_wait"};
 std::array<unsigned,launch_reasons.size()> launch_reason_counts{};
-bool resetting=true, writes=true;
+bool resetting=true, writes=true, reorder_pair_pending=false;
 struct Expected { Ref ref; std::optional<Ref> parent; };
 std::vector<Expected> expected;
 unsigned expected_index=0;
@@ -70,9 +70,20 @@ Ref only_parent(Ref child, unsigned site) {
 }
 }
 extern "C" void vector_trace_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
+extern "C" void vector_trace_reorder_pair() {
+  if(reorder_pair_pending || !owners.empty()) fail("reordering phase started with pending responses");
+  reorder_pair_pending=true;
+}
 // The response driver deliberately returns younger slots first. Ownership is
 // established solely from previously accepted public issues, never graph data.
 extern "C" unsigned vector_trace_response() {
+  if(reorder_pair_pending) {
+    unsigned pending=0;
+    for(const auto& owner:owners) if(!owner.done) ++pending;
+    if(pending<2) return 0;
+    for(auto it=owners.rbegin();it!=owners.rend();++it)
+      if(!it->done) return 0x100|it->attempt.tag;
+  }
   for(auto it=owners.rbegin();it!=owners.rend();++it)
     if(!it->done && it->due<=cycle) return 0x100|it->attempt.tag;
   return 0;
@@ -84,7 +95,7 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   resetting=reset; expected.clear(); have_issue=false; expected_issue_macro.reset();
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
-    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_sequence_macro.reset();
+    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_sequence_macro.reset(); reorder_pair_pending=false;
     macros.clear(); releases.clear(); sequence_owners.clear(); resident=false;
     cycle=launches=issues=completions=0;
     return;
@@ -112,6 +123,10 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     bool found=false;
     for(auto& owner:owners) if(owner.attempt.tag==response_tag) {
       if(owner.done) fail("duplicate response");
+      if(reorder_pair_pending) {
+        if(&owner==&owners.front()) fail("reordering phase returned the oldest response first");
+        reorder_pair_pending=false;
+      }
       if(&owner!=&owners.front()) ++out_of_order;
       expect(vector_sites::complete,completions++,owner.attempt.ref);
       ++late_count; ++complete_count;
@@ -136,7 +151,7 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     } else if(disposition==0) {
       for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
       const bool immediate=!slow || !pipe[2]->enabled;
-      owners.push_back({*pipe[2],immediate,cycle+10+(3-pipe[2]->tag)*3});
+      owners.push_back({*pipe[2],immediate,cycle+10});
       if(immediate) {
         if(response) fail("slow response collided with fixed memory write");
         expect(vector_sites::complete,completions++,pipe[2]->ref);

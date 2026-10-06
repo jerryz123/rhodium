@@ -106,7 +106,7 @@ int rhodium_htif_tick(unsigned char reset,
         static_cast<std::uint64_t>(boot_address_register),
         rhodium::fesvr::parse_boot_harts(boot_hart_specification), std::move(memories)
 #ifdef RHODIUM_COSIM
-        , rhodium::cosim::simulation_host_write
+        , rhodium::cosim::simulation_host_write, rhodium::cosim::simulation_htif_mailboxes
 #endif
         );
     } catch (const std::exception& error) {

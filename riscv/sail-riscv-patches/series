@@ -6,3 +6,4 @@
 0005-preserve-effective-trap-address.patch
 0006-embedded-interrupt-boundaries.patch
 0007-clear-vstart-after-empty-whole-register-memory.patch
+0008-configure-tselect-presence.patch

@@ -32,6 +32,8 @@ def model_defaults(sail, xlen):
     # Master retains the 0.14.1 release string; an older release lacks these controls.
     inhibit = default.get("base", {}).get("mcountinhibit", {})
     transformed = default.get("extensions", {}).get("H", {}).get("transformed_instruction", {})
-    if not {"supported", "writable_bits"} <= inhibit.keys() or not TRANSFORMED_INSTRUCTION_PARAMETERS.keys() <= transformed.keys():
-        raise ValueError("Sail lacks pinned mcountinhibit/transformed-instruction controls; rebuild with arch-test-sail-setup")
+    if (not {"supported", "writable_bits"} <= inhibit.keys()
+            or not TRANSFORMED_INSTRUCTION_PARAMETERS.keys() <= transformed.keys()
+            or type(default.get("base", {}).get("tselect_present")) is not bool):
+        raise ValueError("Sail lacks pinned mcountinhibit/transformed-instruction/tselect controls; rebuild with arch-test-sail-setup")
     return default

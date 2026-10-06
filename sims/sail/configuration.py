@@ -263,6 +263,9 @@ def project_architecture(default, udb):
             raise ValueError("Sail state-enable projection requires writable HSTATEEN.ENVCFG")
         model_extensions["Stateen"]["SE0_readonly_zero"] = False
     base = default["base"]
+    # Our harts have no triggers and omit the optional selector CSR. Sail's
+    # legacy tselect placeholder is not an implementation of Sdtrig.
+    base["tselect_present"] = False
     base["xlen"] = params["MXLEN"]
     base["E"] = False
     base["writable_misa"] = any(value for key, value in params.items() if key.startswith("MUTABLE_MISA_"))

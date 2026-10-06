@@ -130,7 +130,10 @@ GEILEN=0 interrupt mask and explicit v2 memory-access classification, so their
 former standalone patches are retired. The remaining patches provide
 default-disabled host memory/interrupt hooks, host time, exact subpage device
 PMAs, effective fault addresses above the implemented physical width, explicit
-interrupt boundaries, and empty whole-register memory `vstart` cleanup.
+interrupt boundaries, empty whole-register memory `vstart` cleanup, and optional
+`tselect` presence. The selector patch preserves Sail's default placeholder;
+shared UDB projection disables it for our no-trigger harts. RV32/RV64 embedded
+regressions check absent read/write traps and the preserved default behavior.
 Keep the executable and embedded library in one identity-scoped package.
 The fault-address patch includes a Sail unit test for positive, negative, and
 XLEN-wrapped offsets; run the upstream `unit_tests` target when building the model.

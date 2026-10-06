@@ -90,11 +90,12 @@ std::vector<std::uint32_t> parse_boot_harts(std::string_view specification) {
 DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen,
                                  std::uint64_t boot_address_register,
                                  std::vector<std::uint32_t> boot_harts,
-                                 ImageMemoryMap image_memories, WriteObserver write_observer)
+                                 ImageMemoryMap image_memories, WriteObserver write_observer,
+                                 MailboxObserver mailbox_observer)
     : htif_t(argc, argv), target_xlen_(expected_xlen),
       boot_address_register_(boot_address_register),
       boot_harts_(std::move(boot_harts)), image_memories_(std::move(image_memories)),
-      write_observer_(std::move(write_observer)) {
+      write_observer_(std::move(write_observer)), mailbox_observer_(std::move(mailbox_observer)) {
   if (expected_xlen != 32 && expected_xlen != 64) {
     throw std::invalid_argument("direct-memory HTIF target XLEN must be 32 or 64");
   }
@@ -176,6 +177,7 @@ void DirectMemoryHtif::reset() {
   const auto entry = get_entry_point();
   if (entry == 0 || (target_xlen_ == 32 && entry > UINT32_MAX))
     throw std::runtime_error("boot entry must be nonzero and fit target XLEN");
+  if (mailbox_observer_) mailbox_observer_(get_tohost_addr(), get_fromhost_addr());
   loading_ = false;
   // Wake every selected hart while the shared entry remains zero. The BootROM
   // keeps polling with MSIP pending, so publishing the entry last is one release

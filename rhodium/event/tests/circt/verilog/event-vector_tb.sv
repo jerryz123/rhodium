@@ -14,6 +14,7 @@ module event_vector_tb;
   always #5 clock=~clock;
   import "DPI-C" function void vector_trace_bind();
   import "DPI-C" function int unsigned vector_trace_response();
+  import "DPI-C" function void vector_trace_reorder_pair();
   import "DPI-C" function void vector_trace_sample(input int unsigned rst, launch, insn, length,
     issue, tag, mem, enable, commit, status, delayed, response, response_tag, cancel, issue_done, sequenced);
   import "DPI-C" function void vector_trace_check();
@@ -88,7 +89,8 @@ module event_vector_tb;
     run_back_to_back_compute(32'h02800457,16); // Equal-PC macros can replace sequencing ownership.
     run_back_to_back_compute(32'h02800457,1); // The successor reads the still-pending first row.
     run_macro(32'h02800457,0); // Empty completion has no write.
-    run_macro(32'h02007407,16,1); // vle64.v v8,(x0), reordered slow completions and slot wrap.
+    vector_trace_reorder_pair();
+    run_macro(32'h02007407,16,1); // vle64.v v8,(x0), force a younger slot to return first, then wrap.
     run_macro(32'h02007407,8,1,1); // Retry preserves accepted older slots.
     run_macro(32'h02007407,8,1,2); // Fault also preserves accepted older slots.
     run_macro(32'h02007407,8,1,4); // Cancellation drops only unaccepted work.

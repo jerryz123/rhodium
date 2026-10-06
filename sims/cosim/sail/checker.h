@@ -11,6 +11,7 @@ class SailChecker {
   SailChecker(const std::string& configuration, std::uint64_t reset_pc,
                 std::vector<MemoryRange> backing);
   void load(std::uint64_t address, std::span<const std::uint8_t> bytes);
+  void external_memory(MemoryRange range);
   void host_write(std::uint64_t sample, std::uint64_t address, std::span<const std::uint8_t> bytes);
   void check(const observation::Record& record);
   std::uint64_t checked() const { return checked_; }

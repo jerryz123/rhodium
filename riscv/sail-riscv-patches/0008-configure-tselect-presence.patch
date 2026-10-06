@@ -1,0 +1,36 @@
+Subject: [PATCH] Make the no-trigger tselect placeholder optional
+
+Purpose: Model cores that trap on the optional trigger selector CSR.
+SPDX-License-Identifier: BSD-2-Clause
+
+The trigger specification permits an implementation without triggers to omit
+tselect. Preserve the standalone model's existing placeholder by default;
+embedded and ACT configurations can select the absent-CSR policy. This does
+not implement Sdtrig or change the placeholder's read/write semantics.
+
+diff --git a/config/config.json.in b/config/config.json.in
+--- a/config/config.json.in
++++ b/config/config.json.in
+@@ -18,6 +18,9 @@
+     "E": false,
+     "writable_misa": true,
+     "writable_fiom": true,
++    // A core without triggers may omit tselect and trap on accesses.
++    // True preserves the legacy no-trigger selector placeholder.
++    "tselect_present": true,
+     // The top 29 bits in this value control whether the corresponding
+     // HPM counters (hpmcounter31 .. hpmcounter3) are supported
+     // (i.e. are not read-only zero). A set bit specifies that the
+diff --git a/model/core/sys_regs.sail b/model/core/sys_regs.sail
+--- a/model/core/sys_regs.sail
++++ b/model/core/sys_regs.sail
+@@ -1242,8 +1242,8 @@
+ mapping clause csr_name_map = 0x7a2  <-> "tdata2"
+ mapping clause csr_name_map = 0x7a3  <-> "tdata3"
+ 
+-function clause is_CSR_accessible(0x7a0, _, _) = true
++function clause is_CSR_accessible(0x7a0, _, _) = (config base.tselect_present : bool)
+ function clause read_CSR(0x7a0) = ~(tselect)  // this indicates we don't have any trigger support
+ function clause write_CSR(0x7a0, value) = { tselect = value; Ok(tselect) }
+ 
+ //

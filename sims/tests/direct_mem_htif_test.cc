@@ -158,9 +158,10 @@ class BootHtif final : public DirectMemoryHtif {
   BootHtif(int argc, char** argv, int xlen, std::uint64_t boot_register,
            std::uint64_t entry, int overlap = 99, bool clear = false,
            rhodium::fesvr::ImageMemoryMap map = {},
-           std::vector<std::uint32_t> boot_harts = {0}, WriteObserver observer = {})
+           std::vector<std::uint32_t> boot_harts = {0}, WriteObserver observer = {},
+           MailboxObserver mailboxes = {})
       : DirectMemoryHtif(argc, argv, xlen, boot_register,
-                         std::move(boot_harts), std::move(map), std::move(observer)),
+                         std::move(boot_harts), std::move(map), std::move(observer), std::move(mailboxes)),
         boot_register_(boot_register),
         entry_(entry), overlap_(overlap), clear_(clear) {}
   bool boot_returned = false;
@@ -207,9 +208,15 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
       [](auto, auto) { assert(false); }});
   }
   std::vector<std::pair<std::uint64_t, std::vector<std::uint8_t>>> mirrored;
+  bool mailboxes_registered = false;
   BootHtif transport(2, argv, xlen, boot_register, entry, overlap, clear,
                      std::move(map), boot_harts, [&](auto address, auto bytes) {
                        mirrored.emplace_back(address, std::vector<std::uint8_t>(bytes.begin(), bytes.end()));
+                     }, [&](auto tohost, auto fromhost) {
+                       assert(!mailboxes_registered);
+                       assert(tohost == 0x80001000 && fromhost == 0x80001008);
+                       assert(mirrored.size() == 1); // Image finished; wakeup/publication not started.
+                       mailboxes_registered = true;
                      });
   const bool invalid_entry = entry == 0 || (xlen == 32 && entry > UINT32_MAX);
   std::vector<DirectMemoryRequest> expected;
@@ -240,6 +247,7 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
       const auto& actual = transport.request();
       const auto& want = expected[index];
       assert(actual.write == want.write && actual.address == want.address);
+      if (actual.address == boot_register) assert(mailboxes_registered);
       assert(actual.data == want.data && actual.length == want.length);
       ready = ++delay >= 3;
       if (ready) { accepted = true; delay = 0; }
@@ -259,6 +267,7 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
   assert(transport.exit_word() == (failed ? 3U : 1U));
   assert(index == expected.size());
   assert(transport.boot_returned == !failed);
+  assert(mailboxes_registered == (!invalid_entry && overlap == 99 && fail_index != 0));
   std::size_t observed = 0;
   for (std::size_t i = 0; i != expected.size(); ++i) {
     if (!expected[i].write || static_cast<int>(i) == fail_index) continue;

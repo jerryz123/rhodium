@@ -31,8 +31,8 @@ struct MemoryAccess {
   bool page_table = false;
 };
 
-// A device read supplies bytes by physical address, before load extension/ALU use.
-struct DeviceRead {
+// Environmental reads supply physical bytes before Sail's load extension/ALU use.
+struct MemoryRead {
   std::uint64_t address;
   std::vector<std::uint8_t> value;
 };
@@ -48,7 +48,8 @@ struct StepInputs {
   // Environmental time is independent of instruction count and host wall time.
   std::uint64_t time = 0;
   std::uint64_t clock_ticks = 0;
-  std::vector<DeviceRead> device_reads;
+  std::vector<MemoryRead> device_reads;
+  std::vector<MemoryRead> external_reads;
 };
 
 struct Trap {
@@ -95,6 +96,9 @@ class SailReference {
   SailReference& operator=(const SailReference&) = delete;
 
   void load(std::uint64_t address, std::span<const std::uint8_t> bytes);
+  // Register externally mutable RAM without changing its backing or PMA type.
+  void external_memory(MemoryRange range);
+  bool externally_mutable(std::uint64_t address, std::size_t bytes) const;
   std::vector<std::uint8_t> read_memory(std::uint64_t address, std::size_t bytes) const;
   StepResult step(const StepInputs& inputs = {});
   std::uint64_t integer_register(unsigned index) const;
