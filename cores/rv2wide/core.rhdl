@@ -1,0 +1,183 @@
+#lang rhodium
+/* Implements ordered two-wide integer issue, shared execution, forwarding, and precise WB outcomes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "issue-window.rhdl" open
+  "decode/core-ctrl.rhdl" open
+  "decode/operand-ctrl.rhdl" open
+  lib("cores/alu.rhdl") open
+  lib("cores/branch-resolver.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/trap.rhm").ExceptionCause
+  lib("riscv/model/formats.rhm") as fields
+  lib("riscv/rtl/instruction-fields.rhdl") open
+  lib("riscv/rtl/trap.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Resolves oldest-to-youngest candidates so a nearer unavailable producer blocks stale data. */
+fun forwarded_operand(address :: Bits(5), stored :: Bits(64), producers :: List.of(Endpoint)) :: RV2WideOperand():
+  def mutable value = stored
+  def mutable blocked = Bool(#false)
+  for (endpoint in producers):
+    def producer :: Endpoint = endpoint
+    def token :: RV2WideResult() = producer.bits
+    def matched = producer.valid & token.write & (token.rd === address)
+    value := mux(matched, token.data, value)
+    blocked := mux(matched, token.resolution.disposition =/= RV2WideDisposition.Continue, blocked)
+  RV2WideOperand():
+    data: mux(address.or_reduce(), value, bits(0, 64))
+    blocked: address.or_reduce() & blocked
+
+/* Executes an RV64I arithmetic/branch slice; no fetch, memory, privileged state, or ISA claim.
+   Resolution inputs qualify the corresponding live MEM token in the same cycle. */
+sync_circuit RV2WideCore():
+  interface instructions(Decoupled(RV2WidePacket()), ~role: consumer)
+  interface resolution[2](Valid(RV2WideResolution()), ~role: consumer)
+  interface memory_stage[2](Valid(RV2WideInstruction()), ~role: producer)
+  interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
+  interface redirect(Valid(RV2WideRedirect()), ~role: producer)
+  output issued: Bits(2)
+  output retired_count: Bits(2)
+
+  inst rr_window(RV2WideIssueWindow())
+  inst ex_older(ValidPipe(RV2WideExecute(), 1, ~flushable: #true))
+  inst ex_younger(ValidPipe(RV2WideExecute(), 1, ~flushable: #true))
+  inst mem_older(ValidPipe(RV2WideResult(), 1, ~flushable: #true))
+  inst mem_younger(ValidPipe(RV2WideResult(), 1, ~flushable: #true))
+  inst wb_older(ValidPipe(RV2WideResult(), 1, ~flushable: #true))
+  inst wb_younger(ValidPipe(RV2WideResult(), 1, ~flushable: #true))
+  def ex_pipe = [ex_older, ex_younger]
+  def mem_pipe = [mem_older, mem_younger]
+  def wb_pipe = [wb_older, wb_younger]
+  def ex_links = for List (_ in 0..2): interface_link(Valid(RV2WideResult()))
+  def mem_links = for List (_ in 0..2): interface_link(Valid(RV2WideResult()))
+  def ex_results = for List (link in ex_links): link.right
+  def mem_results = for List (link in mem_links): link.right
+  def wb_redirect_link :: Handle = interface_link(Valid(RV2WideRedirect()))
+  def wb_redirect :: Endpoint = wb_redirect_link.right
+  reg rr_registers(~init: vec(for List (_ in 0..32): bits(0, 64)))
+  instructions |> rr_window.ingress
+  rr_window.clear.valid <== wb_redirect.valid
+
+  // RR: the issue window, not independent lane readiness, owns instruction age.
+  def rr_head :: RV2WidePacket() = rr_window.head
+  def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): RV2WideDecode(rr_head.entries[lane].instruction))
+  def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
+  def rr_rs1 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
+  def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
+  def rr_rd :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rd, rr_head.entries[lane].instruction))
+  def rr_producers = [wb_pipe[0].egress, wb_pipe[1].egress, mem_results[0], mem_results[1], ex_results[0], ex_results[1]]
+  def rr_left :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs1[lane], rr_registers[rr_rs1[lane]], rr_producers))
+  def rr_right :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs2[lane], rr_registers[rr_rs2[lane]], rr_producers))
+  def rr_blocked = for List (lane in 0..2):
+    rr_decoded[lane].valid & ((rr_controls[lane].operand.uses_rs1 & rr_left[lane].blocked) ||| (rr_controls[lane].operand.uses_rs2 & rr_right[lane].blocked))
+  def rr_older_write = rr_decoded[0].valid & rr_controls[0].writeback.enable & rr_rd[0].or_reduce()
+  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
+  def rr_pair_waw = rr_older_write & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
+  def rr_pair_branch = rr_controls[0].branch.resolver.enable & rr_controls[1].branch.resolver.enable
+  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !wb_redirect.valid
+  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decoded[0].valid & rr_decoded[1].valid & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch
+  issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
+  rr_window.consume <== issued
+  for (lane in 0..2):
+    def ex_ingress :: Endpoint = ex_pipe[lane].ingress
+    ex_pipe[lane].flush <== wb_redirect.valid
+    ex_ingress.valid <== if lane == 0 | rr_first | rr_second
+    ex_ingress.bits <== RV2WideExecute():
+      fetched: rr_head.entries[lane]
+      control: rr_controls[lane]
+      rs1: rr_left[lane].data
+      rs2: rr_right[lane].data
+      rd: rr_rd[lane]
+      illegal: !rr_decoded[lane].valid
+
+  // EX: two common ALUs and one steered common branch resolver.
+  def ex_tokens :: Vec(2, RV2WideExecute()) = vec(for List (lane in 0..2): ex_pipe[lane].egress.bits)
+  def ex_branch_lane = mux(ex_older.egress.valid & ex_tokens[0].control.branch.resolver.enable, bits(0, 1), bits(1, 1))
+  def ex_branch :: RV2WideExecute() = ex_tokens[ex_branch_lane]
+  inst ex_resolver(BranchResolver(64))
+  inst ex_alu_older(ALU(XLen.X64))
+  inst ex_alu_younger(ALU(XLen.X64))
+  def ex_alus = [ex_alu_older, ex_alu_younger]
+  ex_resolver.request.valid <== (ex_older.egress.valid ||| ex_younger.egress.valid) & !wb_redirect.valid
+  ex_resolver.request.bits <== BranchResolverRequest(64):
+    left: ex_branch.rs1
+    right: ex_branch.rs2
+    control: ex_branch.control.branch.resolver
+  for (lane in 0..2):
+    def ex :: RV2WideExecute() = ex_tokens[lane]
+    def ex_input :: Endpoint = ex_pipe[lane].egress
+    def ex_output :: Endpoint = ex_links[lane].left
+    def ex_alu = ex_alus[lane]
+    def ex_immediate = ex.control.operand.immediate.decode(ex.fetched.instruction)
+    ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.rs1):
+      RV2WideLeft.Pc: ex.fetched.pc
+      RV2WideLeft.Zero: bits(0, 64)
+    ex_alu.right <== mux(ex.control.operand.right_immediate, ex_immediate, ex.rs2)
+    ex_alu.control <== ex.control.alu
+    def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
+    def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !bits(1, 64), ex_target_sum)
+    def ex_taken = !ex.illegal & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
+    def ex_bad_pc = ex.fetched.pc[0..2].or_reduce()
+    def ex_bad_target = ex_taken & ex_target[0..2].or_reduce()
+    def ex_fault = ex.illegal ||| ex_bad_pc ||| ex_bad_target
+    ex_output.valid <== ex_input.valid & !wb_redirect.valid
+    ex_output.bits <== RV2WideResult():
+      fetched: ex.fetched
+      rd: ex.rd
+      write: !ex.illegal & ex.control.writeback.enable & ex.rd.or_reduce()
+      data: mux(ex.control.writeback.link, ex.fetched.pc + bits(4, 64), ex_alu.result)
+      taken: ex_taken
+      target: ex_target
+      resolution:
+        RV2WideResolution():
+          disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
+          cause: mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))
+          value: mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, ex.fetched.instruction.zext(64)))
+    ex_results[lane] |> mem_pipe[lane].ingress
+    mem_pipe[lane].flush <== wb_redirect.valid
+
+  // MEM: retain the earlier fault ahead of an externally supplied resolution.
+  for (lane in 0..2):
+    def mem_input :: Endpoint = mem_pipe[lane].egress
+    def mem_output :: Endpoint = mem_links[lane].left
+    def mem :: RV2WideResult() = mem_pipe[lane].egress.bits
+    (mem_pipe[lane].egress |> map_valid(token): token.into(RV2WideResult()).fetched) |> memory_stage[lane]
+    mem_output.valid <== mem_input.valid & !wb_redirect.valid
+    mem_output.bits <== mem.updated(
+      ~resolution: mux(resolution[lane].valid & (mem.resolution.disposition === RV2WideDisposition.Continue), resolution[lane].bits, mem.resolution)
+    )
+    mem_results[lane] |> wb_pipe[lane].ingress
+    wb_pipe[lane].flush <== wb_redirect.valid
+
+  // WB: authorize only the successful prefix, then flush every younger token.
+  def wb_tokens :: Vec(2, RV2WideResult()) = vec(for List (lane in 0..2): wb_pipe[lane].egress.bits)
+  def wb_stop = for List (lane in 0..2):
+    def wb_input :: Endpoint = wb_pipe[lane].egress
+    wb_input.valid & ((wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue) ||| wb_tokens[lane].taken)
+  def wb_selected :: RV2WideResult() = mux(wb_stop[0], wb_tokens[0], wb_tokens[1])
+  wb_redirect_link.left.valid <== wb_stop[0] ||| wb_stop[1]
+  wb_redirect_link.left.bits <== RV2WideRedirect():
+    pc: wb_selected.fetched.pc
+    target: mux(wb_selected.resolution.disposition === RV2WideDisposition.Continue, wb_selected.target, wb_selected.fetched.pc)
+    resolution: wb_selected.resolution
+  wb_redirect |> redirect
+  for (lane in 0..2):
+    def wb :: RV2WideResult() = wb_tokens[lane]
+    def wb_input :: Endpoint = wb_pipe[lane].egress
+    def wb_eligible = wb_input.valid & (wb.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | Bool(#true) | !wb_stop[0])
+    retired[lane].valid <== wb_eligible
+    retired[lane].bits <== RV2WideRetirement():
+      fetched: wb.fetched
+      rd: wb.rd
+      write: wb.write
+      data: wb.data
+    when (wb_eligible & wb.write):
+      rr_registers[wb.rd] <== wb.data
+  retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
+
+export:
+  RV2WideCore

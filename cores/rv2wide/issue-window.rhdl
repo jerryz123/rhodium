@@ -1,0 +1,41 @@
+#lang rhodium
+/* Retains four instructions with two-wide packet admission and ordered prefix consumption. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Coalesces packet boundaries after partial issue; clear discards resident and live offers. */
+sync_circuit RV2WideIssueWindow():
+  interface ingress(Decoupled(RV2WidePacket()), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  output head: RV2WidePacket()
+  input consume: Bits(2)
+
+  reg count(~init: bits(0, 3))
+  reg entries(Vec(4, RV2WideInstruction()))
+  def remaining = count - consume.zext(3)
+  ingress.ready <== !clear.valid & (remaining <= bits(2, 3))
+  head.count <== mux(count >= bits(2, 3), bits(2, 2), count[0..2])
+  head.entries <== vec([entries[0], entries[1]])
+  def added = mux(ingress.fire(), ingress.bits.count.zext(3), bits(0, 3))
+  when (clear.valid):
+    count <== bits(0, 3)
+  otherwise:
+    count <== remaining + added
+    for (index in 0..4):
+      def position = bits(index, 3)
+      def append = ingress.fire() & (position >= remaining) & (position < (remaining + added))
+      def shifted = position + consume.zext(3)
+      def incoming = position - remaining
+      when append:
+        entries[index] <== ingress.bits.entries[incoming[0..1]]
+      elsewhen ((consume =/= bits(0, 2)) & (position < remaining)):
+        entries[index] <== entries[shifted[0..2]]
+  assert(consume <= head.count, "rv2wide_issue_prefix")
+  when (ingress.valid):
+    assert((ingress.bits.count === bits(1, 2)) ||| (ingress.bits.count === bits(2, 2)), "rv2wide_packet_count")
+
+export:
+  RV2WideIssueWindow

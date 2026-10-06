@@ -1,0 +1,77 @@
+#lang rhodium
+/* Defines instruction-window, pipeline, and ordered-outcome payloads for the RV2Wide slice. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "decode/core-ctrl.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Carries one uncompressed instruction and its architectural PC. */
+bundle RV2WideInstruction():
+  pc: Bits(64)
+  instruction: Bits(32)
+
+/* Offers a nonempty prefix of up to two instructions to the issue window. */
+bundle RV2WidePacket():
+  count: Bits(2)
+  entries: Vec(2, RV2WideInstruction())
+
+/* Distinguishes successful continuation from a precise fault or preacceptance replay. */
+hardware_enum RV2WideDisposition:
+  Continue
+  Fault
+  Replay
+
+/* Supplies a same-cycle MEM outcome; fault payload is observed only for Fault. */
+bundle RV2WideResolution():
+  disposition: RV2WideDisposition
+  cause: Bits(64)
+  value: Bits(64)
+
+/* Holds RR-selected operands and decoded controls across the EX boundary. */
+bundle RV2WideExecute():
+  fetched: RV2WideInstruction()
+  control: RV2WideControl()
+  rs1: Bits(64)
+  rs2: Bits(64)
+  rd: Bits(5)
+  illegal: Bool
+
+/* Retains one result, control transfer, and fault/replay outcome through MEM and WB. */
+bundle RV2WideResult():
+  fetched: RV2WideInstruction()
+  rd: Bits(5)
+  write: Bool
+  data: Bits(64)
+  taken: Bool
+  target: Bits(64)
+  resolution: RV2WideResolution()
+
+/* Reports one successfully retired instruction and its optional architectural GPR write. */
+bundle RV2WideRetirement():
+  fetched: RV2WideInstruction()
+  rd: Bits(5)
+  write: Bool
+  data: Bits(64)
+
+/* Names the oldest stop at WB; Continue denotes a resolved branch redirect. */
+bundle RV2WideRedirect():
+  pc: Bits(64)
+  target: Bits(64)
+  resolution: RV2WideResolution()
+
+/* Describes a youngest-older operand match, including results not yet usable. */
+bundle RV2WideOperand():
+  blocked: Bool
+  data: Bits(64)
+
+export:
+  RV2WideInstruction
+  RV2WidePacket
+  RV2WideDisposition
+  RV2WideResolution
+  RV2WideExecute
+  RV2WideResult
+  RV2WideRetirement
+  RV2WideRedirect
+  RV2WideOperand

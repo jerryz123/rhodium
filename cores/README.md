@@ -155,7 +155,7 @@ A named core owns its decode, datapath, architectural state, pipeline policy,
 integration adapters, and public system boundary. Named cores may reuse the
 components above without changing those components' caller-owned policy.
 
-RV5Stage is the current named core. Its default profile is integer-only;
+RV5Stage is the full RTL named core. Its default profile is integer-only;
 supported optional profiles are RV32F on `XLen.X32` and RV64D on `XLen.X64`,
 with the D profile also implementing F. RV32D and an RV64F-only specialization
 are rejected. Compressed instructions use composable Zc selections with Zca
@@ -164,6 +164,11 @@ extension. See [`rv5stage/README.md`](rv5stage/README.md) for the owned
 instruction families, pipeline and completion contracts, FP state and
 execution, memory hierarchy, CHI boundary, generator parameters, ports, tests,
 and deliberate limits.
+
+[`RV2Wide`](rv2wide/README.md) is an in-progress dual-issue in-order core. Its
+current RR-through-WB slice reuses the shared ALU and branch resolver, consumes
+ordered instruction prefixes, and supports precise retirement/replay outcomes.
+It has no fetch/memory/privileged subsystem or SoC selection yet.
 
 [`spike/spike.rhdl`](spike/spike.rhdl) is the standalone simulator-backed named
 core. It projects the shared architectural hart description, runs Spike through

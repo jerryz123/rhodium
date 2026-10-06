@@ -254,6 +254,9 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
+    cores-execution-datapath:rv2wide-core)
+      return 0
+      ;;
     cores-execution-datapath:rv5stage-cosim*)
       return 0
       ;;
@@ -949,6 +952,7 @@ direct_fixture_specs=(
   'rv5stage-branch-prediction|rv5stage_branch_prediction_tb'
   'shift-queue|shift_queue_tb'
   'rv5stage-core|rv5stage_core_tb'
+  'rv2wide-core|rv2wide_core_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'
   'rv5stage-zkt-rv32|rv5stage_zkt_rv32_tb'

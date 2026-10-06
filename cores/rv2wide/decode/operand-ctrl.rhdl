@@ -1,0 +1,80 @@
+#lang rhodium
+/* Maps the RV2Wide integer slice onto register-use, operand, and immediate controls. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("riscv/model/formats.rhm") as fields
+  lib("riscv/rtl/instruction-fields.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Selects the left ALU source independently of architectural register use. */
+hardware_enum RV2WideLeft:
+  Register
+  Pc
+  Zero
+
+/* Selects the canonical immediate layout used by the ALU or branch target. */
+hardware_enum RV2WideImmediate:
+  I
+  B
+  U
+  J
+  /* Extracts the selected architectural immediate as a sign-extended RV64 value. */
+  method decode(select, instruction :: Bits(32)) :: Bits(64):
+    mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, 64)):
+      RV2WideImmediate.B: instruction_immediate(fields.BImmediate, instruction, 64)
+      RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, 64)
+      RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, 64)
+
+/* Separates source-use interlocks from datapath selection and immediate extraction. */
+bundle RV2WideOperandControl():
+  uses_rs1: Bool
+  uses_rs2: Bool
+  left: RV2WideLeft
+  right_immediate: Bool
+  immediate: RV2WideImmediate
+
+def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruction_pattern):
+  [LUI]:
+    uses_rs1: Bool(#false)
+    uses_rs2: Bool(#false)
+    left: RV2WideLeft.Zero
+    right_immediate: Bool(#true)
+    immediate: RV2WideImmediate.U
+  [AUIPC]:
+    uses_rs1: Bool(#false)
+    uses_rs2: Bool(#false)
+    left: RV2WideLeft.Pc
+    right_immediate: Bool(#true)
+    immediate: RV2WideImmediate.U
+  [ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADDIW, SLLIW, SRLIW, SRAIW]:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#false)
+    left: RV2WideLeft.Register
+    right_immediate: Bool(#true)
+    immediate: RV2WideImmediate.I
+  [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, ADDW, SUBW, SLLW, SRLW, SRAW]:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#true)
+    left: RV2WideLeft.Register
+    right_immediate: Bool(#false)
+  [JAL]:
+    uses_rs1: Bool(#false)
+    uses_rs2: Bool(#false)
+    immediate: RV2WideImmediate.J
+  [JALR]:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#false)
+    immediate: RV2WideImmediate.I
+  [BEQ, BNE, BLT, BGE, BLTU, BGEU]:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#true)
+    immediate: RV2WideImmediate.B
+
+export:
+  RV2WideLeft
+  RV2WideImmediate
+  RV2WideOperandControl
+  RV2WideOperandCases

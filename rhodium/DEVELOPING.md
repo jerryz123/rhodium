@@ -206,6 +206,13 @@ descriptors own no physical rows.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
+`cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
+composition and one hardware decoder per issue slot. `cores/rv2wide/core.rhdl`
+imports it to consume the combined decoder, and imports `flow/main.rhdl` for
+typed endpoints and feed-forward pipeline storage. `bundles.rhdl` and
+`issue-window.rhdl` import the same Flow facade for their stream contracts.
+The slice uses public language register/vector operations and shared execution
+components; it imports no named core or compiler implementation.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus
 architectural privilege types; its host receiver lives in `sims/cosim/`, with
 no reverse simulator import or dependency on tracing metadata.

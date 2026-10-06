@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/backend/circt.rhm") open
+  lib("rhodium/frontend/kernel.rhm") as embedded
+  "../../core.rhdl" open
+
+def design = embedded.run_elaboration(fun (): RV2WideCore())
+print(emit_circt(design))

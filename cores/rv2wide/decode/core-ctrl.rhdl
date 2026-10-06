@@ -1,0 +1,59 @@
+#lang rhodium
+/* Composes shared ALU/branch relations and RV2Wide operand/writeback columns into one decoder. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "operand-ctrl.rhdl" open
+  lib("cores/alu.rhdl") open
+  lib("cores/riscv/alu-decode.rhdl") open
+  lib("cores/riscv/branch-decode.rhdl") open
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Enables architectural writes and selects the link value instead of an ALU result. */
+bundle RV2WideWritebackControl():
+  enable: Bool
+  link: Bool
+
+/* Carries independently authored physical controls without an instruction-kind enum. */
+bundle RV2WideControl():
+  alu: AluControl()
+  operand: RV2WideOperandControl()
+  branch: RiscvBranchControl()
+  writeback: RV2WideWritebackControl()
+
+def RV2WideInstructions = excluding_instructions(RV64IInstructions, [LB, LH, LW, LBU, LHU, LWU, LD, SB, SH, SW, SD, FENCE, ECALL, EBREAK])
+def branches = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
+def jumps = [JAL, JALR]
+def RV2WideWritebackCases = decode_groups(RV2WideWritebackControl(), ~input: instruction_pattern):
+  group branches:
+    enable: Bool(#false)
+  group jumps:
+    enable: Bool(#true)
+    link: Bool(#true)
+  group excluding_instructions(RV2WideInstructions, branches ++ jumps):
+    enable: Bool(#true)
+    link: Bool(#false)
+
+/* Joins exact canonical input patterns, preserving each component's inactive care masks. */
+fun compose_control_cases(instructions :: List.of(InstructionSpec)):
+  for List (instruction in instructions):
+    def input = instruction_pattern(instruction)
+    DecodeCase(
+      input,
+      pattern(RV2WideControl()):
+        alu: component_output(RV64ICompleteAluCases, input)
+        operand: component_output(RV2WideOperandCases, input)
+        branch: component_output(RV64IBranchCases, input)
+        writeback: component_output(RV2WideWritebackCases, input)
+    )
+
+def RV2WideControlCases = compose_control_cases(RV2WideInstructions)
+def RV2WideDecode = ValidDecodeGen(RV2WideControlCases)
+
+export:
+  RV2WideControl
+  RV2WideControlCases
+  RV2WideInstructions
+  RV2WideDecode
