@@ -264,6 +264,9 @@ the shared request types and arbitrates all deferred results through Flow.
 The RV2Wide decoder also consumes the pure B/Zba/Zbb/Zbs catalogs and joins
 the existing shared `RV64BAluCases` relation; operand and inactive memory/system
 columns remain named-core policy. No additional ALU or named-core dependency is introduced.
+Its decoder imports the pure Zicond/Zimop catalogs, joins the shared
+`ZicondAluCases`, and selects constant-zero operands for MOPs; operand-use,
+writeback, and nonserializing system policy remain RV2Wide-owned.
 RV2Wide's decoder also imports the pure A catalog and architectural atomic
 operation type. Its memory controls and request bundles use shared
 `cache/operation.rhdl`; the core owns WB authorization/order and the response

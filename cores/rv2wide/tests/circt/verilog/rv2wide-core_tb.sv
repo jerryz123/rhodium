@@ -67,6 +67,17 @@ module rv2wide_core_tb;
   logic instruction_invalidate;
   int invalidations=0;
   int multiply_mem_cycle=-1, dependent_mem_cycle=-1;
+  int conditional_dual=0, mop_dual=0;
+
+  function automatic bit mop_encoding(logic [31:0] word);
+    return (word & 32'hb3c0707f)==32'h81c04073 || (word & 32'hb200707f)==32'h82004073;
+  endfunction
+  function automatic bit conditional_encoding(logic [31:0] word);
+    return word[6:0]==7'h33 && word[31:25]==7'h07 && word[14:12] inside {3'd5,3'd7};
+  endfunction
+  function automatic bit serializing_encoding(logic [31:0] word);
+    return word[6:0]==7'h73 && !mop_encoding(word);
+  endfunction
 
   RV2WideCore dut(
     .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
@@ -161,14 +172,14 @@ module rv2wide_core_tb;
         if(memory_stage[lane].bits.pc=='hab08) multiply_mem_cycle=cycles;
         if(memory_stage[lane].bits.pc=='hab10) dependent_mem_cycle=cycles;
       end
-      if (cycles > 10000) $fatal(1, "watchdog");
+      if (cycles > 15000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual);
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
-      if(memory_stage[0].valid && memory_stage[0].bits.instruction[6:0]==7'h73)
+      if(memory_stage[0].valid && serializing_encoding(memory_stage[0].bits.instruction))
         assert(!memory_stage[1].valid) else $fatal(1,"system instruction did not issue alone");
       if(memory_stage[1].valid)
-        assert(memory_stage[1].bits.instruction[6:0]!=7'h73) else $fatal(1,"system instruction in younger slot");
+        assert(!serializing_encoding(memory_stage[1].bits.instruction)) else $fatal(1,"system instruction in younger slot");
       if (retired[0].valid && retired[1].valid && retired[0].bits.write && retired[1].bits.write)
         assert (retired[0].bits.rd != retired[1].bits.rd) else $fatal(1, "same-group WAW was not split");
       assert (int'(retired_count) == int'(retired[0].valid) + int'(retired[1].valid)) else $fatal(1, "retirement count mismatch");
@@ -179,6 +190,8 @@ module rv2wide_core_tb;
         if (retired[0].valid && retired[0].bits.write && !retired[0].bits.deferred) shared_writes++;
       end
       if (retired_count == 2) begin
+        if(conditional_encoding(retired[0].bits.fetched.instruction) && conditional_encoding(retired[1].bits.fetched.instruction)) conditional_dual++;
+        if(mop_encoding(retired[0].bits.fetched.instruction) && mop_encoding(retired[1].bits.fetched.instruction)) mop_dual++;
         dual_commits++;
         dual_run++;
         if (dual_run > longest_dual_run) longest_dual_run = dual_run;
@@ -381,6 +394,10 @@ module rv2wide_core_tb;
     value = 0;
     if(!bitmanip_value(word,a,b,value)) begin
     case (op)
+      'h73: begin
+        assert(mop_encoding(word)) else $fatal(1,"oracle unsupported SYSTEM encoding %h",word);
+        value=0;
+      end
       'h37: value = {{32{word[31]}}, word[31:12], 12'b0};
       'h17: value = pc + {{32{word[31]}}, word[31:12], 12'b0};
       'h6f, 'h67: value = pc + 4;
@@ -431,7 +448,8 @@ module rv2wide_core_tb;
         endcase
       end
       'h33, 'h3b: begin
-        if(f7==1) begin
+        if(conditional_encoding(word)) value=((f3==5 && b==0) || (f3==7 && b!=0)) ? 0 : a;
+        else if(f7==1) begin
           logic signed [127:0] left_wide, right_wide, product;
           if(op=='h3b) begin
             a=(f3==5 || f3==7) ? {32'd0,a[31:0]} : {{32{a[31]}},a[31:0]};
@@ -480,6 +498,12 @@ module rv2wide_core_tb;
   endfunction
   function automatic logic [31:0] atomic_insn(int operation, width, rd, rs1, rs2=0);
     return {5'(operation),2'b11,5'(rs2),5'(rs1),3'(width),5'(rd),7'h2f};
+  endfunction
+  function automatic logic [31:0] mop_insn(bit two_sources, int index, rd, rs1, rs2=0);
+    logic [31:0] word;
+    if(two_sources) word=32'h82004073|(32'(index&4)<<28)|(32'(index&2)<<26)|(32'(index&1)<<26)|(32'(rs2)<<20);
+    else word=32'h81c04073|(32'(index&16)<<26)|(32'(index&8)<<24)|(32'(index&4)<<24)|(32'(index&3)<<20);
+    return word|(32'(rs1)<<15)|(32'(rd)<<7);
   endfunction
   function automatic logic [31:0] b_insn(int operation, rd, rs1, rs2, shift=0);
     logic [31:0] word;
@@ -1267,8 +1291,102 @@ module rv2wide_core_tb;
     send('hc118,m_insn(8,1,3,0),b_insn(24,9,1,3));
     send('hc120,b_insn(21,10,8,0),m_insn(11,9,3,0));
     send('hc128,b_insn(29,8,10,0),b_insn(38,12,11,3)); drain();
+
+    // Both conditional-zero operations use every bit of rs2. Independent pairs
+    // exercise both slots; following consumers check ordinary EX/MEM forwarding.
+    for(int scenario=0;scenario<5;scenario++) begin
+      logic [63:0] pc='hd000;
+      logic [63:0] a;
+      reset_core();
+      case(scenario)
+        0: a=0;
+        1: a='1;
+        2: a=64'h8000000000000000;
+        3: a=64'h0123456789abcdef;
+        4: a=1;
+      endcase
+      constant64(pc,1,a); drain();
+      for(int condition=0;condition<4;condition++) begin
+        logic [63:0] b;
+        case(condition)
+          0: b=0;
+          1: b=1;
+          2: b=64'h8000000000000000;
+          3: b='1;
+        endcase
+        constant64(pc,2,b); drain();
+        for(int swap=0;swap<2;swap++) begin
+          send(pc,regop(3,1,2,swap==0 ? 5 : 7,7),regop(4,1,2,swap==0 ? 7 : 5,7)); pc+=8;
+          send(pc,imm(5,3,1),regop(6,4,3)); pc+=8;
+        end
+        // x0 in either source, discarded writes, and same-group RAW/WAW.
+        send(pc,regop(0,1,2,5,7),regop(7,0,2,7,7)); pc+=8;
+        send(pc,regop(8,1,0,5,7),regop(9,1,0,7,7)); pc+=8;
+        send(pc,regop(8,1,2,7,7),regop(8,1,2,5,7)); pc+=8;
+        send(pc,regop(9,1,2,5,7),regop(10,9,2,7,7)); pc+=8;
+        drain();
+      end
+    end
+    // Every MOP.R and MOP.RR index in each age slot writes zero, independent
+    // of encoded register fields, and forwards that zero to dependent consumers.
+    reset_core();
+    begin
+      logic [63:0] pc='he000;
+      constant64(pc,1,'1); constant64(pc,2,64'hfedcba9876543210); drain();
+      for(int two_sources=0;two_sources<2;two_sources++) begin
+        for(int index=0;index<(two_sources!=0 ? 8 : 32);index++) begin
+          send(pc,mop_insn(two_sources!=0,index,3,1,2),mop_insn(two_sources!=0,index,4,2,1)); pc+=8;
+          send(pc,imm(5,3,1),imm(6,4,2)); pc+=8;
+        end
+      end
+      send(pc,mop_insn(0,31,0,1),mop_insn(1,7,7,0,0)); pc+=8;
+      send(pc,imm(8,0,19),mop_insn(1,0,8,8,8)); pc+=8;
+      send(pc,imm(9,8,1),regop(10,1,9,7,7)); drain();
+    end
+    assert(conditional_dual>=40 && mop_dual>=40) else $fatal(1,"conditional/MOP dual issue missing");
+
+    // MOP encoded sources must not wait for either pending deferred register.
+    // Conditional-zero must wait for a real rs2 dependency, even when rs1 is x0.
+    reset_core();
+    begin
+      logic [63:0] pc='hf000;
+      constant64(pc,1,64'h7fffffffffffffff); send(pc,imm(2,0,3),0,1); drain();
+    end
+    hold_responses=1;
+    send('hf100,m_insn(10,1,2,4),imm(30,0,0,3,'h03));
+    send('hf108,mop_insn(0,2,3,10),mop_insn(1,7,4,30,10));
+    repeat(12) tick();
+    assert(expected.size()==0 && expected_completions.size()==2) else $fatal(1,"MOP false source interlock or serialization");
+    send('hf110,regop(5,0,30,5,7),imm(6,0,6));
+    repeat(12) tick();
+    assert(expected.size()==2 && response_count==1) else $fatal(1,"conditional-zero lost rs2 interlock");
+    hold_responses=0; drain();
+    // Destination WAW still waits, even though neither MOP source is read.
+    reset_core(); hold_responses=1;
+    send('hf200,imm(30,0,0,3,'h03),imm(1,0,1));
+    send('hf208,mop_insn(1,3,30,0,0),imm(2,30,1));
+    repeat(12) tick();
+    assert(expected.size()==2 && expected_completions.size()==1) else $fatal(1,"MOP lost destination reservation");
+    hold_responses=0; drain();
+
+    // Wrong-path results and SYSTEM-opcode lookalikes must not commit. Faults
+    // in the younger slot preserve the older MOP/conditional retirement.
+    for(int lane=0;lane<2;lane++) begin
+      logic [31:0] invalid_word;
+      reset_core();
+      invalid_word=mop_insn(lane!=0,0,3,1,2)^32'h20000000;
+      stop_at(64'('hf300+lane*4),64'('hf300+lane*4),1,2,64'(invalid_word));
+      if(lane==0) send('hf300,invalid_word,regop(4,0,0,7,7),2,0,0);
+      else send('hf300,mop_insn(0,0,4,1),invalid_word,2,1,0);
+      drain();
+      stop_at('hf400,'hf440);
+      send('hf400,jump(0,64),mop_insn(1,7,5,1,2),2,1,0);
+      send('hf408,regop(6,1,0,7,7),mop_insn(0,0,7,1),2,0,0); drain();
+      send('hf440,imm(8,5,1),imm(9,6,1)); drain();
+    end
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
-    $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops", commits, dual_commits, stops);
+    $display("Zicond/Zimop: %0d conditional pairs, %0d MOP pairs",conditional_dual,mop_dual);
+    $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops in %0d cycles", commits, dual_commits, stops, cycles);
     $finish;
   end
 endmodule

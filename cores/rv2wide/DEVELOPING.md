@@ -28,6 +28,10 @@ The complete B catalog joins `RV64BAluCases` into each existing decoder.
 Operand policy distinguishes binary, unary, and immediate B operations; only
 observed routing fields are constrained. Reuse each slot's existing shared ALU
 and forwarding paths rather than adding a bit-manipulation unit or decoder.
+Zicond joins the shared `ZicondAluCases` with ordinary binary operand controls.
+Zimop uses the existing addition controls with both operands selected as zero;
+no source-use bits are set. Its SYSTEM opcode does not imply CSR action or
+serialization. Both extensions retain the normal writeback/destination policy.
 
 ## Implementation map
 
@@ -264,7 +268,11 @@ B scenarios cover every RV64 Zba/Zbb/Zbs instruction in both age slots, with
 zero/all-one/sparse/mixed operands, shift boundaries, dirty upper words, and
 independent paired work plus dependent consumers. A pending divider tests false
 rs2 interlocks on unary/immediate encodings; mixed B/M sequences test deferred
-forwarding and WAW. The fetching fixture also passes B results through the real
+forwarding and WAW. Zicond cases exercise full-width zero/nonzero conditions in
+both slots, x0, RAW/WAW, and forwarding. Zimop covers every MOP.R/MOP.RR index,
+dual issue, ignored sources with pending load/divide owners, destination WAW,
+dependent consumers, wrong-path suppression, and illegal neighboring encodings.
+The fetching fixture also passes B results through the real
 LSU, compressed consumers, and a draining WFI. The oracle uses independent bit
 loops and architectural result rules, not RTL decode/control fields.
 It also checks all six CSR forms, source-index write intent, counter counts and

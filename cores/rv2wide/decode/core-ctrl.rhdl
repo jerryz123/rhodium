@@ -1,5 +1,5 @@
 #lang rhodium
-/* Composes shared ALU/branch relations with RV2Wide scalar, atomic, and system control columns. */
+/* Composes shared ALU/branch relations with RV2Wide scalar, atomic, MOP, and system controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,8 @@ import:
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open
   lib("riscv/isa/b.rhm") open
+  lib("riscv/isa/zicond.rhm") open
+  lib("riscv/isa/zimop.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
   lib("riscv/rtl/decode.rhdl") open
@@ -34,10 +36,10 @@ bundle RV2WideControl():
   system: RV2WideSystemControl()
   muldiv: RV2WideLongControl()
 
-def RV2WideInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
-def atomic_alu_cases = instruction_cases(RV64AInstructions, component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)))
+def RV2WideInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
+def addition_alu_cases = instruction_cases(RV64AInstructions ++ ZimopInstructions, component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)))
 def system_alu_cases = instruction_cases(RV64MInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, unused_alu)
-def inactive_memory_cases = instruction_cases(RV64MInstructions ++ RV64BInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
+def inactive_memory_cases = instruction_cases(RV64MInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
 def core_long_cases = long_cases(RV2WideInstructions)
 def core_branch_cases = branch_cases(RV2WideInstructions)
 def branches = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
@@ -61,7 +63,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec)):
     DecodeCase(
       input,
       pattern(RV2WideControl()):
-        alu: component_output(RV64ICompleteAluCases ++ RV64BAluCases ++ atomic_alu_cases ++ system_alu_cases, input)
+        alu: component_output(RV64ICompleteAluCases ++ RV64BAluCases ++ ZicondAluCases ++ addition_alu_cases ++ system_alu_cases, input)
         operand: component_output(RV2WideOperandCases, input)
         branch: component_output(core_branch_cases, input)
         memory: component_output(RV2WideMemoryCases ++ RV2WideAtomicCases ++ inactive_memory_cases, input)

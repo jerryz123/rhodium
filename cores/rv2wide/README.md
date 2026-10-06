@@ -9,7 +9,8 @@ it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore(
 independently usable RR-through-WB execution slice. It executes RV64IMACB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
-It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, SFENCE.VMA, FENCE, and FENCE.I at WB.
+It also executes Zicond and Zimop, plus Zicsr, ECALL/EBREAK, MRET/SRET, WFI,
+SFENCE.VMA, FENCE, and FENCE.I at WB.
 See [DEVELOPING.md](DEVELOPING.md) for ownership and validation.
 
 ## Entry point
@@ -102,6 +103,12 @@ misaligned faults. No predictor is included; fetch always advances sequentially
 until a resolved redirect.
 
 ## Execution and ordering
+
+Zicond's CZERO.EQZ/CZERO.NEZ use each slot's shared ALU and ordinary GPR
+interlocks/forwarding; the condition observes the full 64-bit rs2. All 32 MOP.R
+and eight MOP.RR encodings implement Zimop's zero-result behavior. Their encoded
+source fields are ignored, but destination reservations and x0 rules still apply.
+MOPs are ordinary dual-issue ALU work, not serializing system instructions.
 
 Current implementation:
 
