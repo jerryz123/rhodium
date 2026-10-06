@@ -16,6 +16,7 @@ import memory
 import sync_memory
 import selection
 import membership
+import mask_index
 import assertions
 import branches
 import foreign
@@ -295,6 +296,8 @@ def main():
         selection_count = selection.run_suite(work, run, compare, args.differential)
         membership_count = membership.run_suite(work, run, compare, args.differential)
         print(f"rsim: {membership_count} authored membership observations passed" + (" with SV comparison" if args.differential else ""))
+        mask_count = mask_index.run_suite(work, run, compare, args.differential)
+        print(f"rsim: {mask_count} authored mask indexing observations passed" + (" with SV comparison" if args.differential else ""))
         foreign_count = foreign.run_suite(work, run, compare, args.differential)
         assertion_count = assertions.run_suite(work, run, args.differential)
         branch_count = branches.run_suite(work, run, compare, args.differential)

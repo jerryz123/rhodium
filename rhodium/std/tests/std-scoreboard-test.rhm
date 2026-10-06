@@ -43,9 +43,8 @@ check:
     "scoreboard_clear_index_in_range",
     "scoreboard_clear_busy"
   ]
-  operations(lookup_module, "rtl.vector_index").length() ~is 1
-  operations(nonpower_lookup_module, "rtl.mux_lookup").length() ~is 1
-  operations(single_lookup_module, "rtl.mux_lookup").length() ~is 1
+  (for all (module in [lookup_module, nonpower_lookup_module, single_lookup_module]):
+     bool.bool_type(module.find_output("result").type)) ~is #true
   verify_design(design) ~is #void
   verify_design(nonpower_design) ~is #void
   verify_design(single_design) ~is #void

@@ -1,0 +1,28 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/std/scoreboard.rhdl").scoreboard_busy
+
+sync_circuit RsimMaskIndex():
+  input data: Mask(129)
+  input index: Bits(64)
+  input wide_index: Bits(128)
+  input narrow_index: Bits(2)
+  input enable: Bool
+  output result: Bits(14)
+  output sampled: Bits(14)
+  def packed = data.as_bits()
+  def selected = vec(
+    (for List (width in [1, 3, 31, 32, 63, 64, 65, 129]): packed[0..width].into(Mask(width))[index])
+      ++ [data[wide_index], packed[0..3].into(Mask(3))[narrow_index], data[128]]
+      ++ [scoreboard_busy(1, packed[0..1].into(Mask(1)), index[0]),
+          scoreboard_busy(3, packed[0..3].into(Mask(3)), narrow_index),
+          scoreboard_busy(32, packed[0..32].into(Mask(32)), index[0..5])]
+  ).as_bits()
+  reg held(~init: bits(0, 14))
+  when enable: held <== selected
+  result <== selected
+  sampled <== held
+
+def program = elaborate_program(RsimMaskIndex())
+export program

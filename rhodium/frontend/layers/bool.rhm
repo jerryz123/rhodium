@@ -97,8 +97,10 @@ fun mask_width(type :: HardwareType):
 fun hardware_has_mask_type(value :: HardwareEntity):
   mask_type(hardware_value_type(value))
 
-/* Extracts one mask lane as a nominal Boolean value. */
-fun mask_index(value :: HardwareEntity, index :: Nat) :~ HardwareFields:
+/* Select one mask lane as Bool. Host indices retain static bounds checks;
+   hardware Bits indices use a logical shift, whose overshift is zero, without
+   narrowing the index or materializing a Boolean vector. */
+fun mask_index(value :: HardwareEntity, index :: Nat || HardwareEntity) :~ HardwareFields:
   def lanes = kernel.read(value)
   unless mask_type(lanes.type)
   | error(~who: #'Mask, "expected a Mask value")
@@ -107,7 +109,14 @@ fun mask_index(value :: HardwareEntity, index :: Nat) :~ HardwareFields:
                                 "Mask value",
                                 #false,
                                 Location())
-  kernel.cast(kernel.index(packed, index), Bool)
+  def selected:
+    if index is_a Nat
+    | kernel.index(packed, index)
+    | def selector = kernel.read(index)
+      unless bits_type(selector.type)
+      | error(~who: #'Mask, "hardware mask index must be Bits")
+      kernel.index(kernel.hw_shru(packed, selector), 0)
+  kernel.cast(selected, Bool)
 
 annot.macro 'MaskValue':
   let '$(base :: annot_meta.Parsed)' = 'HardwareFields'

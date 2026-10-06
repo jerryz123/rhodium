@@ -21,10 +21,7 @@ fun scoreboard_index_in_range(entries :: PosInt,
 fun scoreboard_busy(entries :: PosInt,
                     busy :: Mask(entries),
                     index :: Bits(index_width(entries))) :~ Bool:
-  def busy_vector = busy.as_vec(Bool)
-  if scoreboard_index_capacity(entries) == entries
-  | busy_vector[index]
-  | busy_vector.lookup(index, ~default: Bool(#false))
+  busy[index]
 
 /* Decodes an index into an entry mask, truncating unused encodings to an all-zero mask. */
 fun scoreboard_index_bit(entries :: PosInt,

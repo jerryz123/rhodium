@@ -9,6 +9,7 @@ circuit MaskFixture():
   input raw: Bits(4)
   input exact: OneHot(4)
   input optional: MaybeOneHot(4)
+  input index: Bits(6)
   output literal: Mask4
   output from_bits: Mask4
   output from_exact: Mask4
@@ -19,6 +20,7 @@ circuit MaskFixture():
   output complement: Mask4
   output shifted: Mask4
   output lane_two: Bool
+  output dynamic_lane: Bool
   output packed: Bits(4)
   output selected: MaybeOneHot(4)
 
@@ -33,6 +35,7 @@ circuit MaskFixture():
   complement <== !left
   shifted <== (raw << 1).into(Mask4)
   lane_two <== combined[2]
+  dynamic_lane <== combined[index]
   packed <== combined.into(Bits(4))
   selected <== priority_encoder_oh(combined)
 
@@ -61,6 +64,17 @@ circuit ImplicitBitsMask():
   output result: Mask4
   result <== source
 
+circuit BadMaskIndex(T :: DataType):
+  input source: Mask4
+  input index: T
+  output result: Bool
+  result <== source[index]
+
+circuit OutOfRangeMaskIndex():
+  input source: Mask4
+  output result: Bool
+  result <== source[4]
+
 export:
   Mask4
   MaskFixture
@@ -69,3 +83,5 @@ export:
   AddMask
   WrongMaskWidth
   ImplicitBitsMask
+  BadMaskIndex
+  OutOfRangeMaskIndex

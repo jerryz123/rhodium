@@ -68,6 +68,14 @@ Backends choose implementations from that existing relation; frontend code
 contains no target selection. `is-one-of-test.rhm` checks relation preservation,
 and the backend's authored membership scoreboard checks native and SV behavior.
 
+Mask indexing is owned by `bool.rhm`. Host indices use the existing checked
+static extraction. Hardware indices must be `Bits`; lower them through a
+packed logical right shift and bit-zero extraction, preserving the full index
+width. Core overshift semantics provide the false result outside the mask.
+`mask-test.rhm` checks types, diagnostics, and the scalar lowering; the backend's
+`mask_index.py` compares native, direct SV, and optionally CIRCT behavior,
+including wide masks/indices and the standard scoreboard helper.
+
 Dot providers must decline syntax they do not own so the shared resolution
 chain can continue. Preserve the documented precedence: receiver-owned methods,
 then universal built-ins, then a visible receiver-first function. Field

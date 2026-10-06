@@ -1,0 +1,19 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  rhombus/cmdline open
+  lib("racket/file.rkt") as file
+  lib("racket/base.rkt") as rkt
+  "mask-index-fixture.rhdl".program
+  "region-target.rhm".rsim_target
+  "../../verilog-target.rhm".verilog_target
+  "../../circt-target.rhm".circt_target
+  "../../../compile/program.rhm".compile_program
+
+def arguments = current_command_line()
+unless arguments.length() == 2 && arguments[1] in ["rsim", "verilog", "circt"]
+| error("expected OUTPUT_DIRECTORY rsim|verilog|circt")
+def target = {"rsim": rsim_target, "verilog": verilog_target, "circt": circt_target}[arguments[1]]
+def result = compile_program(program, target)
+for (artifact in result.artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(arguments[0], artifact.name), ~exists: #'replace)

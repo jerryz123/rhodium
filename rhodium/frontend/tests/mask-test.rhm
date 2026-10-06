@@ -6,6 +6,7 @@ import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/layers/signed.rhm".SInt
   "mask-fixture.rhdl" as fixture
 
 def design = embedded.run_elaboration(fun (): fixture.MaskFixture())
@@ -28,12 +29,14 @@ check:
                      "shifted"]):
      type_equal(module_def.find_output(name).type, fixture.Mask4)) ~is #true
   bool.bool_type(module_def.find_output("lane_two").type) ~is #true
+  bool.bool_type(module_def.find_output("dynamic_lane").type) ~is #true
   type_equal(module_def.find_output("packed").type, Bits(4)) ~is #true
   bool.maybe_one_hot_type(module_def.find_output("selected").type) ~is #true
   operation_count("rtl.or") >= 1 ~is #true
   operation_count("rtl.and") >= 1 ~is #true
   operation_count("rtl.xor") >= 1 ~is #true
   operation_count("rtl.not") >= 1 ~is #true
+  operation_count("rtl.shru") ~is 1
   verify_design(design) ~is #void
 
   bool.Mask(0) ~throws "PosInt"
@@ -44,3 +47,7 @@ check:
   embedded.run_elaboration(fun (): fixture.AddMask()) ~throws "arithmetic type"
   embedded.run_elaboration(fun (): fixture.WrongMaskWidth()) ~throws "same canonical packed width"
   embedded.run_elaboration(fun (): fixture.ImplicitBitsMask()) ~throws "exactly the same hardware type"
+  embedded.run_elaboration(fun (): fixture.BadMaskIndex(SInt(4))) ~throws "hardware mask index must be Bits"
+  embedded.run_elaboration(fun (): fixture.BadMaskIndex(bool.Bool)) ~throws "hardware mask index must be Bits"
+  embedded.run_elaboration(fun (): fixture.BadMaskIndex(fixture.Mask4)) ~throws "hardware mask index must be Bits"
+  embedded.run_elaboration(fun (): fixture.OutOfRangeMaskIndex()) ~throws "index"

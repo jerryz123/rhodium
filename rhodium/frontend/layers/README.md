@@ -311,7 +311,11 @@ the corresponding core less-than operation.
 `Mask(n)` is a nominal `n`-lane set whose every packed encoding is legal.
 `Mask(n)(value)` constructs a host-known packed lane set; the value is not a
 lane index. Mask intersection, union, symmetric difference, and complement use
-`&`, `|||`, `^`, and `!`, and `mask[index]` returns `Bool`. Generic reductions,
+`&`, `|||`, `^`, and `!`, and `mask[index]` returns `Bool`. The index can be a
+host natural number or a hardware `Bits(k)` value. Host indices must be in
+range; hardware indices at or above the lane count return false, using the
+entire unsigned index without truncation. For example, `busy[register_index]`
+selects a lane directly from a busy mask. Generic reductions,
 population count, and priority encoding accept masks through their canonical
 packed representation. `Mask` implements `BitwiseType`, but deliberately does
 not implement `ArithmeticType`: addition, subtraction, multiplication, and

@@ -703,6 +703,14 @@ it; run `python3 rhodium/backend/tests/rsim/membership.py --differential` for
 focused coverage. Exact Boolean decode relations with scalar selectors up to
 64 bits use a C++ switch; other decode shapes keep their existing typed lowering.
 
+`tests/rsim/mask_index.py` checks authored hardware mask indexing and scoreboard
+reads against an integer oracle. It covers widths 1/3/31/32/63/64/65/129,
+2/64/128-bit indices, out-of-range reads, dirty padding, reset, hold, and repeated
+eval under ASan/UBSan. Native and direct-SV coverage runs in the ordinary and
+forced-region suites. Run `python3 rhodium/backend/tests/rsim/mask_index.py
+--differential --circt` for a focused three-backend check; `--circt` additionally
+requires the pinned `circt-opt`, overridable with `CIRCT_OPT`.
+
 `tests/rsim/selection.py` covers scalar widths 1/5/63/64, one-hot selectors of
 1/3/64 bits, unknown choices hidden by selection, and nested aggregate decode
 inputs/outputs through 139 bits. Its packed-integer oracle checks care masks,
