@@ -49,7 +49,8 @@ succeeds. A failed writeback drains an issued refill and restores the complete
 post-snoop victim in its reserved way. Resident snoops issue on consecutive
 accepted cycles with distinct transaction IDs and may complete out of order;
 the owning Home transaction advances only after every targeted RN-F completes.
-Final fill installation retains exclusive use of the shared LLC array port.
+Final fill installation reserves the line-data port; directory commits can
+proceed independently.
 The transaction-slot parameter defaults to one for compatibility; the complete
 single-core and tiled SoCs select two.
 
@@ -57,13 +58,15 @@ single-core and tiled SoCs select two.
 
 This diagram illustrates the current `CHIInclusiveHNF` resource arrangement,
 not a separate port or ordering contract. Demand slots retain each live
-transaction and own a set while they access one shared LLC tag/data array,
-issue snoops, or wait for subordinate service.
+transaction and own a set while they access the directory and data SRAMs,
+issue snoops, wait for subordinate service, and commit final directory state.
 
 ```mermaid
 flowchart LR
     RN["RN requester"] --> Slots["Bounded demand slots<br/>set ownership and line state"]
-    Slots <--> LLC["Shared LLC tag/data array<br/>one array port"]
+    Slots <--> Directory["Combined tag/metadata SRAM<br/>fair lookup or slot commit"]
+    Slots <--> Data["Line-data SRAM<br/>paired lookup or data write"]
+    Sweep["Reset sweep: one set per cycle"] --> Directory
     Slots <--> Snoop["RN-F snoop targets"]
     Slots <--> SN["SN-I subordinate service"]
     Slots --> Victim["Bounded dirty-victim<br/>writeback buffer"]
@@ -76,8 +79,26 @@ flowchart LR
 
 A buffered victim writeback can overlap its replacement refill, but the new
 line cannot be installed or returned before writeback completion. After final
-read DAT, a demand slot can be reused while its CompAck entry still excludes
-other transactions from the granted set; other sets can continue.
+read DAT, a modified directory entry is committed before its demand slot can
+be reused. A separate CompAck entry may still exclude other transactions from
+the granted set; other sets can continue. Clearing either reservation alone
+does not release a set that still has the other owner.
+
+The directory stores each way's line address, valid/dirty bits, resident mask,
+and possible-writer mask together. Transactions retain their selected entry
+locally. After protocol completion, modified entries wait for a round-robin
+commit across slots; lookup and commit classes alternate when both are eligible.
+With N demand slots, a continuously pending commit is accepted within at most
+2N normal directory operations, independently of external output stalls.
+Unmodified transactions need no commit. Directory commits may overlap data
+writes; lookup reads launch both SRAMs together.
+
+Coordinated reset clears the directory with one all-way write per set. No CHI
+traffic is accepted or emitted during reset or this sweep. Normal operation
+starts after `sets` write cycles following reset release (512 cycles for the
+Simple SoC). Reset during the sweep restarts it. Data SRAM contents need no
+reset because every directory entry is invalidated. Independent requester state
+surviving a Home reset remains unsupported.
 
 ## Inclusive Home event tracing
 
@@ -93,7 +114,8 @@ merge occurrences. Residency includes lookup, snoops, refill/writeback waits,
 and output backpressure; it ends on final DAT, terminal completion, copyback
 retirement, or epoch reset, not on the first response beat. Delayed `CompAck`
 retains the separate granted-set reservation described above, after the demand
-slot's residency has ended.
+slot's residency has ended. The private directory-commit wait also lies outside
+that public transaction residency.
 Ordinary elaboration adds no event instrumentation or functional buffering.
 These are transaction lifetimes, not a trace of every internal FSM state.
 Separate victim-writeback and CompAck residencies are not yet annotated.

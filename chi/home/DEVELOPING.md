@@ -11,7 +11,8 @@ the implementation and focused checks for Home engines.
 
 Keep the Home engines independent. Shared configuration, message policy, and
 target bookkeeping do not justify merging their distinct state machines or
-storage ownership. Directory boundaries add no RTL hierarchy or facade.
+storage ownership. Filesystem package boundaries do not imply an RTL hierarchy
+or facade.
 
 ## Implementation map
 
@@ -21,7 +22,8 @@ storage ownership. Directory boundaries add no RTL hierarchy or facade.
 | [`home-snoop-targets.rhdl`](home-snoop-targets.rhdl) | Pending target selection and accepted-target bookkeeping |
 | [`home-comp-ack.rhdl`](home-comp-ack.rhdl) | Bounded DBID reservation and delayed `CompAck` retirement |
 | [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl) | Non-coherent and noncaching coherent Home engines |
-| [`inclusive-home.rhdl`](inclusive-home.rhdl) | Inclusive LLC, directory, transaction slots, and shared array arbitration |
+| [`inclusive-home.rhdl`](inclusive-home.rhdl) | Inclusive LLC, slot-local directory state, protocol retirement, and paired array lookups |
+| [`inclusive-directory.rhdl`](inclusive-directory.rhdl) | Packed directory SRAM, reset sweep, slot commit and lookup arbitration |
 | [`inclusive-victim-writeback.rhdl`](inclusive-victim-writeback.rhdl) | Independent dirty-victim backing writes and rollback data |
 
 ## Change workflow
@@ -58,14 +60,35 @@ dispatch are phase-exclusive in both callers.
 
 ### Inclusive LLC and transaction slots
 
-`CHIInclusiveHNF` stores valid and dirty ways as one `Mask(ways)` per set.
-Reads select a way from that packed mask, and updates set or clear its bit while
-preserving other ways. Convert to `Vec(ways, Bool)` only at the PLRU input; keep
-the registered rows packed.
+`CHIInclusiveDirectory` owns one `SyncRam1RW(sets, Entry, ways)`. Each masked
+lane contains line address, valid, dirty, and resident/possible-writer masks.
+There is no global metadata register array or separate tag memory. Reset gates
+ordinary operations immediately, then sweeps all fields of every way to zero.
+Normal reads and commits start only after the last sweep write. Macro mapping
+must preserve the packed entry lane width: the Simple SoC currently has 44-bit
+lanes, so the catalogued Sky130 macro with 8-bit write granularity cannot map
+this directory without a mapping-layer padding adapter. Keep that technology
+choice out of the logical entry type. The parent gates
+all external ingress queues and outgoing traffic with `initialized`.
 
-`CHIInclusiveHNF` owns `resident_lines` and `may_write_lines`, indexed by LLC
-set/way and configured RN-F order. Possible writers are a subset of possible
-residents; a clean `Unique` snoop response still permits a silent later write.
+At lookup acceptance, launch the directory and data reads together and capture
+one owner. On the following cycle, select the hit/victim from the returned row,
+then capture its entry in that demand slot. Apply zero-snoop victim invalidation
+in the captured value. All later metadata reads and edits use this local entry;
+same-set exclusion makes the backing SRAM's temporarily old version unreachable.
+A sticky modified flag tracks semantic edits, including the terminal event.
+
+After public completion, a modified slot enters `AwaitDirectoryCommit` and freezes
+its entry, set, and way. It remains occupied until the accepted masked write;
+no protocol output or work-scheduler event selects that phase. Commits start no
+earlier than the cycle after completion. The directory arbitrates circularly
+across slots, wraps explicitly at the configured count, and advances only on a
+write. A second alternating selector arbitrates lookup versus commit, independently
+of the Home work scheduler and external backpressure. Lookup eligibility still
+requires the data port to be free. Commits do not launch a data read.
+
+Resident and possible-writer masks follow configured RN-F order. Possible writers
+are a subset of possible residents; a clean `Unique` snoop response still permits a silent later write.
 Keep these permission invariants separate from LLC dirty state and from
 `chi_request_allocates_coherent`, whose opcode family includes non-allocating
 `WriteUniquePtl`. Its bounded transaction slots retain the request, selected
@@ -73,9 +96,9 @@ set/way, line data, snoop state, fill/writeback masks, errors, and subordinate
 DBID. The slot index is the Home TxnID/DBID on subordinate and snoop traffic.
 One shared SRAM lookup port accepts at most one lookup per cycle. Different
 sets may overlap, but an admitted transaction owns its set until retirement;
-same-set requests remain backpressured so directory and replacement updates
-cannot conflict. Lookup issue, autonomous progress, and requester response DAT
-use independent rotating slot selectors. Requester DAT/RSP and subordinate
+same-set requests remain backpressured through the final directory commit so
+directory and replacement updates cannot conflict. Lookup issue, autonomous
+progress, and requester response DAT use independent rotating slot selectors. Requester DAT/RSP and subordinate
 DAT/RSP enter non-pipelined two-entry buffers before they decode with
 victim-writeback completion onto one typed, slot-targeted ingress event. The
 buffers prevent autonomous output readiness from propagating to external
@@ -90,14 +113,15 @@ merge, or intervention update reserves the single LLC array port instead. Reques
 and each selected shared RSP, SNP, or subordinate REQ/DAT output retain their
 owner while stalled; do not let another slot or incoming channel change a
 payload before handshake. A successful final read-data transfer publishes a possible
-cached copy before releasing its transaction slot.
+cached copy in its local entry before entering the commit phase.
 Reads with `ExpCompAck` reserve a `CHIHomeCompAckTable` slot at admission and
-carry its DBID on every response DAT beat. Final DAT publishes the slot and
-releases the transaction slot; the granted set remains reserved until `CompAck`
+carry its DBID on every response DAT beat. Final DAT publishes the acknowledgement
+slot. The demand slot retires after its directory commit; the granted set remains reserved until `CompAck`
 confirms receipt, so its resident cannot be probed or replaced early. The later
 `CompAck` validates source, target, and DBID against only that table entry.
-Table capacity may backpressure another
-acknowledgement-bearing request, but must not block a request that does not need
+CompAck may clear its reservation before or after the directory commit. Admission
+checks both owners, and acknowledgement consumption does not depend on commit.
+Table capacity may backpressure another acknowledgement-bearing request, but must not block a request that does not need
 `CompAck`. Only complete successful snoop responses or complete copyback may
 remove a responder. A complete SharedClean response removes possible write
 permission but not residency; an Invalid response removes both. Track
@@ -147,8 +171,9 @@ victim-writeback enqueue with the named `request` retained bank. Its capture
 predicates use `allocation_slot`; requester DAT selects `response_data_slot`,
 and the other outputs select `advance_slot`. Release predicates must gate both the
 real finishing operation and its owning slot, allowing independent slots to
-finish together. Keep ownership throughout the real FSM lifetime, releasing
-on copyback finish, terminal completion, or final data. Do not release on the
+finish together. Keep public ownership until copyback finish, terminal completion, or final data.
+The retained bank's active predicate excludes `AwaitDirectoryCommit`, even though
+the demand slot stays occupied for storage ownership. Do not release on the
 first data beat, DBID response, subordinate
 response, or delayed acknowledgement; `CompAck` has no requester output and is
 owned by the separate DBID table after final DAT.
@@ -175,6 +200,11 @@ Keep host tests and authoring fixtures in [`../tests/`](../tests/), and
 behavioral benches in [`../tests/circt/`](../tests/circt/). Select checks by
 the changed ownership boundary:
 
+- Directory storage: `chi-inclusive-directory` checks reset exclusion/restart,
+  one-cycle reads, lane preservation, and fair slot/class arbitration.
+  `python3 chi/tests/inclusive-directory.py` compares the same randomized oracle
+  with native rsim (ASan/UBSan) and direct SV for 1/2/3 committers and 2/4 sets.
+  Add `--circt-opt /path/to/circt-opt` to compare CIRCT with that oracle too.
 - Snoop-target bookkeeping: both Home and maintenance fixtures; the shared
   maintenance bench checks order, stalled dispatch stability, and reset on
   either side of dispatch.

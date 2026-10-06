@@ -81,6 +81,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   hnf_out_t port_out;
   logic [127:0] expected_line [4];
   logic [11:0] response_dbid;
+  logic [11:0] latest_memory_txn;
+  logic [11:0] latest_requester_dbid;
   logic [11:0] first_comp_ack_dbid;
   logic [11:0] second_comp_ack_dbid;
   logic [11:0] first_memory_txn;
@@ -96,6 +98,15 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   always @(posedge clock)
     if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
       active_request <= requester_requests_in.bits;
+  // Derive responder identities from accepted public requests/DBID responses;
+  // a completed slot may still be waiting for its directory write.
+  always @(posedge clock) begin
+    if (!reset && port_out.subordinate.req.valid && subordinate_requests_ready_in.ready)
+      latest_memory_txn <= port_out.subordinate.req.bits.txn_id;
+    if (!reset && port_out.requester.responses.valid && requester_responses_ready_in.ready &&
+        port_out.requester.responses.bits.opcode == DBID_RESP)
+      latest_requester_dbid <= port_out.requester.responses.bits.dbid_or_group_id;
+  end
 
   assign port_in.requester.requests = requester_requests_in;
   assign port_in.requester.requester_responses = requester_responses_in;
@@ -169,6 +180,21 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     end
   endtask
 
+  task automatic finish_directory_sweep;
+    // This fixture has two sets. Neither reset control nor stale queue state
+    // may expose a handshake before both all-way writes have reached SRAM.
+    repeat (2) begin
+      #1;
+      assert(!port_out.requester.requests.ready && !port_out.requester.request_data.ready &&
+             !port_out.requester.requester_responses.ready && !port_out.subordinate.rsp.ready &&
+             !port_out.subordinate.dat.response.ready && !port_out.requester.responses.valid &&
+             !port_out.requester.response_data.valid && !port_out.requester.snoops.valid &&
+             !port_out.subordinate.req.valid && !port_out.subordinate.dat.request.valid)
+        else $fatal(1, "inclusive Home exposed traffic during the directory sweep");
+      tick();
+    end
+  endtask
+
   task automatic send_request(input logic [43:0] address,
                               input logic [6:0] opcode,
                               input logic [5:0] request_size = 6'd6,
@@ -193,8 +219,13 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       requester_requests_in.bits.qos = 4'ha;
       requester_requests_in.valid = 1'b1;
       #1;
-      assert (port_out.requester.requests.ready)
-        else $fatal(1, "inclusive Home did not accept an idle request");
+      begin
+        int waited;
+        waited = 0;
+        while (!port_out.requester.requests.ready && waited < 16) begin tick(); waited++; end
+        assert (port_out.requester.requests.ready)
+          else $fatal(1, "inclusive Home did not release the request after directory commit");
+      end
       tick();
       requester_requests_in = '0;
     end
@@ -265,7 +296,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   task automatic return_fill_packet(input logic [1:0] packet_id,
                                     input logic [7:0] payload,
                                     input logic [1:0] error = 0,
-                                    input logic [11:0] transaction = 0);
+                                    input logic [11:0] transaction = latest_memory_txn);
     begin
       subordinate_data_in.bits = '0;
       subordinate_data_in.bits.opcode = COMP_DATA;
@@ -384,6 +415,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     begin
       request_data_in.bits = '0;
       request_data_in.bits.opcode = NON_COPY_BACK_WRITE_DATA;
+      request_data_in.bits.txn_id = latest_requester_dbid;
       request_data_in.bits.src_id = HTIF_ID;
       request_data_in.bits.tgt_id = HOME_ID;
       request_data_in.bits.data_id = packet_id;
@@ -638,7 +670,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     subordinate_data_ready_in = '0;
     subordinate_data_in = '0;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     requester_requests_in.bits = '0;
     requester_requests_in.bits.src_id = DATA_ID;
@@ -663,7 +695,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     requester_responses_ready_in = '0;
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     // A stalled autonomous output retains its owner while an unrelated input
     // event advances another slot.
@@ -701,7 +733,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     requester_responses_ready_in = '0;
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     // A cached line in one set completes while a distinct-set miss remains
     // parked on DRAM. A non-final fill beat may arrive while the hit DAT is
@@ -754,7 +786,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       accept_routed_packet(12'h330, 2'(packet), 8'h60 + 8'(packet));
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     // A fill owned by the second transaction slot must write its own tag,
     // independent of the lookup selector's current or invalid choice.
@@ -773,7 +805,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     copyback(LINE1, 3'b110);
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     // Distinct sets occupy independent transaction slots, while a request for
     // the first set remains serialized until its owner releases the set.
@@ -836,7 +868,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     end
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     // A grant for another set must not clear this set's silent writer while
     // transactions for both sets are returning cached data.
@@ -882,7 +914,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       else $fatal(1, "independent unique grant erased the first line's writer");
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     // Allocating ReadOnce misses install and subsequently hit.
     send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
@@ -919,7 +951,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
     reset = 1'b1;
     tick();
-    reset = 1'b0;
+    reset = 1'b0; finish_directory_sweep();
 
     send_request(LINE0, READ_NO_SNP);
     tick();
@@ -1089,7 +1121,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     if (INVALID_CASE == 0) begin
       // A completed writeback must be able to release a full victim buffer
       // even while the next dirty replacement owns the stalled advance lane.
-      reset = 1; tick(); reset = 0;
+      reset = 1; tick(); reset = 0; finish_directory_sweep();
       send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'h10);
       send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h20);
       send_request(LINE1, READ_NO_SNP); tick(); fill_and_return(LINE1, 8'h30);
@@ -1172,7 +1204,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
     // A resident hit updates tree-PLRU state: after filling LINE0 then LINE2,
     // touching LINE0 makes LINE2 the victim for LINE3.
-    reset = 1; tick(); reset = 0;
+    reset = 1; tick(); reset = 0; finish_directory_sweep();
     send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'h50);
     send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h70);
     for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h50 + 128'(packet);
@@ -1185,7 +1217,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     send_request(LINE2, READ_NO_SNP); repeat (3) tick(); fill_and_return(LINE2, 8'h70);
 
     // ReadOnce must preserve an early-beat error and must not cache a failed fill.
-    reset = 1; tick(); reset = 0;
+    reset = 1; tick(); reset = 0; finish_directory_sweep();
     send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
     tick();
     accept_memory_request(LINE0, READ_NO_SNP);
@@ -1259,7 +1291,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     finish_cached();
     send_request(LINE0, READ_ONCE); finish_cached();
 
-    // Final DAT releases the transaction slot, but its set stays reserved
+    // Final DAT starts a directory commit, and the set stays reserved
     // until CompAck confirms the requester has received the entire line.
     // A distinct set can still use the datapath and another Home DBID.
     send_request(LINE0, 7'h07, 6'd6, INSTRUCTION_ID, 1);
@@ -1342,7 +1374,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
     // A failed buffered writeback drains its already-issued refill, returns an
     // error, and restores the complete post-snoop dirty victim in its old way.
-    reset = 1; tick(); reset = 0;
+    reset = 1; tick(); reset = 0; finish_directory_sweep();
     send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'h80);
     send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h30);
     for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h80 + 128'(packet);
@@ -1386,7 +1418,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
     // Maintenance still targets every clean resident and can dispatch its
     // snoops back-to-back with out-of-order responses.
-    reset = 1; tick(); reset = 0;
+    reset = 1; tick(); reset = 0; finish_directory_sweep();
     send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'ha0);
     for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'ha0 + 128'(packet);
     send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID); finish_cached();
@@ -1410,6 +1442,63 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
           expected_line[packet][byte_index * 8 +: 8] = 8'he0 + 8'(packet);
     finish_cached();
     send_request(LINE0, READ_ONCE); finish_cached();
+
+    // Finish a cached write and a coherent read in the same cycle. The two
+    // frozen entries need separate SRAM grants; an early CompAck must not
+    // expose the read's set while its entry is still waiting to commit.
+    reset = 1; tick(); reset = 0; finish_directory_sweep();
+    send_request(LINE0, WRITE_NO_SNP_FULL);
+    while (!port_out.requester.responses.valid) tick();
+    requester_responses_ready_in.ready = 1;
+    tick(); requester_responses_ready_in = '0;
+    for (int packet = 0; packet < 4; packet++) send_write_packet(2'(packet), 128'hf0 + 128'(packet));
+    accept_memory_request_slot(LINE0, first_memory_txn);
+    send_request(LINE1, 7'h07, 6'd6, DATA_ID, 1);
+    accept_memory_request_slot(LINE1, second_memory_txn);
+    for (int packet = 0; packet < 4; packet++) return_fill_packet(2'(packet), 8'h10 + 8'(packet), 0, first_memory_txn);
+    while (!port_out.requester.responses.valid) tick();
+    stalled_response = port_out.requester.responses.bits;
+    assert(stalled_response.opcode == COMP) else $fatal(1, "write completion missing before commit race");
+    for (int packet = 0; packet < 4; packet++) return_fill_packet(2'(packet), 8'h20 + 8'(packet), 0, second_memory_txn);
+    for (int packet = 0; packet < 3; packet++) accept_cached_packet(2'(packet), 128'h20 + 128'(packet));
+    assert(port_out.requester.responses.valid && port_out.requester.responses.bits == stalled_response)
+      else $fatal(1, "unrelated read disturbed a stalled write completion");
+    requester_responses_ready_in.ready = 1;
+    requester_responses_in = '0;
+    requester_responses_in.bits.opcode = COMP_ACK;
+    requester_responses_in.bits.txn_id = response_dbid;
+    requester_responses_in.bits.src_id = DATA_ID;
+    requester_responses_in.bits.tgt_id = HOME_ID;
+    requester_responses_in.valid = 1;
+    accept_cached_packet(2'd3, 128'h23);
+    requester_responses_ready_in = '0; requester_responses_in = '0;
+    requester_requests_in.bits.address = LINE1;
+    #1;
+    assert(!port_out.requester.requests.ready)
+      else $fatal(1, "final DAT released a modified entry before commit");
+    // Ack is consumed alongside the first write; the second commit still
+    // reserves LINE1. Both external output sinks are now stalled.
+    tick();
+    assert(!port_out.requester.requests.ready)
+      else $fatal(1, "early CompAck exposed an uncommitted entry");
+    tick();
+    assert(port_out.requester.requests.ready && !port_out.requester.responses.valid && !port_out.requester.response_data.valid)
+      else $fatal(1, "commits did not drain independently of external readiness");
+    send_request(LINE1, READ_ONCE);
+    clean_snoop(DATA_ID, 5'h03, 3'd2);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h20 + 128'(packet);
+    finish_cached();
+    send_request(LINE0, READ_NO_SNP);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'hf0 + 128'(packet);
+    finish_cached();
+
+    // Cancel a newly filled entry while its commit is pending. A complete
+    // sweep must hide both that entry and the older dirty/resident entries.
+    send_request(LINE2, READ_NO_SNP); fill_and_return(LINE2, 8'h30);
+    reset = 1; tick(); reset = 0;
+    tick(); reset = 1; tick(); reset = 0; finish_directory_sweep();
+    send_request(LINE2, READ_NO_SNP); fill_and_return(LINE2, 8'h40);
+    send_request(LINE0, READ_NO_SNP); fill_and_return(LINE0, 8'h50);
 
     $display("CHI inclusive Home residency, copyback, response errors, and storage simulation passed");
 `ifdef CHI_HOME_TRACE

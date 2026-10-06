@@ -109,7 +109,7 @@ integration_fixtures=(
   chi-response-profile
   rv32i-alu rv64i-alu-integrated simd-alu simd-alu32 load-store-rv32-word bit-manip bit-manip-rv32 cache-replacement
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
-  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-read-once-home chi-read-stream chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
+  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-inclusive-directory chi-read-once-home chi-read-stream chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
   rv5stage-core rv5stage-branch-prediction rv5stage-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
@@ -878,6 +878,7 @@ direct_fixture_specs=(
   'chi-maintenance-inclusive|chi_maintenance_inclusive_tb'
   'chi-coherent-home|chi_coherent_home_tb'
   'chi-inclusive-home|chi_inclusive_home_tb'
+  'chi-inclusive-directory|chi_inclusive_directory_tb'
   'chi-snp-noc|chi_snp_noc_tb'
   'chi-sn-noc|chi_sn_noc_tb'
   'chi-family-noc|chi_family_noc_tb'

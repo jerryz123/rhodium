@@ -113,8 +113,13 @@ module chi_read_once_home_tb;
       active_qos = requester_requests_in.bits.qos;
       requester_requests_in.valid = 1'b1;
       #1;
-      assert(port_out.requester.requests.ready)
-        else $fatal(1, "inclusive Home did not accept an idle read");
+      begin
+        int waited;
+        waited = 0;
+        while (!port_out.requester.requests.ready && waited < 16) begin tick(); waited++; end
+        assert(port_out.requester.requests.ready)
+          else $fatal(1, "inclusive Home did not accept a read after directory commit");
+      end
       tick();
       requester_requests_in = '0;
     end
@@ -222,11 +227,16 @@ module chi_read_once_home_tb;
   task automatic delayed_comp_ack(input logic [6:0] source,
                                   input int delay_cycles = 0);
     begin
+      // Probe an unrelated set while the completed request may still own its
+      // set for a directory commit or delayed acknowledgement.
+      requester_requests_in.bits.address = LINE0 + 44'h100;
+      #1;
       repeat (delay_cycles) begin
         assert(port_out.requester.requests.ready)
           else $fatal(1, "CompAck retained the inclusive Home datapath");
         tick();
       end
+      requester_requests_in = '0;
       requester_responses_in.bits = '0;
       requester_responses_in.bits.opcode = COMP_ACK;
       requester_responses_in.bits.txn_id = response_dbid;
@@ -341,6 +351,10 @@ module chi_read_once_home_tb;
     subordinate_data_in = '0;
     repeat (3) tick();
     reset = 1'b0;
+    repeat (2) begin
+      #1; assert(!port_out.requester.requests.ready) else $fatal(1, "request admitted during directory sweep");
+      tick();
+    end
     tick();
 
     // An allocating miss tolerates backing and requester backpressure, fills

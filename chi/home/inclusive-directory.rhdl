@@ -1,0 +1,83 @@
+#lang rhodium
+/* Stores inclusive-Home directory entries behind a reset sweep and fair lookup/commit arbitration. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/read-write.rhdl").ReadWriteRequest
+  lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
+  lib("flow/circular-priority.rhdl") open
+
+/* Keep one cache line's identity, validity, dirty state, and coherent permissions together. */
+bundle CHIInclusiveDirectoryEntry(line_width :: PosInt, residents :: PosInt):
+  line_address: Bits(line_width)
+  valid: Bool
+  dirty: Bool
+  residents: Mask(residents)
+  may_write: Mask(residents)
+
+/* Carry one frozen demand slot's complete replacement for a selected directory way. */
+bundle CHIInclusiveDirectoryCommit(sets :: Pow2Int, ways :: PosInt, line_width :: PosInt, residents :: PosInt):
+  set: Bits(alignment_bits(sets))
+  way: Bits(index_width(ways))
+  entry: CHIInclusiveDirectoryEntry(line_width, residents)
+
+/* Clear every set after reset, then fairly accept one lookup or one slot commit per cycle.
+ * Candidates are cycle-local, not retained Flow offers. Reads return one cycle after acceptance. */
+sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :: PosInt, residents :: PosInt, slots :: PosInt):
+  unless sets >= 2
+  | error(~who: #'CHIInclusiveDirectory, "directory requires at least two sets")
+  def Entry = CHIInclusiveDirectoryEntry(line_width, residents)
+  def set_width = alignment_bits(sets)
+  def slot_width = index_width(slots)
+  input lookup_valid: Bool
+  input lookup_set: Bits(set_width)
+  input commit_valid: Vec(slots, Bool)
+  input commits: Vec(slots, CHIInclusiveDirectoryCommit(sets, ways, line_width, residents))
+  output initialized: Bool
+  output lookup_accepted: Bool
+  output commit_accepted: Mask(slots)
+  output response_valid: Bool
+  output response: Vec(ways, Entry)
+
+  reg swept(~init: Bool(#false))
+  reg sweep_set(~init: bits(0, set_width))
+  reg commit_priority(~init: bits(0, slot_width))
+  reg prefer_commit(~init: Bool(#false))
+  def running = !reset_active().into(Bool)
+  def ready = running & swept
+  def choice = circular_priority_onehot(commit_valid, commit_priority)
+  def write = ready & choice.valid & (!lookup_valid ||| prefer_commit)
+  def read = ready & lookup_valid & !write
+  def sweep = running & !swept
+  def selected = commits[choice.index]
+  def zero_entry = bits(0, Entry.packed_width()).into(Entry)
+  def write_mask = vec(for List (way in 0..ways): selected.way === bits(way, index_width(ways))).into(Mask(ways))
+
+  inst storage(SyncRam1RW(sets, Entry, ways))
+  storage.port.request.valid <== sweep ||| read ||| write
+  storage.port.request.bits <== ReadWriteRequest(set_width, Entry, ways):
+    address: mux(sweep, sweep_set, mux(read, lookup_set, selected.set))
+    write: sweep ||| write
+    data: vec(for List (_way in 0..ways): mux(sweep, zero_entry, selected.entry))
+    mask: mux(sweep, !Mask(ways)(0), write_mask)
+  initialized <== ready
+  lookup_accepted <== read
+  commit_accepted <== vec(for List (slot in 0..slots): write & choice.grant.as_bits().as_vec(Bool)[slot]).into(Mask(slots))
+  response_valid <== ready & storage.port.response.valid
+  response <== storage.port.response.bits
+
+  when sweep:
+    swept <== sweep_set === bits(sets - 1, set_width)
+    sweep_set <== mux(sweep_set === bits(sets - 1, set_width), sweep_set, sweep_set + bits(1, set_width))
+  when write:
+    commit_priority <== mux(choice.index === bits(slots - 1, slot_width), bits(0, slot_width), choice.index + bits(1, slot_width))
+    prefer_commit <== Bool(#false)
+    assert(selected.way.zext(index_width(ways) + 1) < bits(ways, index_width(ways) + 1), "chi_directory_commit_way_in_range")
+  elsewhen read:
+    prefer_commit <== Bool(#true)
+
+export:
+  CHIInclusiveDirectoryEntry
+  CHIInclusiveDirectoryCommit
+  CHIInclusiveDirectory

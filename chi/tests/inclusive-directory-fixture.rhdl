@@ -1,0 +1,37 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("chi/home/inclusive-directory.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+sync_circuit CHIDirectoryFixture(slots :: PosInt, sets :: Pow2Int = 4):
+  def set_width = alignment_bits(sets)
+  def Entry = CHIInclusiveDirectoryEntry(10, 2)
+  input lookup_valid: Bool
+  input lookup_set: Bits(2)
+  input commit_valid: Bits(slots)
+  input commit_sets: Bits(2 * slots)
+  input commit_ways: Bits(slots)
+  input commit_entries: Bits(16 * slots)
+  output initialized: Bool
+  output lookup_accepted: Bool
+  output commit_accepted: Bits(slots)
+  output response_valid: Bool
+  output response: Bits(32)
+  inst directory(CHIInclusiveDirectory(sets, 2, 10, 2, slots))
+  directory.lookup_valid <== lookup_valid
+  directory.lookup_set <== lookup_set[0..set_width]
+  directory.commit_valid <== commit_valid.as_vec(Bool)
+  def entries = for List (slot in 0..slots):
+    CHIInclusiveDirectoryCommit(sets, 2, 10, 2):
+      set: commit_sets[(2 * slot)..(2 * slot + set_width)]
+      way: commit_ways[slot..(slot + 1)]
+      entry: commit_entries[(16 * slot)..(16 * slot + 16)].into(Entry)
+  directory.commits <== vec(entries)
+  initialized <== directory.initialized
+  lookup_accepted <== directory.lookup_accepted
+  commit_accepted <== directory.commit_accepted.as_bits()
+  response_valid <== directory.response_valid
+  response <== directory.response.as_bits()
+
+export CHIDirectoryFixture

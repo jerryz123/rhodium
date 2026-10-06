@@ -34,6 +34,7 @@ logic [4:0] snp_opcode;
 logic [11:0] snp_txn;
 int mem_phase = 0, mem_packet = 0, mem_packets = 0, mem_delay = 0;
 logic [43:0] mem_address;
+logic [11:0] mem_transaction;
 logic [1:0] write_error = 0;
 logic [127:0] observed [0:3];
 int observed_count = 0;
@@ -77,6 +78,7 @@ always_comb begin
     port_in.subordinate.rsp.bits.opcode = mem_phase == 1 ? 6 : 4;
     port_in.subordinate.rsp.bits.src_id = 9;
     port_in.subordinate.rsp.bits.tgt_id = 5;
+    port_in.subordinate.rsp.bits.txn_id = mem_transaction;
     port_in.subordinate.rsp.bits.dbid_or_group_id = 12'h55;
     port_in.subordinate.rsp.bits.resp_err = mem_phase == 3 ? write_error : 0;
   end
@@ -86,6 +88,7 @@ always_comb begin
     port_in.subordinate.dat.response.bits.opcode = 4;
     port_in.subordinate.dat.response.bits.src_id = 9;
     port_in.subordinate.dat.response.bits.tgt_id = 5;
+    port_in.subordinate.dat.response.bits.txn_id = mem_transaction;
     port_in.subordinate.dat.response.bits.data_id = 2'(mem_packet);
     port_in.subordinate.dat.response.bits.byte_enable = '1;
     port_in.subordinate.dat.response.bits.data = ram[int'(mem_address[11:4]) + mem_packet];
@@ -150,6 +153,7 @@ always @(posedge clock) if (!reset) begin
   if (mem_delay > 0) mem_delay <= mem_delay - 1;
   if (port_out.subordinate.req.valid && port_in.subordinate.req.ready) begin
     mem_address <= port_out.subordinate.req.bits.address;
+    mem_transaction <= port_out.subordinate.req.bits.txn_id;
     mem_packets <= port_out.subordinate.req.bits.size_or_num_req == 6 ? 4 : 1;
     mem_packet <= 0;
     if (port_out.subordinate.req.bits.opcode == 4) begin
@@ -260,6 +264,7 @@ initial begin
     snp_active = 0; snp_data = 0;
     for (int i = 0; i < 4; i++) begin cached[i] = 0; dirty[i] = 0; end
     hold_snoops = 0; reset = 0; tick();
+    if (INCLUSIVE) tick();
     assert(port_out.requester.requests.ready && !port_out.requester.snoops.valid)
       else $fatal(1, "Home did not clear snoop scheduling on reset");
   end
