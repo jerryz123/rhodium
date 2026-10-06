@@ -67,14 +67,15 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     CachePipelineReq(XLen.X64):
       byte_mask: request.mask
       address: request.address.align_down(8)
-      access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
+      access: request.access
       width: MemoryWidth.Double
       unsigned: Bool(#true)
       data: request.data
   early_index |> map_valid(request => cache_request(request)) |> pipeline_lookup
   def mem_request = retained_request |> valid_pipe(1)
-  def data_request = mux(memory.request.valid, memory.request.bits, mem_request.bits)
-  def data_lookup = lookup(data_request.address, mux(data_request.write, Sv39Access.Store, Sv39Access.Load), effective_data_privilege(XLen.X64, state.privilege, state.mstatus))
+  def mem :: RV2WideMemoryReq() = mem_request.bits
+  def data_request :: RV2WideMemoryReq() = mux(memory.request.valid, memory.request.bits, mem)
+  def data_lookup = lookup(data_request.address, mux(data_request.access.store_fault_class(), Sv39Access.Store, Sv39Access.Load), effective_data_privilege(XLen.X64, state.privilege, state.mstatus))
   itlb.lookup <== instruction_lookup
   itlb.probe <== instruction_lookup
   dtlb.lookup <== data_lookup
@@ -103,9 +104,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   // than mistaking WB's translation or cache result for its own.
   def mem_address = data_result.physical_address.zext(64)
   def region = config.physical_map.lookup(mem_address, mem_address +& (memory_access_bytes(XLen.X64, mem_request.bits.width) - bits(1, 64)))
-  def permitted = region.mapped & mux(mem_request.bits.write, region.writable, region.readable)
   def cacheable = region.cacheable & !region.device & region.read_idempotent
-  def speculative_ok = !memory.request.valid & data_ok & permitted & cacheable & !physical_memory.ordered_busy
+  def atomic_request = !mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def permitted = region.mapped & mux(mem.access.store_fault_class(), region.writable, region.readable) & (!atomic_request ||| (cacheable & region.atomic & region.readable))
+  def speculative_ok = !memory.request.valid & data_ok & permitted & cacheable & !atomic_request & !physical_memory.ordered_busy
   (mem_request |> filter_valid(_request => speculative_ok)
     |> map_valid(request => cache_request(request).updated(~address: mem_address.align_down(8)))
   ) |> physical_pipeline.request
@@ -122,7 +124,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     outcome <== RV2WideCacheOutcome.PageFault
   elsewhen ((data_result.fault =/= RiscvTranslationFault.None) ||| !permitted):
     outcome <== RV2WideCacheOutcome.AccessFault
-  elsewhen (!cacheable):
+  elsewhen (!cacheable ||| atomic_request):
     outcome <== RV2WideCacheOutcome.Slow
   otherwise:
     outcome <== mux(physical_pipeline.response.valid, cache_outcome, RV2WideCacheOutcome.Replay)
@@ -188,7 +190,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   requests.ingress[1].valid <== walker.memory.request.valid & pte_permitted
   requests.ingress[1].bits <== RV2WideMemoryReq():
     address: walker.memory.request.bits.address
-    write: Bool(#false)
+    access: CacheOperation.Load
+    atomic: dont_care(memory.request.bits.atomic.type)
     width: MemoryWidth.Double
     data: bits(0, 64)
     mask: bits(0xff, 8)

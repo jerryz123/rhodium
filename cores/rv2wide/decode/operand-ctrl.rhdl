@@ -5,6 +5,7 @@
 import:
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/a.rhm") open
   lib("riscv/isa/b.rhm") open
   lib("riscv/isa/zba.rhm") as zba
   lib("riscv/isa/zbb.rhm") as zbb
@@ -23,8 +24,9 @@ hardware_enum RV2WideLeft:
   Pc
   Zero
 
-/* Selects the canonical immediate layout used by the ALU or branch target. */
+/* Selects an architectural immediate or zero for atomic rs1-only address generation. */
 hardware_enum RV2WideImmediate:
+  Zero
   I
   B
   U
@@ -33,6 +35,7 @@ hardware_enum RV2WideImmediate:
   /* Extracts the selected architectural immediate as a sign-extended RV64 value. */
   method decode(select, instruction :: Bits(32)) :: Bits(64):
     mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, 64)):
+      RV2WideImmediate.Zero: bits(0, 64)
       RV2WideImmediate.B: instruction_immediate(fields.BImmediate, instruction, 64)
       RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, 64)
       RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, 64)
@@ -49,6 +52,18 @@ bundle RV2WideOperandControl():
 def bitmanip_unary = [zbb.CLZ, zbb.CLZW, zbb.CTZ, zbb.CTZW, zbb.CPOP, zbb.CPOPW, zbb.ORC_B, zbb.REV8, zbb.SEXT_B, zbb.SEXT_H, zbb.ZEXT_H]
 def bitmanip_immediate = [zba.SLLI_UW, zbb.RORI, zbb.RORIW, zbs.BCLRI, zbs.BEXTI, zbs.BINVI, zbs.BSETI]
 def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruction_pattern):
+  [LR_W, LR_D]:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#false)
+    left: RV2WideLeft.Register
+    right_immediate: Bool(#true)
+    immediate: RV2WideImmediate.Zero
+  group excluding_instructions(RV64AInstructions, [LR_W, LR_D]):
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#true)
+    left: RV2WideLeft.Register
+    right_immediate: Bool(#true)
+    immediate: RV2WideImmediate.Zero
   group bitmanip_unary:
     uses_rs1: Bool(#true)
     uses_rs2: Bool(#false)

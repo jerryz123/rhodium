@@ -44,9 +44,10 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   transport.chi <=> uncached_chi
   def ordered_busy = !io.core.request.ready
   def request :: RV2WideMemoryReq() = memory.request.bits
+  def atomic_request = !request.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
   def physical = config.physical_map.lookup(request.address, request.address +& (memory_access_bytes(XLen.X64, request.width) - bits(1, 64)))
-  def permitted = physical.mapped & request.width.is_aligned(request.address) & mux(request.write, physical.writable, physical.readable)
   def cacheable = physical.cacheable & !physical.device & physical.read_idempotent
+  def permitted = physical.mapped & request.width.is_aligned(request.address) & mux(request.access.store_fault_class(), physical.writable, physical.readable) & (!atomic_request ||| (cacheable & physical.atomic & physical.readable))
 
   // The MMU owns MEM translation/PMA checks. EX indexing must not depend on
   // a TLB hit; the physical tag arrives alongside the following SRAM result.
@@ -58,15 +59,15 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
 
   def Array(cached, uncached) = memory.request |> gate_flow(permitted) |> demux_flow(2, _request => !cacheable)
   def Array(authorized, authorized_index) = cached |> gate_flow(!ordered_busy) |> atomic_fork(2)
-  authorized_index |> to_valid() |> map_valid(request => request.address.align_down(8)) |> storage.virtual_lookup
+  authorized_index |> to_valid() |> map_valid(request => mux(atomic_request, request.address, request.address.align_down(8))) |> storage.virtual_lookup
   (
     authorized |> map_flow(request => PhysicalMemoryReq(XLen.X64, Bool)):
       byte_mask: request.mask
-      address: request.address.align_down(8)
-      access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
-      atomic: RiscvAtomicOperation.Swap
-      width: MemoryWidth.Double
-      unsigned: Bool(#true)
+      address: mux(atomic_request, request.address, request.address.align_down(8))
+      access: request.access
+      atomic: request.atomic
+      width: mux(atomic_request, request.width, MemoryWidth.Double)
+      unsigned: !atomic_request
       data: request.data
       context: Bool(#false)
       locality: RiscvMemoryLocality.Default
@@ -78,8 +79,8 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
         PhysicalMemoryReq(XLen.X64, Bits(3)):
           byte_mask: request.mask
           address: request.address
-          access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
-          atomic: RiscvAtomicOperation.Swap
+          access: request.access
+          atomic: request.atomic
           width: request.width
           unsigned: Bool(#true)
           data: request.data >> (request.address[0..3] ++ bits(0, 3))
@@ -89,7 +90,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   memory.fault.valid <== memory.request.valid & !permitted
   memory.fault.bits <== RV2WideResolution():
     disposition: RV2WideDisposition.Fault
-    cause: mux(memory.request.bits.write, bits(7, 64), bits(5, 64))
+    cause: mux(request.access.store_fault_class(), bits(7, 64), bits(5, 64))
     value: memory.request.bits.address
   Array(
     storage.core.response |> map_flow(response => response.data),

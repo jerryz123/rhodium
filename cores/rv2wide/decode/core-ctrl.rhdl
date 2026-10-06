@@ -1,5 +1,5 @@
 #lang rhodium
-/* Composes shared I/B ALU and branch relations with RV2Wide operand, memory, writeback, and system columns. */
+/* Composes shared ALU/branch relations with RV2Wide scalar, atomic, and system control columns. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,7 @@ import:
   lib("cores/riscv/branch-decode.rhdl") open
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/a.rhm") open
   lib("riscv/isa/b.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
@@ -33,7 +34,8 @@ bundle RV2WideControl():
   system: RV2WideSystemControl()
   muldiv: RV2WideLongControl()
 
-def RV2WideInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64BInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
+def RV2WideInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
+def atomic_alu_cases = instruction_cases(RV64AInstructions, component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)))
 def system_alu_cases = instruction_cases(RV64MInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, unused_alu)
 def inactive_memory_cases = instruction_cases(RV64MInstructions ++ RV64BInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
 def core_long_cases = long_cases(RV2WideInstructions)
@@ -59,10 +61,10 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec)):
     DecodeCase(
       input,
       pattern(RV2WideControl()):
-        alu: component_output(RV64ICompleteAluCases ++ RV64BAluCases ++ system_alu_cases, input)
+        alu: component_output(RV64ICompleteAluCases ++ RV64BAluCases ++ atomic_alu_cases ++ system_alu_cases, input)
         operand: component_output(RV2WideOperandCases, input)
         branch: component_output(core_branch_cases, input)
-        memory: component_output(RV2WideMemoryCases ++ inactive_memory_cases, input)
+        memory: component_output(RV2WideMemoryCases ++ RV2WideAtomicCases ++ inactive_memory_cases, input)
         writeback: component_output(RV2WideWritebackCases, input)
         system: component_output(RV2WideSystemCases, input)
         muldiv: component_output(core_long_cases, input)

@@ -1,17 +1,21 @@
 #lang rhodium
-/* Maps scalar loads and stores to RV2Wide transaction and shared load/store controls. */
+/* Maps scalar and atomic memory instructions to the shared physical cache controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/load-store.rhdl") open
+  lib("cores/cache/operation.rhdl") open
+  lib("riscv/rtl/atomic.rhdl") open
+  lib("riscv/isa/a.rhm") open
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
-/* Enables one memory operation, its direction, byte size, and load extension. */
+/* Enables one memory operation with its ownership class, AMO function, and result projection. */
 bundle RV2WideMemoryControl():
   enable: Bool
-  write: Bool
+  access: CacheOperation
+  atomic: RiscvAtomicOperation
   width: MemoryWidth
   unsigned: Bool
 
@@ -22,58 +26,92 @@ def RV2WideMemoryCases = decode_groups(RV2WideMemoryControl(), ~input: instructi
     enable: Bool(#false)
   [LB]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#false)
     width: MemoryWidth.Byte
   [LH]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#false)
     width: MemoryWidth.Half
   [LW]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#false)
     width: MemoryWidth.Word
   [LD]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#false)
     width: MemoryWidth.Double
   [LBU]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#true)
     width: MemoryWidth.Byte
   [LHU]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#true)
     width: MemoryWidth.Half
   [LWU]:
     enable: Bool(#true)
-    write: Bool(#false)
+    access: CacheOperation.Load
     unsigned: Bool(#true)
     width: MemoryWidth.Word
   [SB]:
     enable: Bool(#true)
-    write: Bool(#true)
+    access: CacheOperation.Store
     width: MemoryWidth.Byte
   [SH]:
     enable: Bool(#true)
-    write: Bool(#true)
+    access: CacheOperation.Store
     width: MemoryWidth.Half
   [SW]:
     enable: Bool(#true)
-    write: Bool(#true)
+    access: CacheOperation.Store
     width: MemoryWidth.Word
   [SD]:
     enable: Bool(#true)
-    write: Bool(#true)
+    access: CacheOperation.Store
     width: MemoryWidth.Double
+
+/* Supplies the same operation columns for W and D while leaving unused AMO controls uncared. */
+fun atomic_cases(width :: MemoryWidth, lr :: InstructionSpec, sc :: InstructionSpec, operations :: List):
+  def reserved = partial_pattern(RV2WideMemoryControl()):
+    enable: Bool(#true)
+    access: CacheOperation.LoadReserved
+    width: width
+    unsigned: Bool(#false)
+  def conditional = partial_pattern(RV2WideMemoryControl()):
+    enable: Bool(#true)
+    access: CacheOperation.StoreConditional
+    width: width
+  def modify = for List (pair in operations):
+    def output = partial_pattern(RV2WideMemoryControl()):
+      enable: Bool(#true)
+      access: CacheOperation.Atomic
+      atomic: pair[1]
+      width: width
+      unsigned: Bool(#false)
+    DecodeCase(instruction_pattern(pair[0]), output)
+  instruction_cases([lr], reserved) ++ instruction_cases([sc], conditional) ++ modify
+
+def RV2WideAtomicCases = atomic_cases(MemoryWidth.Word, LR_W, SC_W, [
+  [AMOSWAP_W, RiscvAtomicOperation.Swap], [AMOADD_W, RiscvAtomicOperation.Add],
+  [AMOXOR_W, RiscvAtomicOperation.Xor], [AMOAND_W, RiscvAtomicOperation.And], [AMOOR_W, RiscvAtomicOperation.Or],
+  [AMOMIN_W, RiscvAtomicOperation.Min], [AMOMAX_W, RiscvAtomicOperation.Max],
+  [AMOMINU_W, RiscvAtomicOperation.MinUnsigned], [AMOMAXU_W, RiscvAtomicOperation.MaxUnsigned]
+]) ++ atomic_cases(MemoryWidth.Double, LR_D, SC_D, [
+  [AMOSWAP_D, RiscvAtomicOperation.Swap], [AMOADD_D, RiscvAtomicOperation.Add],
+  [AMOXOR_D, RiscvAtomicOperation.Xor], [AMOAND_D, RiscvAtomicOperation.And], [AMOOR_D, RiscvAtomicOperation.Or],
+  [AMOMIN_D, RiscvAtomicOperation.Min], [AMOMAX_D, RiscvAtomicOperation.Max],
+  [AMOMINU_D, RiscvAtomicOperation.MinUnsigned], [AMOMAXU_D, RiscvAtomicOperation.MaxUnsigned]
+])
 
 export:
   RV2WideMemoryControl
   RV2WideMemoryCases
+  RV2WideAtomicCases
   RV2WideLoads
   RV2WideStores

@@ -6,6 +6,7 @@ import:
   lib("cores/riscv/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/a.rhm") open
   lib("riscv/isa/b.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
@@ -34,7 +35,7 @@ bundle RV2WideSystemControl():
 def RV2WidePrivilegedInstructions = [MRET, SRET, WFI, SFENCE_VMA]
 def RV2WideSystemInstructions = [ECALL, EBREAK, FENCE, FENCE_I] ++ ZicsrInstructions ++ RV2WidePrivilegedInstructions
 def RV2WideSystemCases = decode_groups(RV2WideSystemControl(), ~input: instruction_pattern):
-  group excluding_instructions(RV64IInstructions ++ RV64MInstructions ++ RV64BInstructions, [ECALL, EBREAK, FENCE]):
+  group excluding_instructions(RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions, [ECALL, EBREAK, FENCE]):
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None

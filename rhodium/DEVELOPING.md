@@ -264,6 +264,11 @@ the shared request types and arbitrates all deferred results through Flow.
 The RV2Wide decoder also consumes the pure B/Zba/Zbb/Zbs catalogs and joins
 the existing shared `RV64BAluCases` relation; operand and inactive memory/system
 columns remain named-core policy. No additional ALU or named-core dependency is introduced.
+RV2Wide's decoder also imports the pure A catalog and architectural atomic
+operation type. Its memory controls and request bundles use shared
+`cache/operation.rhdl`; the core owns WB authorization/order and the response
+unit distinguishes raw ordinary beats from already-normalized atomic values.
+Reservation and RMW implementation remain in the shared L1D.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus

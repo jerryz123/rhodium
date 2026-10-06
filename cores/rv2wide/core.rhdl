@@ -19,6 +19,7 @@ import:
   lib("cores/alu.rhdl") open
   lib("cores/branch-resolver.rhdl") open
   lib("cores/load-store.rhdl") open
+  lib("cores/cache/operation.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/c.rhm").CCompressedExtensions
   lib("riscv/isa/hart.rhm").RiscvMmuType
@@ -100,7 +101,7 @@ sync_circuit RV2WideCore():
   wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "m", "c", "zba", "zbb", "zbs", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.M, MisaExtension.C, MisaExtension.B, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)))
+  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "m", "a", "c", "zba", "zbb", "zbs", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.M, MisaExtension.A, MisaExtension.C, MisaExtension.B, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)))
   translation_state <== RV2WideTranslationState():
     privilege: wb_csrs.privilege
     mstatus: wb_csrs.mstatus
@@ -123,6 +124,7 @@ sync_circuit RV2WideCore():
   reg wb_pc_known(~init: Bool(#false))
   sleeping <== wb_sleeping
   inst wb_load_response(RV2WideLoadResponse())
+  reg wb_atomic_pending(~init: Bool(#false))
   inst ex_multiply(RV2WideMultiply())
   inst wb_divide(RV2WideDivide())
   inst rr_completions(RRArbiter(RV2WideRetirement(), 3))
@@ -196,8 +198,13 @@ sync_circuit RV2WideCore():
     def system :: RV2WideSystemControl() = rr_controls[lane].system
     rr_decodable[lane] & system.serializing()
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
-  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !rr_squash & (!rr_system[0] ||| (rr_pipeline_empty & wb_drained))
-  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decodable[0] & !rr_system[0] & !rr_system[1] & (rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !rr_pair_deferred)) & !(rr_completion.valid & rr_completion.bits.write)
+  // All aq/rl combinations use the stronger memory-ordering boundary: drain
+  // older memory before issue and hold younger memory through atomic response.
+  def rr_memory_in_pipeline = (ex_older.egress.valid & ex_older.egress.bits.control.memory.enable) ||| (ex_younger.egress.valid & ex_younger.egress.bits.control.memory.enable) ||| (mem_older.egress.valid & mem_older.egress.bits.memory.enable) ||| (mem_younger.egress.valid & mem_younger.egress.bits.memory.enable) ||| (wb_older.egress.valid & wb_older.egress.bits.memory.enable) ||| (wb_younger.egress.valid & wb_younger.egress.bits.memory.enable)
+  def rr_atomic_ready = !rr_memory_in_pipeline & memory.drained & wb_load_response.drained & !wb_atomic_pending
+  def rr_atomic = for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].memory.enable & !rr_controls[lane].memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !rr_squash & (!rr_system[0] ||| (rr_pipeline_empty & wb_drained)) & (!rr_atomic[0] ||| rr_atomic_ready)
+  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decodable[0] & !rr_system[0] & !rr_system[1] & (!rr_atomic[1] ||| rr_atomic_ready) & (rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !rr_pair_deferred)) & !(rr_completion.valid & rr_completion.bits.write)
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   rr_window.consume <== issued
   for (lane in 0..2):
@@ -252,7 +259,7 @@ sync_circuit RV2WideCore():
       rd: ex.rd
       write: ex_executable & ex.control.writeback.enable & ex.rd.or_reduce()
       data: mux(ex.control.writeback.link, ex.fetched.sequential_pc, ex_alu.result)
-      result_ready: !(ex_memory & !ex.control.memory.write) & !ex_system.serializing() & ((ex.control.muldiv.service === RV2WideLongOperation.None) ||| !ex.rd.or_reduce())
+      result_ready: !(ex_memory & ex.control.memory.access.returns_result()) & !ex_system.serializing() & ((ex.control.muldiv.service === RV2WideLongOperation.None) ||| !ex.rd.or_reduce())
       taken: ex_taken
       target: ex_target
       memory: ex.control.memory.updated(~enable: ex_memory)
@@ -267,7 +274,7 @@ sync_circuit RV2WideCore():
       resolution:
         RV2WideResolution():
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
-          cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.write, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
+          cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
           value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.raw_instruction.zext(64)))))
     ex_results[lane] |> mem_pipe[lane].ingress
     mem_pipe[lane].flush <== rr_squash
@@ -307,9 +314,10 @@ sync_circuit RV2WideCore():
   pipeline.request.valid <== (mux(ex_memory_lane === bits(0, 1), ex_older.egress.valid, ex_younger.egress.valid)) & ex_lookup.memory.enable & (ex_lookup.resolution.disposition === RV2WideDisposition.Continue) & !rr_squash
   pipeline.request.bits <== RV2WideMemoryReq():
     address: ex_lookup.address
-    write: ex_lookup.memory.write
+    access: ex_lookup.memory.access
+    atomic: ex_lookup.memory.atomic
     width: ex_lookup.memory.width
-    data: ex_store.data
+    data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.store_data)
     mask: ex_store.mask.as_bits()
 
   // MEM: retain the earlier fault ahead of an externally supplied resolution.
@@ -328,12 +336,12 @@ sync_circuit RV2WideCore():
     (mem_pipe[lane].egress |> map_valid(token): token.into(RV2WideResult()).fetched) |> memory_stage[lane]
     def mem_lookup = mem.memory.enable & (mem.resolution.disposition === RV2WideDisposition.Continue)
     def mem_outcome = mux(pipeline.response.valid, pipeline.response.bits.outcome, RV2WideCacheOutcome.Replay)
-    def mem_hit = mem_lookup & (mem_outcome === RV2WideCacheOutcome.LoadHit)
+    def mem_hit = mem_lookup & (mem.memory.access === CacheOperation.Load) & (mem_outcome === RV2WideCacheOutcome.LoadHit)
     def mem_page_fault = mem_outcome === RV2WideCacheOutcome.PageFault
     def mem_fault = mem_outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.AccessFault)
     def mem_lookup_resolution = RV2WideResolution():
       disposition: mux(mem_fault, RV2WideDisposition.Fault, mux(mem_outcome === RV2WideCacheOutcome.Replay, RV2WideDisposition.Replay, RV2WideDisposition.Continue))
-      cause: mux(mem_page_fault, mux(mem.memory.write, exception_cause_bits(ExceptionCause.StorePageFault, 64), exception_cause_bits(ExceptionCause.LoadPageFault, 64)), mux(mem.memory.write, exception_cause_bits(ExceptionCause.StoreAccessFault, 64), exception_cause_bits(ExceptionCause.LoadAccessFault, 64)))
+      cause: mux(mem_page_fault, mux(mem.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StorePageFault, 64), exception_cause_bits(ExceptionCause.LoadPageFault, 64)), mux(mem.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAccessFault, 64), exception_cause_bits(ExceptionCause.LoadAccessFault, 64)))
       value: mem.address
     mem_resolved[lane] <== mem.updated(
       ~resolution: mux(mem.resolution.disposition =/= RV2WideDisposition.Continue, mem.resolution, mux(resolution[lane].valid, resolution[lane].bits, mux(mem_lookup, mem_lookup_resolution, mem.resolution))),
@@ -376,24 +384,30 @@ sync_circuit RV2WideCore():
   def wb_memory :: RV2WideResult() = wb_group[wb_memory_lane]
   def wb_memory_active = wb_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_fault_pending & !wb_interrupt_stop
   def wb_slow = wb_memory_active & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
-  def wb_store_hit = wb_memory_active & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
+  def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
+  def wb_memory_blocked = memory.ordered_busy ||| wb_atomic_pending
   inst wb_store(StoreGen(XLen.X64))
   wb_store.address <== wb_memory.address
   wb_store.value <== wb_memory.store_data
   wb_store.width <== wb_memory.memory.width
-  memory.request.valid <== wb_slow & wb_load_response.available & !memory.ordered_busy
+  memory.request.valid <== wb_slow & wb_load_response.available & !wb_memory_blocked
   memory.request.bits <== RV2WideMemoryReq():
     address: wb_memory.address
-    write: wb_memory.memory.write
+    access: wb_memory.memory.access
+    atomic: wb_memory.memory.atomic
     width: wb_memory.memory.width
-    data: wb_store.data
+    data: mux(wb_memory.memory.access.is_store(), wb_store.data, wb_memory.store_data)
     mask: wb_store.mask.as_bits()
-  pipeline.commit <== wb_store_hit & !memory.ordered_busy
+  pipeline.commit <== wb_store_hit & !wb_memory_blocked
   def wb_admission_fault = memory.request.valid & memory.fault.valid
   def wb_accepted = memory.request.fire() & !wb_admission_fault
-  def wb_memory_replay = (wb_memory_active & memory.ordered_busy) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
+  def wb_memory_replay = (wb_memory_active & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
   wb_load_response.allocate.valid <== wb_accepted
   wb_load_response.allocate.bits <== wb_memory
+  when (wb_accepted & !wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)):
+    wb_atomic_pending <== Bool(#true)
+  elsewhen (wb_load_response.atomic_completed.valid):
+    wb_atomic_pending <== Bool(#false)
   assert(!(memory.request.fire() & wb_admission_fault), "rv2wide_fault_prevents_acceptance")
   def wb_memory_resolution = RV2WideResolution():
     disposition: RV2WideDisposition.Replay

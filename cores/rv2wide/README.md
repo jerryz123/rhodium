@@ -6,7 +6,7 @@
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes RV64IMB and integer C:
+independently usable RR-through-WB execution slice. It executes RV64IMACB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
 It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, SFENCE.VMA, FENCE, and FENCE.I at WB.
@@ -171,6 +171,29 @@ reserved second-port write. Independent instructions continue. Accepted work sur
 trap/interrupt entry drains all accepted results and completion-pipeline writes.
 Division by zero and signed overflow return the architectural M results.
 
+## Atomic memory operations
+
+RV64A supplies LR.W/LR.D, SC.W/SC.D, and all nine W/D AMOs through the shared
+coherent L1D. The composed decoder selects cache ownership, AMO function, and
+natural transfer width; there is no second atomic execution unit. LR and AMO
+word results sign-extend their prior 32-bit value. SC returns zero on success
+and one on failure. x0 suppresses only the GPR write, not an atomic effect or fault.
+
+Atomics can occupy either issue slot and pair with independent integer work.
+They drain older memory before issue, authorize only at WB, and prevent younger
+memory retirement until their response is consumed. This conservative ordering
+supports every aq/rl combination; independent integer instructions can continue.
+Responses use the same retained owner FIFO, scoreboard, completion arbiter, and
+two GPR write ports as loads and M operations. Accepted owners survive redirects.
+
+LR/SC reservation matching, invalidation by stores, AMOs, snoops, and replacement,
+and unique ownership belong to the shared L1D. Atomics require naturally aligned
+addresses in atomic-capable coherent cacheable RAM. LR requires read permission;
+SC and AMO require write permission as well. Noncacheable/device accesses fault
+without issuing CHI traffic. Misalignment and permission failures retain the
+original VA and use the architectural load versus store/AMO exception classes.
+The CSR bank publishes the A bit in MISA.
+
 ## Branch recovery
 
 Branches resolve in EX and redirect from MEM. A taken older branch suppresses
@@ -207,7 +230,7 @@ and a fetch walk never owns the physical data port for its entire lifetime.
 Faults retain the original virtual address through retirement in either slot.
 Sv39 uses software-managed A/D bits; absent A/D permission produces a page fault.
 
-One load/store may issue per group, in either age slot. The memory service has
+One memory operation may issue per group, in either age slot. The memory service has
 the same lookup-versus-authorization split as RV5Stage:
 
 ```text
@@ -217,7 +240,7 @@ EX -- Valid lookup --> memory service -- fixed MEM result --> WB
                                                             |
               accepted owner FIFO <-- WB acceptance --> scoreboard set
                       |                                      |
-ordered slow response +--> LoadGen --> reserve younger RR slot
+ordered slow response +--> result projection --> reserve younger RR slot
                                             |
                              unflushable completion pipe --> shared WB write
 ```
@@ -236,17 +259,22 @@ allocate, mutate memory, or perform device reads. The service returns:
 - `PageFault` or `AccessFault`: WB reports the appropriate load/store cause and
   original byte address. Missing MEM feedback is treated as replay.
 
+LR/SC/AMO use Slow after successful checks, never a speculative load/store hit.
+
 `memory: RV2WideMemory()` accepts WB `Decoupled` requests. Admission is
 non-speculative and resolves synchronous exceptions **before acceptance**:
 `fault.valid` supplies a Fault resolution, including its precise address, and
 the service must deassert request readiness. Otherwise a transfer irrevocably
 owns one successful response. Unaccepted offers are withdrawn and replayed.
-Both loads and stores return one ordered raw beat; store response data is ignored.
+Ordinary loads return an aligned raw beat; LR/AMO return the normalized old
+value and SC returns status. Store response data is ignored.
 The service must preserve architectural memory ordering and prevent stale hit
 results from bypassing older overlapping writes, using forwarding or replay.
 Device accesses must use Slow, never a speculative hit.
-Requests retain the natural `MemoryWidth` as well as positioned data/masks;
-uncached transport must not widen a byte access into a full-beat device read.
+Requests retain `CacheOperation`, AMO function, natural `MemoryWidth`, and
+byte masks. Ordinary store data is positioned within its aligned beat; atomic
+operands are unshifted, and the cache performs their natural-width projection.
+Uncached transport must not widen a byte access into a full-beat device read.
 `memory.ordered_busy` blocks younger memory retirement, including already
 resolved cache hits, while an ordered transaction awaits completion. Independent
 integer instructions may continue. This signal must describe retained service
@@ -265,7 +293,8 @@ in the window. The response follows an unflushable three-cycle Valid pipeline
 to the reserved younger WB write port. Thus WB never needs to backpressure
 instructions, and a delayed response cannot collide with a previously issued
 younger-slot write. Store acknowledgements and x0 loads do not reserve a write
-slot. The scoreboard remains set until the actual WB write, and fault drain
+slot. LR/AMO/SC use the same reservation rules for their optional GPR result.
+The scoreboard remains set until the actual WB write, and fault drain
 includes completions already in this pipeline.
 
 Fault entry waits for accepted memory work to drain. The core immediately
@@ -351,7 +380,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no A decode, floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
+There is no floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
 claim. It is not selectable through the SoC configuration resolver.

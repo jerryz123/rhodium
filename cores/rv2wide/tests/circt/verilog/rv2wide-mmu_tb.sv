@@ -5,7 +5,9 @@ module rv2wide_mmu_tb;
   always #5 clock=~clock;
   logic [1:0] privilege=1;
   logic [63:0] satp=64'h8000000000000010, mstatus=0;
-  logic invalidate=0, fetch_valid=0, ex_valid=0, wb_valid=0, write=0, commit=0;
+  logic invalidate=0, fetch_valid=0, ex_valid=0, wb_valid=0, commit=0;
+  logic [3:0] access=1;
+  wire [3:0] physical_access;
   logic [63:0] fetch_address='h400000, address='h500008;
   logic physical_ready=0, physical_fault=0, response_valid=0;
   logic [63:0] response_data=0;
@@ -68,6 +70,39 @@ module rv2wide_mmu_tb;
     ex_valid=1; tick(); falling(); ex_valid=0; #1;
     assert(resolve_valid && resolve_address=='h16008) else $fatal(1,"stale translation after fence");
     tick(); falling();
+    // Atomic MEM translation checks permissions without exposing a speculative
+    // physical cache request. WB carries the exact operation to the service.
+    for(int operation=3;operation<=5;operation++) begin
+      access=4'(operation); address='h500008; ex_valid=1;
+      tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && outcome==0 && !resolve_valid) else $fatal(1,"speculative atomic cache operation");
+      tick(); falling(); wb_valid=1; physical_ready=1; #1;
+      assert(wb_ready && physical_valid && physical_address=='h16008 && physical_access==access)
+        else $fatal(1,"atomic operation lost during translation");
+      tick(); falling(); wb_valid=0; physical_ready=0;
+      return_data(operation==4 ? 64'd1 : 64'hffffffff81234567,1);
+    end
+    // Read-only mappings permit LR, but fault SC/AMO with the original VA.
+    access=1; fence(); offer_wb('h500008); walk_data(('h16<<10)|'h43);
+    access=3; wb_valid=1; physical_ready=1; #1;
+    assert(wb_ready && !wb_fault && physical_access==3) else $fatal(1,"LR denied readable PTE");
+    tick(); falling(); wb_valid=0; physical_ready=0; return_data(64'd7,1);
+    for(int operation=4;operation<=5;operation++) begin
+      access=4'(operation); wb_valid=1; #1;
+      assert(wb_fault && !wb_ready && !physical_valid && wb_fault_bits.cause==15 && wb_fault_bits.value=='h500008)
+        else $fatal(1,"atomic write permission/fault provenance");
+      tick(); falling(); wb_valid=0;
+    end
+    // Device PMAs reject all atomics without a physical or uncached transaction.
+    privilege=3; address='h2000;
+    for(int operation=3;operation<=5;operation++) begin
+      access=4'(operation); ex_valid=1; tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && outcome==5 && !resolve_valid && !physical_valid)
+        else $fatal(1,"atomic device admission");
+      tick(); falling();
+    end
+    access=1; privilege=1; address='h500008;
+    fence(); offer_wb('h500008); walk_data(('h16<<10)|'hc7);
     // A WB request owns the DTLB instead of the younger MEM lookup.
     ex_valid=1; tick(); falling(); ex_valid=0; wb_valid=1; address='h500010; #1;
     assert(result_valid && outcome==3 && !resolve_valid && physical_address=='h16010) else $fatal(1,"WB translation priority");

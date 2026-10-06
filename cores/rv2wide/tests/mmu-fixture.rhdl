@@ -6,6 +6,8 @@ import:
   "../bundles.rhdl" open
   "cache-fixture.rhdl" open
   "../../cache/protocol.rhdl" open
+  "../../cache/operation.rhdl" open
+  lib("riscv/rtl/atomic.rhdl") open
   "../../load-store.rhdl" open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/isa/xlen.rhm") open
@@ -18,7 +20,8 @@ sync_circuit RV2WideMmuFixture():
   input fetch_address: Bits(64)
   output fetch_resolution: RV2WideResolution()
   output fetch_physical: Bits(64)
-  input(ex_valid, wb_valid, write, commit): Bool
+  input(ex_valid, wb_valid, commit): Bool
+  input access: CacheOperation
   input address: Bits(64)
   output(index_valid, resolve_valid, result_valid): Bool
   output(index_address, resolve_address): Bits(64)
@@ -30,6 +33,7 @@ sync_circuit RV2WideMmuFixture():
   input response_data: Bits(64)
   output physical_valid: Bool
   output physical_address: Bits(64)
+  output physical_access: CacheOperation
   output response_ready: Bool
   output completed: Bool
   output completed_data: Bits(64)
@@ -45,7 +49,8 @@ sync_circuit RV2WideMmuFixture():
   fetch_physical <== mmu.instruction.address
   def request = RV2WideMemoryReq():
     address: address
-    write: write
+    access: access
+    atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Double
     data: bits(0, 64)
     mask: bits(0xff, 8)
@@ -84,6 +89,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.physical_memory.ordered_busy <== Bool(#false)
   physical_valid <== mmu.physical_memory.request.valid
   physical_address <== mmu.physical_memory.request.bits.address
+  physical_access <== mmu.physical_memory.request.bits.access
   response_ready <== mmu.physical_memory.response.ready
 
 export:

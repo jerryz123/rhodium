@@ -56,6 +56,9 @@ module rv2wide_fetch_tb;
   logic [63:0] expected_fault_value;
   int ustate=0, udue=0, ureads=0, uwrites=0, fences=0, instruction_fences=0;
   CHIReqFlit urequest;
+  bit reservation_valid=0;
+  logic [63:0] reservation_address;
+  int reservation_width;
 
   function automatic logic [31:0] addi(int rd, rs, imm);
     return {12'(imm),5'(rs),3'b000,5'(rd),7'h13};
@@ -71,6 +74,9 @@ module rv2wide_fetch_tb;
   endfunction
   function automatic logic [31:0] store(int rs2, rs1, offset, width);
     return {7'(offset>>5),5'(rs2),5'(rs1),3'(width),5'(offset),7'h23};
+  endfunction
+  function automatic logic [31:0] atomic_insn(int operation, width, rd, rs1, rs2=0);
+    return {5'(operation),2'b11,5'(rs2),5'(rs1),3'(width),5'(rd),7'h2f};
   endfunction
   task automatic insn(int pc, logic [31:0] word);
     for (int b=0;b<4;b++) backing[pc+b]=word[b*8+:8];
@@ -251,6 +257,28 @@ module rv2wide_fetch_tb;
         assert(ustate==0) else $fatal(1,"younger store bypassed ordered IO");
         if(phase>=6 && address >= 'h500000 && address < 'h501000) address=(phase==13 ? 'h2000 : 'h15000)+(address & 'hfff);
         for(int b=0;b<(1<<word[13:12]);b++) model_bytes[int'(address)+b]=registers[rs2][b*8+:8];
+      end
+      7'h2f: begin
+        logic [63:0] replacement;
+        bit success;
+        address=registers[rs1]; bytes=1<<word[13:12];
+        for(int b=0;b<bytes;b++) value[b*8+:8]=model_bytes[int'(address)+b];
+        if(bytes==4) value={{32{value[31]}},value[31:0]};
+        replacement=registers[rs2];
+        case(word[31:27])
+          2: begin reservation_valid=1; reservation_address=address; reservation_width=int'(word[14:12]); end
+          3: begin
+            success=reservation_valid && address==reservation_address && int'(word[14:12])==reservation_width;
+            value=success ? 0 : 1; reservation_valid=0;
+          end
+          0: begin replacement=value+registers[rs2]; reservation_valid=0; end
+          1: reservation_valid=0;
+          default: $fatal(1,"unmodeled fetching AMO");
+        endcase
+        if(word[31:27]!=2 && (word[31:27]!=3 || success))
+          for(int b=0;b<bytes;b++) model_bytes[int'(address)+b]=replacement[b*8+:8];
+        write_rd=rd!=0;
+        assert(got.deferred && ustate==0) else $fatal(1,"atomic authorization/order");
       end
       7'h0f: begin
         assert(ustate==0 && !dactive && completions.size()==0) else $fatal(1,"fence before memory drain");
@@ -707,6 +735,26 @@ module rv2wide_fetch_tb;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(registers[10]==71 && registers[11]==64'h8000000000000047 && registers[12]==64'h4700000000000080 && registers[13]==registers[12] && registers[14]==registers[12] && completions.size()==0 && reference_pc=='h722)
       else $fatal(1,"fetching B/LSU/forwarding");
+    // Full fetch/MMU/cache composition: old-value W sign extension, SC status,
+    // accepted x0 effects, and branch-killed SC with no mutation.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0; reservation_valid=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    for(int b=0;b<8;b++) begin backing['h340+b]=8'hff; model_bytes['h340+b]=8'hff; end
+    insn('h700,addi(1,0,'h340)); insn('h704,addi(2,0,7));
+    insn('h708,atomic_insn(2,2,3,1)); insn('h70c,addi(10,0,10));
+    insn('h710,atomic_insn(0,2,4,1,2)); insn('h714,atomic_insn(3,2,5,1,2));
+    insn('h718,atomic_insn(2,3,6,1)); insn('h71c,atomic_insn(3,3,7,1,2));
+    insn('h720,addi(8,7,1)); insn('h724,atomic_insn(1,2,0,1,0));
+    insn('h728,load(9,1,0,3)); insn('h72c,atomic_insn(2,3,0,1));
+    insn('h730,jal(0,12)); insn('h734,atomic_insn(3,3,0,1,2)); insn('h738,addi(11,0,99));
+    insn('h73c,load(12,1,0,3)); insn('h740,32'h10500073);
+    phase=22; reference_pc='h700;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h700};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(registers[3]=='1 && registers[4]=='1 && registers[5]==1 && registers[6]==64'hffffffff00000006 && registers[7]==0 && registers[8]==1 && registers[9]==0 && registers[10]==10 && registers[11]==0 && registers[12]==0 && completions.size()==0 && reference_pc=='h744)
+      else $fatal(1,"fetching atomic values, ownership, or branch cancellation");
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
     $finish;
   end

@@ -31,7 +31,7 @@ module rv2wide_cache_tb;
     .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out),
     .uncached_chi_in('0), .uncached_chi_out());
   always #5 clock = ~clock;
-  logic [31:0] program_words[128];
+  logic [31:0] program_words[512];
   byte unsigned backing[4096], reference_bytes[4096];
   logic [63:0] registers[32];
   retirement_t completion_queue[$];
@@ -40,6 +40,10 @@ module rv2wide_cache_tb;
   bit fault_seen, read_active, write_active;
   CHIReqFlit pending_read, pending_write;
   int read_due, read_packet;
+  bit reservation_valid=0, probe_pending=0, probe_accepted=0, probe_complete=0;
+  logic [63:0] reservation_address;
+  int reservation_width, probe_lr_pc, probe_sc_pc, atomic_commits=0, atomic_dual=0, sc_success=0, sc_failure=0;
+  int atomic_ops[9]='{1,0,4,12,8,16,20,24,28};
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -53,6 +57,9 @@ module rv2wide_cache_tb;
   function automatic logic [31:0] jal(int rd, imm);
     return {1'(imm >> 20), 10'(imm >> 1), 1'(imm >> 11), 8'(imm >> 12), 5'(rd), 7'h6f};
   endfunction
+  function automatic logic [31:0] atomic_insn(int op, width, rd, rs1, rs2, order_bits=3);
+    return {5'(op),2'(order_bits),5'(rs2),5'(rs1),3'(width),5'(rd),7'h2f};
+  endfunction
   task automatic emit(logic [31:0] instruction);
     program_words[program_size++] = instruction;
   endtask
@@ -63,6 +70,11 @@ module rv2wide_cache_tb;
     chi_in.requests.ready = !read_active && !write_active && cycles % 5 != 0;
     chi_in.requester_responses.ready = cycles % 4 != 0;
     chi_in.request_data.ready = cycles % 3 != 0;
+    chi_in.snoops.valid = probe_pending && !probe_accepted;
+    chi_in.snoops.bits.opcode = 5'h09;
+    chi_in.snoops.bits.address = 41'(768 >> 3);
+    chi_in.snoops.bits.src_id = 7'd1;
+    chi_in.snoops.bits.txn_id = 12'h100;
     if (write_active) begin
       chi_in.responses.valid = 1;
       chi_in.responses.bits.opcode = 5'h05;
@@ -112,6 +124,40 @@ module rv2wide_cache_tb;
       7'h23: begin
         imm = 64'($signed({insn[31:25],insn[11:7]})); address = registers[rs1] + imm;
         for (int b = 0; b < (1 << width); b++) reference_bytes[int'(address)+b] = registers[rs2][b*8 +: 8];
+        if(reservation_valid && address/64==reservation_address/64) reservation_valid=0;
+      end
+      7'h2f: begin
+        logic [63:0] replacement, operand;
+        bit successful;
+        address=registers[rs1]; bytes_count=1<<width;
+        for(int b=0;b<bytes_count;b++) value[b*8+:8]=reference_bytes[int'(address)+b];
+        if(bytes_count==4) value={{32{value[31]}},value[31:0]};
+        operand=bytes_count==4 ? {{32{registers[rs2][31]}},registers[rs2][31:0]} : registers[rs2];
+        replacement=value;
+        case(insn[31:27])
+          2: begin reservation_valid=1; reservation_address=address; reservation_width=width; end
+          3: begin
+            successful=reservation_valid && reservation_address==address && reservation_width==width;
+            value=successful ? 0 : 1; replacement=operand; reservation_valid=0;
+            if(successful) sc_success++; else sc_failure++;
+          end
+          1: replacement=operand;
+          0: replacement=value+operand;
+          4: replacement=value^operand;
+          12: replacement=value&operand;
+          8: replacement=value|operand;
+          16: replacement=$signed(value)<$signed(operand) ? value : operand;
+          20: replacement=$signed(value)>$signed(operand) ? value : operand;
+          24: replacement=value<operand ? value : operand;
+          28: replacement=value>operand ? value : operand;
+          default: $fatal(1,"unknown AMO");
+        endcase
+        if(insn[31:27]!=2 && (insn[31:27]!=3 || successful)) begin
+          for(int b=0;b<bytes_count;b++) reference_bytes[int'(address)+b]=replacement[b*8+:8];
+          if(insn[31:27]!=3 && reservation_valid && address/64==reservation_address/64) reservation_valid=0;
+        end
+        writes_rd=rd!=0; atomic_commits++;
+        assert(got.deferred) else $fatal(1,"atomic did not use WB-authorized service");
       end
       7'h6f: begin
         value = 64'(reference_pc); writes_rd = rd != 0;
@@ -136,18 +182,20 @@ module rv2wide_cache_tb;
 
   always @(negedge clock) begin
     instructions = '0;
-    if (!reset && !fault_seen && send_pc/4 < program_size) begin
+    if (!reset && !fault_seen && send_pc/4 < program_size && (send_pc<probe_sc_pc || probe_complete)) begin
       instructions.valid = 1;
       instructions.bits.count = send_pc/4+1 < program_size ? 2 : 1;
+      if(send_pc+4==probe_sc_pc && !probe_complete) instructions.bits.count=1;
       instructions.bits.entries[0] = '{64'(send_pc), program_words[send_pc/4], program_words[send_pc/4], 64'(send_pc+4), 1'b0, '0};
       instructions.bits.entries[1] = '{64'(send_pc+4), program_words[send_pc/4+1], program_words[send_pc/4+1], 64'(send_pc+8), 1'b0, '0};
     end
   end
   always @(posedge clock) if (!reset) begin
     cycles <= cycles + 1;
-    if (cycles > 10000) $fatal(1, "cache/core timeout pc=%h reference=%h reads=%0d completions=%0d", send_pc, reference_pc, reads, completions);
+    if (cycles > 10000) $fatal(1, "cache/core timeout pc=%h reference=%h reads=%0d completions=%0d atomic=%0d probe=%b/%b/%b LR=%h SC=%h", send_pc, reference_pc, reads, completions,atomic_commits,probe_pending,probe_accepted,probe_complete,probe_lr_pc,probe_sc_pc);
     if (instructions.valid && instructions_ready) send_pc += 4*int'(instructions.bits.count);
     if (retired[0].valid && retired[1].valid) dual_commits++;
+    if(retired[0].valid && retired[1].valid && (retired[0].bits.fetched.instruction[6:0]==7'h2f || retired[1].bits.fetched.instruction[6:0]==7'h2f)) atomic_dual++;
     for (int slot = 0; slot < 2; slot++) if (retired[slot].valid) check_retirement(retired[slot].bits);
     if (completed.valid) begin
       retirement_t expected;
@@ -157,6 +205,7 @@ module rv2wide_cache_tb;
         else $fatal(1, "completion owner mismatch");
       if (expected.write) assert (completed.bits.data == expected.data) else $fatal(1, "load completion got=%h expected=%h at %h", completed.bits.data, expected.data, expected.fetched.pc);
       completions++;
+      if(completed.bits.fetched.pc==64'(probe_lr_pc)) probe_pending<=1;
     end
     if (redirect.valid) begin
       case (redirect.bits.resolution.disposition)
@@ -188,13 +237,21 @@ module rv2wide_cache_tb;
       if (read_packet == 3) read_active <= 0;
       else begin read_packet <= read_packet + 1; read_due <= cycles + 2; end
     end
-    if (chi_out.requester_responses.valid && chi_in.requester_responses.ready && $test$plusargs("debug"))
-      $display("%0d ACK", cycles);
+    if(chi_in.snoops.valid && chi_out.snoops.ready) begin
+      probe_accepted<=1; reservation_valid=0;
+      if($test$plusargs("debug")) $display("%0d PROBE",cycles);
+    end
+    if(chi_out.requester_responses.valid && chi_in.requester_responses.ready) begin
+      if($test$plusargs("debug")) $display("%0d ACK",cycles);
+      if(chi_out.requester_responses.bits.opcode==5'h01 && chi_out.requester_responses.bits.txn_id==12'h100) probe_complete<=1;
+    end
     if (chi_in.responses.valid && chi_out.responses.ready) write_active <= 0;
     if (chi_out.request_data.valid && chi_in.request_data.ready) begin
-      assert (chi_out.request_data.bits.opcode == 4'h2) else $fatal(1, "unexpected write data");
+      if($test$plusargs("debug")) $display("%0d WRITE DATA opcode=%h dataID=%h",cycles,chi_out.request_data.bits.opcode,chi_out.request_data.bits.data_id);
+      assert (chi_out.request_data.bits.opcode inside {4'h1,4'h2}) else $fatal(1, "unexpected write data");
       for (int b = 0; b < 16; b++) if (chi_out.request_data.bits.byte_enable[b])
-        backing[int'(pending_write.address)+16*int'(chi_out.request_data.bits.data_id)+b] = chi_out.request_data.bits.data[b*8 +: 8];
+        backing[(chi_out.request_data.bits.opcode==1 ? 768 : int'(pending_write.address))+16*int'(chi_out.request_data.bits.data_id)+b] = chi_out.request_data.bits.data[b*8 +: 8];
+      if(chi_out.request_data.bits.opcode==1 && chi_out.request_data.bits.data_id==3) probe_complete<=1;
     end
   end
 
@@ -217,6 +274,33 @@ module rv2wide_cache_tb;
     emit(addi(18,11,1)); emit(store_insn(18,1,256,3));
     emit(load(19,1,256,3)); emit(store_insn(19,1,512,3));
     emit(load(20,1,512,3)); emit(load(21,1,24,3));
+    // Exercise every AMO in both widths, all aq/rl settings, and both word lanes.
+    emit(addi(24,0,768)); emit(addi(25,0,-17));
+    for(int width=2;width<=3;width++) begin
+      for(int variant=0;variant<2;variant++) for(int op=0;op<9;op++) begin
+        emit(addi(25,0,variant==0 ? -17 : 17)); emit(addi(2,0,variant==0 ? 7 : -128));
+        emit(store_insn(25,24,0,width));
+        emit(atomic_insn(atomic_ops[op],width,26,24,2,op%4));
+        emit(addi(29,0,9)); emit(load(28,24,0,width)); emit(addi(27,26,1));
+      end
+      emit(atomic_insn(2,width,26,24,0,0)); emit(addi(29,0,3));
+      emit(atomic_insn(3,width,26,24,2,1)); emit(addi(27,26,1));
+      emit(atomic_insn(3,width,26,24,2,2)); emit(addi(27,26,1));
+    end
+    emit(addi(24,24,4));
+    emit(atomic_insn(1,2,0,24,25)); emit(load(26,24,0,2));
+    emit(atomic_insn(2,2,26,24,0)); emit(atomic_insn(3,2,0,24,2)); emit(load(26,24,0,2));
+    // A different word and a different width cannot satisfy an exact reservation.
+    emit(atomic_insn(2,2,26,24,0)); emit(addi(24,24,4));
+    emit(atomic_insn(3,2,26,24,2)); emit(addi(27,26,1));
+    emit(atomic_insn(2,2,26,24,0)); emit(atomic_insn(3,3,26,24,2));
+    // An intervening same-line store invalidates LR even if it writes another byte.
+    emit(atomic_insn(2,3,26,24,0)); emit(store_insn(2,24,9,0));
+    emit(atomic_insn(3,3,26,24,2)); emit(addi(27,26,1));
+    emit(addi(24,0,768)); probe_lr_pc=program_size*4;
+    emit(atomic_insn(2,3,26,24,0)); probe_sc_pc=program_size*4;
+    emit(atomic_insn(3,3,26,24,2)); emit(addi(27,26,1));
+    emit(load(26,24,0,3));
     // Establish a fresh miss immediately before a fault: accepted work must drain first.
     emit(load(22,1,704,3)); emit(addi(23,0,2047));
     emit(addi(23,23,2047)); emit(addi(23,23,2));
@@ -228,6 +312,8 @@ module rv2wide_cache_tb;
     assert (reads >= 6 && writes > 0 && completions >= 6 && dual_commits > 0 && branches == 1 && replays > 0)
       else $fatal(1, "missing cache scenario reads=%0d writes=%0d completions=%0d dual=%0d branches=%0d replays=%0d", reads,writes,completions,dual_commits,branches,replays);
     assert (hits_during_miss > 0 && alu_during_miss > 0) else $fatal(1, "no hit/ALU overlap with refill");
+    assert(atomic_commits==53 && atomic_dual>0 && sc_success==3 && sc_failure==6 && probe_complete)
+      else $fatal(1,"atomic coverage ops=%0d dual=%0d SC success=%0d failure=%0d probe=%b",atomic_commits,atomic_dual,sc_success,sc_failure,probe_complete);
     $display("RV2Wide shared L1D passed: %0d retirements, %0d refills, %0d writebacks, %0d replays, %0d warm hits during miss", commits, reads, writes, replays, hits_during_miss);
     $finish;
   end

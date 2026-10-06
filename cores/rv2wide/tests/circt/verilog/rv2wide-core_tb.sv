@@ -12,7 +12,7 @@ module rv2wide_core_tb;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
-  typedef struct packed { logic [63:0] address; logic write; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
+  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
   typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy; } memory_in_t;
@@ -88,7 +88,7 @@ module rv2wide_core_tb;
   assign memory_in.ordered_busy = 1'b0;
   always_comb begin
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
-    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.write ? 64'd7 : 64'd5, value: fault_address};
+    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5} ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
     memory_in.drained = response_count == 0 && !memory_out.request.valid;
     pipeline_in.response = lookup_response;
@@ -120,7 +120,7 @@ module rv2wide_core_tb;
       lookup_response.valid <= pipeline_out.request.valid;
       if (pipeline_out.request.valid) lookups++;
       lookup_request <= pipeline_out.request.bits;
-      lookup_response.bits.outcome <= lookup_mode == 1 ? (pipeline_out.request.bits.write ? 3'd2 : 3'd1) : 3'(lookup_mode);
+      lookup_response.bits.outcome <= lookup_mode == 1 ? (pipeline_out.request.bits.access == 2 ? 3'd2 : 3'd1) : 3'(lookup_mode);
       for (int b = 0; b < 8; b++)
         lookup_response.bits.data[b*8 +: 8] <= memory_bytes[int'(pipeline_out.request.bits.address[11:3])*8 + b];
       store_candidate <= lookup_request;
@@ -129,9 +129,15 @@ module rv2wide_core_tb;
         stall_cycles++;
       end
       if (push_response) begin
+        logic [63:0] beat;
         check_request(memory_out.request.bits);
         for (int b = 0; b < 8; b++)
-          response_data[response_write][b*8 +: 8] <= memory_bytes[int'(memory_out.request.bits.address[11:3])*8 + b];
+          beat[b*8 +: 8] = memory_bytes[int'(memory_out.request.bits.address[11:3])*8 + b];
+        if(memory_out.request.bits.access==3 && memory_out.request.bits.width==2) begin
+          beat=beat>>(8*int'(memory_out.request.bits.address[2:0]));
+          beat={{32{beat[31]}},beat[31:0]};
+        end
+        response_data[response_write] <= beat;
         response_due[response_write] <= cycles + configured_delay;
         response_write <= (response_write + 1) % 16;
         requests++;
@@ -188,7 +194,7 @@ module rv2wide_core_tb;
             else $fatal(1, "retirement order/control pc=%h expected=%h", retired[lane].bits.fetched.pc, want.fetched.pc);
           if (retired[lane].bits.deferred) begin
             expected_completions.push_back(want);
-            if(want.fetched.instruction[6:0]==7'h03 || want.fetched.instruction[6:0]==7'h23) response_owners.push_back(want);
+            if(want.fetched.instruction[6:0] inside {7'h03,7'h23,7'h2f}) response_owners.push_back(want);
           end
           if (want.write && !retired[lane].bits.deferred)
             assert (retired[lane].bits.rd == want.rd && retired[lane].bits.data == want.data)
@@ -268,7 +274,7 @@ module rv2wide_core_tb;
     memory_req_t item;
     item = '0;
     item.address = address;
-    item.write = write_access;
+    item.access = write_access ? 2 : 1;
     item.width = 2'($clog2(bytes));
     for (int b = 0; b < bytes; b++) begin
       item.mask[int'(address[2:0]) + b] = 1;
@@ -281,8 +287,8 @@ module rv2wide_core_tb;
     memory_req_t want;
     assert (expected_requests.size() > 0) else $fatal(1, "unowned or duplicate memory effect address=%h", actual.address);
     want = expected_requests.pop_front();
-    assert (actual.address == want.address && actual.write == want.write && actual.width == want.width && actual.mask == want.mask) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
-    if (want.write) begin
+    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && actual.mask == want.mask) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    if (want.access == 2) begin
       for (int b = 0; b < 8; b++) begin
         if (want.mask[b]) begin
           assert (actual.data[b*8 +: 8] == want.data[b*8 +: 8]) else $fatal(1, "store data mismatch");
@@ -395,6 +401,18 @@ module rv2wide_core_tb;
           if ((f3 & 4) == 0 && bytes < 8 && value[bytes*8-1]) value |= '1 << (bytes*8);
         end
       end
+      'h2f: begin
+        memory_req_t request;
+        int bytes=1<<f3;
+        assert(word[31:27]==2) else $fatal(1,"unmodeled accepted core atomic");
+        request='0; request.address=a; request.access=3; request.width=2'(f3);
+        for(int i=0;i<bytes;i++) begin
+          request.mask[int'(a[2:0])+i]=1;
+          value[i*8+:8]=model_bytes[int'(a)+i];
+        end
+        if(bytes==4) value={{32{value[31]}},value[31:0]};
+        expected_requests.push_back(request);
+      end
       'h13, 'h1b: begin
         case (f3)
           0: value = a + immediate;
@@ -459,6 +477,9 @@ module rv2wide_core_tb;
 
   function automatic logic [31:0] m_insn(int rd, rs1, rs2, funct3, bit word=0);
     return {7'd1,5'(rs2),5'(rs1),3'(funct3),5'(rd),word ? 7'h3b : 7'h33};
+  endfunction
+  function automatic logic [31:0] atomic_insn(int operation, width, rd, rs1, rs2=0);
+    return {5'(operation),2'b11,5'(rs2),5'(rs1),3'(width),5'(rd),7'h2f};
   endfunction
   function automatic logic [31:0] b_insn(int operation, rd, rs1, rs2, shift=0);
     logic [31:0] word;
@@ -851,6 +872,41 @@ module rv2wide_core_tb;
       assert (lookups == before_lookups) else $fatal(1, "misalignment issued speculative lookup");
     end
 
+    // LR uses load fault classes; SC/AMO use store classes, including x0.
+    // Both issue positions preserve a successful older peer and suppress younger work.
+    for(int op=0;op<3;op++) for(int width=2;width<=3;width++) for(int lane=0;lane<2;lane++) begin
+      logic [31:0] word;
+      logic [63:0] pc;
+      int operation, cause;
+      operation=op==0 ? 2 : op==1 ? 3 : 0;
+      word=atomic_insn(operation,width,0,1,op==0 ? 0 : 2);
+      pc=64'('hb000+op*128+width*32+lane*8);
+      inject_memory_fault=1; fault_address='h300;
+      stop_at(pc+64'(4*lane),pc,1,op==0 ? 5 : 7,'h300);
+      send(pc,lane==0 ? word : imm(16,0,8),lane==0 ? imm(16,0,99) : word,2,lane==1,0);
+      drain(); inject_memory_fault=0;
+      send(pc+8,imm(1,1,1),0,1); drain();
+      cause=op==0 ? 4 : 6;
+      stop_at(pc+16+64'(4*lane),pc,1,64'(cause),'h301);
+      send(pc+16,lane==0 ? word : imm(16,0,8),lane==0 ? imm(16,0,99) : word,2,lane==1,0);
+      drain();
+      send(pc+24,imm(1,1,-1),0,1); drain();
+    end
+    // A successful older LR retains its owner and GPR result until drain,
+    // even when the younger peer faults and flushes the speculative pipeline.
+    configured_delay=20;
+    stop_at('hb384,'hb384,1,2,64'hffffffff);
+    send('hb380,atomic_insn(2,2,17,1),32'hffffffff,2,1,0);
+    drain(); configured_delay=8;
+    send('hb388,imm(18,17,0),0,1); drain();
+    // Taken older branches kill younger atomics before any memory authorization.
+    for(int op=0;op<3;op++) begin
+      logic [63:0] pc=64'('hb400+op*16);
+      stop_at(pc,pc+32);
+      send(pc,jump(16,32),atomic_insn(op==0 ? 2 : op==1 ? 3 : 0,3,0,1,op==0 ? 0 : 2),2,1,0);
+      drain();
+    end
+
     // An older stop prevents a younger store, including a speculative owned-store candidate.
     lookup_mode = 1;
     stop_at('h4f00, 'h4f20);
@@ -1169,7 +1225,7 @@ module rv2wide_core_tb;
     reset_core(); send('h9600,imm(1,0,17),imm(2,0,3)); drain();
     stop_at('h9608,'h9700); send('h9608,jump(0,'hf8),m_insn(3,1,2,0),2,1,0); drain();
     send('h9700,imm(3,0,5),imm(4,3,1)); drain();
-    csr_access('h9708,2,5,0,'h301,64'h8000000000141106);
+    csr_access('h9708,2,5,0,'h301,64'h8000000000141107);
     // Complete B catalog in both issue slots, with independent paired B work
     // and dependent consumers. Dirty upper words expose .UW/word/unary shaping.
     for(int scenario=0;scenario<7;scenario++) begin

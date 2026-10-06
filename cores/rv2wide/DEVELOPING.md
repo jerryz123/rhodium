@@ -87,7 +87,8 @@ mutually ordered and merge using Flow arbitration, preserving the MMU owner FIFO
 
 Keep accepted ownership independent of speculative flush. The memory owner FIFO
 joins ordered responses through `zip_flow`, normalizes returned data with
-`LoadGen`, and backpressures at the common completion arbiter. Round-robin Flow
+`LoadGen` for ordinary loads, passes architectural LR/AMO values and SC status
+unchanged, and backpressures at the common completion arbiter. Round-robin Flow
 arbitration merges load, multiply, and divide results and reserves the younger RR
 slot for responses requiring a GPR write.
 An unflushable three-stage Valid pipe aligns those responses with the vacant WB
@@ -181,6 +182,29 @@ Keep `start` reset-only, with the data service drained. It is not an asynchronou
 core flush input. The integrated top follows CSR trap/return redirects as well
 as branches/replays; WFI has a separate sleep indication.
 
+Atomic controls come from the pure A catalog and compose with the existing
+operand, ALU-address, branch, writeback, system, and long-service columns.
+Address generation adds zero to rs1; LR must not depend on its encoded zero rs2.
+AMO controls are uncared for LR/SC and non-AMO operations. Preserve natural
+W/D width and unshifted rs2 through translation and authorized cache service.
+
+RR drains older memory pipeline tokens and accepted service work before an
+atomic enters EX, without draining independent integer/M work. EX/MEM check
+alignment, translation, and PMA but never physically execute an atomic.
+WB alone allocates its owner and sets `wb_atomic_pending`; all younger memory
+retirement, including previously resolved hits and store candidates, replays
+until the atomic response/owner join transfers to completion arbitration.
+This stronger ordering implements every aq/rl combination without separate
+acquire/release queues. The pending flag is not speculative flush state.
+Reservation and RMW behavior stay entirely in the shared L1D.
+
+The adapter sends ordinary loads/stores as raw aligned beats, but sends atomics
+with their exact address and natural width. Their virtual index must preserve
+the same page offset as the physical request, including W at byte lane four.
+LR/AMO results are sign-normalized by L1D; SC status must not pass through
+LoadGen. Both speculative and authorized PMA checks reject non-atomic RAM and
+device/noncacheable atomics. PTE requests remain ordinary raw-beat loads.
+
 ## System operations and precise boundaries
 
 RR serializes system instructions after older pipeline and accepted memory work
@@ -259,6 +283,15 @@ rejection, lookup/admission faults, and accepted-work drain across precise stops
 oracle. It checks refill delay, masked stores, signed/unsigned loads, dirty
 eviction, independent hits and ALUs during misses, redirect survival, and
 unmapped-access faults after older accepted work drains.
+Its atomic cases cover every W/D AMO, all aq/rl settings, both word lanes,
+SC success/failure, address/width mismatch, store and CHI snoop invalidation,
+x0 effects, and pairing with integer work. The core fixture checks LR versus
+SC/AMO fault classes in either slot and branch-killed atomic authorization.
+An accepted older LR paired with a younger fault must complete its delayed GPR
+write before trap delivery.
+The MMU fixture checks readable-only PTEs, atomic operation retention through
+translation, and device PMA rejection; the fetching fixture executes atomic
+dependencies, x0 mutations, and branch-killed SC through the production top.
 It compares architectural retirement against an independent sequential model,
 not internal register names. External qualification is matched to public MEM
 PCs; no test-only RTL switches or hierarchical state mutations are used.
