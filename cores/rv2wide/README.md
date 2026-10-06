@@ -6,7 +6,7 @@
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes RV64I
+independently usable RR-through-WB execution slice. It executes RV64I and integer C
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
 It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, SFENCE.VMA, FENCE, and FENCE.I at WB.
@@ -42,8 +42,12 @@ internally. Software programs mtvec/stvec and supplies its trap handler.
 
 When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket())`. Each packet has a `count`
 of one or two and that many valid `entries`, oldest first. Entries contain a
-64-bit PC, a 32-bit instruction, and optional fetch-fault cause/address. Clear
-`fault.valid` for successful fetches; instruction bits are ignored for faults.
+64-bit `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
+for C), length-derived `sequential_pc`, `compressed_illegal`, and optional fetch-fault
+cause/address. Direct packet producers supply all of this metadata; a 32-bit
+instruction normally uses the same raw/canonical bits and `sequential_pc = pc + 4`.
+Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
+bits are ignored for fetch faults.
 The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.
 The source must follow redirects and supply instructions in program order;
@@ -64,30 +68,38 @@ IF1: PC / L1I array admission -> IF2: ITLB / physical permission / tag resolutio
   -> ID: 64-bit result / ordered packet assembly -> issue window -> RR -> EX -> MEM -> WB
 ```
 
-Each aligned eight-byte block supplies two 32-bit instructions, low address
-first. A restart at offset four supplies only the upper instruction; the issue
-window combines it with the next block. Blocks never cross a cache line or page.
-Consecutive hits can sustain two instructions per cycle. The frontend reserves
-two instruction entries per in-flight lookup in the core's sole compacting
-instruction buffer before issuing SRAM reads, so a blocked core cannot lose
-responses. There is no separate fetch-packet queue. The execution slice exposes
-`instruction_capacity: Bits(4)`, its registered free-entry count, for this
-reservation accounting; it does not depend on the current issue decision.
+Each aligned eight-byte block supplies two to four mixed 16/32-bit instructions,
+low address first. Restart may select any halfword. The shared compressed expander
+supplies canonical instructions to the ordinary composed decoder, while original
+bits and sequential PCs remain attached through retirement and delayed completion.
+An instruction may cross a block, cache line, or page; each block is independently
+translated and checked. The assembler retains a lone unfinished halfword until
+the following block arrives, including across a fetch replay.
+
+Consecutive hits can sustain two instructions per cycle. Three Flow-owned block
+slots reserve space for in-flight SRAM reads and excess compressed instructions.
+Empty-buffer bypass avoids adding a hit-path stage. The assembler sends up to two
+instructions per cycle to the existing eight-entry issue window; downstream stalls
+retain both blocks and parcel position. Admission uses registered block credits,
+not the current issue decision. The execution slice still exposes
+`instruction_capacity: Bits(4)` for direct packet producers.
 
 L1I misses restart the failed fetch attempt and discard younger attempts,
 preserving older buffered instructions. A MEM branch or WB redirect clears speculative fetch
 and issue storage, but accepted CHI refills continue draining. Wrong-path
 errors cannot become architectural faults. A failed block produces one fault
 token at the first requested instruction PC, not an illegal instruction derived
-from undefined data. WB preserves age ordering and drains older accepted data
+from undefined data. For a straddling instruction, its original PC identifies the
+faulting instruction and the continuation address identifies the faulting portion.
+WB preserves age ordering and drains older accepted data
 transactions before reporting the fault.
 
 Translation, physical permission, and address-width checks happen before cache resolution.
 Only executable, instruction-cacheable, idempotent memory is fetched: coherent
 RAM uses `ReadOnce`, immutable ROM uses `ReadNoSnp`. Other regions report an
-instruction access fault without CHI traffic. Non-four-byte-aligned starts
-report instruction-address-misaligned faults. No predictor or C assembly is
-included; fetch always advances sequentially until a resolved redirect.
+instruction access fault without CHI traffic. Odd starts report instruction-address-
+misaligned faults. No predictor is included; fetch always advances sequentially
+until a resolved redirect.
 
 ## Execution and ordering
 
@@ -294,17 +306,18 @@ to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
   `target` is the selected successor, return PC, or trap vector. Cause/value are
   meaningful for an interrupt trap (cause has its interrupt bit set).
 
-With no C support yet, instruction PCs and taken targets require four-byte
-alignment. JALR clears bit zero before the alignment check. A misaligned target
-faults without writing its link register. Unmatched encodings report an illegal
-instruction fault with the original encoding. Reset clears queued/pipelined
+Instruction PCs require two-byte alignment. JALR clears bit zero; compressed
+JALR writes `pc + 2`, while a full-width jump writes `pc + 4`. The shared CSR bank
+advertises C and preserves bit one in exception PCs and privilege-return targets.
+Unmatched canonical or compressed encodings report an illegal instruction fault
+with the original encoding. Reset clears queued/pipelined
 work, completion ownership, scoreboards, and architectural registers. It is a
 coordinated epoch boundary: the memory service must reset with the core and
 must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no C expansion, M/A/B decode, guest translation, or SoC binding yet. Naturally misaligned
+There is no M/A/B decode, floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
 claim. It is not selectable through the SoC configuration resolver.

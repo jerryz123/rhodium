@@ -239,6 +239,10 @@ its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slic
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
 pipes and forks; it imports no other named-core implementation.
+Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
+the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
+Bits helpers. Canonical decode remains RV2Wide-owned; `core.rhdl` additionally
+imports the pure C descriptor to configure the shared CSR bank's IALIGN.
 `cores/rv2wide/mmu.rhdl` imports the shared `cores/riscv/mmu/` TLB/walker,
 shared cache protocol/operation and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. It owns EX/MEM translation alignment and

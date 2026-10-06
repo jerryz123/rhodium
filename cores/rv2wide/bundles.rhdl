@@ -33,10 +33,13 @@ bundle RV2WideFetchFault():
   cause: Bits(64)
   value: Bits(64)
 
-/* Carries one uncompressed instruction or fetch fault and its architectural PC. */
+/* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
 bundle RV2WideInstruction():
   pc: Bits(64)
   instruction: Bits(32)
+  raw_instruction: Bits(32)
+  sequential_pc: Bits(64)
+  compressed_illegal: Bool
   fault: RV2WideFetchFault()
 
 /* Offers a nonempty prefix of up to two instructions to the issue window. */

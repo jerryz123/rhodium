@@ -47,7 +47,6 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   frontend.translation <=> mmu.instruction
   start |> frontend.start
   frontend.instructions |> core.instructions
-  frontend.instruction_capacity <== core.instruction_capacity
   core.fetch_flush |> frontend.flush
   core.instruction_invalidate |> frontend.invalidate
   frontend.memory <=> instruction.core

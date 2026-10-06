@@ -1,0 +1,88 @@
+#lang rhodium
+/* Buffers returned fetch blocks and expands mixed-width instructions without losing boundary fault ownership. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "decode/core-ctrl.rhdl".RV2WideInstructions
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/compressed.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Carries one aligned block's contents, first requested byte, and any block admission/read fault. */
+bundle RV2WideFetchBlock():
+  pc: Bits(64)
+  data: Bits(64)
+  fault: RV2WideFetchFault()
+
+/* Emits up to two expanded instructions per cycle, retaining a trailing 32-bit prefix across blocks.
+   Registered block credits cover non-backpressurable lookups; live bypass adds no hit-path stage.
+   Clear discards the speculative epoch, while local cache/translation replay leaves this state intact. */
+sync_circuit RV2WideInstructionAssembler():
+  interface blocks(Decoupled(RV2WideFetchBlock()), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  interface instructions(Decoupled(RV2WidePacket()), ~role: producer)
+  output available: Bits(2)
+
+  inst returned(ShiftQueue(RV2WideFetchBlock(), 3, ~flow: #true, ~flushable: #true))
+  blocks |> returned.ingress
+  returned.flush <== clear.valid
+  available <== bits(3, 2) - returned.count
+  def head :: Endpoint = returned.egress
+  reg consumed(~init: bits(0, 3))
+  reg partial_valid(~init: Bool(#false))
+  reg partial_pc(Bits(64))
+  reg partial_word(Bits(16))
+  def start = head.bits.pc[1..3].zext(3) + consumed
+  def window = mux(partial_valid, head.bits.data ++ partial_word, (head.bits.data >> (start ++ bits(0, 4))).zext(80))
+  def parcels = bits(4, 3) - start + partial_valid.as_bits().zext(3)
+  def first_pc = mux(partial_valid, partial_pc, head.bits.pc + (consumed.zext(64) << 1))
+  def first_compressed = window[0..2] =/= bits(3, 2)
+  def first_size = mux(first_compressed, bits(1, 3), bits(2, 3))
+  def first_valid = head.valid & (head.bits.fault.valid ||| (parcels >= first_size))
+  def second_window = window >> (first_size ++ bits(0, 4))
+  def second_compressed = second_window[0..2] =/= bits(3, 2)
+  def second_size = mux(second_compressed, bits(1, 3), bits(2, 3))
+  def second_valid = first_valid & !head.bits.fault.valid & (parcels >= (first_size + second_size))
+  def used = mux(first_valid, first_size + mux(second_valid, second_size, bits(0, 3)), bits(0, 3))
+  def remaining = parcels - used
+  def tail = window >> (used ++ bits(0, 4))
+  def capture_partial = (remaining === bits(1, 3)) & (tail[0..2] === bits(3, 2)) & !head.bits.fault.valid
+  instructions.valid <== first_valid & !clear.valid
+  instructions.bits.count <== mux(second_valid, bits(2, 2), bits(1, 2))
+  for (lane in 0..2):
+    def raw = if lane == 0 | window[0..32] | second_window[0..32]
+    def compressed = if lane == 0 | first_compressed | second_compressed
+    def size = if lane == 0 | first_size | second_size
+    def pc = if lane == 0 | first_pc | first_pc + (first_size.zext(64) << 1)
+    inst expander(RiscvCompressedExpander(XLen.X64, ~supported_instructions: RV2WideInstructions.map(fun (instruction): instruction.name)))
+    expander.compressed <== raw[0..16]
+    instructions.bits.entries[lane] <== RV2WideInstruction():
+      pc: pc
+      instruction: mux(compressed, expander.expansion.instruction, raw)
+      raw_instruction: mux(compressed, raw[0..16].zext(32), raw)
+      sequential_pc: pc + (size.zext(64) << 1)
+      compressed_illegal: compressed & !expander.expansion.valid
+      fault: head.bits.fault
+
+  def advance = !clear.valid & (instructions.fire() ||| (head.valid & !first_valid))
+  head.ready <== advance & ((remaining === bits(0, 3)) ||| capture_partial ||| head.bits.fault.valid)
+  when (clear.valid):
+    consumed <== bits(0, 3)
+    partial_valid <== Bool(#false)
+  elsewhen advance:
+    when (head.fire()):
+      consumed <== bits(0, 3)
+    otherwise:
+      consumed <== consumed + used - partial_valid.as_bits().zext(3)
+    partial_valid <== capture_partial
+    when capture_partial:
+      partial_pc <== first_pc + (used.zext(64) << 1)
+      partial_word <== tail[0..16]
+  when (head.valid & partial_valid & !clear.valid):
+    assert(head.bits.pc === (partial_pc + bits(2, 64)), "rv2wide_contiguous_fetch_suffix")
+
+export:
+  RV2WideFetchBlock
+  RV2WideInstructionAssembler

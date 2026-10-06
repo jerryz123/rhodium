@@ -2,7 +2,7 @@
 module rv2wide_core_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
   typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction; fetch_fault_flow_t fault; } instruction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -353,7 +353,7 @@ module rv2wide_core_tb;
     endcase
     if (op == 'h1b || op == 'h3b) value = {{32{value[31]}}, value[31:0]};
     item = '0;
-    item.fetched.pc = pc; item.fetched.instruction = word;
+    item.fetched.pc = pc; item.fetched.instruction = word; item.fetched.raw_instruction = word; item.fetched.sequential_pc = pc + 4;
     item.rd = word[11:7]; item.write = writes && word[11:7] != 0; item.data = value;
     if (item.write) model[item.rd] = value;
     expected.push_back(item);
@@ -367,8 +367,8 @@ module rv2wide_core_tb;
     if (count == 2 && keep1) expect_instruction(pc + 4, second);
     instructions.valid = 1;
     instructions.bits.count = 2'(count);
-    instructions.bits.entries[0] = '{pc: pc, instruction: first, fault: '0};
-    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, fault: '0};
+    instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0};
+    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0};
     if (fetch_fault_lane >= 0)
       instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
     #1;
@@ -407,7 +407,7 @@ module rv2wide_core_tb;
   endfunction
   task automatic expect_system(logic [63:0] pc, logic [31:0] word, logic [63:0] value=0);
     retirement_t item;
-    item='0; item.fetched.pc=pc; item.fetched.instruction=word;
+    item='0; item.fetched.pc=pc; item.fetched.instruction=word; item.fetched.raw_instruction=word; item.fetched.sequential_pc=pc+4;
     item.rd=word[11:7]; item.write=word[14:12]!=0 && item.rd!=0; item.data=value;
     if(item.write) model[item.rd]=value;
     expected.push_back(item);
@@ -510,18 +510,18 @@ module rv2wide_core_tb;
     send('h24d0, branch(1, 2, 32), branch(1, 2, 16, 1));
     drain();
 
-    // Real instruction faults and injected MEM fault/replay preserve the successful prefix.
-    stop_at('h2500, 'h2500, 1, 0, 'h2502);
-    send('h2500, jump(10, 2), imm(11, 0, 99), 2, 0, 0);
+    // C permits halfword-aligned jump targets; only odd instruction PCs fault.
+    stop_at('h2500, 'h2502);
+    send('h2500, jump(10, 2), imm(11, 0, 99), 2, 1, 0);
     drain();
     stop_at('h2510, 'h2510, 1, 2, 64'hffffffff);
     send('h2510, 32'hffffffff, imm(11, 0, 99), 2, 0, 0);
     drain();
-    stop_at('h2530, 'h2530, 1, 0, 'h602);
-    send('h2530, imm(10, 5, 2, 0, 'h67), '0, 1, 0, 0);
+    stop_at('h2530, 'h602);
+    send('h2530, imm(10, 5, 2, 0, 'h67), '0, 1);
     drain();
-    stop_at('h2542, 'h2542, 1, 0, 'h2542);
-    send('h2542, imm(10, 0, 1), '0, 1, 0, 0);
+    stop_at('h2543, 'h2543, 1, 0, 'h2543);
+    send('h2543, imm(10, 0, 1), '0, 1, 0, 0);
     drain();
     inject_enable = 1; inject_pc = 'h2550;
     inject_result = '{disposition: 2'd1, cause: 64'd5, value: 64'hdead};

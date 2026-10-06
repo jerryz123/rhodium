@@ -35,7 +35,8 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
-| `frontend.rhdl` | Reserved-capacity block fetch, S1 translation/permissions, local replay, and fault packet assembly |
+| `frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
+| `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
@@ -106,15 +107,23 @@ Reset is coordinated with the memory service; it ends the entire response epoch.
 
 The frontend pairs one accepted S0 virtual index with S1 physical permission
 resolution and an S2 block outcome. Both lookup contexts use flushable Flow
-Valid pipes. Reserve two entries for each admitted lookup in the core's sole
-eight-entry instruction buffer, using its registered free-entry count. S2
-assembly feeds that buffer directly, with no intervening packet queue. Never
-depend on current issue readiness to accept a cache result. Replay kills younger
-lookup stages only; MEM/WB recovery also clears the instruction buffer. Start is
+Valid pipes. Reserve one of the assembler's three block slots for each admitted
+lookup using registered occupancy. The Flow ShiftQueue has live bypass; two C
+expanders feed the existing eight-entry instruction window without another
+instruction queue. The assembler retains a consumed-halfword cursor and at most
+one unfinished 32-bit prefix. Advance this state only with packet acceptance or
+when saving an incomplete prefix that produces no packet. Never depend on current
+issue readiness to accept a cache result. Replay kills younger lookup stages only
+and preserves buffered blocks and prefixes; MEM/WB recovery clears assembly and
+the instruction buffer. Start is
 quiescent-only and the buffer is already empty. Accepted refills belong to L1I
 and remain live across speculative cancellation. Fetch faults carry explicit
 cause/address through the ordinary instruction token and suppress decode
 hazards, memory requests, branch effects, and GPR writes.
+Keep canonical decode bits separate from raw encoding and sequential PC. Link and
+system recovery use the sequential PC; illegal trap values use the raw encoding.
+A faulting continuation uses the retained prefix's instruction PC and the next
+block's fault address. The CSR bank's C configuration must agree with this IALIGN.
 The core's immediate `fetch_flush` pulse also stops fetch during a retained WB
 fault, before its drained public redirect. A simultaneous redirect supplies the
 new cursor; otherwise fetch remains stopped. Buffer credits alone cannot express
@@ -223,6 +232,12 @@ scenario programs mtvec, executes ECALL, reads mepc/mcause, returns with MRET,
 and reaches WFI through real instruction-cache fetching. The existing cache-only
 fixture composes the same production core and L1D adapter with packet stimulus;
 it does not add a second public cached-core wrapper.
+Mixed-width scenarios cover four compressed instructions per block, warm dual
+retirement, delayed compressed loads/stores, C.JALR links and halfword returns,
+illegal compressed mtval, cold line crossings, and Sv39 continuation-page replay,
+success, and faults. Cross-page access/page faults check both mepc and mtval through
+the real handler. Packet-level fixtures supply raw encoding and sequential PC
+explicitly rather than relying on defaults in the core.
 
 The fetching fixture also boots through satp/MRET into Sv39 supervisor code,
 loads/stores through a separately filled DTLB, executes SFENCE.VMA, and checks

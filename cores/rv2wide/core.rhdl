@@ -16,6 +16,7 @@ import:
   lib("cores/branch-resolver.rhdl") open
   lib("cores/load-store.rhdl") open
   lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/c.rhm").CCompressedExtensions
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("riscv/isa/profile.rhm") open
   lib("riscv/isa/trap.rhm").ExceptionCause
@@ -95,7 +96,7 @@ sync_circuit RV2WideCore():
   wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39)))
+  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "c", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.C, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)))
   translation_state <== RV2WideTranslationState():
     privilege: wb_csrs.privilege
     mstatus: wb_csrs.mstatus
@@ -141,7 +142,7 @@ sync_circuit RV2WideCore():
   def rr_head :: RV2WidePacket() = rr_window.head
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): RV2WideDecode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
-  def rr_decodable = for List (lane in 0..2): rr_decoded[lane].valid & !rr_head.entries[lane].fault.valid
+  def rr_decodable = for List (lane in 0..2): rr_decoded[lane].valid & !rr_head.entries[lane].fault.valid & !rr_head.entries[lane].compressed_illegal
   def rr_rs1 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
   def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
   def rr_rd :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rd, rr_head.entries[lane].instruction))
@@ -179,7 +180,7 @@ sync_circuit RV2WideCore():
       rs1: rr_left[lane].data
       rs2: rr_right[lane].data
       rd: rr_rd[lane]
-      illegal: !rr_decoded[lane].valid
+      illegal: !rr_decoded[lane].valid ||| rr_head.entries[lane].compressed_illegal
 
   // EX: two common ALUs and one steered common branch resolver.
   def ex_tokens :: Vec(2, RV2WideExecute()) = vec(for List (lane in 0..2): ex_pipe[lane].egress.bits)
@@ -210,8 +211,8 @@ sync_circuit RV2WideCore():
     def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !bits(1, 64), ex_target_sum)
     def ex_taken = ex_executable & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
-    def ex_bad_pc = ex.fetched.pc[0..2].or_reduce()
-    def ex_bad_target = ex_taken & ex_target[0..2].or_reduce()
+    def ex_bad_pc = ex.fetched.pc[0].into(Bool)
+    def ex_bad_target = ex_taken & ex_target[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.enable
     def ex_bad_address = ex_memory & !ex.control.memory.width.is_aligned(ex_alu.result)
     def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
@@ -220,7 +221,7 @@ sync_circuit RV2WideCore():
       fetched: ex.fetched
       rd: ex.rd
       write: ex_executable & ex.control.writeback.enable & ex.rd.or_reduce()
-      data: mux(ex.control.writeback.link, ex.fetched.pc + bits(4, 64), ex_alu.result)
+      data: mux(ex.control.writeback.link, ex.fetched.sequential_pc, ex_alu.result)
       result_ready: !(ex_memory & !ex.control.memory.write) & !ex_system.serializing()
       taken: ex_taken
       target: ex_target
@@ -234,7 +235,7 @@ sync_circuit RV2WideCore():
         RV2WideResolution():
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
           cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.write, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
-          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.instruction.zext(64)))))
+          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.raw_instruction.zext(64)))))
     ex_results[lane] |> mem_pipe[lane].ingress
     mem_pipe[lane].flush <== rr_squash
 
@@ -374,7 +375,7 @@ sync_circuit RV2WideCore():
   wb_csrs.commit.valid <== wb_fault_command ||| wb_system
   wb_csrs.commit.bits <== RiscvCsrCommand(XLen.X64):
     pc: wb_command.fetched.pc
-    instruction: wb_command.fetched.instruction
+    instruction: wb_command.fetched.raw_instruction
     rd: wb_command.rd
     csr_operation: mux(wb_fault_command, RiscvCsrOperation.None, wb_command.system.csr)
     action: mux(wb_fault_command, RiscvCsrAction.None, wb_command.system.action)
@@ -399,7 +400,7 @@ sync_circuit RV2WideCore():
         wb_wake: wb_resume_pc
         wb_replay: wb_selected.fetched.pc
     target:
-      priority_mux(~default: wb_command.fetched.pc + bits(4, 64)):
+      priority_mux(~default: wb_command.fetched.sequential_pc):
         wb_csrs.redirect.valid: wb_csrs.redirect.bits
         wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
@@ -445,7 +446,7 @@ sync_circuit RV2WideCore():
     wb_sleeping <== Bool(#false)
   elsewhen (retired[0].valid):
     def last :: RV2WideResult() = mux(retired[1].valid, wb_tokens[1], wb_tokens[0])
-    wb_resume_pc <== mux(last.taken, last.target, last.fetched.pc + bits(4, 64))
+    wb_resume_pc <== mux(last.taken, last.target, last.fetched.sequential_pc)
     wb_pc_known <== Bool(#true)
     wb_sleeping <== wb_csrs.wfi
 
