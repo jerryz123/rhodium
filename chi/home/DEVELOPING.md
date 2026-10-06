@@ -58,6 +58,11 @@ dispatch are phase-exclusive in both callers.
 
 ### Inclusive LLC and transaction slots
 
+`CHIInclusiveHNF` stores valid and dirty ways as one `Mask(ways)` per set.
+Reads select a way from that packed mask, and updates set or clear its bit while
+preserving other ways. Convert to `Vec(ways, Bool)` only at the PLRU input; keep
+the registered rows packed.
+
 `CHIInclusiveHNF` owns `resident_lines` and `may_write_lines`, indexed by LLC
 set/way and configured RN-F order. Possible writers are a subset of possible
 residents; a clean `Unique` snoop response still permits a silent later write.

@@ -216,6 +216,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   /* Retain the complete global line address for LLC tag comparison. */
   fun line_address(address :: Bits(p.request_address_width)):
     address[offset_width..p.request_address_width]
+  /* Select the encoded way within this LLC, producing an empty mask for unused index encodings. */
+  fun way_mask(way :: Bits(way_width)) :: Mask(ways):
+    vec(for List (index in 0..ways): way === bits(index, way_width)).into(Mask(ways))
+  /* Read one dynamic way from a packed per-set flag mask. */
+  fun way_is_set(flags :: Mask(ways), way :: Bits(way_width)) :: Bool:
+    (flags & way_mask(way)).or_reduce()
   /* Encode a demand slot as its Home subordinate transaction identifier. */
   fun slot_txn_id(slot :: Bits(slot_width)):
     slot.zext(12)
@@ -262,8 +268,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   reg copyback_states(~init: vec(for List (_index in 0..slots): bits(0, 3)))
   reg victim_writebacks_pending(~init: empty_slots)
 
-  reg valid_lines(~init: vec(for List (_set in 0..sets): bits(0, ways).as_vec(Bool)))
-  reg dirty_lines(~init: vec(for List (_set in 0..sets): bits(0, ways).as_vec(Bool)))
+  reg valid_lines(~init: vec(for List (_set in 0..sets): Mask(ways)(0)))
+  reg dirty_lines(~init: vec(for List (_set in 0..sets): Mask(ways)(0)))
   reg resident_lines(~init: vec(
     for List (_set in 0..sets): vec(for List (_way in 0..ways): bits(0, resident_count))
   ))
@@ -573,7 +579,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def maintenance_discard = request.opcode === CHIReqOpcode.MakeInvalid
   def request_write = chi_hnf_subordinate_opcode(request.opcode).is_initial_write()
   def request_installs_miss = (request.opcode =/= CHIReqOpcode.ReadOnce) ||| request.mem_attr.allocate
-  def selected_dirty = dirty_lines[selected_set][selected_way]
+  def selected_dirty = way_is_set(dirty_lines[selected_set], selected_way)
   def advance_request = requests[advance_slot]
   def advance_selected_line = line_buffers[advance_slot]
   def advance_victim_address = victim_addresses[advance_slot]
@@ -977,9 +983,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def write_filled_line = write_direct_fill ||| install_buffered_fill
   def write_merged_line = merge_requester_data ||| (finish_copyback & copyback_dirty)
   def write_line = write_line_after_snoops ||| write_filled_line ||| write_merged_line ||| restore_victim
-  def selected_way_mask = vec(
-    for List (way in 0..ways): selected_way === bits(way, way_width)
-  ).into(Mask(ways))
+  def selected_way_mask = way_mask(selected_way)
   def line_write_data = mux(restore_victim,
                             victim_writebacks.completion.bits.line.as_vec(Bits(p.data_width)),
                             mux(write_filled_line,
@@ -1034,15 +1038,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def lookup_request = requests[lookup_owner]
   def lookup_set = cache_set(lookup_request.address)
   def lookup_line_address = line_address(lookup_request.address)
-  def lookup_valids = valid_lines[lookup_set]
+  def lookup_valids :: Mask(ways) = valid_lines[lookup_set]
   def lookup_matches = vec(
     for List (way in 0..ways):
       lookup_valids[way] & (tags.port.response.bits[way] === lookup_line_address)
   )
   def lookup_selection = priority_encoder_oh(lookup_matches)
-  def allocation_way = plru_replacement_way(ways, lookup_valids, replacement_state[lookup_set])
+  def allocation_way = plru_replacement_way(ways, lookup_valids.as_vec(Bool), replacement_state[lookup_set])
   def lookup_way = mux(lookup_selection.valid, lookup_selection.index, allocation_way)
-  def lookup_victim_valid = lookup_valids[allocation_way]
+  def lookup_victim_valid = way_is_set(lookup_valids, allocation_way)
   def lookup_victim_address = concat(tags.port.response.bits[allocation_way], bits(0, offset_width))
   def lookup_copyback = lookup_request.opcode === CHIReqOpcode.WriteBackFull
   def lookup_maintenance = chi_cache_maintenance(lookup_request.opcode)
@@ -1057,7 +1061,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     for List (index in 0..resident_count):
       block:
         def endpoint = residents[index]
-        def resident = valid_lines[lookup_set][lookup_way] & resident_lines[lookup_set][lookup_way].as_vec(Bool)[index]
+        def resident = way_is_set(valid_lines[lookup_set], lookup_way) & resident_lines[lookup_set][lookup_way].as_vec(Bool)[index]
         def read_needs_writer = lookup_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadOnce)
         def read_target = chi_request_snoops_caches(lookup_request.opcode) & (lookup_request.src_id =/= bits(endpoint.node_id, p.node_id_width)) & (!read_needs_writer ||| may_write_lines[lookup_set][lookup_way].as_vec(Bool)[index])
         resident & mux(
@@ -1069,7 +1073,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   )
   def lookup_has_snoop_targets = lookup_snoop_targets.or_reduce()
   def zero_snoop_lookup = lookup_response_valid & !lookup_copyback & lookup_enters_snoop_path & !lookup_has_snoop_targets
-  def zero_snoop_clean_victim = zero_snoop_lookup & lookup_snoop_victim & !dirty_lines[lookup_set][lookup_way]
+  def zero_snoop_clean_victim = zero_snoop_lookup & lookup_snoop_victim & !way_is_set(dirty_lines[lookup_set], lookup_way)
   for (left in 0..ways):
     for (right in (left + 1)..ways):
       when lookup_response_valid:
@@ -1104,7 +1108,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       victim_addresses[index] <== lookup_victim_address
       snoop_victims[index] <== lookup_snoop_victim
       maintenance_hits[index] <== lookup_selection.valid
-      maintenance_dirty[index] <== lookup_selection.valid & dirty_lines[lookup_set][lookup_way]
+      maintenance_dirty[index] <== lookup_selection.valid & way_is_set(dirty_lines[lookup_set], lookup_way)
       pending_snoop_targets[index] <== mux(lookup_copyback,
                                            vec(for List (_resident in 0..resident_count): Bool(#false)),
                                            lookup_snoop_targets)
@@ -1133,11 +1137,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
           p
         )
         when lookup_maintenance:
-          phases[index] <== mux(dirty_lines[lookup_set][lookup_way] & !lookup_maintenance_discard,
+          phases[index] <== mux(way_is_set(dirty_lines[lookup_set], lookup_way) & !lookup_maintenance_discard,
                                 CHIInclusiveHNFPhase.SendVictimWriteRequest,
                                 CHIInclusiveHNFPhase.FinishMaintenance)
         elsewhen lookup_snoop_victim:
-          phases[index] <== mux(dirty_lines[lookup_set][lookup_way],
+          phases[index] <== mux(way_is_set(dirty_lines[lookup_set], lookup_way),
                                 CHIInclusiveHNFPhase.EnqueueVictimWriteback,
                                 CHIInclusiveHNFPhase.SendFillRequest)
         otherwise:
@@ -1317,66 +1321,33 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     )
   )
   when zero_snoop_clean_victim:
-    valid_lines <== valid_lines.updated(
-      lookup_set,
-      valid_lines[lookup_set].updated(lookup_way, Bool(#false))
-    )
+    valid_lines <== valid_lines.updated(lookup_set, valid_lines[lookup_set] & !way_mask(lookup_way))
   elsewhen (after_snoops & snoop_victim & !selected_dirty & (completion_error === CHIRespErr.OK)):
-    valid_lines <== valid_lines.updated(
-      selected_set,
-      valid_lines[selected_set].updated(selected_way, Bool(#false))
-    )
+    valid_lines <== valid_lines.updated(selected_set, valid_lines[selected_set] & !selected_way_mask)
   elsewhen retire_backed_victim:
-    valid_lines <== valid_lines.updated(
-      selected_set,
-      valid_lines[selected_set].updated(selected_way, Bool(#false))
-    )
+    valid_lines <== valid_lines.updated(selected_set, valid_lines[selected_set] & !selected_way_mask)
   elsewhen finish_maintenance:
     when (maintenance_hits[work_slot] & (completion_error === CHIRespErr.OK) & (
       request.opcode =/= CHIReqOpcode.CleanShared
     )):
-      valid_lines <== valid_lines.updated(
-        selected_set,
-        valid_lines[selected_set].updated(selected_way, Bool(#false))
-      )
+      valid_lines <== valid_lines.updated(selected_set, valid_lines[selected_set] & !selected_way_mask)
   elsewhen write_filled_line:
-    valid_lines <== valid_lines.updated(
-      selected_set,
-      valid_lines[selected_set].updated(selected_way, Bool(#true))
-    )
+    valid_lines <== valid_lines.updated(selected_set, valid_lines[selected_set] ||| selected_way_mask)
 
   when snoop_data_fire:
     when (!maintenance ||| maintenance_hits[work_slot]):
-      dirty_lines <== dirty_lines.updated(
-        selected_set,
-        dirty_lines[selected_set].updated(selected_way, Bool(#true))
-      )
+      dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set] ||| selected_way_mask)
   elsewhen retire_backed_victim:
-    dirty_lines <== dirty_lines.updated(
-      selected_set,
-      dirty_lines[selected_set].updated(selected_way, Bool(#false))
-    )
+    dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set] & !selected_way_mask)
   elsewhen finish_maintenance:
     when (maintenance_hits[work_slot] & (completion_error === CHIRespErr.OK)):
-      dirty_lines <== dirty_lines.updated(
-        selected_set,
-        dirty_lines[selected_set].updated(selected_way, Bool(#false))
-      )
+      dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set] & !selected_way_mask)
   elsewhen write_filled_line:
-    dirty_lines <== dirty_lines.updated(
-      selected_set,
-      dirty_lines[selected_set].updated(selected_way, Bool(#false))
-    )
+    dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set] & !selected_way_mask)
   elsewhen merge_requester_data:
-    dirty_lines <== dirty_lines.updated(
-      selected_set,
-      dirty_lines[selected_set].updated(selected_way, Bool(#true))
-    )
+    dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set] ||| selected_way_mask)
   elsewhen (finish_copyback & copyback_dirty):
-    dirty_lines <== dirty_lines.updated(
-      selected_set,
-      dirty_lines[selected_set].updated(selected_way, Bool(#true))
-    )
+    dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set] ||| selected_way_mask)
 
   when (lookup_response_valid & lookup_selection.valid & !lookup_maintenance & !lookup_copyback):
     replacement_state <== replacement_state.updated(
@@ -1417,7 +1388,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def shared_data = snoop_data_fire & final_snoop_data & (completion_error === CHIRespErr.OK) & (
     requester_data.bits.resp_err === CHIRespErr.OK
   ) & (requester_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.SharedClean)
-  def directory_line_valid = valid_lines[selected_set][selected_way] & (
+  def directory_line_valid = way_is_set(valid_lines[selected_set], selected_way) & (
     !maintenance ||| maintenance_hits[work_slot]
   )
   def grant_copy = cached_data_fire & final_response_data & (
@@ -1516,7 +1487,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     )
   )
   when grant_copy:
-    assert(valid_lines[response_selected_set][response_selected_way],
+    assert(way_is_set(valid_lines[response_selected_set], response_selected_way),
            "chi_inclusive_hnf_grant_has_directory_entry")
   when (grant_copy & writer_work_update):
     assert(response_selected_set =/= resident_work_set,
