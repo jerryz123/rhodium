@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../../riscv/cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
   "../fp/types.rhdl" open
@@ -16,10 +17,10 @@ import:
   "walker.rhdl" open
   "vector-window.rhdl" open
   "../csr.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/csr.rhm" open
@@ -46,15 +47,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
                          ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   interface instruction(RV5StageFetchAccess(xlen, hypervisor), ~role: responder)
-  interface data(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
+  interface data(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: responder)
   output request_fault_address: Bits(width)
   interface split_completion(Valid(RV5StageSplitResult(xlen, vector_completion_slots)), ~role: producer)
-  interface pipeline(if hypervisor | RV5StageGuestPipelineAccess(xlen) | RV5StagePipelineAccess(xlen), ~role: responder)
+  interface pipeline(if hypervisor | RV5StageGuestPipelineAccess(xlen) | CachePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
   interface vector_fast(RV5StageVectorFastCheck(xlen), ~role: responder)
-  interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
-  interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
+  interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
+  interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
   interface core_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface walker_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
@@ -98,7 +99,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def page_probe = vector_window.translation
   inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
   inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(hypervisor), 1), ~reset_when: instruction.flush)
-  inst load_request(ValidPipeAlwaysCapture(RV5StagePipelineReq(xlen), 1))
+  inst load_request(ValidPipeAlwaysCapture(CachePipelineReq(xlen), 1))
   def pipeline_requests = pipeline.request |> map_valid(request => if hypervisor | request.memory | request)
   def Array(load_context, virtual_lookup, owner_context) = pipeline_requests |> fork_valid(3)
   load_context |> load_request.ingress
@@ -163,15 +164,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   instruction_s1.flush <== instruction.flush & !instruction_admission.valid
   def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
   def data_requests = data.request |> map_flow(request => if hypervisor | request.memory | request)
-  def incoming_request :: RV5StageDataReq(xlen, vector_completion_slots) = data_requests.bits
+  def incoming_request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = data_requests.bits
   def split_busy = misaligned.busy
-  def data_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(split_busy, misaligned.request.bits, incoming_request)
+  def data_request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = mux(split_busy, misaligned.request.bits, incoming_request)
   def data_memory_operation = data_request.access
   def data_fault_address = mux(split_busy, misaligned.fault_address, data_request.address)
   def data_virtual_address = if xlen == XLen.X32 | data_fault_address.zext(64) | data_fault_address
-  def split_candidate = data.request.valid & !split_busy & incoming_request.access.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store) & !incoming_request.width.is_aligned(incoming_request.address)
+  def split_candidate = data.request.valid & !split_busy & incoming_request.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !incoming_request.width.is_aligned(incoming_request.address)
   def data_demand = misaligned.request.valid ||| (data.request.valid & !split_busy & !split_candidate)
-  def data_vector = data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
+  def data_vector = data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
   def data_physical = mux(split_busy, split_physical, data_vector & vector_fast.request_physical)
   def data_window = vector_window.owned & data_vector & !data_physical & !split_candidate & !split_busy
   def data_pinned = data_window ||| data_physical
@@ -188,7 +189,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def probe_selected = page_probe.request.valid & !data.request.valid & !split_busy
   def fast_selected = vector_fast.request.valid & !data.request.valid & !split_busy & !page_probe.request.valid & !load_request.egress.valid
   def demand_address = mux(data_demand, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, mux(load_request.egress.valid, load_virtual_address, vector_fast.request.bits.first)))
-  def pipeline_is_store = load_request.egress.bits.access === RV5StageMemoryOperation.Store
+  def pipeline_is_store = load_request.egress.bits.access === CacheOperation.Store
   def demand_access = mux(data_demand, data_access_kind, mux(mux(probe_selected, page_probe.request.bits.store, mux(load_request.egress.valid, pipeline_is_store, vector_fast.request.bits.store)), Sv39Access.Store, Sv39Access.Load))
   dtlb.lookup <== lookup(demand_address, demand_access, data_privilege, data_translation_enabled & !data_guest, data_guest).updated(~execute_read: execute_read)
   dtlb.invalidate_all <== invalidate_all
@@ -285,28 +286,28 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // feed fence/trap drain back into the very store authorization being drained.
   pipeline_memory.commit <== pipeline.commit
   pipeline.commit_ready <== pipeline_memory.commit_ready
-  wire pipeline_outcome: RV5StagePipelineOutcome
+  wire pipeline_outcome: CachePipelineOutcome
   when pipeline_blocked:
-    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+    pipeline_outcome <== CachePipelineOutcome.Replay
   elsewhen (!load_translation_hit):
-    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+    pipeline_outcome <== CachePipelineOutcome.Slow
   elsewhen load_translation_fault:
-    pipeline_outcome <== RV5StagePipelineOutcome.PageFault
+    pipeline_outcome <== CachePipelineOutcome.PageFault
   elsewhen load_translation_access_fault:
-    pipeline_outcome <== RV5StagePipelineOutcome.AccessFault
+    pipeline_outcome <== CachePipelineOutcome.AccessFault
   elsewhen pipeline_misaligned:
-    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+    pipeline_outcome <== CachePipelineOutcome.Slow
   elsewhen (!pipeline_permitted):
-    pipeline_outcome <== RV5StagePipelineOutcome.AccessFault
+    pipeline_outcome <== CachePipelineOutcome.AccessFault
   elsewhen (!pipeline_cacheable):
-    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+    pipeline_outcome <== CachePipelineOutcome.Slow
   elsewhen (pipeline_memory.response.valid):
     pipeline_outcome <== pipeline_memory.response.bits.outcome
   otherwise:
-    pipeline_outcome <== RV5StagePipelineOutcome.Replay
-  def pipeline_result = RV5StagePipelineResult(xlen):
+    pipeline_outcome <== CachePipelineOutcome.Replay
+  def pipeline_result = CachePipelineResult(xlen):
     outcome: pipeline_outcome
-    reason: mux(pipeline_blocked, mux(ordered_busy, RV5StagePipelineReason.Ordered, RV5StagePipelineReason.Translation), mux(!load_translation_hit, RV5StagePipelineReason.Translation, mux(!pipeline_cacheable, RV5StagePipelineReason.Ordered, pipeline_memory.response.bits.reason)))
+    reason: mux(pipeline_blocked, mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation), mux(!load_translation_hit, CachePipelineReason.Translation, mux(!pipeline_cacheable, CachePipelineReason.Ordered, pipeline_memory.response.bits.reason)))
     data: pipeline_memory.response.bits.data
   def use_cache_result = cache_eligible & pipeline_memory.response.valid
   def cache_result = pipeline_memory.response |> filter_valid(_response => cache_eligible & load_request.egress.valid)
@@ -483,16 +484,18 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def walker_memory_request = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> trace_event("mmu/pte.request")
   walker_lookup.valid <== walker_memory_request.valid
   walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
-  def walker_data_request = walker_memory_request |> map_flow(pte => RV5StageDataReq(xlen, vector_completion_slots)):
+  def walker_data_request = walker_memory_request |> map_flow(pte => PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))):
     byte_mask: !bits(0, width / 8)
     address: if xlen == XLen.X32 | pte.address[0..32] | pte.address
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Double
     unsigned: Bool(#true)
     data: bits(0, width)
-    writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
-    origin: RV5StageDataOrigin.Walker
+    context:
+      RV5StageMemoryContext(vector_completion_slots):
+        writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
+        origin: RV5StageDataOrigin.Walker
     locality: RiscvMemoryLocality.Default
   core_lookup.valid <== data_demand
   core_lookup.bits <== data_request.address
@@ -565,7 +568,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   // Passive physical-address taps follow the same MEM and accepted-WB owners.
   describe_cosim_signals({
-    "pipeline_valid": pipeline.response.valid & pipeline_outcome.is_one_of(RV5StagePipelineOutcome.LoadHit, RV5StagePipelineOutcome.StoreHit),
+    "pipeline_valid": pipeline.response.valid & pipeline_outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit),
     "pipeline_address": load_address,
     "request_valid": data.request.fire() & !split_capture & !data.request_fault & !data.request_access_fault,
     "request_address": data_physical_address,

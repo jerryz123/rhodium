@@ -6,11 +6,11 @@ import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "params.rhdl" as test_params
-  "../chi/refill.rhdl" as refill
+  "../../cache/chi/refill.rhdl" as refill
 
 def config = test_params.test_rv5stage_chi_config
-def design = embedded.run_elaboration(fun (): refill.RV5StageLineRefill(Bits(5), 32, config))
-def engine = design.modules.find(fun (module_def): module_def.name == "RV5StageLineRefill")
+def design = embedded.run_elaboration(fun (): refill.CacheLineRefill(Bits(5), 32, config))
+def engine = design.modules.find(fun (module_def): module_def.name == "CacheLineRefill")
 
 check:
   engine.find_input("command_in").type.field("bits").type.field("line_address").type.width ~is 32
@@ -22,5 +22,5 @@ check:
   engine.find_input("responses_in").type.field("bits").type.field("opcode").type.width ~is 5
   engine.find_input("response_data_in").type.field("bits").type.field("data").type.width ~is 128
   embedded.run_elaboration(
-    fun (): refill.RV5StageLineRefill(Bits(5), 2, config)
+    fun (): refill.CacheLineRefill(Bits(5), 2, config)
   ) ~throws "address width"

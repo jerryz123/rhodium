@@ -108,7 +108,7 @@ module rv5stage_dcache_tb;
   CHIDatFlit captured_dat;
   CHISnpFlit captured_snoop = '0;
 
-  RV5StageL1DCache dut (.*);
+  L1DCache dut (.*);
   always #5 clock = ~clock;
   initial begin
     #1000000;

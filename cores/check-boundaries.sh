@@ -59,6 +59,22 @@ if [[ -n "$riscv_mapping_named_core_imports" ]]; then
   exit 1
 fi
 
+shared_cache_named_core_imports="$(search_sources \
+  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' cores/cache || true)"
+if [[ -n "$shared_cache_named_core_imports" ]]; then
+  echo "shared caches must not import named-core implementation or completion policy" >&2
+  echo "$shared_cache_named_core_imports" >&2
+  exit 1
+fi
+
+rv2wide_named_core_imports="$(search_sources \
+  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|spike)/' cores/rv2wide || true)"
+if [[ -n "$rv2wide_named_core_imports" ]]; then
+  echo "RV2Wide must reuse shared components, not import another named core" >&2
+  echo "$rv2wide_named_core_imports" >&2
+  exit 1
+fi
+
 component_control_imports="$(search_sources '^[[:space:]]+"(alu|operand|branch|mem|writeback|system)-ctrl\.rhdl"' \
   cores/rv5stage/decode/alu-ctrl.rhdl \
   cores/rv5stage/decode/operand-ctrl.rhdl \
@@ -118,18 +134,9 @@ if [[ -n "$fetch_protocol_implementation_imports" ]]; then
   exit 1
 fi
 
-cache_cross_imports="$(search_sources '^[[:space:]]+"[^" ]*(icache|dcache)/' \
-  cores/rv5stage/icache cores/rv5stage/dcache \
-  || true)"
-if [[ -n "$cache_cross_imports" ]]; then
-  echo "RV5Stage instruction and data cache packages must not import each other" >&2
-  echo "$cache_cross_imports" >&2
-  exit 1
-fi
-
 chi_cache_implementation_imports="$(search_sources \
-  '^[[:space:]]+"\.\./(icache|dcache)/cache\.rhdl"' \
-  cores/rv5stage/chi || true)"
+  '^[[:space:]]+(lib\()?"[^" ]*(icache|dcache|l1d)/cache\.rhdl"' \
+  cores/rv5stage/chi cores/cache/chi || true)"
 if [[ -n "$chi_cache_implementation_imports" ]]; then
   echo "RV5Stage CHI engines may import cache protocols but not cache implementations" >&2
   echo "$chi_cache_implementation_imports" >&2

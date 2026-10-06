@@ -254,7 +254,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-core)
+    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache)
       return 0
       ;;
     cores-execution-datapath:rv5stage-cosim*)
@@ -296,13 +296,13 @@ fixture_in_group() {
     cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-sequencer-rv32|cores-vector-configurations:rv5stage-vector-sequencer-1024)
       return 0
       ;;
-    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-svpbmt|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:cache-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-svpbmt|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
     cores-memory:rv5stage-svnapot|cores-memory:rv5stage-nested-walker|cores-memory:rv5stage-guest-translation)
       return 0
       ;;
-    cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-store-buffer|cores-cache:rv5stage-lrsc-*)
+    cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:cache-store-buffer|cores-cache:rv5stage-lrsc-*)
       return 0
       ;;
     *)
@@ -567,7 +567,7 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
-  if [[ "$fixture" == event-retained-bank || "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace ]]; then
+  if [[ "$fixture" == event-retained-bank || "$fixture" == cache-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -598,7 +598,9 @@ verify_fixture() {
     # Vector atomic issue couples ready with a calendar's payload-only latency
     # lookup. Packed structs look cyclic to Verilator; leaf-level RTL verification
     # remains enabled, as do simulation assertions and convergence checks.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    # RV2Wide's cache response similarly packs MEM data/hazards with independent
+    # WB commit readiness; the WB redirect only gates the younger EX lookup.
+    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-cache || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -884,7 +886,7 @@ direct_fixture_specs=(
   'chi-transfer-fragmenter|chi_transfer_fragmenter_tb'
   'chi-fragmenter-metadata|chi_fragmenter_metadata_tb'
   'rv5stage-chi-requests|rv5stage_chi_requests_tb'
-  'rv5stage-copyback|rv5stage_copyback_tb'
+  'cache-copyback|cache_copyback_tb'
   'load-store|load_store_tb'
   'simd-alu|simd_alu_tb'
   'simd-alu32|simd_alu_tb'
@@ -953,6 +955,7 @@ direct_fixture_specs=(
   'shift-queue|shift_queue_tb'
   'rv5stage-core|rv5stage_core_tb'
   'rv2wide-core|rv2wide_core_tb'
+  'rv2wide-cache|rv2wide_cache_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'
   'rv5stage-zkt-rv32|rv5stage_zkt_rv32_tb'
@@ -985,7 +988,7 @@ direct_fixture_specs=(
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb'
   'rv5stage-icache-coherence-flat|rv5stage_icache_coherence_tb'
   'rv5stage-dcache|rv5stage_dcache_tb'
-  'rv5stage-store-buffer|rv5stage_store_buffer_tb'
+  'cache-store-buffer|cache_store_buffer_tb'
   'rv5stage-dcache-rv32|rv5stage_dcache_rv32_tb'
   'rv5stage-lrsc-progress|rv5stage_lrsc_progress_tb'
   'rv5stage-lrsc-core-progress|rv5stage_lrsc_core_progress_tb'

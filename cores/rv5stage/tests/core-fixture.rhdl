@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../core.rhdl" open
   "../fetch/frontend.rhdl" open
   "../profile.rhm" open
   "../icache/protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../csr.rhdl".PrivilegeMode
   "../mmu/protocol.rhdl" open
@@ -95,8 +96,8 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   input hart_id: Bits(xlen.width)
   input time_counter: Bits(64)
   interface instruction_access(RV5StageTestInstructionAccess(xlen), ~role: requester)
-  interface data_access(RV5StageDataAccess(xlen, profile.vector_completion_slots), ~role: requester)
-  interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
+  interface data_access(CacheAccess(xlen, RV5StageMemoryContext(profile.vector_completion_slots)), ~role: requester)
+  interface pipeline_access(CachePipelineAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(xlen.width)), ~role: producer)
   output privilege: PrivilegeMode
   output mstatus: Bits(xlen.width)

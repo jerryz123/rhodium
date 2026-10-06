@@ -20,8 +20,8 @@ fun rv5stage_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConf
   | has("c"): compressed_extensions(CompressedExtension.C)
   | ~else: []
   def cache = match shape
-  | SoCShape.Mini: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1))
-  | SoCShape.Simple: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(64, 4), ~data: RV5StageCacheConfig(64, 4))
+  | SoCShape.Mini: RV5StageCacheGeometry(~instruction: CacheConfig(32, 1), ~data: CacheConfig(32, 1))
+  | SoCShape.Simple: RV5StageCacheGeometry(~instruction: CacheConfig(64, 4), ~data: CacheConfig(64, 4))
   | SoCShape.Tiled: RV5StageCacheGeometry()
   def profile = RV5StageConfig(
     ~xlen: architecture.isa.xlen,

@@ -10,7 +10,7 @@ import:
   "../../chi/protocol/flits.rhdl" open
   "../../chi/protocol/link.rhdl" open
   "../../chi/protocol/fabric.rhdl" open
-  "../../cores/rv5stage/profile.rhm".RV5StageCacheLineBytes
+  "../../cores/rv5stage/profile.rhm".CacheLineBytes
   "../../cores/rv5stage/chi/foundation.rhdl".rv5stage_chi_params
   "../platform/peripherals.rhdl" open
   "../platform/boot.rhdl" open
@@ -45,7 +45,7 @@ fun system_params(base :: Nat = 0x40000000, instruction_id :: Nat = 12, payload 
     SoCPlatformParams(p, 1,
                       CHIHomeParams("device-home", 16, CHINodeKind.HNI, ~max_outstanding: 1),
                       riscv_soc_boot_config(~payload_address: payload, ~boot_address_register: register_base), 21, 20, 23, 22, 24),
-    RV5StageCacheLineBytes,
+    CacheLineBytes,
     rv5stage_chi_params,
     ~instruction_node_id: instruction_id, ~data_node_id: 13, ~uncached_node_id: 14
   )

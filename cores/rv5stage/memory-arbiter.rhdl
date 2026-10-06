@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "dcache/protocol.rhdl" open
+  "memory-context.rhdl" open
+  "../cache/protocol.rhdl" open
   "../load-store.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -12,14 +13,14 @@ import:
 /* Prioritizes admitted vector transactions but scalar speculative lookups.
    Losing lookups replay; retained selection routes store commit and tagged responses. */
 sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
-  interface scalar(RV5StageDataAccess(xlen, slots), ~role: responder)
-  interface vector(RV5StageDataAccess(xlen, slots), ~role: responder)
-  interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
-  interface scalar_pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
-  interface vector_pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
-  interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
+  interface scalar(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: responder)
+  interface vector(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: responder)
+  interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
+  interface scalar_pipeline(CachePipelineAccess(xlen), ~role: responder)
+  interface vector_pipeline(CachePipelineAccess(xlen), ~role: responder)
+  interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   output pipeline_vector: Bool
-  inst requests(Arbiter(RV5StageDataReq(xlen, slots), 2))
+  inst requests(Arbiter(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)), 2))
   // A live vector element belongs to a macro already admitted at WB, so it
   // precedes a simultaneous younger scalar WB slow request.
   Array(vector.request, scalar.request) <=> requests.ingress
@@ -29,7 +30,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   scalar.request_access_fault <== memory.request_access_fault & !selected_vector
   vector.request_fault <== memory.request_fault & selected_vector
   vector.request_access_fault <== memory.request_access_fault & selected_vector
-  def Array(scalar_responses, vector_responses) = memory.response |> demux_flow(2, response => response.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool).as_bits())
+  def Array(scalar_responses, vector_responses) = memory.response |> demux_flow(2, response => response.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool).as_bits())
   scalar_responses |> scalar.response
   vector_responses |> vector.response
   scalar.drained <== memory.drained
@@ -39,7 +40,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
 
   // A losing Valid lookup receives an explicit replay in its response cycle.
   // Ownership travels for two cycles, through the retained store candidate.
-  inst lookups(ValidArbiter(RV5StagePipelineReq(xlen), 2))
+  inst lookups(ValidArbiter(CachePipelineReq(xlen), 2))
   def Array(scalar_lookup, scalar_context) = scalar_pipeline.request |> fork_valid(2)
   def Array(vector_lookup, vector_context) = vector_pipeline.request |> fork_valid(2)
   Array(scalar_lookup, vector_lookup) <=> lookups.ingress
@@ -50,11 +51,11 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   def scalar_result = scalar_context |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
   def vector_result = vector_context |> map_valid(_request => lookup_vector) |> valid_pipe(1)
   def store_owner = selected_owner |> map_valid(_request => lookup_vector) |> valid_pipe(2)
-  def replay = RV5StagePipelineResult(xlen):
-    outcome: RV5StagePipelineOutcome.Replay
-    reason: RV5StagePipelineReason.ArrayPort
+  def replay = CachePipelineResult(xlen):
+    outcome: CachePipelineOutcome.Replay
+    reason: CachePipelineReason.ArrayPort
     data: bits(0, xlen.width)
-  def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: RV5StagePipelineOutcome.Slow))
+  def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: CachePipelineOutcome.Slow))
   def Array(scalar_return, vector_return) = pipeline.response |> fork_valid(2)
   def scalar_bits = mux(scalar_result.bits, selected_result, replay)
   def vector_bits = mux(vector_result.bits, selected_result, replay)

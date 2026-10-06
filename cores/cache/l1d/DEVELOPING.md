@@ -1,7 +1,7 @@
-<!-- Guides implementation and validation of RV5Stage's set-isolated hit-under-miss data cache. -->
+<!-- Guides implementation and validation of the shared cache's set-isolated hit-under-miss data cache. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Developing the RV5Stage data cache
+# Developing the shared data cache
 
 Read the L1D [README](README.md) for its public request/response, hit, refill,
 writeback, snoop, atomic, LR/SC, replacement, and deliberate-limit contracts.
@@ -11,12 +11,13 @@ This guide owns implementation placement and contributor validation.
 
 The L1D package owns the data-access protocol, synchronous arrays, hit path,
 coherence state, mutation, blocking allocation/acquisition, replacement, and
-LR/SC reservation, and the non-allocating data IO-MSHR. The parent core owns
-virtual translation, alignment faults, PMA routing, architectural fence ordering,
-and the external CHI boundary.
+LR/SC reservation. The shared [IO-MSHR](../io-mshr.rhdl) owns nonallocating
+request retention; the integrating core owns virtual translation, alignment
+faults, PMA routing, ordering between cache and IO service, architectural fences,
+and external CHI endpoint composition.
 
 Keep L1D independent of L1I. Reuse parent cache parameters and the sibling CHI
-package's refill, write-unique, writeback, and data-snoop engines rather than
+package's refill, writeback, and data-snoop engines rather than
 importing the instruction-cache package.
 [`../../check-boundaries.sh`](../../check-boundaries.sh) enforces that split.
 
@@ -24,37 +25,35 @@ importing the instruction-cache package.
 
 | Concern | Owner |
 |---|---|
-| Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
-| One-entry uncached data admission, retained request, and completion lifetime | [`io-mshr.rhdl`](io-mshr.rhdl) |
+| Physical request and response bundles | [`protocol.rhdl`](../protocol.rhdl) |
 | Synchronous tag/state and byte-masked data storage | [`arrays.rhdl`](arrays.rhdl) |
 | Parameterized committed-store capacity, physical-byte/probe comparisons, FIFO order, and bounded age | [`store-buffer.rhdl`](store-buffer.rhdl) |
 | Shared pipeline decisions, SRAM scheduling, prefetch admission, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
-| Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
+| Shared cache geometry | [`../geometry.rhdl`](../geometry.rhdl) |
 | Reusable invalid-first tree-PLRU policy | [`../../../rhodium/std/plru.rhdl`](../../../rhodium/std/plru.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
-| Ownership acquisition and partial writes | [`../chi/write-unique.rhdl`](../chi/write-unique.rhdl) |
 | Dirty-victim drain | [`../chi/writeback.rhdl`](../chi/writeback.rhdl) |
 | Clean and dirty snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
-| Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
-| Host configuration and protocol metadata | [`../tests/dcache-test.rhm`](../tests/dcache-test.rhm), [`../tests/transaction-engines-test.rhm`](../tests/transaction-engines-test.rhm) |
-| CIRCT/Verilator fixtures | [`../tests/circt/`](../tests/circt/) |
+| Named-core integration | [RV5Stage](../../rv5stage/rv5stage.rhdl), [RV2Wide](../../rv2wide/rv2wide.rhdl) |
+| Host configuration and protocol metadata | [RV5Stage cache contract](../../rv5stage/tests/dcache-test.rhm), [transaction engines](../../rv5stage/tests/transaction-engines-test.rhm) |
+| CIRCT/Verilator fixtures | [Shared components](../tests/circt/), [RV5Stage integration](../../rv5stage/tests/circt/), [RV2Wide integration](../../rv2wide/tests/circt/) |
 
 ## Change the cache
 
 ### Internal naming and organization
 
-In `cache.rhdl`, `s0_` names the core-aligned EX admission/read launch,
-`s1_` names MEM's synchronous SRAM result and physical-tag/hit decision, and
-`s2_` names WB's retained store candidate, authorization, and slow-request
+In `cache.rhdl`, `s0_` names speculative read admission and launch,
+`s1_` names the synchronous SRAM result and physical-tag/hit decision, and
+`s2_` names the retained store candidate, authorization, and slow-request
 admission. Name a pipeline register for the stage consuming its current value,
 not the stage supplying its next value. The fast hit path stays contiguous
 near the top of the circuit.
 
-Authorized requests extend the cache pipeline beyond WB: `s3_` names the
+Authorized requests enter a separate retained path: `s3_` names the
 retained SRAM lookup, and `s4_` names captured resolution, permission checks,
 and transaction launch. Queueing or rereads can stall this path, so S3 and S4
-are cache processing stages, not fixed cycles after the core's WB. Retries
-reenter the `s2_` read-admission logic without repeating core authorization.
+are cache processing stages, not fixed cycles after requester authorization. Retries
+reenter the `s2_` read-admission logic without repeating authorization.
 Keep transaction-spanning state under its engine name, such as `miss_*`,
 `refill_*`, `snoop_*`, or `reservation_*`.
 
@@ -91,39 +90,35 @@ refill, gather, and mutation owners, and expose the winning owner without
 treating a rejected speculative lookup as an SRAM access. A core lookup uses
 these ports in S0; their request-cycle timestamps precede the corresponding S1
 response by one cycle. The stage-neutral names also cover non-core port owners.
-The scalar `dcache/s2.resp` annotation observes the existing caller-owned WB
-capture outside this module, not a new cache register or a fake S2 delay.
-Translation faults and arbitration losses may produce S2 responses without S1
-cache accesses.
+Caller-side result capture is outside this module; tracing must not add a cache
+register or imply a delay that is absent from the functional path.
 The refill engine declares retained ownership
 from command acceptance through completion; its resident checkpoint carries S4
 ancestry through the final arbiter and parents each request attempt. Writeback
 residency similarly parents copyback requests/data and post-eviction refill
 commands. Its incoming gather ancestry, and maintenance ancestry, remain unknown.
 Do not infer gather-FSM ancestry from an address or transaction ID. See the
-parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
+[RV5Stage integration trace guide](../../rv5stage/DEVELOPING.md#pipeline-event-annotations)
+for an example of caller-owned result capture and translation-fault observations.
 
 ### Behavioral invariants
 
 1. Preserve ordered Decoupled requests and backpressurable slow responses,
    including completion metadata for stores, atomics, and deferred writeback.
-   Carry `RV5StageMemoryWriteback` and the independent `RV5StageDataOrigin`
-   through retained requests and replies. Only core completion consumers inspect
-   writeback variants; the physical data-port arbiter inspects origin; `Ack`
-   still requires normal transaction completion, and vector stores retain a slot.
+   Carry the opaque caller context unchanged through retained requests and replies.
    Keep readiness structural even when an empty request buffer is bypassed by
    a paired virtual read and physical resolution. Queued physical requests win
    the lookup port; unresolved virtual reads cannot produce a lookup token.
-   Geometry rejection belongs to `../profile.rhm`.
+   Geometry rejection belongs to `../config.rhm`.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
    acquisition, gather, writeback, and installation state.
-   The speculative `pipeline_lookup` read uses only EX's virtual page offset.
-   `pipeline.request` supplies the MEM physical tag and operation controls; return its
-   matching SRAM value directly to the core MEM/WB register. Do not insert the
+   The speculative `pipeline_lookup` read uses only the virtual page offset in S0.
+   `pipeline.request` supplies the physical tag and operation controls in S1; return its
+   matching SRAM value combinationally to the caller. Do not insert the
    authorized transaction path's S4/response registers into that hit path.
    Registered read ownership and page-offset matching prevent consuming another
    request's SRAM response. Return an explicit replay for blocked reads, not a
-   slow-service request. Store lookup retains only a one-cycle candidate; WB
+   slow-service request. Store lookup retains only a one-cycle candidate; S2
    authorization alone enqueues it. Compare all committed bytes, including the
    current enqueue, without using global drain as a hit-readiness condition.
    Only enqueue may clear a matching reservation for a buffered ordinary store.
@@ -150,7 +145,7 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
    `miss_allows_hits`, `miss_set`, and `miss_line_address` span direct
    acquisition or victim gather through final refill completion, including CHI
    retries and writeback. Only ordinary demand load/store contexts enable
-   hit-under-miss. Protect the whole set in EX admission and MEM classification.
+   hit-under-miss. Protect the whole set in S0 admission and S1 classification.
    An ordinary load or store matching `miss_line_address` may resolve as Slow
    and wait in the authorized request queue; it must perform a fresh lookup
    after completion and must not observe the refill buffer directly. Such a
@@ -161,7 +156,7 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
    another owner. Do not weaken store authorization, ordered-queue barriers, or
    `drained` when enabling independent load reads or same-line waiters.
    Preserve registered read ownership across an installation or snoop arriving
-   between EX and MEM; never steal an array cycle from older work.
+   between S0 and S1; never steal an array cycle from older work.
 5. Acquire Unique for LR without treating it as a store for translation,
    faults, dirty state, or refill mutation. SC authorization is a local owned
    hit decision; never retain it in a refill context. Keep probe-protection expiry
@@ -174,10 +169,8 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
    PMA faults into the cache.
 6. Keep prefetch response-free and demand-priority; write intent may acquire
    UniqueClean ownership but must not mutate data or make a line dirty.
-7. Keep IO-MSHR admission independent of RN-I instruction ownership. Reject
-   unsupported operations before allocation, retain the request until issue,
-   and release the slot only on final completion. Do not connect fetch flush
-   to committed data state or use engine-wide `drained` for data-slot occupancy.
+7. Keep uncached routing outside L1D. Do not connect fetch flush to committed
+   data state; accepted cache contexts survive speculative redirects.
 8. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
    keep host coverage to configuration and protocol metadata. Update
    [README.md](README.md) when public timing, state, traffic, or limits change.
@@ -193,12 +186,13 @@ tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
-FIXTURES='rv5stage-store-buffer rv5stage-load-hit riscv-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
+FIXTURES='cache-store-buffer rv5stage-load-hit riscv-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 
-Use the parent [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) for
-complete-core integration. Backend fixture names include `rv5stage-dcache` and
+Use the [RV5Stage guide](../../rv5stage/DEVELOPING.md#focused-validation) and
+[RV2Wide guide](../../rv2wide/DEVELOPING.md) for complete-core integration.
+Backend fixture names include `rv5stage-dcache` and
 `rv5stage-dcache-rv32`; use the backend test
 [`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
 modes. Repository wrappers provide the persistent worktree-specific root.

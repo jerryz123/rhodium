@@ -2,10 +2,11 @@
 // Compares otherwise identical RV64 pipelines with enabled and disabled branch prediction.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../../cache/protocol.rhdl" open
   "core-fixture.rhdl" open
   "../profile.rhm" open
   "../icache/protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../../../riscv/isa/xlen.rhm".XLen
   "../../../riscv/isa/fp-profile.rhm".FloatingPointProfile
@@ -13,7 +14,7 @@ import:
 sync_circuit BranchPredictionFixture():
   def profile = RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.None))
   interface instruction[2](RV5StageTestInstructionAccess(XLen.X64), ~role: requester)
-  interface data[2](RV5StageDataAccess(XLen.X64, 8), ~role: requester)
+  interface data[2](CacheAccess(XLen.X64, RV5StageMemoryContext(8)), ~role: requester)
   for (index in 0..2):
     inst core(RV5StageCoreFixture(profile, ~reset_address: 0, ~btb_entries: if index == 0 | 32 | 0))
     core.interrupts <== literal(RiscvInterrupts(), 0)
@@ -23,7 +24,7 @@ sync_circuit BranchPredictionFixture():
     core.data_access |> data[index]
     core.pipeline_access.response.valid <== Bool(#false)
     core.pipeline_access.commit_ready <== Bool(#false)
-    core.pipeline_access.response.bits <== literal(RV5StagePipelineResult(XLen.X64), 0)
+    core.pipeline_access.response.bits <== literal(CachePipelineResult(XLen.X64), 0)
 
 def design = elaborate(BranchPredictionFixture())
 export:

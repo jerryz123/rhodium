@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_lrsc_core_progress_tb;
   typedef struct packed { logic ready; } ready_t;
-  typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
-  typedef struct packed { logic valid; RV5StageDataResp bits; } response_t;
+  typedef struct packed { logic valid; PhysicalMemoryReq bits; } request_t;
+  typedef struct packed { logic valid; PhysicalMemoryResp bits; } response_t;
   typedef struct packed { request_t request; ready_t response; } host_in_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; response_t response; logic drained; logic reservation_valid; } host_out_t;
   logic clock = 0, reset = 1, run = 0;
@@ -47,7 +47,7 @@ module rv5stage_lrsc_core_progress_tb;
     host_in.request.bits.width = 2'(data_width);
     host_in.request.bits.byte_mask = 8'(((1 << (1 << data_width)) - 1) << (address % 8));
     host_in.request.bits.data = data;
-    host_in.request.bits.writeback = write ? 9'b0 : 9'h080;
+    host_in.request.bits.context_0.writeback = write ? 9'b0 : 9'h080;
     host_in.request.valid = 1;
     tick();
     host_in.request.valid = 0;

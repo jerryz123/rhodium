@@ -6,7 +6,7 @@ import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
-  "../cache.rhdl" open
+  "../../cache/geometry.rhdl" open
   "../icache/cache.rhdl" as l1i
   "../icache/protocol.rhdl" as protocol
   "params.rhdl" as test_params
@@ -15,8 +15,8 @@ import:
   "../../../rhodium/std/interconnect.rhdl".AddressSet
 
 def config = test_params.test_rv5stage_chi_config
-def direct_cache = RV5StageCacheConfig(8, 1)
-def associative_cache = RV5StageCacheConfig(8, 2)
+def direct_cache = CacheConfig(8, 1)
+def associative_cache = CacheConfig(8, 2)
 def instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(XLen.X64, direct_cache, ~chi: config))
 def instruction_cache = instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
 def rv32_instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(XLen.X32, direct_cache, ~chi: config))
@@ -64,8 +64,8 @@ check:
   scalar_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
   rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("response").type.field("word").type.width ~is 32
   embedded.run_elaboration(
-    fun (): RV5StageCacheConfig(3, 1)
+    fun (): CacheConfig(3, 1)
   ) ~throws "Pow2Int"
   embedded.run_elaboration(
-    fun (): RV5StageCacheConfig(1, 1)
+    fun (): CacheConfig(1, 1)
   ) ~throws "set count"

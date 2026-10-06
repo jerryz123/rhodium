@@ -2,13 +2,14 @@
 /* Compares observed and unobserved cores with controlled scalar/vector memory events. */
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../../cache/protocol.rhdl" open
   "../core.rhdl" open
   "../../../sims/cosim/events/transport.rhdl".capture_lane
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
   "../fetch/bpd/protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
-  "../memory.rhdl".RV5StageMemoryOperation
+  "../memory-context.rhdl" open
+  "../../cache/operation.rhdl".CacheOperation
   "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -51,11 +52,11 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       output lookup_request: Bool
       output lookup_address: Bits(64)
       output lookup_store: Bool
-      data_store <== observed.data_access.request.bits.access === RV5StageMemoryOperation.Store
+      data_store <== observed.data_access.request.bits.access === CacheOperation.Store
       data_mask <== observed.data_access.request.bits.byte_mask
       lookup_request <== observed.pipeline_access.request.valid
       lookup_address <== observed.pipeline_access.request.bits.address
-      lookup_store <== observed.pipeline_access.request.bits.access === RV5StageMemoryOperation.Store
+      lookup_store <== observed.pipeline_access.request.bits.access === CacheOperation.Store
       output restart_valid: Bool
       output restart_pc: Bits(64)
       restart_valid <== observed.frontend_control.restart.valid
@@ -88,9 +89,9 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       access_fault: Bool(#false)
       prediction: literal(RV5StagePrediction(xlen), 0)
     core.pipeline_access.response.valid <== lookup_valid & lookup_mode.or_reduce()
-    core.pipeline_access.response.bits <== RV5StagePipelineResult(xlen):
-      outcome: mux(lookup_mode === bits(1, 2), RV5StagePipelineOutcome.LoadHit, RV5StagePipelineOutcome.StoreHit)
-      reason: RV5StagePipelineReason.None
+    core.pipeline_access.response.bits <== CachePipelineResult(xlen):
+      outcome: mux(lookup_mode === bits(1, 2), CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
+      reason: CachePipelineReason.None
       data: lookup_data
     core.pipeline_access.commit_ready <== pipeline_mode === bits(2, 2)
     core.vector_precheck.request |> map_flow(_request => certified) |> pipe(1) |> core.vector_precheck.response
@@ -105,15 +106,17 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
     core.data_access.drained <== drained
     core.data_access.reservation_valid <== reservation
     core.data_access.response.valid <== response_valid
-    core.data_access.response.bits <== RV5StageDataResp(xlen, 8):
+    core.data_access.response.bits <== PhysicalMemoryResp(xlen, RV5StageMemoryContext(8)):
       access_fault: response_fault
       data: response_data[0..xlen.width]
-      writeback: response_tag
-      origin: RV5StageDataOrigin.Core
+      context:
+        RV5StageMemoryContext(8):
+          writeback: response_tag
+          origin: RV5StageDataOrigin.Core
   packet_ready <== observed.packets.ready
   data_valid <== observed.data_access.request.valid
   response_ready <== observed.data_access.response.ready
-  data_tag <== observed.data_access.request.bits.writeback
+  data_tag <== observed.data_access.request.bits.context.writeback
   data_address <== capture_lane(observed.data_access.request.bits.address)
   data_value <== capture_lane(observed.data_access.request.bits.data)
   assert(observed.packets.ready === reference.packets.ready, "cosim_passive_fetch")

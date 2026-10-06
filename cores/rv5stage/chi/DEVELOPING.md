@@ -9,16 +9,17 @@ dependency direction, extension workflow, and focused validation.
 
 ## Architecture and dependency boundary
 
-The package may depend on RV5Stage cache geometry and public cache/uncached
+The package may depend on shared cache geometry and public cache/uncached
 protocols, the RISC-V physical-memory model, the shared CHI library, and public
 Rhodium libraries. Transaction engines must not import either cache
-implementation. `uncached.rhdl` may import the I-cache and D-cache protocol
-types that form its core-facing boundary.
+implementation. `uncached.rhdl` owns fetch/data arbitration and fetch cancellation;
+it uses the shared physical protocol specialized with `RV5StageMemoryContext`.
 
 [`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) owns generic RISC-V
 hart attachment configuration, capabilities, and identities. `foundation.rhdl`
-is the RV5Stage dependency root for transaction profiles and flit construction.
-Snapshot-read, refill, write-unique, snoop, and uncached engines depend on it.
+owns RV5Stage's endpoint capability projection and re-exports shared constructors.
+`cores/cache/chi/flits.rhdl` owns transaction profiles and flit construction;
+shared refill, copyback, snoop, WriteUnique, and uncached engines have no RV5Stage dependency.
 Writeback directly composes CHI retry control
 and the shared copyback packet constructor, not the scalar write-unique engine.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
@@ -38,11 +39,11 @@ the shared builder does not depend on core geometry or physical-memory policy.
 The response wrapper uses `chi_response` from the same CHI message owner;
 RV5Stage retains its zero DBID/QoS, successful status, and caller-supplied
 coherent response bits. The data-cache snoop engine uses
-`rv5stage_chi_snoop_address` in the foundation to restore the three omitted
+`cache_chi_snoop_address` in the shared flit module to restore the three omitted
 address bits and truncate or zero-extend to the core address width. `rv5stage-chi-requests` compares complete responses
 and narrow/equal/wide snoop addresses as well as requests.
 
-REQ construction stays in the foundation and returns an immutable value with
+REQ construction lives in the shared flit module and returns an immutable value with
 the existing inactive/optional fields zero. Address normalization, SnpAttr versus
 DoDWT, memory attributes, CompAck, and retry decisions remain explicit here.
 `rv5stage-chi-requests` compares complete packets at all DAT widths with REQ
@@ -59,19 +60,22 @@ including nonzero trace/QoS.
 | File | Ownership |
 |---|---|
 | [`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
-| [`foundation.rhdl`](foundation.rhdl) | RV5Stage endpoint capabilities, transaction profiles, and common flit constructors |
+| [`foundation.rhdl`](foundation.rhdl) | RV5Stage endpoint capabilities and shared constructor exports |
+| [`../../cache/chi/flits.rhdl`](../../cache/chi/flits.rhdl) | Shared cache response profiles and flit constructors |
 | [`line-read.rhdl`](line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
-| [`refill.rhdl`](refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
-| [`write-unique.rhdl`](write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
-| [`writeback.rhdl`](writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
-| [`snoop.rhdl`](snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
-| [`uncached.rhdl`](uncached.rhdl) | Shared one-outstanding instruction/data RN-I implementation |
+| [`refill.rhdl`](../../cache/chi/refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
+| [`write-unique.rhdl`](../../cache/chi/write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
+| [`writeback.rhdl`](../../cache/chi/writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
+| [`snoop.rhdl`](../../cache/chi/snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
+| [`uncached.rhdl`](uncached.rhdl) | Named-core fetch/data arbitration, owner retention, and fetch cancellation |
+| [`../../cache/chi/uncached.rhdl`](../../cache/chi/uncached.rhdl) | Shared nonallocating physical transaction sequencing |
 
-The core-facing uncached protocol remains in
-[`../uncached-protocol.rhdl`](../uncached-protocol.rhdl) because it is the
-transport-independent boundary used by routing and the MMU. Shared cache
-geometry remains in [`../cache.rhdl`](../cache.rhdl) because both private-cache
-packages and these transaction engines consume it.
+[`../uncached-protocol.rhdl`](../uncached-protocol.rhdl) owns translated requests
+with PBMT metadata and cancellable fetch interfaces. Physical payloads and
+uncached service interfaces live in `cores/cache/protocol.rhdl`; destination and
+Core/Walker routing live in `../memory-context.rhdl`. The parent directly
+instantiates shared L1D without a repacking wrapper. Its memory router chooses
+cache versus IO and enforces architectural ordering around the shared IO slot.
 
 ## Change workflow
 
@@ -97,8 +101,8 @@ an accumulation of all line packets. Do not use packet index order as arrival
 order, or extend acknowledgement ownership through stalled line installation.
 
 1. Put implementation-neutral hart attachment configuration and capabilities in
-   `cores/riscv/chi-hart.rhdl`; put RV5Stage flit construction shared by several
-   engines in `foundation.rhdl`.
+   `cores/riscv/chi-hart.rhdl`; put reusable flit construction and transaction
+   machinery in `cores/cache/chi/`, not `foundation.rhdl`.
 2. Keep each retained transaction lifetime in its owning engine; do not move
    cache arrays or replacement policy into this package.
 3. Preserve selected Home, transaction identifiers, retry state, packet
@@ -111,7 +115,7 @@ order, or extend acknowledgement ownership through stalled line installation.
 
 ## Focused validation
 
-`rv5stage-copyback` covers all DAT widths, retry/credit ordering, stalled
+`cache-copyback` covers all DAT widths, retry/credit ordering, stalled
 REQ/grant/DAT/completion, and state freezing at grant. `rv5stage-dcache`
 also exercises a dirty intervention before the copyback grant and confirms
 that an unrelated snoop cannot change the retained eviction identity.
@@ -128,7 +132,7 @@ tools/run-racket-tests.sh \
 
 Use the `rv5stage-uncached`, `rv5stage-icache`, and `rv5stage-dcache` CIRCT
 fixtures for cycle-visible traffic, retry, refill, writeback, and snoop
-behavior. `rv5stage-copyback` also checks residency start/end cycles against
+behavior. `cache-copyback` also checks residency start/end cycles against
 public commands and completions at all DAT widths. `rv5stage-compack` checks
 exact refill residency boundaries and last-packet event ownership in both
 line engines through stalls, reordered packets, ROM reads, and pending reset.

@@ -11,7 +11,7 @@ import:
   "../../branch-resolver.rhdl" open
   "../../load-store.rhdl" open
   "../../cache-prefetch.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/rtl/csr.rhdl" open
   "../../riscv/alu-decode.rhdl" open
@@ -85,7 +85,7 @@ def inactive_branch_control = partial_pattern(RiscvBranchControl()):
     partial_pattern(BranchResolverControl()):
       enable: Bool(#false)
 def inactive_memory_control = partial_pattern(RV5StageMemoryControl()):
-  access: RV5StageMemoryOperation.None
+  access: CacheOperation.None
 def inactive_writeback_control = partial_pattern(RV5StageWritebackControl()):
   enable: Bool(#false)
 def inactive_system_control = partial_pattern(RV5StageSystemControl()):
@@ -166,12 +166,12 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
         cond
         | load:
             partial_pattern(RV5StageMemoryControl()):
-              access: RV5StageMemoryOperation.Load
+              access: CacheOperation.Load
               width: memory_width
               unsigned: Bool(#true)
         | store:
             partial_pattern(RV5StageMemoryControl()):
-              access: RV5StageMemoryOperation.Store
+              access: CacheOperation.Store
               width: memory_width
         | ~else: inactive_memory_control
       DecodeCase(
@@ -301,7 +301,7 @@ def HypervisorMemoryControlCases = for List ([instruction, store, memory_width, 
     branch: inactive_branch_control
     memory:
       partial_pattern(RV5StageMemoryControl()):
-        access: if store | RV5StageMemoryOperation.Store | RV5StageMemoryOperation.Load
+        access: if store | CacheOperation.Store | CacheOperation.Load
         width: memory_width
         unsigned: if store | pattern(Bool, _) | Bool(unsigned)
     prefetch: CachePrefetchOperation.None
@@ -347,11 +347,11 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
       | !memory: inactive_memory_control
       | store:
           partial_pattern(RV5StageMemoryControl()):
-            access: RV5StageMemoryOperation.Store
+            access: CacheOperation.Store
             width: memory_width
       | ~else:
           partial_pattern(RV5StageMemoryControl()):
-            access: RV5StageMemoryOperation.Load
+            access: CacheOperation.Load
             width: memory_width
             unsigned: Bool(#true)
     def writeback_control:

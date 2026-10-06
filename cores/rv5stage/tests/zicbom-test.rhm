@@ -9,14 +9,14 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/model/formats.rhm" open
   "../profile.rhm" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../../alu.rhdl" open
 
-for (entry in [[CBO_INVAL, RV5StageMemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, RV5StageMemoryOperation.CacheBlockClean], [CBO_FLUSH, RV5StageMemoryOperation.CacheBlockFlush]]):
+for (entry in [[CBO_INVAL, CacheOperation.CacheBlockInvalidate], [CBO_CLEAN, CacheOperation.CacheBlockClean], [CBO_FLUSH, CacheOperation.CacheBlockFlush]]):
   def expected = partial_pattern(RV5StageControl()):
     alu:
       partial_pattern(AluControl()):

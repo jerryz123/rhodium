@@ -2,19 +2,20 @@
 // Exercises load/store pipeline timing and WB authorization through the core, MMU, and L1D.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../../cache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "core-fixture.rhdl" open
   "../profile.rhm" open
   "../mmu/mmu.rhdl" open
   "../memory-router.rhdl" open
   "../data-port-arbiter.rhdl" open
-  "../dcache/cache.rhdl" open
-  "../dcache/protocol.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/l1d/cache.rhdl" open
+  "../memory-context.rhdl" open
+  "../../cache/operation.rhdl" open
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
-  "../cache.rhdl" open
+  "../../cache/geometry.rhdl" open
   "params.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
@@ -27,18 +28,18 @@ import:
 sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultVectorProfile, ~vector_length: vlen :: VectorLength = 128, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   input permit_demand: Bool
   interface instruction(RV5StageTestInstructionAccess(XLen.X64), ~role: requester)
-  interface uncached(RV5StageUncachedDataAccess(XLen.X64, vector_completion_slots), ~role: requester)
+  interface uncached(UncachedMemoryAccess(XLen.X64, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
   interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
   output(load_issue, load_hit, transaction_valid, transaction_fire): Bool
   output load_address: Bits(64)
-  output transaction: RV5StageDataReq(XLen.X64, vector_completion_slots)
+  output transaction: PhysicalMemoryReq(XLen.X64, RV5StageMemoryContext(vector_completion_slots))
   output(demand_attempt, demand_fire, cache_fire): Bool
   output cache_address: Bits(64)
   inst core(RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~mmu_mode: RV5StageMmuMode.Sv39, ~vector: vector_profile, ~vector_length: vlen, ~vector_completion_slots: vector_completion_slots), ~reset_address: 0, ~vector_translation: #true))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst data_port_arbiter(RV5StageDataPortArbiter(XLen.X64, vector_completion_slots))
-  inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config, ~vector_completion_slots: vector_completion_slots))
+  inst cache(L1DCache(XLen.X64, CacheConfig(32, 2), ~chi: test_rv5stage_uncached_config, ~context: RV5StageMemoryContext(vector_completion_slots)))
   core.interrupts <== literal(RiscvInterrupts(), 0)
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)
@@ -93,9 +94,9 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   chi.responses |> cache.chi.responses
   chi.response_data |> cache.chi.response_data
   chi.snoops |> cache.chi.snoops
-  load_issue <== core.pipeline_access.request.valid & (core.pipeline_access.request.bits.access === RV5StageMemoryOperation.Load)
+  load_issue <== core.pipeline_access.request.valid & (core.pipeline_access.request.bits.access === CacheOperation.Load)
   load_address <== core.pipeline_access.request.bits.address
-  load_hit <== core.pipeline_access.response.valid & (core.pipeline_access.response.bits.outcome === RV5StagePipelineOutcome.LoadHit)
+  load_hit <== core.pipeline_access.response.valid & (core.pipeline_access.response.bits.outcome === CachePipelineOutcome.LoadHit)
   transaction_valid <== core.data_access.request.valid ||| core.pipeline_access.commit
   transaction_fire <== core.data_access.request.fire() ||| (core.pipeline_access.commit & core.pipeline_access.commit_ready)
   transaction <== core.data_access.request.bits

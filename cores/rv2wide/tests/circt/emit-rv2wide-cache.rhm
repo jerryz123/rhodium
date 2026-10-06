@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/backend/circt.rhm") open
+  lib("rhodium/frontend/kernel.rhm") as embedded
+  "../cache-fixture.rhdl" open
+
+def design = embedded.run_elaboration(fun (): RV2Wide(test_cache, ~chi: test_chi))
+print(emit_circt(design))

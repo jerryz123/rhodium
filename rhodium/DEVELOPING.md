@@ -124,6 +124,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
 | [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
+| [`../cores/cache/`](../cores/cache/README.md) | Shared physical L1D, opaque-context cache protocols, geometry, and cache-side CHI engines | Public Rhodium/Flow, shared execution components, CHI, and RISC-V physical-operation/map vocabulary; no named core |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, RISC-V PMA descriptors, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; explicit compilation targets; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
@@ -209,6 +210,21 @@ descriptors own no physical rows.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
+`cores/cache/` owns shared cache hardware, not architectural completion policy.
+Its protocols use public ready-valid and Bits helpers, XLEN, memory-width,
+atomic, and locality types. `config.rhm` uses core index-width calculation and
+the stable generator-parameter contract. L1D uses Flow, `std/bits.rhdl`,
+`std/plru.rhdl`, and `std/read-write.rhdl`; arrays additionally use
+`std/sync-ram.rhdl`, and the store buffer uses `std/reduction.rhdl`.
+Cache-side CHI engines consume shared flits, retry control, and the neutral
+`cores/riscv/chi-hart.rhdl` map, never named-core code. Nonallocating CHI uses
+the shared LoadGen/StoreGen components; IO retention uses the same physical
+payload and uninterpreted context. RV5Stage defines only destination/origin in
+`memory-context.rhdl` and directly specializes these shared services. Its
+uncached attachment uses Flow arbitration/mapping for fetch/data ownership;
+fetch cancellation and cached/IO ordering stay named-core policy. RV2Wide's cache
+adapter imports the same cache, physical-map contract, Flow, and Bits helpers;
+its `rv2wide.rhdl` composition uses Flow to connect the existing execution slice.
 `cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
 composition and one hardware decoder per issue slot. `cores/rv2wide/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
@@ -235,7 +251,7 @@ for nested admission, retained-owner, and physical VRF-write observations.
 `vector/instructions.rhdl` uses it for actual owner reclamation, including
 faults that drain without successful retirement.
 `sims/cosim/rv5stage/vector.rhdl` consumes those typed taps through frontend `kernel.input`,
-the vector register-write/token/completion bundles, D-cache request/response and
+the vector register-write/token/completion bundles, shared physical request/response and
 writeback-tag protocols and fixed-lane widening.
 It declares RV5Stage-specific passive DPI events without observer registers or
 ownership queues. `sims/cosim/rv5stage/vector.*` interprets those events in C++,
@@ -309,8 +325,8 @@ the same public adapter for optional guest metadata. `vector.rhdl` and
 they add no new direct Rhodium-library dependency. The production MMU imports
 it and the shared translation contract directly; decode additionally imports
 the pure `riscv/isa/h.rhm` and `riscv/isa/svinval.rhm` instruction descriptors and the public hypervisor
-RTL access-mode enum. `mmu/protocol.rhdl` imports that enum, the physical
-dcache protocols, and `std/bits.rhdl` to define virtual guest request wrappers.
+RTL access-mode enum. `mmu/protocol.rhdl` imports that enum,
+shared physical protocols, named memory context, and `std/bits.rhdl` to define virtual guest request wrappers.
 These edges stay within the
 existing core-to-architecture dependency direction.
 The CSR specialization reads MISA from the existing RV5Stage profile projection,
@@ -328,7 +344,7 @@ The translation projection, TLB probes, MMU and physical router also import
 the public Svpbmt adapter for one attribute composition/resolution policy.
 `mmu/vector-window.rhdl` uses its enum to exclude overridden pages from fast
 certificates. `uncached-protocol.rhdl` defines the physical request wrapper
-carrying PBMT alongside the unchanged D-cache request; the physical arbiter
+carrying PBMT alongside the shared physical request; the physical arbiter
 imports that wrapper and the router consumes it. No dependency direction changes.
 `riscv/rtl/pointer-masking.rhdl` imports the pure CSR fields and XLEN plus
 the CSR and privilege adapters and the hypervisor explicit-access enum. Its PMM encoding belongs to its hardware enum,
@@ -385,7 +401,7 @@ imports public ready-valid types for its shared SIMD alignment client.
 the pure vector/XLEN models plus the RISC-V vector RTL adapter; the execution
 instruction tracker consumes its destination-group mask for pending row hazards.
 `vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
-named D-cache protocols and memory operations, and RISC-V trap/pointer-masking
+shared cache protocols and memory operations, named completion context, and RISC-V trap/pointer-masking
 adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
 arbitration and tagged response routing, plus public `std/bits.rhdl` for
 completion geometry. No memory adapter imports a cache implementation.

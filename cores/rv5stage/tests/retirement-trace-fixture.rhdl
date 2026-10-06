@@ -2,11 +2,12 @@
 // Drives the real core's public packet and memory ports with explicit prediction and retirement cases.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../../cache/protocol.rhdl" open
   "../core.rhdl" open
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
   "../fetch/bpd/protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -49,7 +50,7 @@ sync_circuit RV5StageRetirementTrace():
         ras_action: ras
   packet_ready <== core.packets.ready
   core.pipeline_access.response.valid <== Bool(#false)
-  core.pipeline_access.response.bits <== literal(RV5StagePipelineResult(XLen.X64), 0)
+  core.pipeline_access.response.bits <== literal(CachePipelineResult(XLen.X64), 0)
   core.pipeline_access.commit_ready <== Bool(#false)
   core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
   core.vector_fast.response.valid <== Bool(#false)
@@ -64,13 +65,15 @@ sync_circuit RV5StageRetirementTrace():
   core.data_access.drained <== Bool(#true)
   core.data_access.reservation_valid <== reservation
   core.data_access.response.valid <== response_valid
-  core.data_access.response.bits <== RV5StageDataResp(XLen.X64, 8):
+  core.data_access.response.bits <== PhysicalMemoryResp(XLen.X64, RV5StageMemoryContext(8)):
     access_fault: response_fault
     data: bits(0, 64)
-    writeback: response_tag
-    origin: RV5StageDataOrigin.Core
+    context:
+      RV5StageMemoryContext(8):
+        writeback: response_tag
+        origin: RV5StageDataOrigin.Core
   data_valid <== core.data_access.request.valid
-  data_tag <== core.data_access.request.bits.writeback
+  data_tag <== core.data_access.request.bits.context.writeback
   data_address <== core.data_access.request.bits.address
   data_value <== core.data_access.request.bits.data
 

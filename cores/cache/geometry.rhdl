@@ -1,24 +1,24 @@
 #lang rhodium
-/* Defines shared geometry and masks for RV5Stage's private L1 caches. */
+/* Defines way and lane selection for shared fixed-line cache geometry. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
-  "profile.rhm" open
+  "config.rhm" open
 
 /* Selects real ways matching a binary index; an unused encoded index selects no way. */
-fun rv5stage_cache_way_mask(config :: RV5StageCacheConfig,
-                            way :: Bits(config.way_width)) :: Mask(config.ways):
+fun cache_way_mask(config :: CacheConfig,
+                   way :: Bits(config.way_width)) :: Mask(config.ways):
   vec(
     for List (index in 0..config.ways):
       way === bits(index, config.way_width)
   ).into(Mask(config.ways))
 
 /* Replicates a lane mask only into the selected way of a way-major packed array. */
-fun rv5stage_cache_lane_mask(config :: RV5StageCacheConfig,
-                             way :: Bits(config.way_width),
-                             lanes :: PosInt,
-                             lane_mask :: Mask(lanes)) :: Mask(config.ways * lanes):
+fun cache_lane_mask(config :: CacheConfig,
+                    way :: Bits(config.way_width),
+                    lanes :: PosInt,
+                    lane_mask :: Mask(lanes)) :: Mask(config.ways * lanes):
   def lane_bits = lane_mask.as_bits().as_vec(Bool)
   def mutable expanded = []
   for (way_index in 0..config.ways):
@@ -28,7 +28,7 @@ fun rv5stage_cache_lane_mask(config :: RV5StageCacheConfig,
   vec(expanded).into(Mask(config.ways * lanes))
 
 export:
-  RV5StageCacheLineBytes
-  RV5StageCacheConfig
-  rv5stage_cache_way_mask
-  rv5stage_cache_lane_mask
+  CacheLineBytes
+  CacheConfig
+  cache_way_mask
+  cache_lane_mask

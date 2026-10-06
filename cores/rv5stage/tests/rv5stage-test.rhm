@@ -7,7 +7,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/rtl/pma.rhdl" open
-  "../cache.rhdl" as cache
+  "../../cache/geometry.rhdl" as cache
   "../chi/foundation.rhdl" as chi
   "../profile.rhm" as core_profile
   "../rv5stage.rhdl" as rv5stage
@@ -90,7 +90,7 @@ check:
       core_profile.RV5StageConfig(
         ~xlen: XLen.X32,
         ~cache_geometry: core_profile.RV5StageCacheGeometry(
-          ~instruction: cache.RV5StageCacheConfig(268435456, 1)
+          ~instruction: cache.CacheConfig(268435456, 1)
         )
       ),
       ~chi: config,

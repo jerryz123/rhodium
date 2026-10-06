@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "zkt-program.rhm" open
   "core-fixture.rhdl" open
   "../profile.rhm" open
@@ -12,14 +13,14 @@ import:
   "../../riscv/multiply-decode.rhdl" open
   "../register-file.rhdl" open
   "../icache/protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../csr.rhdl".PrivilegeMode
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageZkt(profile :: RV5StageConfig):
   def width = profile.xlen.width
   interface instruction_access(RV5StageTestInstructionAccess(profile.xlen), ~role: requester)
-  interface data_access(RV5StageDataAccess(profile.xlen, profile.vector_completion_slots), ~role: requester)
+  interface data_access(CacheAccess(profile.xlen, RV5StageMemoryContext(profile.vector_completion_slots)), ~role: requester)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
   output satp: Bits(width)
@@ -73,7 +74,7 @@ sync_circuit RV5StageZkt(profile :: RV5StageConfig):
   core.data_access <=> data_access
   core.pipeline_access.response.valid <== Bool(#false)
   core.pipeline_access.commit_ready <== Bool(#false)
-  core.pipeline_access.response.bits <== literal(RV5StagePipelineResult(profile.xlen), 0)
+  core.pipeline_access.response.bits <== literal(CachePipelineResult(profile.xlen), 0)
   privilege <== core.privilege
   mstatus <== core.mstatus
   satp <== core.satp

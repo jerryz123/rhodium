@@ -3,15 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../../load-store.rhdl" open
   "../core.rhdl" open
   "../fetch/frontend.rhdl" open
   "../mmu/mmu.rhdl" open
   "../mmu/protocol.rhdl" open
   "../data-port-arbiter.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../icache/protocol.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../uncached-protocol.rhdl" open
   lib("riscv/rtl/svpbmt.rhdl") open
   "../profile.rhm" open
@@ -50,7 +51,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   output memory_valid: Bool
   output memory_address: Bits(64)
   output memory_write: Bool
-  output memory_operation: RV5StageMemoryOperation
+  output memory_operation: CacheOperation
   output memory_data: Bits(64)
   output memory_mask: Bits(8)
   output memory_walker: Bool
@@ -105,9 +106,9 @@ sync_circuit RV5StageHypervisorCoreFixture():
   ) |> valid_pipe(1) |> mmu.instruction_memory.response
   // Force physical accesses through the WB transaction path. TLB permission
   // faults still exercise MEM's paired fault metadata before that fallback.
-  (mmu.pipeline_memory.request |> map_valid(_request => RV5StagePipelineResult(xlen)):
-    outcome: RV5StagePipelineOutcome.Slow
-    reason: RV5StagePipelineReason.Translation
+  (mmu.pipeline_memory.request |> map_valid(_request => CachePipelineResult(xlen)):
+    outcome: CachePipelineOutcome.Slow
+    reason: CachePipelineReason.Translation
     data: bits(0, 64)
   ) |> mmu.pipeline_memory.response
   mmu.pipeline_memory.commit_ready <== Bool(#true)
@@ -116,7 +117,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   mmu.core_lookup |> arbiter.core_lookup
   mmu.walker_lookup |> arbiter.walker_lookup
   def memory = arbiter.memory
-  reg owner(RV5StageDataReq(xlen, 8))
+  reg owner(PhysicalMemoryReq(xlen, RV5StageMemoryContext(8)))
   reg pending(~init: Bool(#false))
   inst load(LoadGen(xlen))
   inst store(StoreGen(xlen))
@@ -134,18 +135,17 @@ sync_circuit RV5StageHypervisorCoreFixture():
   memory.reservation_valid <== reservation_valid
   memory_valid <== memory.request.valid & !pending
   memory_address <== memory.request.bits.memory.address
-  memory_write <== memory.request.bits.memory.access === RV5StageMemoryOperation.Store
+  memory_write <== memory.request.bits.memory.access === CacheOperation.Store
   memory_operation <== memory.request.bits.memory.access
   memory_data <== store.data
   memory_mask <== memory.request.bits.memory.byte_mask
-  memory_walker <== memory.request.bits.memory.origin === RV5StageDataOrigin.Walker
+  memory_walker <== memory.request.bits.memory.context.origin === RV5StageDataOrigin.Walker
   memory_pbmt <== memory.request.bits.pbmt
   memory.response.valid <== response_valid & pending
-  memory.response.bits <== RV5StageDataResp(xlen, 8):
+  memory.response.bits <== PhysicalMemoryResp(xlen, RV5StageMemoryContext(8)):
     access_fault: Bool(#false)
     data: load.value
-    writeback: owner.writeback
-    origin: owner.origin
+    context: owner.context
   response_ready <== memory.response.ready & pending
   when (memory.request.fire() & !memory_fault):
     pending <== Bool(#true)

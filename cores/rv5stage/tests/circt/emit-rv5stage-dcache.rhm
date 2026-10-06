@@ -3,17 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../memory-context.rhdl" open
   "../../../../rhodium/backend/circt.rhm" open
   "../../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../../riscv/isa/xlen.rhm" open
-  "../../../../cores/rv5stage/cache.rhdl" open
-  "../../../../cores/rv5stage/dcache/cache.rhdl" as cache
+  "../../../cache/geometry.rhdl" open
+  "../../../cache/l1d/cache.rhdl" as cache
   "../../../../cores/rv5stage/tests/params.rhdl" as test_params
 
 def design = embedded.run_elaboration(
-  fun (): cache.RV5StageL1DCache(XLen.X64,
-                                 RV5StageCacheConfig(4, 2),
-                                 ~chi: test_params.test_rv5stage_chi_config,
-                                 ~service_queue_depth: 3)
+  fun (): cache.L1DCache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config, ~service_queue_depth: 3, ~context: RV5StageMemoryContext(8))
 )
 print(emit_circt(design))

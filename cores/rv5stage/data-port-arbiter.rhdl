@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "dcache/protocol.rhdl" open
+  "memory-context.rhdl" open
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -23,13 +23,13 @@ sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
   inst requests(Arbiter(RV5StagePhysicalDataReq(xlen, slots), 2))
   Array(core.request, walker.request) <=> requests.ingress
   def selected_walker = requests.chosen === bits(1, 1)
-  requests.egress |> map_flow(request => request.updated(~memory: request.memory.updated(~origin: mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core)))) |> memory.request
+  requests.egress |> map_flow(request => request.updated(~memory: request.memory.updated(~context: request.memory.context.updated(~origin: mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core))))) |> memory.request
 
   core.request_fault <== memory.request_fault & !selected_walker
   core.request_access_fault <== memory.request_access_fault & !selected_walker
   walker.request_fault <== memory.request_fault & selected_walker
   walker.request_access_fault <== memory.request_access_fault & selected_walker
-  def Array(core_responses, walker_responses) = memory.response |> demux_flow(2, response => (response.origin === RV5StageDataOrigin.Walker).as_bits())
+  def Array(core_responses, walker_responses) = memory.response |> demux_flow(2, response => (response.context.origin === RV5StageDataOrigin.Walker).as_bits())
   core_responses |> core.response
   walker_responses |> walker.response
   core.drained <== memory.drained

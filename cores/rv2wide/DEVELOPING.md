@@ -36,6 +36,8 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 | `issue-window.rhdl` | Four-entry two-wide packet storage and prefix consumption |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component instances, register state, precise stops |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
+| `cache.rhdl` | Physical RAM permission checks and raw-beat adaptation to the shared L1D |
+| `rv2wide.rhdl` | Integrated composition; currently execution slice and L1D, without frontend or privilege state |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
 
 ## Change workflow
@@ -82,6 +84,7 @@ Run the focused production-core fixture:
 
 ```sh
 FIXTURE=rv2wide-core bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv2wide-cache bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
 
@@ -95,6 +98,10 @@ service. It checks hit throughput, every natural byte lane and load extension,
 store masks, four outstanding owners, hit-under-miss, RAW/WAW scoreboarding,
 completion/older-slot simultaneous writes and younger-slot reservation, capacity and admission replay, store-commit
 rejection, lookup/admission faults, and accepted-work drain across precise stops.
+`rv2wide-cache` instead connects the production shared L1D and a CHI backing-memory
+oracle. It checks refill delay, masked stores, signed/unsigned loads, dirty
+eviction, independent hits and ALUs during misses, redirect survival, and
+unmapped-access faults after older accepted work drains.
 It compares architectural retirement against an independent sequential model,
 not internal register names. External qualification is matched to public MEM
 PCs; no test-only RTL switches or hierarchical state mutations are used.

@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../mmu/mmu.rhdl" open
   "../mmu/protocol.rhdl" open
   "../data-port-arbiter.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open
   "../profile.rhm" open
@@ -20,13 +21,13 @@ sync_circuit RV5StageMmuDataPortFixture():
   def xlen = XLen.X64
   def slots = 8
   interface instruction(RV5StageFetchAccess(xlen, #false), ~role: responder)
-  interface data(RV5StageDataAccess(xlen, slots), ~role: responder)
-  interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
+  interface data(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: responder)
+  interface pipeline(CachePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   input pipeline_physical: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
-  interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
-  interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
+  interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
+  interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
   interface data_memory(RV5StagePhysicalDataAccess(xlen, slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(64)), ~role: producer)
@@ -50,7 +51,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   request_fault_address <== mmu.request_fault_address
   output(split_valid, split_page_fault): Bool
   output split_fault_address: Bits(64)
-  output split_response: RV5StageDataResp(xlen, slots)
+  output split_response: PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots))
   split_valid <== mmu.split_completion.valid
   split_page_fault <== mmu.split_completion.bits.page_fault
   split_fault_address <== mmu.split_completion.bits.fault_address

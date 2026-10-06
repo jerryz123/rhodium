@@ -1,0 +1,173 @@
+#lang rhodium
+/* Defines cache transaction response profiles and CHI flit construction helpers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_line_data_id
+  lib("chi/protocol/coherence.rhdl").chi_rnf_snoop_opcodes
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/transactions/retryable-transaction.rhdl") open
+  lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
+  lib("chi/protocol/messages.rhdl").chi_response
+  lib("chi/protocol/messages.rhdl").chi_rn_write_data
+  "../../riscv/chi-hart.rhdl" open
+
+def CacheRefillResponses = response_profile("cache_refill"):
+  retryable
+
+def CacheWriteUniqueResponses = response_profile("cache_write_unique"):
+  retryable
+  milestone dbid
+  milestone completion
+  response [CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd]:
+    completes [dbid]
+  response [CHIRspOpcode.Comp]:
+    completes [completion]
+  response [CHIRspOpcode.CompDBIDResp]:
+    completes [dbid, completion]
+
+def CacheCopyBackResponses = response_profile("cache_copyback"):
+  retryable
+  milestone grant
+  response [CHIRspOpcode.CompDBIDResp]:
+    completes [grant]
+
+/* Zero-extends or truncates an address to the configured CHI request width. */
+fun cache_chi_address(address :: Bits,
+                      p :: CHIFlitParams) :~ Bits(p.request_address_width):
+  def width = hardware_value_type(address).packed_width()
+  cond
+  | width < p.request_address_width: address.zext(p.request_address_width)
+  | width == p.request_address_width: address
+  | ~else: address[0..p.request_address_width]
+
+/* Tests whether address normalization would discard any nonzero high bits. */
+fun cache_chi_address_fits(address :: Bits,
+                           p :: CHIFlitParams) :~ Bool:
+  def width = hardware_value_type(address).packed_width()
+  if width <= p.request_address_width
+  | Bool(#true)
+  | !address[p.request_address_width..width].or_reduce()
+
+/* Restores the snoop's omitted three low bits and adapts the resulting physical address width. */
+fun cache_chi_snoop_address(p :: CHIFlitParams,
+                            address_width :: PosInt,
+                            snoop_address :: Bits(p.snoop_address_width)) :~ Bits(address_width):
+  def raw_address = snoop_address ++ bits(0, 3)
+  if address_width <= p.request_address_width
+  | raw_address[0..address_width]
+  | raw_address.zext(address_width)
+
+/* Builds a zero-inactive requester flit with explicit routing, attributes, retry, and CompAck
+   policy.
+   WriteNoSnp uses the shared SnpAttr/DoDWT bit as DoDWT and routes write data through Home. */
+fun cache_chi_request(p :: CHIFlitParams,
+                      node_id :: Bits(p.node_id_width),
+                      home_node_id :: Bits(p.node_id_width),
+                      raw_address :: Bits,
+                      size :: CHITransferSize,
+                      opcode :: CHIReqOpcode,
+                      txn_id :: Bits(12),
+                      expect_comp_ack :: Bool,
+                      allocate_hint :: Bool,
+                      allow_retry :: Bool,
+                      protocol_credit_type :: Bits(4),
+                      ~cacheable: cacheable :: Bool = Bool(#true),
+                      ~device: device :: Bool = Bool(#false),
+                      ~early_write_acknowledge: early_write_acknowledge :: Bool = Bool(#true)) :~ CHIReqFlit(p):
+  // This requester profile leaves inactive and optional fields zero.
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  def attributes = CHIMemAttr():
+    allocate: allocate_hint
+    cacheable: cacheable
+    device: device
+    early_write_acknowledge: early_write_acknowledge
+  // On WriteNoSnp the shared bit means DoDWT; these engines route DAT through
+  // the Home. ReturnTxnID is inapplicable on Requester-to-Home traffic.
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~exp_comp_ack: expect_comp_ack,
+    ~snp_attr_or_do_dwt: !opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl),
+    ~mem_attr: attributes,
+    ~pcrd_type: protocol_credit_type,
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: allow_retry,
+    ~pas: CHIPAS.Secure,
+    ~address: cache_chi_address(raw_address, p),
+    ~size_or_num_req: size.as_bits().zext(6),
+    ~opcode: opcode,
+    ~return_nid_or_stash_nid_or_data_target: node_id,
+    ~txn_id: txn_id,
+    ~src_id: node_id,
+    ~tgt_id: home_node_id
+  )
+
+/* Builds a successful zero-QoS/DBID response with caller-selected coherent response bits. */
+fun cache_chi_response(p :: CHIFlitParams,
+                       node_id :: Bits(p.node_id_width),
+                       target_id :: Bits(p.node_id_width),
+                       txn_id :: Bits(12),
+                       opcode :: CHIRspOpcode,
+                       ~resp: response :: Bits(3) = bits(0, 3))
+  :~ CHIRspFlit(p):
+  chi_response(p, node_id, target_id, txn_id, opcode,
+               ~dbid: bits(0, 12), ~resp: response, ~error: CHIRespErr.OK, ~qos: bits(0, 4))
+
+/* Selects snoops that downgrade a retained clean line to SharedClean. */
+fun cache_snoop_shares_cache_state(opcode :: CHISnpOpcode) :~ Bool:
+  opcode.is_one_of(CHISnpOpcode.SnpShared,
+                   CHISnpOpcode.SnpClean,
+                   CHISnpOpcode.SnpNotSharedDirty,
+                   CHISnpOpcode.SnpCleanShared)
+
+/* Selects invalidating and forwarding snoops. Clean forwarding hits are silently evicted
+   and report I so Home sources data elsewhere without an L1 forwarded-data path. */
+fun cache_snoop_invalidates_cache_state(opcode :: CHISnpOpcode) :~ Bool:
+  opcode.is_one_of(CHISnpOpcode.SnpUniqueStash,
+                   CHISnpOpcode.SnpMakeInvalidStash,
+                   CHISnpOpcode.SnpUnique,
+                   CHISnpOpcode.SnpCleanInvalid,
+                   CHISnpOpcode.SnpMakeInvalid,
+                   CHISnpOpcode.SnpPreferUnique,
+                   CHISnpOpcode.SnpSharedFwd,
+                   CHISnpOpcode.SnpCleanFwd,
+                   CHISnpOpcode.SnpOnceFwd,
+                   CHISnpOpcode.SnpNotSharedDirtyFwd,
+                   CHISnpOpcode.SnpPreferUniqueFwd,
+                   CHISnpOpcode.SnpUniqueFwd)
+
+/* Builds one RN write-data packet with address-derived DataID/CCID and Home-provided DBID. */
+fun cache_chi_write_data(p :: CHIFlitParams,
+                         node_id :: Bits(p.node_id_width),
+                         home_node_id :: Bits(p.node_id_width),
+                         dbid :: Bits(12),
+                         raw_address :: Bits,
+                         data :: Bits(p.data_width),
+                         byte_enable :: Bits(p.byte_enable_width))
+  :~ CHIDatFlit(p):
+  def address = cache_chi_address(raw_address, p)
+  chi_rn_write_data(p, node_id, home_node_id, dbid, data, byte_enable,
+                    ~data_id: chi_line_data_id(address, p),
+                    ~ccid: address[4..6],
+                    ~dbid_or_mecid: dbid.zext(16))
+
+export:
+  CacheRefillResponses
+  CacheWriteUniqueResponses
+  CacheCopyBackResponses
+  RiscvHartCHIRegion
+  RiscvHartCHIConfig
+  RiscvHartCHIParams
+  RiscvHartCHIIdentity
+  cache_chi_address
+  cache_chi_address_fits
+  cache_chi_snoop_address
+  cache_chi_request
+  cache_chi_response
+  cache_snoop_shares_cache_state
+  cache_snoop_invalidates_cache_state
+  cache_chi_write_data

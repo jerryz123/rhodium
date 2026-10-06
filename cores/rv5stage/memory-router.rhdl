@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "memory-context.rhdl" open
+  "../cache/protocol.rhdl" open
   "../load-store.rhdl".MemoryWidth
-  "memory.rhdl" open
-  "profile.rhm".RV5StageCacheLineBytes
-  "dcache/protocol.rhdl" open
-  "dcache/io-mshr.rhdl".RV5StageIOMSHR
+  "../cache/operation.rhdl" open
+  "profile.rhm".CacheLineBytes
+  "../cache/io-mshr.rhdl".IOMSHR
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
@@ -22,17 +23,17 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
                                   physical_map :: RiscvPhysicalMemoryMap,
                                   ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   interface core(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: responder)
-  interface cache(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
-  interface uncached(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: requester)
+  interface cache(CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
+  interface uncached(UncachedMemoryAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
   output ordered_busy: Bool
   // Input capacity must not depend on the same-cycle response sink: request
   // admission can otherwise feed back through the core's flush ready path.
-  inst uncached_management(Queue(RV5StageDataResp(xlen, vector_completion_slots), 1))
+  inst uncached_management(Queue(PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)), 1))
 
-  inst io_mshr(RV5StageIOMSHR(xlen, ~vector_completion_slots: vector_completion_slots))
+  inst io_mshr(IOMSHR(xlen, RV5StageMemoryContext(vector_completion_slots)))
   io_mshr.memory |> uncached
 
-  def request :: RV5StageDataReq(xlen, vector_completion_slots) = core.request.bits.memory
+  def request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = core.request.bits.memory
   def operation = request.access
   def last_byte_offset :: Bits(xlen.width) = mux_lookup(
     request.width,
@@ -43,15 +44,15 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   )
   def zero_block = operation.is_cache_block_zero()
   def management = operation.is_cache_management()
-  def first_address = mux(operation.is_cache_block(), request.address.align_down(RV5StageCacheLineBytes), request.address)
-  def last_address = first_address +& mux(operation.is_cache_block(), bits(RV5StageCacheLineBytes - 1, xlen.width), last_byte_offset)
+  def first_address = mux(operation.is_cache_block(), request.address.align_down(CacheLineBytes), request.address)
+  def last_address = first_address +& mux(operation.is_cache_block(), bits(CacheLineBytes - 1, xlen.width), last_byte_offset)
   def physical = physical_map.lookup(first_address, last_address)
   def attributes = resolve_memory_attributes(physical, core.request.bits.pbmt)
   def request_reads = operation.is_load() ||| operation.is_atomic()
   def request_writes = operation.needs_unique()
-  def request_is_atomic = operation.is_one_of(RV5StageMemoryOperation.LoadReserved,
-                                              RV5StageMemoryOperation.StoreConditional,
-                                              RV5StageMemoryOperation.Atomic)
+  def request_is_atomic = operation.is_one_of(CacheOperation.LoadReserved,
+                                              CacheOperation.StoreConditional,
+                                              CacheOperation.Atomic)
   def ordinary_permitted = physical.mapped & (!request_reads ||| physical.readable) & (
     !request_writes ||| physical.writable
   ) & (!request_is_atomic ||| physical.atomic) & (!zero_block ||| physical.cache_block_zero)
@@ -73,17 +74,16 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   // permission checks and older traffic drain, maintenance needs no device IO.
   (
     management_requests |> gate_flow(cache.drained & io_mshr.core.request.ready & uncached_management.ingress.ready)
-      |> map_flow(request => RV5StageDataResp(xlen, vector_completion_slots)):
+      |> map_flow(request => PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots))):
          access_fault: Bool(#false)
          data: bits(0, xlen.width)
-         writeback: request.writeback
-         origin: request.origin
+         context: request.context
   ) |> uncached_management.ingress
   cache_requests |> gate_flow(cache_available) |> cache.request
   (
     uncached_requests
       |> gate_flow(uncached_available)
-      |> map_flow(request => RV5StageUncachedDataReq(xlen, vector_completion_slots)):
+      |> map_flow(request => UncachedMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))):
           request: request
           device: attributes.strongly_ordered
   ) |> io_mshr.core.request

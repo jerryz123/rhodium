@@ -56,13 +56,14 @@ Choose the lowest package that owns the behavior before editing:
 | Executable simulator harness | [`sims/DEVELOPING.md`](sims/DEVELOPING.md) |
 | Target software sources, ports, patches, or ELF builders | [`sw/DEVELOPING.md`](sw/DEVELOPING.md) |
 | Reusable processor component or named core | [`cores/DEVELOPING.md`](cores/DEVELOPING.md) |
+| Shared physical cache, geometry, or cache-side CHI engine | [`cores/cache/DEVELOPING.md`](cores/cache/DEVELOPING.md) |
 | RV5Stage pipeline or integration | [`cores/rv5stage/DEVELOPING.md`](cores/rv5stage/DEVELOPING.md) |
 | RV5Stage instruction fetch or prediction | [`cores/rv5stage/fetch/DEVELOPING.md`](cores/rv5stage/fetch/DEVELOPING.md) |
 | RV5Stage decode | [`cores/rv5stage/decode/DEVELOPING.md`](cores/rv5stage/decode/DEVELOPING.md) |
 | RV5Stage floating-point execution | [`cores/rv5stage/fp/DEVELOPING.md`](cores/rv5stage/fp/DEVELOPING.md) |
 | RV5Stage CHI configuration or transaction engines | [`cores/rv5stage/chi/DEVELOPING.md`](cores/rv5stage/chi/DEVELOPING.md) |
 | RV5Stage translation | [`cores/rv5stage/mmu/DEVELOPING.md`](cores/rv5stage/mmu/DEVELOPING.md) |
-| RV5Stage private caches | [`cores/rv5stage/icache/DEVELOPING.md`](cores/rv5stage/icache/DEVELOPING.md), [`cores/rv5stage/dcache/DEVELOPING.md`](cores/rv5stage/dcache/DEVELOPING.md) |
+| RV5Stage instruction cache and shared physical data cache | [`cores/rv5stage/icache/DEVELOPING.md`](cores/rv5stage/icache/DEVELOPING.md), [`cores/cache/DEVELOPING.md`](cores/cache/DEVELOPING.md) |
 | SRAM occurrence mapping or schemas | [`sram/DEVELOPING.md`](sram/DEVELOPING.md) |
 | Sky130 SRAM catalog or model | [`sram/sky130/DEVELOPING.md`](sram/sky130/DEVELOPING.md) |
 | VLSI prototype or physical handoff | [`vlsi/DEVELOPING.md`](vlsi/DEVELOPING.md) |

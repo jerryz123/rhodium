@@ -9,7 +9,7 @@ import:
   lib("flow/main.rhdl") open
 
 /* Retains an authorized owned-line store's physical bytes, way, and dirty-state update. */
-bundle RV5StageStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
+bundle CacheStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
   address: Bits(xlen.width)
   way: Bits(way_width)
   data: Bits(xlen.width)
@@ -19,10 +19,10 @@ bundle RV5StageStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes ::
 /* Drains committed stores in FIFO order, exposing byte-overlap and same-line probe hazards.
    Current enqueue participates in hazards; bounded head age requests a drain without changing
    FIFO order. */
-sync_circuit RV5StageStoreBuffer(xlen :: XLen,
-                                 way_width :: PosInt,
-                                 depth :: Pow2Int = 4):
-  def T = RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)
+sync_circuit CacheStoreBuffer(xlen :: XLen,
+                              way_width :: PosInt,
+                              depth :: Pow2Int = 4):
+  def T = CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)
   def pointer_width = index_width(depth)
   def count_width = index_width(depth + 1)
   def word_offset = alignment_bits(xlen.width / 8)
@@ -57,10 +57,10 @@ sync_circuit RV5StageStoreBuffer(xlen :: XLen,
   urgent <== age >= bits(8, 4)
 
   /* Tests physical word equality and intersecting byte masks against the speculative query. */
-  fun overlaps(store :: RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)):
+  fun overlaps(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
     (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).or_reduce()
   /* Tests whether an entry belongs to the probed 64-byte physical line. */
-  fun same_line(store :: RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)):
+  fun same_line(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
     store.address[6..xlen.width] === probe_address[6..xlen.width]
   queued_word_hazard <== vec(for List (index in 0..depth): occupied[index] & overlaps(entries[index])).as_bits().or_reduce()
   queued_line_hazard <== vec(for List (index in 0..depth): occupied[index] & same_line(entries[index])).as_bits().or_reduce()
@@ -79,5 +79,5 @@ sync_circuit RV5StageStoreBuffer(xlen :: XLen,
     head <== if depth == 1 | bits(0, pointer_width) | head + bits(1, pointer_width)
 
 export:
-  RV5StageStoreBufferEntry
-  RV5StageStoreBuffer
+  CacheStoreBufferEntry
+  CacheStoreBuffer

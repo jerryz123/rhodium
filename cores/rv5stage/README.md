@@ -272,7 +272,7 @@ naturally aligned reservation set to **at most** 64 bytes, not exactly 64.
 RV5Stage reserves the naturally aligned LR access (4 bytes for LR.W, 8 for
 RV64 LR.D) and requires SC to match its physical address and width. Conservative
 same-line invalidations may also cause SC failure; the
-[L1D reservation contract](dcache/README.md#lrsc-reservation) describes them.
+[L1D reservation contract](../cache/l1d/README.md#lrsc-reservation) describes them.
 This size guarantee does not establish Ziccrse's LR/SC forward-progress guarantee.
 
 Profile-derived device trees advertise `zic64b` and `za64rs`. UDB includes their
@@ -412,7 +412,7 @@ translation, permissions, ordering, or coherence. It expresses architectural
 intent, not a cache policy. L1D currently interprets every non-default selector
 as non-allocating on ordinary load misses, using its coherent transaction buffer;
 hits and stores retain their existing behavior. See the
-[L1D policy](dcache/README.md#miss-acquisition-and-replacement-flow) for ordering,
+[L1D policy](../cache/l1d/README.md#miss-acquisition-and-replacement-flow) for ordering,
 resident-line preservation, and outer-cache limits.
 
 ## Pipeline event tracing
@@ -929,7 +929,7 @@ deferred instructions still crossing ID/EX or EX/MEM. Independent younger
 instructions may proceed while a load, multiply, divide, or FP result remains
 outstanding. D-cache slow responses remain ordered. During an ordinary demand
 miss, independent pipeline loads may hit other cache sets; stores, second
-misses, and conflicting accesses replay. See the [hit-under-miss contract](dcache/README.md#load-hits-under-a-miss).
+misses, and conflicting accesses replay. See the [hit-under-miss contract](../cache/l1d/README.md#load-hits-under-a-miss).
 
 A data request never carries downstream readiness back through EX/MEM. If WB
 cannot dispatch it because of a DTLB miss, walker ownership, cache pressure, or
@@ -947,7 +947,7 @@ synthesis don't-cares behind a separate valid bit.
 Standard B and Zicond operations reuse the shared combinational
 [`ALU`](../alu.rhdl). Zba, Zbb, Zbs, and Zicond add no second decoder, execution
 unit, pipeline state, reservation, or scoreboard path. A operations use the
-semantic memory machinery in [`memory.rhdl`](memory.rhdl) and return through the
+semantic memory machinery in [`memory.rhdl`](../cache/operation.rhdl) and return through the
 same deferred path as loads.
 
 CSR instructions return the old value and update state atomically at WB. System
@@ -1172,7 +1172,7 @@ and SoC policy remain outside RV5Stage.
 ## Memory hierarchy
 
 Both L1 caches are non-aliasing virtually indexed, physically tagged (VIPT).
-`RV5StageCacheConfig` rejects `sets * 64 > 4096`: the line offset and set index
+`CacheConfig` rejects `sets * 64 > 4096`: the line offset and set index
 must fit within a 4 KiB page, even for Bare profiles. Thus 64 sets is the maximum;
 more ways increase total capacity without adding virtual index bits. Physical
 tags retain every address bit above the set index, including page-offset bits
@@ -1216,7 +1216,7 @@ write-allocate cache supporting loads, stores, LR/SC, and AMOs, with independent
 pipeline load hits permitted under ordinary demand misses. All
 non-cacheable instruction and data requests arbitrate onto the same
 one-outstanding RN-I engine. Non-cacheable data operations first enter a
-single-entry [IO-MSHR](dcache/README.md#non-cacheable-data-io-mshr), independently
+single-entry [IO-MSHR](../cache/README.md#non-cacheable-service), independently
 of an active instruction fetch. Its retained request takes priority at the
 next engine arbitration and survives instruction flushes. The slot remains
 occupied until completion; cached and uncached data demands cannot pass each
@@ -1268,7 +1268,7 @@ replacement, refill, dirty writeback, snoop behavior, DVM handling, and CHI
 response stability are specified by the subsystem documents:
 
 - [`icache/README.md`](icache/README.md) — instruction protocol and nonsnooping L1I
-- [`dcache/README.md`](dcache/README.md) — data protocol and write-back L1D
+- [`../cache/README.md`](../cache/README.md) — shared physical protocols, write-back L1D, and uncached service
 - [`mmu/README.md`](mmu/README.md) — Sv39 translation and L1D walker arbitration
 - [`chi/README.md`](chi/README.md) — shared CHI configuration, cache transaction
   engines, snoop handling, and uncached RN-I access

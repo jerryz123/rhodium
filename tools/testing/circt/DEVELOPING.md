@@ -229,7 +229,7 @@ reordered/gapped packets, repeated IDs and payloads, request/acknowledgement/
 completion stalls, reset during collection and pending acknowledgement, and
 noncoherent instruction ROM reads interleaved with coherent requests.
 It also compares exact refill start/end cycles against command/completion transfers.
-`rv5stage-copyback` retains its packet and coherence checks while validating
+`cache-copyback` retains its packet and coherence checks while validating
 15 residency intervals across all three DAT widths and retries.
 `rv5stage-walk-trace` checks the production walker's exact residency graph,
 PTE/completion parents, held completion, faults, cancellation, and pending reset

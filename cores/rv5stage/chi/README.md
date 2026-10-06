@@ -3,9 +3,11 @@
 
 # RV5Stage CHI endpoints
 
-This package adapts RV5Stage's private caches and shared uncached path to CHI.
-It owns retry-aware cache transactions, snoop responses, dirty-line writeback,
-and the one-outstanding RN-I implementation. The implementation-neutral
+This package adapts RV5Stage's instruction and uncached paths to CHI and owns
+the core's RN capability projection. Shared refill, snoop, dirty-line writeback,
+WriteUnique, and nonallocating transport engines live in
+[`cores/cache/chi/`](../../cache/DEVELOPING.md).
+The implementation-neutral
 physical-region, Home mapping, requester capability, and placement contract is
 owned by [`cores/riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl).
 Contributors should read [DEVELOPING.md](DEVELOPING.md) for engine ownership
@@ -50,7 +52,7 @@ capabilities separately for coherent RAM and noncoherent ROM Homes.
 
 ## Cache-line refill
 
-`RV5StageLineRefill` issues retryable `ReadClean` or `ReadUnique` requests,
+`CacheLineRefill` issues retryable `ReadClean` or `ReadUnique` requests,
 retains the selected Home and command context, accepts each `CompData` packet
 exactly once, and emits `CompAck`. It publishes a completed 64-byte line only
 after every packet has arrived and the acknowledgement has been accepted.
@@ -63,9 +65,9 @@ events themselves; caller-owned channel checkpoints expose this relationship.
 
 ## Writes and dirty writeback
 
-`RV5StageWriteUnique` performs one retryable `WriteUniquePtl`, retaining its
+`CacheWriteUnique` performs one retryable `WriteUniquePtl`, retaining its
 address, data, byte mask, Home, DBID, and completion state until the transaction
-finishes. `RV5StageLineWriteback` instead issues one retryable, aligned
+finishes. `CacheLineWriteback` instead issues one retryable, aligned
 64-byte `WriteBackFull`. After `CompDBIDResp`, it sends the line as four,
 two, or one `CopyBackWriteData` packets on 128-, 256-, or 512-bit DAT.
 There is no second completion response or CompAck.
@@ -118,7 +120,9 @@ use an appropriate snoop such as `SnpUnique` or `SnpCleanInvalid`.
 ## Uncached access
 
 `RV5StageUncached` arbitrates physical instruction and data requests onto one
-RN-I endpoint with at most one outstanding transaction. It emits `ReadNoSnp`
+RN-I endpoint with at most one outstanding transaction. It specializes the
+shared `CHIUncachedMemory` service and retains only requester ownership and fetch
+cancellation policy. The service emits `ReadNoSnp`
 and `WriteNoSnpPtl` for physical device/ROM regions, and non-allocating `ReadOnce`
 and `WriteUniquePtl` for PBMT aliases of coherent RAM. Effective ordering is
 captured at admission, independently of the physical coherence domain. It
@@ -129,7 +133,7 @@ Device writes use the Home's DBID and return write data to that Home; they do
 not request direct write transfer.
 
 In the composed core, data requests come from the
-[data IO-MSHR](../dcache/README.md#non-cacheable-data-io-mshr), which accepts
+[data IO-MSHR](../../cache/README.md#non-cacheable-service), which accepts
 independently while the engine serves an instruction. The engine still accepts
 only when idle and prioritizes a presented data request over a new fetch. Its
 `drained` describes the shared engine, not data-side quiescence; the IO-MSHR

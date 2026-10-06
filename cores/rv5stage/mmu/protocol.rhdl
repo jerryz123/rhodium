@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../csr.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
 
@@ -23,18 +24,18 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(RV5StageGuestMemoryReq(RV5StageDataReq(xlen, slots)))
+    request: Decoupled(RV5StageGuestMemoryReq(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))))
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
-    response: Decoupled(RV5StageDataResp(xlen, slots))
+    response: Decoupled(PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots)))
     drained: Bool
     reservation_valid: Bool
 
 /* Completes a retained misaligned operation, including late translation faults.
    Only the virtual owner consumes this outcome; physical cache responses stay unchanged. */
 bundle RV5StageSplitResult(xlen :: XLen, slots :: Pow2Int):
-  response: RV5StageDataResp(xlen, slots)
+  response: PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots))
   page_fault: Bool
   fault_address: Bits(xlen.width)
   guest: RiscvGuestException()
@@ -45,10 +46,10 @@ interface RV5StageGuestPipelineAccess(xlen :: XLen):
   role responder
   provider requester
   requester -> responder:
-    request: Valid(RV5StageGuestMemoryReq(RV5StagePipelineReq(xlen)))
+    request: Valid(RV5StageGuestMemoryReq(CachePipelineReq(xlen)))
     commit: Bool
   responder -> requester:
-    response: Valid(RV5StagePipelineResult(xlen))
+    response: Valid(CachePipelineResult(xlen))
     commit_ready: Bool
 
 /* Defines a host Sv39 lookup with captured root and permission controls. */

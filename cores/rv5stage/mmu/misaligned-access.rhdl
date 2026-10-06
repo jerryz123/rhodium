@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "protocol.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  "../memory.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../../cache/operation.rhdl" open
+  "../memory-context.rhdl" open
   "../../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
@@ -24,9 +25,9 @@ hardware_enum RV5StageMisalignedState:
 sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: Pow2Int):
   def width = xlen.width
   def word_bytes = memory_word_bytes(xlen)
-  interface start(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), ~role: consumer)
-  interface request(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), ~role: producer)
-  interface physical_response(Decoupled(RV5StageDataResp(xlen, vector_completion_slots)), ~role: consumer)
+  interface start(Decoupled(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: consumer)
+  interface request(Decoupled(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: producer)
+  interface physical_response(Decoupled(PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: consumer)
   interface completion(Valid(RV5StageSplitResult(xlen, vector_completion_slots)), ~role: producer)
   input request_fault: Bool
   input request_access_fault: Bool
@@ -35,7 +36,7 @@ sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: P
   output busy: Bool
 
   reg state(RV5StageMisalignedState, ~init: RV5StageMisalignedState.Idle)
-  reg saved(RV5StageDataReq(xlen, vector_completion_slots))
+  reg saved(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)))
   reg second(~init: Bool(#false))
   reg page_fault(~init: Bool(#false))
   reg access_fault(~init: Bool(#false))
@@ -87,11 +88,10 @@ sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: P
   completion.valid <== state === RV5StageMisalignedState.Complete
   completion.bits <== RV5StageSplitResult(xlen, vector_completion_slots):
     response:
-      RV5StageDataResp(xlen, vector_completion_slots):
+      PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)):
         access_fault: access_fault
-        data: mux(saved.access === RV5StageMemoryOperation.Store, bits(0, width), load.value)
-        writeback: saved.writeback
-        origin: saved.origin
+        data: mux(saved.access === CacheOperation.Store, bits(0, width), load.value)
+        context: saved.context
     page_fault: page_fault
     fault_address: fault_address
     guest: guest

@@ -37,7 +37,7 @@ Word HartAdapter::atomic(Word xlen, const RequestSample& request, Word value) {
 void HartAdapter::memory(Collector& collector, Word instance, Id id, Word xlen,
                          const RequestSample& request, Word value, bool fault,
                          const Physical& physical, Word fault_address) {
-  // RV5StageMemoryOperation is core-specific. Normalize only accepted DUT
+  // CacheOperation is the shared physical operation. Normalize only accepted DUT
   // transactions here; Sail independently derives architectural expectations.
   const auto op = request.access;
   require(op >= 1 && op <= 9 && request.width <= 3, "invalid scalar memory operation");

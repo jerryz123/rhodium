@@ -4,11 +4,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../../riscv/cosim-source.rhm".describe_cosim_signals
   "bundles.rhdl" open
   "../mmu/protocol.rhdl" open
-  "../dcache/protocol.rhdl" open
-  "../memory.rhdl" open
+  "../memory-context.rhdl" open
+  "../../cache/operation.rhdl" open
   "../../load-store.rhdl".MemoryWidth
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/trap.rhm" open
@@ -28,18 +29,18 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   /* Captures one memory token with its physical/virtual request and alignment decision. */
   bundle Lookup():
     token: Token
-    request: RV5StageDataReq(xlen, slots)
+    request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))
     misaligned: Bool
   /* Pairs the retained lookup with its cache outcome and optional guest-fault provenance. */
   bundle Decision():
     request_context: Lookup()
-    outcome: RV5StagePipelineOutcome
+    outcome: CachePipelineOutcome
     data: Bits(xlen.width)
     if hypervisor:
       guest: RiscvGuestException()
   interface issue(Decoupled(Token), ~role: consumer)
-  interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
-  interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface pipeline(CachePipelineAccess(xlen), ~role: requester)
+  interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   input request_fault_address: Bits(xlen.width)
   interface split_completion(Valid(RV5StageSplitResult(xlen, slots)), ~role: consumer)
   interface feedback(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
@@ -125,20 +126,22 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   pipeline_physical <== ex.bits.precertified
   def width = ex.bits.memory_width.into(MemoryWidth)
   def misaligned = access & !width.is_aligned(address)
-  def request = RV5StageDataReq(xlen, slots):
+  def request = PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)):
     byte_mask: ex.bits.byte_mask[0..xlen.width / 8]
     address: address
-    access: mux(ex_store, RV5StageMemoryOperation.Store, RV5StageMemoryOperation.Load)
+    access: mux(ex_store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     unsigned: Bool(#true)
     data: ex.bits.store_data[0..xlen.width]
-    writeback: RV5StageMemoryWriteback(slots).Vector(ex.bits.completion_tag)
-    origin: RV5StageDataOrigin.Core
+    context:
+      RV5StageMemoryContext(slots):
+        writeback: RV5StageMemoryWriteback(slots).Vector(ex.bits.completion_tag)
+        origin: RV5StageDataOrigin.Core
     locality: RiscvMemoryLocality.Default
   (
     lookup_path |> filter_valid(_token => access & !misaligned & !recover)
-      |> map_valid(_token => RV5StagePipelineReq(xlen)):
+      |> map_valid(_token => CachePipelineReq(xlen)):
            byte_mask: request.byte_mask
            address: request.address
            access: request.access
@@ -154,7 +157,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def Array(context_capture, missing_response) = mem_context |> fork_valid(2)
   def returned = pipeline.response |> filter_valid(_result => mem_context.valid)
   def absent = missing_response |> filter_valid(_lookup => !pipeline.response.valid)
-    |> map_valid(_lookup => pipeline.response.bits.updated(~outcome: RV5StagePipelineOutcome.Slow))
+    |> map_valid(_lookup => pipeline.response.bits.updated(~outcome: CachePipelineOutcome.Slow))
   def result = Array(returned, absent) |> valid_arbiter()
   // Both operands are available in this cycle; the join adds no storage or wait.
   def wb = Array(context_capture |> to_decoupled(), result |> to_decoupled()) |> zip_flow(lookup, response):
@@ -170,7 +173,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def returned_split = split_owner.egress |> gate_flow(split_completion.valid) |> map_flow(operation):
     wire result: Decision()
     result.request_context <== operation.request_context
-    result.outcome <== mux(split_completion.bits.page_fault, RV5StagePipelineOutcome.PageFault, mux(split_completion.bits.response.access_fault, RV5StagePipelineOutcome.AccessFault, RV5StagePipelineOutcome.LoadHit))
+    result.outcome <== mux(split_completion.bits.page_fault, CachePipelineOutcome.PageFault, mux(split_completion.bits.response.access_fault, CachePipelineOutcome.AccessFault, CachePipelineOutcome.LoadHit))
     result.data <== split_completion.bits.response.data
     if hypervisor
     | result.guest <== split_completion.bits.guest
@@ -182,15 +185,15 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def token = operation.request_context.token
   request_physical <== token.precertified
   def memory_operation = wb_context.valid & token.memory & token.enabled
-  def slow = memory_operation & (operation.outcome === RV5StagePipelineOutcome.Slow)
-  def store_hit = !split_pending & memory_operation & (operation.outcome === RV5StagePipelineOutcome.StoreHit)
+  def slow = memory_operation & (operation.outcome === CachePipelineOutcome.Slow)
+  def store_hit = !split_pending & memory_operation & (operation.outcome === CachePipelineOutcome.StoreHit)
   wire hit_ready: Bool
   pipeline.commit <== store_hit
-  def page_fault = memory_operation & ((operation.outcome === RV5StagePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
-  def access_fault = memory_operation & !page_fault & ((operation.outcome === RV5StagePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
+  def page_fault = memory_operation & ((operation.outcome === CachePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
+  def access_fault = memory_operation & !page_fault & ((operation.outcome === CachePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
   def fault = wb_context.valid & (page_fault ||| access_fault)
-  def hit = wb_context.valid & !slow & !fault & (operation.outcome =/= RV5StagePipelineOutcome.Replay)
-  def precise_retry = memory_operation & !fault & ((operation.outcome === RV5StagePipelineOutcome.Replay) ||| (slow & !memory.request.ready) ||| (store_hit & !pipeline.commit_ready))
+  def hit = wb_context.valid & !slow & !fault & (operation.outcome =/= CachePipelineOutcome.Replay)
+  def precise_retry = memory_operation & !fault & ((operation.outcome === CachePipelineOutcome.Replay) ||| (slow & !memory.request.ready) ||| (store_hit & !pipeline.commit_ready))
   retry <== precise_retry ||| (hit & token.precertified & !token.store & !hit_ready)
   // The outgoing offer below is exactly the live Slow decision. Compute its
   // admission before annotating/forking that decision, without reading an undriven output.
@@ -271,20 +274,20 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def ack = ack_entries |> arbiter()
   def slow_completion = (
     memory.response |> map_flow(response => RV5StageVectorCompletion(xlen, slots)):
-      tag: response.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
+      tag: response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
       data: response.data
   )
   // Split results arrive outside the fixed write calendar. Authorize their
   // slot first, then use the ordinary arbitrated completion/writeback path.
   def split_result = split_completion |> filter_valid(result => !result.page_fault & !result.response.access_fault)
     |> map_valid(result => RV5StageVectorCompletion(xlen, slots)):
-         tag: result.response.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
+         tag: result.response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
          data: result.response.data
   def deferred_split = split_result |> to_decoupled() |> queue(1)
   Array(offered_hit, ack, slow_completion, deferred_split) |> arbiter() |> completion
   when (memory.response.valid):
     assert(!memory.response.bits.access_fault, "vector_memory_faults_are_reported_before_acceptance")
-    assert(memory.response.bits.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool), "vector_response_has_vector_owner")
+    assert(memory.response.bits.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool), "vector_response_has_vector_owner")
   assert(!(accepted & (retry ||| fault)), "vector_accepted_request_never_replays")
   // A direct precise hit has no asynchronous completion. All other successful
   // accesses retain their slot through completion, including certified hit ACKs.

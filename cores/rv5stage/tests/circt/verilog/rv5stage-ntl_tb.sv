@@ -7,8 +7,8 @@ module rv5stage_ntl_tb;
   typedef struct packed { logic valid; RV5StageInstructionResp bits; } iresp_t;
   typedef struct packed { ready_t request; iresp_t response; } iin_t;
   typedef struct packed { logic flush; logic invalidate_all; ireq_t request; ready_t response; } iout_t;
-  typedef struct packed { logic valid; RV5StageDataReq bits; } dreq_t;
-  typedef struct packed { logic valid; RV5StageDataResp bits; } dresp_t;
+  typedef struct packed { logic valid; PhysicalMemoryReq bits; } dreq_t;
+  typedef struct packed { logic valid; PhysicalMemoryResp bits; } dresp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
   typedef struct packed { dreq_t request; ready_t response; } dout_t;
   logic clock = 0, reset = 1;
@@ -25,7 +25,7 @@ module rv5stage_ntl_tb;
   integer scenario, cycles, attempts, accepted, irq_age, load_delay;
   logic done, hint_fetched, i_valid, d_valid;
   logic [31:0] i_word;
-  RV5StageDataResp d_bits;
+  PhysicalMemoryResp d_bits;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] pc);
     case (pc)
@@ -127,8 +127,7 @@ module rv5stage_ntl_tb;
           accepted <= accepted + 1;
           if (data_access_out.request.bits.access == 1) begin
             d_bits <= '{access_fault: 1'b0, data: 64'd42,
-                        writeback: data_access_out.request.bits.writeback,
-                        origin: data_access_out.request.bits.origin};
+                        context_0: '{writeback: data_access_out.request.bits.context_0.writeback, origin: data_access_out.request.bits.context_0.origin}};
             load_delay <= scenario == 13 ? 50 : 8;
           end
           if (data_access_out.request.bits.address == 520 && (scenario == 6 || scenario == 7))

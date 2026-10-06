@@ -17,7 +17,7 @@ import:
   "../decode/core-ctrl.rhdl" as controls
   "../decode/operand-ctrl.rhdl" as operands
   "../decode/mem-ctrl.rhdl" as memory
-  "../memory.rhdl" as core_memory
+  "../../cache/operation.rhdl" as core_memory
   "../decode/writeback-ctrl.rhdl" as writeback
   "../../alu.rhdl" as alu
 
@@ -48,7 +48,7 @@ def expected_prefetch_r = partial_pattern(controls.RV5StageControl()):
       immediate: operands.RV5StageImmediateSelect.Prefetch
   memory:
     partial_pattern(memory.RV5StageMemoryControl()):
-      access: core_memory.RV5StageMemoryOperation.None
+      access: core_memory.CacheOperation.None
   prefetch: CachePrefetchOperation.Read
   writeback:
     partial_pattern(writeback.RV5StageWritebackControl()):

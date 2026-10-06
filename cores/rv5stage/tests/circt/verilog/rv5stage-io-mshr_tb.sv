@@ -13,14 +13,14 @@ module rv5stage_io_mshr_tb;
     struct packed { logic valid; RV5StageInstructionResp bits; } response;
   } instruction_out_t;
   typedef struct packed {
-    struct packed { logic valid; RV5StageDataReq bits; } request;
+    struct packed { logic valid; PhysicalMemoryReq bits; } request;
     struct packed { logic ready; } response;
   } data_requester_t;
   typedef struct packed {
     struct packed { logic ready; } request;
     logic request_fault;
     logic request_access_fault;
-    struct packed { logic valid; RV5StageDataResp bits; } response;
+    struct packed { logic valid; PhysicalMemoryResp bits; } response;
     logic drained; logic reservation_valid;
   } data_responder_t;
   typedef struct packed {
@@ -124,7 +124,7 @@ module rv5stage_io_mshr_tb;
     core_in.request.bits.memory.width = 2'd2;
     core_in.request.bits.memory.byte_mask = 8'hf0;
     core_in.request.bits.memory.unsigned_0 = 1;
-    core_in.request.bits.memory.writeback = expected_writeback;
+    core_in.request.bits.memory.context_0.writeback = expected_writeback;
     #1;
     assert (core_out.request.ready && !core_out.request_access_fault)
       else $fatal(1, "instruction-owned RN-I blocked data admission");
@@ -186,7 +186,7 @@ module rv5stage_io_mshr_tb;
     core_in.response.ready = 0;
     #1;
     assert (core_out.response.valid && core_out.response.bits.data == 64'h80000000 &&
-            core_out.response.bits.writeback == expected_writeback && !core_out.drained)
+            core_out.response.bits.context_0.writeback == expected_writeback && !core_out.drained)
       else $fatal(1, "load completion lost retained width, signedness, or destination metadata");
     repeat (3) begin
       assert (!chi_out.dat.response.ready && completed == initial_completed)
@@ -274,7 +274,7 @@ module rv5stage_io_mshr_tb;
     chi_in.rsp.response.bits.opcode = 5'h04;
     chi_in.rsp.response.valid = 1;
     #1;
-    assert (core_out.response.valid && core_out.response.bits.writeback == 9'b0) else $fatal(1, "store did not return Ack");
+    assert (core_out.response.valid && core_out.response.bits.context_0.writeback == 9'b0) else $fatal(1, "store did not return Ack");
     tick();
     chi_in.rsp.response.valid = 0;
     repeat (4) tick();

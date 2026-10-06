@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache.rhdl" open
-  "foundation.rhdl" open
+  "../geometry.rhdl" open
+  "flits.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -14,34 +14,34 @@ import:
   lib("chi/transactions/retryable-transaction.rhdl") open
 
 /* Captures the victim line/address and opaque caller context for full-line copyback. */
-bundle RV5StageLineWritebackCommand(Context :: DataType, address_width :: PosInt):
+bundle CacheLineWritebackCommand(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
-  line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
+  line: Vec(CacheLineBytes / 8, Bits(64))
   context: Context
 
 /* Returns the retained context after all copyback data packets are handed off. */
-bundle RV5StageLineWritebackResult(Context :: DataType):
+bundle CacheLineWritebackResult(Context :: DataType):
   context: Context
 
 /* Retries WriteBackFull while the victim remains snoop-visible; freezes its latest state at
    grant.
    After CompDBIDResp, sends every line packet and retains completion until accepted. */
-sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat):
+sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat):
   def p = config.flit
-  def packets = RV5StageCacheLineBytes / p.data_bytes
+  def packets = CacheLineBytes / p.data_bytes
   def packet_width = index_width(packets)
   input node_id: Bits(p.node_id_width)
   // Cache-owned state may change under snoops until the grant is accepted.
   input victim_state: CHICacheState
   input snoop_pending: Bool
   output granted: Bool
-  interface command(Decoupled(RV5StageLineWritebackCommand(Context, address_width)), ~role: consumer)
-  interface completion(Irrevocable(RV5StageLineWritebackResult(Context)), ~role: producer)
+  interface command(Decoupled(CacheLineWritebackCommand(Context, address_width)), ~role: consumer)
+  interface completion(Irrevocable(CacheLineWritebackResult(Context)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
   interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
 
-  inst control(CHIRetryableTransactionControl(p, RV5StageCopyBackResponses))
+  inst control(CHIRetryableTransactionControl(p, CacheCopyBackResponses))
   reg line_address(Bits(address_width))
   reg line(Vec(packets, Bits(p.data_width)))
   reg context(Context)
@@ -54,23 +54,23 @@ sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt,
     address: request.line_address
   returning.ready <== !control.active
   def command_fire = command.fire()
-  def command_home = config.home_map.lookup(rv5stage_chi_address(command.bits.line_address, p))
+  def command_home = config.home_map.lookup(cache_chi_address(command.bits.line_address, p))
   when command_fire:
     assert(command_home.valid, "copyback_address_has_home")
-    assert(command.bits.line_address.is_aligned(RV5StageCacheLineBytes), "copyback_line_aligned")
-    assert(rv5stage_chi_address_fits(command.bits.line_address, p), "copyback_address_fits_chi")
+    assert(command.bits.line_address.is_aligned(CacheLineBytes), "copyback_line_aligned")
+    assert(cache_chi_address_fits(command.bits.line_address, p), "copyback_address_fits_chi")
     line_address <== command.bits.line_address
     line <== command.bits.line.as_bits().as_vec(Bits(p.data_width))
     context <== command.bits.context
     home_id <== command_home.node_id
 
   control.attempt
-    |> map_flow(attempt => rv5stage_chi_request(p, node_id, home_id, line_address, CHITransferSize.Bytes64, CHIReqOpcode.WriteBackFull, bits(txn_id, 12), Bool(#false), Bool(#true), attempt.allow_retry, attempt.pcrd_type))
+    |> map_flow(attempt => cache_chi_request(p, node_id, home_id, line_address, CHITransferSize.Bytes64, CHIReqOpcode.WriteBackFull, bits(txn_id, 12), Bool(#false), Bool(#true), attempt.allow_retry, attempt.pcrd_type))
     |> requests
   responses |> gate_flow(!snoop_pending ||| responses.bits.opcode.is_one_of(CHIRspOpcode.RetryAck, CHIRspOpcode.PCrdGrant)) |> control.response
   def response = control.event.bits.flit
-  def grant = control.event.valid & RV5StageCopyBackResponses.milestone(control.event.bits.effects, "grant")
-  granted <== RV5StageCopyBackResponses.milestone(control.received, "grant")
+  def grant = control.event.valid & CacheCopyBackResponses.milestone(control.event.bits.effects, "grant")
+  granted <== CacheCopyBackResponses.milestone(control.received, "grant")
   when (control.event.valid):
     assert(response.src_id === home_id, "copyback_response_home")
     assert(response.tgt_id === node_id, "copyback_response_target")
@@ -92,7 +92,7 @@ sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt,
   def final_packet = packet_index === bits(packets - 1, packet_width)
   def final_data = data.fire() & final_packet
   completion.valid <== control.active & data_sent
-  completion.bits <== RV5StageLineWritebackResult(Context):
+  completion.bits <== CacheLineWritebackResult(Context):
     context: context
   control.start <== command_fire
   control.finish <== completion.fire()
@@ -108,6 +108,6 @@ sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt,
     packet_index <== packet_index + bits(1, packet_width)
 
 export:
-  RV5StageLineWritebackCommand
-  RV5StageLineWritebackResult
-  RV5StageLineWriteback
+  CacheLineWritebackCommand
+  CacheLineWritebackResult
+  CacheLineWriteback

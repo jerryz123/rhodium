@@ -20,6 +20,13 @@ import:
 inst core(RV2WideCore())
 ```
 
+For the same execution slice attached to the shared coherent L1D, import
+`cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
+`RV2Wide(CacheConfig(64, 2), ~chi: config)`. This exposes the instruction,
+retirement, completion, and redirect streams plus an RN-F CHI endpoint and
+`node_id` input. `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D`
+adapter for the memory boundaries below.
+
 Provide `instructions: Decoupled(RV2WidePacket())`. Each packet has a `count`
 of one or two and that many valid `entries`, oldest first. Entries contain a
 64-bit PC and a 32-bit instruction. The four-entry issue window retains
@@ -168,7 +175,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no fetch frontend, C expansion, attached cache/MMU, CSR/trap-state unit,
+There is no fetch frontend, C expansion, MMU, CSR/trap-state unit,
 interrupt handling, M/A/B decode, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
@@ -177,3 +184,11 @@ claim. It is not selectable through the SoC configuration resolver.
 The intended initial integration target is the existing lean RV64IMACB preset,
 with all of that preset's system properties, once implemented. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
+
+The cached slice uses physical addresses and checks its CHI physical map before
+lookup or authorized admission. Only coherent, cacheable, idempotent RAM is
+supported; unmapped, non-cacheable, or disallowed accesses report access faults
+without CHI traffic. There is no MMIO fallback. The adapter requests aligned
+full-width beats while preserving positioned byte masks; the core retains
+load extension and completion ownership. Accepted traffic drains across
+redirects, and the two-port writeback policy is unchanged.

@@ -10,7 +10,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../decode/core-ctrl.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../decode/hint-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
@@ -22,7 +22,7 @@ def pause_control = partial_pattern(RV5StageControl()):
   hint: RV5StageHintOperation.Pause
   memory:
     partial_pattern(RV5StageMemoryControl()):
-      access: RV5StageMemoryOperation.None
+      access: CacheOperation.None
   floating_point_valid: Bool(#false)
   fence:
     pattern(RV5StageFenceControl()):

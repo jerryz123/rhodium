@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../vector.rhdl" open
   "../vector/bundles.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../decode/core-ctrl.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../memory-context.rhdl" open
   "../mmu/protocol.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/vector-profile.rhm" open
@@ -29,9 +30,9 @@ sync_circuit RV5StageVectorAdmission():
   input retry_address: Bits(64)
   input slow_access: Bool
   interface precheck(RV5StageVectorPrecheck(), ~role: requester)
-  interface accesses(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
-  interface memory_requests(Valid(RV5StageDataReq(xlen, 8)), ~role: producer)
-  interface memory_responses(Valid(RV5StageDataResp(xlen, 8)), ~role: consumer)
+  interface accesses(Valid(CachePipelineReq(xlen)), ~role: producer)
+  interface memory_requests(Valid(PhysicalMemoryReq(xlen, RV5StageMemoryContext(8))), ~role: producer)
+  interface memory_responses(Valid(PhysicalMemoryResp(xlen, RV5StageMemoryContext(8))), ~role: consumer)
   output(request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
   output outcome_pc: Bits(64)
   output pipeline_physical: Bool
@@ -94,14 +95,14 @@ sync_circuit RV5StageVectorAdmission():
   def replay_final = retry_last & !retried & hit_request.valid & (hit_request.bits.address === retry_address)
   when replay_final:
     retried <== Bool(#true)
-  def hit_outcome = mux(hit_request.bits.access === RV5StageMemoryOperation.Store, RV5StagePipelineOutcome.StoreHit, RV5StagePipelineOutcome.LoadHit)
+  def hit_outcome = mux(hit_request.bits.access === CacheOperation.Store, CachePipelineOutcome.StoreHit, CachePipelineOutcome.LoadHit)
   def response_outcome = priority_mux(~default: hit_outcome):
-    slow_access: RV5StagePipelineOutcome.Slow
-    replay_final: RV5StagePipelineOutcome.Replay
+    slow_access: CachePipelineOutcome.Slow
+    replay_final: CachePipelineOutcome.Replay
   (
-    hit_request |> map_valid(request => RV5StagePipelineResult(xlen)):
+    hit_request |> map_valid(request => CachePipelineResult(xlen)):
       outcome: response_outcome
-      reason: RV5StagePipelineReason.None
+      reason: CachePipelineReason.None
       data: request.address
   ) |> valid_pipe(1) |> vector.pipeline.response
   vector.pipeline.commit_ready <== Bool(#true)

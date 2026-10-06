@@ -1,10 +1,11 @@
 #lang rhodium
-/* Defines physical instruction and data requests carried by RV5Stage's shared uncached path. */
+/* Defines RV5Stage post-translation routing metadata and cancellable fetch interfaces. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "memory-context.rhdl" open
+  "../cache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
-  "dcache/protocol.rhdl" open
   "icache/protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/svpbmt.rhdl" open
@@ -18,7 +19,7 @@ bundle RV5StagePhysicalInstructionReq(xlen :: XLen):
 
 /* Carries a translated data request and its PBMT override into physical-region routing. */
 bundle RV5StagePhysicalDataReq(xlen :: XLen, slots :: Pow2Int):
-  memory: RV5StageDataReq(xlen, slots)
+  memory: PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))
   pbmt: PageMemoryType
 
 /* Couples physical admission/faults with tagged completion, drain, and reservation status. */
@@ -31,7 +32,7 @@ interface RV5StagePhysicalDataAccess(xlen :: XLen, slots :: Pow2Int):
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
-    response: Decoupled(RV5StageDataResp(xlen, slots))
+    response: Decoupled(PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots)))
     drained: Bool
     reservation_valid: Bool
 
@@ -49,30 +50,8 @@ interface RV5StagePhysicalInstructionAccess(xlen :: XLen):
   responder -> requester:
     response: Irrevocable(RV5StageInstructionResp(#false))
 
-/* Pairs a physical data transaction with its resolved strongly ordered attribute. */
-bundle RV5StageUncachedDataReq(xlen :: XLen, vector_completion_slots :: Pow2Int):
-  request: RV5StageDataReq(xlen, vector_completion_slots)
-  device: Bool
-
-/* Exposes uncached admission faults, tagged completion, and transaction drain. */
-interface RV5StageUncachedDataAccess(xlen :: XLen, vector_completion_slots :: Pow2Int):
-  role requester
-  role responder
-  provider requester
-
-  requester -> responder:
-    request: Decoupled(RV5StageUncachedDataReq(xlen, vector_completion_slots))
-
-  responder -> requester:
-    request_fault: Bool
-    request_access_fault: Bool
-    response: Decoupled(RV5StageDataResp(xlen, vector_completion_slots))
-    drained: Bool
-
 export:
   RV5StagePhysicalDataReq
   RV5StagePhysicalDataAccess
   RV5StagePhysicalInstructionReq
   RV5StagePhysicalInstructionAccess
-  RV5StageUncachedDataReq
-  RV5StageUncachedDataAccess

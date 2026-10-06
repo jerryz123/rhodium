@@ -2,11 +2,12 @@
 // Exercises nonsnooping instruction snapshots against a real dirty L1D and either Home implementation.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../cache.rhdl" open
+  "../../cache/protocol.rhdl" open
+  "../../cache/geometry.rhdl" open
   "../icache/cache.rhdl" open
   "../icache/protocol.rhdl" open
-  "../dcache/cache.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../../cache/l1d/cache.rhdl" open
+  "../memory-context.rhdl" open
   "../chi/foundation.rhdl" open
   "params.rhdl" open
   lib("cores/cache-prefetch.rhdl").CachePrefetchReq
@@ -27,11 +28,11 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer()], 65535, ram_config.requests)
   interface fetch(RV5StageInstructionLookup(RV5StageInstructionReq(XLen.X64)), ~role: responder)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: consumer)
-  interface host(RV5StageDataAccess(XLen.X64, 8), ~role: responder)
+  interface host(CacheAccess(XLen.X64, RV5StageMemoryContext(8)), ~role: responder)
   output instruction_request: Bool
   output instruction_fence: Bool
-  inst icache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: config))
-  inst dcache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(2, 1), ~chi: config))
+  inst icache(RV5StageL1ICache(XLen.X64, CacheConfig(32, 1), ~chi: config))
+  inst dcache(L1DCache(XLen.X64, CacheConfig(2, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
   inst home(if inclusive | CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)) | CHIHNF(home_config))
   inst ram(CHIRam(ram_config))
   fetch <=> icache.core
@@ -44,9 +45,9 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   dcache.virtual_lookup.valid <== host.request.valid
   dcache.virtual_lookup.bits <== host.request.bits.address
   dcache.pipeline_lookup.valid <== Bool(#false)
-  dcache.pipeline_lookup.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  dcache.pipeline_lookup.bits <== literal(CachePipelineReq(XLen.X64), 0)
   dcache.pipeline.request.valid <== Bool(#false)
-  dcache.pipeline.request.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  dcache.pipeline.request.bits <== literal(CachePipelineReq(XLen.X64), 0)
   dcache.pipeline.commit <== Bool(#false)
   dcache.prefetch.valid <== Bool(#false)
   dcache.prefetch.bits <== dont_care(CachePrefetchReq(64))

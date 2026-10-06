@@ -14,7 +14,7 @@ import:
   "../../branch-resolver.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
@@ -43,7 +43,7 @@ for (instruction in ZawrsInstructions, action in [RV5StageSystemOperation.WrsNto
             enable: Bool(#false)
     memory:
       partial_pattern(RV5StageMemoryControl()):
-        access: RV5StageMemoryOperation.None
+        access: CacheOperation.None
     prefetch: CachePrefetchOperation.None
     guest_access: RiscvGuestMemoryAccess.Normal
     writeback:

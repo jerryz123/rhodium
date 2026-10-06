@@ -1,10 +1,10 @@
 #lang rhodium
-/* Implements RV5Stage's retry-aware packet-complete coherent cache-line acquisition. */
+/* Implements retry-aware coherent cache-line acquisition with opaque caller context. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache.rhdl" open
-  "foundation.rhdl" open
+  "../geometry.rhdl" open
+  "flits.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -13,47 +13,47 @@ import:
   lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
 
 /* Names a coherent line acquisition and retains an opaque caller context. */
-bundle RV5StageLineRefillCommand(Context :: DataType,
-                                 address_width :: PosInt):
+bundle CacheLineRefillCommand(Context :: DataType,
+                              address_width :: PosInt):
   line_address: Bits(address_width)
   opcode: CHIReqOpcode
   context: Context
 
 /* Returns the assembled line, caller context, and coherent state/dirty ownership. */
-bundle RV5StageLineRefillResult(Context :: DataType,
-                                address_width :: PosInt):
+bundle CacheLineRefillResult(Context :: DataType,
+                             address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
-  line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
+  line: Vec(CacheLineBytes / 8, Bits(64))
   state: CHIResponseState
   pass_dirty: Bool
 
 /* Retains one retryable ReadClean/ReadUnique transaction with DataID-indexed packet assembly.
    Completion waits for all unique packets and CompAck acceptance; the last arriving packet owns
    the ack. */
-sync_circuit RV5StageLineRefill(Context :: DataType,
-                                address_width :: PosInt,
-                                config :: RiscvHartCHIConfig):
+sync_circuit CacheLineRefill(Context :: DataType,
+                             address_width :: PosInt,
+                             config :: RiscvHartCHIConfig):
   def p = config.flit
-  unless RV5StageCacheLineBytes >= p.data_bytes
-  | error(~who: #'RV5StageLineRefill,
+  unless CacheLineBytes >= p.data_bytes
+  | error(~who: #'CacheLineRefill,
           "cache line must span at least one complete CHI data packet")
-  unless address_width >= alignment_bits(RV5StageCacheLineBytes)
-  | error(~who: #'RV5StageLineRefill,
+  unless address_width >= alignment_bits(CacheLineBytes)
+  | error(~who: #'CacheLineRefill,
           "address width must cover the line offset")
-  def packet_count = RV5StageCacheLineBytes / p.data_bytes
+  def packet_count = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
 
   input node_id: Bits(p.node_id_width)
-  interface command(Decoupled(RV5StageLineRefillCommand(Context, address_width)),
+  interface command(Decoupled(CacheLineRefillCommand(Context, address_width)),
                     ~role: consumer)
-  interface completion(Irrevocable(RV5StageLineRefillResult(Context, address_width)), ~role: producer)
+  interface completion(Irrevocable(CacheLineRefillResult(Context, address_width)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
   interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
   interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
 
-  inst control(CHIRetryableTransactionControl(p, RV5StageRefillResponses))
+  inst control(CHIRetryableTransactionControl(p, CacheRefillResponses))
   reg received_packets(~init: vec(
     for List (_index in 0..packet_count): Bool(#false)
   ))
@@ -61,7 +61,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
   reg line_address(~init: bits(0, address_width))
   reg opcode(~init: CHIReqOpcode.ReadClean)
   reg context(Context)
-  reg line(~init: bits(0, RV5StageCacheLineBytes * 8))
+  reg line(~init: bits(0, CacheLineBytes * 8))
   reg home_id(~init: bits(0, p.node_id_width))
   reg dbid(~init: bits(0, 12))
   reg response_state(~init: CHIResponseState.Invalid)
@@ -72,13 +72,13 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
     opcode(~format: "enum"): request.opcode
   acquiring.ready <== !control.active
   def command_fire = command.fire()
-  def command_home = config.home_map.lookup(rv5stage_chi_address(command.bits.line_address, p))
+  def command_home = config.home_map.lookup(cache_chi_address(command.bits.line_address, p))
   when command_fire:
     // The integrated core's physical map makes these address checks internal
     // invariants; direct cache users still receive a precise assertion.
-    assert(command.bits.line_address.is_aligned(RV5StageCacheLineBytes),
+    assert(command.bits.line_address.is_aligned(CacheLineBytes),
            "line_refill_address_aligned")
-    assert(rv5stage_chi_address_fits(command.bits.line_address, p),
+    assert(cache_chi_address_fits(command.bits.line_address, p),
            "line_refill_address_fits_chi")
     assert(command.bits.opcode.is_one_of(CHIReqOpcode.ReadClean,
                                          CHIReqOpcode.ReadUnique),
@@ -86,7 +86,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
     assert(command_home.valid, "line_refill_address_has_home")
 
   control.attempt
-    |> map_flow(attempt => rv5stage_chi_request(
+    |> map_flow(attempt => cache_chi_request(
       p,
       node_id,
       home_id,
@@ -156,7 +156,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
            "line_refill_response_pass_dirty_consistent")
 
   acknowledgements.valid <== control.active & all_data_received & !acknowledgement_sent
-  acknowledgements.bits <== rv5stage_chi_response(
+  acknowledgements.bits <== cache_chi_response(
     p,
     node_id,
     home_id,
@@ -166,7 +166,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
   def acknowledgement_fire = acknowledgements.fire()
 
   completion.valid <== control.active & acknowledgement_sent
-  completion.bits <== RV5StageLineRefillResult(Context, address_width):
+  completion.bits <== CacheLineRefillResult(Context, address_width):
     line_address: line_address
     context: context
     line: line.as_vec(Bits(64))
@@ -191,7 +191,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
     line_address <== command.bits.line_address
     opcode <== command.bits.opcode
     context <== command.bits.context
-    line <== bits(0, RV5StageCacheLineBytes * 8)
+    line <== bits(0, CacheLineBytes * 8)
     home_id <== command_home.node_id
     dbid <== bits(0, 12)
     response_state <== CHIResponseState.Invalid
@@ -206,6 +206,6 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
     acknowledgement_sent <== Bool(#true)
 
 export:
-  RV5StageLineRefillCommand
-  RV5StageLineRefillResult
-  RV5StageLineRefill
+  CacheLineRefillCommand
+  CacheLineRefillResult
+  CacheLineRefill

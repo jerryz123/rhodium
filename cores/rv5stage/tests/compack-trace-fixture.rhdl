@@ -4,7 +4,7 @@
 import:
   "params.rhdl" open
   "../chi/foundation.rhdl" open
-  "../chi/refill.rhdl" open
+  "../../cache/chi/refill.rhdl" open
   "../chi/line-read.rhdl" open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -30,14 +30,14 @@ sync_circuit EventCompAck():
   interface idata(Decoupled(CHIDatFlit(p)), ~role: consumer)
   interface dack(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface iack(Decoupled(CHIRspFlit(p)), ~role: producer)
-  inst refill(RV5StageLineRefill(Bits(8), 32, config))
+  inst refill(CacheLineRefill(Bits(8), 32, config))
   inst read(RV5StageLineRead(Bits(8), 32, config))
   refill.node_id <== bits(3, p.node_id_width)
   read.node_id <== bits(2, p.node_id_width)
   command_ready <== refill.command.ready & read.command.ready
   refill.command.valid <== command_valid & read.command.ready
   read.command.valid <== command_valid & refill.command.ready
-  refill.command.bits <== RV5StageLineRefillCommand(Bits(8), 32):
+  refill.command.bits <== CacheLineRefillCommand(Bits(8), 32):
     line_address: bits(0x1000, 32)
     opcode: CHIReqOpcode.ReadClean
     context: bits(42, 8)

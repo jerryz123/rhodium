@@ -1,0 +1,92 @@
+#lang rhodium
+/* Connects RV2Wide's fixed-stage physical LSU to the shared coherent L1D. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../cache/config.rhm" open
+  "../cache/protocol.rhdl" open
+  "../cache/operation.rhdl" open
+  "../cache/l1d/cache.rhdl" open
+  "../riscv/chi-hart.rhdl" open
+  "../load-store.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/rtl/atomic.rhdl" open
+  "../../riscv/rtl/zihintntl.rhdl" open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
+
+/* Admits only mapped coherent RAM; translation and uncached routing belong outside this cut.
+   Beat alignment preserves byte masks and positioned stores, while the core owns load shaping.
+   Accepted operations retain ordered, nonfaulting completion ownership through all redirects. */
+sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig,
+                        ~service_queue_depth: service_queue_depth :: PosInt = 2):
+  input node_id: Bits(config.flit.node_id_width)
+  interface memory(RV2WideMemory(), ~role: responder)
+  interface pipeline(RV2WidePipelineAccess(), ~role: responder)
+  interface chi(CHIRNChannels(config.flit), ~role: node)
+  inst storage(L1DCache(XLen.X64, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth))
+  storage.node_id <== node_id
+  chi <=> storage.chi
+  storage.prefetch.valid <== Bool(#false)
+  storage.prefetch.bits <== dont_care(storage.prefetch.bits.type)
+
+  /* Certifies complete beat mapping and read/write permission before any cache effect. */
+  fun permitted(request :: RV2WideMemoryReq()) :: Bool:
+    def first = request.address.align_down(8)
+    def physical = config.physical_map.lookup(first, first +& bits(7, 64))
+    physical.mapped & physical.cacheable & !physical.device & physical.read_idempotent & mux(request.write, physical.writable, physical.readable)
+
+  /* Converts positioned physical bytes into an aligned cache beat without reshifting them. */
+  fun lookup_request(request :: RV2WideMemoryReq()) :~ CachePipelineReq(XLen.X64):
+    CachePipelineReq(XLen.X64):
+      byte_mask: request.mask
+      address: request.address.align_down(8)
+      access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
+      width: MemoryWidth.Double
+      unsigned: Bool(#true)
+      data: request.data
+
+  def Array(read_index, delayed_request) = pipeline.request |> fork_valid(2)
+  read_index |> filter_valid(request => permitted(request)) |> map_valid(request => lookup_request(request)) |> storage.pipeline_lookup
+  def resolved = delayed_request |> valid_pipe(1)
+  resolved |> filter_valid(request => permitted(request)) |> map_valid(request => lookup_request(request)) |> storage.pipeline.request
+  (
+    resolved |> map_valid(request => RV2WideLookupResult()):
+      outcome: mux(!permitted(request), RV2WideCacheOutcome.AccessFault,
+                   mux_lookup(storage.pipeline.response.bits.outcome, ~default: RV2WideCacheOutcome.Replay,
+                              [[CachePipelineOutcome.Slow, RV2WideCacheOutcome.Slow],
+                               [CachePipelineOutcome.LoadHit, RV2WideCacheOutcome.LoadHit],
+                               [CachePipelineOutcome.StoreHit, RV2WideCacheOutcome.StoreHit]]))
+      data: storage.pipeline.response.bits.data
+  ) |> pipeline.response
+  storage.pipeline.commit <== pipeline.commit
+  pipeline.commit_ready <== storage.pipeline.commit_ready
+
+  def Array(authorized, authorized_index) = memory.request |> gate_flow(permitted(memory.request.bits)) |> atomic_fork(2)
+  authorized_index |> to_valid() |> map_valid(request => request.address.align_down(8)) |> storage.virtual_lookup
+  (
+    authorized |> map_flow(request => PhysicalMemoryReq(XLen.X64, Bool)):
+      byte_mask: request.mask
+      address: request.address.align_down(8)
+      access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
+      atomic: RiscvAtomicOperation.Swap
+      width: MemoryWidth.Double
+      unsigned: Bool(#true)
+      data: request.data
+      context: Bool(#false)
+      locality: RiscvMemoryLocality.Default
+  ) |> storage.core.request
+  memory.fault.valid <== memory.request.valid & !permitted(memory.request.bits)
+  memory.fault.bits <== RV2WideResolution():
+    disposition: RV2WideDisposition.Fault
+    cause: mux(memory.request.bits.write, bits(7, 64), bits(5, 64))
+    value: memory.request.bits.address
+  storage.core.response |> map_flow(response => response.data) |> memory.response
+  memory.drained <== storage.core.drained
+  when (storage.core.response.valid):
+    assert(!storage.core.response.bits.access_fault, "rv2wide_l1d_accepted_response_nonfaulting")
+
+export:
+  RV2WideL1D

@@ -21,7 +21,7 @@ fun make_single_core_rv5stage_soc_params(
   make_single_core_soc_params(
     core_profile,
     core_profile.hart_description,
-    RV5StageCacheLineBytes,
+    CacheLineBytes,
     rv5stage_chi_params,
     "Rhodium Single-Core RV5Stage SoC",
     ["rhodium,single-core-rv5stage-soc"],

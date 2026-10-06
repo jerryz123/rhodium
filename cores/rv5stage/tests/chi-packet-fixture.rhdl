@@ -7,7 +7,7 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
   lib("chi/transactions/monitor.rhdl").monitor_chi_dat
-  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_write_data
+  lib("cores/rv5stage/chi/foundation.rhdl").cache_chi_write_data
 
 sync_circuit CHIPacketWidthFixture(p :: CHIFlitParams):
   input address: Bits(8)
@@ -21,7 +21,7 @@ sync_circuit CHIPacketWidthFixture(p :: CHIFlitParams):
   output valid_id: Bool
   output packet_address: Bits(8)
 
-  def data = rv5stage_chi_write_data(p, bits(3, p.node_id_width), bits(9, p.node_id_width), bits(0, 12), address, bits(0, p.data_width), bits(0, p.data_bytes))
+  def data = cache_chi_write_data(p, bits(3, p.node_id_width), bits(9, p.node_id_width), bits(0, 12), address, bits(0, p.data_width), bits(0, p.data_bytes))
   packet_set <== chi_transfer_data_ids(address, size, p)
   packet_count <== chi_data_beats_minus_one(size, p)
   write_id <== data.data_id

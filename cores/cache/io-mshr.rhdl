@@ -3,33 +3,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/std/bits.rhdl").Pow2Int
-  "../memory.rhdl".RV5StageMemoryOperation
-  "../uncached-protocol.rhdl" open
-  "../../../riscv/isa/xlen.rhm".XLen
+  "protocol.rhdl" open
+  "operation.rhdl".CacheOperation
+  "../../riscv/isa/xlen.rhm".XLen
   lib("rhodium/std/ready-valid.rhdl") open
 
 /* Separates an empty data slot, a retained request awaiting RN-I issue, and accepted engine
    work. */
-hardware_enum RV5StageIOMSHRState:
+hardware_enum IOMSHRState:
   Idle
   Queued
   Active
 
-/* Admits one supported committed data request independently of the RN-I fetch owner.
+/* Admits one supported committed request independently of downstream availability.
    Retains its payload until issue and releases only on final completion; unsupported operations
    never allocate. */
-sync_circuit RV5StageIOMSHR(xlen :: XLen, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
-  interface core(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: responder)
-  interface memory(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: requester)
+sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
+  interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface memory(UncachedMemoryAccess(xlen, Context), ~role: requester)
 
-  reg state(~init: RV5StageIOMSHRState.Idle)
-  reg request(RV5StageUncachedDataReq(xlen, vector_completion_slots))
-  def idle = state === RV5StageIOMSHRState.Idle
-  def queued = state === RV5StageIOMSHRState.Queued
-  def active = state === RV5StageIOMSHRState.Active
+  reg state(~init: IOMSHRState.Idle)
+  reg request(UncachedMemoryReq(xlen, Context))
+  def idle = state === IOMSHRState.Idle
+  def queued = state === IOMSHRState.Queued
+  def active = state === IOMSHRState.Active
   def operation = core.request.bits.request.access
-  def supported = operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store, RV5StageMemoryOperation.CacheBlockZero)
+  def supported = operation.is_one_of(CacheOperation.Load, CacheOperation.Store, CacheOperation.CacheBlockZero)
 
   // Admission depends on this data slot, not the shared engine's fetch owner.
   // Unsupported requests fault before admission and cannot acquire the slot.
@@ -44,18 +43,18 @@ sync_circuit RV5StageIOMSHR(xlen :: XLen, ~vector_completion_slots: vector_compl
 
   when accept:
     request <== core.request.bits
-    state <== RV5StageIOMSHRState.Queued
+    state <== IOMSHRState.Queued
   elsewhen (memory.request.fire()):
-    state <== RV5StageIOMSHRState.Active
+    state <== IOMSHRState.Active
   elsewhen (memory.response.fire()):
-    state <== RV5StageIOMSHRState.Idle
+    state <== IOMSHRState.Idle
 
   // An accepted operation is irrevocable. The engine cannot report a late
   // admission fault, and only its final data completion releases the slot.
   when queued:
-    assert(!memory.request_fault & !memory.request_access_fault, "rv5stage_io_mshr_no_late_fault")
+    assert(!memory.request_fault & !memory.request_access_fault, "io_mshr_no_late_fault")
   when (memory.response.valid):
-    assert(active, "rv5stage_io_mshr_completion_expected")
+    assert(active, "io_mshr_completion_expected")
 
 export:
-  RV5StageIOMSHR
+  IOMSHR

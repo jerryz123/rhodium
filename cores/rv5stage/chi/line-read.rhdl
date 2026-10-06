@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache.rhdl" open
+  "../../cache/geometry.rhdl" open
   "foundation.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -21,7 +21,7 @@ bundle RV5StageLineReadCommand(Context :: DataType, address_width :: PosInt):
 bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
-  line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
+  line: Vec(CacheLineBytes / 8, Bits(64))
   access_fault: Bool
 
 /* Reads coherent RAM with ReadOnce/CompAck or immutable ROM with ReadNoSnp and no ack.
@@ -29,13 +29,13 @@ bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
    line. */
 sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
-  unless RV5StageCacheLineBytes >= p.data_bytes
+  unless CacheLineBytes >= p.data_bytes
   | error(~who: #'RV5StageLineRead,
           "cache line must span at least one complete CHI data packet")
-  unless address_width >= alignment_bits(RV5StageCacheLineBytes)
+  unless address_width >= alignment_bits(CacheLineBytes)
   | error(~who: #'RV5StageLineRead,
           "address width must cover the line offset")
-  def packet_count = RV5StageCacheLineBytes / p.data_bytes
+  def packet_count = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
 
   input node_id: Bits(p.node_id_width)
@@ -47,14 +47,14 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
   interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
   interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
 
-  inst control(CHIRetryableTransactionControl(p, RV5StageRefillResponses))
+  inst control(CHIRetryableTransactionControl(p, CacheRefillResponses))
   reg received_packets(~init: vec(
     for List (_index in 0..packet_count): Bool(#false)
   ))
   reg acknowledgement_sent(~init: Bool(#false))
   reg line_address(~init: bits(0, address_width))
   reg context(Context)
-  reg line(~init: bits(0, RV5StageCacheLineBytes * 8))
+  reg line(~init: bits(0, CacheLineBytes * 8))
   reg home_id(~init: bits(0, p.node_id_width))
   reg dbid(~init: bits(0, 12))
   reg access_fault(~init: Bool(#false))
@@ -64,20 +64,20 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
     address: request.line_address
   acquiring.ready <== !control.active
   def command_fire = command.fire()
-  def command_home = config.home_map.lookup(rv5stage_chi_address(command.bits.line_address, p))
-  def command_physical = config.physical_map.lookup(command.bits.line_address, command.bits.line_address +& bits(RV5StageCacheLineBytes - 1, address_width))
+  def command_home = config.home_map.lookup(cache_chi_address(command.bits.line_address, p))
+  def command_physical = config.physical_map.lookup(command.bits.line_address, command.bits.line_address +& bits(CacheLineBytes - 1, address_width))
   when command_fire:
     // The integrated core's physical map makes these address checks internal
     // invariants; direct cache users still receive a precise assertion.
-    assert(command.bits.line_address.is_aligned(RV5StageCacheLineBytes),
+    assert(command.bits.line_address.is_aligned(CacheLineBytes),
            "line_read_address_aligned")
-    assert(rv5stage_chi_address_fits(command.bits.line_address, p),
+    assert(cache_chi_address_fits(command.bits.line_address, p),
            "line_read_address_fits_chi")
     assert(command_home.valid, "line_read_address_has_home")
     assert(command_physical.mapped & command_physical.instruction_cacheable & command_physical.executable & command_physical.read_idempotent, "line_read_region_allows_instruction_caching")
 
   control.attempt
-    |> map_flow(attempt => rv5stage_chi_request(
+    |> map_flow(attempt => cache_chi_request(
       p,
       node_id,
       home_id,
@@ -144,7 +144,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
            "line_read_response_dbid_consistent")
 
   acknowledgements.valid <== control.active & coherent & all_data_received & !acknowledgement_sent
-  acknowledgements.bits <== rv5stage_chi_response(
+  acknowledgements.bits <== cache_chi_response(
     p,
     node_id,
     home_id,
@@ -178,7 +178,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
     acknowledgement_sent <== Bool(#false)
     line_address <== command.bits.line_address
     context <== command.bits.context
-    line <== bits(0, RV5StageCacheLineBytes * 8)
+    line <== bits(0, CacheLineBytes * 8)
     home_id <== command_home.node_id
     dbid <== bits(0, 12)
     access_fault <== Bool(#false)

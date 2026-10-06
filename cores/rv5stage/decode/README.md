@@ -60,7 +60,7 @@ scalar-FP dependencies before a complete core can advertise a vector profile.
 
 Enabling Zicbop overlays its three prefetch rows on any of these selections.
 Zicboz instead appends one ordinary composed row: rs1 address generation,
-`RV5StageMemoryOperation.CacheBlockZero`, and no architectural register write.
+`CacheOperation.CacheBlockZero`, and no architectural register write.
 The standard decode library subtracts those exact regions from the broad
 `ORI` row, preserving one unordered decode relation. When disabled, the same
 encodings retain their ordinary legal `ORI x0` hint meaning.

@@ -1,0 +1,41 @@
+#lang rhombus
+/* Defines fixed-line VIPT cache geometry independently of any processor. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/core/types.rhm").count_index_width
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+def CacheLineBytes :: Pow2Int = 64
+
+/* Describes a 64-byte-line VIPT cache whose per-way span fits within one 4-KiB page. */
+class CacheConfig(sets :: Pow2Int, ways :: PosInt):
+  implements StableCircuitParam
+
+  /* Rejects geometries incompatible with VIPT indexing before storing set and way counts. */
+  constructor (sets :: Pow2Int, ways :: PosInt):
+    unless sets >= 2
+    | error(~who: #'CacheConfig,
+            "set count must be a power of two of at least two")
+    unless sets * CacheLineBytes <= 4096
+    | error(~who: #'CacheConfig,
+            "VIPT requires sets * line bytes <= 4096 (at most 4 KiB per way)")
+    super(sets, ways)
+
+  /* Revalidates geometry when either count is replaced. */
+  reconstructor (sets, ways):
+    CacheConfig(sets, ways)
+
+  /* Returns the hardware index width for the validated set count. */
+  property set_width :: PosInt: count_index_width(sets)
+  /* Returns the hardware index width for selecting a cache way. */
+  property way_width :: PosInt: count_index_width(ways)
+  /* Returns total resident lines across all sets and ways. */
+  property line_count :: PosInt: sets * ways
+  /* Returns cache capacity from the fixed line size and total line count. */
+  property capacity_bytes :: PosInt: line_count * CacheLineBytes
+
+export:
+  CacheLineBytes
+  CacheConfig

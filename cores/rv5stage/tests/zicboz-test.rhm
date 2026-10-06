@@ -9,7 +9,7 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/model/formats.rhm" open
   "../profile.rhm" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
@@ -31,7 +31,7 @@ def expected = partial_pattern(RV5StageControl()):
       immediate: RV5StageImmediateSelect.None
   memory:
     partial_pattern(RV5StageMemoryControl()):
-      access: RV5StageMemoryOperation.CacheBlockZero
+      access: CacheOperation.CacheBlockZero
   writeback:
     partial_pattern(RV5StageWritebackControl()):
       enable: Bool(#false)

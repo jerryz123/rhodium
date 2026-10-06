@@ -125,12 +125,12 @@ check:
   rv64_integer.hart_description.isa_profile.isa_extensions ~is rv64_integer.isa_profile.isa_extensions
   rv64_integer.hart_description.xlen ~is XLen.X64
   rv64_integer.hart_description.mmu_type ~is RiscvMmuType.Sv39
-  rv64_integer.hart_description.instruction_cache.block_bytes ~is RV5StageCacheLineBytes
+  rv64_integer.hart_description.instruction_cache.block_bytes ~is CacheLineBytes
   rv64_integer.hart_description.instruction_cache.sets ~is 64
   rv64_integer.hart_description.instruction_cache.size_bytes ~is 4096
   rv64_integer.hart_description.instruction_cache.ways ~is 1
   rv64_integer.hart_description.data_cache.size_bytes ~is 4096
-  rv64_integer.hart_description.cbo_block_bytes ~is RV5StageCacheLineBytes
+  rv64_integer.hart_description.cbo_block_bytes ~is CacheLineBytes
 
 // Memory guarantees are independent opt-ins and do not alter misa.
 for (xlen in [XLen.X32, XLen.X64]):
@@ -145,17 +145,17 @@ for (xlen in [XLen.X32, XLen.X64]):
           profile.isa_profile.misa_value ~is RV5StageConfig(~xlen: xlen).isa_profile.misa_value
 
 check:
-  RV5StageCacheLineBytes ~is 64
+  CacheLineBytes ~is 64
   (RV5StageExtensions() with (svnapot = #true)).svnapot ~is #true
   RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~svnapot: #true)).extensions.svnapot ~is #true
   RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~svnapot: #true)) ~throws "Svnapot requires RV64 Sv39"
   RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Bare, ~extensions: RV5StageExtensions(~svnapot: #true)) ~throws "Svnapot requires RV64 Sv39"
-  RV5StageCacheConfig(32, 1).capacity_bytes ~is 2048
-  RV5StageCacheConfig(64, 1).capacity_bytes ~is 4096
-  RV5StageCacheConfig(64, 4).capacity_bytes ~is 16384
-  RV5StageCacheConfig(64, 3).capacity_bytes ~is 12288
-  RV5StageCacheConfig(128, 1) ~throws "VIPT"
-  RV5StageCacheConfig(128, 4) ~throws "VIPT"
+  CacheConfig(32, 1).capacity_bytes ~is 2048
+  CacheConfig(64, 1).capacity_bytes ~is 4096
+  CacheConfig(64, 4).capacity_bytes ~is 16384
+  CacheConfig(64, 3).capacity_bytes ~is 12288
+  CacheConfig(128, 1) ~throws "VIPT"
+  CacheConfig(128, 4) ~throws "VIPT"
   rv64_integer with (xlen = XLen.X32) ~throws "RV32"
   RV5StageConfig(
     ~xlen: XLen.X64,

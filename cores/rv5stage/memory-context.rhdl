@@ -1,0 +1,35 @@
+#lang rhodium
+/* Defines RV5Stage architectural destinations and core/PTW response ownership. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  "fp/types.rhdl" open
+
+/* Retains the FPR destination and precision needed to box a completed FP load. */
+bundle RV5StageFpMemoryWriteback():
+  rd: Bits(5)
+  precision: RV5StageFloatPrecision
+
+/* Selects acknowledgement-only, GPR, FPR, or vector-slot completion ownership. */
+tagged_union RV5StageMemoryWriteback(vector_completion_slots :: Pow2Int):
+  Ack
+  Integer(Bits(5))
+  FloatingPoint(RV5StageFpMemoryWriteback())
+  Vector(Bits(index_width(vector_completion_slots)))
+
+/* Routes a physical reply independently of its architectural writeback kind. */
+hardware_enum RV5StageDataOrigin:
+  Core
+  Walker
+
+/* Travels unchanged through physical services; only RV5Stage interprets these tags. */
+bundle RV5StageMemoryContext(vector_completion_slots :: Pow2Int):
+  writeback: RV5StageMemoryWriteback(vector_completion_slots)
+  origin: RV5StageDataOrigin
+
+export:
+  RV5StageFpMemoryWriteback
+  RV5StageMemoryWriteback
+  RV5StageDataOrigin
+  RV5StageMemoryContext

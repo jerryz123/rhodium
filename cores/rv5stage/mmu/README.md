@@ -11,7 +11,7 @@ core-first physical data-port arbiter.
 
 The [parent core guide](../README.md#memory-hierarchy) owns the wider pipeline,
 privileged-state, and memory-hierarchy contract. The
-[L1I guide](../icache/README.md) and [L1D guide](../dcache/README.md) own cache
+[L1I guide](../icache/README.md) and [L1D guide](../../cache/README.md) own cache
 arrays, misses, coherence, and response timing. This guide describes only what
 the MMU adds in front of those components.
 
@@ -220,7 +220,7 @@ address; instruction fetch and walker-generated PTE addresses remain unmasked.
    Translation is enabled only when that effective privilege is not Machine
    and RV64 `satp.MODE` selects Sv39.
 2. Ordinary loads and LR use an Sv39 load permission check. Stores, SC, and AMOs
-   use a store check because their `RV5StageMemoryOperation` requires unique ownership.
+   use a store check because their `CacheOperation` requires unique ownership.
 3. A DTLB miss keeps `request.ready` low. The core's feed-forward WB stage does
    not hold the request: the attempt starts the walker, becomes an ordered replay
    token, squashes younger work, and is refetched from its original PC. A Fetch
@@ -295,7 +295,7 @@ also use `Ack`.
 A saved fault awaiting replay does not prevent draining; it remains correlated
 with its address until consumed or invalidated. This lets WB take an interrupt
 or trap without waiting for a speculative retry. L1D's own blocking-miss and
-response rules remain in the [L1D guide](../dcache/README.md#core-facing-protocol).
+response rules remain in the [L1D guide](../../cache/l1d/README.md#core-facing-protocol).
 
 ## TLB contract
 
@@ -368,7 +368,7 @@ response drains. Repeated cancellation does not forget that response owner.
 | L1 cache hit, miss, refill, coherence, or replacement behavior | Not a translation fault source | The cache subsystem; both cache protocols leave translation and PMA faults to their callers |
 
 The parent core converts the MMU's page/access signals at WB into the exact
-exception cause. `RV5StageMemoryOperation.store_fault_class()` selects store-class causes
+exception cause. `CacheOperation.store_fault_class()` selects store-class causes
 for stores, atomics, and cache-block operations; Load and LR use load-class causes.
 Management requests use `Sv39Access.CacheManagement` rather than the Store
 access class: they require A, ignore D, and admit read or write permission.

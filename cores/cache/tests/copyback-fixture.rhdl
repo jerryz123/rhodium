@@ -4,8 +4,11 @@
 
 import:
   "../chi/writeback.rhdl" open
-  "../chi/foundation.rhdl" open
-  "params.rhdl" as test
+  "../chi/flits.rhdl" open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("chi/protocol/link.rhdl").CHINodeKind
+  lib("chi/protocol/fabric.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/coherence.rhdl").CHICacheState
@@ -32,7 +35,7 @@ bundle CopyBackObservation():
   done: Bool
   cookie: Bits(8)
 
-sync_circuit RV5StageCopyBackFixture():
+sync_circuit CacheCopyBackFixture():
   input enabled: Vec(3, Bool)
   input command_valid: Bool
   input request_ready: Bool
@@ -47,12 +50,15 @@ sync_circuit RV5StageCopyBackFixture():
   output observed: Vec(3, CopyBackObservation())
   for (data_width in [128, 256, 512], index in 0..3):
     def p = CHIFlitParams(~data_width: data_width)
-    inst engine(RV5StageLineWriteback(Bits(8), 64, RiscvHartCHIConfig(p, 64, test.test_rv5stage_chi_config.regions), 1))
+    def home = CHIHomeParams("copyback-test-home", 1, CHINodeKind.HNF, ~max_outstanding: 2)
+    def attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+    def physical = RiscvPhysicalMemoryRegion(AddressSet(0, (1 << p.request_address_width) - 1), attributes)
+    inst engine(CacheLineWriteback(Bits(8), 64, RiscvHartCHIConfig(p, 64, [RiscvHartCHIRegion(physical, home)]), 1))
     engine.node_id <== bits(3, 7)
     engine.victim_state <== state
     engine.snoop_pending <== snoop_pending
     engine.command.valid <== enabled[index] & command_valid
-    engine.command.bits <== RV5StageLineWritebackCommand(Bits(8), 64):
+    engine.command.bits <== CacheLineWritebackCommand(Bits(8), 64):
       line_address: bits(0x80001240, 64)
       line: line.as_vec(Bits(64))
       context: bits(0xa5, 8)
@@ -85,5 +91,5 @@ sync_circuit RV5StageCopyBackFixture():
       done: engine.completion.valid
       cookie: engine.completion.bits.context
 
-def design = elaborate(RV5StageCopyBackFixture())
-export: design RV5StageCopyBackFixture
+def design = elaborate(CacheCopyBackFixture())
+export: design CacheCopyBackFixture

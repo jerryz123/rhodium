@@ -1,0 +1,200 @@
+#lang rhodium
+/* Implements non-allocating coherent RAM and noncoherent device/ROM transactions on one RN-I. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "flits.rhdl" open
+  "../config.rhm".CacheLineBytes
+  "../operation.rhdl" open
+  "../../load-store.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
+
+/* Tracks one RN-I request through read data or DBID, write data, and completion response. */
+hardware_enum CHIUncachedState:
+  Idle
+  Request
+  ReadResponse
+  WriteDBID
+  WriteData
+  WriteResponse
+
+/* Retains one nonallocating physical operation through final completion. Cancellation can
+   withdraw an unissued read only; accepted CHI traffic always drains. CBO.ZERO serializes
+   eight writes with one opaque-context completion. Requester arbitration is external. */
+sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Context :: DataType):
+  def width = xlen.width
+  def p = config.flit
+  def word_lanes = p.data_bytes / 8
+  def lane_width = index_width(word_lanes)
+
+  input node_id: Bits(p.node_id_width)
+  input cancel: Bool
+  interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface chi(CHIRNIChannels(p), ~role: node)
+
+  inst load_gen(LoadGen(xlen))
+  inst store_gen(StoreGen(xlen))
+  reg state(~init: CHIUncachedState.Idle)
+  reg address(Bits(width))
+  reg memory_width(MemoryWidth)
+  reg unsigned_load(~init: Bool(#false))
+  reg context(Context)
+  reg home_id(Bits(p.node_id_width))
+  reg request_size(CHITransferSize)
+  reg request_opcode(CHIReqOpcode)
+  reg request_device(~init: Bool(#false))
+  reg dbid(Bits(12))
+  reg write_data(Bits(64))
+  reg write_mask(Mask(8))
+  reg zero_active(~init: Bool(#false))
+  reg zero_index(Bits(index_width(CacheLineBytes / 8)), ~init: bits(0, index_width(CacheLineBytes / 8)))
+
+  def idle = state === CHIUncachedState.Idle
+  def command :: PhysicalMemoryReq(xlen, Context) = core.request.bits.request
+  def command_access = command.access
+  def command_supported = command_access.is_one_of(CacheOperation.Load,
+                                                   CacheOperation.Store,
+                                                   CacheOperation.CacheBlockZero)
+  def command_zero = command_access.is_cache_block_zero()
+  def zero_last = zero_index === bits(CacheLineBytes / 8 - 1, index_width(CacheLineBytes / 8))
+  def command_home = config.home_map.lookup(cache_chi_address(command.address, p))
+  def selected_address = mux(command_zero, command.address.align_down(CacheLineBytes), command.address)
+  def selected_size = mux(command_zero, CHITransferSize.Bytes8, command.width.as_bits().zext(3).into(CHITransferSize))
+  // PBMT changes allocation/ordering, never the physical coherence domain.
+  def selected_physical = config.physical_map.lookup(selected_address, selected_address)
+  def selected_coherent = selected_physical.cacheable
+  def selected_read = mux(selected_coherent, CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp)
+  def selected_write = mux(selected_coherent, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.WriteNoSnpPtl)
+  def selected_opcode = mux(command_access.is_store() ||| command_zero, selected_write, selected_read)
+  core.request.ready <== idle & mux(command_supported, command_home.valid, Bool(#true))
+  core.request_fault <== Bool(#false)
+  core.request_access_fault <== core.request.valid & !command_supported
+  def request_accept = core.request.fire() & command_supported
+  def request_pending = state === CHIUncachedState.Request
+  // Withdrawal only applies to a read that has not crossed the CHI request boundary.
+  def withdraw = request_pending & cancel & request_opcode.is_one_of(CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp)
+  chi.req.valid <== request_pending & !withdraw
+  chi.req.bits <== cache_chi_request(
+    p,
+    node_id,
+    home_id,
+    address,
+    request_size,
+    request_opcode,
+    bits(0, 12),
+    Bool(#false),
+    Bool(#false),
+    Bool(#false),
+    bits(0, 4),
+    ~cacheable: Bool(#false),
+    ~device: request_device,
+    ~early_write_acknowledge: Bool(#false)
+  )
+  def request_fire = chi.req.fire()
+
+  store_gen.address <== command.address
+  store_gen.value <== command.data
+  store_gen.width <== command.width
+
+  def incoming_response = chi.rsp.response.bits
+  def response_ordinary = incoming_response.opcode =/= CHIRspOpcode.RespLCrdReturn
+  def dbid_expected = state === CHIUncachedState.WriteDBID
+  def completion_expected = state === CHIUncachedState.WriteResponse
+  def response_expected = (dbid_expected & (
+    incoming_response.opcode === CHIRspOpcode.DBIDResp
+  )) ||| (completion_expected & (incoming_response.opcode === CHIRspOpcode.Comp))
+  chi.rsp.response.ready <== !response_ordinary ||| (response_expected & (!completion_expected ||| (zero_active & !zero_last) ||| core.response.ready))
+  def response_fire = chi.rsp.response.fire() & response_ordinary
+  def dbid_fire = response_fire & dbid_expected
+  def completion_fire = response_fire & completion_expected
+
+  def data_lane = address[3..alignment_bits(p.data_bytes)]
+  def bus_data = write_data.zext(p.data_width) << (data_lane ++ bits(0, 6))
+  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ bits(0, 3))
+  chi.dat.request.valid <== state === CHIUncachedState.WriteData
+  chi.dat.request.bits <== cache_chi_write_data(
+    p,
+    node_id,
+    home_id,
+    dbid,
+    address,
+    bus_data,
+    bus_mask
+  )
+  def write_data_fire = chi.dat.request.fire()
+
+  def incoming_data = chi.dat.response.bits
+  def data_ordinary = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
+  def read_expected = state === CHIUncachedState.ReadResponse
+  def read_lanes = incoming_data.data.into(Vec(word_lanes, Bits(64)))
+  def read_lane:
+    if word_lanes == 1 | bits(0, lane_width) | address[3..alignment_bits(p.data_bytes)]
+  load_gen.address <== address
+  load_gen.data <== read_lanes[read_lane]
+  load_gen.width <== memory_width
+  load_gen.unsigned_load <== unsigned_load
+  chi.dat.response.ready <== !data_ordinary ||| (read_expected & core.response.ready)
+  def read_fire = chi.dat.response.fire() & data_ordinary
+  def data_read_valid = chi.dat.response.valid & data_ordinary & read_expected
+
+  core.response.valid <== data_read_valid ||| (chi.rsp.response.valid & response_ordinary & response_expected & completion_expected & (!zero_active ||| zero_last))
+  core.response.bits <== PhysicalMemoryResp(xlen, Context):
+    access_fault: Bool(#false)
+    data: mux(data_read_valid, load_gen.value, bits(0, width))
+    context: context
+  core.drained <== idle
+  chi.rsp.requester.valid <== Bool(#false)
+  chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
+
+  when request_accept:
+    address <== selected_address
+    memory_width <== command.width
+    unsigned_load <== command.unsigned
+    context <== command.context
+    home_id <== command_home.node_id
+    request_size <== selected_size
+    request_opcode <== selected_opcode
+    request_device <== core.request.bits.device
+    write_data <== mux(command_zero, bits(0, 64), store_gen.data)
+    write_mask <== mux(command_zero, !bits(0, 8), if xlen == XLen.X64 | command.byte_mask | command.byte_mask.zext(8) << (command.address[2].as_bits() ++ bits(0, 2))).into(Mask(8))
+    zero_active <== command_zero
+    zero_index <== bits(0, index_width(CacheLineBytes / 8))
+    state <== CHIUncachedState.Request
+  elsewhen withdraw:
+    state <== CHIUncachedState.Idle
+  elsewhen request_fire:
+    state <== mux(request_opcode.is_one_of(CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.WriteUniquePtl),
+                  CHIUncachedState.WriteDBID,
+                  CHIUncachedState.ReadResponse)
+  elsewhen dbid_fire:
+    dbid <== incoming_response.dbid_or_group_id
+    state <== CHIUncachedState.WriteData
+  elsewhen write_data_fire:
+    state <== CHIUncachedState.WriteResponse
+  elsewhen (completion_fire & zero_active & !zero_last):
+    address <== address + bits(8, width)
+    zero_index <== zero_index + bits(1, index_width(CacheLineBytes / 8))
+    state <== CHIUncachedState.Request
+  elsewhen (read_fire ||| completion_fire):
+    state <== CHIUncachedState.Idle
+
+  when (core.request.valid & idle & command_supported):
+    assert(cache_chi_address_fits(command.address, p), "uncached_address_fits")
+    assert(command_home.valid, "uncached_address_has_home")
+  when (chi.rsp.response.valid & response_ordinary):
+    assert(response_expected, "uncached_response_expected")
+    assert(incoming_response.src_id === home_id, "uncached_response_home")
+    assert(incoming_response.resp_err === CHIRespErr.OK, "uncached_response_ok")
+  when (chi.dat.response.valid & data_ordinary):
+    assert(read_expected, "uncached_read_data_expected")
+    assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,
+           "uncached_read_data_home")
+    assert(incoming_data.resp_err === CHIRespErr.OK, "uncached_read_data_ok")
+
+export:
+  CHIUncachedMemory

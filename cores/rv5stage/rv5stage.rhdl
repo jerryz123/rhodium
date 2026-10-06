@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "memory-context.rhdl" open
   "../riscv/cosim-source.rhm".describe_cosim_context
   "../cache-prefetch.rhdl" open
   "core.rhdl" open
@@ -10,9 +11,9 @@ import:
   "../../riscv/rtl/interrupt.rhdl" open
   "chi/foundation.rhdl" open
   "profile.rhm" open
-  "cache.rhdl" open
+  "../cache/geometry.rhdl" open
   "icache/cache.rhdl" open
-  "dcache/cache.rhdl" open
+  "../cache/l1d/cache.rhdl" open
   "data-port-arbiter.rhdl" open
   "memory-router.rhdl" open
   "instruction-memory-router.rhdl" open
@@ -91,7 +92,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~btb_entries: btb_entries :: Nat = 32,
                       ~ras_entries: ras_entries :: Nat = 6):
   def hypervisor = profile.extensions.hypervisor
-  unless config.cache_line_bytes == RV5StageCacheLineBytes
+  unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'RV5Stage,
           "RV5Stage requires 64-byte CHI cache lines")
   def vector_completion_slots = profile.vector_completion_slots
@@ -130,7 +131,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
       core.pipeline_guest_fault <== mmu.pipeline_guest_fault
   | #void
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
-  inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~vector_completion_slots: vector_completion_slots))
+  inst l1d(L1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~context: RV5StageMemoryContext(vector_completion_slots)))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))
   inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst data_port_arbiter(RV5StageDataPortArbiter(xlen, vector_completion_slots))

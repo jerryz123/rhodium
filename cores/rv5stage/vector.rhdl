@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "memory-context.rhdl" open
+  "../cache/protocol.rhdl" open
   "../riscv/cosim-source.rhm".describe_cosim_signals
   "vector/bundles.rhdl" open
   "vector/pipeline.rhdl" open
@@ -13,7 +15,6 @@ import:
   "mmu/protocol.rhdl" open
   "vector/muldiv.rhdl" open
   "integer-execution.rhdl" open
-  "dcache/protocol.rhdl" open
   "../multiplier.rhdl" open
   "../divider.rhdl" open
   "fp/bundles.rhdl" open
@@ -38,8 +39,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def DivideTag = RV5StageVectorDivideTag(slots)
   interface request(Decoupled(RV5StageVectorDescriptor(xlen)), ~role: consumer)
   output(pipeline_physical, request_physical): Bool
-  interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
-  interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface pipeline(CachePipelineAccess(xlen), ~role: requester)
+  interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface precheck(RV5StageVectorPrecheck(), ~role: requester)
   interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)

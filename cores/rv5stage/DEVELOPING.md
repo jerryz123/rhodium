@@ -18,8 +18,10 @@ rules plus fetch/predictor placement, decode-column, and cache-package
 separation.
 
 Keep the scalar pipeline dependent on the RV5Stage cache protocols rather than
-a generic memory transport. Keep I-cache and D-cache packages independent of
-each other; share external transaction machinery through the CHI package.
+a generic memory transport. Keep I-cache and D-cache attachments independent of
+each other. Physical L1D, geometry, and refill/copyback/snoop machinery belong
+to [`cores/cache/`](../cache/DEVELOPING.md); this core retains architectural
+completion adaptation and instruction/uncached integration.
 
 ## Implementation map
 
@@ -44,9 +46,10 @@ each other; share external transaction machinery through the CHI package.
 | [`csr.rhdl`](csr.rhdl) | RV5Stage privileged-state storage and commit policy over reusable RISC-V CSR, trap, and interrupt semantics |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
-| [`cache.rhdl`](cache.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
+| [`cache.rhdl`](../cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
-| [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`dcache/DEVELOPING.md`](dcache/DEVELOPING.md) | Private cache implementation and validation |
+| [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`../cache/DEVELOPING.md`](../cache/DEVELOPING.md) | Named instruction cache and shared physical data-cache implementation |
+| [`memory-context.rhdl`](memory-context.rhdl) | Architectural destination and core/PTW ownership, opaque to shared services |
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
 
 ## Change the core

@@ -6,7 +6,7 @@ import:
   "../../../../rhodium/backend/circt.rhm" open
   "../../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../../riscv/isa/xlen.rhm" open
-  "../../../../cores/rv5stage/cache.rhdl" open
+  "../../../cache/geometry.rhdl" open
   "../../../../cores/rv5stage/icache/cache.rhdl" as cache
   "../../../../cores/rv5stage/tests/params.rhdl" as test_params
   "../../../../cores/rv5stage/chi/foundation.rhdl" open
@@ -20,7 +20,7 @@ def config = RiscvHartCHIConfig(test_params.test_rv5stage_flit, 64, [
 
 def design = embedded.run_elaboration(
   fun (): cache.RV5StageL1ICache(XLen.X64,
-                                 RV5StageCacheConfig(4, 2),
+                                 CacheConfig(4, 2),
                                  ~chi: config)
 )
 print(emit_circt(design))

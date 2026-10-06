@@ -1,269 +1,86 @@
 #lang rhodium
-/* Implements non-allocating coherent RAM and noncoherent device/ROM transactions on one RN-I. */
+/* Arbitrates RV5Stage fetch/data ownership around the shared nonallocating CHI service. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "foundation.rhdl" open
-  "../profile.rhm".RV5StageCacheLineBytes
-  "../fp/types.rhdl" open
-  "../memory.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../../cache/chi/uncached.rhdl" open
+  "../../cache/chi/flits.rhdl" open
+  "../../cache/protocol.rhdl" open
+  "../../cache/operation.rhdl" open
+  "../memory-context.rhdl" open
   "../icache/protocol.rhdl".RV5StageInstructionResp
   "../uncached-protocol.rhdl" open
   "../../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/atomic.rhdl".RiscvAtomicOperation
+  "../../../riscv/rtl/zihintntl.rhdl".RiscvMemoryLocality
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/ready-valid.rhdl") open
-  lib("chi/protocol/flits.rhdl") open
+  lib("flow/main.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
-/* Tracks one RN-I request through read data or DBID, write data, and completion response. */
-hardware_enum RV5StageUncachedState:
-  Idle
-  Request
-  ReadResponse
-  WriteDBID
-  WriteData
-  WriteResponse
-
-/* Prioritizes data over four-byte instruction reads on one nonretrying, nonallocating RN-I.
-   Flush detaches fetch ownership; accepted traffic drains. CBO.ZERO serializes eight writes
-   with one completion. */
-sync_circuit RV5StageUncached(xlen :: XLen,
-                              config :: RiscvHartCHIConfig,
+/* Gives committed data priority over fetch, withdraws unissued flushed fetches, and drains
+   accepted fetch traffic without publishing orphan replies. Adds no request/response stage. */
+sync_circuit RV5StageUncached(xlen :: XLen, config :: RiscvHartCHIConfig,
                               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
-  def width = xlen.width
-  def p = config.flit
-  def word_lanes = p.data_bytes / 8
-  def lane_width = index_width(word_lanes)
-  def instruction_word_lanes = p.data_bytes / 4
-  def instruction_lane_width = index_width(instruction_word_lanes)
-
-  input node_id: Bits(p.node_id_width)
+  def Context = RV5StageMemoryContext(vector_completion_slots)
+  input node_id: Bits(config.flit.node_id_width)
   interface instruction(RV5StagePhysicalInstructionAccess(xlen), ~role: responder)
-  interface core(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: responder)
-  interface chi(CHIRNIChannels(p), ~role: node)
-
-  inst load_gen(LoadGen(xlen))
-  inst store_gen(StoreGen(xlen))
-  reg state(~init: RV5StageUncachedState.Idle)
-  reg address(Bits(width))
-  reg memory_width(MemoryWidth)
-  reg unsigned_load(~init: Bool(#false))
-  reg writeback(RV5StageMemoryWriteback(vector_completion_slots))
-  reg data_origin(RV5StageDataOrigin, ~init: RV5StageDataOrigin.Core)
+  interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface chi(CHIRNIChannels(config.flit), ~role: node)
+  inst transport(CHIUncachedMemory(xlen, config, Context))
+  inst requests(Arbiter(UncachedMemoryReq(xlen, Context), 2))
   reg owner_is_instruction(~init: Bool(#false))
   reg instruction_live(~init: Bool(#false))
-  reg home_id(Bits(p.node_id_width))
-  reg request_size(CHITransferSize)
-  reg request_opcode(CHIReqOpcode)
-  reg request_device(~init: Bool(#false))
-  reg dbid(Bits(12))
-  reg write_data(Bits(64))
-  reg write_mask(Mask(8))
-  reg zero_active(~init: Bool(#false))
-  reg zero_index(Bits(index_width(RV5StageCacheLineBytes / 8)), ~init: bits(0, index_width(RV5StageCacheLineBytes / 8)))
 
-  def idle = state === RV5StageUncachedState.Idle
-  def command :: RV5StageDataReq(xlen, vector_completion_slots) = core.request.bits.request
-  def command_access = command.access
-  def command_supported = command_access.is_one_of(RV5StageMemoryOperation.Load,
-                                                   RV5StageMemoryOperation.Store,
-                                                   RV5StageMemoryOperation.CacheBlockZero)
-  def command_zero = command_access.is_cache_block_zero()
-  def zero_last = zero_index === bits(RV5StageCacheLineBytes / 8 - 1, index_width(RV5StageCacheLineBytes / 8))
-  def instruction_command = instruction.request.bits
-  def select_data = core.request.valid
-  def select_instruction = !select_data
-  def command_home = config.home_map.lookup(rv5stage_chi_address(command.address, p))
-  def instruction_home = config.home_map.lookup(
-    rv5stage_chi_address(instruction_command.address, p)
-  )
-  def selected_home = mux(select_instruction, instruction_home, command_home)
-  def selected_address = mux(select_instruction,
-                             instruction_command.address,
-                             mux(command_zero, command.address.align_down(RV5StageCacheLineBytes), command.address))
-  def selected_size = mux(
-    select_instruction,
-    CHITransferSize.Bytes4,
-    mux(command_zero, CHITransferSize.Bytes8, command.width.as_bits().zext(3).into(CHITransferSize))
-  )
-  // PBMT changes allocation/ordering, never the physical coherence domain.
-  def selected_physical = config.physical_map.lookup(selected_address, selected_address)
-  def selected_coherent = selected_physical.cacheable
-  def selected_read = mux(selected_coherent, CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp)
-  def selected_write = mux(selected_coherent, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.WriteNoSnpPtl)
-  def selected_opcode = mux(
-    select_instruction,
-    selected_read,
-    mux(command_access.is_store() ||| command_zero, selected_write, selected_read)
-  )
-  def selected_device = mux(select_instruction,
-                            instruction_command.device,
-                            core.request.bits.device)
-  core.request.ready <== idle & mux(command_supported, command_home.valid, Bool(#true))
-  instruction.request.ready <== idle & !select_data & !instruction.flush & instruction_home.valid
-  core.request_fault <== Bool(#false)
-  core.request_access_fault <== core.request.valid & !command_supported
-  def data_accept = core.request.fire() & command_supported
-  def instruction_accept = instruction.request.fire()
-  def request_accept = data_accept ||| instruction_accept
-  def request_pending = state === RV5StageUncachedState.Request
-  chi.req.valid <== request_pending & (!owner_is_instruction ||| !instruction.flush)
-  chi.req.bits <== rv5stage_chi_request(
-    p,
-    node_id,
-    home_id,
-    address,
-    request_size,
-    request_opcode,
-    bits(0, 12),
-    Bool(#false),
-    Bool(#false),
-    Bool(#false),
-    bits(0, 4),
-    ~cacheable: Bool(#false),
-    ~device: request_device,
-    ~early_write_acknowledge: Bool(#false)
-  )
-  def request_fire = chi.req.fire()
+  transport.node_id <== node_id
+  chi <=> transport.chi
+  core.request |> requests.ingress[0]
+  (
+    instruction.request |> gate_flow(!instruction.flush)
+      |> map_flow(fetch => UncachedMemoryReq(xlen, Context)):
+          request:
+            PhysicalMemoryReq(xlen, Context):
+              byte_mask: dont_care(Bits(memory_word_bytes(xlen)))
+              address: fetch.address
+              access: CacheOperation.Load
+              atomic: dont_care(RiscvAtomicOperation)
+              width: MemoryWidth.Word
+              unsigned: Bool(#true)
+              data: dont_care(Bits(xlen.width))
+              context: dont_care(Context)
+              locality: dont_care(RiscvMemoryLocality)
+          device: fetch.device
+  ) |> requests.ingress[1]
+  requests.egress |> transport.core.request
+  transport.cancel <== owner_is_instruction & instruction.flush
+  core.request_fault <== transport.core.request_fault & core.request.valid
+  core.request_access_fault <== transport.core.request_access_fault & core.request.valid
+  core.drained <== transport.core.drained
 
-  store_gen.address <== command.address
-  store_gen.value <== command.data
-  store_gen.width <== command.width
-
-  def incoming_response = chi.rsp.response.bits
-  def response_ordinary = incoming_response.opcode =/= CHIRspOpcode.RespLCrdReturn
-  def dbid_expected = state === RV5StageUncachedState.WriteDBID
-  def completion_expected = state === RV5StageUncachedState.WriteResponse
-  def response_expected = (dbid_expected & (
-    incoming_response.opcode === CHIRspOpcode.DBIDResp
-  )) ||| (completion_expected & (incoming_response.opcode === CHIRspOpcode.Comp))
-  chi.rsp.response.ready <== !response_ordinary ||| (response_expected & (!completion_expected ||| (zero_active & !zero_last) ||| core.response.ready))
-  def response_fire = chi.rsp.response.fire() & response_ordinary
-  def dbid_fire = response_fire & dbid_expected
-  def completion_fire = response_fire & completion_expected
-
-  def data_lane = address[3..alignment_bits(p.data_bytes)]
-  def bus_data = write_data.zext(p.data_width) << (data_lane ++ bits(0, 6))
-  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ bits(0, 3))
-  chi.dat.request.valid <== state === RV5StageUncachedState.WriteData
-  chi.dat.request.bits <== rv5stage_chi_write_data(
-    p,
-    node_id,
-    home_id,
-    dbid,
-    address,
-    bus_data,
-    bus_mask
-  )
-  def write_data_fire = chi.dat.request.fire()
-
-  def incoming_data = chi.dat.response.bits
-  def data_ordinary = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
-  def read_expected = state === RV5StageUncachedState.ReadResponse
-  def read_lanes = incoming_data.data.into(Vec(word_lanes, Bits(64)))
-  def read_lane:
-    if word_lanes == 1 | bits(0, lane_width) | address[3..alignment_bits(p.data_bytes)]
-  load_gen.address <== address
-  load_gen.data <== read_lanes[read_lane]
-  load_gen.width <== memory_width
-  load_gen.unsigned_load <== unsigned_load
-  def instruction_response_valid = chi.dat.response.valid & data_ordinary & read_expected & (
-    owner_is_instruction & instruction_live
-  )
-  chi.dat.response.ready <== !data_ordinary ||| (read_expected & mux(
-    owner_is_instruction,
-    !instruction_live ||| instruction.response.ready,
-    core.response.ready
-  ))
-  def read_fire = chi.dat.response.fire() & data_ordinary
-  def data_read_valid = chi.dat.response.valid & data_ordinary & read_expected & !owner_is_instruction
-
-  def instruction_words = incoming_data.data.into(Vec(instruction_word_lanes, Bits(32)))
-  def instruction_lane:
-    if instruction_word_lanes == 1
-    | bits(0, instruction_lane_width)
-    | address[2..alignment_bits(p.data_bytes)]
-  instruction.response.valid <== instruction_response_valid
+  def Array(data_response, fetch_response) = transport.core.response |> demux_flow(2, _response => owner_is_instruction.as_bits())
+  data_response |> core.response
+  // Fetch has an explicit out-of-band cancellation contract. While live, the
+  // accepted CHI read holds its reply; once detached, consume it without an offer.
+  // A generic filter intentionally cannot promise that held-fetch contract.
+  instruction.response.valid <== fetch_response.valid & instruction_live
   instruction.response.bits <== RV5StageInstructionResp(#false):
-    word: instruction_words[instruction_lane]
+    word: fetch_response.bits.data[0..32]
     page_fault: Bool(#false)
-    access_fault: Bool(#false)
+    access_fault: fetch_response.bits.access_fault
+  fetch_response.ready <== !instruction_live ||| instruction.response.ready
 
-  core.response.valid <== data_read_valid ||| (chi.rsp.response.valid & response_ordinary & response_expected & completion_expected & (!zero_active ||| zero_last))
-  core.response.bits <== RV5StageDataResp(xlen, vector_completion_slots):
-    access_fault: Bool(#false)
-    data: mux(data_read_valid, load_gen.value, bits(0, width))
-    writeback: writeback
-    origin: data_origin
-  core.drained <== idle
-  chi.rsp.requester.valid <== Bool(#false)
-  chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
-
-  when request_accept:
-    address <== selected_address
-    memory_width <== command.width
-    unsigned_load <== command.unsigned
-    writeback <== command.writeback
-    data_origin <== command.origin
-    owner_is_instruction <== select_instruction
-    home_id <== selected_home.node_id
-    request_size <== selected_size
-    request_opcode <== selected_opcode
-    request_device <== selected_device
-    write_data <== mux(command_zero, bits(0, 64), store_gen.data)
-    write_mask <== mux(command_zero, !bits(0, 8), if xlen == XLen.X64 | command.byte_mask | command.byte_mask.zext(8) << (command.address[2].as_bits() ++ bits(0, 2))).into(Mask(8))
-    zero_active <== select_data & command_zero
-    zero_index <== bits(0, index_width(RV5StageCacheLineBytes / 8))
-    state <== RV5StageUncachedState.Request
-  elsewhen (request_pending & owner_is_instruction & instruction.flush):
-    state <== RV5StageUncachedState.Idle
-  elsewhen request_fire:
-    state <== mux(request_opcode.is_one_of(CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.WriteUniquePtl),
-                  RV5StageUncachedState.WriteDBID,
-                  RV5StageUncachedState.ReadResponse)
-  elsewhen dbid_fire:
-    dbid <== incoming_response.dbid_or_group_id
-    state <== RV5StageUncachedState.WriteData
-  elsewhen write_data_fire:
-    state <== RV5StageUncachedState.WriteResponse
-  elsewhen (completion_fire & zero_active & !zero_last):
-    address <== address + bits(8, width)
-    zero_index <== zero_index + bits(1, index_width(RV5StageCacheLineBytes / 8))
-    state <== RV5StageUncachedState.Request
-  elsewhen (read_fire ||| completion_fire):
-    state <== RV5StageUncachedState.Idle
-
+  when (transport.core.request.fire()):
+    owner_is_instruction <== requests.chosen === bits(1, 1)
   when (instruction.flush):
     instruction_live <== Bool(#false)
-  elsewhen instruction_accept:
+  elsewhen (instruction.request.fire()):
     instruction_live <== Bool(#true)
-  elsewhen (read_fire & owner_is_instruction):
+  elsewhen (fetch_response.fire()):
     instruction_live <== Bool(#false)
 
-  when (core.request.valid & idle & command_supported):
-    assert(rv5stage_chi_address_fits(command.address, p), "rv5stage_uncached_address_fits")
-    assert(command_home.valid, "rv5stage_uncached_address_has_home")
-  when (instruction.request.valid & idle & !select_data & !instruction.flush):
-    assert(!instruction_command.cacheable,
-           "rv5stage_uncached_instruction_not_cacheable")
-    assert(instruction_command.address.is_aligned(4),
-           "rv5stage_uncached_instruction_aligned")
-    assert(rv5stage_chi_address_fits(instruction_command.address, p),
-           "rv5stage_uncached_instruction_address_fits")
-    assert(instruction_home.valid,
-           "rv5stage_uncached_instruction_address_has_home")
-  when (chi.rsp.response.valid & response_ordinary):
-    assert(response_expected, "rv5stage_uncached_response_expected")
-    assert(incoming_response.src_id === home_id, "rv5stage_uncached_response_home")
-    assert(incoming_response.resp_err === CHIRespErr.OK, "rv5stage_uncached_response_ok")
-  when (chi.dat.response.valid & data_ordinary):
-    assert(read_expected, "rv5stage_uncached_read_data_expected")
-    assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,
-           "rv5stage_uncached_read_data_home")
-    assert(incoming_data.resp_err === CHIRespErr.OK, "rv5stage_uncached_read_data_ok")
+  when (instruction.request.valid & transport.core.drained & !core.request.valid & !instruction.flush):
+    assert(!instruction.request.bits.cacheable, "rv5stage_uncached_instruction_not_cacheable")
+    assert(instruction.request.bits.address.is_aligned(4), "rv5stage_uncached_instruction_aligned")
 
 export:
-  RV5StageUncachedState
   RV5StageUncached

@@ -29,7 +29,7 @@ import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../../../riscv/rtl/csr.rhdl" as csr_controls
   "../../../riscv/rtl/atomic.rhdl" open
-  "../memory.rhdl" as core_memory
+  "../../cache/operation.rhdl" as core_memory
   "../../alu.rhdl" as alu
   "../../branch-resolver.rhdl" as branches
   "../../load-store.rhdl" as load_store
@@ -155,7 +155,7 @@ fun guarded_payloads_are_sparse(control :: Pattern) :: Boolean:
   def branch_resolver = field_pattern(branch, "resolver")
   def memory = field_pattern(control, "memory")
   def memory_access = field_pattern(memory, "access")
-  def memory_inactive = memory_access.value_bits == core_memory.RV5StageMemoryOperation.None.packed_value()
+  def memory_inactive = memory_access.value_bits == core_memory.CacheOperation.None.packed_value()
   def writeback = field_pattern(control, "writeback")
   def writeback_enable = field_pattern(writeback, "enable")
   def writeback_inactive = writeback_enable.value_bits == 0
@@ -197,7 +197,7 @@ def addi_operand = operand_controls.RV5StageOperandControl():
   right: operand_controls.OperandBSelect.Immediate
   immediate: operand_controls.RV5StageImmediateSelect.I
 def lbu_memory = memory_controls.RV5StageMemoryControl():
-  access: core_memory.RV5StageMemoryOperation.Load
+  access: core_memory.CacheOperation.Load
   atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Byte
   unsigned: bool.Bool(#true)
@@ -317,22 +317,22 @@ def no_operand_sources = operand_controls.RV5StageOperandControl():
 def no_branch_a = branch_value(#false, #false, #false, #false, #false, #false)
 def no_branch_b = branch_value(#false, #true, #true, #true, #true, #true)
 def store_memory_a = memory_controls.RV5StageMemoryControl():
-  access: core_memory.RV5StageMemoryOperation.Store
+  access: core_memory.CacheOperation.Store
   atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#false)
 def store_memory_b = memory_controls.RV5StageMemoryControl():
-  access: core_memory.RV5StageMemoryOperation.Store
+  access: core_memory.CacheOperation.Store
   atomic: RiscvAtomicOperation.Max
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#true)
 def amoadd_memory = memory_controls.RV5StageMemoryControl():
-  access: core_memory.RV5StageMemoryOperation.Atomic
+  access: core_memory.CacheOperation.Atomic
   atomic: RiscvAtomicOperation.Add
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#false)
 def lr_memory = memory_controls.RV5StageMemoryControl():
-  access: core_memory.RV5StageMemoryOperation.LoadReserved
+  access: core_memory.CacheOperation.LoadReserved
   atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Double
   unsigned: bool.Bool(#false)

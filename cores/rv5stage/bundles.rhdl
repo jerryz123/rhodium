@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "memory-context.rhdl" open
+  "../cache/protocol.rhdl" open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "fetch/bpd/protocol.rhdl" open
@@ -19,7 +21,7 @@ import:
   "../branch-resolver.rhdl" open
   "../cache-prefetch.rhdl" open
   "../load-store.rhdl" open
-  "memory.rhdl" open
+  "../cache/operation.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/multiply-ctrl.rhdl" open
@@ -29,7 +31,6 @@ import:
   "decode/fence-ctrl.rhdl" open
   "decode/hint-ctrl.rhdl" open
   "decode/fp-ctrl.rhdl" open
-  "dcache/protocol.rhdl" open
   "mmu/protocol.rhdl" open
   "vector/precheck.rhdl".RV5StageVectorFootprintGeometry
   "register-file.rhdl" open
@@ -114,7 +115,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   operand_right: OperandBSelect
   branch_control: BranchResolverControl()
   target_from_rs1: Bool
-  memory_operation: RV5StageMemoryOperation
+  memory_operation: CacheOperation
   prefetch_operation: CachePrefetchOperation
   memory_atomic: RiscvAtomicOperation
   memory_width: MemoryWidth
@@ -166,7 +167,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   raw_instruction: Bits(32)
   replay: Bool
   data_request_valid: Bool
-  data_request: RV5StageDataReq(xlen, vector_completion_slots)
+  data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
   fp_compute: Bool
   fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)
@@ -202,9 +203,9 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   raw_instruction: Bits(32)
   replay: Bool
   load_hit: Bool
-  cache_outcome: RV5StagePipelineOutcome
+  cache_outcome: CachePipelineOutcome
   data_request_valid: Bool
-  data_request: RV5StageDataReq(xlen, vector_completion_slots)
+  data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
   fp_compute: Bool
   fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)

@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/protocol.rhdl" open
   "../rv5stage.rhdl".RV5Stage
   "../profile.rhm" open
   "../../../riscv/rtl/interrupt.rhdl".RiscvInterrupts
-  "../dcache/cache.rhdl" open
-  "../dcache/protocol.rhdl" open
+  "../../cache/l1d/cache.rhdl" open
+  "../memory-context.rhdl" open
   "../chi/foundation.rhdl" open
   "params.rhdl" open
   lib("cores/cache-prefetch.rhdl").CachePrefetchReq
@@ -29,7 +30,7 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   def host_node = RV5StageCHIParams(config, 4, 5).data_node
   def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer(), host_node.icn_peer()], 65535, ram_config.requests)
   input run: Bool
-  interface host(RV5StageDataAccess(XLen.X64, 8), ~role: responder)
+  interface host(CacheAccess(XLen.X64, RV5StageMemoryContext(8)), ~role: responder)
   output instruction_requests: Bool
   output data_requests: Bool
   output eviction_waiting: Bool
@@ -38,9 +39,9 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   rv32 <== Bool(xlen == XLen.X32)
   predicted <== Bool(btb_entries > 0)
 
-  def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: (if xlen == XLen.X32 | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39), ~cache_geometry: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1)))
+  def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: (if xlen == XLen.X32 | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39), ~cache_geometry: RV5StageCacheGeometry(~instruction: CacheConfig(32, 1), ~data: CacheConfig(32, 1)))
   inst cpu(RV5Stage(profile, ~chi: config, ~reset_address: 0x1000, ~btb_entries: btb_entries))
-  inst loader(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(2, 1), ~chi: config))
+  inst loader(L1DCache(XLen.X64, CacheConfig(2, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
   inst home_node(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)))
   inst ram(CHIRam(ram_config))
   cpu.hart_id <== bits(0, xlen.width)
@@ -80,9 +81,9 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   loader.virtual_lookup.valid <== host.request.valid
   loader.virtual_lookup.bits <== host.request.bits.address
   loader.pipeline_lookup.valid <== Bool(#false)
-  loader.pipeline_lookup.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  loader.pipeline_lookup.bits <== literal(CachePipelineReq(XLen.X64), 0)
   loader.pipeline.request.valid <== Bool(#false)
-  loader.pipeline.request.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  loader.pipeline.request.bits <== literal(CachePipelineReq(XLen.X64), 0)
   loader.pipeline.commit <== Bool(#false)
   loader.prefetch.valid <== Bool(#false)
   loader.prefetch.bits <== dont_care(CachePrefetchReq(64))

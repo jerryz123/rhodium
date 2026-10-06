@@ -6,7 +6,7 @@ import:
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "../memory.rhdl" open
+  "../../cache/operation.rhdl" open
   "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/rtl/atomic.rhdl" open
   "../../load-store.rhdl" open
@@ -25,7 +25,7 @@ import:
 /* Selects memory operation, AMO function, transfer width, and load extension independently of
    address generation. */
 bundle RV5StageMemoryControl():
-  access: RV5StageMemoryOperation
+  access: CacheOperation
   atomic: RiscvAtomicOperation
   width: MemoryWidth
   unsigned: Bool
@@ -34,47 +34,47 @@ def shared_loads = [LB, LH, LW, LBU, LHU]
 def shared_stores = [SB, SH, SW]
 def shared_memory_instructions = shared_loads ++ shared_stores
 def no_memory = partial_pattern(RV5StageMemoryControl()):
-  access: RV5StageMemoryOperation.None
+  access: CacheOperation.None
 
 def SharedMemoryCases = decode_groups(
   RV5StageMemoryControl(),
   ~input: instruction_pattern
 ):
   [LB]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Byte
     unsigned: Bool(#false)
 
   [LBU]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Byte
     unsigned: Bool(#true)
 
   [LH]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Half
     unsigned: Bool(#false)
 
   [LHU]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Half
     unsigned: Bool(#true)
 
   [LW]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Word
     unsigned: Bool(#false)
 
   [SB]:
-    access: RV5StageMemoryOperation.Store
+    access: CacheOperation.Store
     width: MemoryWidth.Byte
 
   [SH]:
-    access: RV5StageMemoryOperation.Store
+    access: CacheOperation.Store
     width: MemoryWidth.Half
 
   [SW]:
-    access: RV5StageMemoryOperation.Store
+    access: CacheOperation.Store
     width: MemoryWidth.Word
 
 def RV64IOnlyMemoryCases = decode_groups(
@@ -82,17 +82,17 @@ def RV64IOnlyMemoryCases = decode_groups(
   ~input: instruction_pattern
 ):
   [LWU]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Word
     unsigned: Bool(#true)
 
   [LD]:
-    access: RV5StageMemoryOperation.Load
+    access: CacheOperation.Load
     width: MemoryWidth.Double
     unsigned: Bool(#false)
 
   [SD]:
-    access: RV5StageMemoryOperation.Store
+    access: CacheOperation.Store
     width: MemoryWidth.Double
 
 def RV32IMemoryCases = SharedMemoryCases ++ instruction_cases(
@@ -109,56 +109,56 @@ def RV32AMemoryCases = decode_groups(
   ~input: instruction_pattern
 ):
   [LR_W]:
-    access: RV5StageMemoryOperation.LoadReserved
+    access: CacheOperation.LoadReserved
     width: MemoryWidth.Word
     unsigned: Bool(#false)
 
   [SC_W]:
-    access: RV5StageMemoryOperation.StoreConditional
+    access: CacheOperation.StoreConditional
     width: MemoryWidth.Word
 
   [AMOSWAP_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Word
 
   [AMOADD_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Add
     width: MemoryWidth.Word
 
   [AMOXOR_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Xor
     width: MemoryWidth.Word
 
   [AMOAND_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.And
     width: MemoryWidth.Word
 
   [AMOOR_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Or
     width: MemoryWidth.Word
 
   [AMOMIN_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Min
     width: MemoryWidth.Word
 
   [AMOMAX_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Max
     width: MemoryWidth.Word
 
   [AMOMINU_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.MinUnsigned
     width: MemoryWidth.Word
 
   [AMOMAXU_W]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.MaxUnsigned
     width: MemoryWidth.Word
 
@@ -167,56 +167,56 @@ def RV64AOnlyMemoryCases = decode_groups(
   ~input: instruction_pattern
 ):
   [LR_D]:
-    access: RV5StageMemoryOperation.LoadReserved
+    access: CacheOperation.LoadReserved
     width: MemoryWidth.Double
     unsigned: Bool(#false)
 
   [SC_D]:
-    access: RV5StageMemoryOperation.StoreConditional
+    access: CacheOperation.StoreConditional
     width: MemoryWidth.Double
 
   [AMOSWAP_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Double
 
   [AMOADD_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Add
     width: MemoryWidth.Double
 
   [AMOXOR_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Xor
     width: MemoryWidth.Double
 
   [AMOAND_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.And
     width: MemoryWidth.Double
 
   [AMOOR_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Or
     width: MemoryWidth.Double
 
   [AMOMIN_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Min
     width: MemoryWidth.Double
 
   [AMOMAX_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.Max
     width: MemoryWidth.Double
 
   [AMOMINU_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.MinUnsigned
     width: MemoryWidth.Double
 
   [AMOMAXU_D]:
-    access: RV5StageMemoryOperation.Atomic
+    access: CacheOperation.Atomic
     atomic: RiscvAtomicOperation.MaxUnsigned
     width: MemoryWidth.Double
 
@@ -233,9 +233,9 @@ def RV32IMemoryDecode = ValidDecodeGen(RV32IMemoryCases)
 def RV64IMemoryDecode = ValidDecodeGen(RV64IMemoryCases)
 
 def zero_memory = partial_pattern(RV5StageMemoryControl()):
-  access: RV5StageMemoryOperation.CacheBlockZero
+  access: CacheOperation.CacheBlockZero
 def ZicbozMemoryCases = instruction_cases(ZicbozInstructions, zero_memory)
-def ZicbomMemoryCases = for List (entry in [[CBO_INVAL, RV5StageMemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, RV5StageMemoryOperation.CacheBlockClean], [CBO_FLUSH, RV5StageMemoryOperation.CacheBlockFlush]]):
+def ZicbomMemoryCases = for List (entry in [[CBO_INVAL, CacheOperation.CacheBlockInvalidate], [CBO_CLEAN, CacheOperation.CacheBlockClean], [CBO_FLUSH, CacheOperation.CacheBlockFlush]]):
   DecodeCase(
     instruction_pattern(entry[0]),
     partial_pattern(RV5StageMemoryControl()):

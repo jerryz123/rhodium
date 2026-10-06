@@ -6,8 +6,8 @@ module rv5stage_zicbom_tb;
   typedef struct packed { logic valid; RV5StageInstructionResp bits; } iresp_t;
   typedef struct packed { ready_t request; iresp_t response; } iin_t;
   typedef struct packed { logic flush; logic invalidate_all; ireq_t request; ready_t response; } iout_t;
-  typedef struct packed { logic valid; RV5StageDataReq bits; } dreq_t;
-  typedef struct packed { logic valid; RV5StageDataResp bits; } dresp_t;
+  typedef struct packed { logic valid; PhysicalMemoryReq bits; } dreq_t;
+  typedef struct packed { logic valid; PhysicalMemoryResp bits; } dresp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
   typedef struct packed { dreq_t request; ready_t response; } dout_t;
   logic clock = 0, reset = 1;
@@ -81,7 +81,7 @@ module rv5stage_zicbom_tb;
   assign data_access_in.request_fault = data_access_out.request.valid && data_access_out.request.bits.access >= 7 && scenario == 5;
   assign data_access_in.request_access_fault = data_access_out.request.valid && data_access_out.request.bits.access >= 7 && scenario == 4;
   assign data_access_in.response.valid = pending_cycles == 1;
-  assign data_access_in.response.bits = {scenario == 3, {($bits(RV5StageDataResp)-1){1'b0}}};
+  assign data_access_in.response.bits = {scenario == 3, {($bits(PhysicalMemoryResp)-1){1'b0}}};
   assign data_access_in.drained = pending_cycles == 0;
   assign data_access_in.reservation_valid = 1'b0;
   always_ff @(posedge clock) begin
@@ -97,7 +97,7 @@ module rv5stage_zicbom_tb;
       end
       if (pending_cycles != 0) pending_cycles <= pending_cycles - 1;
       if (data_access_out.request.valid && data_access_out.request.bits.access >= 7) begin
-        assert (scenario != 6 && scenario != 9 && scenario != 10 && data_access_out.request.bits.address == 63 && data_access_out.request.bits.writeback == 0)
+        assert (scenario != 6 && scenario != 9 && scenario != 10 && data_access_out.request.bits.address == 63 && data_access_out.request.bits.context_0.writeback == 0)
           else $fatal(1, "CMO permission, squash, or original address violated");
         assert (data_access_out.request.bits.access == (scenario == 0 ? 8 : scenario == 2 || scenario == 7 ? 9 : 7))
           else $fatal(1, "wrong decoded/converted CMO operation");

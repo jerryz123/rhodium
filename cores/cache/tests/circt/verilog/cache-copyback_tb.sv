@@ -1,6 +1,6 @@
 // Checks copyback retry, grant/snoop ordering, all DAT widths, and stalled retirement.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_copyback_tb;
+module cache_copyback_tb;
   logic clock = 0, reset = 1;
   logic [2:0] enabled = 0;
   logic command_valid = 0, request_ready = 0, response_valid = 0;
@@ -11,7 +11,7 @@ module rv5stage_copyback_tb;
   logic data_ready = 0, completion_ready = 0;
   logic [511:0] line;
   CopyBackObservation [2:0] observed;
-  RV5StageCopyBackFixture dut(.*);
+  CacheCopyBackFixture dut(.*);
   always #5 clock = ~clock;
   import "DPI-C" function void copyback_bind();
   import "DPI-C" function void copyback_sample(int unsigned reset, int unsigned starts, int unsigned finishes, int unsigned requests, int unsigned packets);
@@ -100,7 +100,7 @@ module rv5stage_copyback_tb;
       end
     end
     copyback_finish();
-    $display("RV5Stage line copyback at 128/256/512 bits passed");
+    $display("Shared cache line copyback at 128/256/512 bits passed");
     $finish;
   end
 endmodule

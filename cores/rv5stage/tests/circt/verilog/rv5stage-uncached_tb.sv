@@ -8,7 +8,7 @@ module rv5stage_uncached_tb;
     struct packed { logic ready; } response;
   } instruction_in_t;
   typedef struct packed {
-    struct packed { logic valid; RV5StageUncachedDataReq bits; } request;
+    struct packed { logic valid; UncachedMemoryReq bits; } request;
     struct packed { logic ready; } response;
   } core_in_t;
   typedef struct packed {
@@ -30,7 +30,7 @@ module rv5stage_uncached_tb;
     struct packed { logic ready; } request;
     logic request_fault;
     logic request_access_fault;
-    struct packed { logic valid; RV5StageDataResp bits; } response;
+    struct packed { logic valid; PhysicalMemoryResp bits; } response;
     logic drained;
   } core_out_t;
   typedef struct packed {
@@ -155,6 +155,27 @@ module rv5stage_uncached_tb;
     tick();
     chi_in.dat.response.valid = 1'b0;
 
+    // Withdrawal before CHI acceptance cancels only the fetch owner. No reply
+    // is owed, even when the outgoing request has been backpressured.
+    chi_in.req.ready = 1'b0;
+    instruction_in.request.valid = 1'b1;
+    instruction_in.request.bits.address = 64'h0000_c000;
+    tick();
+    instruction_in.request.valid = 1'b0;
+    #1;
+    assert (chi_out.req.valid && !core_out.drained)
+      else $fatal(1, "pending fetch was not retained under CHI backpressure");
+    instruction_in.flush = 1'b1;
+    chi_in.req.ready = 1'b1;
+    #1;
+    assert (!chi_out.req.valid)
+      else $fatal(1, "flush lost the race with unissued fetch acceptance");
+    tick();
+    instruction_in.flush = 1'b0;
+    #1;
+    assert (core_out.drained && !instruction_out.response.valid)
+      else $fatal(1, "withdrawn fetch left an outstanding transaction");
+
     // A flushed fetch still drains its already-issued CHI transaction but no
     // longer publishes the returned instruction word.
     instruction_in.request.valid = 1'b1;
@@ -186,7 +207,7 @@ module rv5stage_uncached_tb;
     core_in.request.valid = 1'b1;
     core_in.request.bits.request.address = 64'hc03f;
     core_in.request.bits.request.access = 4'd6;
-    core_in.request.bits.request.writeback = 9'b0;
+    core_in.request.bits.request.context_0.writeback = 9'b0;
     core_in.request.bits.device = 1'b0;
     tick();
     core_in.request.valid = 1'b0;

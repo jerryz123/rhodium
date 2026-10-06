@@ -2,13 +2,14 @@
 /* Captures passive hart outcomes and environmental inputs for native instruction ownership. */
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../../../cores/cache/protocol.rhdl" open
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   "vector.rhdl".rv5stage_cosim_vector
   "../events/transport.rhdl".capture_lane as lane
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
   "../../../cores/rv5stage/mmu/protocol.rhdl".RV5StageSplitResult
   "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
-  "../../../cores/rv5stage/dcache/protocol.rhdl" open
+  "../../../cores/rv5stage/memory-context.rhdl" open
   "../../../cores/rv5stage/fp/bundles.rhdl" open
   "../../../cores/rv5stage/decode/fp-ctrl.rhdl".RV5StageFloatDestination
   "../../../riscv/isa/vector-profile.rhm".vector_profile_enabled
@@ -119,8 +120,8 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def wb_input_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_input_bits"]
   def resume_pc :: Bits(width) = taps["resume_pc"]
   def response_fire :: Bool = taps["response_fire"]
-  def memory_request :: RV5StageDataReq(xlen, vector_completion_slots) = taps["memory_request"]
-  def memory_response :: RV5StageDataResp(xlen, vector_completion_slots) = taps["memory_response"]
+  def memory_request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = taps["memory_request"]
+  def memory_response :: PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)) = taps["memory_response"]
   def write_valid :: Bool = taps["write_valid"]
   def write_rd :: Bits(5) = taps["write_rd"]
   def write_data :: Bits(width) = taps["write_data"]
@@ -183,8 +184,8 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   )
   rhodium_rv5stage_response.call(
     cosim_instance, lane(memory_response.data), memory_response.access_fault.as_bits().zext(64),
-    lane(memory_response.writeback.as_bits()),
-    memory_response.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
+    lane(memory_response.context.writeback.as_bits()),
+    memory_response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
     lane(split_result.response.data), (split_result.page_fault ||| split_result.response.access_fault).as_bits().zext(64),
     lane(split_result.fault_address), ~enable: active
   )
@@ -194,13 +195,13 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
     mmu_flag("mmu_fragment_valid").as_bits().zext(64), mmu_lane("mmu_fragment_address"), mmu_lane("mmu_fragment_virtual"),
     ~enable: active
   )
-  for (index in 0..2, request :: RV5StageDataReq(xlen, vector_completion_slots) in [memory_request, wb_offer_bits.data_request]):
+  for (index in 0..2, request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) in [memory_request, wb_offer_bits.data_request]):
     rhodium_rv5stage_request.call(
       cosim_instance, bits(index, 64), lane(request.address), lane(request.access.as_bits()), lane(request.width.as_bits()),
-      lane(request.atomic.as_bits()), lane(request.data), lane(request.writeback.as_bits()),
-      request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool).as_bits().zext(64),
-      request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
-      request.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload.zext(64), ~enable: active
+      lane(request.atomic.as_bits()), lane(request.data), lane(request.context.writeback.as_bits()),
+      request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool).as_bits().zext(64),
+      request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
+      request.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload.zext(64), ~enable: active
     )
   for (index in 0..2, accepted in [wb_commit_has_multiply, wb_commit_has_divide]):
     rhodium_rv5stage_arithmetic.call(

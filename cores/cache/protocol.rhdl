@@ -1,0 +1,132 @@
+#lang rhodium
+/* Defines shared physical memory payloads and cache/uncached service contracts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  "operation.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/rtl/atomic.rhdl" open
+  "../../riscv/rtl/zihintntl.rhdl" open
+  "../load-store.rhdl" open
+  lib("rhodium/std/ready-valid.rhdl") open
+
+/* Distinguishes speculative hit, replay, slow-service, and translation/permission fault
+   outcomes. */
+hardware_enum CachePipelineOutcome:
+  Slow
+  LoadHit
+  StoreHit
+  Replay
+  PageFault
+  AccessFault
+
+/* Records why a speculative access could not complete on its hit path. */
+hardware_enum CachePipelineReason:
+  None
+  ArrayPort
+  StoreDependency
+  StoreCapacity
+  Probe
+  Miss
+  Translation
+  Ordered
+
+/* Carries the translated speculative access controls without permission to mutate or allocate. */
+bundle CachePipelineReq(xlen :: XLen):
+  byte_mask: Bits(memory_word_bytes(xlen))
+  address: Bits(xlen.width)
+  access: CacheOperation
+  width: MemoryWidth
+  unsigned: Bool
+  data: Bits(xlen.width)
+
+/* Returns the physical-resolution decision, diagnostic reason, and selected load data. */
+bundle CachePipelineResult(xlen :: XLen):
+  outcome: CachePipelineOutcome
+  reason: CachePipelineReason
+  data: Bits(xlen.width)
+
+/* Pairs fixed-cycle lookup outcomes with next-cycle authorization of the matching store candidate.
+   Replay repeats lookup; only Slow uses the authorized transaction service. */
+interface CachePipelineAccess(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Valid(CachePipelineReq(xlen))
+    commit: Bool
+
+  responder -> requester:
+    response: Valid(CachePipelineResult(xlen))
+    commit_ready: Bool
+
+/* Carries an authorized physical transaction and an uninterpreted caller-owned context. */
+bundle PhysicalMemoryReq(xlen :: XLen, Context :: DataType):
+  byte_mask: Bits(memory_word_bytes(xlen))
+  address: Bits(xlen.width)
+  access: CacheOperation
+  atomic: RiscvAtomicOperation
+  width: MemoryWidth
+  unsigned: Bool
+  data: Bits(xlen.width)
+  context: Context
+  locality: RiscvMemoryLocality
+
+/* Returns completion status and load data with the caller's context unchanged. */
+bundle PhysicalMemoryResp(xlen :: XLen, Context :: DataType):
+  // Management retains retirement context for delayed faults. Other current
+  // engines report rejection before acceptance and return successful responses.
+  access_fault: Bool
+  data: Bits(xlen.width)
+  context: Context
+
+/* Exposes authorized request admission, preacceptance faults, tagged completion, drain, and
+   reservation. */
+interface CacheAccess(xlen :: XLen, Context :: DataType):
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Decoupled(PhysicalMemoryReq(xlen, Context))
+
+  responder -> requester:
+    request_fault: Bool
+    request_access_fault: Bool
+    response: Decoupled(PhysicalMemoryResp(xlen, Context))
+    drained: Bool
+    reservation_valid: Bool
+
+export:
+  CachePipelineReq
+  CachePipelineResult
+  CachePipelineAccess
+  CachePipelineOutcome
+  CachePipelineReason
+  PhysicalMemoryReq
+  PhysicalMemoryResp
+  CacheAccess
+
+/* Pairs a physical transaction with its resolved strongly ordered attribute. */
+bundle UncachedMemoryReq(xlen :: XLen, Context :: DataType):
+  request: PhysicalMemoryReq(xlen, Context)
+  device: Bool
+
+/* Exposes nonallocating admission, opaque-context completion, and transaction drain. */
+interface UncachedMemoryAccess(xlen :: XLen, Context :: DataType):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(UncachedMemoryReq(xlen, Context))
+  responder -> requester:
+    request_fault: Bool
+    request_access_fault: Bool
+    response: Decoupled(PhysicalMemoryResp(xlen, Context))
+    drained: Bool
+
+export:
+  UncachedMemoryReq
+  UncachedMemoryAccess

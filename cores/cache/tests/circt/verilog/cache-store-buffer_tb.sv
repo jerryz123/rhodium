@@ -1,6 +1,6 @@
-// Checks four committed stores, physical hazards, FIFO order, bounded age, and full replacement.
+// Checks the shared committed-store FIFO, physical hazards, bounded age, and full replacement.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_store_buffer_tb;
+module cache_store_buffer_tb;
   typedef struct packed {
     logic [63:0] address;
     logic way;
@@ -19,7 +19,7 @@ module rv5stage_store_buffer_tb;
   logic word_hazard, line_hazard, queued_word_hazard, queued_line_hazard;
   logic empty, full, urgent;
   logic [2:0] count;
-  RV5StageStoreBuffer dut(.*);
+  CacheStoreBuffer dut(.*);
   always #5 clock=~clock;
   task automatic tick;
     @(posedge clock); #1;

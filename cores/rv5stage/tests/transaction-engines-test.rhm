@@ -7,21 +7,21 @@ import:
   "../chi/foundation.rhdl" as core_chi
 
 check:
-  core_chi.RV5StageCopyBackResponses.milestones ~is ["grant"]
-  core_chi.RV5StageCopyBackResponses.response_opcodes ~is [
+  core_chi.CacheCopyBackResponses.milestones ~is ["grant"]
+  core_chi.CacheCopyBackResponses.response_opcodes ~is [
     CHIRspOpcode.RetryAck,
     CHIRspOpcode.PCrdGrant,
     CHIRspOpcode.CompDBIDResp
   ]
-  core_chi.RV5StageRefillResponses.milestones ~is []
-  core_chi.RV5StageRefillResponses.response_opcodes ~is [
+  core_chi.CacheRefillResponses.milestones ~is []
+  core_chi.CacheRefillResponses.response_opcodes ~is [
     CHIRspOpcode.RetryAck,
     CHIRspOpcode.PCrdGrant
   ]
-  core_chi.RV5StageWriteUniqueResponses.milestones ~is ["dbid", "completion"]
-  core_chi.RV5StageWriteUniqueResponses.milestone_mask("dbid") ~is 1
-  core_chi.RV5StageWriteUniqueResponses.milestone_mask("completion") ~is 2
-  core_chi.RV5StageWriteUniqueResponses.response_opcodes ~is [
+  core_chi.CacheWriteUniqueResponses.milestones ~is ["dbid", "completion"]
+  core_chi.CacheWriteUniqueResponses.milestone_mask("dbid") ~is 1
+  core_chi.CacheWriteUniqueResponses.milestone_mask("completion") ~is 2
+  core_chi.CacheWriteUniqueResponses.response_opcodes ~is [
     CHIRspOpcode.RetryAck,
     CHIRspOpcode.PCrdGrant,
     CHIRspOpcode.DBIDResp,

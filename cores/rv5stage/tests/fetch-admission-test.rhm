@@ -12,7 +12,7 @@ import:
   "../mmu/mmu.rhdl".RV5StageMmu
   "../profile.rhm" open
   "../icache/cache.rhdl".RV5StageL1ICache
-  "../cache.rhdl".RV5StageCacheConfig
+  "../../cache/geometry.rhdl".CacheConfig
   "params.rhdl" as test_params
 
 // Reuse the verifier's leaf and sequential-cut semantics, including child ports.
@@ -93,7 +93,7 @@ for (path in [["valid"], ["bits"]]):
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["response", "bits", "replay"])
 check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_memory_in", ["response", "bits", "replay"])
 
-def cache = embedded.run_elaboration_with_top(fun (): RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config))
+def cache = embedded.run_elaboration_with_top(fun (): RV5StageL1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config))
 for (path in [["s1_kill"], ["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", path)
 check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"], #true)

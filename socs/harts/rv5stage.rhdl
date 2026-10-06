@@ -10,7 +10,7 @@ import:
 
 /* Packages RV5Stage's profile, 64-byte cache-line contract, and factories as a core-neutral hart binding. */
 fun rv5stage_hart(profile :: RV5StageConfig) :: RiscvHartImplementation:
-  RiscvHartImplementation("RV5Stage", "rv5stage", profile, profile.hart_description, RV5StageCacheLineBytes,
+  RiscvHartImplementation("RV5Stage", "rv5stage", profile, profile.hart_description, CacheLineBytes,
                           rv5stage_chi_params,
                           fun (selected, reset_address, chi):
                             RV5Stage(selected, ~reset_address: reset_address, ~chi: chi))

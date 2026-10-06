@@ -1,7 +1,7 @@
-// Checks copyback residency boundaries against public command/completion handshakes.
+// Checks shared copyback residency against public command/completion handshakes.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
-#include "rv5stage-copyback_manifest.h"
+#include "cache-copyback_manifest.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>

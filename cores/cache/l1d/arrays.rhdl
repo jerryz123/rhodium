@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm" open
+  "../config.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("chi/protocol/coherence.rhdl").CHICacheState
   lib("rhodium/std/bits.rhdl") open
@@ -12,10 +12,10 @@ import:
 
 /* Provides independent synchronous tag, coherent-state, and byte-masked data SRAMs.
    The cache scheduler owns arbitration and way-major lane masks. */
-sync_circuit RV5StageDCacheArrays(xlen :: XLen, cache :: RV5StageCacheConfig):
+sync_circuit CacheDCacheArrays(xlen :: XLen, cache :: CacheConfig):
   def word_bytes = xlen.width / 8
-  def depth = cache.sets * (RV5StageCacheLineBytes / word_bytes)
-  def tag_width = xlen.width - alignment_bits(RV5StageCacheLineBytes) - cache.set_width
+  def depth = cache.sets * (CacheLineBytes / word_bytes)
+  def tag_width = xlen.width - alignment_bits(CacheLineBytes) - cache.set_width
   interface tags(ReadWritePort(cache.set_width, Bits(tag_width), cache.ways), ~role: responder)
   interface states(ReadWritePort(cache.set_width, CHICacheState, cache.ways), ~role: responder)
   interface data(ReadWritePort(index_width(depth), Bits(8), cache.ways * word_bytes), ~role: responder)
@@ -27,4 +27,4 @@ sync_circuit RV5StageDCacheArrays(xlen :: XLen, cache :: RV5StageCacheConfig):
   data |> data_storage.port
 
 export:
-  RV5StageDCacheArrays
+  CacheDCacheArrays

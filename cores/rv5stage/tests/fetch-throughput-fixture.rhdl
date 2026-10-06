@@ -2,6 +2,8 @@
 // Exercises cold-refill recovery and steady-state frontend/MMU/L1I throughput.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../memory-context.rhdl" open
+  "../../cache/protocol.rhdl" open
   "fetch-fixture.rhdl" open
   lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/fetch/bpd/protocol.rhdl") open
@@ -11,8 +13,8 @@ import:
   lib("cores/rv5stage/instruction-memory-router.rhdl") open
   lib("cores/rv5stage/icache/cache.rhdl") open
   lib("cores/rv5stage/icache/protocol.rhdl") open
-  lib("cores/rv5stage/dcache/protocol.rhdl") open
-  lib("cores/rv5stage/cache.rhdl") open
+  lib("cores/rv5stage/memory-context.rhdl") open
+  lib("cores/cache/geometry.rhdl") open
   lib("cores/rv5stage/tests/params.rhdl") open
   lib("cores/cache-prefetch.rhdl") open
   lib("riscv/isa/c.rhm").CCompressedExtensions
@@ -43,7 +45,7 @@ sync_circuit RV5StageFetchThroughput():
   mmu.vector_fast.pipeline_physical <== Bool(#false)
   mmu.vector_fast.request_physical <== Bool(#false)
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
-  inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
+  inst cache(RV5StageL1ICache(XLen.X64, CacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
   fetch.control.active <== active
   inject_interface(Pulse(), ~valid: Bool(#false)) |> fetch.control.flush
   inject_interface(Valid(Bits(64)), ~valid: restart, ~bits: start_pc) |> fetch.control.restart
@@ -79,23 +81,23 @@ sync_circuit RV5StageFetchThroughput():
   mmu.data.response.ready <== Bool(#true)
   mmu.pipeline.request.valid <== Bool(#false)
   mmu.pipeline.commit <== Bool(#false)
-  mmu.pipeline.request.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  mmu.pipeline.request.bits <== literal(CachePipelineReq(XLen.X64), 0)
   mmu.pipeline_memory.response.valid <== Bool(#false)
   mmu.pipeline_memory.commit_ready <== Bool(#false)
-  mmu.pipeline_memory.response.bits <== literal(RV5StagePipelineResult(XLen.X64), 0)
-  mmu.data.request.bits <== literal(RV5StageDataReq(XLen.X64, 8), 0)
+  mmu.pipeline_memory.response.bits <== literal(CachePipelineResult(XLen.X64), 0)
+  mmu.data.request.bits <== literal(PhysicalMemoryReq(XLen.X64, RV5StageMemoryContext(8)), 0)
   mmu.core_memory.request.ready <== Bool(#true)
   mmu.core_memory.request_fault <== Bool(#false)
   mmu.core_memory.request_access_fault <== Bool(#false)
   mmu.core_memory.response.valid <== Bool(#false)
-  mmu.core_memory.response.bits <== literal(RV5StageDataResp(XLen.X64, 8), 0)
+  mmu.core_memory.response.bits <== literal(PhysicalMemoryResp(XLen.X64, RV5StageMemoryContext(8)), 0)
   mmu.core_memory.drained <== Bool(#true)
   mmu.core_memory.reservation_valid <== Bool(#false)
   mmu.walker_memory.request.ready <== Bool(#true)
   mmu.walker_memory.request_fault <== Bool(#false)
   mmu.walker_memory.request_access_fault <== Bool(#false)
   mmu.walker_memory.response.valid <== Bool(#false)
-  mmu.walker_memory.response.bits <== literal(RV5StageDataResp(XLen.X64, 8), 0)
+  mmu.walker_memory.response.bits <== literal(PhysicalMemoryResp(XLen.X64, RV5StageMemoryContext(8)), 0)
   mmu.walker_memory.drained <== Bool(#true)
   mmu.walker_memory.reservation_valid <== Bool(#false)
   cache.node_id <== bits(2, 7)

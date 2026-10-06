@@ -3,8 +3,8 @@
 module rv5stage_dcache_rv32_tb;
   `include "cores/rv5stage/tests/circt/verilog/rv5stage-amo-reference.svh"
   typedef struct packed { logic ready; } ready_t;
-  typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
-  typedef struct packed { logic valid; RV5StageDataResp bits; } response_t;
+  typedef struct packed { logic valid; PhysicalMemoryReq bits; } request_t;
+  typedef struct packed { logic valid; PhysicalMemoryResp bits; } response_t;
   typedef struct packed { request_t request; ready_t response; } core_in_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; response_t response; logic drained; logic reservation_valid; } core_out_t;
   typedef struct packed { logic valid; CachePrefetchReq bits; } prefetch_t;
@@ -31,12 +31,12 @@ module rv5stage_dcache_rv32_tb;
   integer acknowledgements = 0;
   logic [6:0] expected_opcode = 7'h07;
   logic [43:0] expected_address = 44'h1000;
-  typedef struct packed {logic valid; RV5StagePipelineReq bits;} pipeline_request_t;
-  typedef struct packed {logic valid; RV5StagePipelineResult bits;} pipeline_response_t;
+  typedef struct packed {logic valid; CachePipelineReq bits;} pipeline_request_t;
+  typedef struct packed {logic valid; CachePipelineResult bits;} pipeline_response_t;
   pipeline_request_t pipeline_lookup_in='0;
   struct packed {pipeline_request_t request; logic commit;} pipeline_in='0;
   struct packed {pipeline_response_t response; logic commit_ready;} pipeline_out;
-  RV5StageL1DCache dut (.*);
+  L1DCache dut (.*);
 
   task automatic tick;
     if (!reset) begin
@@ -70,7 +70,7 @@ module rv5stage_dcache_rv32_tb;
     core_in.request.bits.locality = locality;
     core_in.request.bits.data = data;
     core_in.request.bits.atomic = atomic;
-    core_in.request.bits.writeback = access inside {4'd1, 4'd3, 4'd4, 4'd5} ? 9'h080 : 9'b0;
+    core_in.request.bits.context_0.writeback = access inside {4'd1, 4'd3, 4'd4, 4'd5} ? 9'h080 : 9'b0;
     core_in.request.valid = 1;
     tick();
     core_in.request.valid = 0;
