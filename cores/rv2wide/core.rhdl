@@ -100,7 +100,7 @@ sync_circuit RV2WideCore():
   wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "m", "c", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.M, MisaExtension.C, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)))
+  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "m", "c", "zba", "zbb", "zbs", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.M, MisaExtension.C, MisaExtension.B, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)))
   translation_state <== RV2WideTranslationState():
     privilege: wb_csrs.privilege
     mstatus: wb_csrs.mstatus

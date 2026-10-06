@@ -261,6 +261,9 @@ relations and pure M/Zmmul catalogs; the composed decoder retains unused-field
 care masks. `long-execution.rhdl` directly instantiates the shared pipelined
 multiplier and iterative divider with Flow owner storage. Its core consumes
 the shared request types and arbitrates all deferred results through Flow.
+The RV2Wide decoder also consumes the pure B/Zba/Zbb/Zbs catalogs and joins
+the existing shared `RV64BAluCases` relation; operand and inactive memory/system
+columns remain named-core policy. No additional ALU or named-core dependency is introduced.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus

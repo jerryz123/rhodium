@@ -6,7 +6,7 @@
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes RV64IM and integer C:
+independently usable RR-through-WB execution slice. It executes RV64IMB and integer C:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
 It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, SFENCE.VMA, FENCE, and FENCE.I at WB.
@@ -118,6 +118,14 @@ resolver serves either age slot, and two branches cannot issue together.
 The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
 relations joined to RV2Wide operand/writeback controls.
+
+The complete B extension (Zba, Zbb, and Zbs) uses that same ALU and EX timing in
+either slot. Independent B instructions can dual-issue, and their results forward
+through the ordinary integer paths. Unary/immediate instructions do not create a
+false dependency on their encoded subopcode or shift amount. `.UW` instructions
+zero-extend rs1's low word before full-width arithmetic; word rotates and counts
+have their own word-result semantics. There is no separate bit-manipulation unit
+or additional execution stage. The CSR bank declares Zba/Zbb/Zbs and the MISA B bit.
 
 EX, MEM, and WB use feed-forward Flow `ValidPipe` registers. Forwarding searches
 both lanes, preferring the youngest older producer. A matching unavailable
@@ -343,7 +351,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no A/B decode, floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
+There is no A decode, floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
 claim. It is not selectable through the SoC configuration resolver.

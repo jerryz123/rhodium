@@ -293,6 +293,74 @@ module rv2wide_core_tb;
     end
   endtask
 
+  // Independent architectural B oracle: bit loops rather than the RTL's shared
+  // shifter/count/adder implementation. Results include each instruction's own
+  // word projection; ADD.UW, SLLI.UW, and ZEXT.H are not sign-extended word ops.
+  function automatic bit bitmanip_value(logic [31:0] word, logic [63:0] a,b, output logic [63:0] value);
+    int op=int'(word[6:0]), f3=int'(word[14:12]), f7=int'(word[31:25]);
+    int n=(op=='h3b || op=='h1b) ? 32 : 64;
+    int shift=int'(b[5:0]);
+    bit right;
+    value=0;
+    if(op=='h13 || op=='h1b) begin
+      if(f3==1 && word[31:20]>='h600 && word[31:20]<='h602) begin
+        case(word[21:20])
+          0: begin value=64'(n); for(int i=0;i<n;i++) if(a[i]) value=64'(n)-64'd1-64'(i); end
+          1: begin value=64'(n); for(int i=n-1;i>=0;i--) if(a[i]) value=64'(i); end
+          2: for(int i=0;i<n;i++) value+=64'(a[i]);
+        endcase
+        return 1;
+      end
+      if(op=='h13 && f3==1 && word[31:20]=='h604) begin value={{56{a[7]}},a[7:0]}; return 1; end
+      if(op=='h13 && f3==1 && word[31:20]=='h605) begin value={{48{a[15]}},a[15:0]}; return 1; end
+      if(op=='h13 && f3==5 && word[31:20]=='h287) begin
+        for(int i=0;i<8;i++) value[i*8+:8]=a[i*8+:8]!=0 ? 8'hff : 0;
+        return 1;
+      end
+      if(op=='h13 && f3==5 && word[31:20]=='h6b8) begin
+        for(int i=0;i<8;i++) value[i*8+:8]=a[(7-i)*8+:8];
+        return 1;
+      end
+      shift=int'(word[25:20]);
+      if(op=='h1b && f3==1 && word[31:26]==2) begin value={32'd0,a[31:0]}<<shift; return 1; end
+      if((op=='h13 && word[31:26]=='h18 && f3==5) || (op=='h1b && f7=='h30 && f3==5)) right=1;
+      else if(op=='h13 && word[31:26]=='h12 && f3==1) begin value=a&~(64'd1<<shift); return 1; end
+      else if(op=='h13 && word[31:26]=='h12 && f3==5) begin value=64'(a[shift]); return 1; end
+      else if(op=='h13 && word[31:26]=='h1a && f3==1) begin value=a^(64'd1<<shift); return 1; end
+      else if(op=='h13 && word[31:26]=='h0a && f3==1) begin value=a|(64'd1<<shift); return 1; end
+      else return 0;
+    end else if(op=='h33 || op=='h3b) begin
+      if(f7=='h10 && (f3==2 || f3==4 || f3==6)) begin
+        value=((op=='h3b ? {32'd0,a[31:0]} : a)<<(f3/2))+b; return 1;
+      end
+      if(op=='h3b && f7==4 && f3==0) begin value={32'd0,a[31:0]}+b; return 1; end
+      if(op=='h3b && f7==4 && f3==4 && word[24:20]==0) begin value={48'd0,a[15:0]}; return 1; end
+      if(op=='h33 && f7=='h20) case(f3)
+        4: begin value=~(a^b); return 1; end
+        6: begin value=a|~b; return 1; end
+        7: begin value=a&~b; return 1; end
+        default: return 0;
+      endcase
+      if(op=='h33 && f7==5) case(f3)
+        4: begin value=$signed(a)<$signed(b) ? a : b; return 1; end
+        5: begin value=a<b ? a : b; return 1; end
+        6: begin value=$signed(a)>$signed(b) ? a : b; return 1; end
+        7: begin value=a>b ? a : b; return 1; end
+        default: return 0;
+      endcase
+      if(f7=='h30 && (f3==1 || f3==5)) right=f3==5;
+      else if(op=='h33 && f7=='h24 && f3==1) begin value=a&~(64'd1<<shift); return 1; end
+      else if(op=='h33 && f7=='h24 && f3==5) begin value=64'(a[shift]); return 1; end
+      else if(op=='h33 && f7=='h34 && f3==1) begin value=a^(64'd1<<shift); return 1; end
+      else if(op=='h33 && f7=='h14 && f3==1) begin value=a|(64'd1<<shift); return 1; end
+      else return 0;
+    end else return 0;
+    shift%=n;
+    for(int i=0;i<n;i++) value[i]=a[right ? (i+shift)%n : (i+n-shift)%n];
+    if(n==32) value={{32{value[31]}},value[31:0]};
+    return 1;
+  endfunction
+
   task automatic expect_instruction(logic [63:0] pc, logic [31:0] word);
     retirement_t item;
     logic [63:0] a, b, value, immediate;
@@ -305,6 +373,7 @@ module rv2wide_core_tb;
     op = int'(word[6:0]); f3 = int'(word[14:12]); f7 = int'(word[31:25]);
     writes = 1;
     value = 0;
+    if(!bitmanip_value(word,a,b,value)) begin
     case (op)
       'h37: value = {{32{word[31]}}, word[31:12], 12'b0};
       'h17: value = pc + {{32{word[31]}}, word[31:12], 12'b0};
@@ -380,6 +449,7 @@ module rv2wide_core_tb;
       default: $fatal(1, "oracle unsupported instruction %h", word);
     endcase
     if (op == 'h1b || op == 'h3b) value = {{32{value[31]}}, value[31:0]};
+    end
     item = '0;
     item.fetched.pc = pc; item.fetched.instruction = word; item.fetched.raw_instruction = word; item.fetched.sequential_pc = pc + 4;
     item.rd = word[11:7]; item.write = writes && word[11:7] != 0; item.data = value;
@@ -389,6 +459,54 @@ module rv2wide_core_tb;
 
   function automatic logic [31:0] m_insn(int rd, rs1, rs2, funct3, bit word=0);
     return {7'd1,5'(rs2),5'(rs1),3'(funct3),5'(rd),word ? 7'h3b : 7'h33};
+  endfunction
+  function automatic logic [31:0] b_insn(int operation, rd, rs1, rs2, shift=0);
+    logic [31:0] word;
+    bit binary_source=1;
+    case(operation)
+      0: word=32'h20002033; // SH1ADD
+      1: word=32'h20004033; // SH2ADD
+      2: word=32'h20006033; // SH3ADD
+      3: word=32'h0800003b; // ADD.UW
+      4: word=32'h2000203b; // SH1ADD.UW
+      5: word=32'h2000403b; // SH2ADD.UW
+      6: word=32'h2000603b; // SH3ADD.UW
+      7: begin word=32'h0800101b|(32'(shift&63)<<20); binary_source=0; end // SLLI.UW
+      8: word=32'h40007033; // ANDN
+      9: word=32'h40006033; // ORN
+      10: word=32'h40004033; // XNOR
+      11: begin word=32'h60001013; binary_source=0; end // CLZ
+      12: begin word=32'h6000101b; binary_source=0; end // CLZW
+      13: begin word=32'h60101013; binary_source=0; end // CTZ
+      14: begin word=32'h6010101b; binary_source=0; end // CTZW
+      15: begin word=32'h60201013; binary_source=0; end // CPOP
+      16: begin word=32'h6020101b; binary_source=0; end // CPOPW
+      17: word=32'h0a004033; // MIN
+      18: word=32'h0a005033; // MINU
+      19: word=32'h0a006033; // MAX
+      20: word=32'h0a007033; // MAXU
+      21: begin word=32'h28705013; binary_source=0; end // ORC.B
+      22: begin word=32'h6b805013; binary_source=0; end // REV8
+      23: word=32'h60001033; // ROL
+      24: word=32'h6000103b; // ROLW
+      25: word=32'h60005033; // ROR
+      26: word=32'h6000503b; // RORW
+      27: begin word=32'h60005013|(32'(shift&63)<<20); binary_source=0; end // RORI
+      28: begin word=32'h6000501b|(32'(shift&31)<<20); binary_source=0; end // RORIW
+      29: begin word=32'h60401013; binary_source=0; end // SEXT.B
+      30: begin word=32'h60501013; binary_source=0; end // SEXT.H
+      31: begin word=32'h0800403b; binary_source=0; end // ZEXT.H
+      32: word=32'h48001033; // BCLR
+      33: begin word=32'h48001013|(32'(shift&63)<<20); binary_source=0; end // BCLRI
+      34: word=32'h48005033; // BEXT
+      35: begin word=32'h48005013|(32'(shift&63)<<20); binary_source=0; end // BEXTI
+      36: word=32'h68001033; // BINV
+      37: begin word=32'h68001013|(32'(shift&63)<<20); binary_source=0; end // BINVI
+      38: word=32'h28001033; // BSET
+      39: begin word=32'h28001013|(32'(shift&63)<<20); binary_source=0; end // BSETI
+      default: $fatal(1,"unknown authored B operation");
+    endcase
+    return word|(32'(rs1)<<15)|(32'(rd)<<7)|(binary_source ? 32'(rs2)<<20 : 0);
   endfunction
   // Construct arbitrary architectural operands through real instructions.
   task automatic constant64(ref logic [63:0] pc, input int rd, input logic [63:0] value);
@@ -1051,7 +1169,48 @@ module rv2wide_core_tb;
     reset_core(); send('h9600,imm(1,0,17),imm(2,0,3)); drain();
     stop_at('h9608,'h9700); send('h9608,jump(0,'hf8),m_insn(3,1,2,0),2,1,0); drain();
     send('h9700,imm(3,0,5),imm(4,3,1)); drain();
-    csr_access('h9708,2,5,0,'h301,64'h8000000000141104);
+    csr_access('h9708,2,5,0,'h301,64'h8000000000141106);
+    // Complete B catalog in both issue slots, with independent paired B work
+    // and dependent consumers. Dirty upper words expose .UW/word/unary shaping.
+    for(int scenario=0;scenario<7;scenario++) begin
+      logic [63:0] pc='hb000;
+      logic [63:0] a,b;
+      int shift;
+      reset_core();
+      case(scenario)
+        0: begin a=0; b=0; shift=0; end
+        1: begin a='1; b='1; shift=63; end
+        2: begin a=64'h800000007fffffff; b=64'h8000000000000020; shift=32; end
+        3: begin a=64'h0123456789abcdef; b=64'hfedcba987654321f; shift=31; end
+        4: begin a=64'h8000000080000001; b=64'h8000000000000041; shift=1; end
+        5: begin a=64'h8000000000000000; b=63; shift=63; end
+        6: begin a=1; b=64; shift=0; end
+      endcase
+      constant64(pc,1,a); constant64(pc,2,b); drain();
+      for(int operation=0;operation<40;operation++) begin
+        send(pc,b_insn(operation,3,1,2,shift),b_insn((operation+1)%40,4,1,2,shift)); pc+=8;
+        send(pc,imm(5,3,1),regop(6,4,3,4)); pc+=8;
+      end
+      drain();
+      assert(model[0]==0) else $fatal(1,"B changed x0");
+    end
+    // Unary and shift-immediate encoding bits are not a GPR dependency. The
+    // pending divider owns x2 while CPOP (imm[4:0]=2) executes without waiting.
+    reset_core();
+    begin
+      logic [63:0] pc='hc000;
+      constant64(pc,1,64'h7fffffffffffffff); send(pc,imm(2,0,3),imm(3,0,63)); drain();
+    end
+    send('hc100,m_insn(2,1,2,4),b_insn(15,4,1,0));
+    send('hc108,b_insn(33,5,1,0,2),b_insn(34,6,1,3));
+    repeat(12) tick();
+    assert(expected.size()==0 && expected_completions.size()==1) else $fatal(1,"B source-use false interlock");
+    send('hc110,b_insn(0,7,2,3),b_insn(31,0,1,0)); drain();
+    // A deferred return feeding B and a B result feeding M share the ordinary
+    // forwarding policy; WAW against a deferred owner still waits for RF write.
+    send('hc118,m_insn(8,1,3,0),b_insn(24,9,1,3));
+    send('hc120,b_insn(21,10,8,0),m_insn(11,9,3,0));
+    send('hc128,b_insn(29,8,10,0),b_insn(38,12,11,3)); drain();
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops", commits, dual_commits, stops);
     $finish;

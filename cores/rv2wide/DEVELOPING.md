@@ -24,6 +24,10 @@ instruction-kind enum followed by a second runtime control decoder.
 Core control rows join exact canonical instruction patterns using
 `component_output`, following RV5Stage's composition pattern. Unobserved
 payload controls stay don't-cares behind cared enables/source-use bits.
+The complete B catalog joins `RV64BAluCases` into each existing decoder.
+Operand policy distinguishes binary, unary, and immediate B operations; only
+observed routing fields are constrained. Reuse each slot's existing shared ALU
+and forwarding paths rather than adding a bit-manipulation unit or decoder.
 
 ## Implementation map
 
@@ -232,6 +236,13 @@ and loads, cross-service completion ownership, RAW/WAW interlocks, x0, and rejec
 versus accepted operations across branch/trap recovery. A dependent multiply
 consumer must reach MEM within six cycles of its producer's MEM token; repeated
 consumers cover forwarding through every return-pipeline stage.
+B scenarios cover every RV64 Zba/Zbb/Zbs instruction in both age slots, with
+zero/all-one/sparse/mixed operands, shift boundaries, dirty upper words, and
+independent paired work plus dependent consumers. A pending divider tests false
+rs2 interlocks on unary/immediate encodings; mixed B/M sequences test deferred
+forwarding and WAW. The fetching fixture also passes B results through the real
+LSU, compressed consumers, and a draining WFI. The oracle uses independent bit
+loops and architectural result rules, not RTL decode/control fields.
 It also checks all six CSR forms, source-index write intent, counter counts and
 write priority, M/S trap state and returns, younger-fault older retirement,
 WB-over-MEM CSR recovery, accepted-load drain before CSR/interrupt entry, live

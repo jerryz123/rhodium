@@ -206,7 +206,10 @@ module rv2wide_fetch_tb;
     value=0; write_rd=0; reference_pc+=length;
     case(word[6:0])
       7'h13: begin
-        value=word[14:12]==1 ? registers[rs1]<<word[25:20] : registers[rs1]+64'($signed(word[31:20]));
+        if(word[31:26]=='h0a && word[14:12]==1) value=registers[rs1]|(64'd1<<word[25:20]);
+        else if(word[31:20]=='h6b8 && word[14:12]==5)
+          for(int b=0;b<8;b++) value[b*8+:8]=registers[rs1][(7-b)*8+:8];
+        else value=word[14:12]==1 ? registers[rs1]<<word[25:20] : registers[rs1]+64'($signed(word[31:20]));
         write_rd=rd!=0;
       end
       7'h37: begin value=64'($signed({word[31:12],12'b0})); write_rd=rd!=0; end
@@ -217,6 +220,7 @@ module rv2wide_fetch_tb;
           5: value=registers[rs2]==0 ? '1 : registers[rs1]/registers[rs2];
           default: $fatal(1,"unmodeled fetching M instruction");
         endcase
+        else if(word[31:25]=='h10 && word[14:12]==4) value=(registers[rs1]<<2)+registers[rs2];
         else value=registers[rs1]+registers[rs2];
         if(word[6:0]==7'h3b) value={{32{value[31]}},value[31:0]};
         write_rd=rd!=0;
@@ -686,6 +690,23 @@ module rv2wide_fetch_tb;
     @(negedge clock); start_in='0;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(registers[10]==-64'd119 && registers[12]==-64'd17 && registers[13]==-64'd17 && registers[14]==-64'd119 && completions.size()==0 && reference_pc=='h61c) else $fatal(1,"fetching M service/drain");
+    // B results feed the production LSU and compressed consumers without an
+    // extra execution stage; retain all bits through store/load forwarding.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    parcel('h700,c_imm(2,8,17)); parcel('h702,c_imm(2,9,3));
+    insn('h704,{7'h10,5'd9,5'd8,3'd4,5'd10,7'h33}); // SH2ADD
+    insn('h708,{6'h0a,6'd63,5'd10,3'd1,5'd11,7'h13}); // BSETI
+    insn('h70c,{12'h6b8,5'd11,3'd5,5'd12,7'h13}); // REV8
+    insn('h710,addi(1,0,'h400)); insn('h714,store(12,1,0,3)); insn('h718,load(13,1,0,3));
+    parcel('h71c,16'h8736); insn('h71e,32'h10500073); // C.MV x14,x13; WFI
+    phase=21; reference_pc='h700;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h700};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(registers[10]==71 && registers[11]==64'h8000000000000047 && registers[12]==64'h4700000000000080 && registers[13]==registers[12] && registers[14]==registers[12] && completions.size()==0 && reference_pc=='h722)
+      else $fatal(1,"fetching B/LSU/forwarding");
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
     $finish;
   end
