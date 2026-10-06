@@ -29,7 +29,9 @@ def ports(length, record):
             ('updatedstate', length*bits, vector), ('fused', length*bits, vector),
             ('fusedold', bits, element), ('shared', length*bits, vector),
             ('sharedcopy', length*bits, vector), ('sharedupdate', length*bits, vector),
-            ('unreset', length*bits, vector)]
+            ('unreset', length*bits, vector), ('nestedbase', length*bits, vector),
+            ('nestednext', length*bits, vector), ('nestedstate', length*bits, vector),
+            ('nestedold', bits, element), ('nestedrow', bits, element)]
 
 
 OUTPUT_COUNT = sum(len(fields) for _, _, fields in ports(4, True))
@@ -38,6 +40,20 @@ OUTPUT_COUNT = sum(len(fields) for _, _, fields in ports(4, True))
 def element(a, b, seed, record):
     data = (a + seed) & MASK64
     return (data & 31, data, b ^ seed) if record else (data,)
+
+
+def nested_versions(state, a, b, record, enables, i0, i1, selector, valid):
+    work = list(state)
+    if enables & 2:
+        if i1 < len(work):
+            work[i1] = element(a, b, 71, record)
+    elif enables & 1:
+        if i0 < len(work):
+            work[i0] = element(a, b, 67, record)
+    grant = list(work)
+    if valid and selector < len(grant):
+        grant[selector] = element(a, b, 73, record)
+    return work, grant
 
 
 def stimuli():
@@ -56,6 +72,7 @@ def stimuli():
         zero = (0, 0, 0) if record else (0,)
         state, captured, updated_state = [zero] * length, zero, [zero] * length
         fused, fused_old = [zero] * length, zero
+        nested, nested_old = [zero] * length, zero
         shared_copy, shared_update, unreset = [zero] * length, [zero] * length, [zero] * length
         for tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, a, b in commands:
             selector, i0, i1 = (x & (encodings - 1) for x in (raw_selector, raw_i0, raw_i1))
@@ -67,6 +84,9 @@ def stimuli():
             writes = {index: replacements[port] for port, index in enumerate((i0, i1))
                       if enables & (1 << port)} if valid else {}
             if tick:
+                _, next_nested = nested_versions(nested, a, b, record, enables, i0, i1, selector, valid)
+                nested_old = zero if reset else nested[0]
+                nested = [zero] * length if reset else next_nested
                 old_shared = [element(a, b, 53, record) if i == selector else old for i, old in enumerate(fused)]
                 shared_copy = [zero] * length if reset else old_shared
                 shared_update = [zero] * length if reset else [element(a, b, 59, record)] + old_shared[1:]
@@ -91,6 +111,8 @@ def stimuli():
             results = [read] + injected + written + written + state + [captured] + expanded + [expanded[0]] + updated_state
             shared = [element(a, b, 53, record) if i == selector else old for i, old in enumerate(fused)]
             results += fused + [fused_old] + shared + shared_copy + shared_update + unreset
+            work, grant = nested_versions(nested, a, b, record, enables, i0, i1, selector, valid)
+            results += work + grant + nested + [nested_old, work[selector] if selector < length else zero]
             flat = [value for result in results for value in result]
             expected.append(flat + [0] * (OUTPUT_COUNT - len(flat)))
             rows.append([config, tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, int(valid), a, b])

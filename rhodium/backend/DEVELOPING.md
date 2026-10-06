@@ -103,11 +103,21 @@ After scalar CSE, `compact_array_updates` recognizes a complete vector whose
 lanes are `index == lane ? replacement : base[lane]`. All lanes must use the
 same base, index, and replacement, with exact lane constants and original types.
 Wrapped constants or mismatched lanes remain ordinary computations. Equality may
-place the constant on either side; indices remain at most 64 bits. The pass uses
-the existing `rtl.vector_inject` schedule operation, then removes unused value
-producers in dependency order. Inputs, outputs, state sinks, every assertion, and
-foreign/memory operands remain roots; shared lane consumers and all resources
-survive. No high-level library or core IR changes are required.
+place the constant on either side; indices remain at most 64 bits. A lane's old
+value may instead be a static projection distributed through constructors and
+lookup muxes. A memoized structural comparison can recover an earlier whole
+array as the base: require equal array types, exact source/selector identities,
+ordered mux keys and defaults, and matching projections for every lane. Only
+diagnostic names are ignored. Keep original constructor provenance during this
+comparison, including constructors already recognized as updates. Candidate
+buckets and recursion depth are bounded; an unproven match retains its ordinary
+computation. This does not create new whole-value dependencies during scheduling
+or forward reads through updates.
+
+The pass uses the existing `rtl.vector_inject` schedule operation, then removes
+unused value producers in dependency order. Inputs, outputs, state sinks, every
+assertion, and foreign/memory operands remain roots; shared lane consumers and
+all resources survive. No high-level library or core IR changes are required.
 
 Region and storage planning run only after this rewrite and evaluation planning.
 Ordinary array injection copies the base into fresh local or unique scratch
@@ -759,8 +769,10 @@ independently authored duplicate arithmetic and existing state, memory, assertio
 and DPI fixtures at ordinary and forced-small region budgets.
 `tests/rsim-array-updates-test.rhm` checks exact lane matching, wrapped-index
 non-matches, retained shared consumers, deterministic pruning, and effect/resource
-remapping. Dynamic native/direct-SV scoreboards observe expanded updates, shared
-lanes, and old-state capture across reset, eval-only calls, and out-of-range
+remapping. Projected nested muxes must match every lane, selector, and ordered key
+before reusing an earlier aggregate. Dynamic native/direct-SV scoreboards observe
+expanded updates, a prioritized work/grant chain with shared whole-array and row
+consumers, and old-state capture across reset, eval-only calls, and out-of-range
 indices. Constant-ROM fixtures cover aggregate updates containing wide leaves.
 `tests/rsim-register-arrays-test.rhm` checks exclusive destination assignments,
 retained shared versions, reset at step zero, unchanged schedule identities, and

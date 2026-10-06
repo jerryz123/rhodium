@@ -91,3 +91,61 @@ check:
   plan.schedule ~is compact_array_updates(original)
   plan.schedule.steps.length() < original.steps.length() ~is #true
   plan.manifest() === prepared.manifest ~is #true
+
+// Nested projected defaults refer to an earlier whole mux. Its constructor
+// branch is itself recovered during this pass, so original lane provenance
+// must remain available until recognition and pruning finish.
+fun projected_fixture(kind :: String = "matching"):
+  def base = fixture(3, 2)
+  def steps = MutableList[]
+  for (step in base.steps): steps.add(step)
+  def vector = base.outputs[0].type
+  def element = vector.element_type
+  fun add(opcode :: String, type :: HardwareType, operands :: List, attributes :: Map = {}):
+    def id = steps.length()
+    steps.add(RsimStep(opcode, type, operands, attributes))
+    id
+  def updated = base.outputs[0].value
+  def choice = add("rtl.mux_lookup", vector, [1, 0, updated, 3], {"keys": [1, 2], "name": "whole"})
+  def lanes = for List (lane in 0..3):
+    def index = if kind == "lane" && lane == 1 | 0 | lane
+    def parts = for List (source in [0, updated, 3]):
+      def projected = if kind == "record"
+      | def wrapper = add("rtl.record_create", RecordType([RecordField("rows", vector)]), [source], {"fields": ["rows"]})
+        add("rtl.record_get", vector, [wrapper], {"field": "rows"})
+      | source
+      add("rtl.vector_get", element, [projected], {"index": index})
+    def keys = if kind == "keys" && lane == 1 | [2, 1] | [1, 2]
+    def selector = if kind == "selector" && lane == 1 | 4 | 1
+    def old = add("rtl.mux_lookup", element, [selector] ++ parts, {"keys": keys, "name": "projected"})
+    def equal = add("rtl.eq", Bits(1), [4, add("rtl.constant", Bits(2), [], {"value": lane})])
+    add("rtl.mux_lookup", element, [equal, old, 5], {"keys": [1]})
+  def result = add("rtl.vector_create", vector, lanes)
+  RsimSchedule(base.name, base.inputs,
+               [RsimPort("base", vector, choice), RsimPort("result", vector, result), RsimPort("lane", element, lanes[1])],
+               steps.snapshot(), base.registers, base.memories, base.writes, base.reads, base.assertions, base.foreign_calls)
+
+for (kind in ["matching", "record", "keys", "selector", "lane"]):
+  def original = projected_fixture(kind)
+  def optimized = compact_array_updates(original)
+  def result = optimized.steps[optimized.outputs[1].value]
+  check:
+    result.opcode ~is (if kind in ["matching", "record"] | "rtl.vector_inject" | "rtl.vector_create")
+    optimized ~is compact_array_updates(optimized)
+    optimized ~is compact_array_updates(original)
+    original.steps[original.outputs[1].value].opcode ~is "rtl.vector_create"
+    optimized.steps[optimized.outputs[2].value].opcode ~is "rtl.mux_lookup"
+  when kind in ["matching", "record"]
+  | check: result.operands[0] ~is optimized.outputs[0].value
+  for (step in optimized.steps, index in 0..optimized.steps.length()):
+    check: (for all (operand in step.operands): operand < index) ~is #true
+
+// The Builder circuit deliberately exposes the base as well as the later
+// update. Preserve that shared version and recover the grant over that value.
+def nested_base = plan.schedule.outputs.find(fun (port): port.name == "nestedbase").value
+def nested_next = plan.schedule.outputs.find(fun (port): port.name == "nestednext").value
+def grant = plan.schedule.steps[plan.schedule.steps[nested_next].operands[2]]
+check:
+  grant.opcode ~is "rtl.vector_inject"
+  grant.operands[0] ~is nested_base
+  plan.schedule ~is compact_array_updates(plan.schedule)

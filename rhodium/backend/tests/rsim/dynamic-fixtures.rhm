@@ -95,5 +95,25 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   def unreset = b.register(top, "qunreset", vector, clock)
   b.drive(unreset.next, b.vector_inject(top, zero_vector, b.constant(top, Bits(index_width), 0), element(61)))
   b.drive(b.output(top, "unreset", vector), unreset.current)
+  // Whole work versions and projected rows coexist. The later expanded grant
+  // must recover one update over the shared nested mux, preserving both views.
+  def nested = b.register(top, "qnested", vector, clock, reset, zero_vector)
+  def nested_old = b.register(top, "nested_old", element_type, clock, reset, zero_element)
+  fun expanded_update(source :: Value, index :: Value, replacement :: Value):
+    def lanes = for List (lane in 0..length):
+      b.mux_lookup(top, b.eq(top, index, b.constant(top, Bits(index_width), lane)), b.vector_get(top, source, lane), [[1, replacement]])
+    b.vector_create(top, vector, lanes)
+  def work_low = expanded_update(nested.current, index0, element(67))
+  def work_high = expanded_update(nested.current, index1, element(71))
+  def work = b.mux_lookup(top, enable_values[1], b.mux_lookup(top, enable_values[0], nested.current, [[1, work_low]]), [[1, work_high]])
+  def grant = expanded_update(work, selector, element(73))
+  def nested_next = b.mux_lookup(top, valid_write, work, [[1, grant]])
+  b.drive(nested.next, nested_next)
+  b.drive(nested_old.next, b.vector_get(top, nested.current, 0))
+  b.drive(b.output(top, "nestedbase", vector), work)
+  b.drive(b.output(top, "nestednext", vector), nested_next)
+  b.drive(b.output(top, "nestedstate", vector), nested.current)
+  b.drive(b.output(top, "nestedold", element_type), nested_old.current)
+  b.drive(b.output(top, "nestedrow", element_type), b.mux_lookup(top, read_ok, zero_element, [[1, b.vector_index(top, work, selector)]]))
   b.finish(top)
   ElaboratedProgram(design, top)

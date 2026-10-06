@@ -8,7 +8,7 @@ import:
 
 export compact_array_updates
 
-/* Match one lane of a total update: index == lane ? replacement : base[lane].
+/* Match a lane selector and return its old value, index, and replacement.
    The exact constant value prevents narrow-index wrapping from merging lanes.
    Native dynamic indexing accepts only indices of at most 64 bits. */
 fun update_lane(value :: Nat, lane :: Nat, steps :~ List.of(RsimStep)) :: maybe(List):
@@ -17,17 +17,15 @@ fun update_lane(value :: Nat, lane :: Nat, steps :~ List.of(RsimStep)) :: maybe(
   | mux.opcode != "rtl.mux_lookup" || mux.attributes["keys"] != [1]: #false
   | ~else:
       def test = steps[mux.operands[0]]
-      def old = steps[mux.operands[1]]
       cond
-      | test.opcode != "rtl.eq" || scalar_width(test.type) != 1
-          || old.opcode != "rtl.vector_get" || old.attributes["index"] != lane: #false
+      | test.opcode != "rtl.eq" || scalar_width(test.type) != 1: #false
       | ~else:
           def a = steps[test.operands[0]]
           def index = if a.opcode == "rtl.constant" | test.operands[1] | test.operands[0]
           def constant = if a.opcode == "rtl.constant" | a | steps[test.operands[1]]
           def width = scalar_width(steps[index].type)
           if constant.opcode == "rtl.constant" && constant.attributes["value"] == lane && width && width <= 64
-          | [old.operands[0], index, mux.operands[2]]
+          | [mux.operands[1], index, mux.operands[2]]
           | #false
 
 /* Fold only a complete vector of matching lanes. Shared original lane values
@@ -35,19 +33,83 @@ fun update_lane(value :: Nat, lane :: Nat, steps :~ List.of(RsimStep)) :: maybe(
    Replacement operands are earlier steps and retain their hardware identities. */
 fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
   def rewritten = MutableList[]
+  def signatures = MutableMap{}
+  def interned = MutableMap{}
+  def candidates = MutableMap{}
+  /* Intern shallow structural keys so shared mux trees do not become large
+     recursively hashed keys. Leaves retain their exact source identities. */
+  fun intern(key :: List) :: Nat:
+    unless interned.has_key(key) | interned[key] := interned.length()
+    interned[key]
+  /* Compare a value with virtual static projections through constructors and
+     lookup muxes. Original steps preserve lanes of already recovered updates.
+     The depth bound declines expensive matches; it never changes semantics. */
+  fun signature(value :: Nat, path :: List, fuel :: Nat = 64) :: maybe(Nat):
+    def key = [value, path]
+    unless signatures.has_key(key)
+    | def step = schedule.steps[value]
+      def result:
+        cond
+        | fuel == 0: #false
+        | step.opcode == "rtl.vector_get":
+            signature(step.operands[0], [step.attributes["index"]] ++ path, fuel - 1)
+        | step.opcode == "rtl.record_get":
+            signature(step.operands[0], [step.attributes["field"]] ++ path, fuel - 1)
+        | path.length() > 0 && step.opcode == "rtl.vector_create":
+            signature(step.operands[path[0]], path.drop(1), fuel - 1)
+        | path.length() > 0 && step.opcode == "rtl.record_create":
+            signature(step.operands[step.attributes["fields"].index(path[0])], path.drop(1), fuel - 1)
+        | step.opcode == "rtl.mux_lookup":
+            def branches = step.operands.drop(1).map(fun (operand): signature(operand, path, fuel - 1))
+            def attributes = MutableMap{}
+            for ((name, attr) in step.attributes):
+              unless name == "name" | attributes[name] := attr
+            if #false in branches
+            | #false
+            | intern(["mux", step.operands[0], attributes.snapshot(), branches])
+        | ~else: intern(["leaf", value, path])
+      signatures[key] := result
+    signatures[key]
   def mutable changed = #false
-  for (step in schedule.steps):
-    def update = if step.opcode == "rtl.vector_create" && step.operands.length() > 0
-    | update_lane(step.operands[0], 0, schedule.steps)
-    | #false
-    def matched = update && type_equal(step.type, schedule.steps[update[0]].type)
-      && type_equal(step.type.element_type, schedule.steps[update[2]].type)
-      && (for all (operand in step.operands, lane in 0..step.operands.length()):
-            update_lane(operand, lane, schedule.steps) == update)
-    if matched
+  for (step in schedule.steps, position in 0..schedule.steps.length()):
+    def lanes = if step.opcode == "rtl.vector_create" && step.operands.length() > 0
+    | for List (operand in step.operands, lane in 0..step.operands.length()): update_lane(operand, lane, schedule.steps)
+    | []
+    def update = lanes.length() > 0 && lanes[0]
+    def consistent = update && type_equal(step.type.element_type, schedule.steps[update[2]].type)
+      && (for all (lane in lanes): lane && lane[1] == update[1] && lane[2] == update[2])
+    def mutable base = #false
+    when consistent
+    | def old = schedule.steps[update[0]]
+      // Keep the direct match cheap and independent of signature search limits.
+      when old.opcode == "rtl.vector_get" && old.attributes["index"] == 0
+        && type_equal(step.type, schedule.steps[old.operands[0]].type)
+        && (for all (lane in lanes, index in 0..lanes.length()):
+              def source = schedule.steps[lane[0]]
+              source.opcode == "rtl.vector_get" && source.operands[0] == old.operands[0]
+                && source.attributes["index"] == index)
+      | base := old.operands[0]
+      when base == #false
+      | def first = signature(update[0], [])
+        when first != #false
+        | base := candidates.get(first, []).find(
+            fun (candidate):
+              type_equal(step.type, schedule.steps[candidate].type)
+                && (for all (lane in lanes, index in 0..lanes.length()):
+                      def actual = signature(lane[0], [])
+                      actual != #false && actual == signature(candidate, [index]))
+          )
+    if base != #false
     | changed := #true
-      rewritten.add(RsimStep("rtl.vector_inject", step.type, update, step.attributes))
+      rewritten.add(RsimStep("rtl.vector_inject", step.type, [base, update[1], update[2]], step.attributes))
     | rewritten.add(step)
+    // Only earlier whole aggregates can become bases. Bound each bucket and
+    // prefer recent candidates; type equality and every lane still require proof.
+    when vector_type(step.type) && step.opcode in ["rtl.vector_create", "rtl.mux_lookup"]
+    | def first = signature(position, [0])
+      when first != #false
+      | def earlier = candidates.get(first, [])
+        candidates[first] := [position] ++ earlier.take(if earlier.length() < 15 | earlier.length() | 15)
   if !changed
   | schedule
   | def interim = remap_schedule(schedule, rewritten.snapshot(), fun (value): value)
