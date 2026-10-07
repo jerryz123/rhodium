@@ -1,11 +1,16 @@
 #lang rhombus
+// Emits traced production RV2Wide fetch so recovery also checks transfer ownership assertions.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/backend/circt.rhm") open
   lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/event/main.rhm") open
   "../../rv2wide.rhdl" open
   "../cache-fixture.rhdl" open
 
-def design = embedded.run_elaboration(fun (): RV2Wide(test_cache, ~chi: test_fetch_chi))
-print(emit_circt(design))
+def design = embedded.run_elaboration_with_top(fun (): RV2Wide(test_cache, ~chi: test_fetch_chi))
+def traced = instrument_events(design, EventInstrumentationConfig(~partial: #true))
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

@@ -52,9 +52,11 @@ Shared `fp-register-file`, `fp-service`, and `fp-scheduled` fixtures live under
 `cores/fp/tests/` and belong to `cores-components`. RV5Stage's scalar wrapper,
 core writeback, and vector integration remain with their named-core owners.
 
-Shared `bpred-btb` and `bpred-ras` fixtures live under `cores/bpred/tests/`
+Shared `bpred-btb`, `bpred-btb-wide`, and `bpred-ras` fixtures live under `cores/bpred/tests/`
 and belong to `cores-components`. RV5Stage fetch, branch, and return prediction
-integration remain in `cores-execution-frontend`.
+integration remain in `cores-execution-frontend`. RV2Wide assembly repair,
+predicted execution, and enabled/disabled full fetch fixtures remain in
+`cores-execution-datapath`.
 
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or
 `cores-vector-functional-2` for the default functional configurations, or

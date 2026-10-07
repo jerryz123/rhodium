@@ -42,6 +42,8 @@ For the fetching core with both shared caches, import
 `cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
 `RV2Wide(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
+`RV2WideConfig(~btb_entries: 32, ~ras_entries: 6)` selects predictor capacities;
+setting both to zero selects the sequential-fetch baseline.
 Connect separate `instruction_chi` RN-I, `data_chi` RN-F, and `uncached_chi` RN-I
 endpoints with distinct `instruction_node_id`, `data_node_id`, and
 `uncached_node_id` inputs. Pulse
@@ -52,7 +54,7 @@ architectural `interrupts: RiscvInterrupts()`, `hart_id`, and `time_counter` inp
 the external memory-service epoch too.
 
 Retirement, completion, redirect, and issue-count outputs remain observable.
-Successful branches, memory replays, traps, and privilege returns redirect fetch
+Branch prediction corrections, memory replays, traps, and privilege returns redirect fetch
 internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D` adapter.
 
@@ -64,6 +66,10 @@ cause/address. Direct packet producers supply all of this metadata; a 32-bit
 instruction normally uses the same raw/canonical bits and `sequential_pc = pc + 4`.
 Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
 bits are ignored for fetch faults.
+Each entry also supplies `prediction: BranchPrediction(XLen.X64)` and
+`speculated_ras_action: RasAction`. A nonpredicting packet source clears
+`prediction.valid` and uses `RasAction.None`. Prediction metadata belongs to
+the instruction, not its packet position, and remains attached after compaction.
 The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.
 The source must follow redirects and supply instructions in program order;
@@ -74,6 +80,9 @@ restart supplies the next PC; a simultaneous redirect takes priority.
 Connect `instruction_invalidate: Pulse()` to instruction-cache invalidation;
 it accompanies the successful WB FENCE.I successor redirect and is distinct
 from a speculative fetch flush.
+The standalone core exports successfully retired `branch_update` records,
+`predictor_restore` recovery pulses, and `predictor_clear` context-invalidation
+pulses for a connected predictor; `RV2Wide` connects these internally.
 
 ## Instruction fetch
 
@@ -101,7 +110,7 @@ not the current issue decision. The execution slice still exposes
 `instruction_capacity: Bits(4)` for direct packet producers.
 
 L1I misses restart the failed fetch attempt and discard younger attempts,
-preserving older buffered instructions. A MEM branch or WB redirect clears speculative fetch
+preserving older buffered instructions. A MEM prediction correction or WB redirect clears speculative fetch
 and issue storage, but accepted CHI refills continue draining. Wrong-path
 errors cannot become architectural faults. A failed block produces one fault
 token at the first requested instruction PC, not an illegal instruction derived
@@ -114,8 +123,32 @@ Translation, physical permission, and address-width checks happen before cache r
 Only executable, instruction-cacheable, idempotent memory is fetched: coherent
 RAM uses `ReadOnce`, immutable ROM uses `ReadNoSnp`. Other regions report an
 instruction access fault without CHI traffic. Odd starts report instruction-address-
-misaligned faults. No predictor is included; fetch always advances sequentially
-until a resolved redirect.
+misaligned faults.
+
+## Branch prediction
+
+The frontend uses the shared 32-entry BTB with eight-byte lookup and a six-entry
+RAS. S0 selects the earliest predicted-taken instruction at or after the cursor
+and requests its target next, without adding a fetch stage. A 32-bit instruction
+at byte six requests its continuation block before the target.
+
+Assembly checks actual boundaries, instruction length, and control-flow encoding.
+It emits the prefix through the predicted branch and discards only its fall-through
+suffix. On a BTB miss, direct JAL/C.J targets and RAS-backed returns redirect from
+assembly and discover a BTB entry. Stale predictions invalidate the exact entry
+and restart after the accepted prefix. Local repair discards younger fetch blocks,
+not instructions already accepted by the issue window.
+
+MEM compares predicted and actual successors. Correct taken predictions retain
+target-stream work, including a target instruction paired in the younger lane.
+Wrong direction, wrong target, or unmatched RAS action recovers once at MEM;
+older WB recovery has priority. Resolved BTB training and resolved RAS updates
+come only from successfully retiring branches, separately from assembly discovery.
+The speculative stack changes once per accepted complete
+call/return; two actions are emitted in separate packets. Recovery restores the
+resolved stack and reconciles through the surviving branch's WB retirement.
+Instruction invalidation and translation/context invalidation clear predictors.
+The BTB has local two-bit direction counters, not global history or ASID tags.
 
 ## Execution and ordering
 
@@ -218,15 +251,17 @@ The CSR bank publishes the A bit in MISA.
 
 ## Branch recovery
 
-Branches resolve in EX and redirect from MEM. A taken older branch suppresses
-the younger slot; a taken younger branch preserves the older peer. Both the
+Branches resolve in EX and correct mismatched successors or RAS actions from MEM.
+An older correction suppresses the younger slot; a younger correction preserves
+the older peer. A correct taken prediction keeps the target-stream younger slot. Both the
 branch and any older peer still retire at WB. MEM recovery clears younger EX,
 RR, and fetch work, not older WB work or accepted memory transactions. WB faults
 and replays take priority over simultaneous MEM recovery. An older same-group
 memory operation can still fail authorization at WB on the following cycle;
 that recovery overrides the earlier branch target and prevents branch retirement.
 Every redirect rejects instruction admission on that edge. A not-taken branch
-does not redirect, and a redirected branch does not redirect again at WB.
+corrects a predicted-taken path to its sequential PC. A corrected branch does not
+redirect again at WB.
 
 ## Pipelined memory and deferred completion
 
@@ -406,7 +441,8 @@ qualification. Faults and replays never retire or write their destination.
 WB chooses the oldest fault/replay, allowing a preceding successful instruction
 to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
 
-- Continue: a taken branch at MEM; `target` is the resolved destination. This
+- Continue: a prediction correction at MEM; `target` is the actual successor
+  (the taken target or sequential PC). This
   is speculative recovery, not a retirement notification.
 - Replay: restart at `pc`; the instruction has not committed.
 - Fault: a synchronous trap; `pc`, cause, and fault value are reported, and

@@ -551,6 +551,10 @@ the public instruction-field adapter. RV5Stage's fetch and execution consume
 the shared protocols and RAS classifiers; `fetch/source.rhdl` instantiates the
 shared BTB/RAS. Fetch sequencing and architectural recovery remain named-core
 policy, with no dependency back from predictors to their consumers.
+RV2Wide's bundles and execution consume the same protocol, its assembler and
+core use the RAS classifier, and its frontend instantiates eight-byte BTB lookup
+and the shared RAS. The assembler additionally uses the public RISC-V immediate
+adapter; no RV5Stage fetch module is imported.
 
 ### Standard-library dependencies
 

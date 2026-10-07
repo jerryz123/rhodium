@@ -626,12 +626,12 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(all(leaves))
         self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
         self.assertEqual(set.union(*leaves), combined)
-        self.assertTrue({"rv2wide-core", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
+        self.assertTrue({"rv2wide-core", "rv2wide-fetch-disabled", "rv2wide-assembly-prediction", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
 
     def test_shared_predictor_fixtures_belong_to_components(self):
         runner = REPO / "tools/testing/circt/run.sh"
         output = subprocess.run(["bash", runner, "--group", "cores-components", "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
-        self.assertTrue({"bpred-btb", "bpred-ras"} <= set(output.splitlines()))
+        self.assertTrue({"bpred-btb", "bpred-btb-wide", "bpred-ras"} <= set(output.splitlines()))
 
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()

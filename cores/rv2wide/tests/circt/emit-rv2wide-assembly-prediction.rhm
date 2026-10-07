@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits production assembly for directed prediction repair and continuation tests.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/backend/circt.rhm").emit_circt
+  lib("rhodium/frontend/kernel.rhm") as embedded
+  "../../instruction-assembler.rhdl".RV2WideInstructionAssembler
+print(emit_circt(embedded.run_elaboration(fun (): RV2WideInstructionAssembler())))

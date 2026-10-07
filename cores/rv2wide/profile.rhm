@@ -1,5 +1,5 @@
 #lang rhombus
-/* Defines RV2Wide's exact RV64IMACB architecture and private-cache specialization. */
+/* Defines RV2Wide's exact RV64IMACB architecture, private caches, and predictor capacities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,14 +17,16 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
   [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U, MisaExtension.C]
 )
 
-/* Specializes only cache resources; RV64, C, Sv39, and the architectural feature set are fixed. */
-class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig):
+/* Specializes private caches and predictor capacities; RV64, C, Sv39, and ISA features are fixed. */
+class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat):
   implements StableCircuitParam
 
-  /* Defaults both private caches to a four-way, 64-set VIPT geometry. */
+  /* Defaults to four-way 64-set caches, a 32-entry BTB, and a six-entry RAS. */
   constructor (~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
-               ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4)):
-    super(instruction_cache, data_cache)
+               ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4),
+               ~btb_entries: btb_entries :: Nat = 32,
+               ~ras_entries: ras_entries :: Nat = 6):
+    super(instruction_cache, data_cache, btb_entries, ras_entries)
 
   property isa_profile :: RiscvIsaProfile: RV2WideIsaProfile
   property xlen :: XLen: XLen.X64

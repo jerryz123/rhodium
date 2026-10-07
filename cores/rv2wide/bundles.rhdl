@@ -10,6 +10,8 @@ import:
   lib("flow/main.rhdl") open
   lib("cores/load-store.rhdl").MemoryWidth
   lib("cores/cache/operation.rhdl").CacheOperation
+  lib("cores/bpred/protocol.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
 
@@ -44,6 +46,8 @@ bundle RV2WideInstruction():
   sequential_pc: Bits(64)
   compressed_illegal: Bool
   fault: RV2WideFetchFault()
+  prediction: BranchPrediction(XLen.X64)
+  speculated_ras_action: RasAction
 
 /* Offers a nonempty prefix of up to two instructions to the issue window. */
 bundle RV2WidePacket():
@@ -90,6 +94,8 @@ bundle RV2WideResult():
   result_ready: Bool
   taken: Bool
   target: Bits(64)
+  branch_update: BranchUpdate(XLen.X64)
+  mispredicted: Bool
   memory: RV2WideMemoryControl()
   address: Bits(64)
   store_data: Bits(64)
@@ -100,6 +106,12 @@ bundle RV2WideResult():
   left: Bits(64)
   right: Bits(64)
   resolution: RV2WideResolution()
+
+/* Restarts unassembled fetch work without discarding already accepted instructions. */
+bundle RV2WideFetchRepair():
+  target: Bits(64)
+  invalidate: Bool
+  entry: Bits(64)
 
 /* Carries exact byte address/width, positioned ordinary stores, and unshifted atomic operands. */
 bundle RV2WideMemoryReq():
@@ -181,4 +193,5 @@ export:
   RV2WideMemory
   RV2WideRetirement
   RV2WideRedirect
+  RV2WideFetchRepair
   RV2WideOperand

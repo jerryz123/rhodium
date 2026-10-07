@@ -37,18 +37,18 @@ replacement, or stack recovery. Preserve exact full-address matching when
 changing shared tag storage; replacement must invalidate both source and target
 references. Keep speculative actions single-shot under caller backpressure.
 
-The initial extraction preserves the four-byte fetch-window algorithm. Wider
-lookup support must explicitly define earliest-branch selection and cursor
-filtering, with its own behavioral cases; it must not silently change RV5Stage
-lookup timing or selection. Do not add compatibility forwarding modules under
-the old named-core paths.
+Lookup supports four- and eight-byte windows. Compare the full block address,
+exclude offsets before the cursor, then choose the first matching halfword
+position independently of entry allocation order. Four bytes remains the
+default, preserving RV5Stage timing and selection. RV2Wide selects eight bytes.
+Do not add compatibility forwarding modules under the old named-core paths.
 
 ## Validation
 
 Run the direct behavioral fixtures through the managed Racket/CIRCT runner:
 
 ```sh
-FIXTURES='bpred-btb bpred-ras' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='bpred-btb bpred-btb-wide bpred-ras' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 They cover counter saturation, address ordering and halfword cursors, entry and

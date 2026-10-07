@@ -45,7 +45,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   core.hart_id <== hart_id
   core.time_counter <== time_counter
   sleeping <== core.sleeping
-  inst frontend(RV2WideFrontend(config))
+  inst frontend(RV2WideFrontend(config, profile))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(RV2WideL1D(cache, ~chi: config))
   inst mmu(RV2WideMmu(config))
@@ -57,6 +57,9 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   frontend.instructions |> core.instructions
   core.fetch_flush |> frontend.flush
   core.instruction_invalidate |> frontend.invalidate
+  core.branch_update |> frontend.branch_update
+  core.predictor_restore |> frontend.predictor_restore
+  core.predictor_clear |> frontend.predictor_clear
   frontend.memory <=> instruction.core
   frontend.virtual_lookup |> instruction.virtual_lookup
   instruction.prefetch.valid <== Bool(#false)

@@ -20,6 +20,8 @@ import:
   lib("cores/csr/protocol.rhdl") open
   lib("cores/alu.rhdl") open
   lib("cores/branch-resolver.rhdl") open
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/bpred/ras.rhdl").riscv_ras_action
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
   lib("cores/cache/protocol.rhdl").PhysicalMemoryReq
@@ -72,6 +74,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   interface redirect(Valid(RV2WideRedirect()), ~role: producer)
   interface fetch_flush(Pulse(), ~role: producer)
   interface instruction_invalidate(Pulse(), ~role: producer)
+  interface branch_update(Valid(BranchUpdate(XLen.X64)), ~role: producer)
+  interface predictor_restore(Pulse(), ~role: producer)
+  interface predictor_clear(Pulse(), ~role: producer)
   interface memory(RV2WideMemory(), ~role: requester)
   interface split(RiscvSplitAccess(XLen.X64, Bool), ~role: requester)
   interface pipeline(RV2WidePipelineAccess(), ~role: requester)
@@ -270,6 +275,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !bits(1, 64), ex_target_sum)
     def ex_taken = ex_executable & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
+    def ex_actual_action = mux(ex_executable & ex.control.branch.resolver.enable, riscv_ras_action(ex.fetched.instruction), RasAction.None)
+    def ex_next_pc = mux(ex_taken, ex_target, ex.fetched.sequential_pc)
+    def ex_predicted_pc = mux(ex.fetched.prediction.valid, ex.fetched.prediction.target, ex.fetched.sequential_pc)
     def ex_bad_pc = ex.fetched.pc[0].into(Bool)
     def ex_bad_target = ex_taken & ex_target[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.enable
@@ -284,6 +292,18 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
       result_ready: !(ex_memory & ex.control.memory.access.returns_result()) & !ex_system.serializing() & ((ex.control.muldiv.service === RV2WideLongOperation.None) ||| !ex.rd.or_reduce())
       taken: ex_taken
       target: ex_target
+      mispredicted: (ex_next_pc =/= ex_predicted_pc) ||| (Bool(profile.ras_entries > 0) & (ex_actual_action =/= ex.fetched.speculated_ras_action))
+      branch_update:
+        BranchUpdate(XLen.X64):
+          pc: ex.fetched.pc
+          target: ex_target
+          branch: ex_executable & ex.control.branch.resolver.enable
+          conditional: ex.fetched.instruction[0..7] === bits(0x63, 7)
+          taken: ex_taken
+          compressed: ex.fetched.sequential_pc === (ex.fetched.pc + bits(2, 64))
+          ras_action: ex_actual_action
+          predicted_ras_action: ex.fetched.speculated_ras_action
+          return_address: ex.fetched.sequential_pc
       memory: ex.control.memory.updated(~enable: ex_memory)
       address: ex_alu.result
       store_data: ex.rs2
@@ -377,7 +397,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
       ~result_ready: mem.result_ready ||| mem_hit,
       ~cache_outcome: mem_outcome
     )
-    mem_output.valid <== mem_input.valid & !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].taken & mem_older.egress.valid))
+    mem_output.valid <== mem_input.valid & !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].mispredicted & mem_older.egress.valid))
     mem_output.bits <== mem_resolved[lane]
     describe_interface_contract(mem_input, mem_output, "memory-resolution-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     (mem_results[lane] |> trace_valid_event("core/s3.mem.slot" ++ to_string(lane), ~fields: token):
@@ -385,19 +405,23 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
       outcome: token.cache_outcome
       disposition: token.resolution.disposition
+      branch: token.branch_update.branch
+      mispredicted: token.mispredicted
+      predicted_target: token.fetched.prediction.target
+      taken: token.taken
     ) |> wb_pipe[lane].ingress
     wb_pipe[lane].flush <== wb_squash
 
-  // Sequential fetch needs recovery only for taken branches. MEM preserves
-  // the branch and its older peer for WB, but removes every younger token.
+  // Correct predictions preserve target-stream work, including a paired younger
+  // instruction. Recovery retains the resolving token and older peers for WB.
   def mem_older_continue = mem_resolved[0].resolution.disposition === RV2WideDisposition.Continue
-  def mem_branch_older = mem_older.egress.valid & mem_resolved[0].taken & mem_older_continue
-  def mem_branch_younger = mem_younger.egress.valid & mem_resolved[1].taken & (mem_resolved[1].resolution.disposition === RV2WideDisposition.Continue) & (!mem_older.egress.valid ||| (mem_older_continue & !mem_resolved[0].taken))
+  def mem_branch_older = mem_older.egress.valid & mem_resolved[0].mispredicted & mem_older_continue
+  def mem_branch_younger = mem_younger.egress.valid & mem_resolved[1].mispredicted & (mem_resolved[1].resolution.disposition === RV2WideDisposition.Continue) & (!mem_older.egress.valid ||| (mem_older_continue & !mem_resolved[0].mispredicted))
   mem_branch_redirect <== (mem_branch_older ||| mem_branch_younger) & !wb_squash
   def mem_branch :: RV2WideResult() = mux(mem_branch_older, mem_resolved[0], mem_resolved[1])
   def mem_redirect_bits = RV2WideRedirect():
     pc: mem_branch.fetched.pc
-    target: mem_branch.target
+    target: mux(mem_branch.taken, mem_branch.target, mem_branch.fetched.sequential_pc)
     resolution: mem_branch.resolution
 
   // WB: successful hits retire normally. Store candidates and slow requests
@@ -577,6 +601,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   def wb_system_resume = wb_system & wb_csrs.command_success & !wb_csrs.wfi
   def wb_split_resume = wb_split_pending & split.response.valid & !wb_split_fault
   instruction_invalidate.valid <== wb_system_resume & (wb_system_control.fence === RV2WideFence.Instruction)
+  predictor_clear.valid <== translation_flush ||| wb_csrs.trap_event.valid ||| (wb_system & wb_csrs.command_success & wb_system_control.action.is_one_of(RiscvCsrAction.Mret, RiscvCsrAction.Sret))
   wb_redirect_link.left.valid <== wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_interrupt_boundary ||| wb_wake ||| wb_split_resume
   wb_redirect_link.left.bits <== RV2WideRedirect():
     pc:
@@ -601,6 +626,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   redirect.valid <== wb_redirect.valid ||| mem_branch_redirect
   redirect.bits <== mux(wb_redirect.valid, wb_redirect.bits, mem_redirect_bits)
   wire wb_writes: Vec(2, Bool)
+  wire wb_recover_ras: Vec(2, Bool)
+  wire wb_train: Vec(2, Bool)
   def wb_retirement_links = for List (_ in 0..2): interface_link(Valid(RV2WideRetirement()))
   def wb_retirement_paths = for List (lane in 0..2):
     def observed = wb_retirement_links[lane].right |> trace_valid_event("core/s4.wb.slot" ++ to_string(lane), ~fields: result):
@@ -625,6 +652,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     describe_interface_contract(if lane == 0 | wb_owners.right | wb_paths[1][0], retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     wb_retirement_paths[lane][0] |> retired[lane]
     wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_system ||| wb_csrs.writeback_valid)
+    wb_train[lane] <== wb_eligible & wb.branch_update.branch
+    wb_recover_ras[lane] <== wb_eligible & wb.mispredicted
+  def wb_branch_lane = mux(wb_train[0], bits(0, 1), bits(1, 1))
+  branch_update.valid <== wb_train.or_reduce()
+  branch_update.bits <== wb_tokens[wb_branch_lane].branch_update
+  predictor_restore.valid <== wb_squash ||| wb_recover_ras.or_reduce()
+  assert(!(wb_train[0] & wb_train[1]), "rv2wide_one_branch_update_per_group")
   // Accepted services inherit successful WB, never a live lane's later payload.
   def wb_service :: Handle = interface_link(Valid(RV2WideRetirement()))
   def wb_service_lane = mux(wb_accepted, wb_memory_lane, wb_long_lane)

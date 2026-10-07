@@ -1,8 +1,14 @@
+// Checks production fetch, prediction, mixed-width execution, and precise memory/fault recovery.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_fetch_tb;
+`ifndef BPRED_DISABLED
+  import "DPI-C" function void rv2wide_fetch_trace_bind();
+  import "DPI-C" function void rv2wide_fetch_trace_finish();
+`endif
   typedef struct packed { logic [63:0] cause, value; } fault_t;
   typedef struct packed { logic valid; fault_t bits; } fault_flow_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_flow_t fault; } instruction_t;
+  typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
   typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; logic deferred; } retirement_t;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -48,6 +54,7 @@ module rv2wide_fetch_tb;
   int ireads=0, dreads=0, acks=0, replay_count=0, branch_count=0, faults=0, phase=0;
   int wrong_path_reads=0, detached_refills=0, completions_seen=0;
   int reset_canceled_refills=0;
+  int predicted_branches=0, predicted_conditional=0, predicted_straddles=0;
   int compressed_retired=0, straddled_retired=0, compressed_dual_run=0;
   bit iactive=0, dactive=0, wactive=0;
   CHIReqFlit irequest, drequest, wrequest;
@@ -329,7 +336,14 @@ module rv2wide_fetch_tb;
       if(phase==14 && dual_run>compressed_dual_run) compressed_dual_run=dual_run;
     end
     else dual_run=0;
-    for(int lane=0;lane<2;lane++) if(retired[lane].valid) retire(retired[lane].bits);
+    for(int lane=0;lane<2;lane++) if(retired[lane].valid) begin
+      if(retired[lane].bits.fetched.prediction.valid) begin
+        predicted_branches++;
+        if(retired[lane].bits.fetched.instruction[6:0]==7'h63) predicted_conditional++;
+        if(phase==14 && retired[lane].bits.fetched.pc=='h63e) predicted_straddles++;
+      end
+      retire(retired[lane].bits);
+    end
     if(completed.valid) begin
       retirement_t expected;
       int index=-1;
@@ -443,6 +457,9 @@ module rv2wide_fetch_tb;
   endtask
 
   initial begin
+`ifndef BPRED_DISABLED
+    rv2wide_fetch_trace_bind();
+`endif
     start_in='0;
     for(int p=0;p<4096;p+=4) insn(p,addi(0,0,0));
     for(int b=2048;b<4092;b++) backing[b]=8'(b);
@@ -456,7 +473,8 @@ module rv2wide_fetch_tb;
     insn(136,addi(18,17,1)); insn(140,addi(19,18,1));
     insn(144,{7'd0,5'd19,5'd1,3'b011,5'd8,7'h23}); // SD
     insn(148,{12'd8,5'd1,3'b011,5'd20,7'h03});
-    insn(188,jal(21,128)); // upper-only restart at 316; erroneous younger line 192 must be discarded
+    insn(184,addi(5,0,316));
+    insn(188,{12'd0,5'd5,3'd0,5'd21,7'h67}); // cold indirect target: discard erroneous younger line 192
     insn(316,addi(22,21,1));
     insn(320,jal(0,4092-320));
     insn(4092,addi(30,0,77));
@@ -466,8 +484,14 @@ module rv2wide_fetch_tb;
     insn(648,{12'd0,5'd1,3'b011,5'd16,7'h03}); insn(652,32'hffffffff);
     repeat(4) @(negedge clock); reset=0;
     launch(0,1,4096);
-    assert(longest_dual>=5 && dreads>0 && completions_seen>0 && branch_count>=4)
+    assert(longest_dual>=5 && dreads>0 && completions_seen>0 && branch_count>=3)
       else $fatal(1,"missing throughput/memory coverage dual=%0d dreads=%0d complete=%0d branches=%0d",longest_dual,dreads,completions_seen,branch_count);
+`ifndef BPRED_DISABLED
+    assert(predicted_conditional>0) else $fatal(1,"warm conditional branch never used the BTB");
+`else
+    assert(predicted_branches==0) else $fatal(1,"disabled predictor emitted a prediction");
+`endif
+    $display("RV2Wide initial fetch phase: cycles=%0d corrections=%0d predictions=%0d",cycles,branch_count,predicted_branches);
     assert(wrong_path_reads>0 && detached_refills>0) else $fatal(1,"no wrong-path retained refill");
     phase=1; launch(512,1,512); // accepted CHI error, not illegal-instruction decoding
     phase=2; launch(515,0,515); // odd PC faults without issuing an aligned read
@@ -629,8 +653,9 @@ module rv2wide_fetch_tb;
     for(int b=2048;b<2064;b++) begin backing[b]=8'(b); model_bytes[b]=8'(b); end
     insn('h600,addi(31,0,3)); parcel('h604,c_imm(2,8,7)); parcel('h606,c_imm(2,9,9));
     for(int p='h608;p<'h638;p+=2) parcel(p,c_imm(2,10+((p/2)&1),(p/2)&31));
-    parcel('h638,c_imm(0,31,-1)); insn('h63a,bne(31,0,'h608-'h63a));
-    insn('h63e,addi(20,20,1)); parcel('h642,c_imm(2,8,5)); parcel('h644,c_imm(2,9,9));
+    parcel('h638,c_imm(0,31,-1)); insn('h63a,addi(0,0,0));
+    insn('h63e,bne(31,0,'h608-'h63e)); // warm predicted branch crosses the eight-byte boundary
+    insn('h642,addi(20,20,1));
     insn('h646,addi(21,20,2)); insn('h64a,addi(8,0,2047)); insn('h64e,addi(8,8,1));
     parcel('h652,16'h6004); parcel('h654,c_imm(0,9,1)); parcel('h656,16'he404);
     parcel('h658,16'h6408); parcel('h65a,16'h85aa);
@@ -645,6 +670,9 @@ module rv2wide_fetch_tb;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(compressed_retired>=80 && compressed_dual_run>=5 && straddled_retired>=3 && registers[20]==1 && registers[21]==3 && registers[9]==registers[10] && registers[10]==registers[11] && registers[12]=='h662 && registers[13]==13 && reference_pc=='h66e)
       else $fatal(1,"compressed stream/link/backpressure coverage count=%0d dual=%0d cross=%0d",compressed_retired,compressed_dual_run,straddled_retired);
+`ifndef BPRED_DISABLED
+    assert(predicted_straddles>0) else $fatal(1,"warm straddling branch never used the BTB");
+`endif
     // An illegal compressed encoding retains its 16-bit mtval after an older
     // accepted compressed load drains, without executing its canonical zero.
     @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
@@ -811,6 +839,9 @@ module rv2wide_fetch_tb;
       assert(completions.size()==0) else $fatal(1,"split allocated a deferred RF owner");
     end
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
+`ifndef BPRED_DISABLED
+    rv2wide_fetch_trace_finish();
+`endif
     $finish;
   end
 endmodule

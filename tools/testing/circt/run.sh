@@ -254,7 +254,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch|cores-execution-datapath:rv2wide-mmu)
+    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch|cores-execution-datapath:rv2wide-fetch-disabled|cores-execution-datapath:rv2wide-assembly-prediction|cores-execution-datapath:rv2wide-mmu)
       return 0
       ;;
     cores-execution-datapath:rv5stage-cosim*)
@@ -567,7 +567,7 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
-  if [[ "$fixture" == event-retained-bank || "$fixture" == cache-copyback || "$fixture" == riscv-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace ]]; then
+  if [[ "$fixture" == event-retained-bank || "$fixture" == cache-copyback || "$fixture" == riscv-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv2wide-fetch ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -602,7 +602,7 @@ verify_fixture() {
     # WB commit readiness; MEM/WB recovery only gates the younger EX lookup.
     # The core fixture's memory bus also packs WB admission with an independent
     # response offer and the completion arbiter's response readiness.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-core || "$fixture" == rv2wide-cache || "$fixture" == rv2wide-fetch || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-core || "$fixture" == rv2wide-cache || "$fixture" == rv2wide-fetch || "$fixture" == rv2wide-fetch-disabled || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -947,6 +947,7 @@ direct_fixture_specs=(
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'
   'bpred-btb|bpred_btb_tb'
+  'bpred-btb-wide|bpred_btb_wide_tb'
   'bpred-ras|bpred_ras_tb'
   'rv5stage-return-prediction|rv5stage_return_prediction_tb'
   'rv5stage-instruction-buffer|rv5stage_instruction_buffer_tb'
@@ -960,6 +961,8 @@ direct_fixture_specs=(
   'rv2wide-core|rv2wide_core_tb'
   'rv2wide-cache|rv2wide_cache_tb'
   'rv2wide-fetch|rv2wide_fetch_tb'
+  'rv2wide-fetch-disabled|rv2wide_fetch_tb'
+  'rv2wide-assembly-prediction|rv2wide_assembly_prediction_tb'
   'rv2wide-mmu|rv2wide_mmu_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'

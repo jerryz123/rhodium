@@ -1,8 +1,12 @@
+// Checks dual-issue retirement, prediction recovery, dependencies, and precise service ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
   typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; } instruction_t;
+  typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
+  typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; logic [1:0] ras_action, predicted_ras_action; logic [63:0] return_address; } branch_update_t;
+  typedef struct packed { logic valid; branch_update_t bits; } branch_update_flow_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -76,6 +80,8 @@ module rv2wide_core_tb;
   int requests = 0, responses = 0, canceled = 0, stores = 0, stall_cycles = 0, hits = 0, lookups = 0;
   int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
   logic instruction_invalidate;
+  branch_update_flow_t branch_update;
+  int branch_updates=0;
   int invalidations=0;
   int multiply_mem_cycle=-1, dependent_mem_cycle=-1;
   int conditional_dual=0, mop_dual=0;
@@ -92,6 +98,7 @@ module rv2wide_core_tb;
 
   RV2WideCore dut(
     .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
+    .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
@@ -102,6 +109,11 @@ module rv2wide_core_tb;
     .memory_out(memory_out), .split_in(split_in), .split_out(split_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
+  always @(posedge clock) if(!reset && branch_update.valid) begin
+    branch_updates++;
+    assert(branch_update.bits.branch && ((retired[0].valid && retired[0].bits.fetched.pc==branch_update.bits.pc) || (retired[1].valid && retired[1].bits.fetched.pc==branch_update.bits.pc)))
+      else $fatal(1,"predictor trained without successful WB retirement");
+  end
   always @(posedge clock) if(!reset && instruction_invalidate) begin
     invalidations++;
     assert(retired[0].valid && retired[0].bits.fetched.instruction==32'h0000100f && redirect.valid && redirect.bits.resolution.disposition==3)
@@ -601,8 +613,8 @@ module rv2wide_core_tb;
     if (count == 2 && keep1) expect_instruction(pc + 4, second);
     instructions.valid = 1;
     instructions.bits.count = 2'(count);
-    instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0};
-    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0};
+    instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0, default: '0};
+    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0, default: '0};
     if (fetch_fault_lane >= 0)
       instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
     #1;
@@ -615,6 +627,20 @@ module rv2wide_core_tb;
     do tick(); while (expected.size() != 0 || expected_redirects.size() != 0 || expected_requests.size() != 0 || expected_completions.size() != 0 || response_count != 0 || split_active);
     repeat (8) tick();
     assert (expected.size() == 0 && expected_redirects.size() == 0) else $fatal(1, "missing ordered outcomes");
+  endtask
+  task automatic send_predicted(logic [63:0] pc, logic [31:0] first, logic [63:0] predicted_target, successor_pc, bit keep_successor=1, logic [1:0] action=0);
+    instruction_t first_token, second_token;
+    int index=expected.size();
+    expect_instruction(pc,first);
+    expected[index].fetched.prediction='{1'b1,pc,predicted_target,1'b0,action};
+    expected[index].fetched.speculated_ras_action=action;
+    first_token=expected[index].fetched;
+    second_token='0;
+    second_token.pc=successor_pc; second_token.instruction=imm(12,0,42);
+    second_token.raw_instruction=second_token.instruction; second_token.sequential_pc=successor_pc+4;
+    if(keep_successor) expect_instruction(successor_pc,second_token.instruction);
+    instructions='{1'b1,'{2'd2,'{second_token,first_token}}};
+    #1; while(!ready) tick(); tick(); instructions.valid=0;
   endtask
   task automatic stop_at(logic [63:0] pc, logic [63:0] target, int disposition = 0, logic [63:0] cause = 0, logic [63:0] value = 0);
     redirect_t item;
@@ -733,6 +759,14 @@ module rv2wide_core_tb;
         drain();
       end
     end
+    // Correct taken predictions retain a paired target instruction. Wrong
+    // direction/target predictions kill that peer and recover exactly once.
+    send_predicted('h2600,jump(0,32),'h2620,'h2620); drain();
+    send_predicted('h2640,jump(1,32),'h2660,'h2660,1,2'd1); drain();
+    stop_at('h2680,'h26a0);
+    send_predicted('h2680,jump(0,32),'h26c0,'h26c0,0); drain();
+    stop_at('h26e0,'h26e4);
+    send_predicted('h26e0,branch(1,2,32),'h2700,'h2700,0); drain();
     // JALR clears bit zero, and link data is available to the restarted stream.
     send('h2400, imm(5, 0, 'h601), imm(6, 0, 9));
     drain();
@@ -803,7 +837,7 @@ module rv2wide_core_tb;
     drain();
     send('h3000, imm(22, 20, 0), imm(23, 21, 0));
     drain();
-    assert (single_issues > 10 && stops == 20) else $fatal(1, "insufficient hazard/stop coverage: single=%0d stops=%0d", single_issues, stops);
+    assert (single_issues > 10 && stops == 22) else $fatal(1, "insufficient hazard/stop coverage: single=%0d stops=%0d", single_issues, stops);
 
     // Warm loads use the normal MEM/WB path and sustain one LSU plus one ALU each cycle.
     reset_core(); lookup_mode = 1;
@@ -1464,6 +1498,7 @@ module rv2wide_core_tb;
       send('hf440,imm(8,5,1),imm(9,6,1)); drain();
     end
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
+    assert(branch_updates>0) else $fatal(1,"no retired branch training");
     $display("Zicond/Zimop: %0d conditional pairs, %0d MOP pairs",conditional_dual,mop_dual);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops in %0d cycles", commits, dual_commits, stops, cycles);
     $finish;

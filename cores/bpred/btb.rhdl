@@ -26,12 +26,15 @@ bundle BtbEntry(match_bits :: PosInt, page_count :: PosInt):
   counter: Bits(2)
   ras_action: RasAction
 
-/* Predicts the earliest taken branch in the current four-byte word using full-address matches via shared
+/* Predicts the earliest taken branch in the configured fetch block using full-address matches via shared
    pages.
    Resolved training precedes discovery; page replacement invalidates all dependent entries. */
-sync_circuit Btb(xlen :: XLen, entry_count :: Nat = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8):
+sync_circuit Btb(xlen :: XLen, entry_count :: Nat = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4):
   // Lookup is combinational; only predictor state changes are event flows.
-  unless match_bits >= 2 && match_bits < xlen.width
+  unless fetch_bytes == 4 || fetch_bytes == 8
+  | error(~who: #'Btb, "fetch bytes must be four or eight")
+  def offset_bits = if fetch_bytes == 4 | 2 | 3
+  unless match_bits >= offset_bits && match_bits < xlen.width
   | error(~who: #'Btb, "match bits must include the fetch-word offset and leave an upper address tag")
   unless page_count >= 2
   | error(~who: #'Btb, "shared page count must be at least two")
@@ -67,10 +70,14 @@ sync_circuit Btb(xlen :: XLen, entry_count :: Nat = 32, match_bits :: PosInt = 1
       def candidates = vec(
         for List (index in 0..entry_count):
           def entry = entries[index]
-          entry.valid & pages[entry.target_page].valid & cursor_pages[entry.pc_page] & (entry.pc_low[2..match_bits] === cursor[2..match_bits]) & (!cursor[1].into(Bool) ||| entry.pc_low[1].into(Bool)) & (!entry.conditional ||| entry.counter[1].into(Bool))
+          entry.valid & pages[entry.target_page].valid & cursor_pages[entry.pc_page] & (entry.pc_low[offset_bits..match_bits] === cursor[offset_bits..match_bits]) & (entry.pc_low[0..offset_bits] >= cursor[0..offset_bits]) & (!entry.conditional ||| entry.counter[1].into(Bool))
       )
-      def lower = vec(for List (index in 0..entry_count): candidates[index] & !entries[index].pc_low[1].into(Bool))
-      def selected = entries[priority_encoder(mux(lower.or_reduce(), lower, candidates))]
+      def offsets = for List (offset in 0..(fetch_bytes / 2)):
+        vec(for List (index in 0..entry_count): candidates[index] & (entries[index].pc_low[0..offset_bits] === bits(offset * 2, offset_bits)))
+      def mutable earliest = candidates
+      for (offset :: Vec(entry_count, Bool) in offsets.reverse()):
+        earliest := mux(offset.or_reduce(), offset, earliest)
+      def selected = entries[priority_encoder(earliest)]
       prediction <== BranchPrediction(xlen):
         valid: candidates.or_reduce() & !invalidate_all.valid
         pc: pages[selected.pc_page].tag ++ selected.pc_low

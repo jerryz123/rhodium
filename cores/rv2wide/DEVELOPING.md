@@ -156,14 +156,40 @@ flushes. Word operations normalize both inputs before division and sign-extend t
 selected low word afterward. Precise drain includes multiplier reservations,
 divider ownership, load owners, current accepted requests, and completion writes.
 
-A MEM branch flush clears the instruction buffer, RR, and EX, including EX
+A MEM prediction correction clears the instruction buffer, RR, and EX, including EX
 lookup admission, while preserving its own MEM-to-WB transfer and older WB work.
-An older taken branch also suppresses its same-group younger MEM transfer.
+An older mispredicted instruction suppresses its same-group younger MEM transfer;
+a correctly predicted taken branch preserves its target-stream peer.
 Branch selection observes both lanes' resolved MEM outcomes. WB faults/replays
 and retained faults override MEM recovery; branches never redirect twice.
 An older same-group memory instruction may reject WB authorization after MEM
 branch recovery; its WB redirect must override that speculative target and
-suppress the younger branch's retirement. No branch prediction is involved.
+suppress the younger branch's retirement and predictor training.
+
+### Predictor ownership and recovery
+
+The frontend instantiates shared `Btb` with `fetch_bytes = 8` and shared `Ras`.
+S0 owns the effective prediction and any byte-six continuation. Replay retains
+that context, while the assembler retains the prefix prediction across straddles.
+Instruction metadata survives issue-window compaction and every pipeline stage.
+Do not infer prediction ownership from a lane or an aligned block PC.
+
+Assembly validates predictions while expanding the existing two candidate
+instructions. Its local repair clears returned blocks and partial state only
+after retaining the accepted instruction prefix. A one-cycle repair pipe kills
+younger lookups and redirects S0; it breaks the live-queue feedback path without
+adding a forward fetch stage. The same path handles direct-jump/RAS fallbacks.
+Speculative RAS actions occur only on instruction packet acceptance, with at
+most one action per packet; fetch replay and local repair preserve older actions.
+
+EX carries actual successor, branch update, and misprediction through MEM/WB.
+MEM correction preserves its own transfer and kills younger tokens. WB alone
+qualifies training and resolved RAS actions from the successful retirement
+prefix. MEM flush restores through current WB, and the surviving corrected
+branch restores again at WB with its actual action included. Pause assembly
+speculation on this reconciliation edge because RAS restore wins speculation.
+WB faults/replays restore without training rejected branches. Architectural
+translation invalidation and FENCE.I clear both predictors, not merely fetch state.
 
 A pending fault squashes younger pipeline/window work immediately, but its
 CSR trap command and public redirect wait for both the owner FIFO and memory service to drain.
@@ -312,6 +338,8 @@ Run the focused production-core fixture:
 FIXTURE=rv2wide-core bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-cache bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-fetch bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv2wide-fetch-disabled bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv2wide-assembly-prediction bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-mmu bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
@@ -394,6 +422,19 @@ illegal compressed mtval, cold line crossings, and Sv39 continuation-page replay
 success, and faults. Cross-page access/page faults check both mepc and mtval through
 the real handler. Packet-level fixtures supply raw encoding and sequential PC
 explicitly rather than relying on defaults in the core.
+The predictor-enabled and disabled fetch instances reuse that entire oracle.
+The enabled instance additionally requires warm conditional BTB predictions,
+including a 32-bit branch crossing an eight-byte fetch boundary. It also runs
+compiler event instrumentation so accepted-prefix/local-repair ordering and
+instruction ancestry are checked by RTL assertions. The
+core fixture supplies explicit predictions to check correct taken branch/target
+pairing and wrong-direction/target recovery; shared eight-byte cursor ordering
+is covered by `bpred-btb-wide`.
+`rv2wide-assembly-prediction` isolates stale entry boundary/length repairs,
+fallthrough suffix cuts, predicted straddles and continuation faults, and
+single-shot RAS actions under packet backpressure.
+Local repair clears block and prefix ownership on the following cycle; it must
+not clear the lineage of the same edge's accepted packet.
 
 The fetching fixture also boots through satp/MRET into Sv39 supervisor code,
 loads/stores through a separately filled DTLB, executes SFENCE.VMA, and checks

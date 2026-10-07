@@ -3,7 +3,7 @@
 
 # Branch prediction
 
-`bpred/` provides the shared `Btb` and `Ras` components used by RV5Stage.
+`bpred/` provides the shared `Btb` and `Ras` components used by RV5Stage and RV2Wide.
 They own predictor state, not fetch sequencing, instruction assembly, redirect
 priority, or retirement. See [DEVELOPING.md](DEVELOPING.md) for maintenance and
 [the core catalog](../README.md) for consumers.
@@ -28,10 +28,11 @@ themselves to a fetch pipeline. Shared setup is in the
 
 ## Branch-target buffer
 
-`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8)` has a
+`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4)` has a
 combinational `cursor` input and `BranchPrediction(xlen)` output. Lookup selects
 the earliest predicted-taken instruction at or after the cursor **within its
-aligned four-byte word**. Halfword-aligned entry PCs support compressed code;
+aligned fetch block**. `fetch_bytes` supports four (the default) or eight bytes.
+Halfword-aligned entry PCs support compressed code;
 the caller validates instruction boundaries and predicted lengths against
 fetched data. `prediction.valid` is false on a miss or full invalidation.
 
@@ -63,10 +64,9 @@ actual/predicted RAS actions plus the return address. The caller qualifies
 updates against its own squash and resolution rules. Invalid prediction
 payload fields must not be observed.
 
-`entry_count = 0` disables the BTB. `match_bits` must be at least two and
+`entry_count = 0` disables the BTB. `match_bits` must include the fetch offset and
 less than XLEN; `page_count` must be at least two. There is no global-history
-predictor, separate direction table, address-space tag, or eight-byte lookup
-window in the current component.
+predictor, separate direction table, or address-space tag.
 
 ## Return-address stack
 
@@ -105,4 +105,5 @@ authorization to retire an instruction.
 
 RV5Stage's current integration is documented in its
 [branch-prediction contract](../rv5stage/README.md#branch-prediction) and
-[fetch guide](../rv5stage/fetch/README.md). RV2Wide does not yet use prediction.
+[fetch guide](../rv5stage/fetch/README.md). RV2Wide uses an eight-byte lookup
+and WB-qualified training; see its [fetch contract](../rv2wide/README.md#branch-prediction).
