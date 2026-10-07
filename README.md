@@ -47,8 +47,8 @@ the ignored `.tools` directory:
 make setup-circt
 ```
 
-For simulation, build the pinned Verilator 5.038 (requires a C++ toolchain,
-Autoconf, Bison, Flex, Make, Perl, and Python 3):
+For simulation, build the pinned Verilator 5.052 (requires a C++ toolchain,
+Autoconf, Bison, Flex, Make, Perl, Python 3, and zlib/LZ4 development libraries):
 
 ```sh
 make setup-verilator

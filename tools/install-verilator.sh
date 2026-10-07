@@ -4,8 +4,8 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
-version=5.038
-archive_sha256=f8c03105224fa034095ba6c8a06443f61f6f59e1d72f76b718f89060e905a0d4
+version=5.052
+archive_sha256=8c8d2e11e6ad32f641dd250742a94195ddecb912e2e2dabe2f42ddbbb99c1092
 install_dir="$repo_dir/.tools/verilator"
 
 verify_install() {

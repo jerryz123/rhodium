@@ -16,7 +16,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install --yes autoconf bison flex libfl-dev build-essential python3
+        sudo apt-get install --yes autoconf bison flex libfl-dev build-essential python3 zlib1g-dev liblz4-dev
     - name: Install and verify Verilator
       shell: bash
       run: |

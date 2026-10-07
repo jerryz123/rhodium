@@ -343,7 +343,7 @@ void address_domains(Word raw_base, Word effective_base, bool packed, bool fault
 }
 
 int main() {
-  for (const auto [raw,effective] : {std::pair{Word{0x7f00000000001000},Word{0x1000}},
+  for (const auto& [raw,effective] : {std::pair{Word{0x7f00000000001000},Word{0x1000}},
                                    std::pair{Word{0x1234000000001000},Word{0x1000}},
                                    std::pair{Word{0x1234fffffffff000},Word{0xfffffffffffff000}}}) {
     for (bool store : {false,true}) {

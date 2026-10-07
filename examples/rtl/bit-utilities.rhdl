@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates arithmetic negation, reductions, membership tests, and enum validity.
+/* Demonstrates arithmetic negation, reductions, membership tests, and enum validity. */
 // SPDX-License-Identifier: Apache-2.0
 
 hardware_enum MembershipState:
@@ -22,6 +22,7 @@ hardware_enum OneHotChoice(~encoding: one_hot):
   Left
   Right
 
+/* Negates unsigned and signed operands with their fixed-width wrapping behavior. */
 circuit ArithmeticNegation():
   input unsigned_value: Bits(8)
   input signed_value: SInt(8)
@@ -31,6 +32,7 @@ circuit ArithmeticNegation():
   unsigned_result <== -unsigned_value
   signed_result <== -signed_value
 
+/* Reduces bit vectors, Bool vectors, host lists, and empty lists to predicates. */
 circuit Reductions():
   input bits_value: Bits(8)
   input flags: Vec(4, Bool)
@@ -52,6 +54,7 @@ circuit Reductions():
   any_empty <== or_reduce([])
   all_empty <== and_reduce([])
 
+/* Tests constant alternatives through variadic, singleton, list, and empty membership. */
 circuit Membership():
   input state: MembershipState
   input value: Bits(4)
@@ -67,6 +70,7 @@ circuit Membership():
   listed <== value.is_one_of([bits(4, 4), bits(5, 4)])
   never <== value.is_one_of([])
 
+/* Checks legal encodings of sparse, dense, and one-hot hardware enums. */
 circuit EnumValidity():
   input sparse: SparseOpcode
   input dense: DenseState
@@ -135,10 +139,45 @@ module Membership(
                never
 );
 
-  assign active = |{state == 2'h1, state == 2'h2};
-  assign small_0 = |{value == 4'h1, value == 4'h2, value == 4'h3};
+  logic __rhodium_decode_12_result;
+  always_comb begin
+    case (state)
+      2'b01:
+        __rhodium_decode_12_result = 1'h1;
+      2'b10:
+        __rhodium_decode_12_result = 1'h1;
+      default:
+        __rhodium_decode_12_result = 1'h0;
+    endcase
+  end // always_comb
+  logic __rhodium_decode_17_result;
+  always_comb begin
+    case (value)
+      4'b0001:
+        __rhodium_decode_17_result = 1'h1;
+      4'b0010:
+        __rhodium_decode_17_result = 1'h1;
+      4'b0011:
+        __rhodium_decode_17_result = 1'h1;
+      default:
+        __rhodium_decode_17_result = 1'h0;
+    endcase
+  end // always_comb
+  logic __rhodium_decode_25_result;
+  always_comb begin
+    case (value)
+      4'b0100:
+        __rhodium_decode_25_result = 1'h1;
+      4'b0101:
+        __rhodium_decode_25_result = 1'h1;
+      default:
+        __rhodium_decode_25_result = 1'h0;
+    endcase
+  end // always_comb
+  assign active = __rhodium_decode_12_result;
+  assign small_0 = __rhodium_decode_17_result;
   assign exact = value == 4'h7;
-  assign listed = |{value == 4'h4, value == 4'h5};
+  assign listed = __rhodium_decode_25_result;
   assign never = 1'h0;
 endmodule
 }>>|

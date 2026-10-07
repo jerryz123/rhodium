@@ -8,6 +8,7 @@ import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
   "../../cache/geometry.rhdl" open
+  "../../cache/protocol.rhdl".PhysicalMemoryResp
   "../../../cores/cache/l1i/cache.rhdl" as l1i
   "../../cache/l1d/cache.rhdl" as l1d
   "../../../cores/rv5stage/tests/params.rhdl" as test_params
@@ -27,9 +28,12 @@ def rv32_instruction_design = embedded.run_elaboration(
 def associative_instruction_design = embedded.run_elaboration(
   fun (): l1i.L1ICache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~fetch_bits: 32)
 )
-def rv32_data_design = embedded.run_elaboration(
+def rv32_data = embedded.run_elaboration_with_top(
   fun (): l1d.L1DCache(XLen.X32, CacheConfig(32, 1), ~chi: config, ~context: RV5StageMemoryContext(8))
 )
+def rv32_data_design = rv32_data.design
+def rv32_core_output = rv32_data.top.outputs.find(fun (port): port.name == "core_out")
+def rv32_response_type = rv32_core_output.type.field("response").type.field("bits").type
 def associative_data_design = embedded.run_elaboration(
   fun (): l1d.L1DCache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~context: RV5StageMemoryContext(8))
 )
@@ -65,4 +69,4 @@ check:
   rv32_instruction_circt.contains("rtl.sync_memory") ~is #false
   rv32_data_circt.contains("rtl.sync_memory") ~is #false
   rv32_data_circt.contains("seq.firmem") ~is #true
-  rv32_data_circt.contains("!hw.struct<access_fault: i1, data: i32, context: !hw.struct<writeback: i9, origin: i1>>") ~is #true
+  rv32_response_type.type_equal(PhysicalMemoryResp(XLen.X32, RV5StageMemoryContext(8))) ~is #true
