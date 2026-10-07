@@ -15,6 +15,7 @@ import:
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("riscv/model/main.rhm").RegisterBank
   lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open
@@ -88,15 +89,16 @@ def RV2WideControlCases = compose_control_cases(RV2WideInstructions)
 def RV2WideDecode = ValidDecodeGen(RV2WideControlCases)
 
 /* Selects the exact scalar domain used by decode and compressed expansion. */
-fun rv2wide_instructions(profile :: FloatingPointProfile) :: List.of(InstructionSpec):
-  RV2WideInstructions ++ if profile == FloatingPointProfile.None | [] | RV64FDFloatingPointInstructions
+fun rv2wide_instructions(profile :: FloatingPointProfile, ~zfa: zfa :: Boolean = #false) :: List.of(InstructionSpec):
+  RV2WideInstructions ++ fp_instructions(XLen.X64, profile, HalfPrecisionProfile.None, ~zfa: zfa)
 
-/* Adds shared F/D physical controls to the same composed decoder as integer instructions. */
-fun rv2wide_control_cases(profile :: FloatingPointProfile) :: List.of(DecodeCase):
-  def fp_instructions = if profile == FloatingPointProfile.None | [] | RV64FDFloatingPointInstructions
-  def fp_branches = branch_cases(fp_instructions)
-  def fp_long = long_cases(fp_instructions)
-  RV2WideControlCases ++ for List (instruction in fp_instructions):
+/* Adds selected shared F/D/Zfa physical controls to the composed integer decoder. */
+fun rv2wide_control_cases(profile :: FloatingPointProfile, ~zfa: zfa :: Boolean = #false) :: List.of(DecodeCase):
+  def instructions = fp_instructions(XLen.X64, profile, HalfPrecisionProfile.None, ~zfa: zfa)
+  def controls = fp_control_cases(XLen.X64, profile, HalfPrecisionProfile.None, ~zfa: zfa)
+  def fp_branches = branch_cases(instructions)
+  def fp_long = long_cases(instructions)
+  RV2WideControlCases ++ for List (instruction in instructions):
     def input = instruction_pattern(instruction)
     def load = instruction.name in ["FLW", "FLD"]
     def store = instruction.name in ["FSW", "FSD"]
@@ -131,7 +133,7 @@ fun rv2wide_control_cases(profile :: FloatingPointProfile) :: List.of(DecodeCase
       fp:
         pattern(RV2WideFpControl()):
           valid: Bool(#true)
-          bits: component_output(RV64FDFloatingPointControlCases, input)
+          bits: component_output(controls, input)
     DecodeCase(input, output)
 
 export:

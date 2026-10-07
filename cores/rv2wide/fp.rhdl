@@ -17,7 +17,7 @@ import:
 
 /* Snapshots operands at RR; fixed returns write only with their aligned WB authorization.
    Accepted variable work and load owners survive all speculative pipeline flushes. */
-sync_circuit RV2WideFp(timing :: FpExecutionTiming):
+sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~zfa: zfa :: Boolean = #false):
   def Request = FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
   def Result = FpExecutionResult(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
   input read_addresses: Vec(3, Bits(5))
@@ -44,7 +44,7 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming):
   calendar.probe_client <== bits(0, 1)
   calendar.probe_delay <== timing.latency(probe, ~width: delay_width) + bits(1, delay_width)
   book |> map_valid(control => timing.latency(control, ~width: delay_width) + bits(1, delay_width)) |> to_decoupled() |> calendar.reserve[0]
-  inst execution(FpExecutionService(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(), ~scheduled_writeback: #true, ~timing: timing))
+  inst execution(FpExecutionService(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(), ~zfa: zfa, ~scheduled_writeback: #true, ~timing: timing))
   available <== calendar.probe_available & execution.fixed_admission_available
   reg reserved(~init: Bool(#false))
   reserved <== book.valid

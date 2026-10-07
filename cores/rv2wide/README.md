@@ -93,6 +93,14 @@ remains integer-only. RV64D implies F. Controls, decode, the three-read/two-writ
 FPR file, numerical execution, boxing, and flag behavior come from
 [`cores/fp/`](../fp/README.md).
 
+Add Zfa 1.0 with
+`RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)`.
+Zfa requires FP and defaults to disabled; the existing lean SoC presets are
+unchanged. The ISA/hart description and UDB projection publish Zfa only when
+selected. It reuses the existing FP execution and writeback paths for single-
+and double-precision immediates, rounding, min/max, quiet comparisons, and
+double-to-word modulo conversion.
+
 One FP instruction can issue from either age slot alongside an independent
 integer instruction. RR snapshots all three FPR operands and checks separate
 GPR/FPR dependencies. Fixed operations launch in EX; WB authorizes their
@@ -550,7 +558,7 @@ invent ancestry from equal PCs or reused transaction IDs.
 
 ## Deliberate limits
 
-There is no guest translation. Optional FP supports F/D, not half precision or Zfa.
+There is no guest translation. Optional FP supports F/D and Zfa, not half precision.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
 The SoC bindings publish lean RV64IMACB or RV64IMAFDCB presets, not RVA23. Mini/Simple
 bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)

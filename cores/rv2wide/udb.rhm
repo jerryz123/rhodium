@@ -20,7 +20,7 @@ fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(N
 /* Encodes indexed counter capability bits. */
 fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)) :: UdbParameter: UdbParameter(name, UdbBooleanListValue(elements))
 
-/* Publishes the exact fixed RV64IMACB profile, including implied subsets and Sv39's software A/D update policy. */
+/* Publishes the selected scalar profile, including optional F/D/Zfa and Sv39's software A/D update policy. */
 fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, description :: NonemptyString, physical_address_width :: PosInt) :: UdbConfiguration:
   unless physical_address_width <= 64
   | error(~who: #'rv2wide_udb_configuration, "physical address width must fit RV64")
@@ -34,7 +34,7 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
     ["Ssccptr", "1.0.0"], ["Sstvecd", "1.0.0"], ["Sstvala", "1.0.0"], ["Sscounterenw", "1.0.0"], ["Ssu64xl", "1.0.0"]
   ]
   def fp = profile.floating_point == FloatingPointProfile.D
-  def selected_versions = versions ++ if fp | [["F", "2.2.0"], ["D", "2.2.0"], ["Zcd", "1.0.0"]] | []
+  def selected_versions = versions ++ (if fp | [["F", "2.2.0"], ["D", "2.2.0"], ["Zcd", "1.0.0"]] | []) ++ (if profile.zfa | [["Zfa", "1.0.0"]] | [])
   def extensions = selected_versions.map(fun (entry): UdbExtension(entry[0], entry[1]))
   def xlen = profile.xlen.width
   def pma_granularity_log2 = 3

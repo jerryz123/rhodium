@@ -1,0 +1,31 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../profile.rhm" open
+  "../udb.rhm" open
+  lib("riscv/isa/fp-profile.rhm") open
+
+def integer = RV2WideConfig()
+def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
+def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
+
+check:
+  integer.zfa ~is #false
+  double.zfa ~is #false
+  integer.isa_profile.isa_extensions.contains("zfa") ~is #false
+  double.isa_profile.isa_extensions.contains("zfa") ~is #false
+  zfa.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["zfa"]
+  zfa.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
+  zfa.hart_description.isa_profile ~is zfa.isa_profile
+  RV2WideConfig(~zfa: #true) ~throws "Zfa requires floating-point support"
+
+for (profile in [integer, double, zfa]):
+  def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
+  def extensions = configuration.extensions.map(fun (extension): extension.name)
+  check:
+    extensions.contains("Zfa") ~is profile.zfa
+    extensions.contains("F") ~is (profile.floating_point == FloatingPointProfile.D)
+    extensions.contains("D") ~is (profile.floating_point == FloatingPointProfile.D)
+  check:
+    configuration.extensions.filter(~keep: fun (extension): extension.name == "Zfa").map(fun (extension): extension.version) ~is (if profile.zfa | ["1.0.0"] | [])

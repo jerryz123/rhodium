@@ -137,7 +137,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
   wb_csrs.time_counter <== time_counter
-  inst fp(if fp_enabled | RV2WideFp(fp_timing) | RV2WideFpDisabled())
+  inst fp(if fp_enabled | RV2WideFp(fp_timing, ~zfa: profile.zfa) | RV2WideFpDisabled())
   fp.state_update |> wb_csrs.fp_update
   inst wb_fp_gpr_calendar(WritebackCalendar(1, fp_span))
   inst wb_fp_gpr_scoreboard(Scoreboard(32))
@@ -208,7 +208,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
-  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point))
+  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~zfa: profile.zfa))
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
   def rr_rounding :: Vec(2, RiscvRoundingMode()) = vec(for List (lane in 0..2): riscv_rounding_mode(rr_head.entries[lane].instruction[12..15], wb_csrs.frm))

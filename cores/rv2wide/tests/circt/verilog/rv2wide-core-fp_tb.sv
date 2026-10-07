@@ -82,7 +82,7 @@ module rv2wide_core_fp_tb;
   end
   always @(negedge clock) if(!reset) cycles++;
   always @(posedge clock) if(!reset) begin
-    if(cycles>3000) $fatal(1,"FP core timeout");
+    if(cycles>10000) $fatal(1,"FP core timeout");
     pipeline_in.response.valid <= pipeline_out.request.valid;
     pipeline_in.response.bits.outcome <= slow_load ? 3'd0 : pipeline_out.request.bits.access==1 ? 3'd1 : 3'd2;
     pipeline_in.response.bits.data <= load_data;
@@ -203,7 +203,114 @@ module rv2wide_core_fp_tb;
     expected_traps=3;
     send(fp('h01,20,1,1,5)); settle();
     assert(traps==3) else $fatal(1,"reserved rounding mode did not trap");
-    $display("RV2Wide FP mixed-latency, pairing, load/store, CSR and legality checks passed");
+    // Zfa uses the same EX launch, WB authorization and variable-latency return paths.
+    // FLI's rs1 field is an immediate index, not an integer or FP source register.
+    send(fp('h78,25,16,1),32'h01900c93,1); // fli.s f25,1.0 + x25=25
+    send(32'h01a00d13,fp('h79,26,20,1),1); // x26=26 + fli.d f26,2.0
+    send(fp('h71,27,25,0));
+    send(fp('h71,28,26,0));
+    settle(); expect_gpr(25,25); expect_gpr(26,26);
+    expect_gpr(27,64'hffffffff3f800000); expect_gpr(28,64'h4000000000000000);
+
+    // Exercise both precision catalogs, all static rounding modes, and dynamic frm.
+    for(int precision=0;precision<2;precision++) begin
+      send(fp('h78+precision,1,18,1)); // 1.5
+      send(fp('h78+precision,2,20,1)); // 2.0
+      send(fp('h14+precision,3,1,2,2)); // fminm -> 1.5
+      send(fp('h71,3,3,0));
+      send(fp('h14+precision,4,1,2,3)); // fmaxm -> 2.0
+      send(fp('h71,4,4,0));
+      send(fp('h50+precision,5,1,2,4)); // fleq -> true
+      send(fp('h50+precision,6,2,1,5)); // fltq -> false
+      settle();
+      expect_gpr(3,precision==1 ? 64'h3ff8000000000000 : 64'hffffffff3fc00000);
+      expect_gpr(4,precision==1 ? 64'h4000000000000000 : 64'hffffffff40000000);
+      expect_gpr(5,1); expect_gpr(6,0);
+      for(int rm=0;rm<5;rm++) begin
+        send(fp('h20+precision,7,1,4,rm)); // fround without NX
+        send(fp('h60+precision,7,7,0)); // dependent GPR conversion
+        send(32'h00102473); // csrr x8,fflags
+        settle(); expect_gpr(7,(rm==1 || rm==2) ? 1 : 2); expect_gpr(8,0);
+      end
+      send(32'h00215073); settle(); // csrwi frm,2 (RDN); wait for serialized redirect
+      send(fp('h20+precision,7,1,5,7)); // froundnx dynamic -> 1, NX
+      send(fp('h60+precision,7,7,0));
+      send(32'h00102473);
+      settle(); expect_gpr(7,1); expect_gpr(8,1);
+      send(32'h00301073); settle(); // clear fcsr
+
+      // Quiet NaNs propagate through MINM/MAXM; quiet compares must not raise NV.
+      send(fp('h78+precision,2,31,1)); // canonical NaN
+      send(fp('h14+precision,3,1,2,2));
+      send(fp('h71,3,3,0));
+      send(fp('h14+precision,4,2,1,3));
+      send(fp('h71,4,4,0));
+      send(fp('h50+precision,5,1,2,4));
+      send(fp('h50+precision,6,2,1,5));
+      send(32'h00102473);
+      settle();
+      expect_gpr(3,precision==1 ? 64'h7ff8000000000000 : 64'hffffffff7fc00000);
+      expect_gpr(4,precision==1 ? 64'h7ff8000000000000 : 64'hffffffff7fc00000);
+      expect_gpr(5,0); expect_gpr(6,0); expect_gpr(8,0);
+
+      load_data=precision==1 ? 64'h7ff0000000000001 : 64'hffffffff7f800001;
+      send(32'h10003107); // fld f2: signaling NaN, correctly boxed for S
+      send(fp('h50+precision,5,1,2,4));
+      send(fp('h50+precision,6,2,1,5));
+      send(32'h00102473);
+      settle(); expect_gpr(5,0); expect_gpr(6,0); expect_gpr(8,16);
+      send(32'h00101073); settle();
+    end
+
+    // An unboxed single operand is canonical NaN, not the low-word number.
+    load_data=64'h000000003f800000;
+    send(32'h10003107);
+    send(fp('h78,1,20,1)); // boxed 2.0
+    send(fp('h14,3,1,2,2));
+    send(fp('h71,3,3,0));
+    send(fp('h50,5,2,1,5));
+    send(32'h00102473);
+    settle(); expect_gpr(3,64'hffffffff7fc00000); expect_gpr(5,0); expect_gpr(8,0);
+
+    // Zfa 1.0 specifies FCVT.W.D flags even though FCVTMOD wraps the result.
+    // https://docs.riscv.org/reference/isa/v20260120/unpriv/zfa.html#_modular_convert_to_integer_instruction
+    load_data=64'h41f8000000180000; // 6442450945.5 -> 0x80000001, NV (signed-word overflow)
+    send(32'h10003507); // fld f10,256(x0)
+    send(fp('h61,11,10,8,1),32'h00c00613,1);
+    send(32'h00158693); // dependent addi x13,x11,1
+    send(32'h00102773);
+    settle(); expect_gpr(11,64'hffffffff80000001); expect_gpr(12,12);
+    expect_gpr(13,64'hffffffff80000002); expect_gpr(14,16);
+    send(32'h00101073); settle();
+
+    // A killed FROUNDNX must change neither destination nor flags/FS.
+    send(fp('h79,20,16,1)); // f20=1.0
+    send(fp('h79,1,18,1)); // f1=1.5
+    send(32'h000040b7); send(32'h30009073); settle(); // FS=Clean
+    inject_fault=1; inject_pc=next_pc; expected_traps++;
+    send(32'h00100893,fp('h21,20,1,5,0),1); settle();
+    inject_fault=0;
+    inject_fault=1; inject_pc=next_pc; expected_traps++;
+    send(32'h00100893,fp('h61,11,1,8,1),1); settle(); // killed GPR/NX return
+    inject_fault=0;
+    expect_gpr(11,64'hffffffff80000001);
+    send(32'h300027f3); settle(); // csrr x15,mstatus before any new FP write
+    send(32'h00102873); settle();
+    send(fp('h71,21,20,0));
+    settle(); expect_gpr(21,64'h3ff0000000000000); expect_gpr(16,0);
+    assert((gprs[15]&64'h6000)==64'h4000) else $fatal(1,"killed Zfa dirtied FS");
+    expected_traps++;
+    send(fp('h21,20,1,4,5)); settle(); // reserved static rm
+    assert(traps==expected_traps) else $fatal(1,"Zfa reserved rm did not trap");
+    send(32'h00235073); settle(); // frm=6
+    expected_traps++;
+    send(fp('h21,20,1,4,7)); settle(); // reserved dynamic rm
+    assert(traps==expected_traps) else $fatal(1,"Zfa reserved frm did not trap");
+    send(32'h30001073); settle(); // FS=Off
+    expected_traps++;
+    send(fp('h79,20,16,1)); settle();
+    assert(traps==expected_traps) else $fatal(1,"Zfa FS-off did not trap");
+    $display("RV2Wide F/D/Zfa mixed-latency, pairing, load/store, CSR and legality checks passed");
     $finish;
   end
 endmodule

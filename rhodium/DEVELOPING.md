@@ -261,7 +261,9 @@ RV2Wide bundles
 also consume the architectural privilege type, and its core selects Sv39 through
 the shared hart MMU-type descriptor.
 `cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
-composition and one hardware decoder per issue slot. `cores/rv2wide/core.rhdl`
+composition and one hardware decoder per issue slot, plus the architectural
+XLEN descriptor to select the shared F/D/Zfa instruction/control relations.
+`cores/rv2wide/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
 pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`, and
