@@ -342,7 +342,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def overflow_visible = (privilege_state === PrivilegeMode.Machine) ||| (state.mcounteren[3].into(Bool) & (if hypervisor | !virtualized ||| state.hcounteren[3].into(Bool) | Bool(#true)))
   def FpCsrModule = if floating_point_supports_f(profile) | RiscvFpCsrs() | RiscvDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
-  inst vector_csrs(RiscvVectorCsrs(xlen, config.vector, config.vector_length))
+  inst vector_csrs(if vector_profile_enabled(config.vector) | RiscvVectorCsrs(xlen, config.vector, config.vector_length) | DisabledRiscvVectorCsrs(xlen))
   vector_retire |> vector_csrs.retire
   vector_saturate |> vector_csrs.saturate
   vector_fault_start |> vector_csrs.fault_start

@@ -9,7 +9,9 @@ import:
   "../cache/l1i/protocol.rhdl" open
   "../chi-hart.rhdl" open
   lib("cores/bpred/btb.rhdl").Btb
+  lib("cores/bpred/btb.rhdl").DisabledBtb
   lib("cores/bpred/ras.rhdl").Ras
+  lib("cores/bpred/ras.rhdl").DisabledRas
   lib("cores/bpred/protocol.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/trap.rhm").ExceptionCause
@@ -50,8 +52,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   reg pc(Bits(64))
   reg continuation(~init: Bool(#false))
   reg continuation_prediction(BranchPrediction(XLen.X64))
-  inst btb(Btb(XLen.X64, profile.btb_entries, ~fetch_bytes: 8))
-  inst ras(Ras(XLen.X64, profile.ras_entries))
+  inst btb(if profile.btb_entries == 0 | DisabledBtb(XLen.X64) | Btb(XLen.X64, profile.btb_entries, ~fetch_bytes: 8))
+  inst ras(if profile.ras_entries == 0 | DisabledRas(XLen.X64) | Ras(XLen.X64, profile.ras_entries))
   inst s1(ValidPipeAlwaysCapture(RV2WideFetchCursor(), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(), 1, ~flushable: #true))
   inst assembler(RV2WideInstructionAssembler(profile))

@@ -20,6 +20,11 @@ packet truncation, recovery priority, and architectural context changes. RAS
 resolved state is not intrinsically retirement state: callers choose the
 resolution boundary. Keep those choices outside this package.
 
+Keep active BTB/RAS implementations separate from `DisabledBtb` and `DisabledRas`.
+The caller selects the circuit from its entry-count configuration; active
+implementations accept only positive depths. Disabled circuits retain the port
+contract without allocating predictor state.
+
 ## Implementation map
 
 | File | Responsibility |

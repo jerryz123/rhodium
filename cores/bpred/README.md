@@ -64,7 +64,8 @@ actual/predicted RAS actions plus the return address. The caller qualifies
 updates against its own squash and resolution rules. Invalid prediction
 payload fields must not be observed.
 
-`entry_count = 0` disables the BTB. `match_bits` must include the fetch offset and
+`entry_count` is positive. Select `DisabledBtb(xlen)` instead to disable prediction
+with the same ports and no predictor state. `match_bits` must include the fetch offset and
 less than XLEN; `page_count` must be at least two. There is no global-history
 predictor, separate direction table, or address-space tag.
 
@@ -73,7 +74,9 @@ predictor, separate direction table, or address-space tag.
 `Ras(xlen, entry_count = 6)` maintains separate speculative and resolved bounded
 stacks. `head_valid` and `head` expose the speculative top combinationally.
 Overflow wraps and replaces the oldest address; underflow is a no-op.
-`entry_count = 0` disables the stack.
+`entry_count` is positive; `DisabledRas(xlen)` exposes the same ports with an
+always-invalid head and no stack state. Core configurations may still use zero
+entries to select these disabled circuits at instantiation.
 
 - `speculate: Valid(RasUpdate(xlen))` applies an accepted speculative action.
   The caller must emit it exactly once, not repeatedly while fetch stalls.

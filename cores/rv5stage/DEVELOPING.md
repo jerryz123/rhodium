@@ -40,6 +40,7 @@ completion adaptation and instruction/uncached integration.
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`vector.rhdl`](vector.rhdl) | WB macro allocation, autonomous vector execution/memory paths, and macro retirement outcomes |
+| [`integer-execution.rhdl`](integer-execution.rhdl) | Tagged shared multiply/divide services and separate scheduled/buffered product-return adapters |
 | [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
 | [`data-port-arbiter.rhdl`](data-port-arbiter.rhdl) | Core-first physical core/PTW arbitration, paired L1D index selection, and origin-tagged response routing before PMA/uncached routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in XLEN-wide Zve/V WB-launched sequencer, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
@@ -54,6 +55,14 @@ completion adaptation and instruction/uncached integration.
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
 
 ## Change the core
+
+Select active or disabled FP/vector services at instantiation. The vector
+pipeline's disabled implementation owns inactive service outputs; scalar WB
+launch qualification, FPR reservation, and retained retirement context remain
+in `core.rhdl` and use the same connections for either specialization. Preserve
+the active vector instance's passive observation boundary when changing this
+selection. FP calendar/arbitration policy belongs in `fp/service.rhdl`, not in
+the reusable numeric service.
 
 Follow the [source documentation requirements](../../AGENTS.md#source-documentation),
 including the exemption for files under `tests/`.

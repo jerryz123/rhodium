@@ -67,8 +67,8 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   reg running(~init: Bool(#true))
   inst cursor(RV5StageFetchCursor(xlen))
   inst offer(RV5StageFetchOffer(xlen))
-  inst btb(Btb(xlen, btb_entries))
-  inst ras(Ras(xlen, if btb_entries == 0 | 0 | ras_entries))
+  inst btb(if btb_entries == 0 | DisabledBtb(xlen) | Btb(xlen, btb_entries))
+  inst ras(if btb_entries == 0 || ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, ras_entries))
   def command = clear.valid ||| restart.valid ||| redirect.valid
   inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   btb.cursor <== s1.egress.bits.pc

@@ -15,6 +15,8 @@ owns reusable state implementation, not a core's pipeline policy.
 - `file.rhdl` owns state, CSR dispatch, trap/return transitions, interrupt
   selection, FP state, counters, and passive cosim observations.
 - `vector.rhdl` owns retained vector configuration, sticky saturation, and VS.
+  The bank selects `RiscvVectorCsrs` or `DisabledRiscvVectorCsrs` at instantiation;
+  disabled profiles use stateless outputs rather than a conditional bank body.
 
 Use descriptors in `riscv/isa/` and helpers in `riscv/rtl/`; do not duplicate
 CSR addresses or field encodings. Shared implementation must not import a

@@ -548,9 +548,11 @@ wrapper, using shared `cores/fp/register-file.rhdl` storage.
 `cores/fp/div-sqrt.rhdl` directly imports `std/ready-valid.rhdl` and Flow's
 `rr-arbiter`, `demux`, and `gate` modules. No FP
 implementation depends on the vector package or on test/backend code.
-`cores/rv5stage/core.rhdl` directly imports the FP execution service and
-HardFloat rounding types to compose scalar and vector operand clients around
-one service. Generic request/result retagging remains in the FP bundles.
+`cores/rv5stage/core.rhdl` imports its named `fp/service.rhdl` and HardFloat
+rounding types. The named service imports shared FP bundles, execution, timing,
+and controls, the reusable writeback calendar, architectural XLEN/FP profiles,
+and Flow to arbitrate scalar/vector clients and reserve fixed returns.
+Generic request/result retagging remains in the FP bundles.
 `cores/fp/timing.rhdl` imports only shared FP control types. The execution
 service, scalar FP wrapper, core, and vector composition/pipeline import it to
 share fixed return delays without introducing a named-core dependency into FP.

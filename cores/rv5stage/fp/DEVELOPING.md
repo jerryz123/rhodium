@@ -16,8 +16,9 @@ not import caches, MMU implementation, `core.rhdl`, backends, simulators, or
 tests. No shared FP component imports this wrapper. See the repository
 [package graph](../../../rhodium/DEVELOPING.md).
 
-`core.rhdl` owns WB authorization, issue arbitration, physical write calendars,
-memory requests, and integer-result retirement. The scalar wrapper owns FPR
+`core.rhdl` owns WB authorization, the GPR write calendar, memory requests, and
+integer-result retirement. Its named `service.rhdl` owns scalar/vector issue
+arbitration and the FP return calendar. The scalar wrapper owns FPR
 reservations/hazards, load boxing, operand snapshots, completion adaptation,
 and architectural-state update events. Canonical FP instruction mappings live
 in [`cores/fp/decode.rhdl`](../../fp/decode.rhdl); the named
@@ -29,12 +30,15 @@ in [`cores/fp/decode.rhdl`](../../fp/decode.rhdl); the named
 |---|---|
 | [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion, scalar execution owner, and LSU payloads |
 | [`pipeline.rhdl`](pipeline.rhdl) | FPR scoreboard, load/store bridges, vector FPR reservation/write, and completion/state updates |
+| [`service.rhdl`](service.rhdl) | ID booking, EX grants, scalar/vector arbitration, and matching stateless disabled service |
 | [`../../fp/`](../../fp/DEVELOPING.md) | Shared types/decode, tagged arithmetic service, and 3R2W register file |
 
 `RV5StageFpScalar` exposes operand execution ports. `RV5StageFpPipeline`
 composes it with an elastic service for standalone use; the core instead
 shares a scheduled service with vector clients. Scalar context/destination/rd
 belong only to the wrapper's opaque execution tag.
+Both scalar and shared-service disabled circuits expose the same execution
+ports as their active counterparts, so core wiring does not branch on FP support.
 
 ## Change workflow
 

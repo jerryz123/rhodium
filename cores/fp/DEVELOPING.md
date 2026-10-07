@@ -33,7 +33,7 @@ the caller rather than adding a dependency back toward a core.
 | [`datapath.rhdl`](datapath.rhdl) | Fixed F/D/half/Zfa execution and exact per-operand promotion |
 | [`div-sqrt.rhdl`](div-sqrt.rhdl) | One active variable operation with retained terminal state/tag |
 | [`timing.rhdl`](timing.rhdl) | Shared fixed-operation return-delay descriptor |
-| [`execute.rhdl`](execute.rhdl) | Lane routing, fixed-return timing, and completion arbitration |
+| [`execute.rhdl`](execute.rhdl) | Lane routing and fixed-return timing, with separate scheduled and buffered return adapters |
 | [`tests/`](tests/) | Shared decode contracts and standalone behavioral fixtures |
 
 ## Change workflow
@@ -55,6 +55,12 @@ the caller rather than adding a dependency back toward a core.
 `timing.rhdl` owns fixed return delays and initiation interval one. Keep service
 return collision checks, scalar authorization alignment, and vector reservations
 on this shared descriptor; do not repeat a literal latency in callers.
+
+`FpExecutionService` selects `FpScheduledReturns` or `FpBufferedReturns` while
+sharing the numeric lanes and timing pipeline. The scheduled adapter owns
+variable-result aging; the buffered adapter owns completion credits and held
+arbitration. Neither mode duplicates the arithmetic datapath or adds latency
+to the other mode.
 
 ## Validation
 

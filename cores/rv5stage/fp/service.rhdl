@@ -1,0 +1,86 @@
+#lang rhodium
+/* Arbitrates RV5Stage scalar/vector FP execution and reserves fixed return cycles at ID. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../fp/bundles.rhdl" open
+  "../../fp/execute.rhdl" open
+  "../../fp/timing.rhdl" open
+  "../../fp/types.rhdl" open
+  "../../writeback-calendar.rhdl" open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("flow/main.rhdl") open
+
+/* Books scalar EX launches in ID while fairly sharing unreserved cycles with vector work. */
+sync_circuit RV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, ScalarTag :: DataType, VectorTag :: DataType, ~half_precision: half_precision :: HalfPrecisionProfile, ~zfa: zfa_enabled :: Boolean, ~timing: fp_timing :: FpExecutionTiming):
+  interface scalar_request(Decoupled(FpExecutionRequest(xlen, profile, ScalarTag)), ~role: consumer)
+  interface scalar_result(Decoupled(FpExecutionResult(xlen, profile, ScalarTag)), ~role: producer)
+  interface vector_request(Decoupled(FpExecutionRequest(xlen, profile, VectorTag)), ~role: consumer)
+  interface vector_result(Decoupled(FpExecutionResult(xlen, profile, VectorTag)), ~role: producer)
+  input id_execution: FloatExecutionControl()
+  input(id_admitted, gpr_available): Bool
+  output(id_available, ex_granted): Bool
+  def calendar_span = math.max(8, fp_timing.maximum + 1)
+  def calendar_width = index_width(calendar_span + 1)
+  /* Keeps scalar destination context and vector completion-slot identity distinct in the
+     shared FP service. */
+  tagged_union FpOwner():
+    Scalar(ScalarTag)
+    Vector(VectorTag)
+  inst wb_fp_execution(FpExecutionService(xlen, profile, FpOwner(), ~half_precision: half_precision, ~zfa: zfa_enabled, ~scheduled_writeback: #true, ~timing: fp_timing))
+  inst ex_fp_calendar(WritebackCalendar(2, calendar_span))
+  ex_fp_calendar.pause <== Bool(#false)
+  ex_fp_calendar.probe_client <== bits(1, 1)
+  ex_fp_calendar.probe_delay <== fp_timing.latency(id_execution, ~width: calendar_width) + bits(1, calendar_width)
+  ex_fp_calendar.reserve[1].valid <== id_admitted
+  ex_fp_calendar.reserve[1].bits <== ex_fp_calendar.probe_delay
+  reg ex_fp_reserved(~init: Bool(#false))
+  ex_granted <== ex_fp_reserved
+  reg id_fp_vector_turn(~init: Bool(#false))
+  ex_fp_reserved <== id_admitted
+  def tagged_scalar_request = scalar_request |> map_flow(request => fp_request_with_tag(xlen, profile, ScalarTag, FpOwner(), request, FpOwner().Scalar(request.tag)))
+  def tagged_vector_request = vector_request |> map_flow(request => fp_request_with_tag(xlen, profile, VectorTag, FpOwner(), request, FpOwner().Vector(request.tag)))
+  def vector_waiting = tagged_vector_request.valid & !tagged_vector_request.ready
+  id_available <== ex_fp_calendar.probe_available & wb_fp_execution.fixed_admission_available & gpr_available & !(id_fp_vector_turn & vector_waiting)
+  when (!tagged_vector_request.valid ||| tagged_vector_request.ready):
+    id_fp_vector_turn <== Bool(#false)
+  elsewhen id_admitted:
+    id_fp_vector_turn <== Bool(#true)
+  inst ex_fp_selection(GrantMerge(FpExecutionRequest(xlen, profile, FpOwner()), 2))
+  // The registered EX grant cannot be displaced by WB or vector traffic.
+  // Otherwise give an already-authorized vector offer the next turn.
+  ex_fp_selection.grants <== vec([ex_fp_reserved ||| !tagged_vector_request.valid, !ex_fp_reserved & tagged_vector_request.valid]).into(MaybeOneHot(2))
+  Array(tagged_scalar_request, tagged_vector_request) <=> ex_fp_selection.ingress
+  def Array(fp_launch, fp_reservation) = ex_fp_selection.egress |> atomic_fork(2)
+  fp_launch |> wb_fp_execution.request
+  fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Vector).into(Bool) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => fp_timing.latency(operation.control.execution, ~width: calendar_width)) |> ex_fp_calendar.reserve[0]
+  (
+    wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
+      |> parallel(
+           map_flow(~stable: #true, result => fp_result_with_tag(xlen, profile, FpOwner(), ScalarTag, result, result.tag.view(FpOwner().Scalar).payload)),
+           map_flow(~stable: #true, result => fp_result_with_tag(xlen, profile, FpOwner(), VectorTag, result, result.tag.view(FpOwner().Vector).payload))
+         )
+  ) <=> Array(scalar_result, vector_result)
+
+/* Keeps both execution clients inactive without allocating arithmetic or reservation state. */
+sync_circuit DisabledRV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, ScalarTag :: DataType, VectorTag :: DataType):
+  interface scalar_request(Decoupled(FpExecutionRequest(xlen, profile, ScalarTag)), ~role: consumer)
+  interface scalar_result(Decoupled(FpExecutionResult(xlen, profile, ScalarTag)), ~role: producer)
+  interface vector_request(Decoupled(FpExecutionRequest(xlen, profile, VectorTag)), ~role: consumer)
+  interface vector_result(Decoupled(FpExecutionResult(xlen, profile, VectorTag)), ~role: producer)
+  input id_execution: FloatExecutionControl()
+  input(id_admitted, gpr_available): Bool
+  output(id_available, ex_granted): Bool
+  scalar_request.ready <== Bool(#false)
+  scalar_result.valid <== Bool(#false)
+  scalar_result.bits <== dont_care(FpExecutionResult(xlen, profile, ScalarTag))
+  vector_request.ready <== Bool(#false)
+  vector_result.valid <== Bool(#false)
+  vector_result.bits <== dont_care(FpExecutionResult(xlen, profile, VectorTag))
+  id_available <== Bool(#false)
+  ex_granted <== Bool(#false)
+
+export:
+  RV5StageFpService
+  DisabledRV5StageFpService

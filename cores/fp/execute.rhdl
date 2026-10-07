@@ -41,6 +41,47 @@ sync_circuit FpCompletionArbiter(T :: DataType):
     locked <== Bool(#true)
     owner_is_second <== selected_is_second
 
+/* Gives reserved fixed returns priority while bounding variable-result starvation. */
+sync_circuit FpScheduledReturns(Request :: DataType, Result :: DataType):
+  interface request(Decoupled(Request), ~role: consumer)
+  interface issue(Valid(Request), ~role: producer)
+  interface completion(Valid(Result), ~role: consumer)
+  interface variable(Irrevocable(Result), ~role: consumer)
+  output fixed_admission_available: Bool
+  interface result(Decoupled(Result), ~role: producer)
+  reg variable_age(~init: bits(0, 3))
+  fixed_admission_available <== variable_age < bits(6, 3)
+  // Stop new launches long enough for an older variable result to drain;
+  // fixed work already in flight still writes on its reserved cycle.
+  def fixed_issue = request |> gate_flow(!variable_age.and_reduce()) |> to_valid()
+  fixed_issue |> issue
+  // Variable work stays in its lane. Never lock the common result mux
+  // against an already-reserved fixed return arriving next cycle.
+  Array(completion |> to_decoupled(), variable) |> arbiter() |> result
+  assert(!completion.valid ||| result.ready, "scheduled_fp_writes_on_return")
+  when (!variable.valid ||| variable.ready):
+    variable_age <== bits(0, 3)
+  elsewhen (!variable_age.and_reduce()):
+    variable_age <== variable_age + bits(1, 3)
+
+/* Reserves fixed completion storage before launch and fairly drains held lane results. */
+sync_circuit FpBufferedReturns(Request :: DataType, Result :: DataType, capacity :: PosInt):
+  interface request(Decoupled(Request), ~role: consumer)
+  interface issue(Valid(Request), ~role: producer)
+  interface completion(Valid(Result), ~role: consumer)
+  interface variable(Irrevocable(Result), ~role: consumer)
+  output fixed_admission_available: Bool
+  interface result(Irrevocable(Result), ~role: producer)
+  fixed_admission_available <== Bool(#false)
+  inst fixed_responses(CompletionQueue(Request, Result, capacity))
+  fixed_responses.issue |> issue
+  completion |> fixed_responses.completion
+  inst completion_merge(FpCompletionArbiter(Result))
+  fixed_responses.response |> completion_merge.ingress[0]
+  variable |> completion_merge.ingress[1]
+  completion_merge.egress |> result
+  request |> fixed_responses.request
+
 /* Dispatches fixed and variable arithmetic while preserving opaque execution tags.
    Scheduled fixed returns use the selected timing contract; standalone mode reserves
    completion storage and presents an irrevocable merged result. */
@@ -92,35 +133,14 @@ sync_circuit FpExecutionService(
     def results = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
       paths[index] |> filter_valid(operation => timing.latency(operation.control.execution) === bits(latency, timing.width)) |> map_valid(_operation => fixed.completion) |> valid_pipe(latency)
     results |> valid_arbiter()
-  if scheduled_writeback
-  | block:
-      reg variable_age(~init: bits(0, 3))
-      fixed_admission_available <== variable_age < bits(6, 3)
-      fixed.request <== fixed_request.bits
-      // Stop new launches long enough for an older variable result to drain;
-      // fixed work already in flight still writes on its reserved cycle.
-      def fixed_issue = fixed_request |> gate_flow(return_available & !variable_age.and_reduce()) |> to_valid()
-      fixed_launch <== fixed_issue.valid
-      def fixed_completion = timed_result(fixed_issue)
-      // Variable work stays in its lane. Never lock the common result mux
-      // against an already-reserved fixed return arriving next cycle.
-      Array(fixed_completion |> to_decoupled(), div_sqrt.completion) |> arbiter() |> result
-      assert(!fixed_completion.valid ||| result.ready, "scheduled_fp_writes_on_return")
-      when (!div_sqrt.completion.valid ||| div_sqrt.completion.ready):
-        variable_age <== bits(0, 3)
-      elsewhen (!variable_age.and_reduce()):
-        variable_age <== variable_age + bits(1, 3)
-  | block:
-      fixed_admission_available <== Bool(#false)
-      inst fixed_responses(CompletionQueue(ExecutionRequest, Result, timing.maximum + 2))
-      fixed.request <== fixed_responses.issue.bits
-      fixed_launch <== fixed_responses.issue.valid
-      timed_result(fixed_responses.issue) |> fixed_responses.completion
-      inst completion_merge(FpCompletionArbiter(Result))
-      fixed_responses.response |> completion_merge.ingress[0]
-      div_sqrt.completion |> completion_merge.ingress[1]
-      completion_merge.egress |> result
-      fixed_request |> gate_flow(return_available) |> fixed_responses.request
+  inst returns(if scheduled_writeback | FpScheduledReturns(ExecutionRequest, Result) | FpBufferedReturns(ExecutionRequest, Result, timing.maximum + 2))
+  fixed_request |> gate_flow(return_available) |> returns.request
+  fixed.request <== returns.issue.bits
+  fixed_launch <== returns.issue.valid
+  timed_result(returns.issue) |> returns.completion
+  div_sqrt.completion |> returns.variable
+  returns.result |> result
+  fixed_admission_available <== returns.fixed_admission_available
   division_request |> div_sqrt.request
   when (request.valid):
     assert(request.bits.control.execution.unit =/= FloatUnit.Memory, "fp_execution_requires_compute")
