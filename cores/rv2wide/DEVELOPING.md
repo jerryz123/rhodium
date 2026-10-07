@@ -399,6 +399,18 @@ PMA drops, context cancellation, and no walk allocation; `rv2wide-cache` and
 
 ## System operations and precise boundaries
 
+Optional Zihintpause overlays the exact PAUSE cube on FENCE in the combined
+decoder. Its independent `pause` control leaves CSR, fence, memory, and
+writeback enables inactive. RR permits an older peer but stops younger issue
+while PAUSE occupies EX/MEM/WB, without waiting for older deferred work to drain.
+Successful WB retirement starts the 16-cycle RR cooldown; redirects, interrupts,
+and reset cancel it. Do not reuse system serialization or the WRS retained owner.
+The issue-window contents survive cooldown and completion arbitration continues.
+Preserve the successful retirement-prefix qualification so killed hints cannot
+start a cooldown. The core fixture checks both slots, consecutive hints, prior
+loads, killed hints, interrupt entry, and reset; the fetch fixture covers real
+instruction delivery and traced retirement. Keep neighboring FENCE decode intact.
+
 RR serializes system instructions after older pipeline and accepted memory work
 drain and never admits a system instruction as the younger slot. CSR results
 are unavailable to speculative forwarding; WB writes the shared bank's result.

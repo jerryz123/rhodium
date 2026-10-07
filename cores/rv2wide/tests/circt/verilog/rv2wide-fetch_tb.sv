@@ -69,6 +69,7 @@ module rv2wide_fetch_tb;
   int expected_fault_pc, expected_fault_cause;
   logic [63:0] expected_fault_value;
   int ustate=0, udue=0, ureads=0, uwrites=0, fences=0, instruction_fences=0;
+  int pauses=0, last_pause_cycle=0;
   CHIReqFlit urequest;
   bit reservation_valid=0;
   logic [63:0] reservation_address;
@@ -333,9 +334,14 @@ module rv2wide_fetch_tb;
         assert(got.deferred && ustate==0) else $fatal(1,"atomic authorization/order");
       end
       7'h0f: begin
+        if(word==32'h0100000f) begin
+          assert(!got.write && !got.deferred) else $fatal(1,"PAUSE created a write");
+          pauses++; last_pause_cycle=cycles;
+        end else begin
         assert(ustate==0 && !dactive && completions.size()==0) else $fatal(1,"fence before memory drain");
         fences++;
         if(word[14:12]==1) instruction_fences++;
+        end
       end
       7'h73: begin
         assert(phase>=5) else $fatal(1,"unexpected system instruction");
@@ -1023,6 +1029,20 @@ module rv2wide_fetch_tb;
     assert(reference_pc=='h610 && sleeping) else $fatal(1,"STO did not retain its instruction");
     wait(reference_pc=='h61c && sleeping); repeat(3) @(negedge clock);
     assert(registers[4]==0 && model_bytes['h800]==7) else $fatal(1,"STO destroyed the reservation");
+    // Hints flow through real fetch/decode and the same traced retirement
+    // stream; instruction buffering survives each bounded issue cooldown.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    insn('h600,addi(1,0,7)); insn('h604,32'h0100000f);
+    insn('h608,addi(2,1,1)); insn('h60c,32'h0100000f);
+    insn('h610,addi(3,2,1)); insn('h614,32'h10500073);
+    phase=30; reference_pc='h600;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h600};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(pauses==2 && registers[3]==9 && cycles-last_pause_cycle>=16)
+      else $fatal(1,"PAUSE fetch/retirement/cooldown integration");
 `endif
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
 `ifndef BPRED_DISABLED

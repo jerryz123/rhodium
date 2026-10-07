@@ -76,7 +76,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def compressed = if lane == 0 | first_compressed | second_compressed
     def size = if lane == 0 | first_size | second_size
     def pc = if lane == 0 | first_pc | first_pc + (first_size.zext(64) << 1)
-    inst expander(RiscvCompressedExpander(XLen.X64, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs).map(fun (instruction): instruction.name)))
+    inst expander(RiscvCompressedExpander(XLen.X64, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause).map(fun (instruction): instruction.name)))
     expander.compressed <== raw[0..16]
     def canonical = mux(compressed, expander.expansion.instruction, raw)
     def legal = !head.bits.fault.valid & (!compressed ||| expander.expansion.valid)

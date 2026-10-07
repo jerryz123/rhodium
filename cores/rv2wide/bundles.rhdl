@@ -127,6 +127,7 @@ bundle RV2WideResult():
   mispredicted: Bool
   memory: RV2WideMemoryControl()
   prefetch: CachePrefetchOperation
+  pause: Bool
   address: Bits(64)
   store_data: Bits(64)
   cache_outcome: RV2WideCacheOutcome

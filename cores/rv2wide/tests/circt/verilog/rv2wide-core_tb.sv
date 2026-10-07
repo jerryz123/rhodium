@@ -62,6 +62,7 @@ module rv2wide_core_tb;
   logic [63:0] model[32];
   integer cycles = 0, commits = 0, dual_commits = 0, single_issues = 0, stops = 0;
   integer dual_run = 0, longest_dual_run = 0;
+  int pause_commits=0, pause_dual=0, pause_cycle=0;
   bit saw_repacked = 0;
   memory_in_t memory_in;
   memory_out_t memory_out;
@@ -303,6 +304,12 @@ module rv2wide_core_tb;
           retirement_t want;
           assert (expected.size() > 0) else $fatal(1, "unexpected retirement pc=%h", retired[lane].bits.fetched.pc);
           want = expected.pop_front();
+          if(want.fetched.instruction==32'h0100000f) begin
+            assert(!retired[lane].bits.write && !retired[lane].bits.deferred && !sleeping)
+              else $fatal(1,"PAUSE allocated architectural work or entered sleep");
+            pause_commits++; pause_cycle=cycles;
+            if(lane==1) pause_dual++;
+          end
           if(want.fetched.instruction[6:0]==7'h0f && want.fetched.instruction[14:12]==2 && want.fetched.instruction[31:20]<3) begin
             assert(!retired[lane].bits.deferred && memory_in.response.valid && memory_out.response_ready && response_management[response_read])
               else $fatal(1,"maintenance retired before its response or allocated deferred RF work");
@@ -515,10 +522,13 @@ module rv2wide_core_tb;
     case (op)
       'h0f: begin
         memory_req_t request;
+        if(word==32'h0100000f) writes=0;
+        else begin
         assert(word[31:20] inside {0,1,2,4} && f3==2 && word[11:7]==0) else $fatal(1,"oracle unsupported CBO");
         request='0; request.address=a; request.access=word[31:20]==4 ? 6 : 4'(7+word[31:20]); request.width=3;
         expected_requests.push_back(request); writes=0;
         if(word[31:20]==4) for(int i=0;i<64;i++) model_bytes[int'(a&~64'd63)+i]=0;
+        end
       end
       'h73: begin
         assert(mop_encoding(word)) else $fatal(1,"oracle unsupported SYSTEM encoding %h",word);
@@ -1502,6 +1512,75 @@ module rv2wide_core_tb;
     drain(); interrupts=0;
     csr_access('h700,2,13,0,'h341,'h6620);
     assert(!sleeping) else $fatal(1,"interrupt left core asleep");
+
+    // PAUSE is an exact FENCE overlay. It retires before its bounded cooldown,
+    // without redirecting or discarding buffered successors, in either slot.
+    for(int slot=0;slot<2;slot++) begin
+      int before_pause, before_dual;
+      reset_core(); before_pause=pause_commits; before_dual=pause_dual;
+      if(slot==0) send('h6640,32'h0100000f,imm(1,0,7));
+      else begin
+        send('h6640,imm(1,0,7),32'h0100000f);
+        send('h6648,imm(2,0,8),imm(3,0,9));
+      end
+      while(pause_commits==before_pause) tick();
+      assert(issued==0 && !sleeping) else $fatal(1,"PAUSE did not begin cooldown");
+      repeat(15) begin tick(); assert(issued==0) else $fatal(1,"PAUSE cooldown too short"); end
+      tick(); assert(issued!=0) else $fatal(1,"PAUSE cooldown did not release issue");
+      drain();
+      assert(pause_commits==before_pause+1 && pause_dual==before_dual+slot)
+        else $fatal(1,"PAUSE slot/retirement mismatch");
+    end
+    // Adjacent hints must not coissue across the older pause.
+    begin
+      int before_pause;
+      reset_core(); before_pause=pause_commits;
+      send('h6650,32'h0100000f,32'h0100000f); send('h6658,imm(1,0,1),0,1); drain();
+      assert(pause_commits==before_pause+2) else $fatal(1,"consecutive PAUSE lost");
+    end
+    // Unlike FENCE, PAUSE does not drain an older accepted load, and its
+    // cooldown does not obstruct the independent deferred completion path.
+    begin
+      int before_pause;
+      reset_core(); before_pause=pause_commits; hold_responses=1;
+      send('h6660,imm(5,0,0,3,'h03),32'h0100000f);
+      while(pause_commits==before_pause) tick();
+      assert(response_count==1) else $fatal(1,"PAUSE waited for prior memory");
+      send('h6668,imm(1,0,7),0,1);
+      repeat(3) tick(); hold_responses=0;
+      drain(); assert(pause_commits==before_pause+1) else $fatal(1,"PAUSE retired twice");
+    end
+    // A killed hint must neither retire nor delay the recovered stream.
+    for(int reason=0;reason<3;reason++) begin
+      int before_pause, restart_cycle;
+      reset_core(); before_pause=pause_commits;
+      if(reason==0) begin
+        stop_at('h6670,'h66b0); send('h6670,jump(0,64),32'h0100000f,2,1,0);
+      end else begin
+        inject_enable=1; inject_pc='h6670; inject_result='{disposition:2'(reason),cause:64'd5,value:64'hbad};
+        stop_at('h6670,reason==1 ? 0 : 'h6670,reason,5,'hbad);
+        send('h6670,imm(1,0,1),32'h0100000f,2,0,0);
+      end
+      drain(); inject_enable=0; restart_cycle=cycles;
+      send('h66b0,imm(2,0,2),0,1); drain();
+      assert(pause_commits==before_pause && cycles-restart_cycle<16) else $fatal(1,"killed PAUSE delayed recovery");
+    end
+    // Interrupts end cooldown promptly and report the already-retired hint's
+    // successor. A later reset must likewise discard a pending cooldown.
+    begin
+      int before_pause, before_stop, interrupt_cycle;
+      reset_core(); csr_access('h66c0,5,0,8,'h304,0); csr_access('h66c4,6,0,8,'h300,64'ha00000000);
+      before_pause=pause_commits; send('h66c8,32'h0100000f,0,1);
+      while(pause_commits==before_pause) tick();
+      before_stop=stops; interrupt_cycle=cycles; stop_at('h66cc,0,3); interrupts=6'b010000;
+      while(stops==before_stop) tick();
+      assert(cycles-interrupt_cycle<8) else $fatal(1,"PAUSE blocked interrupt entry");
+      interrupts=0; drain(); csr_access(0,2,3,0,'h341,'h66cc);
+      reset_core(); before_pause=pause_commits; send('h66d0,32'h0100000f,0,1);
+      while(pause_commits==before_pause) tick();
+      reset_core(); interrupt_cycle=cycles; send('h66d4,imm(2,0,2),0,1); drain();
+      assert(cycles-interrupt_cycle<16) else $fatal(1,"reset retained PAUSE cooldown");
+    end
 
     // WRS has no register/memory effects, compacts from the younger slot, and
     // retires only once. Its younger speculative store is refetched, not committed.

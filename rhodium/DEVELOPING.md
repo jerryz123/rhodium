@@ -243,7 +243,7 @@ plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physi
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its request bundles additionally import the
 shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom,
-Zicbop, and Zawrs catalogs;
+Zicbop, Zawrs, and Zihintpause catalogs;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow

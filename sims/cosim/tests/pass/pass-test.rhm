@@ -57,7 +57,7 @@ for (backend in [circt_target, verilog_target]):
 // The production contract must preserve the authored graph and public ports on
 // both targets, rather than adding functional observation ports during elaboration.
 for (profile in [FloatingPointProfile.None, FloatingPointProfile.D]):
-  def rv2wide = elaborate(RV2WideCore(RV2WideConfig(~floating_point: profile, ~zicbom: #true, ~zawrs: #true)))
+  def rv2wide = elaborate(RV2WideCore(RV2WideConfig(~floating_point: profile, ~zicbom: #true, ~zawrs: #true, ~zihintpause: #true)))
   def rv2wide_before = dump_ir(rv2wide.design)
   def rv2wide_program = rv2wide
   for (backend in [circt_target, verilog_target]):

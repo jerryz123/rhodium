@@ -202,6 +202,20 @@ replay. Demand traffic takes priority. Accepted instruction hints fetch into
 L1I; read and write hints use the shared L1D's read or unique-ownership refill.
 No architectural load/store request or delayed completion is created.
 
+## Pause hint
+
+Select `RV2WideConfig(~zihintpause: #true)` to implement and advertise
+Zihintpause 2.0. It defaults to disabled and leaves the lean SoC presets unchanged.
+The exact `PAUSE` encoding is treated as a hint rather than a full FENCE.
+It writes no architectural state and imposes no memory ordering or prior-work
+drain: an older accepted load may complete while the hint executes.
+
+A PAUSE can pair with an older instruction, but younger instructions stop
+issuing until it retires and a 16-cycle cooldown ends. Buffered instructions
+are preserved; the hint neither flushes fetch nor enters WFI/WRS sleep.
+Interrupts and redirects can end the cooldown early, and a killed hint never
+starts one. Accepted memory and arithmetic completions remain live throughout.
+
 ## Instruction fetch
 
 RV2Wide requires C and optionally adds Zcb and Zcmop using the shared compressed

@@ -29,6 +29,7 @@ import:
   lib("riscv/isa/zicbom.rhm") open
   lib("riscv/isa/zicbop.rhm") open
   lib("riscv/isa/zawrs.rhm") open
+  lib("riscv/isa/zihintpause.rhm") open
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
   lib("riscv/rtl/decode.rhdl") open
@@ -51,6 +52,7 @@ bundle RV2WideControl():
   branch: RiscvBranchControl()
   memory: RV2WideMemoryControl()
   prefetch: CachePrefetchOperation
+  pause: Bool
   writeback: RV2WideWritebackControl()
   system: RV2WideSystemControl()
   muldiv: RV2WideLongControl()
@@ -92,6 +94,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec)):
         muldiv: component_output(core_long_cases, input)
         fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
         prefetch: CachePrefetchOperation.None
+        pause: Bool(#false)
     )
 
 def RV2WideControlCases = compose_control_cases(RV2WideInstructions)
@@ -111,6 +114,7 @@ def RV2WideCboControlCases = for List (instruction in RV2WideCboInstructions):
     muldiv: component_output(long_cases(RV2WideCboInstructions), input)
     fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
     prefetch: CachePrefetchOperation.None
+    pause: Bool(#false)
   DecodeCase(input, output)
 
 // Prefetch rows refine ORI-to-x0; overlay removes only those exact hint cubes.
@@ -127,6 +131,7 @@ def RV2WidePrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperati
     branch: component_output(core_branch_cases, instruction_pattern(ADDI))
     memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
     prefetch: entry[1]
+    pause: Bool(#false)
     writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
     system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
     muldiv: component_output(core_long_cases, instruction_pattern(ADDI))
@@ -134,8 +139,8 @@ def RV2WidePrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperati
   DecodeCase(instruction_pattern(entry[0]), output)
 
 /* Selects the exact scalar domain used by decode and compressed expansion. */
-fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false) :: List.of(InstructionSpec):
-  RV2WideInstructions ++ (if zicboz | ZicbozInstructions | []) ++ (if zicbom | ZicbomInstructions | []) ++ (if zicbop | ZicbopInstructions | []) ++ (if zawrs | ZawrsInstructions | []) ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
+fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false, ~zihintpause: zihintpause :: Boolean = #false) :: List.of(InstructionSpec):
+  RV2WideInstructions ++ (if zicboz | ZicbozInstructions | []) ++ (if zicbom | ZicbomInstructions | []) ++ (if zicbop | ZicbopInstructions | []) ++ (if zawrs | ZawrsInstructions | []) ++ (if zihintpause | ZihintpauseInstructions | []) ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
 
 // WRS is operand-free and uses the core's retained WB owner, not a memory request.
 def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WRS_STO, RV2WideWait.ShortTimeout]]):
@@ -148,6 +153,7 @@ def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WR
     branch: component_output(core_branch_cases, instruction_pattern(ADDI))
     memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
     prefetch: CachePrefetchOperation.None
+    pause: Bool(#false)
     writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
     system:
       partial_pattern(RV2WideSystemControl()):
@@ -159,8 +165,25 @@ def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WR
     fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
   DecodeCase(instruction_pattern(entry[0]), output)
 
-/* Adds selected CMOs, wait operations, prefetch overlays, and shared FP controls to the integer decoder. */
-fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false) :: List.of(DecodeCase):
+// PAUSE refines FENCE into an operand-free hint with no ordering or CSR action.
+def pause_control = pattern(RV2WideControl()):
+  alu: unused_alu
+  operand:
+    partial_pattern(RV2WideOperandControl()):
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+  branch: component_output(core_branch_cases, instruction_pattern(ADDI))
+  memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+  prefetch: CachePrefetchOperation.None
+  pause: Bool(#true)
+  writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
+  system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
+  muldiv: component_output(core_long_cases, instruction_pattern(ADDI))
+  fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+def RV2WidePauseCases = [DecodeCase(instruction_pattern(PAUSE), pause_control)]
+
+/* Adds selected CMOs, waits, hint overlays, and shared FP controls to the integer decoder. */
+fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false, ~zihintpause: zihintpause :: Boolean = #false) :: List.of(DecodeCase):
   def instructions = fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
   def controls = fp_control_cases(XLen.X64, profile, half_precision, ~zfa: zfa)
   def fp_branches = branch_cases(instructions)
@@ -169,7 +192,8 @@ fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half
   def cbo_cases = for List (instruction in cbo_instructions):
     def input = instruction_pattern(instruction)
     DecodeCase(input, component_output(RV2WideCboControlCases, input))
-  def integer_cases = if zicbop | overlay_decode_cases(RV2WideControlCases, RV2WidePrefetchCases) | RV2WideControlCases
+  def hint_cases = (if zicbop | RV2WidePrefetchCases | []) ++ (if zihintpause | RV2WidePauseCases | [])
+  def integer_cases = if hint_cases.length() > 0 | overlay_decode_cases(RV2WideControlCases, hint_cases) | RV2WideControlCases
   integer_cases ++ cbo_cases ++ (if zawrs | RV2WideWaitCases | []) ++ for List (instruction in instructions):
     def input = instruction_pattern(instruction)
     def load = instruction.name in ["FLH", "FLW", "FLD"]
@@ -201,6 +225,7 @@ fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half
       branch: component_output(fp_branches, input)
       memory: if memory | memory_control | partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
       prefetch: CachePrefetchOperation.None
+      pause: Bool(#false)
       writeback:
         partial_pattern(RV2WideWritebackControl()):
           enable: Bool(integer_destination)

@@ -13,6 +13,7 @@ def management = RV2WideConfig(~zicbom: #true)
 def cmo = RV2WideConfig(~zicboz: #true, ~zicbom: #true)
 def prefetch = RV2WideConfig(~zicbop: #true)
 def wait = RV2WideConfig(~zawrs: #true)
+def pause = RV2WideConfig(~zihintpause: #true)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
 def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
@@ -22,6 +23,8 @@ def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension
 def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
+  pause.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zihintpause"]
+  pause.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   wait.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zawrs"]
   wait.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   prefetch.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicbop"]
@@ -64,10 +67,11 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, zero, management, cmo, prefetch, wait, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [integer, zero, management, cmo, prefetch, wait, pause, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    extensions.contains("Zihintpause") ~is profile.zihintpause
     extensions.contains("Zawrs") ~is profile.zawrs
     extensions.contains("Zicbop") ~is profile.zicbop
     extensions.contains("Zicbom") ~is profile.zicbom
