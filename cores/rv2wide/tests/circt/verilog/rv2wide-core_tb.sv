@@ -1636,7 +1636,8 @@ module rv2wide_core_tb;
     // WRS has no register/memory effects, compacts from the younger slot, and
     // retires only once. Its younger speculative store is refetched, not committed.
     for(int short_wait=0;short_wait<2;short_wait++) begin
-      logic [31:0] word=short_wait!=0 ? 32'h01d00073 : 32'h00d00073;
+      logic [31:0] word;
+      word=short_wait!=0 ? 32'h01d00073 : 32'h00d00073;
       reset_core();
       expect_instruction('h6700,imm(1,0,7)); expect_system('h6704,word);
       stop_at('h6704,'h6708,3);
@@ -1676,8 +1677,9 @@ module rv2wide_core_tb;
     // short bound, while NTO traps only when that bound expires. M ignores TW.
     for(int privilege=0;privilege<3;privilege++) for(int short_wait=0;short_wait<(privilege==0 ? 3 : 2);short_wait++) begin
       logic [63:0] pc, mstatus;
-      logic [31:0] word=short_wait==1 ? 32'h01d00073 : 32'h00d00073;
+      logic [31:0] word;
       int start_cycle;
+      word=short_wait==1 ? 32'h01d00073 : 32'h00d00073;
       reset_core(); pc='h100;
       mstatus=(64'd1<<21)|(64'(privilege==2 ? 3 : privilege)<<11);
       constant64(pc,1,mstatus); drain();
