@@ -264,10 +264,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     rr_busy(address) & !returned
   def rr_left :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs1[lane], rr_stored(rr_rs1[lane]), rr_producers))
   def rr_right :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs2[lane], rr_stored(rr_rs2[lane]), rr_producers))
-  def rr_blocked = for List (lane in 0..2):
-    rr_decodable[lane] & (rr_fp_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))) ||| ((rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].or_reduce() & !ex_multiply.available))
   def rr_older_write = rr_decodable[0] & rr_controls[0].writeback.enable & rr_rd[0].or_reduce()
-  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
   def rr_long = for List (lane in 0..2): rr_controls[lane].muldiv.service =/= RV2WideLongOperation.None
   // Normal WB writes precede every younger write; a deferred older writer may return later.
   def rr_older_deferred = rr_controls[0].memory.enable ||| rr_long[0] ||| rr_fp_late_gpr[0]
@@ -279,6 +276,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_system = for List (lane in 0..2):
     def system :: RV2WideSystemControl() = rr_controls[lane].system
     rr_decodable[lane] & system.serializing()
+  // The older ALU result is the entire zero-offset address: no second dependent adder.
+  def rr_pair_address = rr_older_write & !rr_older_deferred & !rr_controls[0].fp.valid & !rr_system[0] & !rr_controls[0].branch.resolver.enable & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Load) & (rr_rd[0] === rr_rs1[1]) & (rr_head.entries[1].instruction[20..32] === bits(0, 12))
+  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !rr_pair_address) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
+  def rr_blocked = for List (lane in 0..2):
+    rr_decodable[lane] & (rr_fp_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_pair_address) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))) ||| ((rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].or_reduce() & !ex_multiply.available))
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
   // All aq/rl combinations use the stronger memory-ordering boundary: drain
   // older memory before issue and hold younger memory through atomic response.
@@ -329,6 +331,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       control: rr_controls[lane]
       rs1: rr_left[lane].data
       rs2: rr_right[lane].data
+      address_from_older: Bool(lane == 1) & rr_pair_address
       rd: rr_rd[lane]
       illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane]
       fp_request: rr_fp_request
@@ -360,6 +363,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       RV2WideLeft.Zero: bits(0, 64)
     ex_alu.right <== mux(ex.control.operand.right_immediate, ex_immediate, ex.rs2)
     ex_alu.control <== ex.control.alu
+    def ex_address = if lane == 1 | mux(ex.address_from_older, ex_alu_older.result, ex_alu.result) | ex_alu.result
     def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !bits(1, 64), ex_target_sum)
     def ex_taken = ex_executable & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
@@ -369,7 +373,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def ex_bad_pc = ex.fetched.pc[0].into(Bool)
     def ex_bad_target = ex_taken & ex_target[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.enable
-    def ex_bad_address = ex_memory & !ex.control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !ex.control.memory.width.is_aligned(ex_alu.result)
+    def ex_bad_address = ex_memory & !ex.control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !ex.control.memory.width.is_aligned(ex_address)
     def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
     ex_output.valid <== ex_input.valid & !rr_squash
     ex_output.bits <== RV2WideResult():
@@ -393,7 +397,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
           predicted_ras_action: ex.fetched.speculated_ras_action
           return_address: ex.fetched.sequential_pc
       memory: ex.control.memory.updated(~enable: ex_memory)
-      address: ex_alu.result
+      address: ex_address
       store_data: mux(ex.control.fp.valid, ex.fp_request.right, ex.rs2)
       cache_outcome: RV2WideCacheOutcome.Slow
       system: ex.control.system
@@ -407,7 +411,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
         RV2WideResolution():
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
           cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
-          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.raw_instruction.zext(64)))))
+          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_address, ex.fetched.raw_instruction.zext(64)))))
     describe_interface_contract(ex_input, ex_output, "integer-execution-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     ex_results[lane] |> mem_pipe[lane].ingress
     mem_pipe[lane].flush <== rr_squash

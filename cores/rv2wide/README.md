@@ -198,13 +198,19 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
 ```
 
 RR consumes zero, one, or two instructions. Independent ALU operations can
-issue and retire two per cycle. Same-group RAW dependencies split the pair;
-same-destination writes can pair when the older writer is guaranteed to use
+issue and retire two per cycle. A slot-0 integer ALU producer can pair with a
+slot-1 ordinary integer load that uses its result as the base address and has zero
+immediate offset. EX sends the producer's result directly to the load lookup,
+without a second dependent address addition or an extra pipeline stage.
+This includes a load overwriting the producer's destination. Other same-group
+RAW dependencies split the pair; stores, atomics, nonzero-offset loads, and
+memory, M, FP, CSR, or control-transfer producers do not use this bypass.
+Same-destination writes can pair when the older writer is guaranteed to use
 normal WB, even if the younger writer completes later. An older memory, M, or late FP-to-GPR
-writer can defer its result and still splits a
-same-destination pair. An instruction that cannot pair stays at the head for the
-next cycle. One branch
-resolver serves either age slot, and two branches cannot issue together.
+writer can defer its result and still splits a same-destination pair. An
+instruction that cannot pair stays at the head for the
+next cycle. One branch resolver serves either age slot, and two branches cannot
+issue together.
 The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
 relations joined to RV2Wide operand/writeback controls.

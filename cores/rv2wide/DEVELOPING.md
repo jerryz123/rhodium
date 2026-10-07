@@ -149,6 +149,15 @@ so never infer younger-write priority from the port number. Insert direct FP
 returns into their WB lane's forwarding payload; late FP returns precede the
 pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
 
+RR may waive the younger rs1 RAW/read interlock only for a zero-immediate ordinary
+integer load whose base is the same-pair older non-memory, non-M, non-FP, non-system, non-branch
+writer. The older writer still passes every ordinary admission interlock.
+Carry `address_from_older` across the existing EX register; select slot zero's
+ALU result directly as the younger address, after rather than before the younger
+ALU. Never route this bypass through another dependent addition. Keep normal
+MEM checks, WB authorization, split-access ownership, and fault/replay priority.
+Every other source and destination hazard retains its ordinary interlock.
+
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their

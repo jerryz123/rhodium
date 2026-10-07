@@ -1,4 +1,4 @@
-// Checks dual-issue retirement, age-ordered same-destination writes, recovery, and service ownership.
+// Checks dual-issue writes, zero-offset paired load addresses, recovery, and service ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
@@ -86,6 +86,7 @@ module rv2wide_core_tb;
   int multiply_mem_cycle=-1, dependent_mem_cycle=-1;
   int conditional_dual=0, mop_dual=0;
   int waw_dual=0, waw_deferred=0;
+  int address_pairs=0;
 
   function automatic bit mop_encoding(logic [31:0] word);
     return (word & 32'hb3c0707f)==32'h81c04073 || (word & 32'hb200707f)==32'h82004073;
@@ -215,6 +216,16 @@ module rv2wide_core_tb;
       for(int lane=0;lane<2;lane++) if(memory_stage[lane].valid) begin
         if(memory_stage[lane].bits.pc=='hab08) multiply_mem_cycle=cycles;
         if(memory_stage[lane].bits.pc=='hab10) dependent_mem_cycle=cycles;
+      end
+      if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[11:7]!=0 &&
+         memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[19:15] &&
+         (memory_stage[0].bits.instruction[6:0] inside {7'h13,7'h1b,7'h33,7'h3b,7'h37,7'h17,7'h03,7'h2f,7'h6f,7'h67} || mop_encoding(memory_stage[0].bits.instruction)) &&
+         memory_stage[1].bits.instruction[6:0]==7'h03) begin
+        assert(memory_stage[1].bits.instruction[31:20]==0 &&
+               !(memory_stage[0].bits.instruction[6:0] inside {7'h03,7'h2f,7'h6f,7'h67}) &&
+               !((memory_stage[0].bits.instruction[6:0] inside {7'h33,7'h3b}) && memory_stage[0].bits.instruction[31:25]==1))
+          else $fatal(1,"dependent load crossed forbidden pairing boundary");
+        address_pairs++;
       end
       if (cycles > 15000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
@@ -1601,6 +1612,133 @@ module rv2wide_core_tb;
       inject_enable=0;
       send(pc+24,imm(13,10,0),0,1); drain();
     end
+    // All ordinary load widths can use the current older ALU result, not stale RF.
+    reset_core(); lookup_mode=1;
+    send('h11000,imm(1,0,'h100),imm(2,0,'h200)); drain();
+    for(int same_rd=0;same_rd<2;same_rd++) begin
+      for(int width=0;width<7;width++) begin
+        int before_pairs;
+        send('h11008,imm(3,0,'h280),0,1); drain();
+        before_pairs=address_pairs;
+        send('h11010,regop(3,1,2),imm(same_rd!=0 ? 3 : 4,3,0,width,'h03));
+        send('h11018,imm(5,same_rd!=0 ? 3 : 4,1),0,1); drain();
+        assert(address_pairs==before_pairs+1) else $fatal(1,"zero-offset load address pair split width=%0d same_rd=%0d",width,same_rd);
+        send('h11020,imm(6,3,0),imm(7,same_rd!=0 ? 3 : 4,0)); drain();
+      end
+    end
+    // Admission fixes the bypass bit even when the pair reads an older EX result.
+    begin
+      int before_pairs;
+      before_pairs=address_pairs;
+      send('h11028,imm(3,0,'h288),0,1);
+      send('h1102c,imm(3,0,'h308),imm(4,3,0,3,'h03));
+      send('h11034,imm(5,4,0),0,1); drain();
+      assert(address_pairs==before_pairs+1) else $fatal(1,"forwarded stale base defeated paired address");
+      // AUIPC uses its PC result; the load can overwrite that same register.
+      before_pairs=address_pairs;
+      send('h320,{20'd0,5'd3,7'h17},imm(3,3,0,3,'h03)); drain();
+      assert(address_pairs==before_pairs+1) else $fatal(1,"AUIPC zero-offset load did not pair");
+      send('h328,imm(5,3,0),0,1); drain();
+      // Word and shift producers use their selected ALU result, not just the adder.
+      before_pairs=address_pairs;
+      send('h11038,imm(3,1,1,1),imm(4,3,0,3,'h03)); drain();
+      send('h11040,imm(3,1,'h200,0,'h1b),imm(0,3,0,3,'h03)); drain();
+      assert(address_pairs==before_pairs+2) else $fatal(1,"selected ALU result/x0 load did not pair");
+      send('h11048,imm(5,3,0),imm(6,0,0)); drain();
+      // An x0 "producer" must not redirect a load away from architectural zero.
+      before_pairs=address_pairs;
+      send('h11050,imm(0,0,'h300),imm(4,0,0,3,'h03)); drain();
+      assert(address_pairs==before_pairs) else $fatal(1,"x0 was treated as a paired address producer");
+      dual_run=0; longest_dual_run=0; before_pairs=address_pairs;
+      for(int i=0;i<16;i++) send(64'('h11060+8*i),imm(3,0,'h300+8*i),imm(10+i,3,0,3,'h03));
+      drain();
+      assert(address_pairs==before_pairs+16 && longest_dual_run>=12) else $fatal(1,"paired loads lost sustained dual issue");
+    end
+
+    // A paired miss reserves the younger value and blocks consumers until return.
+    for(int same_rd=0;same_rd<2;same_rd++) begin
+      int before_pairs;
+      reset_core(); lookup_mode=0; hold_responses=1;
+      before_pairs=address_pairs;
+      send('h11100,imm(3,0,'h300),imm(same_rd!=0 ? 3 : 4,3,0,3,'h03));
+      repeat(8) tick();
+      assert(address_pairs==before_pairs+1 && expected.size()==0 && response_count==1) else $fatal(1,"paired address miss did not authorize both owners");
+      send('h11108,imm(5,same_rd!=0 ? 3 : 4,0),0,1);
+      repeat(6) begin tick(); assert(issued==0) else $fatal(1,"paired miss consumer used stale data"); end
+      hold_responses=0; drain();
+      send('h1110c,imm(6,3,0),imm(7,same_rd!=0 ? 3 : 4,0)); drain();
+    end
+    // Waiving the load's base read does not waive the producer's older WAW hazard.
+    reset_core(); hold_responses=1;
+    send('h11120,imm(3,0,0,3,'h03),0,1); repeat(8) tick();
+    begin
+      int before_pairs;
+      before_pairs=address_pairs;
+      lookup_mode=1;
+      send('h11124,imm(3,0,'h300),imm(4,3,0,3,'h03));
+      repeat(6) begin tick(); assert(issued==0) else $fatal(1,"address bypass waived producer WAW interlock"); end
+      hold_responses=0; drain();
+      assert(address_pairs==before_pairs+1) else $fatal(1,"address pair was not retained through producer WAW wait");
+      send('h1112c,imm(5,4,0),0,1); drain();
+    end
+
+    // Offset and resource boundaries retain ordinary dependent instruction ordering.
+    for(int scenario=0;scenario<6;scenario++) begin
+      int before_pairs;
+      logic [31:0] first, second;
+      reset_core(); lookup_mode=scenario==5 ? 0 : 1;
+      send('h11200,imm(1,0,'h180),imm(2,0,2)); drain();
+      case(scenario)
+        0: begin first=imm(3,0,'h300); second=imm(4,3,8,3,'h03); end
+        1: begin first=imm(3,0,'h308); second=imm(4,3,-8,3,'h03); end
+        2: begin first=m_insn(3,1,2,0); second=imm(4,3,0,3,'h03); end
+        3: begin first=m_insn(3,1,2,4); second=imm(4,3,0,3,'h03); end
+        4: begin first=imm(3,0,'h300); second=store(2,3,0,3); end
+        5: begin first=imm(3,0,'h300); second=atomic_insn(2,3,4,3); end
+      endcase
+      before_pairs=address_pairs;
+      send('h11208,first,second); drain();
+      assert(address_pairs==before_pairs) else $fatal(1,"ineligible producer/load pair bypassed ordering scenario=%0d",scenario);
+      send('h11210,imm(5,3,0),imm(6,4,0)); drain();
+    end
+
+    // Fault/replay reports the bypassed address, while the producer remains committed.
+    for(int scenario=0;scenario<5;scenario++) begin
+      int before_pairs;
+      reset_core(); lookup_mode=scenario<3 ? scenario+3 : 0;
+      inject_memory_fault=scenario==3; fault_address='h300; block_requests=scenario==4;
+      stop_at('h11304,'h11304,scenario==0 || scenario==4 ? 2 : 1,scenario==1 ? 13 : 5,'h300);
+      before_pairs=address_pairs;
+      send('h11300,imm(3,0,'h300),imm(3,3,0,3,'h03),2,1,0); drain();
+      assert(address_pairs==before_pairs+1) else $fatal(1,"fault/replay address pair split");
+      inject_memory_fault=0; block_requests=0;
+      send('h11308,imm(4,3,0),0,1); drain();
+      if(scenario==0 || scenario==4) begin
+        lookup_mode=1; send('h11304,imm(3,3,0,3,'h03),0,1); drain();
+        send('h1130c,imm(4,3,0),0,1); drain();
+      end
+    end
+    // Misaligned zero-offset loads retain the bypassed address through the split owner.
+    for(int fault=0;fault<2;fault++) begin
+      int before_pairs;
+      reset_core(); split_fault=fault!=0;
+      before_pairs=address_pairs;
+      stop_at('h11404,'h11408,fault!=0 ? 1 : 3,13,'h304);
+      send('h11400,imm(3,0,'h301),imm(3,3,0,3,'h03),2,1,fault==0); drain();
+      assert(address_pairs==before_pairs+1) else $fatal(1,"misaligned zero-offset address pair split");
+      split_fault=0; send('h11408,imm(4,3,0),0,1); drain();
+    end
+    // An older fault may perform a speculative lookup, never younger authorization.
+    reset_core(); inject_enable=1; inject_pc='h11500;
+    inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+    stop_at('h11500,'h11500,1,5,'hdead);
+    send('h11500,imm(3,0,'h300),imm(3,3,0,3,'h03),2,0,0); drain();
+    inject_enable=0; send('h11508,imm(4,3,0),0,1); drain();
+    // Reset cancels a pair already admitted to EX, including its bypass selection.
+    send('h11510,imm(3,0,'h300),imm(3,3,0,3,'h03),2,0,0); tick();
+    reset_core(); drain();
+    send('h11518,imm(4,3,0),0,1); drain();
+    $display("Paired zero-offset load addresses: %0d",address_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     assert(branch_updates>0) else $fatal(1,"no retired branch training");
