@@ -9,6 +9,8 @@ import:
 
 def integer = RV2WideConfig()
 def zero = RV2WideConfig(~zicboz: #true)
+def management = RV2WideConfig(~zicbom: #true)
+def cmo = RV2WideConfig(~zicboz: #true, ~zicbom: #true)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
 def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
@@ -18,6 +20,11 @@ def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension
 def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
+  management.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicbom"]
+  management.csr_config.zicbom ~is #true
+  management.csr_config.zicboz ~is #false
+  management.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
+  cmo.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicboz", "zicbom"]
   zero.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicboz"]
   zero.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   zero.csr_config.zicboz ~is #true
@@ -51,10 +58,11 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, zero, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [integer, zero, management, cmo, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    extensions.contains("Zicbom") ~is profile.zicbom
     extensions.contains("Zicboz") ~is profile.zicboz
     extensions.contains("Zfa") ~is profile.zfa
     extensions.contains("F") ~is (profile.floating_point == FloatingPointProfile.D)

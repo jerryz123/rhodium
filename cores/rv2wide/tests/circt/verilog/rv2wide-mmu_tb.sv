@@ -92,12 +92,12 @@ module rv2wide_mmu_tb;
     tick(); falling();
     // Atomic MEM translation checks permissions without exposing a speculative
     // physical cache request. WB carries the exact operation to the service.
-    for(int operation=3;operation<=6;operation++) begin
-      access=4'(operation); address=operation==6 ? 'h50003f : 'h500008; ex_valid=1;
+    for(int operation=3;operation<=9;operation++) begin
+      access=4'(operation); address=operation>=6 ? 'h50003f : 'h500008; ex_valid=1;
       tick(); falling(); ex_valid=0; #1;
       assert(result_valid && outcome==0 && !resolve_valid) else $fatal(1,"speculative atomic cache operation");
       tick(); falling(); wb_valid=1; physical_ready=1; #1;
-      assert(wb_ready && physical_valid && physical_address==(operation==6 ? 'h1603f : 'h16008) && physical_access==access)
+      assert(wb_ready && physical_valid && physical_address==(operation>=6 ? 'h1603f : 'h16008) && physical_access==access)
         else $fatal(1,"atomic operation lost during translation");
       tick(); falling(); wb_valid=0; physical_ready=0;
       return_data(operation==4 ? 64'd1 : 64'hffffffff81234567,1);
@@ -113,6 +113,19 @@ module rv2wide_mmu_tb;
         else $fatal(1,"atomic write permission/fault provenance");
       tick(); falling(); wb_valid=0;
     end
+    // Management uses read-or-write PTE permission, does not require D, and
+    // still carries store/AMO fault classification when translation fails.
+    for(int operation=7;operation<=9;operation++) begin
+      access=4'(operation); address='h50003f; wb_valid=1; physical_ready=1; #1;
+      assert(wb_ready && !wb_fault && physical_valid && physical_access==access && physical_address=='h1603f)
+        else $fatal(1,"maintenance rejected a readable clean PTE");
+      tick(); falling(); wb_valid=0; physical_ready=0; return_data(0,1);
+    end
+    access=8; fence(); offer_wb('h50003f); walk_data(0);
+    wb_valid=1; #1;
+    assert(wb_fault && !wb_ready && !physical_valid && wb_fault_bits.cause==15 && wb_fault_bits.value=='h50003f)
+      else $fatal(1,"maintenance page-fault address/class");
+    tick(); falling(); wb_valid=0;
     // Device PMAs reject all atomics without a physical or uncached transaction.
     privilege=3; address='h2000;
     for(int operation=3;operation<=6;operation++) begin
@@ -128,6 +141,15 @@ module rv2wide_mmu_tb;
       ex_valid=1; tick(); falling(); ex_valid=0; #1;
       assert(result_valid && !resolve_valid && outcome==(scenario<2 ? 5 : 0))
         else $fatal(1,"CBO whole-block PMA/atomic independence scenario=%0d",scenario);
+      tick(); falling();
+    end
+    // Maintenance has no zero/atomic capability requirement, but checks the
+    // whole block and requires at least one of read/write even on device PMAs.
+    for(int operation=7;operation<=9;operation++) for(int scenario=0;scenario<4;scenario++) begin
+      access=4'(operation); address=scenario==0 ? 'h2103 : scenario==1 ? 'h2403 : scenario==2 ? 'h203f : 'h253f;
+      ex_valid=1; tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && !resolve_valid && outcome==(scenario<2 ? 5 : 0))
+        else $fatal(1,"maintenance full-block PMA scenario=%0d op=%0d",scenario,operation);
       tick(); falling();
     end
     access=1; privilege=1; address='h500008;

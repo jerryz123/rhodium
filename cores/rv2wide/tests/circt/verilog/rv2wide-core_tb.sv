@@ -90,6 +90,7 @@ module rv2wide_core_tb;
   int conditional_dual=0, mop_dual=0;
   int waw_dual=0, waw_deferred=0;
   int address_pairs=0;
+  bit response_management[16];
 
   function automatic bit mop_encoding(logic [31:0] word);
     return (word & 32'hb3c0707f)==32'h81c04073 || (word & 32'hb200707f)==32'h82004073;
@@ -129,7 +130,7 @@ module rv2wide_core_tb;
     split_in.request_ready = !split_active;
     split_in.response.bits = split_reply;
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
-    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5,6} ? 64'd7 : 64'd5, value: fault_address};
+    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5,6,7,8,9} ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
     memory_in.drained = response_count == 0 && !memory_out.request.valid;
     pipeline_in.response = lookup_response;
@@ -144,10 +145,8 @@ module rv2wide_core_tb;
   end
   always @(negedge clock) split_in.response.valid = !reset && split_active && cycles >= split_due && !hold_split;
 
-  always_comb begin
-    memory_in.response.valid = response_count > 0 && cycles >= response_due[response_read] && !hold_responses;
-    memory_in.response.bits = response_data[response_read];
-  end
+  always @(negedge clock) memory_in.response.valid = !reset && response_count > 0 && cycles >= response_due[response_read] && !hold_responses;
+  assign memory_in.response.bits = response_data[response_read];
 
   always @(posedge clock) begin
     if (reset) begin
@@ -196,6 +195,7 @@ module rv2wide_core_tb;
           beat={{32{beat[31]}},beat[31:0]};
         end
         response_data[response_write] <= beat;
+        response_management[response_write] <= memory_out.request.bits.access inside {7,8,9};
         response_due[response_write] <= cycles + configured_delay;
         response_write <= (response_write + 1) % 16;
         requests++;
@@ -230,7 +230,7 @@ module rv2wide_core_tb;
           else $fatal(1,"dependent load crossed forbidden pairing boundary");
         address_pairs++;
       end
-      if (cycles > 15000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
+      if (cycles > 25000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
@@ -264,6 +264,10 @@ module rv2wide_core_tb;
           retirement_t want;
           assert (expected.size() > 0) else $fatal(1, "unexpected retirement pc=%h", retired[lane].bits.fetched.pc);
           want = expected.pop_front();
+          if(want.fetched.instruction[6:0]==7'h0f && want.fetched.instruction[14:12]==2 && want.fetched.instruction[31:20]<3) begin
+            assert(!retired[lane].bits.deferred && memory_in.response.valid && memory_out.response_ready && response_management[response_read])
+              else $fatal(1,"maintenance retired before its response or allocated deferred RF work");
+          end
           assert (retired[lane].bits.fetched == want.fetched && retired[lane].bits.write == want.write)
             else $fatal(1, "retirement order/control pc=%h expected=%h", retired[lane].bits.fetched.pc, want.fetched.pc);
           if (retired[lane].bits.deferred) begin
@@ -278,7 +282,7 @@ module rv2wide_core_tb;
           commits++;
         end
       end
-      if (memory_in.response.valid && memory_out.response_ready) begin
+      if (memory_in.response.valid && memory_out.response_ready && !response_management[response_read]) begin
         retirement_t owner;
         assert (response_owners.size() > 0) else $fatal(1, "response has no accepted owner");
         owner = response_owners.pop_front();
@@ -374,7 +378,7 @@ module rv2wide_core_tb;
     memory_req_t want;
     assert (expected_requests.size() > 0) else $fatal(1, "unowned or duplicate memory effect address=%h", actual.address);
     want = expected_requests.pop_front();
-    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && (want.access==6 || actual.mask == want.mask)) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && (want.access>=6 || actual.mask == want.mask)) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
     if(want.access==6) for(int b=0;b<64;b++) memory_bytes[int'(actual.address&~64'd63)+b]<=0;
     if (want.access == 2) begin
       for (int b = 0; b < 8; b++) begin
@@ -471,10 +475,10 @@ module rv2wide_core_tb;
     case (op)
       'h0f: begin
         memory_req_t request;
-        assert(word[31:20]==4 && f3==2 && word[11:7]==0) else $fatal(1,"oracle unsupported CBO");
-        request='0; request.address=a; request.access=6; request.width=3;
+        assert(word[31:20] inside {0,1,2,4} && f3==2 && word[11:7]==0) else $fatal(1,"oracle unsupported CBO");
+        request='0; request.address=a; request.access=word[31:20]==4 ? 6 : 4'(7+word[31:20]); request.width=3;
         expected_requests.push_back(request); writes=0;
-        for(int i=0;i<64;i++) model_bytes[int'(a&~64'd63)+i]=0;
+        if(word[31:20]==4) for(int i=0;i<64;i++) model_bytes[int'(a&~64'd63)+i]=0;
       end
       'h73: begin
         assert(mop_encoding(word)) else $fatal(1,"oracle unsupported SYSTEM encoding %h",word);
@@ -1193,6 +1197,84 @@ module rv2wide_core_tb;
     inject_memory_fault=1; fault_address=67;
     stop_at('h5a04,0,1,7,67); send('h5a04,32'h0040a00f,0,1,0,0); drain();
     inject_memory_fault=0; csr_access('h5a08,2,6,0,'h343,67);
+
+    // Management retains WB through acceptance and delayed completion. Either
+    // lane can own it; only an older peer retires before the response.
+    for(int operation=0;operation<3;operation++) for(int slot=0;slot<2;slot++) begin
+      logic [31:0] cmo;
+      logic [63:0] pc;
+      int before_requests;
+      reset_core(); pc='h5b00; cmo=(32'(operation)<<20)|32'h0000a00f;
+      send(pc,imm(1,0,67),imm(2,0,7)); drain(); pc+=8;
+      before_requests=requests; block_requests=1; hold_responses=1;
+      stop_at(pc+4*64'(slot),pc+4*64'(slot+1),3);
+      if(slot==0) send(pc,cmo,imm(3,0,9),2,1,0);
+      else send(pc,imm(3,0,9),cmo,2);
+      repeat(12) tick();
+      assert(expected.size()==1 && requests==before_requests) else $fatal(1,"CMO lost retained owner before acceptance");
+      block_requests=0; repeat(14) tick();
+      assert(requests==before_requests+1 && response_count==1 && expected.size()==1) else $fatal(1,"CMO repeated or retired before response");
+      hold_responses=0; drain();
+      send(pc+4*64'(slot+1),imm(4,1,-3,3,'h03),0,1); drain();
+    end
+    // An older branch kills each management operation before WB authorization.
+    for(int operation=0;operation<3;operation++) begin
+      int before_requests;
+      reset_core(); send('h5b80,imm(1,0,67),0,1); drain();
+      before_requests=requests;
+      stop_at('h5b84,'h5bc4);
+      send('h5b84,jump(2,64),(32'(operation)<<20)|32'h0000a00f,2,1,0); drain();
+      assert(requests==before_requests) else $fatal(1,"wrong-path maintenance was authorized");
+    end
+    // Illegal operations and physical faults preserve the original instruction/VA.
+    // CBIE=01 converts only INVAL; CBCFE remains independent. MPRV must not
+    // apply lower-privilege xenvcfg restrictions to M-mode execution.
+    for(int operation=0;operation<3;operation++) for(int mode=0;mode<3;mode++) for(int enabled=0;enabled<4;enabled++) begin
+      logic [31:0] cmo;
+      logic [63:0] pc;
+      bit allowed;
+      reset_core(); pc='h5c00; cmo=(32'(operation)<<20)|32'h0000a00f;
+      if($test$plusargs("debug")) $display("CMO permission op=%0d mode=%0d enable=%0d cycle=%0d",operation,mode,enabled,cycles);
+      allowed=mode==2 || enabled==1 || (operation==0 ? enabled==3 : enabled==2);
+      constant64(pc,1,67); constant64(pc,2,'h500);
+      constant64(pc,3,mode==2 ? (64'd1<<17)|(64'd1<<11) : 64'(mode)<<11);
+      constant64(pc,4,enabled==1 ? 64'h50 : enabled==2 ? 64'h40 : enabled==3 ? 64'h30 : 0);
+      csr_access(pc,1,0,4,'h30a,0); pc+=4;
+      csr_access(pc,1,0,4,'h10a,0); pc+=4;
+      csr_access(pc,1,0,3,'h300,64'ha00000000); pc+=4;
+      if(mode<2) begin
+        csr_access(pc,1,0,2,'h341,0); pc+=4;
+        expect_system(pc,32'h30200073); stop_at(pc,'h500,3);
+        send(pc,32'h30200073,0,1,0,0); drain(); pc='h500;
+      end
+      if(allowed) begin
+        expect_instruction(pc,cmo);
+        if(mode<2 && operation==0 && enabled==1) expected_requests[0].access=9;
+        stop_at(pc,pc+4,3); send(pc,cmo,0,1,0,0); drain();
+      end else begin
+        stop_at(pc,0,1,2,64'(cmo)); send(pc,cmo,0,1,0,0); drain();
+      end
+    end
+    for(int slot=0;slot<2;slot++) begin
+      reset_core(); send('h5d00,imm(1,0,67),0,1); drain();
+      inject_memory_fault=1; fault_address=67;
+      stop_at('h5d04+4*64'(slot),0,1,7,67);
+      if(slot==0) send('h5d04,32'h0010a00f,imm(2,0,4),2,0,0);
+      else send('h5d04,imm(2,0,4),32'h0020a00f,2,1,0);
+      drain(); inject_memory_fault=0; csr_access('h5d10,2,6,0,'h343,67);
+    end
+    // An interrupt arriving after acceptance waits for the maintenance owner
+    // to retire, then uses its successor rather than reissuing the CBO.
+    reset_core(); send('h5e00,imm(1,0,67),imm(2,0,8)); drain();
+    csr_access('h5e08,1,0,2,'h304,0);
+    csr_access('h5e0c,1,0,2,'h300,64'ha00000000);
+    hold_responses=1; stop_at('h5e10,'h5e14,3);
+    send('h5e10,32'h0010a00f,0,1); repeat(12) tick();
+    assert(response_count==1 && expected.size()==1) else $fatal(1,"CMO interrupt setup");
+    stop_at('h5e14,0,3); interrupts=6'b010000; repeat(12) tick();
+    assert(expected_redirects.size()==2 && expected.size()==1) else $fatal(1,"interrupt abandoned maintenance");
+    hold_responses=0; drain(); interrupts=0;
+    csr_access('h600,2,6,0,'h341,'h5e14);
 
     // Real CSR commands return the old value, preserve source-index write intent,
     // and serialize even without a GPR destination. Younger work is refetched.

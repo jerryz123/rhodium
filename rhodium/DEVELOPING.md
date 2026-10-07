@@ -242,7 +242,7 @@ adapter imports the same cache, physical-map contract, Flow, and Bits helpers,
 plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physical
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its request bundles additionally import the
-shared `MemoryWidth`, and its decode imports the pure Zifencei and Zicboz catalogs;
+shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, and Zicbom catalogs;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
@@ -255,7 +255,9 @@ the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
 `cores/rv2wide/mmu.rhdl` imports the shared `cores/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
-CSR, privilege, Sv39, and XLEN helpers. It owns EX/MEM translation alignment and
+CSR, privilege, Sv39, and XLEN helpers. Its MMU and physical cache adapter use
+`riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
+It owns EX/MEM translation alignment and
 WB/split/PTE arbitration; the cache package has no reverse dependency. Its MMU
 and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports

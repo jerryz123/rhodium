@@ -25,13 +25,14 @@ module rv2wide_cache_tb;
   retirement_flow_t retired[2], completed;
   redirect_flow_t redirect;
   logic [1:0] issued, retired_count;
+  wire uncached_activity;
   chi_in_t chi_in;
   chi_out_t chi_out;
   RV2WideCacheFixture dut(.clock(clock), .reset(reset), .node_id(7'd3),
     .instructions_in(instructions), .instructions_out(instructions_ready),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]), .completed_out(completed),
     .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out),
-    .uncached_chi_in('0), .uncached_chi_out());
+    .uncached_chi_in('0), .uncached_chi_out(), .uncached_activity(uncached_activity));
   always #5 clock = ~clock;
   logic [31:0] program_words[1024];
   byte unsigned backing[4096], reference_bytes[4096];
@@ -48,6 +49,14 @@ module rv2wide_cache_tb;
   int atomic_ops[9]='{1,0,4,12,8,16,20,24,28};
   int split_resumes=0;
   int zero_commits=0;
+  bit maintenance_active=0, maintenance_snooped=0, maintenance_data=0;
+  CHIReqFlit pending_maintenance;
+  int maintenance_due, maintenance_requests=0, maintenance_responses=0, maintenance_commits=0;
+  int after_maintenance_reads, after_maintenance_misses;
+  int clean_resident_pc=-1;
+  bit check_maintenance_hit=0;
+  bit check_maintenance_completion=0;
+  logic [63:0] maintenance_load_pc;
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -71,7 +80,7 @@ module rv2wide_cache_tb;
   // A byte-addressed backing memory is independent of cache tags, ownership, and replacement.
   always_comb begin
     chi_in = '0;
-    chi_in.requests.ready = !read_active && !write_active && cycles % 5 != 0;
+    chi_in.requests.ready = !read_active && !write_active && !maintenance_active && cycles % 5 != 0;
     chi_in.requester_responses.ready = cycles % 4 != 0;
     chi_in.request_data.ready = cycles % 3 != 0;
     chi_in.snoops.valid = probe_pending && !probe_accepted;
@@ -79,6 +88,12 @@ module rv2wide_cache_tb;
     chi_in.snoops.bits.address = 41'(768 >> 3);
     chi_in.snoops.bits.src_id = 7'd1;
     chi_in.snoops.bits.txn_id = 12'h100;
+    if(maintenance_active && !maintenance_snooped) begin
+      chi_in.snoops.valid=1;
+      chi_in.snoops.bits.opcode=5'(pending_maintenance.opcode);
+      chi_in.snoops.bits.address=41'(pending_maintenance.address>>3);
+      chi_in.snoops.bits.txn_id=12'h101;
+    end
     if (write_active) begin
       chi_in.responses.valid = 1;
       chi_in.responses.bits.opcode = 5'h05;
@@ -86,6 +101,13 @@ module rv2wide_cache_tb;
       chi_in.responses.bits.tgt_id = 7'd3;
       chi_in.responses.bits.txn_id = pending_write.txn_id;
       chi_in.responses.bits.dbid_or_group_id = 12'd9;
+    end
+    if(maintenance_active && maintenance_data && cycles>=maintenance_due) begin
+      chi_in.responses.valid=1;
+      chi_in.responses.bits.opcode=5'h04;
+      chi_in.responses.bits.src_id=7'd1;
+      chi_in.responses.bits.tgt_id=7'd3;
+      chi_in.responses.bits.txn_id=pending_maintenance.txn_id;
     end
     if (read_active && cycles >= read_due) begin
       chi_in.response_data.valid = 1;
@@ -117,14 +139,28 @@ module rv2wide_cache_tb;
     value = 0; writes_rd = 0; reference_pc += 4;
     case (insn[6:0])
       7'h0f: begin
-        assert(insn[31:20]==4 && width==2 && rd==0) else $fatal(1,"unexpected CBO");
+        assert(insn[31:20] inside {0,1,2,4} && width==2 && rd==0) else $fatal(1,"unexpected CBO");
         address=registers[rs1]&~64'd63;
-        for(int b=0;b<64;b++) reference_bytes[int'(address)+b]=0;
-        if(reservation_valid && address/64==reservation_address/64) reservation_valid=0;
-        assert(got.deferred && !got.write) else $fatal(1,"CBO bypassed WB-owned service");
-        zero_commits++;
+        if(insn[31:20]==4) begin
+          for(int b=0;b<64;b++) reference_bytes[int'(address)+b]=0;
+          if(reservation_valid && address/64==reservation_address/64) reservation_valid=0;
+          assert(got.deferred && !got.write) else $fatal(1,"CBO bypassed WB-owned service");
+          zero_commits++;
+        end else begin
+          assert(!got.deferred && !got.write && !maintenance_active) else $fatal(1,"maintenance retired before CHI completion");
+          if(address<4096) begin
+            assert(maintenance_responses==maintenance_commits+1) else $fatal(1,"maintenance response ownership");
+            for(int b=0;b<64;b++) assert(backing[int'(address)+b]==reference_bytes[int'(address)+b])
+              else $fatal(1,"maintenance did not publish dirty bytes address=%h",address+64'(b));
+            after_maintenance_reads=reads;
+            after_maintenance_misses=got.fetched.pc==64'(clean_resident_pc) ? 0 : 1;
+            check_maintenance_hit=1;
+          end
+          maintenance_commits++;
+        end
       end
       7'h13: begin value = registers[rs1] + 64'($signed(insn[31:20])); writes_rd = rd != 0; end
+      7'h37: begin value={{32{insn[31]}},insn[31:12],12'b0}; writes_rd=rd!=0; end
       7'h03: begin
         address = registers[rs1] + 64'($signed(insn[31:20]));
         bytes_count = 1 << (width & 3);
@@ -132,6 +168,13 @@ module rv2wide_cache_tb;
         if (width < 4 && bytes_count < 8 && value[bytes_count*8-1]) value |= ~64'd0 << (bytes_count*8);
         writes_rd = rd != 0;
         if (read_active && !got.deferred) hits_during_miss++;
+        if(check_maintenance_hit) begin
+          if(got.deferred) begin
+            check_maintenance_completion=1;
+            maintenance_load_pc=got.fetched.pc;
+          end else assert(reads==after_maintenance_reads+after_maintenance_misses) else $fatal(1,"unexpected maintenance refill count");
+          check_maintenance_hit=0;
+        end
       end
       7'h23: begin
         imm = 64'($signed({insn[31:25],insn[11:7]})); address = registers[rs1] + imm;
@@ -203,6 +246,7 @@ module rv2wide_cache_tb;
     end
   end
   always @(posedge clock) if (!reset) begin
+    assert(!uncached_activity) else $fatal(1,"uncached maintenance emitted device IO");
     cycles <= cycles + 1;
     if (cycles > 10000) $fatal(1, "cache/core timeout pc=%h reference=%h reads=%0d completions=%0d atomic=%0d probe=%b/%b/%b LR=%h SC=%h", send_pc, reference_pc, reads, completions,atomic_commits,probe_pending,probe_accepted,probe_complete,probe_lr_pc,probe_sc_pc);
     if (instructions.valid && instructions_ready) send_pc += 4*int'(instructions.bits.count);
@@ -216,6 +260,10 @@ module rv2wide_cache_tb;
       assert (completed.bits.fetched == expected.fetched && completed.bits.rd == expected.rd && completed.bits.write == expected.write)
         else $fatal(1, "completion owner mismatch");
       if (expected.write) assert (completed.bits.data == expected.data) else $fatal(1, "load completion got=%h expected=%h at %h", completed.bits.data, expected.data, expected.fetched.pc);
+      if(check_maintenance_completion && completed.bits.fetched.pc==maintenance_load_pc) begin
+        assert(reads==after_maintenance_reads+after_maintenance_misses) else $fatal(1,"unexpected maintenance refill count");
+        check_maintenance_completion=0;
+      end
       completions++;
       if(completed.bits.fetched.pc==64'(probe_lr_pc)) probe_pending<=1;
     end
@@ -245,6 +293,13 @@ module rv2wide_cache_tb;
           read_due <= cycles + 35; read_packet <= 0; read_active <= 1; reads++;
         end
         7'h1b: begin pending_write <= chi_out.requests.bits; write_active <= 1; writes++; end
+        7'h08, 7'h09: begin
+          assert(chi_out.requests.bits.excl_snoop_me_cah && chi_out.requests.bits.address[5:0]==0)
+            else $fatal(1,"maintenance omitted requester snoop or block alignment");
+          pending_maintenance<=chi_out.requests.bits; maintenance_active<=1;
+          maintenance_snooped<=0; maintenance_data<=0; maintenance_due<=cycles+40;
+          maintenance_requests++;
+        end
         default: $fatal(1, "unexpected request opcode %h", chi_out.requests.bits.opcode);
       endcase
     end
@@ -254,20 +309,29 @@ module rv2wide_cache_tb;
       else begin read_packet <= read_packet + 1; read_due <= cycles + 2; end
     end
     if(chi_in.snoops.valid && chi_out.snoops.ready) begin
-      probe_accepted<=1; reservation_valid=0;
+      if(chi_in.snoops.bits.txn_id==12'h101) maintenance_snooped<=1;
+      else probe_accepted<=1;
+      reservation_valid=0;
       if($test$plusargs("debug")) $display("%0d PROBE",cycles);
     end
     if(chi_out.requester_responses.valid && chi_in.requester_responses.ready) begin
       if($test$plusargs("debug")) $display("%0d ACK",cycles);
       if(chi_out.requester_responses.bits.opcode==5'h01 && chi_out.requester_responses.bits.txn_id==12'h100) probe_complete<=1;
+      if(chi_out.requester_responses.bits.opcode==5'h01 && chi_out.requester_responses.bits.txn_id==12'h101) maintenance_data<=1;
     end
-    if (chi_in.responses.valid && chi_out.responses.ready) write_active <= 0;
+    if (chi_in.responses.valid && chi_out.responses.ready) begin
+      if(maintenance_active) begin maintenance_active<=0; maintenance_responses++; end
+      else write_active<=0;
+    end
     if (chi_out.request_data.valid && chi_in.request_data.ready) begin
       if($test$plusargs("debug")) $display("%0d WRITE DATA opcode=%h dataID=%h",cycles,chi_out.request_data.bits.opcode,chi_out.request_data.bits.data_id);
       assert (chi_out.request_data.bits.opcode inside {4'h1,4'h2}) else $fatal(1, "unexpected write data");
       for (int b = 0; b < 16; b++) if (chi_out.request_data.bits.byte_enable[b])
-        backing[(chi_out.request_data.bits.opcode==1 ? 768 : int'(pending_write.address))+16*int'(chi_out.request_data.bits.data_id)+b] = chi_out.request_data.bits.data[b*8 +: 8];
-      if(chi_out.request_data.bits.opcode==1 && chi_out.request_data.bits.data_id==3) probe_complete<=1;
+        backing[(chi_out.request_data.bits.opcode==1 ? (maintenance_active ? int'(pending_maintenance.address) : 768) : int'(pending_write.address))+16*int'(chi_out.request_data.bits.data_id)+b] = chi_out.request_data.bits.data[b*8 +: 8];
+      if(chi_out.request_data.bits.opcode==1 && chi_out.request_data.bits.data_id==3) begin
+        if(maintenance_active) maintenance_data<=1;
+        else probe_complete<=1;
+      end
     end
   end
 
@@ -337,6 +401,25 @@ module rv2wide_cache_tb;
     // Kill a CBO before WB; its entire target must remain unchanged.
     emit(addi(24,0,1215)); emit(jal(0,8)); emit(32'h0040200f | (24<<15));
     for(int word=0;word<8;word++) emit(load(26,1,1152+word*8,3));
+    // Dirty lines publish data through Home-initiated self snoops. The shared
+    // RN drops dirty copies even on CLEAN; CLEAN retains an already-clean copy.
+    for(int operation=0;operation<3;operation++) begin
+      emit(addi(24,0,1280+64*operation)); emit(addi(2,0,91+operation));
+      emit(store_insn(2,24,0,3)); emit(addi(24,24,63));
+      emit((32'(operation)<<20)|32'h0000200f|(24<<15));
+      emit(load(26,1,1280+64*operation,3)); emit(addi(29,0,9));
+      if(operation==1) begin
+        clean_resident_pc=program_size*4;
+        emit(32'h0010200f|(24<<15)); emit(load(26,1,1344,3));
+      end
+    end
+    // Static device and noncacheable RAM blocks complete locally: neither
+    // CHI port is permitted to send a synthetic data read/write.
+    for(int region=0;region<2;region++) begin
+      emit(32'h000022b7); // LUI x5,2
+      emit(addi(24,5,region==0 ? 63 : 831));
+      for(int operation=0;operation<3;operation++) emit((32'(operation)<<20)|32'h0000200f|(24<<15));
+    end
     // Establish a fresh miss immediately before a fault: accepted work must drain first.
     emit(load(22,1,704,3)); emit(addi(23,0,2047));
     emit(addi(23,23,2047)); emit(addi(23,23,-1));
@@ -350,7 +433,8 @@ module rv2wide_cache_tb;
     assert (hits_during_miss > 0 && alu_during_miss > 0) else $fatal(1, "no hit/ALU overlap with refill");
     assert(atomic_commits==53 && atomic_dual>0 && sc_success==3 && sc_failure==6 && probe_complete)
       else $fatal(1,"atomic coverage ops=%0d dual=%0d SC success=%0d failure=%0d probe=%b",atomic_commits,atomic_dual,sc_success,sc_failure,probe_complete);
-    assert(split_resumes==61) else $fatal(1,"missing split coverage %0d",split_resumes);
+    assert(split_resumes==71 && maintenance_commits==10 && maintenance_requests==4 && maintenance_responses==4 && !check_maintenance_completion && !check_maintenance_hit)
+      else $fatal(1,"missing retained/maintenance coverage resumes=%0d commits=%0d requests=%0d responses=%0d",split_resumes,maintenance_commits,maintenance_requests,maintenance_responses);
     $display("RV2Wide shared L1D passed: %0d retirements, %0d refills, %0d writebacks, %0d replays, %0d warm hits during miss", commits, reads, writes, replays, hits_during_miss);
     $finish;
   end

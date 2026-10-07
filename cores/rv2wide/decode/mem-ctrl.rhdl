@@ -1,5 +1,5 @@
 #lang rhodium
-/* Maps scalar, atomic, and cache-block-zero instructions to shared physical cache controls. */
+/* Maps scalar, atomic, and cache-block instructions to shared physical cache controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,7 @@ import:
   lib("riscv/isa/a.rhm") open
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/zicboz.rhm") open
+  lib("riscv/isa/zicbom.rhm") open
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
@@ -25,6 +26,12 @@ def zero_control = partial_pattern(RV2WideMemoryControl()):
   access: CacheOperation.CacheBlockZero
   width: MemoryWidth.Double
 def RV2WideZeroCases = instruction_cases(ZicbozInstructions, zero_control)
+def RV2WideManagementCases = for List (entry in [[CBO_INVAL, CacheOperation.CacheBlockInvalidate], [CBO_CLEAN, CacheOperation.CacheBlockClean], [CBO_FLUSH, CacheOperation.CacheBlockFlush]]):
+  def control = partial_pattern(RV2WideMemoryControl()):
+    enable: Bool(#true)
+    access: entry[1]
+    width: MemoryWidth.Double
+  DecodeCase(instruction_pattern(entry[0]), control)
 
 def RV2WideLoads = [LB, LH, LW, LD, LBU, LHU, LWU]
 def RV2WideStores = [SB, SH, SW, SD]
@@ -121,5 +128,6 @@ export:
   RV2WideMemoryCases
   RV2WideAtomicCases
   RV2WideZeroCases
+  RV2WideManagementCases
   RV2WideLoads
   RV2WideStores

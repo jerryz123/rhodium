@@ -340,6 +340,33 @@ The cache/core/MMU fixtures cover whole-block writes, permissions, fault VA,
 non-speculation, and accepted-owner ordering; the native cosim adapter test
 checks translation-preserving store fragments and rejected attempts.
 
+Optional Zicbom composes the same address/no-destination columns with the three
+canonical maintenance operations. Only one memory instruction issues per group;
+the older management candidate owns the CSR permission probe and an unissued
+younger candidate is probed again after compaction. Preserve the effective
+invalidate-to-flush operation in the pipeline controls. Current execution
+privilege controls CBCFE/CBIE; MPRV affects only translation.
+
+Management shares the split access's retained WB owner, not the deferred load
+FIFO. Capture squashes younger work while permitting an older peer to retire.
+Latch completion of prior-work drain before presenting the request: live
+`memory.drained` may depend on current admission and must not gate that same
+offer. Retain translation retries and request backpressure without reexecuting
+the instruction; after acceptance consume exactly one ordered response, retire,
+and redirect to the successor. Admission faults follow retained trap handling.
+Keep the external split protocol and split-only cosim fragment observation
+unchanged. Management's architectural retirement/trap reports no byte mutation.
+
+The MMU uses `Sv39Access.CacheManagement` and both MMU/physical adapter check
+the complete aligned block with the architectural read-or-write PMA helper.
+Never feed management into speculative load/store resolution or the IOMSHR.
+Statically uncached management drains cache/IO work and returns through a local
+Flow queue, participating in ordered-busy and drained accounting. Coherent
+management delegates self-snooping and completion to the existing shared engine.
+Extend the existing core, MMU, and cache fixtures for permissions, retained
+retirement, read-only mappings, whole-block faults, dirty publication, clean
+residency, invalidation, and uncached no-IO completion.
+
 ## System operations and precise boundaries
 
 RR serializes system instructions after older pipeline and accepted memory work

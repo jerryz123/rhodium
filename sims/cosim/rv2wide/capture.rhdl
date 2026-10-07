@@ -86,7 +86,9 @@ sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: F
       token.fetched.pc, lane(token.fetched.raw_instruction), next_pc, lane(token.fetched.fault.valid.as_bits()),
       lane(token.rd), lane(write.as_bits()), result.data, lane(deferred.as_bits()),
       lane(mux(token.memory.enable, bits(0, 2), mux(multiply, bits(1, 2), bits(2, 2)))),
-      lane(token.memory.enable.as_bits()), token.address, lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
+      // Maintenance has no architectural byte effect. Its retained retirement
+      // or trap is sufficient; Sail independently checks permissions and VA.
+      lane((token.memory.enable & !token.memory.access.is_cache_management()).as_bits()), token.address, lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
       lane(token.memory.atomic.as_bits()), token.store_data,
       mux(token.fp.valid, mux(token.memory.enable, mux(token.fp.bits.registers.destination === FloatDestination.FloatingPoint, bits(2, 64), bits(3, 64)), bits(1, 64)), bits(0, 64)),
       mux(token.fp.valid, lane(token.fp.bits.registers.destination.as_bits()), bits(0, 64)),

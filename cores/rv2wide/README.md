@@ -151,7 +151,31 @@ The complete aligned block must lie in one writable physical region with
 uses the shared L1D hit/refill zero path; noncacheable memory uses the ordered
 CHI service's eight writes. Translation and physical permission failures report
 the original rs1 virtual address, not the aligned block base. The operation is
-not guaranteed atomic across the block. Zicbom is not included.
+not guaranteed atomic across the block. Zicbom is selected independently.
+
+## Cache-block maintenance
+
+Select `RV2WideConfig(~zicbom: #true)` for Zicbom 1.0; it defaults to disabled
+and leaves the lean SoC presets unchanged. `CBO.CLEAN`, `CBO.FLUSH`, and
+`CBO.INVAL` operate on the 64-byte block containing rs1, without an alignment
+requirement or a GPR result. The shared CSR bank enforces CBCFE/CBIE using
+execution privilege, including CBIE's invalidate-to-flush conversion.
+
+WB retains the instruction, squashes younger work, drains older accepted work,
+and authorizes maintenance exactly once. Acceptance is not retirement: the
+instruction retires after its response and refetches its successor. Interrupts
+wait for this owner; admission faults report the original virtual operand.
+Pipeline registers remain feed-forward.
+
+Translation requires read or write permission (including MXR), not dirty-page
+permission. The complete block must be mapped and readable or writable;
+atomic and block-zero PMA capabilities are irrelevant. Coherent memory uses
+the shared L1D/CHI maintenance engine with requester snooping. CLEAN publishes
+dirty bytes and may evict the cleaned copy; FLUSH invalidates after publishing
+them. INVAL uses the permitted stronger flush behavior. Statically uncached
+regions complete locally after drain without synthetic device reads or writes.
+The external Home must implement
+CHI maintenance over its coherent domain, including this requester.
 
 ## Instruction fetch
 
@@ -559,7 +583,7 @@ to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
 - Replay: restart at `pc`; the instruction has not committed.
 - Fault: a synchronous trap; `pc`, cause, and fault value are reported, and
   `target` is the architectural trap vector.
-- System: WB serialization/return recovery, successful split-access resume,
+- System: WB serialization/return recovery, successful retained-memory resume,
   WFI wake, or an interrupt boundary.
   `target` is the selected successor, return PC, or trap vector. Cause/value are
   meaningful for an interrupt trap (cause has its interrupt bit set).
