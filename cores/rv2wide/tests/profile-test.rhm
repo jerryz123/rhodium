@@ -16,6 +16,7 @@ def prefetch = RV2WideConfig(~zicbop: #true)
 def wait = RV2WideConfig(~zawrs: #true)
 def pause = RV2WideConfig(~zihintpause: #true)
 def locality = RV2WideConfig(~zihintntl: #true)
+def timer = RV2WideConfig(~sstc: #true)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
 def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
@@ -25,6 +26,10 @@ def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension
 def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
+  timer.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["sstc"]
+  timer.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
+  timer.csr_config.sstc ~is #true
+  integer.csr_config.sstc ~is #false
   locality.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zihintntl"]
   locality.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   pause.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zihintpause"]
@@ -74,10 +79,11 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, zero, management, cmo, prefetch, wait, pause, locality, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [integer, zero, management, cmo, prefetch, wait, pause, locality, timer, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    extensions.contains("Sstc") ~is profile.sstc
     extensions.contains("Zihintntl") ~is profile.zihintntl
     extensions.contains("Zihintpause") ~is profile.zihintpause
     extensions.contains("Zawrs") ~is profile.zawrs
@@ -97,5 +103,7 @@ for (profile in [integer, zero, management, cmo, prefetch, wait, pause, locality
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Zfa").map(fun (extension): extension.version) ~is (if profile.zfa | ["1.0.0"] | [])
 
 def wait_configuration = rv2wide_udb_configuration(wait, "rv2wide-wait", "RV2Wide reservation waits", 44)
+def timer_configuration = rv2wide_udb_configuration(timer, "rv2wide-timer", "RV2Wide supervisor timer", 44)
 check:
+  timer_configuration.extensions.filter(~keep: fun (extension): extension.name == "Sstc").map(fun (extension): extension.version) ~is ["1.0.0"]
   wait_configuration.parameters.filter(~keep: fun (parameter): parameter.name == "ZAWRS_NTO_IS_NOP").map(fun (parameter): parameter.value.to_yaml()) ~is ["false"]

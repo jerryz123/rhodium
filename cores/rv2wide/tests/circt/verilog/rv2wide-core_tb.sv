@@ -51,6 +51,8 @@ module rv2wide_core_tb;
   logic [3:0] instruction_capacity;
   logic fetch_flush;
   logic [5:0] interrupts = 0;
+  logic [63:0] time_counter = 123;
+  localparam logic [63:0] timer_compare = 64'h10000007b;
   logic sleeping;
   bit reservation_valid=0;
   logic [63:0] trap_target = 0;
@@ -124,7 +126,7 @@ module rv2wide_core_tb;
     .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
     .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(),
     .direction_update_out(direction_update), .history_restore_out(history_restore),
-    .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
+    .interrupts(interrupts), .hart_id(64'd7), .time_counter(time_counter), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
     .memory_stage_0_out(memory_stage[0]), .memory_stage_1_out(memory_stage[1]),
@@ -788,7 +790,7 @@ module rv2wide_core_tb;
   task automatic reset_core;
     canceled += response_count;
     reset = 1; instructions = '0; inject_enable = 0; inject_pc = 0; inject_result = '0;
-    interrupts = 0; trap_target = 0; reservation_valid=0;
+    interrupts = 0; time_counter=123; trap_target = 0; reservation_valid=0;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
     hold_split=0; split_fault=0; expected_split_locality=0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete(); multiply_authorized_cycle.delete();
@@ -818,6 +820,27 @@ module rv2wide_core_tb;
     stop_at(pc,pc+4,3);
     send(pc,word,0,1,0,0);
     drain();
+  endtask
+
+  // Enter S through real M-mode CSR programming; no internal state pokes.
+  task automatic supervisor_timer(input bit global_enable);
+    logic [63:0] pc='h14000;
+    time_counter=timer_compare-1;
+    constant64(pc,1,timer_compare); drain();
+    csr_access(pc,1,0,1,'h14d,0); pc+=4;
+    constant64(pc,1,64'h8000000000000000); drain();
+    csr_access(pc,1,0,1,'h30a,0); pc+=4;
+    csr_access(pc,5,0,2,'h306,0); pc+=4;
+    send(pc,imm(2,0,32),imm(3,0,'h700)); pc+=8; drain();
+    csr_access(pc,1,0,2,'h303,0); pc+=4;
+    csr_access(pc,1,0,2,'h304,0); pc+=4;
+    csr_access(pc,1,0,3,'h105,0); pc+=4;
+    constant64(pc,1,64'h800 | (global_enable ? 64'd2 : 64'd0)); drain();
+    csr_access(pc,1,0,1,'h300,64'ha00000000); pc+=4;
+    send(pc,imm(4,0,'h500),0,1); pc+=4; drain();
+    csr_access(pc,1,0,4,'h341,0); pc+=4;
+    expect_system(pc,32'h30200073); stop_at(pc,'h500,3);
+    send(pc,32'h30200073,0,1,0,0); drain(); trap_target='h700;
   endtask
 
   initial begin
@@ -2334,6 +2357,87 @@ module rv2wide_core_tb;
       else send('h13400,imm(3,0,1),32'h00500033,2,0,0);
       drain(); inject_enable=0;
       send('h13410,imm(4,0,'h300,3,'h03),0,1); drain();
+    end
+    // M-mode always owns stimecmp; S-mode requires both STCE and TM, and
+    // U-mode cannot access the supervisor CSR even with both gates open.
+    for(int scenario=0;scenario<4;scenario++) begin
+      logic [63:0] pc='h14100;
+      reset_core();
+      send(pc,imm(1,0,1000),0,1); pc+=4; drain();
+      csr_access(pc,1,0,1,'h14d,0); pc+=4;
+      csr_access(pc,2,6,0,'h14d,1000); pc+=4;
+      if(scenario!=0) begin
+        constant64(pc,1,64'h8000000000000000); drain();
+        csr_access(pc,1,0,1,'h30a,0); pc+=4;
+      end
+      csr_access(pc,5,0,scenario==1 ? 0 : 2,'h306,0); pc+=4;
+      constant64(pc,1,scenario==3 ? 64'd0 : 64'h800); drain();
+      csr_access(pc,1,0,1,'h300,64'ha00000000); pc+=4;
+      send(pc,imm(2,0,'h500),0,1); pc+=4; drain();
+      csr_access(pc,1,0,2,'h341,0); pc+=4;
+      expect_system(pc,32'h30200073); stop_at(pc,'h500,3);
+      send(pc,32'h30200073,0,1,0,0); drain();
+      if(scenario==2) csr_access('h500,2,6,0,'h14d,1000);
+      else begin
+        stop_at('h500,0,1,2,64'(csr(2,6,0,'h14d)));
+        send('h500,csr(2,6,0,'h14d),0,1,0,0); drain();
+        csr_access(0,2,7,0,'h343,64'(csr(2,6,0,'h14d)));
+      end
+    end
+    // A 64-bit comparison, read-only STIP, reprogramming, and locally enabled
+    // WFI wake with global SIE clear. No external interrupt pin is asserted.
+    begin
+      logic [63:0] pc='h510;
+      reset_core(); supervisor_timer(0);
+      csr_access('h500,2,6,0,'h144,0);
+      time_counter=timer_compare;
+      csr_access('h504,2,6,0,'h144,32);
+      csr_access('h508,1,0,0,'h144,32);
+      csr_access('h50c,2,6,0,'h144,32);
+      constant64(pc,1,timer_compare+1); drain();
+      csr_access(pc,1,0,1,'h14d,timer_compare); pc+=4;
+      csr_access(pc,2,6,0,'h144,0); pc+=4;
+      expect_system(pc,32'h10500073); send(pc,32'h10500073,0,1,0,0); drain();
+      assert(sleeping) else $fatal(1,"Sstc WFI did not sleep before deadline");
+      stop_at(pc+4,pc+4,3); time_counter=timer_compare+1; drain();
+      assert(!sleeping) else $fatal(1,"Sstc did not wake WFI with SIE clear");
+    end
+    // Delivery stops before a live pair, follows an already retired pair,
+    // drains an accepted load, and wakes WFI into a delegated S-mode handler.
+    for(int scenario=0;scenario<4;scenario++) begin
+      logic [63:0] boundary;
+      reset_core(); supervisor_timer(1);
+      boundary=scenario==0 ? 'h500 : scenario==3 ? 'h504 : 'h508;
+      if(scenario==0) begin
+        send('h500,imm(8,0,8),imm(9,0,9),2,0,0);
+        wait(memory_stage[0].valid); @(negedge clock);
+      end else if(scenario==3) begin
+        expect_system('h500,32'h10500073); send('h500,32'h10500073,0,1,0,0); drain();
+        assert(sleeping) else $fatal(1,"Sstc enabled WFI did not sleep");
+      end else begin
+        hold_responses=scenario==2;
+        send('h500,scenario==2 ? imm(8,0,'h300,3,'h03) : imm(8,0,8),imm(9,0,9));
+        repeat(10) tick();
+      end
+      stop_at(boundary,'h700,3); time_counter=timer_compare;
+      if(scenario==2) begin
+        repeat(10) tick();
+        assert(response_count==1 && expected_redirects.size()==1) else $fatal(1,"Sstc entered before deferred writeback drain");
+        hold_responses=0;
+      end
+      drain();
+      csr_access('h700,2,10,0,'h141,boundary);
+      csr_access('h704,2,11,0,'h142,64'h8000000000000005);
+      csr_access('h708,2,12,0,'h143,0);
+      assert(!sleeping && interrupts==0) else $fatal(1,"Sstc wake or interrupt source");
+      if(scenario==3) begin
+        logic [63:0] pc='h70c;
+        constant64(pc,1,timer_compare+10); drain();
+        csr_access(pc,1,0,1,'h14d,timer_compare); pc+=4;
+        expect_system(pc,32'h10200073); stop_at(pc,boundary,3);
+        send(pc,32'h10200073,0,1,0,0); drain();
+        send(boundary,imm(13,0,13),0,1); drain();
+      end
     end
     $display("Paired load addresses: %0d; paired store data: %0d",address_pairs,store_data_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);

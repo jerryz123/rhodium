@@ -205,6 +205,27 @@ replay. Demand traffic takes priority. Accepted instruction hints fetch into
 L1I; read and write hints use the shared L1D's read or unique-ownership refill.
 No architectural load/store request or delayed completion is created.
 
+## Supervisor timer
+
+Select `RV2WideConfig(~sstc: #true)` to implement and advertise Sstc 1.0.
+The default is disabled; existing SoC presets are unchanged. The shared CSR
+bank supplies the 64-bit `stimecmp` register and compares it against the core's
+existing `time_counter` input. No additional timer device or interrupt input is
+required.
+
+M-mode can always program `stimecmp`. S-mode access requires both
+`menvcfg.STCE` and `mcounteren.TM`; U-mode access remains illegal. With STCE set,
+STIP reflects unsigned `time_counter >= stimecmp`, and software cannot clear it
+by writing `sip`/`mip`. Moving the deadline into the future clears the pending
+condition. Clearing STCE restores the legacy supervisor-timer pending path.
+
+Ordinary interrupt enables and delegation govern delivery. WFI can wake on a
+locally enabled timer even when global interrupt delivery is disabled. When
+delivery is enabled, RV2Wide traps at a precise instruction boundary after
+accepted deferred work drains. Timer expiry never discards an accepted load or
+partially retires a two-instruction group. This scalar core does not expose
+hypervisor virtual timers.
+
 ## Pause hint
 
 Select `RV2WideConfig(~zihintpause: #true)` to implement and advertise

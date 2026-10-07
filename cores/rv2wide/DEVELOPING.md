@@ -450,6 +450,17 @@ no-allocation misses, fetch checks compressed aliases, and FP checks hinted load
 
 ## System operations and precise boundaries
 
+Optional Sstc is selected by `profile.sstc`, forwarded into `profile.csr_config`,
+and published through ISA/UDB metadata. Reuse `RiscvCsrFile`'s timer state,
+comparison, access gates, and pending-interrupt selection; do not add an RV2Wide
+comparator or timer-specific decode. The existing `time_counter` connection,
+WB interrupt boundary, deferred-work drain, and WFI wake path own integration.
+The core fixture drives time independently of cycles and checks full-width
+deadlines, M/S/U access gates, STIP/reprogramming, WFI with both global-enable
+states, handler rearming/return, live versus retired instruction pairs, and pending-load drain. Profile
+tests check bank/publication agreement; the cosim pass fixture selects Sstc on
+both integer and FP specializations without introducing another SoC test row.
+
 Optional Zihintpause overlays the exact PAUSE cube on FENCE in the combined
 decoder. Its independent `pause` control leaves CSR, fence, memory, and
 writeback enables inactive. RR permits an older peer but stops younger issue
