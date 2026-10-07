@@ -176,6 +176,7 @@ interface RV2WidePipelineAccess():
    beats, atomics return their architectural value/status, and stores return acknowledgements.
    A fault prevents request acceptance. Drained also covers committed hit stores;
    registered ordered_busy prevents younger memory effects, including earlier lookup hits.
+   Reservation validity is live shared-cache state for WB wait-on-reservation.
    Reset must reset both participants together. */
 interface RV2WideMemory():
   role requester
@@ -188,6 +189,7 @@ interface RV2WideMemory():
     response: Decoupled(Bits(64))
     drained: Bool
     ordered_busy: Bool
+    reservation_valid: Bool
 
 /* Reports one successfully retired instruction and its optional architectural GPR write. */
 bundle RV2WideRetirement():

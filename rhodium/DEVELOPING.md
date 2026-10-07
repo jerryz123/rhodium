@@ -242,7 +242,8 @@ adapter imports the same cache, physical-map contract, Flow, and Bits helpers,
 plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physical
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its request bundles additionally import the
-shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom, and Zicbop catalogs;
+shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom,
+Zicbop, and Zawrs catalogs;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
@@ -252,6 +253,8 @@ the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and publ
 Bits helpers. Canonical decode remains RV2Wide-owned. Its core, bundles, decoder,
 MMU, cache adapter, and top consume the neutral `cores/cache-prefetch.rhdl`
 operation/request contract for WB-authorized, nonfaulting I/D hints. Its profile and UDB
+projection publish optional Zawrs; the core uses architectural CSR-field and
+privilege helpers for its WB reservation-wait timeout policy. Its profile and UDB
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.

@@ -120,6 +120,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.physical_memory.response.bits <== response_data
   mmu.physical_memory.drained <== Bool(#true)
   mmu.physical_memory.ordered_busy <== Bool(#false)
+  mmu.physical_memory.reservation_valid <== Bool(#false)
   physical_valid <== mmu.physical_memory.request.valid
   physical_address <== mmu.physical_memory.request.bits.address
   physical_access <== mmu.physical_memory.request.bits.access

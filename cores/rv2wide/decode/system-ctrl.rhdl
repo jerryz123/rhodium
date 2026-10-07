@@ -23,88 +23,111 @@ hardware_enum RV2WideFence:
   Memory
   Instruction
 
+/* Selects reservation waiting independently of CSR effects and ordinary WFI sleep. */
+hardware_enum RV2WideWait:
+  None
+  NoTimeout
+  ShortTimeout
+
 /* Separates source mode from architectural CSR intent, fences, and trap/return/wait action. */
 bundle RV2WideSystemControl():
   csr: RiscvCsrOperation
   immediate: Bool
   action: RiscvCsrAction
   fence: RV2WideFence
+  wait: RV2WideWait
 
   /* Requires single-slot issue after older instructions and accepted memory have drained. */
   method serializing(control) :: Bool:
-    (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None) ||| (control.fence =/= RV2WideFence.None)
+    (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None) ||| (control.fence =/= RV2WideFence.None) ||| (control.wait =/= RV2WideWait.None)
 
 def RV2WidePrivilegedInstructions = [MRET, SRET, WFI, SFENCE_VMA]
 def RV2WideSystemInstructions = [ECALL, EBREAK, FENCE, FENCE_I] ++ ZicsrInstructions ++ RV2WidePrivilegedInstructions
 def RV2WideSystemCases = decode_groups(RV2WideSystemControl(), ~input: instruction_pattern):
   group excluding_instructions(RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions, [ECALL, EBREAK, FENCE]):
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
   [CSRRW]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.Write
     immediate: Bool(#false)
     action: RiscvCsrAction.None
   [CSRRS]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.Set
     immediate: Bool(#false)
     action: RiscvCsrAction.None
   [CSRRC]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.Clear
     immediate: Bool(#false)
     action: RiscvCsrAction.None
   [CSRRWI]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.Write
     immediate: Bool(#true)
     action: RiscvCsrAction.None
   [CSRRSI]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.Set
     immediate: Bool(#true)
     action: RiscvCsrAction.None
   [CSRRCI]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.Clear
     immediate: Bool(#true)
     action: RiscvCsrAction.None
   [ECALL]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Ecall
   [EBREAK]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Ebreak
   [MRET]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Mret
   [SRET]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Sret
   [WFI]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Wfi
   [SFENCE_VMA]:
+    wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.SfenceVma
   [FENCE]:
+    wait: RV2WideWait.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
     fence: RV2WideFence.Memory
   [FENCE_I]:
+    wait: RV2WideWait.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
     fence: RV2WideFence.Instruction
 
 export:
+  RV2WideWait
   RV2WideFence
   RV2WideSystemControl
   RV2WideSystemInstructions

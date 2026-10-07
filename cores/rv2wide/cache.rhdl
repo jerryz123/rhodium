@@ -109,6 +109,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
     io.core.response |> map_flow(response => response.data << (response.context ++ bits(0, 3)))
   ) |> arbiter() |> memory.response
   memory.drained <== storage.core.drained & io.core.drained & !uncached_management.egress.valid & !local_management.fire()
+  memory.reservation_valid <== storage.core.reservation_valid
   memory.ordered_busy <== ordered_busy
   when (storage.core.response.valid):
     assert(!storage.core.response.bits.access_fault, "rv2wide_l1d_accepted_response_nonfaulting")

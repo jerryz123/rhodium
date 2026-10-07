@@ -282,6 +282,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   misaligned.request_access_fault <== split_request.valid & data_known & !misaligned.request_fault & ((data_result.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| (physical_memory.fault.valid & split_selected))
   memory.drained <== physical_memory.drained & (owners.count === bits(0, owners.count.type.width)) & !misaligned.busy
   memory.ordered_busy <== physical_memory.ordered_busy
+  memory.reservation_valid <== physical_memory.reservation_valid
   def responses = Array(physical_memory.response, owners.egress) |> zip_flow(data, origin):
     RV2WidePhysicalResponse():
       data: data

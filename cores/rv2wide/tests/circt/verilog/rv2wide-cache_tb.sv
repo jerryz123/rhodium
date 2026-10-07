@@ -58,6 +58,7 @@ module rv2wide_cache_tb;
   bit check_maintenance_completion=0;
   logic [63:0] maintenance_load_pc;
   int prefetch_reads[2]='{0,0}, prefetch_commits=0;
+  int waits=0;
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -220,6 +221,11 @@ module rv2wide_cache_tb;
         end
         writes_rd=rd!=0; atomic_commits++;
         assert(got.deferred) else $fatal(1,"atomic did not use WB-authorized service");
+      end
+      7'h73: begin
+        assert(insn==32'h00d00073 && probe_accepted && !reservation_valid && !got.deferred && !got.write)
+          else $fatal(1,"WRS retired before snoop broke the LR reservation");
+        waits++;
       end
       7'h6f: begin
         value = 64'(reference_pc); writes_rd = rd != 0;
@@ -390,7 +396,7 @@ module rv2wide_cache_tb;
     emit(atomic_insn(2,3,26,24,0)); emit(store_insn(2,24,9,0));
     emit(atomic_insn(3,3,26,24,2)); emit(addi(27,26,1));
     emit(addi(24,0,768)); probe_lr_pc=program_size*4;
-    emit(atomic_insn(2,3,26,24,0)); probe_sc_pc=program_size*4;
+    emit(atomic_insn(2,3,26,24,0)); emit(32'h00d00073); probe_sc_pc=program_size*4;
     emit(atomic_insn(3,3,26,24,2)); emit(addi(27,26,1));
     emit(load(26,24,0,3));
     // Exhaustive intra-word offsets, both extension modes, cross-word and
@@ -454,7 +460,7 @@ module rv2wide_cache_tb;
     assert (hits_during_miss > 0 && alu_during_miss > 0) else $fatal(1, "no hit/ALU overlap with refill");
     assert(atomic_commits==53 && atomic_dual>0 && sc_success==3 && sc_failure==6 && probe_complete)
       else $fatal(1,"atomic coverage ops=%0d dual=%0d SC success=%0d failure=%0d probe=%b",atomic_commits,atomic_dual,sc_success,sc_failure,probe_complete);
-    assert(split_resumes==71 && maintenance_commits==10 && maintenance_requests==4 && maintenance_responses==4 && !check_maintenance_completion && !check_maintenance_hit)
+    assert(split_resumes==72 && waits==1 && maintenance_commits==10 && maintenance_requests==4 && maintenance_responses==4 && !check_maintenance_completion && !check_maintenance_hit)
       else $fatal(1,"missing retained/maintenance coverage resumes=%0d commits=%0d requests=%0d responses=%0d",split_resumes,maintenance_commits,maintenance_requests,maintenance_responses);
     assert(prefetch_commits==2 && prefetch_reads[0]==1 && prefetch_reads[1]==1)
       else $fatal(1,"prefetch traffic/benefit coverage commits=%0d reads=%0d/%0d",prefetch_commits,prefetch_reads[0],prefetch_reads[1]);

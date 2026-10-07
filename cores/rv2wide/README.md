@@ -52,7 +52,7 @@ endpoints with distinct `instruction_node_id`, `data_node_id`, and
 `start: Valid(Bits(64))` with the initial physical PC after reset. `halted`
 is initially true and clears at start; starting again requires reset. Connect
 architectural `interrupts: RiscvInterrupts()`, `hart_id`, and `time_counter` inputs.
-`sleeping` reports WFI wait, not permission to start again. A reset must reset
+`sleeping` reports WFI or reservation wait, not permission to start again. A reset must reset
 the external memory-service epoch too.
 
 Retirement, completion, redirect, and issue-count outputs remain observable.
@@ -559,6 +559,21 @@ otherwise fetch resumes at WFI's successor without an interrupt trap. Trap entry
 return legality, delegation, and direct-vector semantics come from the shared
 bank. The integrated top connects the bank's privilege and translation state to
 the shared Bare/Sv39 MMU.
+
+Select `RV2WideConfig(~zawrs: #true)` for optional wait-on-reservation support;
+the default and lean SoC presets remain unchanged. `WRS.NTO` and `WRS.STO`
+issue alone after older work drains and retain their unretired WB owner while
+waiting. Both complete when the shared L1D reservation is absent or a locally
+enabled interrupt is pending, independently of global interrupt enable. They
+never create a memory transaction or clear a surviving reservation. An enabled
+interrupt is taken at the successor after the wait retires.
+
+`WRS.STO` also completes after a 4096-cycle wait bound. `WRS.NTO` has no timeout
+in M-mode or when `mstatus.TW` is clear; with TW set below M-mode it instead
+raises an illegal-instruction exception at the same bound. Reservation loss or
+interrupt wakeup wins over a simultaneous timeout. These instructions are
+legal in U, S, and M modes, subject to that NTO timeout rule. `sleeping` includes
+a retained reservation wait, as well as WFI sleep.
 
 FENCE conservatively orders all predecessor/successor classes: it issues alone
 after older cache stores, accepted transactions, and deferred GPR writes drain.

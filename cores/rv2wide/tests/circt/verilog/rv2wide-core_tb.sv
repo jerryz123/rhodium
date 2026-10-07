@@ -20,7 +20,7 @@ module rv2wide_core_tb;
   typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
-  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy; } memory_in_t;
+  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy, reservation_valid; } memory_in_t;
   typedef struct packed { memory_req_flow_t request; logic response_ready; } memory_out_t;
   typedef struct packed { logic [2:0] outcome; logic [63:0] data; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
@@ -50,6 +50,7 @@ module rv2wide_core_tb;
   logic fetch_flush;
   logic [5:0] interrupts = 0;
   logic sleeping;
+  bit reservation_valid=0;
   logic [63:0] trap_target = 0;
   int mem_branch_redirects = 0, wb_overrides = 0;
   int minimum_instruction_capacity = 8;
@@ -125,7 +126,7 @@ module rv2wide_core_tb;
     .memory_stage_0_out(memory_stage[0]), .memory_stage_1_out(memory_stage[1]),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]),
     .redirect_out(redirect), .fetch_flush_out(fetch_flush), .issued(issued), .retired_count(retired_count), .instruction_capacity(instruction_capacity),
-    .memory_in({memory_in.request_ready, memory_in.fault, memory_in.response, memory_in.drained, 1'b0}),
+    .memory_in({memory_in.request_ready, memory_in.fault, memory_in.response, memory_in.drained, 1'b0, reservation_valid}),
     .memory_out(memory_out), .split_in(split_in), .split_out(split_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
@@ -268,7 +269,7 @@ module rv2wide_core_tb;
           else $fatal(1,"dependent store crossed forbidden pairing boundary");
         store_data_pairs++;
       end
-      if (cycles > 25000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
+      if (cycles > 80000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
@@ -731,7 +732,7 @@ module rv2wide_core_tb;
   task automatic reset_core;
     canceled += response_count;
     reset = 1; instructions = '0; inject_enable = 0; inject_pc = 0; inject_result = '0;
-    interrupts = 0; trap_target = 0;
+    interrupts = 0; trap_target = 0; reservation_valid=0;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
     hold_split=0; split_fault=0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete(); multiply_authorized_cycle.delete();
@@ -1501,6 +1502,95 @@ module rv2wide_core_tb;
     drain(); interrupts=0;
     csr_access('h700,2,13,0,'h341,'h6620);
     assert(!sleeping) else $fatal(1,"interrupt left core asleep");
+
+    // WRS has no register/memory effects, compacts from the younger slot, and
+    // retires only once. Its younger speculative store is refetched, not committed.
+    for(int short_wait=0;short_wait<2;short_wait++) begin
+      logic [31:0] word=short_wait!=0 ? 32'h01d00073 : 32'h00d00073;
+      reset_core();
+      expect_instruction('h6700,imm(1,0,7)); expect_system('h6704,word);
+      stop_at('h6704,'h6708,3);
+      send('h6700,imm(1,0,7),word,2,0,0); drain();
+      reservation_valid=1;
+      expect_system('h6708,word); stop_at('h6708,'h670c,3);
+      send('h6708,word,store(1,0,0,3),2,0,0);
+      wait(sleeping); repeat(12) tick();
+      assert(expected.size()==1 && expected_redirects.size()==1 && !memory_out.request.valid && !split_out.valid)
+        else $fatal(1,"reservation wait escaped or dispatched memory");
+      reservation_valid=0; drain();
+      send('h670c,imm(2,1,1),0,1); drain();
+    end
+    // An accepted LR response and its RF write drain before WRS may start.
+    reset_core(); hold_responses=1;
+    send('h6720,atomic_insn(2,3,1,0),0,1); repeat(10) tick();
+    expect_system('h6724,32'h00d00073); stop_at('h6724,'h6728,3);
+    send('h6724,32'h00d00073,0,1,0,0); repeat(12) tick();
+    assert(!sleeping && response_count==1 && expected.size()==1) else $fatal(1,"WRS started before older LR completion");
+    reservation_valid=1; hold_responses=0; wait(sleeping); repeat(8) tick();
+    assert(response_count==0 && expected_completions.size()==0) else $fatal(1,"WRS lost older completion");
+    reservation_valid=0; drain();
+    // Locally enabled interrupts wake with global MIE clear; enabled interrupts
+    // trap at the successor after the retained WRS has retired.
+    for(int global_enable=0;global_enable<2;global_enable++) begin
+      reset_core(); csr_access('h6740,5,0,8,'h304,0);
+      if(global_enable!=0) csr_access('h6744,6,0,8,'h300,64'ha00000000);
+      reservation_valid=1;
+      expect_system('h6748,32'h00d00073); stop_at('h6748,'h674c,3);
+      send('h6748,32'h00d00073,0,1,0,0); wait(sleeping); repeat(8) tick();
+      if(global_enable!=0) stop_at('h674c,0,3);
+      interrupts=6'b010000; drain(); interrupts=0;
+      assert(!sleeping) else $fatal(1,"WRS interrupt wake");
+      if(global_enable!=0) csr_access(0,2,3,0,'h341,'h674c);
+    end
+    // U and S permit WRS even with TW set: STO completes normally after the
+    // short bound, while NTO traps only when that bound expires. M ignores TW.
+    for(int privilege=0;privilege<3;privilege++) for(int short_wait=0;short_wait<(privilege==0 ? 3 : 2);short_wait++) begin
+      logic [63:0] pc, mstatus;
+      logic [31:0] word=short_wait==1 ? 32'h01d00073 : 32'h00d00073;
+      int start_cycle;
+      reset_core(); pc='h100;
+      mstatus=(64'd1<<21)|(64'(privilege==2 ? 3 : privilege)<<11);
+      constant64(pc,1,mstatus); drain();
+      csr_access(pc,1,0,1,'h300,64'ha00000000); pc+=4;
+      if(privilege!=2) begin
+        send(pc,imm(2,0,'h500),0,1); drain(); pc+=4;
+        csr_access(pc,1,0,2,'h341,0); pc+=4;
+        expect_system(pc,32'h30200073); stop_at(pc,'h500,3);
+        send(pc,32'h30200073,0,1,0,0); drain();
+      end
+      reservation_valid=1;
+      if(short_wait==0 && privilege!=2) stop_at('h500,0,1,2,64'(word));
+      else begin expect_system('h500,word); stop_at('h500,'h504,3); end
+      send('h500,word,0,1,0,0); wait(sleeping); start_cycle=cycles;
+      repeat(32) tick();
+      assert(sleeping && expected_redirects.size()==1) else $fatal(1,"WRS timed out prematurely");
+      // Reservation loss on the timeout edge must win over TW's exception.
+      if(short_wait==2) begin
+        repeat(4063) tick();
+        reservation_valid=0;
+      end
+      if(privilege==2 && short_wait==0) begin
+        repeat(4100) tick();
+        assert(sleeping && expected_redirects.size()==1) else $fatal(1,"M-mode NTO incorrectly timed out");
+        reservation_valid=0;
+      end
+      drain();
+      assert(cycles-start_cycle>=4095 && cycles-start_cycle<4300) else $fatal(1,"WRS bounded timeout");
+      if(short_wait==0 && privilege!=2) begin
+        csr_access(0,2,3,0,'h341,'h500);
+        csr_access(4,2,4,0,'h343,64'(word));
+      end
+    end
+    // STO also wakes on reservation loss. Reset discards a pending owner
+    // without a delayed retirement in the next epoch.
+    reset_core(); reservation_valid=1;
+    expect_system('h6760,32'h01d00073); stop_at('h6760,'h6764,3);
+    send('h6760,32'h01d00073,0,1,0,0); wait(sleeping); repeat(4094) tick();
+    reservation_valid=0; drain();
+    reservation_valid=1; send('h6764,32'h00d00073,0,1,0,0); wait(sleeping); repeat(8) tick();
+    reset_core(); send('h6780,imm(3,0,3),imm(4,0,4)); drain();
+    stop_at('h6788,'h67c8); send('h6788,jump(0,64),32'h00d00073,2,1,0); drain();
+    assert(!sleeping) else $fatal(1,"killed WRS captured a wait owner");
 
     // Fences retain no WB bubble: they wait in RR for the accepted owner and
     // its deferred GPR write, issue alone, then flush younger branch recovery.

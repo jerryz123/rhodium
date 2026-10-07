@@ -17,7 +17,7 @@ module rv2wide_core_fp_tb;
   typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
-  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy; } memory_in_t;
+  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy, reservation_valid; } memory_in_t;
   typedef struct packed { memory_req_flow_t request; logic response_ready; } memory_out_t;
   typedef struct packed { logic [2:0] outcome; logic [63:0] data; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;

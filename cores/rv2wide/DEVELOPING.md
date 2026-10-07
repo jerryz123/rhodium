@@ -413,6 +413,27 @@ Pulse alongside the successor redirect. The frontend forwards it to the shared
 L1I invalidate input; L1I owns suppressing installation by old retained refills.
 Do not emulate instruction invalidation with speculative flush alone.
 
+Optional Zawrs adds a wait selector to the composed system decode and reuses
+RR system serialization. WB retains the WRS owner in the same slot used by split
+accesses and cache management, flushes younger work, and suppresses memory
+dispatch for that owner. No elastic pipeline register or deferred load owner is
+introduced. `RV2WideMemory.reservation_valid` is live shared-L1D state routed
+through the cache adapter and MMU, not a second reservation tracker.
+
+The saturating 12-bit WB counter implements the STO bound and the below-M TW
+bound for NTO. Reservation loss and `RiscvCsrFile.wfi_wake` take priority over
+timeout; successful completion retires once and redirects to the successor.
+A TW timeout uses the normal retained fault path with the original instruction
+PC and raw encoding. Interrupt entry cannot abandon the pending wait: wakeup
+first retires WRS, then normal interrupt handling uses its successor. Keep these
+rules aligned with RV5Stage without importing its pipeline types.
+
+The existing core fixture covers drain, privilege/TW behavior, timeout-edge
+wakeup, interrupt boundaries, reset, and killed waits. The cache fixture checks
+CHI-snoop wakeup; the fetch fixture checks real LR/STO/SC reservation retention
+and event-trace ownership. Profile and cosim-pass tests cover publication and
+instrumented elaboration. No WRS-specific SoC or CI lane is needed.
+
 The WB retention register holds a faulting token or interrupt boundary independently
 of the speculative pipes. An older accepted load paired with a younger fault
 retires once, preserves its completion owner, and delays trap entry until the
