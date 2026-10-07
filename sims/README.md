@@ -386,6 +386,40 @@ Its trace smoke uses the existing scalar cosim ELF even when `COSIM=0`; no Sail
 installation is required for tracing alone. It checks both lane identities,
 packet ancestry, stage timing, and service-to-register-write ancestry.
 
+### Branch prediction accuracy
+
+Use the shared report on a completed RV5Stage or RV2Wide trace:
+
+```sh
+python3 sims/branch-prediction.py /tmp/program.pftrace.gz \
+  --trace-processor /path/to/native/trace_processor_shell
+python3 sims/branch-prediction.py /tmp/program.pftrace.gz \
+  --trace-processor /path/to/native/trace_processor_shell \
+  --start-cycle 10000 --end-cycle 20000 --format json > /tmp/branch-prediction.json
+```
+
+The command imports once with the native Perfetto executable; no Python Perfetto
+package or download wrapper is required. `TRACE_PROCESSOR` may supply its path.
+It detects the core automatically; `--core rv5stage` or `--core rv2wide` selects
+a core type when a trace contains both. Matching instances are aggregated.
+Cycle windows use inclusive start and exclusive end retirement cycles; the
+default is the whole trace, including boot and printing. `--top N` limits the
+PC/instruction entries ranked by absolute next-PC misses (default 20).
+
+Accuracy is correct predictions divided by retired control transfers
+(conditional branches, JAL, and JALR, including compressed forms). MPKI is
+next-PC misses per thousand total retired instructions. Both RV2Wide age slots
+count; speculative attempts, stalls, replays, traps, and deferred RF writes do
+not. The results measure the effective frontend prediction after local repairs,
+not raw BTB hit rate. RAS-action mismatches are reported independently across
+all retirements, including nonbranches. No control transfers means undefined
+accuracy, not 100%. Old RV2Wide traces without the captures must be regenerated;
+missing/invalid captures, ambiguous shared tracks, and import errors fail instead
+of producing a partial accuracy report. JSON output includes the selected cycle
+window, totals, and ranked PCs.
+
+### Trace emission and display
+
 For host emission, `emit-soc-harness.rhm --trace OUTPUT_DIRECTORY shape core ISA`
 prints MLIR and writes `soc_events.json` and `soc_events.h` into an existing
 output directory. RTL and descriptors come from one compilation result; the

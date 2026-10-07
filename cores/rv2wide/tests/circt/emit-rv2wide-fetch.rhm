@@ -15,6 +15,14 @@ import:
 def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
 def compiled = compile_program(program, rtl_pipeline_target(circt_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
-def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content
+def manifest = compiled.report.stages[0].findings.manifest
+def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content ++ "\nnamespace rv2wide_fetch_sites {\n" ++ String.join(
+  for List (lane in 0..2):
+    def label = "core/s4.wb.slot" ++ to_string(lane)
+    def indices = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
+    unless indices.length() == 1 | error("expected one retirement trace site: " ++ label)
+    "constexpr unsigned wb" ++ to_string(lane) ++ " = " ++ to_string(indices[0]) ++ ";\n",
+  ""
+) ++ "}\n"
 export event_manifest_cpp
 print(compiled.artifacts[0].content)

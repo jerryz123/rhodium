@@ -45,6 +45,14 @@ path, whose WB authorization filter discards killed products. Do not add a whole
 module trace contract across already contracted Flow children. The shared divider
 owns its intrinsic retained request-to-response contract.
 
+Retirement prediction captures derive from the WB owner's retained resolved
+successor and effective prediction. Keep next-PC comparison separate from the
+RAS-action comparison; the recovery flag intentionally combines both and is not
+an accuracy metric. Do not infer retirement or prediction results from matching
+PCs in the host. The instrumented `rv2wide-fetch` oracle compares both slots'
+PC, raw instruction, prediction result, and RAS mismatch after settled callbacks,
+using its independent instruction execution and public prediction payloads.
+
 ## Implementation map
 
 | Owner | Responsibility |

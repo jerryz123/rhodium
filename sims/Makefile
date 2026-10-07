@@ -260,6 +260,10 @@ dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 simulation-runtime-test:
 	$(PYTHON) tests/check-simulation-runtime.py --verilator "$(VERILATOR)" --build "$(REPO_DIR)/.rhodium-cache/simulation-runtime-tests"
 
+.PHONY: branch-prediction-test
+branch-prediction-test:
+	$(PYTHON) -m unittest discover -s tests -p 'test_branch_prediction.py'
+
 spike-core-compile-check: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) \
 	  -c $(SPIKE_DPI_DIR)/spike_core.cc -o $(DPI_BUILD_DIR)/spike_core.o

@@ -316,7 +316,7 @@ jobs:
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
           make -C sims dpi-compile-check transport-test arch-test-adapter-test program-test-adapter-test \
-            cosim-hooks-test simulation-runtime-test VERILATOR_ROOT="$verilator_root"
+            cosim-hooks-test simulation-runtime-test branch-prediction-test VERILATOR_ROOT="$verilator_root"
       - name: Test Spike DPI integration once
         if: fromJSON(needs.plan.outputs.plan).run_spike_tests
         run: |

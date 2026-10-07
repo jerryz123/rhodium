@@ -42,6 +42,9 @@ SELECT
     'core/s1.rr.slot0','core/s1.rr.slot1','core/s2.ex.slot0','core/s2.ex.slot1',
     'core/s3.mem.slot0','core/s3.mem.slot1','core/s4.wb.slot0','core/s4.wb.slot1')) AND
   (SELECT count(*)=0 FROM pipeline WHERE pc IS NULL OR instruction IS NULL) AND
+  (SELECT count(*)=0 FROM pipeline WHERE name GLOB 'core/s4.wb.slot[01]' AND
+    (COALESCE(EXTRACT_ARG(arg_set_id,'debug.branch_prediction'),'') NOT IN ('NotBranch','Correct','Mispredicted') OR
+     COALESCE(EXTRACT_ARG(arg_set_id,'debug.ras_mismatch'),-1) NOT IN (0,1))) AND
   (SELECT count(*)>0 FROM pipeline a JOIN pipeline b ON a.cycle=b.cycle WHERE a.name='core/s1.rr.slot0' AND b.name='core/s1.rr.slot1') AND
   (SELECT count(*)=0 FROM pipeline p WHERE name NOT GLOB 'core/s1.rr.slot[01]' AND
     (SELECT count(*) FROM edges e WHERE e.child=p.id)!=1) AND

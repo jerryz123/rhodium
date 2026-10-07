@@ -556,6 +556,16 @@ actual issue and blocked offers. WB records successful retirement only, includin
 the later retirement of a retained split access; traps, replay, and speculative
 multiply launch are not retirement.
 
+Both WB slots capture `branch_prediction`: `NotBranch`, `Correct`, or
+`Mispredicted`. Conditional branches, JAL, and JALR (including compressed forms)
+are correct when the effective frontend next PC matches the resolved successor.
+This includes frontend prediction repairs, not just the original BTB lookup.
+The independent Boolean `ras_mismatch` compares predicted and resolved stack
+actions; a RAS-action-only repair does not count as a next-PC miss. These captures
+use the retained WB owner, including split-access retirement, rather than host-side
+PC correlation. The [shared accuracy report](../../sims/README.md#branch-prediction-accuracy)
+analyzes both slots without counting deferred register writes as retirements.
+
 ```text
 fetch S0 → S1 → S2 → assembly packets → issue window → RR[0/1] → EX[0/1] → MEM[0/1] → WB[0/1]
                                                          EX multiply ──authorization──→ scheduled direct RF write

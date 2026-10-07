@@ -239,6 +239,20 @@ fixed EX/MEM timing, successful WB, exact EX+5 multiply writes, and the
 three-stage variable-return path. The existing RV5Stage trace checks remain separate because its stage and
 prediction contracts differ. Keep trace selection out of SoC/ISA/CI inventories.
 
+`branch-prediction.py` owns core-specific retirement-label selection and the
+shared accuracy report, not RHEG's generic encoder. It runs one native import
+and grouped query, then validates captures before computing denominators or
+ranking PCs. Use full descriptor labels, not visual leaf names or decoded
+mnemonics, to select retirement. Reject explicit shared tracks mixing retirement
+with other transfers because the importer cannot recover that distinction.
+Keep effective next-PC accuracy separate from RAS-action mismatches and raw BTB
+hit rate. `make -C sims branch-prediction-test` exercises the query and reporting
+contracts with standard-library SQLite/CSV fixtures and runs in native CI.
+For RTL capture changes, run the instrumented `rv2wide-fetch` oracle and real
+`trace-smoke` with native Perfetto; the RV5Stage retirement-trace fixture owns
+its existing capture semantics. Check the report against one real trace from
+each core. Generated reports and traces remain untracked.
+
 `FesvrRequester` leaves the injected DPI command boundary unannotated; production
 host traffic adds no visible checkpoints. `FesvrCHIAccess` declares one retained command
 scope covering CHI REQ fragments, write DAT, and the host response. Capture at

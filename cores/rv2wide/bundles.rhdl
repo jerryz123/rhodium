@@ -106,6 +106,12 @@ hardware_enum RV2WideCacheOutcome:
   PageFault
   AccessFault
 
+/* Classifies effective next-PC accuracy independently of RAS-action repair. */
+hardware_enum RV2WideBranchPrediction:
+  NotBranch
+  Correct
+  Mispredicted
+
 /* Retains one result, control transfer, and fault/replay outcome through MEM and WB. */
 bundle RV2WideResult():
   fetched: RV2WideInstruction()
@@ -213,6 +219,7 @@ export:
   RV2WideResult
   RV2WideMemoryReq
   RV2WideCacheOutcome
+  RV2WideBranchPrediction
   RV2WideLookupResult
   RV2WidePipelineAccess
   RV2WideMemory

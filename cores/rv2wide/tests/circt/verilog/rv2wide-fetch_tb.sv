@@ -4,6 +4,11 @@ module rv2wide_fetch_tb;
 `ifndef BPRED_DISABLED
   import "DPI-C" function void rv2wide_fetch_trace_bind();
   import "DPI-C" function void rv2wide_fetch_trace_finish();
+  import "DPI-C" function void rv2wide_fetch_trace_expect(input int unsigned lane, input longint unsigned pc, input int unsigned instruction, prediction, ras_mismatch);
+  import "DPI-C" function void rv2wide_fetch_trace_check(input int unsigned reset);
+  logic trace_reset=1;
+  always @(posedge clock) trace_reset<=reset;
+  always @(negedge clock) rv2wide_fetch_trace_check(int'(trace_reset));
 `endif
   typedef struct packed { logic [63:0] cause, value; } fault_t;
   typedef struct packed { logic valid; fault_t bits; } fault_flow_t;
@@ -230,7 +235,7 @@ module rv2wide_fetch_tb;
     end
   end
 
-  task automatic retire(retirement_t got);
+  task automatic retire(retirement_t got, int lane);
     logic [31:0] word, raw;
     logic [63:0] value, address;
     logic signed [63:0] imm;
@@ -354,6 +359,20 @@ module rv2wide_fetch_tb;
       end
       default: $fatal(1,"oracle instruction %h",word);
     endcase
+`ifndef BPRED_DISABLED
+    begin
+      bit is_branch, pushes, pops;
+      logic [63:0] predicted_pc;
+      int unsigned action, prediction;
+      is_branch=word[6:0] inside {7'h63,7'h6f,7'h67};
+      pushes=(word[6:0] inside {7'h6f,7'h67}) && (rd==1 || rd==5);
+      pops=word[6:0]==7'h67 && (rs1==1 || rs1==5) && (!pushes || rd!=rs1);
+      action=pushes ? (pops ? 3 : 1) : (pops ? 2 : 0);
+      predicted_pc=got.fetched.prediction.valid ? got.fetched.prediction.target : got.fetched.sequential_pc;
+      prediction=is_branch ? (predicted_pc==64'(reference_pc) ? 1 : 2) : 0;
+      rv2wide_fetch_trace_expect(lane,got.fetched.pc,raw,prediction,int'(got.fetched.speculated_ras_action!=2'(action)));
+    end
+`endif
     assert(got.write==write_rd) else $fatal(1,"write flag at %h",got.fetched.pc);
     if(write_rd) begin
       assert(got.rd==5'(rd)) else $fatal(1,"rd");
@@ -379,7 +398,7 @@ module rv2wide_fetch_tb;
         if(retired[lane].bits.fetched.instruction[6:0]==7'h63) predicted_conditional++;
         if(phase==14 && retired[lane].bits.fetched.pc=='h63e) predicted_straddles++;
       end
-      retire(retired[lane].bits);
+      retire(retired[lane].bits,lane);
     end
     if(completed.valid) begin
       retirement_t expected;

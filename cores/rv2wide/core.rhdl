@@ -764,11 +764,16 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wire wb_train: Vec(2, Bool)
   def wb_retirement_links = for List (_ in 0..2): interface_link(Valid(RV2WideRetirement()))
   def wb_retirement_paths = for List (lane in 0..2):
+    def wb :: RV2WideResult() = wb_tokens[lane]
+    def next_pc = mux(wb.taken, wb.target, wb.fetched.sequential_pc)
+    def predicted_pc = mux(wb.fetched.prediction.valid, wb.fetched.prediction.target, wb.fetched.sequential_pc)
     def observed = wb_retirement_links[lane].right |> trace_valid_event("core/s4.wb.slot" ++ to_string(lane), ~fields: result):
       pc: result.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
       deferred: result.deferred
       rd: result.rd
+      branch_prediction(~format: "enum"): mux(wb.branch_update.branch, mux(next_pc =/= predicted_pc, RV2WideBranchPrediction.Mispredicted, RV2WideBranchPrediction.Correct), RV2WideBranchPrediction.NotBranch)
+      ras_mismatch: wb.branch_update.ras_action =/= wb.branch_update.predicted_ras_action
     observed |> fork_valid(2)
   for (lane in 0..2):
     def wb :: RV2WideResult() = wb_tokens[lane]
