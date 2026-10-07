@@ -1,4 +1,4 @@
-// Checks dual-issue writes, zero-offset paired load addresses, recovery, and service ownership.
+// Checks dual-issue writes, paired load addresses/store data, recovery, and service ownership.
 // Checks RV2Wide architectural ordering, scheduled multiply returns, and retained memory ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
@@ -91,6 +91,7 @@ module rv2wide_core_tb;
   int waw_dual=0, waw_deferred=0;
   int address_pairs=0;
   bit response_management[16];
+  int store_data_pairs=0;
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_t;
   typedef struct packed { logic valid; prefetch_t bits; } prefetch_flow_t;
   prefetch_flow_t prefetch;
@@ -256,6 +257,16 @@ module rv2wide_core_tb;
                !((memory_stage[0].bits.instruction[6:0] inside {7'h33,7'h3b}) && memory_stage[0].bits.instruction[31:25]==1))
           else $fatal(1,"dependent load crossed forbidden pairing boundary");
         address_pairs++;
+      end
+      if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[11:7]!=0 &&
+         memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[24:20] &&
+         (memory_stage[0].bits.instruction[6:0] inside {7'h13,7'h1b,7'h33,7'h3b,7'h37,7'h17,7'h03,7'h6f,7'h67} || mop_encoding(memory_stage[0].bits.instruction)) &&
+         memory_stage[1].bits.instruction[6:0]==7'h23) begin
+        assert(memory_stage[0].bits.instruction[11:7]!=memory_stage[1].bits.instruction[19:15] &&
+               !(memory_stage[0].bits.instruction[6:0] inside {7'h03,7'h6f,7'h67}) &&
+               !((memory_stage[0].bits.instruction[6:0] inside {7'h33,7'h3b}) && memory_stage[0].bits.instruction[31:25]==1))
+          else $fatal(1,"dependent store crossed forbidden pairing boundary");
+        store_data_pairs++;
       end
       if (cycles > 25000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
@@ -1942,7 +1953,112 @@ module rv2wide_core_tb;
     send('h11510,imm(3,0,'h300),imm(3,3,0,3,'h03),2,0,0); tick();
     reset_core(); drain();
     send('h11518,imm(4,3,0),0,1); drain();
-    $display("Paired zero-offset load addresses: %0d",address_pairs);
+    // Every store width/lane consumes the selected ALU result, not the stale rs2.
+    for(int slow=0;slow<2;slow++) begin
+      reset_core(); lookup_mode=slow==0 ? 1 : 0;
+      send('h12000,imm(1,0,'h300),imm(2,0,-128)); drain();
+      send('h12008,imm(4,0,65),0,1); drain();
+      for(int width=0;width<4;width++) begin
+        for(int lane=0;lane<8;lane+=1<<width) begin
+          int before_pairs;
+          before_pairs=store_data_pairs;
+          send('h12010,imm(3,0,17),0,1);
+          send('h12014,width%2==0 ? regop(3,2,4) : imm(3,2,3,1,'h1b),store(3,1,(slow==0 ? 24 : -8)+lane,width)); drain();
+          assert(store_data_pairs==before_pairs+1) else $fatal(1,"store-data pair split slow=%0d width=%0d lane=%0d",slow,width,lane);
+          send('h1201c,imm(5,1,(slow==0 ? 24 : -8)+lane,width,'h03),imm(6,3,0)); drain();
+        end
+      end
+    end
+    // A stream keeps both lanes busy; a nonzero negative offset needs no extra adder.
+    begin
+      int before_pairs;
+      reset_core(); lookup_mode=1;
+      send('h12040,imm(1,0,'h300),0,1); drain();
+      before_pairs=store_data_pairs; dual_run=0; longest_dual_run=0;
+      for(int i=0;i<16;i++) send(64'('h12048+8*i),imm(3,0,i-8),store(3,1,-8,3));
+      drain();
+      assert(store_data_pairs==before_pairs+16 && longest_dual_run>=12) else $fatal(1,"store-data bypass lost sustained dual issue");
+    end
+    // Producer WAW admission remains mandatory even though its result replaces rs2.
+    begin
+      int before_pairs;
+      reset_core(); hold_responses=1;
+      send('h12100,imm(1,0,'h300),0,1); drain();
+      send('h12104,imm(3,1,0,3,'h03),0,1); repeat(8) tick();
+      lookup_mode=1; before_pairs=store_data_pairs;
+      send('h12108,imm(3,0,-93),store(3,1,8,3));
+      repeat(6) begin tick(); assert(issued==0) else $fatal(1,"store bypass waived producer WAW"); end
+      hold_responses=0; drain();
+      assert(store_data_pairs==before_pairs+1) else $fatal(1,"store pair not retained through producer wait");
+    end
+    // A dependent address and deferred producers still split; x0 supplies zero.
+    for(int scenario=0;scenario<4;scenario++) begin
+      int before_pairs;
+      logic [31:0] first, second;
+      reset_core(); lookup_mode=1;
+      send('h12140,imm(1,0,'h300),imm(2,0,2)); drain();
+      case(scenario)
+        0: begin first=imm(3,0,'h308); second=store(3,3,0,3); end
+        1: begin first=m_insn(3,1,2,0); second=store(3,1,0,3); end
+        2: begin first=imm(3,1,0,3,'h03); second=store(3,1,8,3); end
+        3: begin first=imm(0,0,99); second=store(0,1,0,3); end
+      endcase
+      before_pairs=store_data_pairs;
+      send('h12148,first,second); drain();
+      assert(store_data_pairs==before_pairs) else $fatal(1,"ineligible store-data producer paired scenario=%0d",scenario);
+      send('h12150,imm(4,scenario==0 ? 3 : 1,scenario==2 ? 8 : 0,3,'h03),0,1); drain();
+    end
+    // Rejection retires the producer once and publishes no younger store effect.
+    for(int scenario=0;scenario<6;scenario++) begin
+      int before_pairs, before_stores, before_commits;
+      bit replay;
+      reset_core();
+      send('h12200,imm(1,0,'h300),0,1); drain();
+      lookup_mode=scenario<3 ? scenario+3 : scenario==5 ? 1 : 0;
+      inject_memory_fault=scenario==3; fault_address='h308;
+      block_requests=scenario==4; block_stores=scenario==5;
+      replay=scenario==0 || scenario>=4;
+      stop_at('h1220c,'h1220c,replay ? 2 : 1,scenario==1 ? 15 : 7,'h308);
+      before_pairs=store_data_pairs; before_stores=stores; before_commits=commits;
+      send('h12208,imm(3,0,-111),store(3,1,8,3),2,1,0); drain();
+      assert(store_data_pairs==before_pairs+1 && stores==before_stores && commits==before_commits+1)
+        else $fatal(1,"rejected store pair lost prefix or caused side effect scenario=%0d",scenario);
+      inject_memory_fault=0; block_requests=0; block_stores=0;
+      send('h12210,imm(4,3,0),0,1); drain();
+      if(replay) begin
+        lookup_mode=1; send('h1220c,store(3,1,8,3),0,1); drain();
+        send('h12214,imm(5,1,8,3,'h03),0,1); drain();
+      end
+    end
+    // Split service retains raw bypassed data, including bytes across beat boundaries.
+    for(int width=1;width<4;width++) begin
+      int before_pairs, before_splits;
+      reset_core();
+      send('h12300,imm(1,0,'h300),0,1); drain();
+      before_pairs=store_data_pairs; before_splits=split_requests;
+      stop_at('h1230c,'h12310,3);
+      send('h12308,imm(3,0,-117),store(3,1,7,width)); drain();
+      assert(store_data_pairs==before_pairs+1 && split_requests==before_splits+1) else $fatal(1,"split store lost paired owner");
+      lookup_mode=1;
+      for(int b=0;b<(1<<width);b++) begin send(64'('h12310+4*b),imm(4,1,7+b,4,'h03),0,1); drain(); end
+    end
+    // Older failure and reset cancel speculative store data without a memory effect.
+    reset_core(); lookup_mode=1;
+    send('h12400,imm(1,0,'h300),0,1); drain();
+    begin
+      int before_stores;
+      before_stores=stores;
+      inject_enable=1; inject_pc='h12408;
+      inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+      stop_at('h12408,'h12408,1,5,'hdead);
+      send('h12408,imm(3,0,77),store(3,1,0,3),2,0,0); drain();
+      assert(stores==before_stores) else $fatal(1,"older fault authorized younger store");
+      inject_enable=0;
+      send('h12410,imm(3,0,88),store(3,1,0,3),2,0,0); tick();
+      reset_core(); drain();
+      assert(stores==before_stores) else $fatal(1,"reset leaked paired store");
+    end
+    $display("Paired load addresses: %0d; paired store data: %0d",address_pairs,store_data_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     assert(branch_updates>0) else $fatal(1,"no retired branch training");

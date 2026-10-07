@@ -315,9 +315,19 @@ issue and retire two per cycle. A slot-0 integer ALU producer can pair with a
 slot-1 ordinary integer load that uses its result as the base address and has zero
 immediate offset. EX sends the producer's result directly to the load lookup,
 without a second dependent address addition or an extra pipeline stage.
-This includes a load overwriting the producer's destination. Other same-group
-RAW dependencies split the pair; stores, atomics, nonzero-offset loads, and
-memory, M, FP, CSR, or control-transfer producers do not use this bypass.
+This includes a load overwriting the producer's destination. This address
+bypass excludes stores, atomics, nonzero-offset loads, and memory, M, FP, CSR,
+or control-transfer producers.
+
+An older ordinary integer ALU producer can also pair with a younger integer
+store consuming its result as store data. EX forwards the selected ALU result
+before byte-lane shaping and retains it through WB authorization. The store
+address must remain independent of the producer; positive, negative, and zero
+store offsets are supported. Deferred producers and FP stores retain their
+ordinary interlocks. Faults and replay preserve the successful older prefix
+without authorizing a rejected younger store.
+Other same-group RAW dependencies split the pair.
+
 Same-destination writes can pair when the older writer is guaranteed to use
 normal WB, even if the younger writer completes later. An older memory, M, or late FP-to-GPR
 writer can defer its result and still splits a same-destination pair. An

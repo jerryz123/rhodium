@@ -301,11 +301,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_system = for List (lane in 0..2):
     def system :: RV2WideSystemControl() = rr_controls[lane].system
     rr_decodable[lane] & system.serializing()
+  def rr_pair_alu = rr_older_write & !rr_older_deferred & !rr_controls[0].fp.valid & !rr_system[0] & !rr_controls[0].branch.resolver.enable
   // The older ALU result is the entire zero-offset address: no second dependent adder.
-  def rr_pair_address = rr_older_write & !rr_older_deferred & !rr_controls[0].fp.valid & !rr_system[0] & !rr_controls[0].branch.resolver.enable & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Load) & (rr_rd[0] === rr_rs1[1]) & (rr_head.entries[1].instruction[20..32] === bits(0, 12))
-  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !rr_pair_address) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
+  def rr_pair_address = rr_pair_alu & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Load) & (rr_rd[0] === rr_rs1[1]) & (rr_head.entries[1].instruction[20..32] === bits(0, 12))
+  // Store data bypasses independently of address calculation and immediate offset.
+  def rr_pair_store_data = rr_pair_alu & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Store) & (rr_rd[0] === rr_rs2[1])
+  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !rr_pair_address) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1]) & !rr_pair_store_data))
   def rr_data_blocked = for List (lane in 0..2):
-    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_pair_address) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
+    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_pair_address) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & rr_pair_store_data) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
   def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane]
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
@@ -371,6 +374,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       rs1: rr_left[lane].data
       rs2: rr_right[lane].data
       address_from_older: Bool(lane == 1) & rr_pair_address
+      store_data_from_older: Bool(lane == 1) & rr_pair_store_data
       rd: rr_rd[lane]
       illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane] ||| rr_cbo_illegal[lane]
       fp_request: rr_fp_request
@@ -438,7 +442,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       memory: ex.control.memory.updated(~enable: ex_memory)
       prefetch: ex.control.prefetch
       address: ex_address
-      store_data: mux(ex.control.fp.valid, ex.fp_request.right, ex.rs2)
+      store_data: mux(ex.control.fp.valid, ex.fp_request.right, mux(ex.store_data_from_older, ex_alu_older.result, ex.rs2))
       cache_outcome: RV2WideCacheOutcome.Slow
       system: ex.control.system
       csr_source: mux(ex.control.system.immediate, instruction_field(fields.rs1, ex.fetched.instruction).zext(64), ex.rs1)

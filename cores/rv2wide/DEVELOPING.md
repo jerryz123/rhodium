@@ -166,6 +166,14 @@ ALU. Never route this bypass through another dependent addition. Keep normal
 MEM checks, WB authorization, split-access ownership, and fault/replay priority.
 Every other source and destination hazard retains its ordinary interlock.
 
+The same ordinary ALU producer may supply a younger integer store's rs2.
+Waive only that source's RAW/read interlock and carry `store_data_from_older`
+through EX. Select the older ALU result before StoreGen and retain the raw value
+in the existing MEM/WB `store_data` payload, including slow and split accesses.
+Do not waive the store's rs1 dependency or restrict its immediate offset.
+Producer admission, WB store authorization, and oldest fault/replay priority
+remain unchanged; FP stores, atomics, and deferred producers do not use this path.
+
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their
@@ -554,6 +562,8 @@ branch, and filling the instruction buffer under issue backpressure.
 The same fixture drives the production LSU boundary with a controlled cache
 service. It checks hit throughput, every natural byte lane and load extension,
 store masks, four outstanding owners, hit-under-miss, RAW/WAW scoreboarding,
+same-pair integer store-data forwarding across widths, lanes, hit/slow/split
+service, sustained dual issue, producer interlocks, and rejected/killed stores,
 completion/older-slot simultaneous writes and younger-slot reservation, capacity and admission replay, store-commit
 rejection, lookup/admission faults, and accepted-work drain across precise stops.
 `rv2wide-cache` instead connects the production shared L1D and a CHI backing-memory

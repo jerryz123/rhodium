@@ -87,13 +87,14 @@ bundle RV2WideFpLoad():
   data: Bits(64)
 
 
-/* Holds RR operands, controls, and the younger load's same-pair address selection for EX. */
+/* Holds RR operands, controls, and same-pair load-address/store-data selections for EX. */
 bundle RV2WideExecute():
   fetched: RV2WideInstruction()
   control: RV2WideControl()
   rs1: Bits(64)
   rs2: Bits(64)
   address_from_older: Bool
+  store_data_from_older: Bool
   rd: Bits(5)
   illegal: Bool
   fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
