@@ -91,11 +91,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   def reserved = s1.egress.valid.as_bits().zext(2) + s2.egress.valid.as_bits().zext(2)
   assert(reserved <= assembler.available, "rv2wide_fetch_reservations")
   assembler.clear.valid <== command ||| repair
-  (assembler.instructions |> trace_event("frontend/packet", ~stalls: #true, ~fields: packet):
-    count(~format: "unsigned"): packet.count
-    pc0: packet.entries[0].pc
-    pc1: packet.entries[1].pc
-  ) |> instructions
+  assembler.instructions |> instructions
 
   // S0 reserves capacity before touching the synchronous arrays. Readiness
   // never depends on S1 tag matching or the core's current issue decision.

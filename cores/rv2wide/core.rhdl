@@ -240,9 +240,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_fp_late_gpr :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_fp_fixed[lane] & (rr_controls[lane].fp.bits.registers.destination === FloatDestination.Integer) & rr_rd[lane].or_reduce() & (fp_timing.latency(rr_controls[lane].fp.bits.execution) > bits(2, fp_timing.width)))
   // An older MEM divide owns next cycle's shared request input at WB.
   def rr_fp_wb_reserved = (mem_older.egress.valid & mem_older.egress.bits.fp.valid & (mem_older.egress.bits.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)) ||| (mem_younger.egress.valid & mem_younger.egress.bits.fp.valid & (mem_younger.egress.bits.fp.bits.execution.unit === FloatUnit.DivideSquareRoot))
-  def rr_fp_blocked = for List (lane in 0..2):
+  def rr_fp_data_blocked = for List (lane in 0..2):
     def control :: FloatingPointControl() = rr_controls[lane].fp.bits
-    rr_controls[lane].fp.valid & ((control.registers.uses_frs1 & rr_fp_busy(rr_rs1[lane])) ||| (control.registers.uses_frs2 & rr_fp_busy(rr_rs2[lane])) ||| (control.registers.uses_frs3 & rr_fp_busy(rr_head.entries[lane].instruction[27..32])) ||| ((control.registers.destination === FloatDestination.FloatingPoint) & rr_fp_busy(rr_rd[lane])) ||| (rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !wb_fp_gpr_calendar.probe_available))))
+    rr_controls[lane].fp.valid & ((control.registers.uses_frs1 & rr_fp_busy(rr_rs1[lane])) ||| (control.registers.uses_frs2 & rr_fp_busy(rr_rs2[lane])) ||| (control.registers.uses_frs3 & rr_fp_busy(rr_head.entries[lane].instruction[27..32])) ||| ((control.registers.destination === FloatDestination.FloatingPoint) & rr_fp_busy(rr_rd[lane])))
+  def rr_fp_structural_blocked = for List (lane in 0..2): rr_decodable[lane] & rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !wb_fp_gpr_calendar.probe_available))
   /* Deferred returns forward at RR admission and again at the reserved write edge. */
   fun rr_stored(address :: Bits(5)) :: Bits(64):
     def mutable value = mux(wb_fp_late_gpr.valid & (wb_fp_late_gpr.bits.tag.rd === address), wb_fp_late_gpr.bits.integer_value, rr_registers[address])
@@ -279,14 +280,17 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   // The older ALU result is the entire zero-offset address: no second dependent adder.
   def rr_pair_address = rr_older_write & !rr_older_deferred & !rr_controls[0].fp.valid & !rr_system[0] & !rr_controls[0].branch.resolver.enable & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Load) & (rr_rd[0] === rr_rs1[1]) & (rr_head.entries[1].instruction[20..32] === bits(0, 12))
   def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !rr_pair_address) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
-  def rr_blocked = for List (lane in 0..2):
-    rr_decodable[lane] & (rr_fp_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_pair_address) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))) ||| ((rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].or_reduce() & !ex_multiply.available))
+  def rr_data_blocked = for List (lane in 0..2):
+    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_pair_address) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
+  def rr_multiply_capacity = for List (lane in 0..2): rr_decodable[lane] & (rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].or_reduce() & !ex_multiply.available
+  def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane]
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
   // All aq/rl combinations use the stronger memory-ordering boundary: drain
   // older memory before issue and hold younger memory through atomic response.
   def rr_memory_in_pipeline = (ex_older.egress.valid & ex_older.egress.bits.control.memory.enable) ||| (ex_younger.egress.valid & ex_younger.egress.bits.control.memory.enable) ||| (mem_older.egress.valid & mem_older.egress.bits.memory.enable) ||| (mem_younger.egress.valid & mem_younger.egress.bits.memory.enable) ||| (wb_older.egress.valid & wb_older.egress.bits.memory.enable) ||| (wb_younger.egress.valid & wb_younger.egress.bits.memory.enable)
   def rr_atomic_ready = !rr_memory_in_pipeline & memory.drained & wb_load_response.drained & !wb_atomic_pending
   def rr_atomic = for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].memory.enable & !rr_controls[lane].memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def rr_structural_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| (rr_system[lane] & !(rr_pipeline_empty & wb_drained)) ||| (rr_atomic[lane] & !rr_atomic_ready)
   def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !rr_squash & (!rr_system[0] ||| (rr_pipeline_empty & wb_drained)) & (!rr_atomic[0] ||| rr_atomic_ready)
   def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decodable[0] & !rr_system[0] & !rr_system[1] & (!rr_atomic[1] ||| rr_atomic_ready) & (rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !rr_pair_deferred & !(rr_controls[0].fp.valid & rr_controls[1].fp.valid))) & !(rr_completion.valid & rr_completion.bits.write) & !wb_fp_gpr_calendar.occupied[3].into(Bool)
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
@@ -318,6 +322,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   for (lane in 0..2):
     def ex_ingress :: Endpoint = ex_pipe[lane].ingress
     ex_pipe[lane].flush <== rr_squash
+    // Younger offers inherit the older offer's blockers, not a generic age hazard.
+    def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & (rr_pair_raw ||| rr_pair_waw)))
+    def structural_hazard = rr_structural_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_structural_blocked[0] ||| rr_system[0] ||| rr_system[1] ||| !rr_decodable[0] ||| (!rr_head.entries[1].fault.valid & !rr_decodable[1]) ||| (rr_decodable[0] & rr_decodable[1] & (rr_pair_branch ||| rr_pair_memory ||| rr_pair_deferred ||| (rr_controls[0].fp.valid & rr_controls[1].fp.valid))) ||| (rr_completion.valid & rr_completion.bits.write) ||| wb_fp_gpr_calendar.occupied[3].into(Bool))
     def offer :: Handle = interface_link(Decoupled(RV2WideInstruction()))
     offer.left.valid <== rr_window.candidates[lane].valid
     offer.left.bits <== rr_window.candidates[lane].bits
@@ -325,7 +332,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def rr_observed = offer.right |> trace_event("core/s1.rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
       pc: fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): fetched.raw_instruction
-      blocked: rr_blocked[lane]
+      data_hazard: data_hazard
+      structural_hazard: structural_hazard
     (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => RV2WideExecute()):
       fetched: fetched
       control: rr_controls[lane]

@@ -533,9 +533,17 @@ divide owners remain with the shared divider until accepted completion.
 `core/s4.wb.deferred` marks a deferred service completion reaching WB. Its ancestry
 follows the retained service and completion pipeline directly from the instruction's
 EX multiply launch or WB load/divide acceptance, without intermediate service events.
-RR stall observations share their corresponding `core/s1.rr.slotN` track and
-remain named `stall`. Frontend stage numbering is local to fetch; buffered
-`frontend/packet` assembly has no fixed execution-stage number.
+RR inherits the one or two `frontend/s2.outcome` blocks contributing to its
+assembled packet through the assembler and issue window. Packet assembly has
+no separate trace checkpoint. RR stall observations share their corresponding
+`core/s1.rr.slotN` track and remain named `stall`. Frontend stage numbering is
+local to fetch.
+RR captures two boolean stall categories: `data_hazard` covers RAW/WAW
+dependencies, including same-group conflicts; `structural_hazard` covers
+resource capacity, shared execution/write ports, serialization, atomic draining,
+and fault/illegal-instruction ordering. A younger offer also inherits the older
+offer's blocking categories. Both can be true together. Changing categories
+split the continuous stall slice; issued RR events have both false.
 Shared cache/CHI events retain their existing annotations. Partial tracing still
 reports unmodeled fetch-cursor and external response provenance; it does not
 invent ancestry from equal PCs or reused transaction IDs.
