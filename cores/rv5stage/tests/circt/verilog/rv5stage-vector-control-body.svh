@@ -788,7 +788,8 @@
     for(int registers=1;registers<=8;registers*=2) begin
       for(int destination=0;destination<32;destination++) begin
         for(int source=0;source<32;source++) begin
-          bit expected=destination%registers==0 && destination+registers<=32 && source%registers==0 && source+registers<=32;
+          bit expected;
+          expected=destination%registers==0 && destination+registers<=32 && source%registers==0 && source+registers<=32;
           instruction=whole_register_move(registers,destination,source); #1;
           assert(decoded_valid && legal==expected) else $fatal(1,"whole-register move legality nreg%0d vd%0d vs2%0d",registers,destination,source);
           checks++;
@@ -811,7 +812,8 @@
     test_vtype='1;
     for (int registers=1; registers<=8; registers*=2) begin
       for (int destination=0; destination<32; destination++) begin
-        bit expected=XLEN==64 && destination%registers==0 && destination+registers<=32;
+        bit expected;
+        expected=XLEN==64 && destination%registers==0 && destination+registers<=32;
         for (int width=0; width<4; width++) begin
           instruction=whole_register_vmem(0,width,registers,destination,8); #1;
           assert(decoded_valid && legal==expected) else $fatal(1,"whole-register load legality nreg%0d vd%0d eew%0d",registers,destination,width);

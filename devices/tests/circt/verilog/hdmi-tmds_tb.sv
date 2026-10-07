@@ -103,7 +103,8 @@ module hdmi_tmds_tb;
     for (int i = 0; i < 4; i++) sample(1, 0, 8'ha5, 2'(i));
     // DVI 1.0 section 3.2.2 defines exactly 460 active-data characters.
     begin
-      int count = 0;
+      int count;
+      count = 0;
       foreach (active_codes[i]) if (active_codes[i]) count++;
       assert(count == 460) else $fatal(1, "active TMDS alphabet has %0d symbols", count);
     end

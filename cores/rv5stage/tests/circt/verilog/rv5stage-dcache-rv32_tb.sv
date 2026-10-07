@@ -228,8 +228,9 @@ module rv5stage_dcache_rv32_tb;
     send_request(32'h103c, 4'd3);
     expect_response(32'h5678);
     begin
-      logic [31:0] expected=32'h5678;
+      logic [31:0] expected;
       int old_responses;
+      expected=32'h5678;
       for(int lane=0;lane<4;lane++) begin
         old_responses=responses;
         pipeline_lookup_in='{valid:1,bits:'{byte_mask:4'(((1 << (1 << (2'd0))) - 1) << ((32'h4000103c+32'(lane)) % 4)),address:32'h4000103c+32'(lane),access:4'd2,width:2'd0,unsigned_0:0,data:32'ha0+32'(lane)}};

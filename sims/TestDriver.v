@@ -61,18 +61,17 @@ module TestDriver;
         drain_status = rhodium_sim_drain();
         if (drain_status < 0) check_runtime(1);
       end
-      if (drain_status == 1) begin
-        check_runtime(rhodium_sim_finish());
-        if (pending_exit == 1) begin
-          $display("SoC harness simulation passed");
-          $finish;
-        end else begin
-          $fatal(1, "SoC harness reported target failure: exit word %0d", pending_exit);
-        end
-      end
+      if (drain_status == 1) break;
     end
 
     check_runtime(rhodium_sim_finish());
-    $fatal(1, "SoC harness simulation timed out");
+    if (drain_status != 1) begin
+      $fatal(1, "SoC harness simulation timed out");
+    end else if (pending_exit != 1) begin
+      $fatal(1, "SoC harness reported target failure: exit word %0d", pending_exit);
+    end else begin
+      $display("SoC harness simulation passed");
+      $finish;
+    end
   end
 endmodule

@@ -4,8 +4,8 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
-version=5.052
-archive_sha256=8c8d2e11e6ad32f641dd250742a94195ddecb912e2e2dabe2f42ddbbb99c1092
+version=5.048
+archive_sha256=02d934b3f972c6d9b792350634d81eadfc9e61f347e3f3bdcaad40960b9fcb53
 install_dir="$repo_dir/.tools/verilator"
 
 verify_install() {
@@ -13,15 +13,15 @@ verify_install() {
   actual="$(env -u VERILATOR_ROOT "$install_dir/bin/verilator" --version)"
   if [[ "$actual" != "Verilator $version "* ]]; then
     echo "Expected Verilator $version, found: $actual" >&2
-    exit 1
+    return 1
   fi
-  test -f "$install_dir/share/verilator/include/verilated.h"
+  test -f "$install_dir/share/verilator/include/verilated.h" || return 1
   echo "$actual ($install_dir)"
 }
 
 if [[ -x "$install_dir/bin/verilator" ]]; then
-  verify_install
-  exit 0
+  if verify_install; then exit 0; fi
+  echo "Rebuilding the pinned Verilator in $install_dir" >&2
 fi
 
 build_dir="$(mktemp -d /tmp/rhodium-verilator.XXXXXX)"

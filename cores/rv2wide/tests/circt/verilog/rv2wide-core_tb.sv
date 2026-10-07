@@ -257,7 +257,8 @@ module rv2wide_core_tb;
       end
       if (completed.valid) begin
         retirement_t want;
-        int index=-1;
+        int index;
+        index=-1;
         assert (expected_completions.size() > 0) else $fatal(1, "unowned memory completion");
         foreach(expected_completions[i]) if(expected_completions[i].fetched.pc==completed.bits.fetched.pc) index=i;
         assert(index>=0) else $fatal(1,"completion has no accepted owner pc=%h",completed.bits.fetched.pc);
@@ -918,7 +919,8 @@ module rv2wide_core_tb;
     // Split owners retire once after completion, preserving an older peer and
     // refetching younger work without adding a third RF write port.
     begin
-      int before_splits=split_requests;
+      int before_splits;
+      before_splits=split_requests;
       for (int width = 1; width < 4; width++) begin
         stop_at('h4e40, 'h4e44, 3);
         send('h4e40, imm(0, 1, 1, width, 'h03), imm(16, 0, 99), 2, 1, 0); drain();
@@ -975,7 +977,8 @@ module rv2wide_core_tb;
     send('hb388,imm(18,17,0),0,1); drain();
     // Taken older branches kill younger atomics before any memory authorization.
     for(int op=0;op<3;op++) begin
-      logic [63:0] pc=64'('hb400+op*16);
+      logic [63:0] pc;
+      pc=64'('hb400+op*16);
       stop_at(pc,pc+32);
       send(pc,jump(16,32),atomic_insn(op==0 ? 2 : op==1 ? 3 : 0,3,0,1,op==0 ? 0 : 2),2,1,0);
       drain();
@@ -1018,7 +1021,8 @@ module rv2wide_core_tb;
     // Fetch faults ignore even valid memory encodings and preserve both age slots.
     // In particular, a younger fault must wait for its older accepted load.
     begin
-      int before_lookups = lookups;
+      int before_lookups;
+      before_lookups = lookups;
       stop_at('h5140, 'h5140, 1, 1, 'h5140);
       send('h5140, imm(11, 1, 0, 3, 'h03), '0, 1, 0, 0, 0);
       drain();
@@ -1042,7 +1046,8 @@ module rv2wide_core_tb;
     // Same-group WB authorization can override the prior cycle's MEM branch.
     // No link write or retirement survives the older memory replay/fault.
     for (int mode = 0; mode < 2; mode++) begin
-      logic [63:0] pc = 64'('h51c0 + mode*16);
+      logic [63:0] pc;
+      pc = 64'('h51c0 + mode*16);
       lookup_mode = 0;
       block_requests = mode == 0;
       inject_memory_fault = mode == 1; fault_address = 0;
@@ -1082,7 +1087,8 @@ module rv2wide_core_tb;
     // CSR WB recovery wins over a younger taken branch in MEM, and kills a
     // speculative store before authorization. All issue groups remain single-slot.
     begin
-      int before_override=wb_overrides;
+      int before_override;
+      before_override=wb_overrides;
       expect_system('h6040,csr(5,12,19,'h340),0);
       stop_at('h6040,'h6044,3);
       send('h6040,csr(5,12,19,'h340),0,1,0,0);
@@ -1246,8 +1252,9 @@ module rv2wide_core_tb;
     // Every M operation, including word projection, signed high products,
     // divide-by-zero, signed overflow, and independently varying operand signs.
     for(int scenario=0;scenario<6;scenario++) begin
-      logic [63:0] pc='h8000;
+      logic [63:0] pc;
       logic [63:0] a,b;
+      pc='h8000;
       reset_core();
       case(scenario)
         0: begin a=64'hfedcba9876543210; b=64'h0123456789abcdef; end
@@ -1289,7 +1296,8 @@ module rv2wide_core_tb;
     // The busy divider replays before acceptance; the accepted owner survives.
     reset_core();
     begin
-      logic [63:0] pc='ha000;
+      logic [63:0] pc;
+      pc='ha000;
       constant64(pc,1,64'h7fffffffffffffff); constant64(pc,2,3); drain();
     end
     send('ha100,m_insn(3,1,2,4),imm(8,0,8));
@@ -1319,9 +1327,10 @@ module rv2wide_core_tb;
     // Complete B catalog in both issue slots, with independent paired B work
     // and dependent consumers. Dirty upper words expose .UW/word/unary shaping.
     for(int scenario=0;scenario<7;scenario++) begin
-      logic [63:0] pc='hb000;
+      logic [63:0] pc;
       logic [63:0] a,b;
       int shift;
+      pc='hb000;
       reset_core();
       case(scenario)
         0: begin a=0; b=0; shift=0; end
@@ -1344,7 +1353,8 @@ module rv2wide_core_tb;
     // pending divider owns x2 while CPOP (imm[4:0]=2) executes without waiting.
     reset_core();
     begin
-      logic [63:0] pc='hc000;
+      logic [63:0] pc;
+      pc='hc000;
       constant64(pc,1,64'h7fffffffffffffff); send(pc,imm(2,0,3),imm(3,0,63)); drain();
     end
     send('hc100,m_insn(2,1,2,4),b_insn(15,4,1,0));
@@ -1361,8 +1371,9 @@ module rv2wide_core_tb;
     // Both conditional-zero operations use every bit of rs2. Independent pairs
     // exercise both slots; following consumers check ordinary EX/MEM forwarding.
     for(int scenario=0;scenario<5;scenario++) begin
-      logic [63:0] pc='hd000;
+      logic [63:0] pc;
       logic [63:0] a;
+      pc='hd000;
       reset_core();
       case(scenario)
         0: a=0;
@@ -1397,7 +1408,8 @@ module rv2wide_core_tb;
     // of encoded register fields, and forwards that zero to dependent consumers.
     reset_core();
     begin
-      logic [63:0] pc='he000;
+      logic [63:0] pc;
+      pc='he000;
       constant64(pc,1,'1); constant64(pc,2,64'hfedcba9876543210); drain();
       for(int two_sources=0;two_sources<2;two_sources++) begin
         for(int index=0;index<(two_sources!=0 ? 8 : 32);index++) begin
@@ -1415,7 +1427,8 @@ module rv2wide_core_tb;
     // Conditional-zero must wait for a real rs2 dependency, even when rs1 is x0.
     reset_core();
     begin
-      logic [63:0] pc='hf000;
+      logic [63:0] pc;
+      pc='hf000;
       constant64(pc,1,64'h7fffffffffffffff); send(pc,imm(2,0,3),0,1); drain();
     end
     hold_responses=1;

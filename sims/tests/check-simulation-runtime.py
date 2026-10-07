@@ -36,6 +36,11 @@ def main():
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=10)
             if (result.returncode != 0) != fail:
                 raise AssertionError(result.stdout)
+            if not fail:
+                if result.stdout.count("SoC harness simulation passed") != 1 or "%Fatal" in result.stdout:
+                    raise AssertionError(result.stdout)
+            elif "SoC harness simulation passed" in result.stdout:
+                raise AssertionError(result.stdout)
             if cycles is not None:
                 for enabled, message in ((cosim, f"test cosim closed: samples={cycles + 3}"),
                                          (trace, f"test trace closed: cycles={cycles}")):
@@ -44,6 +49,7 @@ def main():
             return result.stdout
 
         run(cycles=5)
+        run(["+max-cycles=5"], cycles=5)
         run(["+max-cycles=2"], fail=True, cycles=2)
         run(["+runtime-test-target-fail"], fail=True, cycles=5)
         if trace or cosim:
