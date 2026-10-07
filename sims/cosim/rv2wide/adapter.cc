@@ -74,24 +74,37 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
 
   // Old returns resolve before new admissions, permitting same-edge destination reuse.
   const auto& wb = *f.completions[3];
-  if (wb.valid) {
-    require(!h.returns.empty() && h.returns.front().due == h.cycle, "WB completion lost its scheduled owner");
+  const auto& multiply = *f.completions[1];
+  const auto fp = f.fp[0].value_or(FpSample{});
+  const bool variable_due = !h.returns.empty() && h.returns.front().due == h.cycle;
+  const bool fp_gpr_return = fp.valid && fp.destination == 1 && fp.rd;
+  if (variable_due) {
+    require(wb.valid && !multiply.valid, "variable WB completion lost its reserved write cycle");
     const auto returned = h.returns.front(); h.returns.pop_front();
     require(wb.pc == returned.value.pc && wb.rd == returned.value.rd && wb.write == returned.value.write && wb.data == returned.value.data,
             "WB completion changed in the feed-forward pipeline");
     gpr(c,instance,returned.owner.id,wb.write,wb.rd,wb.data);
+  } else if (wb.valid) {
+    const bool matches_fp = fp_gpr_return && wb.pc == fp.pc && wb.rd == fp.rd && wb.write && wb.data == fp.value;
+    const bool matches_multiply = multiply.valid && wb.pc == multiply.pc && wb.rd == multiply.rd && wb.write == multiply.write && wb.data == multiply.data;
+    require(matches_fp != matches_multiply, "fixed WB completion has no unique direct source");
   }
   require(h.returns.empty() || h.returns.front().due > h.cycle, "missing scheduled WB completion");
   unsigned selected = 0;
   for (unsigned service = 0; service < 3; ++service) {
     const auto& value = *f.completions[service];
     if (!value.valid) continue;
-    require(++selected == 1 && !h.services[service].empty(), "completion arbiter has no unique owner");
+    if (service != 1) require(++selected == 1, "variable completion arbiter has no unique source");
+    require(!h.services[service].empty(), "service completion has no owner");
     const auto owner = h.services[service].front(); h.services[service].pop_front();
     require(value.pc == owner.lane.pc && value.rd == owner.lane.rd && value.write == owner.lane.write, "deferred owner mismatch");
     if (service == 0) memory(c,instance,owner,value.data,false);
-    h.returns.push_back({owner,value,h.cycle+3});
+    if (service == 1) {
+      require(owner.due == h.cycle && wb.valid, "multiply missed its fixed RF write cycle");
+      gpr(c,instance,owner.id,value.write,value.rd,value.data);
+    } else h.returns.push_back({owner,value,h.cycle+3});
   }
+  require(h.services[1].empty() || h.services[1].front().due > h.cycle, "missing scheduled multiply completion");
 
   if (p.fragment_valid) {
     require(h.split && h.fragments.size() < 2 && (h.fragments.empty() || h.fragments.back().response), "unowned or overlapping split fragment");
@@ -132,6 +145,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
       owner.address = p.request_address;
       if (lane.memory) require(owner.physical, "accepted memory has no physical address");
       else c.seal(instance,owner.id,1,0);
+      if (lane.service == 1) owner.due = h.cycle + 3;
       h.services[lane.service].push_back(owner);
     } else {
       if (lane.fp == 2) inline_fp_load = owner;

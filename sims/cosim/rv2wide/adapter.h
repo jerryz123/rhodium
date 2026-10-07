@@ -58,7 +58,7 @@ class HartAdapter final : public DpiAdapter {
     std::array<std::optional<FpSample>, 2> fp;
     std::tuple<std::optional<BoundarySample>, std::optional<PhysicalSample>> events;
   };
-  struct Owner { Id id; LaneSample lane; bool physical; Word address; };
+  struct Owner { Id id; LaneSample lane; bool physical; Word address; Word due = 0; };
   struct FpOwner { Owner owner; Word due; bool variable; };
   struct Return { Owner owner; CompletionSample value; Word due; };
   struct Fragment { Word address, virtual_address, mask, data; std::optional<Word> response; };

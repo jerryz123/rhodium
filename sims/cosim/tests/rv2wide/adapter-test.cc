@@ -1,3 +1,4 @@
+// Checks settled RV2Wide ownership through fixed writes, variable returns, and recovery.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../rv2wide/adapter.h"
 #include <algorithm>
@@ -50,10 +51,10 @@ std::string run(unsigned seed) {
       s.retire(1,0x800c,5,55);
     }
     if (cycle==2) { auto& l=s.retire(0,0x8010,4); l.deferred=1; l.service=1; }
-    if (cycle==3) { s.completions[1]={1,1,0x8010,4,1,44}; s.retire(0,0x8014); }
-    if (cycle==4) s.completions[0]={0,1,0x8008,3,1,33};
-    if (cycle==6) s.completions[3]={3,1,0x8010,4,1,44};
-    if (cycle==7) s.completions[3]={3,1,0x8008,3,1,33};
+    if (cycle==3) s.retire(0,0x8014);
+    // A multiply writes directly while an unrelated variable result enters RR.
+    if (cycle==5) { s.completions[0]={0,1,0x8008,3,1,33}; s.completions[1]={1,1,0x8010,4,1,44}; s.completions[3]={3,1,0x8010,4,1,44}; }
+    if (cycle==8) s.completions[3]={3,1,0x8008,3,1,33};
     if (cycle==8) {
       s.retire(0,0x8018,6,66);
       s.lanes[2].pc=0x801c; s.lanes[2].encoding=0;
@@ -137,8 +138,10 @@ void fp_owners(unsigned seed) {
       s.fp[0]={0,1,0x8000,0,2,0x3ff0000000000000,1,0};
       s.fp[1]={1,1,0x800c,3,2,0x4000000000000000,0,0};
       auto& l=s.retire(0,0x8010,4); l.fp=1; l.fp_destination=2; l.fp_delay=UINT64_MAX; l.deferred=1; l.write=0;
+      auto& late=s.retire(1,0x8012,9); late.fp=1; late.fp_destination=1; late.fp_delay=2; late.deferred=1;
       s.physical.pipeline_valid=1; s.physical.pipeline_address=0xa000;
     }
+    if (cycle==5) { s.fp[0]={0,1,0x8012,9,1,19,0,0}; s.completions[3]={3,1,0x8012,9,1,19}; }
     if (cycle==4) {
       auto& l=s.retire(0,0x8014,5); l.fp=2; l.fp_destination=2; l.write=0;
       l.memory=1; l.access=1; l.width=3; l.address=0x2000; l.data=0x4008000000000000;
@@ -148,19 +151,37 @@ void fp_owners(unsigned seed) {
     auto emitted=sample(c,binding,cycle,s,random);
     records.insert(records.end(),emitted.begin(),emitted.end());
   }
-  require(records.size()==6);
+  require(records.size()==7);
   for (Word i=0;i<records.size();++i) require(records[i].id.order==i);
   const auto& f0=std::get<RegisterWrite>(records[0].effects.at({0,0}));
   require(f0.bank==Bank::FloatingPoint && f0.index==0 && f0.value==0x3ff0000000000000);
   require(std::get<RegisterWrite>(records[2].effects.at({0,0})).bank==Bank::Integer);
   require(std::get<MemoryEffect>(records[3].effects.at({1,0})).physical_address==0x9000);
-  require(std::get<MemoryEffect>(records[5].effects.at({1,0})).physical_address==0xa000);
+  require(std::get<RegisterWrite>(records[5].effects.at({0,0})).value==19);
+  require(std::get<MemoryEffect>(records[6].effects.at({1,0})).physical_address==0xa000);
   c.finish();
+}
+void reject_bad_fixed_return(bool early) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(c); std::mt19937 random(0);
+  Sample admitted; auto& l=admitted.retire(0,0x8000,7); l.deferred=1; l.service=1;
+  sample(c,binding,0,admitted,random);
+  bool rejected=false;
+  try {
+    for (Word cycle=1;cycle<=3;++cycle) {
+      Sample s;
+      if (early && cycle==2) { s.completions[1]={1,1,0x8000,7,1,42}; s.completions[3]={3,1,0x8000,7,1,42}; }
+      sample(c,binding,cycle,s,random);
+    }
+  } catch (const std::runtime_error& error) {
+    rejected=std::string(error.what()).find(early ? "fixed RF write cycle" : "missing scheduled multiply")!=std::string::npos;
+  }
+  require(rejected);
 }
 int main() {
   const auto expected=run(0);
   for (unsigned seed=1;seed<100;++seed) require(run(seed)==expected);
   epoch_and_drain();
   for (unsigned seed=0;seed<100;++seed) fp_owners(seed);
+  reject_bad_fixed_return(true); reject_bad_fixed_return(false);
   std::cout<<"RV2Wide adapter ownership checks passed\n";
 }

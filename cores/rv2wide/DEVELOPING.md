@@ -125,7 +125,7 @@ Keep accepted ownership independent of speculative flush. The memory owner FIFO
 joins ordered responses through `zip_flow`, normalizes returned data with
 `LoadGen` for ordinary loads, passes architectural LR/AMO values and SC status
 unchanged, and backpressures at the common completion arbiter. Round-robin Flow
-arbitration merges load, multiply, and divide results and reserves the younger RR
+arbitration merges variable load and divide results and reserves the younger RR
 slot for responses requiring a GPR write.
 An unflushable three-stage Valid pipe aligns those responses with the vacant WB
 slot. Mux the completion and younger instruction before the second register-file
@@ -161,15 +161,21 @@ Every other source and destination hazard retains its ordinary interlock.
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their
-completion enters the RR return path. x0 M results need no service owner.
+completion is available for forwarding. x0 M results need no service owner.
 
 EX launches the five-stage multiplier. An unflushable two-stage owner path reaches
 WB at the same time as its instruction; WB retirement authorizes a three-stage
-continuation to the product. A killed/replayed/faulted owner releases its reserved
-result slot at WB and does not publish the speculative product. Keep the physical
-multiplier feed-forward. Eight result reservations include launch, authorization,
-return, and arbitration retention. RR leaves one reservation of headroom for the
-instruction already entering EX. No calendar or third write port is required.
+continuation to the product. RR books EX+5 (RR+6) in the shared fixed GPR calendar.
+The authorized product writes and forwards directly on that edge. A killed,
+replayed, or faulted owner drains without publishing the speculative product;
+its unused booking simply ages out. Keep the multiplier feed-forward, with no
+result queue or extra return stages. The outstanding-owner count participates
+in precise drain, not capacity admission. FP bookings have first-client priority;
+same-group multiply/FP claims for the same edge split at RR before either
+executes. Other fixed pairs can book independently. Calendar bit three blocks
+younger-slot issue and variable-return admission for their future WB edge.
+Pause new fixed bookings after bounded variable-return starvation. No third
+write port or WB backpressure is permitted.
 
 Division captures its operands and owner only after WB acceptance. A busy service
 causes preacceptance replay, while an accepted operation survives all speculative
@@ -351,7 +357,7 @@ not coissue with memory or integer long-latency work. It may pair with ordinary
 integer instructions without introducing younger side effects before acceptance.
 
 `rv2wide-core-fp` exercises 3/5/2-cycle execution; `rv2wide-core-fp-late`
-uses 3/5/4 cycles to move integer-returning FP operations beyond their own WB.
+uses 3/5/5 cycles to collide integer-returning FP operations with multiply returns.
 Both enable Zfa; the first selects Zfh and the late fixture selects Zfhmin.
 They share a public-interface bench covering both age slots, FPR dependencies,
 loads/stores, killed EX arithmetic, divide, flags, and illegal FS/rm. Zfa cases
@@ -381,15 +387,17 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v2` contract. The core declares
+`observation.rhdl` names the passive `rv2wide.v3` contract. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
 `cores/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.
 The simulation-owned [adapter](../../sims/cosim/DEVELOPING.md) assigns age IDs,
 retains deferred owners, and resolves both slots at a settled sample barrier.
 Keep replay and speculative EX multiply launch out of architectural admission.
-The completion adapter follows the three unflushable RR-to-WB return stages;
-update that contract and its ownership tests if their latency changes.
+The completion adapter follows the three unflushable RR-to-WB stages for load
+and divide, but matches multiply directly to its authorized WB+3 RF-write edge.
+It permits concurrent multiply writeback and variable-return admission. Update
+that contract and its ownership tests if these latencies change.
 
 For observation changes, run the native adapter and optional-pass tests, then
 the existing software path on both shapes:
@@ -423,7 +431,11 @@ high products, zero-divisor and overflow rules, overlapping pipelined multiplies
 and loads, cross-service completion ownership, RAW/WAW interlocks, x0, and rejected
 versus accepted operations across branch/trap recovery. A dependent multiply
 consumer must reach MEM within six cycles of its producer's MEM token; repeated
-consumers cover forwarding through every return-pipeline stage.
+consumers cover forwarding and same-register WAW release at the direct write
+edge. Every accepted multiply completion must arrive exactly three cycles
+after WB authorization (five after EX), including competing variable returns.
+Sixteen independent multiplies must write on consecutive cycles, and both FP
+timing variants exercise fixed-return pairing in each age order.
 B scenarios cover every RV64 Zba/Zbb/Zbs instruction in both age slots, with
 zero/all-one/sparse/mixed operands, shift boundaries, dirty upper words, and
 independent paired work plus dependent consumers. A pending divider tests false

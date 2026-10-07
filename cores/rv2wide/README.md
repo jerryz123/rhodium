@@ -275,14 +275,17 @@ the group so WB allocates at most one deferred destination per cycle.
 
 The five-stage shared multiplier launches from EX at one operation per cycle.
 Its owner reaches WB with the instruction, where retirement authorizes the
-result. Rejected owners release their reservation; the physical product continues
-without an architectural write. Eight reserved result slots absorb completion
-arbitration, with admission headroom for RR-to-EX work. The iterative divider
+result. RR books the shared younger GPR write port for EX+5, alongside fixed FP
+returns. The product writes and forwards directly on that edge, without a result
+queue or deferred-return pipeline. Conflicting fixed returns wait at issue,
+before execution. Rejected owners leave a harmless unused booking; the physical
+product continues without an architectural write. The iterative divider
 accepts only at WB; a busy divider causes replay before acceptance. Word divide
 operands are sign- or zero-extended independently of final word sign extension.
 
-Load, multiply, and divide completions use one round-robin Flow arbiter and the
-existing younger-slot reservation pipeline. Completion order may differ from
+Only unpredictable load and divide completions use the round-robin Flow arbiter
+and younger-slot reservation pipeline; their admission waits for a cycle not
+already booked by fixed multiply/FP work. Completion order may differ from
 retirement order; each result carries its original instruction identity. The
 scoreboard blocks reads until the result returns and younger writes until the
 reserved second-port write. Independent instructions continue. Accepted work survives redirects, and precise
@@ -539,7 +542,7 @@ multiply launch are not retirement.
 
 ```text
 fetch S0 → S1 → S2 → assembly packets → issue window → RR[0/1] → EX[0/1] → MEM[0/1] → WB[0/1]
-                                                         EX multiply ──authorization──→ completion arbitration
+                                                         EX multiply ──authorization──→ scheduled direct RF write
                                                                       WB load/divide ──→ completion arbitration
                                                completion arbitration → three-stage completion pipe → deferred RF write
 ```
@@ -549,8 +552,9 @@ one/two-slot consumption, compressed assembly, and flush. Load owners survive in
 their queue, multiply owners traverse the feed-forward authorization path, and
 divide owners remain with the shared divider until accepted completion.
 `core/s4.wb.deferred` marks a deferred service completion reaching WB. Its ancestry
-follows the retained service and completion pipeline directly from the instruction's
-EX multiply launch or WB load/divide acceptance, without intermediate service events.
+follows the aligned owner directly from EX multiply launch, or the retained
+service and completion pipeline from WB load/divide acceptance, without
+intermediate service events.
 RR inherits the one or two `frontend/s2.outcome` blocks contributing to its
 assembled packet through the assembler and issue window. Packet assembly has
 no separate trace checkpoint. RR stall observations share their corresponding

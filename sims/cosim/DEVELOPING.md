@@ -130,8 +130,11 @@ RV2Wide allocates identities only at successful WB admission or split capture,
 never at speculative EX multiply launch. It assigns two slots in age order and
 retains a split owner through its final retirement/trap, including completed
 store prefixes. Three native service FIFOs correspond to accepted memory,
-WB-authorized multiply, and divide. Arbitration schedules an owner through the
-three feed-forward return stages; only the actual RF-write edge seals its GPR
+WB-authorized multiply, and divide. Variable-return arbitration schedules load
+and divide owners through three feed-forward stages; multiply writes directly
+on its authorized WB+3 edge. The versioned `rv2wide.v3` source contract samples
+both the direct source and RF destination on that edge, independently of
+same-cycle variable-return admission. Only the actual RF-write edge seals its GPR
 producer. CSR traps allocate after draining older services; a successful older
 slot retains its retirement when the younger faults. No callback order, PC-only
 matching across generations, observer registers, or architectural CSR snapshots

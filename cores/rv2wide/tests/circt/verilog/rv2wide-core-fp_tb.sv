@@ -1,3 +1,4 @@
+// Checks FP ownership and shared GPR write scheduling against integer multiply and load returns.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_fp_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
@@ -163,6 +164,13 @@ module rv2wide_core_fp_tb;
     send(32'h00700b93,fp('h61,23,2,0),1); // older integer x23=7, younger FP x23=32
     send(32'h000b8c13); // x24=x23 waits for the younger FP value
     settle(); expect_gpr(23,32); expect_gpr(24,32);
+
+    // Fixed multiply and FP-to-GPR returns share a calendar. Exercise both age
+    // orders: equal-latency pairing must split before EX, never retain a result.
+    send(32'h026086b3,fp('h61,14,2,0),1); // mul x13,x1,x6=144; fcvt.w.d x14,f2=32
+    send(fp('h61,15,2,0),32'h02608833,1); // fcvt.w.d x15,f2=32; mul x16,x1,x6=144
+    send(32'h00168693); // x13=x13+1 waits for the direct multiply write
+    settle(); expect_gpr(13,145); expect_gpr(14,32); expect_gpr(15,32); expect_gpr(16,144);
 
     // f0 is writable, and FPR forwarding must cover the load port too.
     send(fp('h69,0,1,0));

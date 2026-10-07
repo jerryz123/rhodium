@@ -1,4 +1,5 @@
 // Checks dual-issue writes, zero-offset paired load addresses, recovery, and service ownership.
+// Checks RV2Wide architectural ordering, scheduled multiply returns, and retained memory ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
@@ -84,6 +85,8 @@ module rv2wide_core_tb;
   int branch_updates=0;
   int invalidations=0;
   int multiply_mem_cycle=-1, dependent_mem_cycle=-1;
+  int multiply_authorized_cycle[logic [63:0]];
+  int multiply_stream_cycle=-1, multiply_stream_count=0;
   int conditional_dual=0, mop_dual=0;
   int waw_dual=0, waw_deferred=0;
   int address_pairs=0;
@@ -265,6 +268,8 @@ module rv2wide_core_tb;
             else $fatal(1, "retirement order/control pc=%h expected=%h", retired[lane].bits.fetched.pc, want.fetched.pc);
           if (retired[lane].bits.deferred) begin
             expected_completions.push_back(want);
+            if ((want.fetched.instruction[6:0] inside {7'h33,7'h3b}) && want.fetched.instruction[31:25]==1 && want.fetched.instruction[14:12]<4)
+              multiply_authorized_cycle[want.fetched.pc]=cycles;
             if(want.fetched.instruction[6:0] inside {7'h03,7'h23,7'h2f}) response_owners.push_back(want);
           end
           if (want.write && !retired[lane].bits.deferred)
@@ -285,6 +290,16 @@ module rv2wide_core_tb;
       if (completed.valid) begin
         retirement_t want;
         int index;
+        if (completed.bits.fetched.pc>='hac08 && completed.bits.fetched.pc<'hac48) begin
+          if (multiply_stream_count!=0) assert(cycles==multiply_stream_cycle+1)
+            else $fatal(1,"independent multiplies did not write on consecutive cycles");
+          multiply_stream_cycle=cycles; multiply_stream_count++;
+        end
+        if (multiply_authorized_cycle.exists(completed.bits.fetched.pc)) begin
+          assert(cycles==multiply_authorized_cycle[completed.bits.fetched.pc]+3)
+            else $fatal(1,"multiply missed fixed EX+5 writeback pc=%h",completed.bits.fetched.pc);
+          multiply_authorized_cycle.delete(completed.bits.fetched.pc);
+        end
         index=-1;
         assert (expected_completions.size() > 0) else $fatal(1, "unowned memory completion");
         foreach(expected_completions[i]) if(expected_completions[i].fetched.pc==completed.bits.fetched.pc) index=i;
@@ -668,7 +683,7 @@ module rv2wide_core_tb;
     interrupts = 0; trap_target = 0;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
     hold_split=0; split_fault=0;
-    expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete();
+    expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete(); multiply_authorized_cycle.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
     for (int i = 0; i < 4096; i++) begin
       memory_bytes[i] = 8'(i ^ 'h98);
@@ -1369,14 +1384,20 @@ module rv2wide_core_tb;
     inject_enable=1; inject_pc='ha208; inject_result='{disposition:2'd2,cause:64'd0,value:64'd0};
     send('ha208,imm(7,0,7),m_insn(3,1,2,0),2,0,0); drain(); inject_enable=0;
     send('ha208,imm(7,0,7),m_insn(3,1,2,0)); drain();
-    // RAW consumers use the returned product without waiting three more cycles
-    // for its RF write; forwarding persists through every return-pipeline stage.
+    // A returned product writes immediately; even a read-modify-write consumer
+    // can issue without a deferred WAW tail after the fixed arithmetic latency.
     reset_core(); send('hab00,imm(1,0,17),imm(2,0,3)); drain();
     send('hab08,m_insn(3,1,2,0),imm(8,0,8));
-    send('hab10,imm(4,3,1),imm(5,3,2));
+    send('hab10,imm(3,3,1),imm(5,3,2));
     send('hab18,imm(6,3,3),imm(7,3,4)); drain();
     assert(multiply_mem_cycle>=0 && dependent_mem_cycle-multiply_mem_cycle<=6)
       else $fatal(1,"multiply consumer waited beyond return: producer=%0d consumer=%0d",multiply_mem_cycle,dependent_mem_cycle);
+    // More independent work than the arithmetic depth must still sustain one
+    // direct write per cycle, without completion-buffer capacity admission.
+    reset_core(); send('hac00,imm(1,0,17),imm(2,0,3)); drain();
+    for(int pair=0;pair<8;pair++) send('hac08+64'(pair*8),m_insn(3+2*pair,1,2,0),m_insn(4+2*pair,1,2,0));
+    drain(); assert(multiply_stream_count==16) else $fatal(1,"multiply stream lost a return");
+    send('hac48,imm(20,3,1),imm(21,18,2)); drain();
     // A MEM branch kills a younger EX launch but accepted older work survives.
     reset_core(); send('h9600,imm(1,0,17),imm(2,0,3)); drain();
     stop_at('h9608,'h9700); send('h9608,jump(0,'hf8),m_insn(3,1,2,0),2,1,0); drain();

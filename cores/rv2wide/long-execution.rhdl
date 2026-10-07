@@ -1,5 +1,5 @@
 #lang rhodium
-/* Retains speculative multiply owners through WB and committed divide owners through shared completion arbitration. */
+/* Aligns fixed multiply results with WB authorization and retains variable divide owners. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,35 +23,32 @@ bundle RV2WideDivideIssue():
   owner: RV2WideRetirement()
 
 /* Launches a feed-forward multiply in EX and gates its aligned owner at WB two cycles later.
-   Eight reserved results absorb downstream arbitration; one admission headroom covers RR-to-EX.
-   Rejected WB owners free their reservation without publishing the still-running product. */
+   The core reserves its RF write cycle before issue; numerical results never wait in storage.
+   Rejected WB owners drain without publishing the still-running product. */
 sync_circuit RV2WideMultiply():
   interface issue(Valid(RV2WideMultiplyIssue()), ~role: consumer)
   input authorize: Bool
-  interface completed(Decoupled(RV2WideRetirement()), ~role: producer)
-  output available: Bool
+  interface completed(Valid(RV2WideRetirement()), ~role: producer)
   output drained: Bool
 
   inst execution(PipelinedMultiplier(64))
   issue |> map_valid(operation => operation.request) |> execution.request
   def wb_owner :: Endpoint = issue |> valid_pipe(2)
   def returned :: Endpoint = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
-  inst results(Queue(RV2WideRetirement(), 8, ~flow: #true))
   (returned |> map_valid(operation):
     def product = execution.response.bits
     def value = mux(operation.control.high_result, product[64..128], product[0..64])
     def result = mux(operation.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     operation.owner.updated(~data: result, ~deferred: Bool(#false))
-  ) |> to_decoupled() |> results.ingress
-  results.egress |> completed
-  reg reserved(~init: bits(0, 4))
+  ) |> completed
+  def count_width = index_width(PipelinedMultiplierStages + 1)
+  reg outstanding(~init: bits(0, count_width))
   def rejected = wb_owner.valid & !authorize
-  reserved <== reserved + issue.valid.as_bits().zext(4) - rejected.as_bits().zext(4) - completed.fire().as_bits().zext(4)
-  available <== reserved < bits(7, 4)
-  drained <== !reserved.or_reduce()
-  assert(reserved <= bits(8, 4), "rv2wide_multiply_reserved_capacity")
-  when (results.ingress.valid):
-    assert(results.ingress.ready & execution.response.valid, "rv2wide_multiply_retained_result")
+  outstanding <== outstanding + issue.valid.as_bits().zext(count_width) - rejected.as_bits().zext(count_width) - completed.valid.as_bits().zext(count_width)
+  drained <== !outstanding.or_reduce()
+  assert(outstanding <= bits(PipelinedMultiplierStages, count_width), "rv2wide_multiply_inflight_capacity")
+  when (completed.valid):
+    assert(execution.response.valid, "rv2wide_multiply_scheduled_result")
   when authorize:
     assert(wb_owner.valid, "rv2wide_multiply_wb_owner")
 

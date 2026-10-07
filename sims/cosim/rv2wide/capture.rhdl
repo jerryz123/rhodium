@@ -30,7 +30,7 @@ dpi_import procedure rhodium_rv2wide_boundary(
   instance: Bits(64), privilege: Bits(64), next_privilege: Bits(64), interrupt_take: Bits(64), trap: Bits(64), cause: Bits(64), epc: Bits(64),
   tval: Bits(64), target: Bits(64), target_privilege: Bits(64), interrupts: Bits(64), time: Bits(64), interrupt_boundary: Bits(64)
 )
-/* Samples accepted service returns and their actual three-stage writeback destination. */
+/* Samples variable service admission, direct multiply return, and their RF write destination. */
 dpi_import procedure rhodium_rv2wide_completion(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), write: Bits(64), data: Bits(64))
 /* Samples architectural translation and split-fragment ownership, excluding page-table traffic. */
 dpi_import procedure rhodium_rv2wide_physical(
