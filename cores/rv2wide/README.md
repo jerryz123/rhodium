@@ -219,6 +219,25 @@ are preserved; the hint neither flushes fetch nor enters WFI/WRS sleep.
 Interrupts and redirects can end the cooldown early, and a killed hint never
 starts one. Accepted memory and arithmetic completions remain live throughout.
 
+## Non-temporal locality hints
+
+Select `RV2WideConfig(~zihintntl: #true)` to implement and advertise Zihintntl
+1.0. It defaults to disabled. NTL.P1, NTL.PALL, NTL.S1, and NTL.ALL, including
+their compressed aliases, apply to the immediately following instruction, not
+the next memory instruction. Consecutive hints replace one another. Hints do
+not serialize issue or require prior memory work to drain.
+
+Ordinary integer and FP loads/stores carry the selector at WB, including a
+younger target retiring alongside its hint. Replay preserves it for the same
+target; split accesses retain it across their fragments. A successful non-memory
+target consumes it, and trap or interrupt entry clears it.
+
+The shared L1D currently treats all four non-default selectors alike: an ordinary
+load miss returns data without installing the line. Hits, stores, atomics, and
+cache-management operations retain their existing behavior. Translation,
+permissions, ordering, and coherence are unchanged; no lower-level cache policy
+is promised. See the [shared L1D contract](../cache/l1d/README.md).
+
 ## Instruction fetch
 
 RV2Wide requires C and optionally adds Zcb and Zcmop using the shared compressed

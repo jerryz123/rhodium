@@ -10,6 +10,7 @@ import:
   "../../cache/operation.rhdl" open
   "../../cache-prefetch.rhdl" open
   lib("riscv/rtl/atomic.rhdl") open
+  lib("riscv/rtl/zihintntl.rhdl") open
   "../../load-store.rhdl" open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/isa/xlen.rhm") open
@@ -27,6 +28,7 @@ sync_circuit RV2WideMmuFixture():
   input(ex_valid, wb_valid, commit): Bool
   input access: CacheOperation
   input address: Bits(64)
+  input locality: RiscvMemoryLocality
   input split_valid: Bool
   input split_width: MemoryWidth
   input split_data: Bits(64)
@@ -48,6 +50,7 @@ sync_circuit RV2WideMmuFixture():
   output physical_access: CacheOperation
   output physical_data: Bits(64)
   output physical_mask: Bits(8)
+  output physical_locality: RiscvMemoryLocality
   output response_ready: Bool
   output completed: Bool
   output completed_data: Bits(64)
@@ -70,6 +73,7 @@ sync_circuit RV2WideMmuFixture():
     width: MemoryWidth.Double
     data: bits(0, 64)
     mask: bits(0xff, 8)
+    locality: locality
   mmu.pipeline.request.valid <== ex_valid
   mmu.pipeline.request.bits <== request
   mmu.pipeline.commit <== commit
@@ -97,7 +101,7 @@ sync_circuit RV2WideMmuFixture():
     data: split_data
     byte_mask: bits(0, 8)
     context: Bool(#false)
-    locality: literal(mmu.split.request.bits.locality.type, 0)
+    locality: locality
   split_ready <== mmu.split.request.ready
   split_completed <== mmu.split.response.valid
   split_result <== mmu.split.response.bits.response.data
@@ -126,6 +130,7 @@ sync_circuit RV2WideMmuFixture():
   physical_access <== mmu.physical_memory.request.bits.access
   physical_data <== mmu.physical_memory.request.bits.data
   physical_mask <== mmu.physical_memory.request.bits.mask
+  physical_locality <== mmu.physical_memory.request.bits.locality
   response_ready <== mmu.physical_memory.response.ready
 
 export:

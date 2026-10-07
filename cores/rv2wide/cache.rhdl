@@ -81,7 +81,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
       unsigned: !atomic_request
       data: request.data
       context: Bool(#false)
-      locality: RiscvMemoryLocality.Default
+      locality: request.locality
   ) |> storage.core.request
   (
     uncached |> gate_flow(storage.core.drained & !uncached_management.egress.valid) |> map_flow(request => UncachedMemoryReq(XLen.X64, Bits(3))):
@@ -96,7 +96,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
           unsigned: Bool(#true)
           data: request.data >> (request.address[0..3] ++ bits(0, 3))
           context: request.address[0..3]
-          locality: RiscvMemoryLocality.Default
+          locality: request.locality
   ) |> io.core.request
   memory.fault.valid <== memory.request.valid & !permitted
   memory.fault.bits <== RV2WideResolution():

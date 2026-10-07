@@ -243,7 +243,7 @@ plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physi
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its request bundles additionally import the
 shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom,
-Zicbop, Zawrs, and Zihintpause catalogs;
+Zicbop, Zawrs, Zihintpause, and Zihintntl catalogs;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
@@ -251,7 +251,8 @@ pipes and forks; it imports no other named-core implementation.
 Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
 the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
 Bits helpers. Canonical decode remains RV2Wide-owned. Its core, bundles, decoder,
-MMU, cache adapter, and top consume the neutral `cores/cache-prefetch.rhdl`
+and MMU import `riscv/rtl/zihintntl.rhdl` for architectural locality metadata.
+Its core, bundles, decoder, MMU, cache adapter, and top consume the neutral `cores/cache-prefetch.rhdl`
 operation/request contract for WB-authorized, nonfaulting I/D hints. Its profile and UDB
 projection publish optional Zawrs; the core uses architectural CSR-field and
 privilege helpers for its WB reservation-wait timeout policy. Its profile and UDB

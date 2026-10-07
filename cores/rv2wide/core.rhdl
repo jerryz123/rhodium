@@ -45,6 +45,7 @@ import:
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("riscv/rtl/cmo.rhdl") open
+  lib("riscv/rtl/zihintntl.rhdl") open
   lib("rhodium/std/decode.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
   lib("flow/main.rhdl") open
@@ -220,7 +221,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
-  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause))
+  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause, ~zihintntl: profile.zihintntl))
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
   // At most one memory instruction issues per group; the older CMO owns the
@@ -453,6 +454,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       memory: ex.control.memory.updated(~enable: ex_memory)
       prefetch: ex.control.prefetch
       pause: ex.control.pause
+      locality_hint: ex.control.locality_hint
       address: ex_address
       store_data: mux(ex.control.fp.valid, ex.fp_request.right, mux(ex.store_data_from_older, ex_alu_older.result, ex.rs2))
       cache_outcome: RV2WideCacheOutcome.Slow
@@ -523,6 +525,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     width: ex_lookup.memory.width
     data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.store_data)
     mask: ex_store.mask.as_bits()
+    locality: RiscvMemoryLocality.Default
   describe_interface_selection([ex_memory_lane === bits(0, 1), ex_memory_lane === bits(1, 1)], ~name: "lookup")
   describe_interface_contract(Array(ex_paths[0][2], ex_paths[1][2]), pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
 
@@ -589,6 +592,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   reg wb_retained_sent(~init: Bool(#false))
   reg wb_retained_drained(~init: Bool(#false))
   reg wb_retained_owner(RV2WideResult())
+  reg wb_retained_locality(RiscvMemoryLocality)
+  reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
   def wb_management = wb_retained_pending & wb_retained_owner.memory.enable & wb_retained_owner.memory.access.is_cache_management()
   wb_reservation_waiting <== wb_retained_pending & (wb_retained_owner.system.wait =/= RV2WideWait.None)
   reg wb_wait_count(~init: bits(0, 12))
@@ -634,6 +639,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_older_stop = wb_live_valid[0] & (wb_live_group[0].resolution.disposition =/= RV2WideDisposition.Continue)
   def wb_memory_lane = mux(wb_live_valid[0] & wb_live_group[0].memory.enable, bits(0, 1), bits(1, 1))
   def wb_memory :: RV2WideResult() = wb_live_group[wb_memory_lane]
+  // A younger request consumes its older peer's hint on this same WB edge.
+  // This selection must not depend on request readiness or retirement feedback.
+  def wb_memory_locality = mux(wb_memory_lane === bits(0, 1), wb_pending_locality, wb_live_group[0].locality_hint)
   def wb_memory_active = wb_live_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_retained_pending & !wb_fault_pending & !wb_interrupt_stop
   def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
@@ -670,12 +678,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     data: wb_retained_owner.store_data
     byte_mask: dont_care(Bits(8))
     context: Bool(#false)
-    locality: dont_care(split.request.bits.locality.type)
+    locality: wb_retained_locality
   when wb_retained_capture:
     wb_retained_pending <== Bool(#true)
     wb_retained_sent <== Bool(#false)
     wb_retained_drained <== Bool(#false)
     wb_retained_owner <== wb_retained_candidate
+    wb_retained_locality <== wb_memory_locality
   elsewhen wb_retained_complete:
     wb_retained_pending <== Bool(#false)
   elsewhen (split.request.fire() ||| wb_management_accepted):
@@ -701,6 +710,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     width: wb_request_owner.memory.width
     data: mux(wb_request_owner.memory.access.is_store(), wb_store.data, wb_request_owner.store_data)
     mask: wb_store.mask.as_bits()
+    locality: mux(wb_request_owner.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store), wb_memory_locality, RiscvMemoryLocality.Default)
   pipeline.commit <== wb_store_hit & !wb_memory_blocked
   def wb_admission_fault = memory.request.valid & memory.fault.valid
   wb_management_fault <== wb_management & wb_admission_fault
@@ -928,6 +938,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     rr_registers[wb_second_address] <== wb_second_data
   retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
   wb_csrs.retire_count <== retired_count
+  // Fold only the successful prefix. Replay keeps the target's pending hint;
+  // trap/interrupt entry clears it rather than attaching it to the handler.
+  when (wb_csrs.redirect.valid):
+    wb_pending_locality <== RiscvMemoryLocality.Default
+  elsewhen (retired[0].valid):
+    wb_pending_locality <== mux(retired[1].valid, wb_tokens[1].locality_hint, wb_tokens[0].locality_hint)
   def wb_pause_commit = (retired[0].valid & wb_tokens[0].pause) ||| (retired[1].valid & wb_tokens[1].pause)
   when (rr_squash ||| wb_csrs.interrupt_request):
     rr_pause_cycles <== bits(0, 5)

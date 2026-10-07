@@ -9,6 +9,8 @@ module rv2wide_mmu_tb;
   logic [63:0] satp=64'h8000000000000010, mstatus=0;
   logic invalidate=0, fetch_valid=0, ex_valid=0, wb_valid=0, commit=0;
   logic [3:0] access=1;
+  logic [2:0] locality=0;
+  wire [2:0] physical_locality;
   wire [3:0] physical_access;
   logic [63:0] fetch_address='h400000, address='h500008;
   logic physical_ready=0, physical_fault=0, response_valid=0;
@@ -41,7 +43,9 @@ module rv2wide_mmu_tb;
     tick(); falling(); response_valid=0;
   endtask
   task automatic reply(input logic [63:0] pa, data);
-    wait_request(pa); physical_ready=1; tick(); falling(); physical_ready=0;
+    wait_request(pa);
+    assert(physical_locality==0) else $fatal(1,"unexpected locality on PTE/default request");
+    physical_ready=1; tick(); falling(); physical_ready=0;
     return_data(data);
   endtask
   task automatic fence;
@@ -243,19 +247,22 @@ module rv2wide_mmu_tb;
     falling(); wb_valid=0; privilege=3; satp=0; fence();
     // Byte masks and shifts preserve all neighboring lanes. Prefix acceptance
     // is irrevocable, but no second fragment appears before its response.
-    start_split('h307,2,3); wait_request('h300);
+    locality=4; start_split('h307,2,3); locality=0; wait_request('h300);
+    assert(physical_locality==4) else $fatal(1,"split prefix lost retained locality");
     assert(physical_mask=='h80 && physical_data==64'h1100000000000000) else $fatal(1,"first store mask/shift");
     physical_ready=1; tick(); falling(); physical_ready=0;
     repeat(4) begin tick(); assert(!physical_valid && !split_completed) else $fatal(1,"advanced before first completion"); end
     falling(); return_data(0); wait_request('h308);
+    assert(physical_locality==4) else $fatal(1,"split suffix lost retained locality");
     assert(physical_mask=='h7f && physical_data==64'h0088776655443322) else $fatal(1,"second store mask/shift");
     physical_ready=1; tick(); falling(); physical_ready=0; return_data(0); finish_split(0);
     start_split('h303,1,1); reply('h300,64'h8877665544332211); finish_split('h5544);
     // A cached first translation and missing second PTE must never reissue
     // the accepted first-page store or require rollback.
     privilege=1; satp=64'h8000000000000010; fence();
-    start_split('h500ffd,2,3); walk_data(('h15<<10)|'hc7);
+    locality=2; start_split('h500ffd,2,3); locality=0; walk_data(('h15<<10)|'hc7);
     wait_request('h15ff8); assert(physical_mask=='he0) else $fatal(1,"cross-page prefix mask");
+    assert(physical_locality==2) else $fatal(1,"translation lost locality");
     physical_ready=1; tick(); falling(); physical_ready=0; return_data(0);
     reply('h10000,('h11<<10)|1); reply('h11010,('h12<<10)|1); reply('h12808,0);
     finish_split(0,'h501000,1);

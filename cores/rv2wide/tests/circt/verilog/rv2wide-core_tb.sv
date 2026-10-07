@@ -18,7 +18,7 @@ module rv2wide_core_tb;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
-  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
+  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; logic [2:0] locality; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
   typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy, reservation_valid; } memory_in_t;
@@ -37,6 +37,7 @@ module rv2wide_core_tb;
   split_request_flow_t split_out;
   bit split_active=0, hold_split=0, split_fault=0;
   int split_due=0, split_requests=0;
+  logic [2:0] expected_split_locality=0;
   split_result_t split_reply;
 
   logic clock = 0, reset = 1;
@@ -210,6 +211,7 @@ module rv2wide_core_tb;
         int bytes_count;
         assert(response_count==0 && expected_completions.size()==0) else $fatal(1,"split issued before older completions drained");
         assert(split_out.bits.access inside {1,2}) else $fatal(1,"split atomic");
+        assert(split_out.bits.locality==expected_split_locality) else $fatal(1,"split lost locality");
         bytes_count=1<<split_out.bits.width; data=0;
         for(int b=0;b<bytes_count;b++) begin
           if(split_out.bits.access==2 && !split_fault) memory_bytes[int'(split_out.bits.address)+b]=split_out.bits.data[b*8+:8];
@@ -458,7 +460,7 @@ module rv2wide_core_tb;
     memory_req_t want;
     assert (expected_requests.size() > 0) else $fatal(1, "unowned or duplicate memory effect address=%h", actual.address);
     want = expected_requests.pop_front();
-    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && (want.access>=6 || actual.mask == want.mask)) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && actual.locality == want.locality && (want.access>=6 || actual.mask == want.mask)) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
     if(want.access==6) for(int b=0;b<64;b++) memory_bytes[int'(actual.address&~64'd63)+b]<=0;
     if (want.access == 2) begin
       for (int b = 0; b < 8; b++) begin
@@ -788,7 +790,7 @@ module rv2wide_core_tb;
     reset = 1; instructions = '0; inject_enable = 0; inject_pc = 0; inject_result = '0;
     interrupts = 0; trap_target = 0; reservation_valid=0;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
-    hold_split=0; split_fault=0;
+    hold_split=0; split_fault=0; expected_split_locality=0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete(); multiply_authorized_cycle.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
     for (int i = 0; i < 4096; i++) begin
@@ -2275,6 +2277,61 @@ module rv2wide_core_tb;
       send('h12410,imm(3,0,88),store(3,1,0,3),2,0,0); tick();
       reset_core(); drain();
       assert(stores==before_stores) else $fatal(1,"reset leaked paired store");
+    end
+    // NTL applies to the next instruction, including a younger co-retiring
+    // memory operation. An ordinary target consumes it; hints replace it.
+    for(int locality=1;locality<=4;locality++) begin
+      logic [31:0] ntl;
+      int before_dual;
+      ntl=32'h00000033 | (32'(locality+1)<<20);
+      reset_core(); before_dual=dual_commits;
+      expect_instruction('h13000,ntl); expect_instruction('h13004,imm(3,0,'h300,3,'h03));
+      expected_requests[$].locality=3'(locality);
+      send('h13000,ntl,imm(3,0,'h300,3,'h03),2,0,0); drain();
+      assert(dual_commits==before_dual+1) else $fatal(1,"NTL serialized its younger target");
+      send('h13008,imm(4,0,'h300,3,'h03),0,1); drain();
+      send('h1300c,imm(5,0,17),ntl); drain();
+      expect_instruction('h13014,store(5,0,'h308,3)); expected_requests[$].locality=3'(locality);
+      send('h13014,store(5,0,'h308,3),0,1,0,0); drain();
+      send('h13018,ntl,imm(6,0,1)); drain();
+      send('h13020,imm(7,0,'h300,3,'h03),0,1); drain();
+    end
+    reset_core();
+    send('h13100,32'h00200033,32'h00500033); drain();
+    expect_instruction('h13108,imm(3,0,'h300,3,'h03)); expected_requests[$].locality=4;
+    send('h13108,imm(3,0,'h300,3,'h03),0,1,0,0); drain();
+    // The encoded selector must not wait on its apparent rs2 register.
+    begin
+      int before_commits;
+      reset_core(); hold_responses=1;
+      send('h13180,imm(2,0,'h300,3,'h03),0,1); repeat(10) tick();
+      before_commits=commits;
+      send('h13184,32'h00200033,imm(3,0,1)); repeat(10) tick();
+      assert(commits==before_commits+2 && response_count==1) else $fatal(1,"NTL read its encoded selector or drained memory");
+      hold_responses=0; drain();
+    end
+    // Rejecting the younger target preserves the older retired hint across replay.
+    reset_core(); block_requests=1;
+    stop_at('h13204,'h13204,2);
+    send('h13200,32'h00400033,imm(3,0,'h300,3,'h03),2,1,0); drain();
+    block_requests=0;
+    expect_instruction('h13204,imm(3,0,'h300,3,'h03)); expected_requests[$].locality=3;
+    send('h13204,imm(3,0,'h300,3,'h03),0,1,0,0); drain();
+    // A split owner retains its selector until the single completion retires.
+    reset_core(); expected_split_locality=2;
+    stop_at('h13304,'h13308,3);
+    send('h13300,32'h00300033,imm(3,0,'h307,3,'h03)); drain();
+    send('h13308,imm(4,0,'h300,3,'h03),0,1); drain();
+    // A trapping target clears the hint before handler memory; a killed hint
+    // must not establish pending state either.
+    for(int fault_slot=0;fault_slot<2;fault_slot++) begin
+      reset_core(); inject_enable=1; inject_pc=64'('h13400+4*fault_slot);
+      inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+      stop_at(inject_pc,inject_pc,1,5,'hdead);
+      if(fault_slot==1) send('h13400,32'h00500033,imm(3,0,1),2,1,0);
+      else send('h13400,imm(3,0,1),32'h00500033,2,0,0);
+      drain(); inject_enable=0;
+      send('h13410,imm(4,0,'h300,3,'h03),0,1); drain();
     end
     $display("Paired load addresses: %0d; paired store data: %0d",address_pairs,store_data_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);

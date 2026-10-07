@@ -428,6 +428,26 @@ ORI encodings, and killed hints; `rv2wide-mmu` checks nonfaulting translation,
 PMA drops, context cancellation, and no walk allocation; `rv2wide-cache` and
 `rv2wide-fetch` check real CHI prefetch traffic followed by demand hits.
 
+## Locality hint ownership
+
+Zihintntl overlays the four exact ADD-to-x0 encodings in the composed decoder;
+the encoded rs2 selects locality and is not a register operand. The shared
+compressed expander supplies the same canonical encodings. Keep the architectural
+`RiscvMemoryLocality` selector separate from the shared L1D's allocation policy.
+
+WB folds only the successful retirement prefix into `wb_pending_locality`.
+An ordinary instruction leaves Default; an NTL leaves its selector. The younger
+memory lane uses its older peer's selector directly, while slot zero uses the
+pending register. Do not derive this choice from request readiness or retirement
+feedback: those depend on memory admission. CSR redirects clear pending state;
+replay redirects preserve it. Split capture retains its own effective selector.
+
+Carry request locality through MMU translation, split fragments, and physical
+cache adaptation. Page-table traffic explicitly uses Default. The core fixture
+checks pairing, replacement, consumption, replay, split ownership, and killed or
+trapping targets; MMU checks translation and fragment metadata, cache checks
+no-allocation misses, fetch checks compressed aliases, and FP checks hinted loads.
+
 ## System operations and precise boundaries
 
 Optional Zihintpause overlays the exact PAUSE cube on FENCE in the combined

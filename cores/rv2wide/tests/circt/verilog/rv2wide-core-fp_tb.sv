@@ -15,7 +15,7 @@ module rv2wide_core_fp_tb;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
-  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
+  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; logic [2:0] locality; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
   typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy, reservation_valid; } memory_in_t;
@@ -55,6 +55,7 @@ module rv2wide_core_fp_tb;
   logic [7:0] stored_mask=0;
   logic [1:0] stored_width=0;
   int stores=0, response_due=0;
+  logic [2:0] expected_locality=0;
   bit slow_load=0, pending_load=0, inject_fault=0, pending_split=0;
   int split_due=0, split_count=0;
   logic [63:0] inject_pc=0;
@@ -104,6 +105,7 @@ module rv2wide_core_fp_tb;
     if(split_in.response.valid) pending_split<=0;
     if(memory_out.request.valid && memory_in.request_ready) begin
       assert(slow_load && memory_out.request.bits.access==1) else $fatal(1,"unexpected slow request");
+      assert(memory_out.request.bits.locality==expected_locality) else $fatal(1,"FP load lost locality");
       pending_load<=1; response_due=cycles+12;
     end
     if(memory_in.response.valid && memory_out.response_ready) pending_load<=0;
@@ -182,11 +184,11 @@ module rv2wide_core_fp_tb;
     send(32'h10803427); // fsd f8,264(x0)
     settle(); assert(stores==1 && stored_data==load_data) else $fatal(1,"FP store lost FPR source");
 
-    slow_load=1;
-    send(32'h10003607); // fld f12,256(x0): accepted delayed load
+    slow_load=1; expected_locality=4;
+    send(32'h00500033,32'h10003607,1); // NTL.ALL; fld f12,256(x0)
     send(fp('h01,14,1,1)); // independent arithmetic while the load is pending
     send(fp('h61,15,12,0)); settle(); expect_gpr(15,3);
-    slow_load=0;
+    slow_load=0; expected_locality=0;
 
     send(32'h10303c07); // misaligned fld f24,259(x0)
     settle();

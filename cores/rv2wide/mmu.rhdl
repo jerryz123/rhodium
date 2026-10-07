@@ -21,6 +21,7 @@ import:
   lib("riscv/isa/sv39.rhm").Sv39Mode
   lib("riscv/rtl/csr.rhdl") open
   lib("riscv/rtl/cmo.rhdl") open
+  lib("riscv/rtl/zihintntl.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
   lib("flow/main.rhdl") open
@@ -67,6 +68,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     width: request.width
     data: request.data
     mask: request.byte_mask
+    locality: request.locality
   reg cancel(~init: Bool(#false))
   cancel <== invalidate
   walker.cancel <== cancel
@@ -264,6 +266,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     width: MemoryWidth.Double
     data: bits(0, 64)
     mask: bits(0xff, 8)
+    locality: RiscvMemoryLocality.Default
   def origin = requests.chosen.into(RV2WidePhysicalOwner)
   def pte_selected = origin === RV2WidePhysicalOwner.Walker
   def split_selected = origin === RV2WidePhysicalOwner.Split

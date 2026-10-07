@@ -60,6 +60,7 @@ module rv2wide_cache_tb;
   logic [63:0] maintenance_load_pc;
   int prefetch_reads[2]='{0,0}, prefetch_commits=0;
   int waits=0;
+  int ntl_reads[4]='{default:0}, ntl_loads[4]='{default:0};
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -170,12 +171,21 @@ module rv2wide_cache_tb;
         end
       end
       7'h37: begin value={{32{insn[31]}},insn[31:12],12'b0}; writes_rd=rd!=0; end
+      7'h33: begin
+        assert(insn inside {32'h00200033,32'h00300033,32'h00400033,32'h00500033} && !got.write && !got.deferred)
+          else $fatal(1,"NTL acquired architectural work");
+      end
       7'h03: begin
         address = registers[rs1] + 64'($signed(insn[31:20]));
         bytes_count = 1 << (width & 3);
         for (int b = 0; b < bytes_count; b++) value[b*8 +: 8] = reference_bytes[int'(address)+b];
         if (width < 4 && bytes_count < 8 && value[bytes_count*8-1]) value |= ~64'd0 << (bytes_count*8);
         writes_rd = rd != 0;
+        if(address>=1792 && address<2048) begin
+          int index=int'((address-1792)/64);
+          ntl_loads[index]++;
+          if(ntl_loads[index]==3) assert(!got.deferred) else $fatal(1,"ordinary refill did not install line");
+        end
         if (read_active && !got.deferred) hits_during_miss++;
         if(check_maintenance_hit) begin
           if(got.deferred) begin
@@ -303,6 +313,8 @@ module rv2wide_cache_tb;
       assert (chi_out.requests.bits.address < 4096) else $fatal(1, "unmapped address reached CHI");
       case (chi_out.requests.bits.opcode)
         7'h02, 7'h07: begin
+          if(chi_out.requests.bits.address>=1792 && chi_out.requests.bits.address<2048)
+            ntl_reads[int'((chi_out.requests.bits.address-1792)/64)]++;
           for(int p=0;p<2;p++) if(chi_out.requests.bits.address==44'(1664+p*64)) begin
             assert(chi_out.requests.bits.opcode==(p==0 ? 7'h02 : 7'h07)) else $fatal(1,"prefetch intent lost");
             assert(registers[28]==64'(p+1)) else $fatal(1,"hint did not refill before subsequent demand");
@@ -448,6 +460,14 @@ module rv2wide_cache_tb;
       emit(addi(28,0,0)); emit(load(26,24,0,3));
       if(p==1) emit(store_insn(2,24,0,3));
     end
+    // Each hinted cold load bypasses allocation. The ordinary second load
+    // refills again, and its dependent third access must hit that installation.
+    for(int hint=0;hint<4;hint++) begin
+      emit(32'h00000033 | (32'(hint+2)<<20));
+      for(int access_index=0;access_index<3;access_index++) begin
+        emit(load(26,1,1792+hint*64,3)); emit(addi(27,26,1));
+      end
+    end
     // Establish a fresh miss immediately before a fault: accepted work must drain first.
     emit(load(22,1,704,3)); emit(addi(23,0,2047));
     emit(addi(23,23,2047)); emit(addi(23,23,-1));
@@ -466,6 +486,8 @@ module rv2wide_cache_tb;
     assert(prefetch_commits==2 && prefetch_reads[0]==1 && prefetch_reads[1]==1)
       else $fatal(1,"prefetch traffic/benefit coverage commits=%0d reads=%0d/%0d",prefetch_commits,prefetch_reads[0],prefetch_reads[1]);
     $display("RV2Wide shared L1D passed: %0d retirements, %0d refills, %0d writebacks, %0d replays, %0d warm hits during miss", commits, reads, writes, replays, hits_during_miss);
+    for(int hint=0;hint<4;hint++) assert(ntl_reads[hint]==2 && ntl_loads[hint]==3)
+      else $fatal(1,"NTL allocation policy hint=%0d reads=%0d loads=%0d",hint,ntl_reads[hint],ntl_loads[hint]);
     $finish;
   end
 endmodule

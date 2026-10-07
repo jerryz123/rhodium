@@ -148,6 +148,7 @@ module rv2wide_fetch_tb;
       5'b10010: begin
         if(c[6:2]==0 && rd!=0) return {12'd0,5'(rd),3'd0,5'(c[12] ? 1 : 0),7'h67};
         if(!c[12] && c[6:2]!=0) return {7'd0,c[6:2],5'd0,3'd0,5'(rd),7'h33};
+        if(c[12] && c[6:2]!=0) return {7'd0,c[6:2],5'(rd),3'd0,5'(rd),7'h33};
       end
       default: begin end
     endcase
@@ -1045,6 +1046,29 @@ module rv2wide_fetch_tb;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(pauses==2 && registers[3]==9 && cycles-last_pause_cycle>=16)
       else $fatal(1,"PAUSE fetch/retirement/cooldown integration");
+    // Compressed NTL aliases retain their raw parcel and canonical hint through
+    // fetch, tracing and decode. Each following ordinary load must refill again.
+    begin
+      int pc, before_reads;
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      insn('h600,addi(1,0,2047)); insn('h604,addi(1,1,1)); pc='h608;
+      for(int hint=0;hint<4;hint++) begin
+        parcel(pc,16'h9002 | (16'(hint+2)<<2)); pc+=2;
+        repeat(2) begin
+          insn(pc,load(3,1,hint*64,3)); pc+=4;
+          insn(pc,addi(4,3,1)); pc+=4;
+        end
+        for(int b=0;b<8;b++) begin backing['h800+hint*64+b]=8'(b); model_bytes['h800+hint*64+b]=8'(b); end
+      end
+      insn(pc,32'h10500073);
+      phase=31; reference_pc='h600; before_reads=dreads;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h600};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(reference_pc==pc+4 && dreads==before_reads+8) else $fatal(1,"compressed NTL fetch/allocation");
+    end
 `endif
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
 `ifndef BPRED_DISABLED

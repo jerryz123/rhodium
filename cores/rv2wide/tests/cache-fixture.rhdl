@@ -53,7 +53,7 @@ sync_circuit RV2WideCacheFixture():
   interface uncached_chi(CHIRNIChannels(test_flit), ~role: node)
   output(issued, retired_count): Bits(2)
   output uncached_activity: Bool
-  inst core(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true)))
+  inst core(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true)))
   core.interrupts <== literal(core.interrupts.type, 0)
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)

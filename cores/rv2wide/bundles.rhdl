@@ -14,6 +14,7 @@ import:
   lib("cores/bpred/protocol.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
+  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
@@ -129,6 +130,7 @@ bundle RV2WideResult():
   memory: RV2WideMemoryControl()
   prefetch: CachePrefetchOperation
   pause: Bool
+  locality_hint: RiscvMemoryLocality
   address: Bits(64)
   store_data: Bits(64)
   cache_outcome: RV2WideCacheOutcome
@@ -160,6 +162,7 @@ bundle RV2WideMemoryReq():
   width: MemoryWidth
   data: Bits(64)
   mask: Bits(8)
+  locality: RiscvMemoryLocality
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle RV2WideLookupResult():
