@@ -19,7 +19,7 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
 )
 
 /* Specializes caches, predictors, FP, compressed additions, and CMOs while retaining RV64, C, and Sv39. */
-class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean):
+class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean):
   implements StableCircuitParam
 
   /* Defaults to four-way 64-set caches, a 32-entry BTB, and a six-entry RAS. */
@@ -32,7 +32,8 @@ class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig,
                ~zfa: zfa :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = CCompressedExtensions,
                ~zicboz: zicboz :: Boolean = #false,
-               ~zicbom: zicbom :: Boolean = #false):
+               ~zicbom: zicbom :: Boolean = #false,
+               ~zicbop: zicbop :: Boolean = #false):
     unless floating_point == FloatingPointProfile.None || floating_point == FloatingPointProfile.D
     | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP or RV64D")
     when zfa && floating_point == FloatingPointProfile.None
@@ -40,7 +41,7 @@ class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig,
     check_half_precision_profile(floating_point, half_precision)
     unless compressed_extensions_report_misa_c(XLen.X64, floating_point, compressed) && compressed.contains(CompressedExtension.C)
     | error(~who: #'RV2WideConfig, "RV2Wide requires C as its compressed base")
-    super(instruction_cache, data_cache, btb_entries, ras_entries, floating_point, half_precision, zfa, compressed, zicboz, zicbom)
+    super(instruction_cache, data_cache, btb_entries, ras_entries, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop)
 
   property isa_profile :: RiscvIsaProfile:
     def half_extensions = match half_precision
@@ -51,7 +52,7 @@ class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig,
     | RV2WideIsaProfile
     | RiscvIsaProfile(XLen.X64, ["i", "m", "a", "f", "d"] ++ RV2WideIsaProfile.isa_extensions.drop(3) ++ (if zfa | ["zfa"] | []) ++ half_extensions, RV2WideIsaProfile.misa_extensions.take(6) ++ [MisaExtension.F, MisaExtension.D, MisaExtension.C])
     def compressed_additions = (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | []) ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
-    RiscvIsaProfile(XLen.X64, base.isa_extensions ++ compressed_additions ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []), base.misa_extensions)
+    RiscvIsaProfile(XLen.X64, base.isa_extensions ++ compressed_additions ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if zicbop | ["zicbop"] | []), base.misa_extensions)
   property xlen :: XLen: XLen.X64
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
   property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: RiscvMmuType.Sv39, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom)

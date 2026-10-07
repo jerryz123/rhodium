@@ -91,6 +91,18 @@ module rv2wide_core_tb;
   int waw_dual=0, waw_deferred=0;
   int address_pairs=0;
   bit response_management[16];
+  typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_t;
+  typedef struct packed { logic valid; prefetch_t bits; } prefetch_flow_t;
+  prefetch_flow_t prefetch;
+  prefetch_t expected_prefetch[logic [63:0]];
+  int prefetch_count=0, prefetch_pairs=0;
+
+  function automatic bit prefetch_encoding(logic [31:0] word);
+    return word[6:0]==7'h13 && word[14:12]==6 && word[11:7]==0 && word[24:20] inside {0,1,3};
+  endfunction
+  function automatic logic [31:0] prefetch_insn(int operation, rs1, offset=0);
+    return {7'(offset>>5),5'(operation),5'(rs1),3'd6,5'd0,7'h13};
+  endfunction
 
   function automatic bit mop_encoding(logic [31:0] word);
     return (word & 32'hb3c0707f)==32'h81c04073 || (word & 32'hb200707f)==32'h82004073;
@@ -103,6 +115,7 @@ module rv2wide_core_tb;
   endfunction
 
   RV2WideCore dut(
+    .prefetch_out(prefetch),
     .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
     .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
@@ -215,6 +228,20 @@ module rv2wide_core_tb;
   always @(posedge clock) begin
     if (!reset) begin
       cycles++;
+      begin
+        bit p0, p1;
+        logic [63:0] pc;
+        p0=retired[0].valid && prefetch_encoding(retired[0].bits.fetched.instruction);
+        p1=retired[1].valid && prefetch_encoding(retired[1].bits.fetched.instruction);
+        assert(prefetch.valid==(p0||p1)) else $fatal(1,"prefetch was not the successful WB prefix");
+        if(p0||p1) begin
+          pc=p0 ? retired[0].bits.fetched.pc : retired[1].bits.fetched.pc;
+          assert(prefetch.bits==expected_prefetch[pc]) else $fatal(1,"prefetch address/intent pc=%h",pc);
+          assert(!(p0 && retired[0].bits.deferred) && !(p1 && retired[1].bits.deferred)) else $fatal(1,"prefetch allocated deferred work");
+          prefetch_count++;
+          if(p0&&p1) prefetch_pairs++;
+        end
+      end
       if($test$plusargs("debug") && split_in.response.valid) $display("%0d split response retire=%b%b redirect=%b data=%h",cycles,retired[1].valid,retired[0].valid,redirect.valid,split_in.response.bits.response.data);
       for(int lane=0;lane<2;lane++) if(memory_stage[lane].valid) begin
         if(memory_stage[lane].bits.pc=='hab08) multiply_mem_cycle=cycles;
@@ -471,6 +498,7 @@ module rv2wide_core_tb;
     op = int'(word[6:0]); f3 = int'(word[14:12]); f7 = int'(word[31:25]);
     writes = 1;
     value = 0;
+    if(prefetch_encoding(word)) expected_prefetch[pc]='{address:a+64'($signed({word[31:25],5'b0})),operation:word[24:20]==3 ? 2'd3 : 2'(word[24:20]+1)};
     if(!bitmanip_value(word,a,b,value)) begin
     case (op)
       'h0f: begin
@@ -1275,6 +1303,26 @@ module rv2wide_core_tb;
     assert(expected_redirects.size()==2 && expected.size()==1) else $fatal(1,"interrupt abandoned maintenance");
     hold_responses=0; drain(); interrupts=0;
     csr_access('h600,2,6,0,'h341,'h5e14);
+
+    // Prefetch offsets exclude the selector, use rs1 forwarding, and never
+    // acquire a load/store owner. Simultaneous hints retain dual retirement.
+    reset_core(); send('h5f00,imm(1,0,33),imm(2,0,64)); drain();
+    for(int op=0;op<4;op++) if(op!=2) for(int slot=0;slot<2;slot++) for(int variant=0;variant<4;variant++) begin
+      int offset;
+      logic [63:0] pc;
+      offset=variant==0 ? -2048 : variant==1 ? -32 : variant==2 ? 0 : 2016;
+      pc=64'('h5f08+op*128+slot*32+variant*8);
+      if(slot==0) send(pc,prefetch_insn(op,1,offset),imm(3,0,9));
+      else send(pc,imm(3,0,9),prefetch_insn(op,1,offset));
+      drain();
+    end
+    send('h6200,prefetch_insn(0,1),prefetch_insn(3,2)); drain();
+    send('h6208,imm(1,1,32),prefetch_insn(1,1,-32)); drain();
+    send('h6210,imm(7,1,3,6),prefetch_insn(2,1)); drain(); // ORI neighbors
+    stop_at('h6218,'h6258); send('h6218,jump(3,64),prefetch_insn(3,1),2,1,0); drain();
+    inject_enable=1; inject_pc='h6260; inject_result='{disposition:2'd1,cause:64'd5,value:64'hbad};
+    stop_at('h6260,0,1,5,'hbad); send('h6260,imm(4,0,1),prefetch_insn(1,1),2,0,0); drain(); inject_enable=0;
+    assert(prefetch_count>=26 && prefetch_pairs>0) else $fatal(1,"missing prefetch issue/dual coverage");
 
     // Real CSR commands return the old value, preserve source-index write intent,
     // and serialize even without a GPR destination. Younger work is refetched.

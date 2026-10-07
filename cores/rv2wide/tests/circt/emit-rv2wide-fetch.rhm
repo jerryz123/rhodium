@@ -12,7 +12,7 @@ import:
   "../../profile.rhm".RV2WideConfig
   "../cache-fixture.rhdl" open
 
-def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
+def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop), ~zicbop: #true)
 def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
 def compiled = compile_program(program, rtl_pipeline_target(circt_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
 def manifest = compiled.report.stages[0].findings.manifest

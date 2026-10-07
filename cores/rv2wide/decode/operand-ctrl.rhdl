@@ -34,6 +34,7 @@ hardware_enum RV2WideImmediate:
   U
   J
   S
+  Prefetch
   /* Extracts the selected architectural immediate as a sign-extended RV64 value. */
   method decode(select, instruction :: Bits(32)) :: Bits(64):
     mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, 64)):
@@ -42,6 +43,7 @@ hardware_enum RV2WideImmediate:
       RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, 64)
       RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, 64)
       RV2WideImmediate.S: instruction_immediate(fields.SImmediate, instruction, 64)
+      RV2WideImmediate.Prefetch: instruction_immediate(fields.PrefetchImmediate, instruction, 64)
 
 /* Separates source-use interlocks from datapath selection and immediate extraction. */
 bundle RV2WideOperandControl():

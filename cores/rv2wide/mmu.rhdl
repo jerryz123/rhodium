@@ -7,6 +7,7 @@ import:
   "../cache/protocol.rhdl" open
   "../cache/config.rhm".CacheLineBytes
   "../cache/operation.rhdl" open
+  "../cache-prefetch.rhdl" open
   "../chi-hart.rhdl" open
   "../load-store.rhdl" open
   "../mmu/protocol.rhdl" open
@@ -42,6 +43,8 @@ bundle RV2WidePhysicalResponse():
 sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   input state: RV2WideTranslationState()
   input invalidate: Bool
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
+  interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(RV2WideInstructionTranslation(), ~role: responder)
   interface pipeline(RV2WidePipelineAccess(), ~role: responder)
   interface memory(RV2WideMemory(), ~role: responder)
@@ -101,9 +104,38 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
   def data_lookup = lookup(data_virtual_address, mux(data_request.access.is_cache_management(), Sv39Access.CacheManagement, mux(data_request.access.store_fault_class(), Sv39Access.Store, Sv39Access.Load)), effective_data_privilege(XLen.X64, state.privilege, state.mstatus))
   itlb.lookup <== instruction_lookup
-  itlb.probe <== instruction_lookup
   dtlb.lookup <== data_lookup
-  dtlb.probe <== data_lookup
+
+  // Registered hints never contend with demand translation or allocate a walk.
+  // A context change discards both staged forms, including the outgoing edge.
+  reg prefetch_previous_state(RV2WideTranslationState(), ~init: literal(RV2WideTranslationState(), 0))
+  prefetch_previous_state <== state
+  def prefetch_flush = invalidate ||| (prefetch_previous_state.as_bits() =/= state.as_bits())
+  inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
+  inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
+  virtual_prefetch_pipe.flush <== prefetch_flush
+  physical_prefetch_pipe.flush <== prefetch_flush
+  prefetch |> virtual_prefetch_pipe.ingress
+  def prefetch_request :: CachePrefetchReq(64) = virtual_prefetch_pipe.egress.bits
+  def prefetch_privilege = effective_data_privilege(XLen.X64, state.privilege, state.mstatus)
+  def prefetch_lookup = lookup(prefetch_request.address, Sv39Access.Load, prefetch_privilege)
+  itlb.probe <== prefetch_lookup
+  dtlb.probe <== prefetch_lookup
+  def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
+  def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
+  def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
+  def prefetch_translated = (prefetch_privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === bits(Sv39Mode, 4))
+  def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].or_reduce()
+  def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64).align_down(CacheLineBytes)
+  def prefetch_region = config.physical_map.lookup(prefetch_address, prefetch_address +& bits(CacheLineBytes - 1, 64))
+  def prefetch_permission = mux_lookup(prefetch_request.operation, ~default: Bool(#false)):
+    CachePrefetchOperation.Instruction: prefetch_region.executable
+    CachePrefetchOperation.Read: prefetch_region.readable
+    CachePrefetchOperation.Write: prefetch_region.writable
+  (virtual_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_region.mapped & prefetch_region.cacheable & !prefetch_region.device & prefetch_region.read_idempotent & prefetch_permission)
+    |> map_valid(request => request.updated(~address: prefetch_address))
+  ) |> physical_prefetch_pipe.ingress
+  physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
 
   // Faults are not TLB entries. Retain each port's exact failed request until
   // its replay observes it; context matching prevents reuse after CSR changes.

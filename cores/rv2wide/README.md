@@ -177,6 +177,31 @@ regions complete locally after drain without synthetic device reads or writes.
 The external Home must implement
 CHI maintenance over its coherent domain, including this requester.
 
+## Cache prefetch
+
+Select `RV2WideConfig(~zicbop: #true)` to implement and advertise Zicbop 1.0;
+it defaults to disabled and leaves the lean SoC presets unchanged.
+`PREFETCH.I`, `PREFETCH.R`, and `PREFETCH.W` use rs1 plus their signed immediate
+to hint the containing 64-byte block. They write no register, never fault, and
+never wait for translation or cache completion. Hints may retire in either
+slot; if two retire together, only the older hint is attempted.
+
+The implemented path is:
+
+```text
+successful WB retirement -> best-effort selection -> registered TLB probe
+  -> physical-region check -> registered hint -> shared L1I or L1D prefetch
+```
+
+Only existing translations (or bare addresses) are used: hints never allocate
+page walks or update PTE accessed/dirty bits. Translation-context changes and
+SFENCE.VMA discard staged hints. The full block must be cacheable, idempotent,
+non-device memory with the requested physical execute/read/write permission.
+Unmapped addresses, failed probes, and busy cache paths drop the hint without
+replay. Demand traffic takes priority. Accepted instruction hints fetch into
+L1I; read and write hints use the shared L1D's read or unique-ownership refill.
+No architectural load/store request or delayed completion is created.
+
 ## Instruction fetch
 
 RV2Wide requires C and optionally adds Zcb and Zcmop using the shared compressed

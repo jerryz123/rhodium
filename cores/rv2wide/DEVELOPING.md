@@ -367,6 +367,28 @@ Extend the existing core, MMU, and cache fixtures for permissions, retained
 retirement, read-only mappings, whole-block faults, dirty publication, clean
 residency, invalidation, and uncached no-IO completion.
 
+Optional Zicbop overlays its three exact hint cubes on the ORI relation, using
+the architectural `PrefetchImmediate` descriptor and shared
+`CachePrefetchOperation`. Ordinary ORI encodings retain their original controls.
+Hints have no memory-enable or GPR-write control. Fork successful WB retirement
+into the hint path, then use Flow's fixed-priority Valid arbiter; simultaneous
+younger hints may be dropped without changing retirement.
+
+The MMU's independent TLB probe ports use effective data privilege and the
+shared nonfaulting prefetch permission rule. They never arbitrate for a walker
+or change demand lookup timing. Both virtual and physical hint stages flush on
+translation-state changes or invalidation; outgoing validity is also suppressed
+on that edge. Reject overflowing bare addresses and qualify the complete
+aligned block before touching a cache. The production top routes instruction
+versus data intent using Flow. The L1D adapter drops hints during outstanding IO
+or local uncached management; shared caches own demand priority and busy drops.
+
+Extend the existing fixtures rather than adding prefetch-specific CI lanes:
+`rv2wide-core` checks signed offsets, both slots, simultaneous hints, neighboring
+ORI encodings, and killed hints; `rv2wide-mmu` checks nonfaulting translation,
+PMA drops, context cancellation, and no walk allocation; `rv2wide-cache` and
+`rv2wide-fetch` check real CHI prefetch traffic followed by demand hits.
+
 ## System operations and precise boundaries
 
 RR serializes system instructions after older pipeline and accepted memory work

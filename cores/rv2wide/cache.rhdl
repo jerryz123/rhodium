@@ -7,6 +7,7 @@ import:
   "../cache/config.rhm" open
   "../cache/protocol.rhdl" open
   "../cache/operation.rhdl" open
+  "../cache-prefetch.rhdl" open
   "../cache/l1d/cache.rhdl" open
   "../cache/io-mshr.rhdl" open
   "../cache/chi/uncached.rhdl" open
@@ -28,6 +29,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   input node_id: Bits(config.flit.node_id_width)
   input uncached_node_id: Bits(config.flit.node_id_width)
   interface memory(RV2WideMemory(), ~role: responder)
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface pipeline_lookup(Valid(CachePipelineReq(XLen.X64)), ~role: consumer)
   interface pipeline(CachePipelineAccess(XLen.X64), ~role: responder)
   interface chi(CHIRNChannels(config.flit), ~role: node)
@@ -35,8 +37,6 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   inst storage(L1DCache(XLen.X64, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth))
   storage.node_id <== node_id
   chi <=> storage.chi
-  storage.prefetch.valid <== Bool(#false)
-  storage.prefetch.bits <== dont_care(storage.prefetch.bits.type)
   inst io(IOMSHR(XLen.X64, Bits(3)))
   inst transport(CHIUncachedMemory(XLen.X64, config, Bits(3)))
   io.memory <=> transport.core
@@ -44,6 +44,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   transport.cancel <== Bool(#false)
   transport.chi <=> uncached_chi
   inst uncached_management(Queue(Bits(64), 1))
+  prefetch |> filter_valid(_request => io.core.drained & !uncached_management.egress.valid) |> storage.prefetch
   def ordered_busy = !io.core.request.ready ||| uncached_management.egress.valid
   def request :: RV2WideMemoryReq() = memory.request.bits
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)

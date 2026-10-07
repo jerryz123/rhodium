@@ -10,6 +10,7 @@ import:
   lib("flow/main.rhdl") open
   lib("cores/load-store.rhdl").MemoryWidth
   lib("cores/cache/operation.rhdl").CacheOperation
+  lib("cores/cache-prefetch.rhdl").CachePrefetchOperation
   lib("cores/bpred/protocol.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
@@ -124,6 +125,7 @@ bundle RV2WideResult():
   branch_update: BranchUpdate(XLen.X64)
   mispredicted: Bool
   memory: RV2WideMemoryControl()
+  prefetch: CachePrefetchOperation
   address: Bits(64)
   store_data: Bits(64)
   cache_outcome: RV2WideCacheOutcome

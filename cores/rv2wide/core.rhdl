@@ -32,6 +32,7 @@ import:
   lib("cores/bpred/ras.rhdl").riscv_ras_action
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
+  lib("cores/cache-prefetch.rhdl") open
   lib("cores/cache/protocol.rhdl").PhysicalMemoryReq
   lib("cores/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
@@ -79,6 +80,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   interface resolution[2](Valid(RV2WideResolution()), ~role: consumer)
   interface memory_stage[2](Valid(RV2WideInstruction()), ~role: producer)
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface redirect(Valid(RV2WideRedirect()), ~role: producer)
   interface fetch_flush(Pulse(), ~role: producer)
   interface instruction_invalidate(Pulse(), ~role: producer)
@@ -213,7 +215,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
-  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom))
+  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop))
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
   // At most one memory instruction issues per group; the older CMO owns the
@@ -434,6 +436,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
           predicted_ras_action: ex.fetched.speculated_ras_action
           return_address: ex.fetched.sequential_pc
       memory: ex.control.memory.updated(~enable: ex_memory)
+      prefetch: ex.control.prefetch
       address: ex_address
       store_data: mux(ex.control.fp.valid, ex.fp_request.right, ex.rs2)
       cache_outcome: RV2WideCacheOutcome.Slow
@@ -805,7 +808,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       rd: result.rd
       branch_prediction(~format: "enum"): mux(wb.branch_update.branch, mux(next_pc =/= predicted_pc, RV2WideBranchPrediction.Mispredicted, RV2WideBranchPrediction.Correct), RV2WideBranchPrediction.NotBranch)
       ras_mismatch: wb.branch_update.ras_action =/= wb.branch_update.predicted_ras_action
-    observed |> fork_valid(2)
+    observed |> fork_valid(3)
   for (lane in 0..2):
     def wb :: RV2WideResult() = wb_tokens[lane]
     def wb_retained_suppressed = wb_retained_capture & (if lane == 0 | wb_memory_lane === bits(0, 1) | Bool(#true))
@@ -826,6 +829,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_system ||| wb_csrs.writeback_valid)
     wb_train[lane] <== wb_eligible & wb.branch_update.branch
     wb_recover_ras[lane] <== wb_eligible & wb.mispredicted
+  // Best-effort arbitration drops a simultaneous younger hint; neither slot stalls.
+  def wb_prefetch_paths = for List (lane in 0..2):
+    def token :: RV2WideResult() = wb_tokens[lane]
+    wb_retirement_paths[lane][2] |> filter_valid(_retired => token.prefetch.is_prefetch()) |> map_valid(_retired => CachePrefetchReq(64)):
+      address: token.address
+      operation: token.prefetch
+  Array(wb_prefetch_paths[0], wb_prefetch_paths[1]) |> valid_arbiter() |> prefetch
   def wb_branch_lane = mux(wb_train[0], bits(0, 1), bits(1, 1))
   branch_update.valid <== wb_train.or_reduce()
   branch_update.bits <== wb_tokens[wb_branch_lane].branch_update

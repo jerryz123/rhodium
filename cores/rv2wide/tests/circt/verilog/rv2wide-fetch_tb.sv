@@ -62,6 +62,7 @@ module rv2wide_fetch_tb;
   int predicted_branches=0, predicted_conditional=0, predicted_straddles=0;
   int compressed_retired=0, straddled_retired=0, compressed_dual_run=0;
   int zc_pairs=0;
+  int instruction_prefetch_reads=0;
   bit iactive=0, dactive=0, wactive=0;
   CHIReqFlit irequest, drequest, wrequest;
   int idue, ipacket, ddue, dpacket;
@@ -432,6 +433,10 @@ module rv2wide_fetch_tb;
       endcase
     end
     if(instruction_chi_out.req.valid && instruction_chi_in.req.ready) begin
+      if(phase==28 && instruction_chi_out.req.bits.address=='hc00) begin
+        assert(registers[2]>0) else $fatal(1,"instruction prefetch did not arrive before the branch");
+        instruction_prefetch_reads++;
+      end
       assert(instruction_chi_out.req.bits.opcode==7'h03 && (instruction_chi_out.req.bits.address<4096 || (instruction_chi_out.req.bits.address>='h10000 && instruction_chi_out.req.bits.address<'h20000)) && instruction_chi_out.req.bits.address[5:0]==0)
         else $fatal(1,"invalid instruction transaction");
       irequest<=instruction_chi_out.req.bits; iactive<=1; ipacket<=0; idue<=cycles+15; ireads++;
@@ -983,6 +988,25 @@ module rv2wide_fetch_tb;
       assert(registers[9]==64'ha7a6a5a4a3a2a1a0 && registers[11]==64'(invalid) && registers[13]=='h412 && registers[12]==0)
         else $fatal(1,"compressed subset legality/trap provenance/drain");
     end
+`ifndef BPRED_DISABLED
+    // Repeated best-effort I hints in a resident loop eventually fill a cold
+    // target. The later branch uses that line without another CHI request.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    insn('h600,32'h000010b7); insn('h604,addi(1,1,-1024));
+    insn('h608,addi(2,0,40));
+    insn('h60c,{7'd0,5'd0,5'd1,3'b110,5'd0,7'h13});
+    insn('h610,addi(2,2,-1)); insn('h614,bne(2,0,-8));
+    insn('h618,jal(0,'hc00-'h618));
+    insn('hc00,addi(5,0,123)); insn('hc04,32'h10500073);
+    phase=28; reference_pc='h600;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h600};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(instruction_prefetch_reads==1 && registers[5]==123)
+      else $fatal(1,"instruction prefetch traffic/benefit reads=%0d",instruction_prefetch_reads);
+`endif
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
 `ifndef BPRED_DISABLED
     rv2wide_fetch_trace_finish();

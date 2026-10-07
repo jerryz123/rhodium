@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_mmu_tb;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic valid; logic [63:0] address; logic [1:0] operation; } prefetch_t;
+  prefetch_t prefetch_in='0, physical_prefetch_out;
   logic clock=0, reset=1;
   always #5 clock=~clock;
   logic [1:0] privilege=1;
@@ -65,8 +67,39 @@ module rv2wide_mmu_tb;
     reply('h12800,leaf);
     repeat(5) tick(); falling();
   endtask
+  task automatic hint(input logic [63:0] va, input int operation, input bit accepted, input logic [63:0] pa=0, input int cancel_stage=0);
+    // Two registered stages; neither a dropped hint nor a successful probe walks.
+    falling(); prefetch_in='{1'b1,va,2'(operation)};
+    tick(); falling(); prefetch_in='0;
+    if(cancel_stage==1) invalidate=1;
+    tick(); falling();
+    if(cancel_stage==2) invalidate=1;
+    if(cancel_stage==3) mstatus=mstatus ^ (64'd1<<18);
+    #1;
+    assert(physical_prefetch_out.valid==accepted && !physical_valid && !completed && !wb_fault)
+      else $fatal(1,"hint acceptance/side effect va=%h op=%0d accepted=%b got=%b",va,operation,accepted,physical_prefetch_out.valid);
+    if(accepted) assert(physical_prefetch_out.address==pa && physical_prefetch_out.operation==2'(operation))
+      else $fatal(1,"prefetch translation/alignment");
+    tick(); falling(); invalidate=0;
+    repeat(5) begin tick(); assert(!physical_valid && !physical_prefetch_out.valid) else $fatal(1,"hint allocated a walk or duplicated"); end
+    falling();
+  endtask
   initial begin
     repeat(3) tick(); falling(); reset=0;
+    repeat(2) tick();
+    for(int operation=1;operation<=3;operation++) hint('h50003f,operation,0);
+    privilege=3; repeat(2) tick();
+    for(int operation=1;operation<=3;operation++) hint('h83,operation,1,'h80);
+    hint('h100000000000083,2,0); // Bare PA overflow must not alias a mapped line.
+    hint('h3000,2,0);           // Unmapped.
+    hint('h2000,2,0);           // Device.
+    hint('h2300,2,0);           // Noncacheable.
+    hint('h2400,3,0);           // Region does not contain a complete block.
+    hint('h2500,1,0);           // Cacheable but not executable.
+    hint('h83,2,0,0,1);
+    hint('h83,2,0,0,2);
+    hint('h83,2,0,0,3);
+    privilege=1; mstatus=0; repeat(2) tick(); falling();
     // Cold EX indexing is unconditional, but a speculative miss never walks.
     ex_valid=1; #1;
     assert(index_valid && index_address=='h500008 && !resolve_valid && !result_valid) else $fatal(1,"EX timing");
@@ -74,6 +107,12 @@ module rv2wide_mmu_tb;
     assert(result_valid && outcome==0 && !resolve_valid) else $fatal(1,"MEM cold outcome");
     repeat(8) begin tick(); assert(!physical_valid) else $fatal(1,"speculative walk"); end
     offer_wb('h500008); walk_data(('h15<<10)|'hc7);
+    hint('h50003f,2,1,'h15000);
+    hint('h50003f,3,1,'h15000);
+    hint('h50003f,1,0); // A DTLB entry is not an instruction-side entry.
+    hint(64'h800050003f,2,0); // A noncanonical alias must not use the resident VPN.
+    privilege=0; repeat(2) tick(); hint('h50003f,2,0);
+    privilege=1; repeat(2) tick(); falling();
     ex_valid=1; #1; assert(index_valid && !resolve_valid) else $fatal(1,"warm EX timing");
     tick(); falling(); ex_valid=0; address=64'hdeadbeef; #1;
     assert(result_valid && resolve_valid && resolve_address=='h15008 && outcome==1) else $fatal(1,"MEM did not use registered VA");
@@ -104,6 +143,7 @@ module rv2wide_mmu_tb;
     end
     // Read-only mappings permit LR, but fault SC/AMO with the original VA.
     access=1; fence(); offer_wb('h500008); walk_data(('h16<<10)|'h43);
+    hint('h50003f,3,1,'h16000); // Hints require some PTE permission, not store permission or D.
     access=3; wb_valid=1; physical_ready=1; #1;
     assert(wb_ready && !wb_fault && physical_access==3) else $fatal(1,"LR denied readable PTE");
     tick(); falling(); wb_valid=0; physical_ready=0; return_data(64'd7,1);
@@ -188,6 +228,7 @@ module rv2wide_mmu_tb;
     repeat(5) tick(); falling();
     assert(fetch_resolution.disposition==0 && fetch_physical=='h14000) else $fatal(1,"fetch after canceled walk");
     fetch_valid=0;
+    hint('h40003f,1,1,'h14000);
     // PTE physical admission failure becomes a precise original data VA fault.
     offer_wb('h501038); wait_request('h10000); physical_fault=1;
     tick(); falling(); physical_fault=0; repeat(5) tick(); falling(); wb_valid=1; #1;

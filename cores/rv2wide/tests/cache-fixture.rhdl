@@ -8,6 +8,7 @@ import:
   "../mmu.rhdl" open
   "../bundles.rhdl" open
   "../../cache/config.rhm" open
+  "../../cache-prefetch.rhdl" open
   "../../chi-hart.rhdl" open
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/protocol/params.rhdl").CHIFlitParams
@@ -52,7 +53,7 @@ sync_circuit RV2WideCacheFixture():
   interface uncached_chi(CHIRNIChannels(test_flit), ~role: node)
   output(issued, retired_count): Bits(2)
   output uncached_activity: Bool
-  inst core(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true)))
+  inst core(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true)))
   core.interrupts <== literal(core.interrupts.type, 0)
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)
@@ -69,6 +70,8 @@ sync_circuit RV2WideCacheFixture():
   core.memory <=> mmu.memory
   core.split <=> mmu.split
   core.pipeline <=> mmu.pipeline
+  core.prefetch |> mmu.prefetch
+  mmu.physical_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
   mmu.physical_memory <=> data.memory
   mmu.physical_pipeline <=> data.pipeline
   mmu.pipeline_lookup |> data.pipeline_lookup

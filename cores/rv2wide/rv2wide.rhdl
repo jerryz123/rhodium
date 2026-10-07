@@ -10,6 +10,7 @@ import:
   "mmu.rhdl" open
   "bundles.rhdl" open
   "../cache/config.rhm" open
+  "../cache-prefetch.rhdl" open
   "../cache/l1i/cache.rhdl" open
   "../chi-hart.rhdl" open
   "../cosim-source.rhm".describe_cosim_context
@@ -62,8 +63,10 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   core.predictor_clear |> frontend.predictor_clear
   frontend.memory <=> instruction.core
   frontend.virtual_lookup |> instruction.virtual_lookup
-  instruction.prefetch.valid <== Bool(#false)
-  instruction.prefetch.bits <== dont_care(instruction.prefetch.bits.type)
+  core.prefetch |> mmu.prefetch
+  def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)
+  instruction_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation === CachePrefetchOperation.Instruction) |> instruction.prefetch
+  data_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
   instruction.chi <=> instruction_chi
   instruction.node_id <== instruction_node_id
   core.retired <=> retired

@@ -57,6 +57,7 @@ module rv2wide_cache_tb;
   bit check_maintenance_hit=0;
   bit check_maintenance_completion=0;
   logic [63:0] maintenance_load_pc;
+  int prefetch_reads[2]='{0,0}, prefetch_commits=0;
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -159,7 +160,13 @@ module rv2wide_cache_tb;
           maintenance_commits++;
         end
       end
-      7'h13: begin value = registers[rs1] + 64'($signed(insn[31:20])); writes_rd = rd != 0; end
+      7'h13: begin
+        value = registers[rs1] + 64'($signed(insn[31:20])); writes_rd = rd != 0;
+        if(width==6 && rd==0) begin
+          assert(!got.deferred && !got.write) else $fatal(1,"prefetch acquired architectural completion");
+          prefetch_commits++;
+        end
+      end
       7'h37: begin value={{32{insn[31]}},insn[31:12],12'b0}; writes_rd=rd!=0; end
       7'h03: begin
         address = registers[rs1] + 64'($signed(insn[31:20]));
@@ -289,6 +296,11 @@ module rv2wide_cache_tb;
       assert (chi_out.requests.bits.address < 4096) else $fatal(1, "unmapped address reached CHI");
       case (chi_out.requests.bits.opcode)
         7'h02, 7'h07: begin
+          for(int p=0;p<2;p++) if(chi_out.requests.bits.address==44'(1664+p*64)) begin
+            assert(chi_out.requests.bits.opcode==(p==0 ? 7'h02 : 7'h07)) else $fatal(1,"prefetch intent lost");
+            assert(registers[28]==64'(p+1)) else $fatal(1,"hint did not refill before subsequent demand");
+            prefetch_reads[p]++;
+          end
           pending_read <= chi_out.requests.bits;
           read_due <= cycles + 35; read_packet <= 0; read_active <= 1; reads++;
         end
@@ -420,6 +432,15 @@ module rv2wide_cache_tb;
       emit(addi(24,5,region==0 ? 63 : 831));
       for(int operation=0;operation<3;operation++) emit((32'(operation)<<20)|32'h0000200f|(24<<15));
     end
+    // Retiring best-effort hints fetch real lines. Independent scalar work
+    // continues while they refill; the following demand must use the line.
+    for(int p=0;p<2;p++) begin
+      emit(addi(24,0,1664+p*64)); emit(addi(28,0,p+1));
+      emit({7'd0,5'(p==0 ? 1 : 3),5'd24,3'b110,5'd0,7'h13});
+      repeat(140) emit(addi(29,29,1));
+      emit(addi(28,0,0)); emit(load(26,24,0,3));
+      if(p==1) emit(store_insn(2,24,0,3));
+    end
     // Establish a fresh miss immediately before a fault: accepted work must drain first.
     emit(load(22,1,704,3)); emit(addi(23,0,2047));
     emit(addi(23,23,2047)); emit(addi(23,23,-1));
@@ -435,6 +456,8 @@ module rv2wide_cache_tb;
       else $fatal(1,"atomic coverage ops=%0d dual=%0d SC success=%0d failure=%0d probe=%b",atomic_commits,atomic_dual,sc_success,sc_failure,probe_complete);
     assert(split_resumes==71 && maintenance_commits==10 && maintenance_requests==4 && maintenance_responses==4 && !check_maintenance_completion && !check_maintenance_hit)
       else $fatal(1,"missing retained/maintenance coverage resumes=%0d commits=%0d requests=%0d responses=%0d",split_resumes,maintenance_commits,maintenance_requests,maintenance_responses);
+    assert(prefetch_commits==2 && prefetch_reads[0]==1 && prefetch_reads[1]==1)
+      else $fatal(1,"prefetch traffic/benefit coverage commits=%0d reads=%0d/%0d",prefetch_commits,prefetch_reads[0],prefetch_reads[1]);
     $display("RV2Wide shared L1D passed: %0d retirements, %0d refills, %0d writebacks, %0d replays, %0d warm hits during miss", commits, reads, writes, replays, hits_during_miss);
     $finish;
   end

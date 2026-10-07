@@ -67,7 +67,7 @@ module rv2wide_core_fp_tb;
     .memory_in(memory_in),.memory_out(memory_out),.pipeline_in(pipeline_in),.pipeline_out(pipeline_out),
     .split_in(split_in),.split_out(split_out),
     .branch_update_out(),.predictor_restore_out(),.predictor_clear_out(),
-    .translation_state(),.translation_flush(),.instruction_invalidate_out(),.fetch_flush_out(),.instruction_capacity(),.sleeping()
+    .translation_state(),.translation_flush(),.instruction_invalidate_out(),.fetch_flush_out(),.instruction_capacity(),.sleeping(),.prefetch_out()
   );
   always_comb begin
     resolution[0]='0; resolution[1]='0;
