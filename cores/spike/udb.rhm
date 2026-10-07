@@ -13,12 +13,11 @@ import:
 /* Exports the pinned Spike implementation's delegation masks and PMM normalization, not observed state. */
 fun spike_csr_warl_policy(profile :: SpikeConfig) :: Map:
   def advertised = profile.hart_description.isa_profile.isa_extensions
-  /* Matches the pinned implementation's optional exception sources and translation support. */
+  /* Matches optional exception sources; patched S-mode page-fault delegation remains writable even on Bare-only harts. */
   fun delegates(cause :: ExceptionCause) :: Boolean:
     (cause != ExceptionCause.InstructionAddressMisaligned || !advertised.contains("c"))
       && (cause != ExceptionCause.SoftwareCheck || advertised.contains("zicfilp") || advertised.contains("zicfiss"))
       && (cause != ExceptionCause.HardwareError || advertised.contains("zicntr"))
-      && (profile.hart_description.mmu_type != RiscvMmuType.Bare || ![ExceptionCause.InstructionPageFault, ExceptionCause.LoadPageFault, ExceptionCause.StorePageFault].contains(cause))
   def causes = DelegatableExceptionCauses.filter(~keep: delegates)
   def hypervisor = advertised.contains("h")
   // H mandates the two fault bits even when their optional sources are absent.

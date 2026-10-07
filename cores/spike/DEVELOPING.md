@@ -79,6 +79,10 @@ keep the standalone configuration's PMP support independent of that policy.
 With PMP enabled, Spike's CSR masks use 56 physical bits on RV64 and 34 on
 RV32, independently of the 44-bit CHI fabric. RV32 Bare without PMP projects
 32-bit physical addresses. RV32 retains nine ASID bits.
+The downstream Spike patch keeps `medeleg` page-fault bits 12, 13, and 15
+writable on S-mode harts even when only Bare is implemented. Project that CSR
+readback independently of supported translation modes; the ACT/Sail mask must
+not remove those bits from Bare configurations.
 The pinned MMU raises an alignment exception for misaligned AMO and LR/SC when
 misaligned scalar accesses are disabled, but an access fault when Zicclsm
 enables its misaligned-access path; project those choices independently through
@@ -112,7 +116,9 @@ instructions in RV32/RV64, with and without H/Zicclsm, in cached and logged
 execution. The pinned model has GEILEN=0: neither `mie` nor its `hie` alias may
 set SGEIE, while the implemented VS interrupt enables remain writable.
 It also checks RV32/RV64 decoded-cache invalidation and FENCE.I callback
-separation in cached and logged execution. `tests/spike_core_test.cc` checks
+separation and Bare-only `medeleg` all-ones, walking-one, and zero readback in
+cached and logged execution. `tests/udb-test.rhm` checks the matching delegation
+masks for RV32Int, RV32Max, and the Sv39 scalar fixture. `tests/spike_core_test.cc` checks
 that SFENCE.VMA retains an external instruction line and FENCE.I refills it.
 
 Run the focused host contract check with:

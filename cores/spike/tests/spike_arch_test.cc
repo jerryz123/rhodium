@@ -108,6 +108,20 @@ static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, boo
     return state->XPR[3];
   };
 
+  // Patched S-mode delegation readback is independent of implemented paging modes.
+  const reg_t page_fault_delegation = (reg_t(1) << CAUSE_FETCH_PAGE_FAULT) |
+                                    (reg_t(1) << CAUSE_LOAD_PAGE_FAULT) |
+                                    (reg_t(1) << CAUSE_STORE_PAGE_FAULT);
+  write_csr(CSR_MEDELEG, ~reg_t(0));
+  assert((read_csr(CSR_MEDELEG) & page_fault_delegation) == page_fault_delegation);
+  for (unsigned cause : {CAUSE_FETCH_PAGE_FAULT, CAUSE_LOAD_PAGE_FAULT, CAUSE_STORE_PAGE_FAULT}) {
+    const reg_t bit = reg_t(1) << cause;
+    write_csr(CSR_MEDELEG, bit);
+    assert(read_csr(CSR_MEDELEG) == bit);
+  }
+  write_csr(CSR_MEDELEG, 0);
+  assert(read_csr(CSR_MEDELEG) == 0);
+
   for (unsigned csr : {CSR_MENVCFG, CSR_SENVCFG}) {
     write_csr(csr, MENVCFG_FIOM);
     assert(read_csr(csr) & MENVCFG_FIOM); // FIOM remains writable on a Bare-only S hart.
@@ -226,5 +240,5 @@ int main() {
       for (bool hypervisor : {false, true})
         for (bool logged : {false, true})
           check_architecture(xlen, zicclsm, hypervisor, logged);
-  std::cout << "Spike instruction synchronization, AMO fault policy and zero-GEILEN CSR tests passed\n";
+  std::cout << "Spike instruction synchronization, AMO fault policy, Bare delegation and zero-GEILEN CSR tests passed\n";
 }

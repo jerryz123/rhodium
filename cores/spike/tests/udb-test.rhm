@@ -4,7 +4,7 @@
 
 import:
   "../profile.rhm".SpikeConfig
-  "../udb.rhm".spike_udb_configuration
+  "../udb.rhm" open
   "../../../riscv/isa/hart.rhm" open
   "../../../riscv/isa/profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
@@ -62,6 +62,12 @@ check:
 
 def rv32 = spike_udb_configuration(spike_soc_profile(IsaPreset.RV32Int), "spike-rv32int", "Exact Spike RV32Int preset")
 def rv32_yaml = rv32.to_yaml()
+for (preset in [IsaPreset.RV32Int, IsaPreset.RV32Max]):
+  def policy = spike_csr_warl_policy(spike_soc_profile(preset))
+  check:
+    policy["medeleg_mask"] ~is 0x8b3fe
+    policy["hedeleg_mask"] ~is 0
+check: spike_csr_warl_policy(profile)["medeleg_mask"] ~is 0x8b3fe
 for (name in ["I", "M", "A", "C", "Zca", "Zve32x", "Zvl32b", "Zvl64b", "Zvbb", "Zvkt", "Zihpm", "Svbare"]):
   check: (for any (entry in rv32.extensions): entry.name == name) ~is #true
 check: rv32_yaml.contains("  MISALIGNED_LDST: true") ~is #true
