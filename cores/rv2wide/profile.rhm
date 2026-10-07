@@ -1,5 +1,5 @@
 #lang rhombus
-/* Defines RV2Wide's exact RV64IMACB architecture, private caches, and predictor capacities. */
+/* Defines RV2Wide's integer or F/D architecture, private caches, and predictor capacities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("riscv/isa/hart.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/c.rhm").CCompressedExtensions
+  lib("riscv/isa/fp-profile.rhm") open
   "../csr/config.rhm".RiscvCsrConfig
   "../cache/config.rhm" open
 
@@ -17,21 +18,27 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
   [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U, MisaExtension.C]
 )
 
-/* Specializes private caches and predictor capacities; RV64, C, Sv39, and ISA features are fixed. */
-class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat):
+/* Specializes private caches, predictors, and optional F/D while retaining RV64, C, and Sv39. */
+class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, floating_point :: FloatingPointProfile):
   implements StableCircuitParam
 
   /* Defaults to four-way 64-set caches, a 32-entry BTB, and a six-entry RAS. */
   constructor (~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
                ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4),
                ~btb_entries: btb_entries :: Nat = 32,
-               ~ras_entries: ras_entries :: Nat = 6):
-    super(instruction_cache, data_cache, btb_entries, ras_entries)
+               ~ras_entries: ras_entries :: Nat = 6,
+               ~floating_point: floating_point :: FloatingPointProfile = FloatingPointProfile.None):
+    unless floating_point == FloatingPointProfile.None || floating_point == FloatingPointProfile.D
+    | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP or RV64D")
+    super(instruction_cache, data_cache, btb_entries, ras_entries, floating_point)
 
-  property isa_profile :: RiscvIsaProfile: RV2WideIsaProfile
+  property isa_profile :: RiscvIsaProfile:
+    if floating_point == FloatingPointProfile.None
+    | RV2WideIsaProfile
+    | RiscvIsaProfile(XLen.X64, ["i", "m", "a", "f", "d"] ++ RV2WideIsaProfile.isa_extensions.drop(3), RV2WideIsaProfile.misa_extensions.take(6) ++ [MisaExtension.F, MisaExtension.D, MisaExtension.C])
   property xlen :: XLen: XLen.X64
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
-  property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions)
+  property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: RiscvMmuType.Sv39, ~compressed: CCompressedExtensions, ~floating_point: floating_point)
   property hart_description :: RiscvHartDescription:
     RiscvHartDescription(
       isa_profile, RiscvMmuType.Sv39,

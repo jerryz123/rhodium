@@ -141,7 +141,7 @@ remain visible as failures in those existing lanes.
 
 ### Dual-issue RV2Wide checking
 
-`mini-rv2wide-rv64imacb` and `simple-rv2wide-rv64imacb` reuse the same Sail
+Mini/Simple RV2Wide's `rv64imacb` and `rv64imafdcb` configurations reuse the same Sail
 configuration, collector, and FESVR lifecycle. Enable a local checked build with
 `make -C sims boot-test isa-smoke SOC=mini-rv2wide-rv64imacb COSIM=1`.
 The observer admits both successful WB slots in age order. Accepted load,
@@ -149,6 +149,10 @@ multiply, and divide owners retain their identities until their actual RF
 writes; completion does not retire the instruction again. Replays and
 speculative multiply launch create no records. Traps retain successful older
 retirement, and interrupts enter only at the core's drained boundary.
+Fixed FP owners are admitted at WB and close on their booked arithmetic
+return cycle; divide/sqrt and FP loads retain separate accepted owners. Actual
+FPR/GPR writes and exception-flag contributions close the original instruction,
+including f0 and flag-only results. Speculative FP results create no records.
 Misaligned stores report completed physical prefixes even if a later fragment
 faults. No observation state, backpressure, or reference-state repair is added
 to the functional core. The existing RV2Wide CI rows remain ISA-smoke-only.

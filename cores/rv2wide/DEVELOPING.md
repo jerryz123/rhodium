@@ -63,8 +63,9 @@ owns its intrinsic retained request-to-response contract.
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
+| `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
-| `profile.rhm`, `udb.rhm` | Fixed lean RV64IMACB architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
+| `profile.rhm`, `udb.rhm` | Lean RV64IMACB/RV64IMAFDCB architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
 | `hart.rhdl` | Core-neutral SoC port adaptation and one reset-vector start per reset epoch |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
 
@@ -138,13 +139,15 @@ from destination readiness: a returned value permits RAW consumers immediately,
 but its scoreboard reservation blocks WAW until the actual RF update.
 
 Same-group WAW only splits when the older writer may complete through a deferred
-service: memory and M writers remain interlocked, including speculative load hits.
+service: memory, M, and late FP-to-GPR writers remain interlocked, including speculative load hits.
 Normal-WB older writes may pair with normal-WB or deferred younger
 writes. Keep both architectural retirement records and per-instruction values;
 coalesce RF writes only when both normal-WB write enables are qualified and the
 destinations match. A faulting, replaying, split, or deferred younger instruction
 must not suppress the older write. The second port can carry an older completion,
-so never infer younger-write priority from the port number.
+so never infer younger-write priority from the port number. Insert direct FP
+returns into their WB lane's forwarding payload; late FP returns precede the
+pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
 
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
@@ -307,6 +310,35 @@ zero/one. Keep CSR write priority and pre-transition privilege filtering in the
 shared counters; completion is not retirement. Architectural CSR descriptors and
 trap selection are reused, not copied into named-core control logic.
 
+## FP scheduling and ownership
+
+`fp.rhdl` owns the FPR file and the shared execution service. The core selects
+`RV2WideFp` or the stateless `RV2WideFpDisabled` circuit at elaboration time;
+the enabled implementation has no disabled-mode branches. RR books its
+fixed-result calendar one cycle before EX and captures the selected slot's
+three operands in the EX payload. The booking owns the execution input even
+when a flush suppresses its request, so variable-request readiness cannot feed
+back through same-cycle recovery. WB authorizes the resolved oldest successful
+prefix independently of CSR command-success feedback. Authorization travels
+for `latency - 2` cycles and qualifies the corresponding fixed numerical return.
+
+The core books late FP-to-GPR writes against the younger GPR slot. At RR,
+calendar bit three suppresses younger issue and unpredictable-completion
+admission for that future WB edge. Fixed results bypass directly, not through
+the unpredictable completion pipeline. The FP adapter separately interlocks
+all FPR destinations, including f0, and forwards both FPR writes to RR.
+An older MEM divide prevents next-cycle fixed booking; variable FP work does
+not coissue with memory or integer long-latency work. It may pair with ordinary
+integer instructions without introducing younger side effects before acceptance.
+
+`rv2wide-core-fp` exercises 3/5/2-cycle execution; `rv2wide-core-fp-late`
+uses 3/5/4 cycles to move integer-returning FP operations beyond their own WB.
+They share a public-interface bench covering both age slots, FPR dependencies,
+loads/stores, killed EX arithmetic, divide, flags, and illegal FS/rm. Native
+adapter tests shuffle callbacks while closing out-of-order fixed FP, variable
+FP, and concurrent load/arithmetic owners. Keep wider software coverage in the
+existing ISA-smoke lanes, not a separate FP qualification matrix.
+
 ## Validation
 
 For tracing changes run the batched `event-window` behavioral fixture and the
@@ -321,7 +353,7 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v1` contract. The core declares
+`observation.rhdl` names the passive `rv2wide.v2` contract. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
 `cores/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.
@@ -344,7 +376,7 @@ make -C sims boot-test isa-smoke cosim-smoke SOC=simple-rv2wide-rv64imacb COSIM=
 Run the focused production-core fixture:
 
 ```sh
-FIXTURE=rv2wide-core bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv2wide-core rv2wide-core-fp rv2wide-core-fp-late' bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-cache bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-fetch bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-fetch-disabled bash tools/testing/circt/run.sh --simulate-only

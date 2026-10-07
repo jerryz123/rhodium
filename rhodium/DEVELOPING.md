@@ -285,6 +285,13 @@ unit distinguishes raw ordinary beats from already-normalized atomic values.
 Reservation and RMW implementation remain in the shared L1D.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
+`cores/writeback-calendar.rhdl` owns the shared fixed-return reservation calendar
+and directly imports Flow. RV5Stage scalar/vector and RV2Wide consumers own
+port policy and latency selection. RV2Wide's `fp.rhdl` directly imports the
+shared FP execution, timing, register-file, and load-boxing APIs plus Flow,
+pure FP/XLEN descriptors, and that calendar. Its composed decoder imports the
+shared FP control relation and pure register-bank metadata. No dependency on
+RV5Stage is introduced.
 RV2Wide's `profile.rhm` imports the stable generator-parameter contract and
 shared cache geometry alongside pure ISA/hart descriptors and the shared CSR
 configuration used by both RTL and WARL metadata. `hart.rhdl` uses
@@ -344,9 +351,10 @@ functional handshakes, and no named core imports the simulator receiver.
 
 RV2Wide's core, MMU, and composition import the same passive metadata bridge
 for dual WB slots, CSR command context, deferred return ownership, and physical
-request/fragment provenance. `cores/rv2wide/observation.rhdl` declares `rv2wide.v1`
+request/fragment provenance. `cores/rv2wide/observation.rhdl` declares `rv2wide.v2`
 without imports. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
-RV2Wide bundles/profile, architectural privilege/interrupt/XLEN descriptors,
+RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing helpers,
+architectural privilege/interrupt/XLEN/FP-profile descriptors,
 and the common transport widening helper; it adds no observer state or outputs.
 Its native adapter depends only on generic event/DPI contracts. The cosim pass
 imports both named-core observation identities and simulation-owned capture
@@ -455,7 +463,7 @@ and the named vector mask-scan controls. `vector/mask.rhdl` imports public
 The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for WB allocation,
 compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
 `vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand storage,
-and accepted shared-service request queues; it additionally imports the named
+and accepted shared-service request queues; it additionally imports the shared
 writeback calendar, integer
 register-write and FP contracts, vector mask-scan controls, pointer normalization,
 and pure FP profiles.

@@ -7,7 +7,7 @@ import:
 
 /* Grants noncolliding future write cycles in client order and ages reservations each cycle.
    Pause blocks new claims only; a separate probe observes earlier clients' reservations. */
-sync_circuit RV5StageWritebackCalendar(clients :: PosInt, latency :: PosInt):
+sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt):
   interface reserve[clients](Decoupled(Bits(index_width(latency + 1))), ~role: consumer)
   input pause: Bool
   input probe_client: Bits(index_width(clients))
@@ -35,4 +35,4 @@ sync_circuit RV5StageWritebackCalendar(clients :: PosInt, latency :: PosInt):
   occupied <== pending
   probe_available <== probed
 
-export RV5StageWritebackCalendar
+export WritebackCalendar

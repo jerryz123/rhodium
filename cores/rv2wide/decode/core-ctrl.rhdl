@@ -1,5 +1,5 @@
 #lang rhodium
-/* Composes shared ALU/branch relations with RV2Wide scalar, atomic, MOP, and system controls. */
+/* Composes shared ALU, branch, and FP relations with RV2Wide scalar, atomic, and system controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,11 @@ import:
   lib("cores/alu.rhdl") open
   lib("cores/alu-decode.rhdl") open
   lib("cores/branch-decode.rhdl") open
+  lib("cores/fp/decode.rhdl") open
+  lib("cores/load-store.rhdl").MemoryWidth
+  lib("cores/cache/operation.rhdl").CacheOperation
+  lib("riscv/model/main.rhm").RegisterBank
+  lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open
@@ -26,6 +31,11 @@ bundle RV2WideWritebackControl():
   enable: Bool
   link: Bool
 
+/* Qualifies decoded FP controls inside a packed pipeline payload. */
+bundle RV2WideFpControl():
+  valid: Bool
+  bits: FloatingPointControl()
+
 /* Carries independently authored physical controls without an instruction-kind enum. */
 bundle RV2WideControl():
   alu: AluControl()
@@ -35,6 +45,7 @@ bundle RV2WideControl():
   writeback: RV2WideWritebackControl()
   system: RV2WideSystemControl()
   muldiv: RV2WideLongControl()
+  fp: RV2WideFpControl()
 
 def RV2WideInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
 def addition_alu_cases = instruction_cases(RV64AInstructions ++ ZimopInstructions, component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)))
@@ -70,13 +81,64 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec)):
         writeback: component_output(RV2WideWritebackCases, input)
         system: component_output(RV2WideSystemCases, input)
         muldiv: component_output(core_long_cases, input)
+        fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
     )
 
 def RV2WideControlCases = compose_control_cases(RV2WideInstructions)
 def RV2WideDecode = ValidDecodeGen(RV2WideControlCases)
 
+/* Selects the exact scalar domain used by decode and compressed expansion. */
+fun rv2wide_instructions(profile :: FloatingPointProfile) :: List.of(InstructionSpec):
+  RV2WideInstructions ++ if profile == FloatingPointProfile.None | [] | RV64FDFloatingPointInstructions
+
+/* Adds shared F/D physical controls to the same composed decoder as integer instructions. */
+fun rv2wide_control_cases(profile :: FloatingPointProfile) :: List.of(DecodeCase):
+  def fp_instructions = if profile == FloatingPointProfile.None | [] | RV64FDFloatingPointInstructions
+  def fp_branches = branch_cases(fp_instructions)
+  def fp_long = long_cases(fp_instructions)
+  RV2WideControlCases ++ for List (instruction in fp_instructions):
+    def input = instruction_pattern(instruction)
+    def load = instruction.name in ["FLW", "FLD"]
+    def store = instruction.name in ["FSW", "FSD"]
+    def memory = load || store
+    def integer_source = instruction.operands.filter(~keep: fun (operand): operand.name == "rs1" && operand.role == "source" && operand.bank == RegisterBank.Integer).length() > 0
+    def integer_destination = instruction.operands.filter(~keep: fun (operand): operand.role == "destination" && operand.bank == RegisterBank.Integer).length() > 0
+    def operands = partial_pattern(RV2WideOperandControl()):
+      uses_rs1: Bool(integer_source)
+      uses_rs2: Bool(#false)
+    def memory_operands = partial_pattern(RV2WideOperandControl()):
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#true)
+      immediate: if load | RV2WideImmediate.I | RV2WideImmediate.S
+    def memory_control = partial_pattern(RV2WideMemoryControl()):
+      enable: Bool(#true)
+      access: if load | CacheOperation.Load | CacheOperation.Store
+      width: if instruction.name in ["FLW", "FSW"] | MemoryWidth.Word | MemoryWidth.Double
+      unsigned: Bool(#true)
+    def output = pattern(RV2WideControl()):
+      alu: if memory | component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)) | unused_alu
+      operand: if memory | memory_operands | operands
+      branch: component_output(fp_branches, input)
+      memory: if memory | memory_control | partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+      writeback:
+        partial_pattern(RV2WideWritebackControl()):
+          enable: Bool(integer_destination)
+          link: Bool(#false)
+      system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
+      muldiv: component_output(fp_long, input)
+      fp:
+        pattern(RV2WideFpControl()):
+          valid: Bool(#true)
+          bits: component_output(RV64FDFloatingPointControlCases, input)
+    DecodeCase(input, output)
+
 export:
   RV2WideControl
+  RV2WideFpControl
   RV2WideControlCases
   RV2WideInstructions
   RV2WideDecode
+  rv2wide_instructions
+  rv2wide_control_cases

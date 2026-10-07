@@ -6,6 +6,7 @@ import:
   "bundles.rhdl" open
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
+  lib("cores/fp/types.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("flow/main.rhdl") open
 
@@ -14,6 +15,7 @@ sync_circuit RV2WideLoadResponse():
   interface allocate(Valid(RV2WideResult()), ~role: consumer)
   interface response(Decoupled(Bits(64)), ~role: consumer)
   interface completed(Decoupled(RV2WideRetirement()), ~role: producer)
+  interface fp_completed(Decoupled(RV2WideFpLoad()), ~role: producer)
   output available: Bool
   output drained: Bool
   interface atomic_completed(Pulse(), ~role: producer)
@@ -31,7 +33,13 @@ sync_circuit RV2WideLoadResponse():
   load.width <== result.memory.width
   load.unsigned_load <== result.memory.unsigned
   load.data <== result.data
-  def completion = joined |> map_flow(owner => RV2WideRetirement()):
+  def Array(integer_return, fp_return) = joined |> demux_flow(2, owner => owner.fp.valid & (owner.fp.bits.registers.destination === FloatDestination.FloatingPoint))
+  (fp_return |> map_flow(owner => RV2WideFpLoad()):
+    owner: owner.fp_request.tag
+    precision: owner.fp.bits.execution.destination_precision
+    data: load.value
+  ) |> fp_completed
+  def completion = integer_return |> map_flow(owner => RV2WideRetirement()):
     fetched: owner.fetched
     rd: owner.rd
     write: owner.write

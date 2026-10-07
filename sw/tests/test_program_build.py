@@ -454,6 +454,19 @@ class ProgramBuildTest(unittest.TestCase):
         self.assertIn('rv32ui-p-ma_data', misaligned)
         self.assertIn('rv32uc-p-rvc', names)
         self.assertNotIn('rv32mzicbo', groups)
+        target['extensions'].append('f')
+        groups, floating = self.builder.smoke_selection(target)
+        fp_cases = ('fadd', 'fmadd', 'fdiv', 'fcvt_w', 'ldst', 'move')
+        self.assertEqual(set(floating) - set(misaligned), {f'rv32uf-p-{case}' for case in fp_cases})
+        self.assertIn('rv32uf', groups)
+        self.assertNotIn('rv32ud', groups)
+        target['xlen'] = 64
+        target['extensions'].append('d')
+        groups, floating = self.builder.smoke_selection(target)
+        for group in ('rv64uf', 'rv64ud'):
+            self.assertIn(group, groups)
+            self.assertTrue({f'{group}-p-{case}' for case in fp_cases} <= set(floating))
+        self.assertEqual(len(floating), len(set(floating)))
 
     def test_full_isa_groups_follow_target_capabilities(self):
         target = program_target()

@@ -12,12 +12,14 @@ using namespace observation;
 struct LaneSample {
   Word index, retired, split, pc, encoding, next_pc, fetch_fault, rd, write, data,
        deferred, service, memory, address, access, width, atomic, store_data;
+  Word fp = 0, fp_destination = 0, fp_delay = 0;
 };
 struct BoundarySample {
   Word privilege, next_privilege, interrupt, trap, cause, epc, tval, target,
        target_privilege, interrupts, time, interrupt_boundary;
 };
 struct CompletionSample { Word index, valid, pc, rd, write, data; };
+struct FpSample { Word index, valid, pc, rd, destination, value, flags_valid, flags; };
 struct PhysicalSample {
   Word request_valid, request_address, pipeline_valid, pipeline_address,
        fragment_valid, fragment_address, fragment_virtual, fragment_mask, fragment_data,
@@ -38,6 +40,9 @@ class HartAdapter final : public DpiAdapter {
     } else if constexpr (std::is_same_v<Event, CompletionSample>) {
       require(event.index < 4 && !frame.completions[event.index], "duplicate completion lane");
       frame.completions[event.index] = event;
+    } else if constexpr (std::is_same_v<Event, FpSample>) {
+      require(event.index < 2 && !frame.fp[event.index], "duplicate FP completion");
+      frame.fp[event.index] = event;
     } else {
       auto& field = std::get<std::optional<Event>>(frame.events);
       require(!field, "duplicate callback"); field = event;
@@ -50,9 +55,11 @@ class HartAdapter final : public DpiAdapter {
     std::optional<Word> sample; Word epoch = 0;
     std::array<std::optional<LaneSample>, 3> lanes;
     std::array<std::optional<CompletionSample>, 4> completions;
+    std::array<std::optional<FpSample>, 2> fp;
     std::tuple<std::optional<BoundarySample>, std::optional<PhysicalSample>> events;
   };
   struct Owner { Id id; LaneSample lane; bool physical; Word address; };
+  struct FpOwner { Owner owner; Word due; bool variable; };
   struct Return { Owner owner; CompletionSample value; Word due; };
   struct Fragment { Word address, virtual_address, mask, data; std::optional<Word> response; };
   struct Hart {
@@ -60,6 +67,7 @@ class HartAdapter final : public DpiAdapter {
     bool hit_valid = false; Word hit_address = 0;
     std::array<std::deque<Owner>, 3> services;
     std::deque<Return> returns;
+    std::vector<FpOwner> fp;
     std::optional<Owner> split;
     std::vector<Fragment> fragments;
   };
@@ -74,7 +82,8 @@ class HartAdapter final : public DpiAdapter {
 }
 
 extern "C" {
-void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data) noexcept;
+void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t destination, std::int64_t value, std::int64_t flags_valid, std::int64_t flags) noexcept;
+void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data, std::int64_t fp = 0, std::int64_t fp_destination = 0, std::int64_t fp_delay = 0) noexcept;
 void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary) noexcept;
 void rhodium_rv2wide_completion(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t write, std::int64_t data) noexcept;
 void rhodium_rv2wide_physical(std::int64_t instance, std::int64_t request_valid, std::int64_t request_address, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t fragment_valid, std::int64_t fragment_address, std::int64_t fragment_virtual, std::int64_t fragment_mask, std::int64_t fragment_data, std::int64_t fragment_response, std::int64_t fragment_response_data) noexcept;

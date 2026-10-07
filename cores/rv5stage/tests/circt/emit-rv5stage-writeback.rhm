@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../writeback-calendar.rhdl" open
+  "../../../writeback-calendar.rhdl" open
   lib("rhodium/frontend/kernel.rhm") as embedded
   lib("rhodium/backend/circt.rhm") open
 
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageWritebackCalendar(3, 8))))
+print(emit_circt(embedded.run_elaboration(fun (): WritebackCalendar(3, 8))))

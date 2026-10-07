@@ -7,6 +7,7 @@ import:
   lib("riscv/udb.rhm") open
   lib("support/annotations.rhm").NonemptyString
   lib("riscv/isa/zkt.rhm").ZktVersion
+  lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
 
 /* Encodes an implemented Boolean architectural choice. */
 fun boolean_parameter(name :: NonemptyString, value :: Boolean) :: UdbParameter: UdbParameter(name, UdbBooleanValue(value))
@@ -32,7 +33,9 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
     ["U", "1.0.0"], ["S", "1.13.0"], ["Sm", "1.13.0"], ["Svbare", "1.0.0"], ["Sv39", "1.0.0"], ["Svade", "1.0.0"],
     ["Ssccptr", "1.0.0"], ["Sstvecd", "1.0.0"], ["Sstvala", "1.0.0"], ["Sscounterenw", "1.0.0"], ["Ssu64xl", "1.0.0"]
   ]
-  def extensions = versions.map(fun (entry): UdbExtension(entry[0], entry[1]))
+  def fp = profile.floating_point == FloatingPointProfile.D
+  def selected_versions = versions ++ if fp | [["F", "2.2.0"], ["D", "2.2.0"], ["Zcd", "1.0.0"]] | []
+  def extensions = selected_versions.map(fun (entry): UdbExtension(entry[0], entry[1]))
   def xlen = profile.xlen.width
   def pma_granularity_log2 = 3
   def hpm_counters = for List (_ in 0..32): #false
@@ -124,9 +127,17 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
     boolean_parameter("SATP_MODE_BARE", #true),
     boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
     natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", [0]),
-    natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", [0])
+    natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if fp | [0, 1, 2, 3] | [0])
   ]
-  UdbConfiguration(name, description, extensions, parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
+  def fp_parameters:
+    if fp
+    | [
+        boolean_parameter("MUTABLE_MISA_F", #false),
+        boolean_parameter("MUTABLE_MISA_D", #false),
+        string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")
+      ]
+    | []
+  UdbConfiguration(name, description, extensions, parameters ++ fp_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
 
 export:
   rv2wide_udb_configuration

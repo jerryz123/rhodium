@@ -364,7 +364,7 @@ class PlanTest(unittest.TestCase):
         plan = self.plan("socs/configs/isa-profiles.rhm")
         presets = ("rv64max", "rv64imacb", "rv64imafdcb")
         configs = {f"simple-{core}-{isa}" for isa in presets for core in ("rv5stage", "spike")}
-        configs.update(("mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb"))
+        configs.update(f"{shape}-rv2wide-{isa}" for shape in ("mini", "simple") for isa in ("rv64imacb", "rv64imafdcb"))
         runs = [entry for entry in plan["simulator_matrix"]["include"] if entry["isa"] in presets]
         self.assertEqual({entry["soc"] for entry in runs}, configs)
         self.assertTrue(all(entry["software_tests"] == "isa-smoke" for entry in runs))

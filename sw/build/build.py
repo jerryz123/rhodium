@@ -53,6 +53,8 @@ SMOKE_TESTS = {
     'i': ('add', 'sub', 'sll', 'sltu', 'beq', 'bne', 'jalr', 'lb', 'sb'),
     'm': ('mul', 'mulh', 'div', 'rem'),
     'a': ('amoswap_w', 'lrsc'),
+    'f': ('fadd', 'fmadd', 'fdiv', 'fcvt_w', 'ldst', 'move'),
+    'd': ('fadd', 'fmadd', 'fdiv', 'fcvt_w', 'ldst', 'move'),
     'c': ('rvc',),
     'zba': ('sh1add',),
     'zbb': ('clz',),

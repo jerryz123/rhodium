@@ -5,15 +5,16 @@
 import:
   lib("cores/rv2wide/profile.rhm") open
   lib("cores/cache/config.rhm").CacheConfig
+  lib("riscv/isa/fp-profile.rhm") open
   "selection.rhm" open
   "isa-profiles.rhm".soc_architecture
 
 /* Rejects unsupported shapes or architectures rather than silently selecting a weaker hart. */
 fun rv2wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV2WideConfig:
-  unless [SoCShape.Mini, SoCShape.Simple].contains(shape) && preset == IsaPreset.RV64IMACB
-  | error(~who: #'rv2wide_soc_profile, "RV2Wide supports Mini/Simple RV64IMACB only")
+  unless [SoCShape.Mini, SoCShape.Simple].contains(shape) && [IsaPreset.RV64IMACB, IsaPreset.RV64IMAFDCB].contains(preset)
+  | error(~who: #'rv2wide_soc_profile, "RV2Wide supports Mini/Simple RV64IMACB or RV64IMAFDCB")
   def cache = if shape == SoCShape.Mini | CacheConfig(32, 1) | CacheConfig(64, 4)
-  def profile = RV2WideConfig(~instruction_cache: cache, ~data_cache: cache)
+  def profile = RV2WideConfig(~instruction_cache: cache, ~data_cache: cache, ~floating_point: if preset == IsaPreset.RV64IMAFDCB | FloatingPointProfile.D | FloatingPointProfile.None)
   unless profile.isa_profile == soc_architecture(preset).isa
   | error(~who: #'rv2wide_soc_profile, "RV2Wide cannot implement the exact requested architecture")
   profile

@@ -12,7 +12,7 @@ module rv5stage_writeback_tb;
   logic probe_available;
   logic [8:0] model = 0;
   int accepted = 0, blocked = 0, simultaneous = 0;
-  RV5StageWritebackCalendar dut(.reserve_0_in(reserve_in[0]), .reserve_1_in(reserve_in[1]), .reserve_2_in(reserve_in[2]), .reserve_0_out(reserve_out[0]), .reserve_1_out(reserve_out[1]), .reserve_2_out(reserve_out[2]), .*);
+  WritebackCalendar dut(.reserve_0_in(reserve_in[0]), .reserve_1_in(reserve_in[1]), .reserve_2_in(reserve_in[2]), .reserve_0_out(reserve_out[0]), .reserve_1_out(reserve_out[1]), .reserve_2_out(reserve_out[2]), .*);
   always #5 clock = ~clock;
 
   always @(posedge clock) begin

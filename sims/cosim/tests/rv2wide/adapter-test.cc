@@ -11,11 +11,13 @@ void require(bool value) { if (!value) throw std::runtime_error("RV2Wide adapter
 struct Sample {
   std::array<LaneSample,3> lanes{};
   std::array<CompletionSample,4> completions{};
+  std::array<FpSample,2> fp{};
   BoundarySample boundary{}; PhysicalSample physical{};
   Sample() {
     boundary.privilege=3; boundary.next_privilege=3; boundary.target_privilege=3;
     for (unsigned i=0;i<3;++i) { lanes[i].index=i; lanes[i].encoding=0x13; }
     for (unsigned i=0;i<4;++i) completions[i].index=i;
+    for (unsigned i=0;i<2;++i) fp[i].index=i;
   }
   LaneSample& retire(unsigned slot, Word pc, Word rd=0, Word data=0) {
     auto& l=lanes[slot]; l.retired=1; l.pc=pc; l.next_pc=pc+4; l.rd=rd; l.write=rd!=0; l.data=data;
@@ -30,6 +32,7 @@ std::vector<Record> sample(Collector& c, DpiBinding& binding, Word cycle, const 
   }); };
   for (auto l:s.lanes) add(l);
   for (auto v:s.completions) add(v);
+  for (auto v:s.fp) add(v);
   add(s.boundary); add(s.physical);
   std::shuffle(calls.begin(),calls.end(),random);
   for (auto& call:calls) call();
@@ -112,9 +115,52 @@ void epoch_and_drain() {
   require(std::get<MemoryEffect>(returned[0].effects.at({1,0})).write_data==0xab);
   require(c.drain()); c.finish();
 }
+void fp_owners(unsigned seed) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(c); std::mt19937 random(seed);
+  std::vector<Record> records;
+  for (Word cycle=0;cycle<7;++cycle) {
+    Sample s;
+    if (cycle==0) {
+      auto& l=s.retire(0,0x8000,0); l.fp=1; l.fp_destination=2; l.fp_delay=3; l.deferred=1;
+      s.retire(1,0x8004,1,7);
+    }
+    if (cycle==1) {
+      auto& l=s.retire(0,0x8008,2); l.fp=1; l.fp_destination=1; l.fp_delay=0;
+      s.fp[0]={0,1,0x8008,2,1,8,1,1};
+    }
+    if (cycle==2) {
+      auto& l=s.retire(0,0x800c,3); l.fp=2; l.fp_destination=2; l.write=0;
+      l.deferred=1; l.memory=1; l.access=1; l.width=3; l.address=0x1000;
+      s.physical.request_valid=1; s.physical.request_address=0x9000;
+    }
+    if (cycle==3) {
+      s.fp[0]={0,1,0x8000,0,2,0x3ff0000000000000,1,0};
+      s.fp[1]={1,1,0x800c,3,2,0x4000000000000000,0,0};
+      auto& l=s.retire(0,0x8010,4); l.fp=1; l.fp_destination=2; l.fp_delay=UINT64_MAX; l.deferred=1; l.write=0;
+      s.physical.pipeline_valid=1; s.physical.pipeline_address=0xa000;
+    }
+    if (cycle==4) {
+      auto& l=s.retire(0,0x8014,5); l.fp=2; l.fp_destination=2; l.write=0;
+      l.memory=1; l.access=1; l.width=3; l.address=0x2000; l.data=0x4008000000000000;
+      s.fp[1]={1,1,0x8014,5,2,l.data,0,0};
+    }
+    if (cycle==6) s.fp[0]={0,1,0x8010,4,2,0x4010000000000000,1,16};
+    auto emitted=sample(c,binding,cycle,s,random);
+    records.insert(records.end(),emitted.begin(),emitted.end());
+  }
+  require(records.size()==6);
+  for (Word i=0;i<records.size();++i) require(records[i].id.order==i);
+  const auto& f0=std::get<RegisterWrite>(records[0].effects.at({0,0}));
+  require(f0.bank==Bank::FloatingPoint && f0.index==0 && f0.value==0x3ff0000000000000);
+  require(std::get<RegisterWrite>(records[2].effects.at({0,0})).bank==Bank::Integer);
+  require(std::get<MemoryEffect>(records[3].effects.at({1,0})).physical_address==0x9000);
+  require(std::get<MemoryEffect>(records[5].effects.at({1,0})).physical_address==0xa000);
+  c.finish();
+}
 int main() {
   const auto expected=run(0);
   for (unsigned seed=1;seed<100;++seed) require(run(seed)==expected);
   epoch_and_drain();
+  for (unsigned seed=0;seed<100;++seed) fp_owners(seed);
   std::cout<<"RV2Wide adapter ownership checks passed\n";
 }

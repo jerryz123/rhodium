@@ -50,7 +50,7 @@ import:
   "../../riscv/rtl/interrupt.rhdl" open
   "multiply.rhdl" open
   "integer-execution.rhdl" open
-  "writeback-calendar.rhdl" open
+  "../writeback-calendar.rhdl" open
   "vector/muldiv.rhdl" open
   "../multiplier.rhdl" open
   "../divider.rhdl" open
@@ -264,7 +264,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_csrs.hart_id <== hart_id
   wb_csrs.time_counter <== time_counter
   def wb_scalar_fp_tag = RV5StageFpScalarTag(Bits(width))
-  inst wb_gpr_calendar(RV5StageWritebackCalendar(2, wb_calendar_span))
+  inst wb_gpr_calendar(WritebackCalendar(2, wb_calendar_span))
   // WB services reserve before younger ID admissions; WB readiness must not
   // depend on an instruction whose admission depends on WB cancellation.
   wb_gpr_calendar.probe_client <== bits(1, 1)
@@ -292,7 +292,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         Scalar(wb_scalar_fp_tag)
         Vector(wb_vector_fp_tag)
       inst wb_fp_execution(FpExecutionService(xlen, effective_fp_profile, FpOwner(), ~half_precision: execution_half_precision, ~zfa: zfa_enabled, ~scheduled_writeback: #true, ~timing: fp_timing))
-      inst ex_fp_calendar(RV5StageWritebackCalendar(2, wb_calendar_span))
+      inst ex_fp_calendar(WritebackCalendar(2, wb_calendar_span))
       ex_fp_calendar.pause <== Bool(#false)
       ex_fp_calendar.probe_client <== bits(1, 1)
       ex_fp_calendar.probe_delay <== fp_timing.latency(id_fp_execution, ~width: wb_calendar_width) + bits(1, wb_calendar_width)

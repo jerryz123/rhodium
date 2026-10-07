@@ -22,10 +22,11 @@ import:
 
 def rv32 = soc_architecture(IsaPreset.RV32Int)
 // A third hart binding retains the exact lean architecture and shape-owned resources.
-for (shape in [SoCShape.Mini, SoCShape.Simple]):
-  def selection = SoCSelection(shape, CoreKind.RV2Wide, IsaPreset.RV64IMACB)
+for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB)]):
+  def shape = selection.shape
+  def isa = selection.isa
   def resolved = resolve_soc_config(selection)
-  def expected = soc_architecture(IsaPreset.RV64IMACB)
+  def expected = soc_architecture(isa)
   def cache_sets = if shape == SoCShape.Mini | 32 | 64
   def cache_ways = if shape == SoCShape.Mini | 1 | 4
   check:
@@ -39,7 +40,7 @@ for (shape in [SoCShape.Mini, SoCShape.Simple]):
     resolved.udb().to_yaml().contains("  MXLEN: 64") ~is #true
     resolved.udb().to_yaml().contains("  MUTABLE_MISA_C: false") ~is #true
     simulator_soc_description(selection.key) ~is resolved.description
-    gnu_isa_target(expected.isa.xlen, expected.isa.isa_extensions).mabi ~is "lp64"
+    gnu_isa_target(expected.isa.xlen, expected.isa.isa_extensions).mabi ~is (if isa == IsaPreset.RV64IMACB | "lp64" | "lp64d")
 check:
   rv2wide_soc_profile(SoCShape.Mini, IsaPreset.RVA23) ~throws "supports Mini/Simple"
   rv2wide_soc_profile(SoCShape.Tiled, IsaPreset.RV64IMACB) ~throws "supports Mini/Simple"

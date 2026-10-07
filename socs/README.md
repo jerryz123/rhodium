@@ -87,10 +87,11 @@ the core's fixed Zicsr/Zifencei, Zicntr/Zihpm, Zicond, Zimop, Zkt, Za64rs,
 Zic64b/Zicclsm, B constituents, and the validated Sv39 supervisor guarantees.
 Their names describe the scalar baseline, not an exhaustive extension string.
 
-RV2Wide binds `RV64IMACB` on Mini and Simple only:
-`mini-rv2wide-rv64imacb` and `simple-rv2wide-rv64imacb`. Its profile uses Sv39,
+RV2Wide binds `RV64IMACB` and `RV64IMAFDCB` on Mini and Simple only:
+`mini-rv2wide-rv64imacb`, `simple-rv2wide-rv64imacb`, and their
+`rv64imafdcb` F/D counterparts. Its profile uses Sv39,
 the shared CSR bank and caches, a pipelined multiplier on both shapes, and no
-FP/vector/H. Mini selects 32-set direct-mapped private caches; Simple selects
+vector/H. F/D is selected by `rv64imafdcb`. Mini selects 32-set direct-mapped private caches; Simple selects
 64-set four-way private caches. These bindings use the same BootROM, devices,
 host interface, and harness as the other harts. See [RV2Wide](../cores/rv2wide/README.md).
 

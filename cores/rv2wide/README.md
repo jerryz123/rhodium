@@ -6,7 +6,7 @@
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes RV64IMACB:
+independently usable RR-through-WB execution slice. It executes RV64IMACB, optionally RV64IMAFDCB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and scalar
 loads/stores, including retained misaligned accesses in cacheable normal memory.
 It also executes Zicond and Zimop, plus Zicsr, ECALL/EBREAK, MRET/SRET, WFI,
@@ -26,7 +26,9 @@ direct-mapped L1s; Simple has 64-set, four-way L1s. Both retain the five-stage
 feed-forward multiplier. `RV2WideConfig` owns this architectural projection and
 private-cache geometry; `RV2WideHart` starts once at the platform reset vector
 after reset. The shared SoC BootROM performs normal FESVR entry publication and
-ACLINT release. No RV32, FP, vector, H, or Tiled selection is provided.
+ACLINT release. The corresponding `mini-rv2wide-rv64imafdcb` and
+`simple-rv2wide-rv64imafdcb` selections add F/D and compressed FP loads/stores.
+No RV32, vector, H, or Tiled selection is provided.
 
 ## Entry point
 
@@ -83,6 +85,35 @@ from a speculative fetch flush.
 The standalone core exports successfully retired `branch_update` records,
 `predictor_restore` recovery pulses, and `predictor_clear` context-invalidation
 pulses for a connected predictor; `RV2Wide` connects these internally.
+
+## Floating point
+
+Select `RV2WideConfig(~floating_point: FloatingPointProfile.D)`; the default
+remains integer-only. RV64D implies F. Controls, decode, the three-read/two-write
+FPR file, numerical execution, boxing, and flag behavior come from
+[`cores/fp/`](../fp/README.md).
+
+One FP instruction can issue from either age slot alongside an independent
+integer instruction. RR snapshots all three FPR operands and checks separate
+GPR/FPR dependencies. Fixed operations launch in EX; WB authorizes their
+architectural result. Squashed arithmetic drains without writing a register,
+setting flags, or dirtying FS. Divide/sqrt launches only at WB. A variable FP
+operation does not pair with a memory or integer multiply/divide operation;
+independent ordinary integer work can still pair.
+
+`RV2WideCore(~fp_timing: FpExecutionTiming(...))` uses the execution service's
+declared latencies, floored to the two-cycle EX-to-WB distance. It does not assume
+all FP returns take two cycles. RR reserves a fixed return slot before launch.
+An FP-to-GPR result at its own WB uses that instruction's ordinary write port;
+a later result reserves the younger slot's GPR write edge and forwards directly
+to RR. GPR storage remains two-write-port. Unpredictable integer returns retain
+their existing completion pipeline.
+
+FPR arithmetic and loads use separate write ports with same-cycle forwarding.
+FP loads/stores reuse the scalar cache, translation, and split-access paths.
+Accepted load/divide owners survive flushes; precise trap/interrupt entry and
+serializing CSR operations drain older FP effects. FPR writes and completed
+exception flags update the shared FS/fflags/frm state, never speculative launch.
 
 ## Instruction fetch
 
@@ -169,7 +200,7 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
 RR consumes zero, one, or two instructions. Independent ALU operations can
 issue and retire two per cycle. Same-group RAW dependencies split the pair;
 same-destination writes can pair when the older writer is guaranteed to use
-normal WB, even if the younger writer completes later. An older memory or M
+normal WB, even if the younger writer completes later. An older memory, M, or late FP-to-GPR
 writer can defer its result and still splits a
 same-destination pair. An instruction that cannot pair stays at the head for the
 next cycle. One branch
@@ -505,9 +536,9 @@ invent ancestry from equal PCs or reused transaction IDs.
 
 ## Deliberate limits
 
-There is no floating-point execution or guest translation.
+There is no guest translation. Optional FP supports F/D, not half precision or Zfa.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
-The SoC bindings publish the lean RV64IMACB preset, not RVA23. Mini/Simple
+The SoC bindings publish lean RV64IMACB or RV64IMAFDCB presets, not RVA23. Mini/Simple
 bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)
 with `COSIM=1`; CI enables it on their existing ISA-smoke rows. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.

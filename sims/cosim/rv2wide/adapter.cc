@@ -3,6 +3,7 @@
 #include "adapter.h"
 #include "../events/atomic.h"
 #include <bit>
+#include <algorithm>
 #include <stdexcept>
 
 namespace rhodium::cosim::rv2wide {
@@ -108,6 +109,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     c.instruction(instance,id,{lane.pc,lane.encoding,bytes,bytes,{b.privilege,false},3});
     return Owner{id,lane,false,0};
   };
+  std::optional<Owner> inline_fp_load;
   for (unsigned slot = 0; slot < 2; ++slot) {
     const auto& lane = *f.lanes[slot];
     require(!(lane.split && lane.retired), "split owner retired at capture");
@@ -120,7 +122,11 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     require(!split || (slot == 0 && h.split->lane.pc == lane.pc), "retirement bypassed a split owner");
     auto owner = split ? *h.split : allocate(lane);
     c.retire(instance,owner.id,{lane.next_pc,{b.next_privilege,false}});
-    if (lane.deferred) {
+    if (lane.fp == 1) {
+      require(!split, "arithmetic retained as split access");
+      c.seal(instance,owner.id,1,0);
+      h.fp.push_back({owner,h.cycle+lane.fp_delay,lane.fp_delay==UINT64_MAX});
+    } else if (lane.deferred) {
       require(!split && lane.service < 3 && h.services[lane.service].size() < 64, "invalid deferred admission");
       owner.physical = lane.service == 0 && p.request_valid;
       owner.address = p.request_address;
@@ -128,7 +134,8 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
       else c.seal(instance,owner.id,1,0);
       h.services[lane.service].push_back(owner);
     } else {
-      gpr(c,instance,owner.id,lane.write,lane.rd,lane.data);
+      if (lane.fp == 2) inline_fp_load = owner;
+      else gpr(c,instance,owner.id,lane.write,lane.rd,lane.data);
       if (split) { split_memory(c,instance,h,false,0); h.split.reset(); h.fragments.clear(); }
       else if (lane.memory) {
         owner.physical = h.hit_valid; owner.address = h.hit_address;
@@ -137,6 +144,36 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
       } else c.seal(instance,owner.id,1,0);
     }
   }
+  // Fixed owners are selected by their booked return cycle, not PC matching or callback order.
+  // Variable arithmetic has one active owner; load ordering remains the memory-owner FIFO.
+  for (unsigned index=0; index<2; ++index) {
+    const auto value = f.fp[index].value_or(FpSample{});
+    if (!value.valid) continue;
+    Owner owner{};
+    if (index == 0) {
+      auto found=std::find_if(h.fp.begin(),h.fp.end(),[&](const FpOwner& candidate) {
+        return candidate.variable ? candidate.owner.lane.rd==value.rd && candidate.owner.lane.fp_destination==value.destination :
+                                    candidate.due==h.cycle;
+      });
+      require(found!=h.fp.end(),"FP return has no authorized owner");
+      owner=found->owner; h.fp.erase(found);
+    } else if (inline_fp_load) {
+      owner=*inline_fp_load; inline_fp_load.reset();
+    } else {
+      require(!h.services[0].empty() && h.services[0].front().lane.fp==2,"FP load has no memory owner");
+      owner=h.services[0].front(); h.services[0].pop_front();
+      memory(c,instance,owner,value.value,false);
+    }
+    require(owner.lane.pc==value.pc && owner.lane.rd==value.rd && owner.lane.fp_destination==value.destination,"FP completion owner mismatch");
+    Word effects=0;
+    if (value.destination==2 || (value.destination==1 && value.rd))
+      c.effect(instance,owner.id,{0,effects++},RegisterWrite{value.destination==2 ? Bank::FloatingPoint : Bank::Integer,value.rd,0,UINT64_MAX,value.value});
+    if (value.flags_valid)
+      c.effect(instance,owner.id,{0,effects++},CsrUpdate{1,CsrOperation::SetBits,31,value.flags});
+    c.seal(instance,owner.id,0,effects);
+  }
+  require(!inline_fp_load,"FP hit omitted its architectural write");
+  for (const auto& owner:h.fp) require(owner.variable || owner.due>h.cycle,"missing fixed FP completion");
   const Trap trap{b.cause & (UINT64_MAX >> 1),b.epc,b.tval,b.target,{b.target_privilege,false},false,0,0};
   require(!(b.interrupt && b.trap), "interrupt and synchronous trap coincide");
   if (b.trap) {
@@ -164,9 +201,14 @@ using rhodium::cosim::rv2wide::LaneSample;
 using rhodium::cosim::rv2wide::BoundarySample;
 using rhodium::cosim::rv2wide::CompletionSample;
 using rhodium::cosim::rv2wide::PhysicalSample;
-extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data) noexcept {
+extern "C" void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t destination, std::int64_t value, std::int64_t flags_valid, std::int64_t flags) noexcept {
   dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& c) {
-    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),LaneSample{Word(index),Word(retired),Word(split),Word(pc),Word(encoding),Word(next_pc),Word(fetch_fault),Word(rd),Word(write),Word(data),Word(deferred),Word(service),Word(memory),Word(address),Word(access),Word(width),Word(atomic),Word(store_data)});
+    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),rhodium::cosim::rv2wide::FpSample{Word(index),Word(valid),Word(pc),Word(rd),Word(destination),Word(value),Word(flags_valid),Word(flags)});
+  });
+}
+extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data, std::int64_t fp, std::int64_t fp_destination, std::int64_t fp_delay) noexcept {
+  dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& c) {
+    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),LaneSample{Word(index),Word(retired),Word(split),Word(pc),Word(encoding),Word(next_pc),Word(fetch_fault),Word(rd),Word(write),Word(data),Word(deferred),Word(service),Word(memory),Word(address),Word(access),Word(width),Word(atomic),Word(store_data),Word(fp),Word(fp_destination),Word(fp_delay)});
   });
 }
 extern "C" void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary) noexcept {

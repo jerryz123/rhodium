@@ -17,6 +17,8 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate_with_top
   lib("rhodium/lowering/program.rhm").ElaboratedProgram
   lib("cores/rv2wide/core.rhdl").RV2WideCore
+  lib("cores/rv2wide/profile.rhm").RV2WideConfig
+  lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
 
 def adapters = {"test.v1": recipe}
 def source = make_fixture()
@@ -54,13 +56,14 @@ for (backend in [circt_target, verilog_target]):
 
 // The production contract must preserve the authored graph and public ports on
 // both targets, rather than adding functional observation ports during elaboration.
-def rv2wide = elaborate_with_top(RV2WideCore())
-def rv2wide_before = dump_ir(rv2wide.design)
-def rv2wide_program = ElaboratedProgram(rv2wide.design, rv2wide.top)
-for (backend in [circt_target, verilog_target]):
-  def normal = compile_program(rv2wide_program, backend)
-  def observed = compile_program(rv2wide_program, rtl_pipeline_target(backend, [cosim_pass()]))
-  check:
-    observed.manifest.signature ~is normal.manifest.signature
-    observed.artifacts[0].content.contains("rhodium_rv2wide_lane") ~is #true
-    dump_ir(rv2wide.design) ~is rv2wide_before
+for (profile in [FloatingPointProfile.None, FloatingPointProfile.D]):
+  def rv2wide = elaborate_with_top(RV2WideCore(RV2WideConfig(~floating_point: profile)))
+  def rv2wide_before = dump_ir(rv2wide.design)
+  def rv2wide_program = ElaboratedProgram(rv2wide.design, rv2wide.top)
+  for (backend in [circt_target, verilog_target]):
+    def normal = compile_program(rv2wide_program, backend)
+    def observed = compile_program(rv2wide_program, rtl_pipeline_target(backend, [cosim_pass()]))
+    check:
+      observed.manifest.signature ~is normal.manifest.signature
+      observed.artifacts[0].content.contains("rhodium_rv2wide_lane") ~is #true
+      dump_ir(rv2wide.design) ~is rv2wide_before

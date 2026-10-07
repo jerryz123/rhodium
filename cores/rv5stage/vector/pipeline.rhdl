@@ -20,7 +20,7 @@ import:
   "fp.rhdl" open
   "muldiv.rhdl" open
   "../integer-execution.rhdl" open
-  "../writeback-calendar.rhdl" open
+  "../../writeback-calendar.rhdl" open
   "../../fp/types.rhdl".FloatUnit
   "../../load-store.rhdl" open
   "../../multiplier.rhdl" open
@@ -116,7 +116,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   inst completions(RV5StageVectorCompletionUnit(xlen, vlen, vector_completion_slots, ~fixed_multiply: multiply_latency != #false))
   def calendar_span = math.max(8, fp_timing.maximum)
   def calendar_width = index_width(calendar_span + 1)
-  inst writeback_calendar(RV5StageWritebackCalendar(3, calendar_span))
+  inst writeback_calendar(WritebackCalendar(3, calendar_span))
   def allocated = vec(for List (s in 0..vector_completion_slots): completions.state[s].allocated)
   def authorized_slots = vec(for List (s in 0..vector_completion_slots): completions.state[s].accepted)
   def entry_owner = vec(for List (s in 0..vector_completion_slots): completions.state[s].owner)

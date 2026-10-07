@@ -14,6 +14,9 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+  lib("cores/fp/bundles.rhdl") open
+  lib("cores/fp/types.rhdl") open
+  lib("riscv/isa/fp-profile.rhm") open
 
 /* Exposes WB-owned architectural translation controls without pipeline payload coupling. */
 bundle RV2WideTranslationState():
@@ -67,6 +70,22 @@ bundle RV2WideResolution():
   cause: Bits(64)
   value: Bits(64)
 
+/* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
+bundle RV2WideFpOwner():
+  fetched: RV2WideInstruction()
+  lane: Bits(1)
+  rd: Bits(5)
+  destination: FloatDestination
+  speculative: Bool
+  direct: Bool
+
+/* Carries an already extracted FP memory value to the architectural FPR write port. */
+bundle RV2WideFpLoad():
+  owner: RV2WideFpOwner()
+  precision: FloatPrecision
+  data: Bits(64)
+
+
 /* Holds RR-selected operands and decoded controls across the EX boundary. */
 bundle RV2WideExecute():
   fetched: RV2WideInstruction()
@@ -75,6 +94,7 @@ bundle RV2WideExecute():
   rs2: Bits(64)
   rd: Bits(5)
   illegal: Bool
+  fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
 
 /* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
 hardware_enum RV2WideCacheOutcome:
@@ -106,6 +126,8 @@ bundle RV2WideResult():
   left: Bits(64)
   right: Bits(64)
   resolution: RV2WideResolution()
+  fp: RV2WideFpControl()
+  fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
 
 /* Restarts unassembled fetch work without discarding already accepted instructions. */
 bundle RV2WideFetchRepair():
@@ -177,6 +199,8 @@ bundle RV2WideOperand():
   data: Bits(64)
 
 export:
+  RV2WideFpOwner
+  RV2WideFpLoad
   RV2WideTranslationState
   RV2WideInstructionTranslation
   RV2WideFetchFault

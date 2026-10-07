@@ -288,7 +288,7 @@ The vector multiplier request queue retains operands from accepted feed-forward
 beats during shared-service contention and bypasses when empty. Result tags
 retain selection and destination metadata until consumption.
 
-`writeback-calendar.rhdl` owns future physical write-cycle reservations. The core
+`../writeback-calendar.rhdl` owns future physical write-cycle reservations. The core
 reserves the deferred GPR port for pipelined multiplication, fixed FP integer
 returns, and vector-to-integer movement before launching each fixed operation.
 The vector composition independently reserves the VRF port. Shared-service
