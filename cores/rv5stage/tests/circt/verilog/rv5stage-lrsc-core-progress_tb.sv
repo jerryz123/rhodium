@@ -124,9 +124,10 @@ module rv5stage_lrsc_core_progress_tb;
 
   initial begin
     int loop_pc;
-    int rival_successes, passed = 0;
+    int rival_successes, passed;
     logic [63:0] rival_value;
     bit done;
+    passed = 0;
     host_in = '0;
     host_in.response.ready = 1;
     // Warm a function in L1I, patch it through the core's write-back D-cache,

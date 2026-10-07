@@ -346,7 +346,8 @@ module rv2wide_fetch_tb;
     end
     if(completed.valid) begin
       retirement_t expected;
-      int index=-1;
+      int index;
+      index=-1;
       assert(completions.size()>0) else $fatal(1,"orphan completion");
       foreach(completions[i]) if(completions[i].fetched.pc==completed.bits.fetched.pc) index=i;
       assert(index>=0) else $fatal(1,"completion instruction identity");
@@ -426,7 +427,8 @@ module rv2wide_fetch_tb;
       expected_mask=16'((1<<(1<<urequest.size_or_num_req))-1)<<urequest.address[3:0];
       assert(uncached_chi_out.dat.request.bits.byte_enable==expected_mask) else $fatal(1,"IO byte enables do not match exact request width/address");
       for(int b=0;b<16;b++) if(expected_mask[b]) begin
-        int address=(int'(urequest.address)&~15)+b;
+        int address;
+        address=(int'(urequest.address)&~15)+b;
         assert(uncached_chi_out.dat.request.bits.data[b*8+:8]==model_bytes[address]) else $fatal(1,"IO store lane mismatch");
         backing[address]=uncached_chi_out.dat.request.bits.data[b*8+:8];
       end
@@ -581,7 +583,8 @@ module rv2wide_fetch_tb;
     insn('h408,addi(3,0,2047)); insn('h40c,addi(3,3,1));
     insn('h410,load(4,3,0,3)); // older cold cached read
     for(int width=0;width<4;width++) begin
-      int pc='h414+width*16;
+      int pc;
+      pc='h414+width*16;
       insn(pc,store(2,1,8+(1<<width),width));
       insn(pc+4,load(5+width,1,8+(1<<width),width));
       insn(pc+8,load(9+width,3,0,3)); // younger warm cache hit
@@ -632,7 +635,8 @@ module rv2wide_fetch_tb;
     @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
     for(int r=0;r<32;r++) registers[r]=0;
     begin
-      logic [63:0] pte=('h2<<10)|'hc7;
+      logic [63:0] pte;
+      pte=('h2<<10)|'hc7;
       for(int b=0;b<8;b++) backing['h12800+b]=pte[b*8+:8];
     end
     insn('h14000,{20'h500,5'd1,7'h37}); insn('h14004,addi(6,0,-2));
@@ -693,8 +697,10 @@ module rv2wide_fetch_tb;
       @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
       for(int r=0;r<32;r++) registers[r]=0;
       begin
-        logic [63:0] pte=scenario==17 ? ('h16<<10)|'hcb : 0;
-        logic [31:0] crossing=addi(12,0,77);
+        logic [63:0] pte;
+        logic [31:0] crossing;
+        pte=scenario==17 ? ('h16<<10)|'hcb : 0;
+        crossing=addi(12,0,77);
         for(int b=0;b<8;b++) backing['h12008+b]=pte[b*8+:8];
         insn('h14000,jal(0,'hffe));
         parcel('h14ffe,crossing[15:0]); parcel('h16000,crossing[31:16]);
