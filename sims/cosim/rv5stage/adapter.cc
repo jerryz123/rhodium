@@ -174,10 +174,17 @@ void HartAdapter::resolve(Collector& collector, Word instance, Hart& h, const Fr
   if (h.flen) {
     const bool issued_fp = fp.issued && fp.issue_fp, issued_integer = fp.issued && fp.issue_integer;
     const bool completed_fp = fp.completed && fp.complete_fp;
+    // A fixed result can coincide with its WB admission. Prefer an existing
+    // owner on replacement edges; only an otherwise unowned return is inline.
+    const bool inline_completion = fp.completed && fp.issued && fp.rd < 32 && fp.rd == fp.issue_rd &&
+      ((completed_fp && issued_fp && !h.fp_owners[fp.rd]) ||
+       (fp.complete_integer && issued_integer && h.fp_integer.empty()));
     if (fp.completed) {
       require(fp.complete_fp + fp.complete_integer == 1 && fp.rd < 32, "invalid FP completion destination");
       Id owner{};
-      if (completed_fp) {
+      if (inline_completion) {
+        owner = id;
+      } else if (completed_fp) {
         require(h.fp_owners[fp.rd].has_value(), "FP completion has no destination owner");
         owner = *h.fp_owners[fp.rd]; h.fp_owners[fp.rd].reset();
       } else {
@@ -191,10 +198,10 @@ void HartAdapter::resolve(Collector& collector, Word instance, Hart& h, const Fr
     }
     if (fp.issued) {
       require(fp.issue_fp + fp.issue_integer == 1 && fp.issue_rd < 32, "invalid FP issue destination");
-      if (issued_fp) {
+      if (issued_fp && !inline_completion) {
         require(!h.fp_owners[fp.issue_rd], "FP destination still owned");
         h.fp_owners[fp.issue_rd] = id;
-      } else if (issued_integer) {
+      } else if (issued_integer && !inline_completion) {
         require(h.fp_integer.size() < 64, "FP integer owner capacity exceeded");
         h.fp_integer.push_back({id,fp.issue_rd});
       }

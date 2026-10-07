@@ -38,8 +38,11 @@ belong only to the wrapper's opaque execution tag.
 
 ## Change workflow
 
-1. Keep compute and deferred-load admission at authorized WB. Rejected work
-   must replay without retirement, scoreboard reservations, or arithmetic effects.
+1. Keep architectural admission and divide/sqrt launch at authorized WB.
+   Fixed arithmetic uses ID-reserved EX launch and timing-aligned WB authorization.
+   Never let a killed fixed result write registers, flags, or observation events.
+   Authorized older results must survive younger redirects. Deferred loads also
+   reserve only at WB; rejected WB work replays without architectural effects.
 2. Preserve the enabled/disabled interface shape. Read port 0 serves scalar
    issue or the read-only WB vector-scalar snapshot while issue is idle.
 3. Keep vector FPR reservation/write separate from arithmetic. Reserve before

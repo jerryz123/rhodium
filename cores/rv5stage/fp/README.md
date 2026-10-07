@@ -22,12 +22,16 @@ defines timing, reordering, backpressure, rounding, and reset behavior.
 ## Scalar architectural wrapper
 
 The enabled and disabled implementations expose the same architectural ports.
-The enabled pipeline accepts non-speculative compute work through a
-`Decoupled` issue input and forwards results through a `Decoupled` completion
+The scalar adapter accepts non-speculative work through a `Decoupled` issue
+input, speculative fixed work through `Valid` `fixed_issue`, and its two-cycle
+later WB authorization through `Valid` `authorize`. It forwards authorized
+results through a `Decoupled` completion
 output. It also provides a `Decoupled` load-reservation input, a `Valid` load
 completion, a separate WB `Valid` load-hit input, one-cycle `Valid` store request/response pulses, a `Valid`
 architectural-state update, the FPR busy mask, and a drained indicator. The
 disabled implementation rejects FP work and reports itself drained.
+`fixed_reserved` selects the previously booked EX operand-read slot even when
+that instruction is killed, keeping WB readiness independent of EX cancellation.
 
 The common interface also exposes a `Decoupled` vector-destination reservation
 and a `Valid` vector write. A reservation marks one FPR busy before a vector
@@ -41,8 +45,8 @@ ready path.
 and architectural completion/state updates, exposing operand execution ports.
 `RV5StageFpPipeline` is its standalone composition with one execution service.
 Scalar context, destination kind, and register number travel through execution
-only as an opaque wrapper-owned tag. Its external issue/completion interfaces
-are unchanged. The core instead connects the scalar adapter and the
+only as an opaque wrapper-owned tag. The standalone composition ties off the
+speculative inputs and retains its issue/completion contract. The core instead connects the scalar adapter and the
 [vector caller](../vector/README.md#shared-floating-point) to
 one service with ordinary Flow arbitration and owner-tag routing. Scalar/vector
 movement bypasses that service and uses the reservation/write pair above.
@@ -51,9 +55,15 @@ Drained describes accepted execution and load reservations, not speculative
 store-operand probes. Those read-only probes may repeat while Decode waits;
 they do not delay an architectural trap or interrupt.
 
-Compute requests are authorized at scalar WB; rejected attempts replay without
-retirement or reservation. Accepted requests must eventually complete after
-their scalar tokens retire. The subsystem retains ownership of an FP destination
+Fixed arithmetic launches in EX after ID reserves the service and return cycle.
+WB authorizes architectural writes, flags, and destination ownership. A killed
+operation drains numerically without producing architectural effects. The shared
+timing contract aligns short results to WB and delays authorization for longer
+results; no two-cycle numerical-latency assumption is required. FP-to-GPR
+results reaching WB use the ordinary write port; later results use the reserved
+deferred port. Divide/sqrt still launches only from authorized WB; rejected
+attempts replay without retirement or reservation, and accepted work survives
+younger redirects. The subsystem retains ownership of an FP destination
 until its fixed-latency, division/square-root, or load result completes. FP
 load misses reserve their destination when the transaction is accepted at WB.
 Load hits instead write and NaN-box directly through `load_hit` at scalar WB,
@@ -67,3 +77,8 @@ The scalar pipeline owns dispatch and memory requests; the FP subsystem owns
 FPR hazards and execution after acceptance. FP loads and stores share the
 ordinary scalar address, translation, PMA, cache, and uncached paths while
 carrying exact precision metadata.
+
+`RV5StageCore(..., ~fp_timing: FpExecutionTiming(single, double, other))`
+selects implementation timing, not ISA behavior. The core pads delays shorter
+than its two-cycle EX-to-WB distance and passes the resulting contract to both
+scalar and vector clients and their shared service.

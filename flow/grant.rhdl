@@ -45,7 +45,9 @@ circuit GrantMerge(T :: DataType, input_count :: PosInt):
     ingress[input_index].ready <== selected & egress.ready
 
   egress.valid <== active.valid
-  egress.bits <== active.mux(
+  // Grants select the operand independently of validity. A consumer may use
+  // that operand to compute readiness without a valid-to-ready feedback path.
+  egress.bits <== grants.mux(
     for List (input_index in 0..input_count): ingress[input_index].bits,
     ~default: ingress[0].bits
   )

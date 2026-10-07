@@ -43,6 +43,7 @@ struct packed { logic valid; logic [XLEN-1:0] address; logic [1:0] operation; } 
 logic instruction_pending = 0;
 logic [31:0] instruction_word;
 integer scenario, attempts, accepted, stores, response_delay, prefetches, restart_accepts;
+integer killed_fixed_launches, killed_fixed_returns;
 logic done;
 dresp_bits_t pending_response;
 RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
@@ -64,6 +65,15 @@ function automatic logic [31:0] atomic_word(input int operation, rd, rs);
   return {5'(operation), 2'b0, 5'(rs), 5'd3, 3'b010, 5'(rd), 7'h2f};
 endfunction
 function automatic logic [31:0] instruction_at(input logic [XLEN-1:0] address);
+  if (scenario == 2) case (address)
+    'h118: return 32'h7f800137;                 // Build an sNaN before the faulting load.
+    'h11c: return addi(2, 2, 1);
+    'h120: return fp('h78, 5, 2, 0);
+    'h124, 'h128, 'h12c: return addi(0, 0, 0);
+    'h130: return 32'h40002283;
+    'h134: return fp('h00, 1, 5, 1);           // EX result would overwrite f1 and raise NV.
+    default: begin end
+  endcase
   case (address)
     'h100: return 32'h000020b7;                  // lui x1, 2: FS=Initial
     'h104: return csr(0, 1, 'h300, 2);
@@ -74,8 +84,8 @@ function automatic logic [31:0] instruction_at(input logic [XLEN-1:0] address);
     'h118: return fp('h78, 0, 0, 0);            // fmv.w.x f0, x0
     'h11c: return 32'h40000137;                  // x2 = 2.0f
     'h120: return 32'h40002283;                  // lw x5, 0x400(x0)
-    'h124: return 32'h50106013;                  // prefetch.r 0x500(x0)
-    'h128: return fp('h78, 1, 2, 0);            // younger FP overwrite
+    'h124: return fp('h78, 1, 2, 0);            // immediately younger FP overwrite
+    'h128: return 32'h50106013;                  // prefetch.r 0x500(x0)
     'h12c: return fp('h0c, 2, 1, 0);            // fdiv.s f2, f1, f0: DZ
     'h130: return fp('h70, 6, 1, 0);            // fmv.x.w x6, f1
     'h134: return store_word(6, 'h440);
@@ -90,6 +100,11 @@ function automatic logic [31:0] instruction_at(input logic [XLEN-1:0] address);
     'h158: return fp('h70, 11, 3, 0);
     'h15c: return store_word(11, 'h44c);
     'h160: return store_word(10, 'h458);
+    'h164: return fp('h00, 4, 1, 3);            // fadd.s f4 = 2 + 3
+    'h168: return fp('h08, 5, 1, 3);            // independent fmul.s f5 = 2 * 3
+    'h16c: return fp('h70, 12, 4, 0);           // dependent FP -> GPR
+    'h170: return store_word(12, 'h470);
+    'h174: return store_word(5, 'h474, 'h27);
     'h200: return fp('h70, 6, 1, 0);            // fault: old f1 must survive
     'h204: return store_word(6, 'h460);
     'h208: return csr(7, 0, 'h001, 2);
@@ -102,14 +117,14 @@ function automatic logic [31:0] instruction_at(input logic [XLEN-1:0] address);
   endcase
 endfunction
 
-assign instruction_access_in.request.ready = instruction_access_out.flush || !instruction_pending;
+assign instruction_access_in.request.ready = instruction_access_out.flush || !instruction_pending || instruction_access_out.response.ready;
 assign instruction_access_in.response.valid = instruction_pending;
 assign instruction_access_in.response.word = instruction_word;
 assign instruction_access_in.response.page_fault = 0;
 assign instruction_access_in.response.access_fault = 0;
 assign data_access_in.request.ready = response_delay == 0 && (data_access_out.request.bits.address != 'h400 || (scenario == 0 && attempts >= 3));
 assign data_access_in.request_fault = 0;
-assign data_access_in.request_access_fault = scenario == 1 && data_access_out.request.valid && data_access_out.request.bits.address == 'h400;
+assign data_access_in.request_access_fault = scenario != 0 && data_access_out.request.valid && data_access_out.request.bits.address == 'h400;
 assign data_access_in.response.valid = response_delay == 1;
 assign data_access_in.response.bits = pending_response;
 assign data_access_in.drained = response_delay == 0;
@@ -122,10 +137,19 @@ always_ff @(posedge clock) begin
     stores <= 0;
     prefetches <= 0;
     restart_accepts <= 0;
+    killed_fixed_launches <= 0;
+    killed_fixed_returns <= 0;
     response_delay <= 0;
     pending_response <= '0;
     done <= 0;
   end else begin
+    // Observe the scalar adapter's public ports to prove this scenario really
+    // launches speculative arithmetic, rather than cancelling it before EX.
+    if (scenario == 2) begin
+      if (dut.core.wb_fp.fixed_issue_in.valid && dut.core.wb_fp.fixed_issue_in.bits.context_0 == 'h134) killed_fixed_launches <= killed_fixed_launches + 1;
+      if (dut.core.wb_fp.execution_result_in.valid && dut.core.wb_fp.execution_result_in.bits.tag.context_0 == 'h134) killed_fixed_returns <= killed_fixed_returns + 1;
+      assert(!(dut.core.wb_fp.authorize_in.valid && dut.core.wb_fp.authorize_in.bits.context_0 == 'h134)) else $fatal(1, "faulting predecessor authorized younger FP");
+    end
     if (instruction_access_out.flush || (instruction_pending && instruction_access_out.response.ready)) instruction_pending <= 0;
     // Flush cancels the old response; an accepted replacement belongs to the new epoch.
     if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
@@ -151,6 +175,10 @@ always_ff @(posedge clock) begin
             3: assert(data_access_out.request.bits.address == 'h44c && data_access_out.request.bits.data == 'h40400000) else $fatal(1, "FP load reservation/completion failed");
             4: begin
               assert(data_access_out.request.bits.address == 'h458 && data_access_out.request.bits.data == 42) else $fatal(1, "atomic completion failed");
+            end
+            5: assert(data_access_out.request.bits.address == 'h470 && data_access_out.request.bits.data == 'h40a00000) else $fatal(1, "fixed FP RAW or integer completion failed");
+            6: begin
+              assert(data_access_out.request.bits.address == 'h474 && data_access_out.request.bits.data == 'h40c00000) else $fatal(1, "fixed FP arithmetic/store failed");
               done <= 1;
             end
             default: $fatal(1, "duplicated store");
@@ -180,7 +208,7 @@ always_ff @(posedge clock) begin
 end
 
 initial begin
-  for (scenario = 0; scenario < 2; scenario++) begin
+  for (scenario = 0; scenario < 3; scenario++) begin
     reset = 1;
     repeat (3) @(negedge clock);
     reset = 0;
@@ -189,6 +217,7 @@ initial begin
     assert(done) else $fatal(1, "WB scenario %0d timed out", scenario);
     assert(restart_accepts > 0) else $fatal(1, "WB scenario missed accepted restart coverage");
     assert(prefetches == (scenario == 0 ? 1 : 0)) else $fatal(1, "WB prefetch count mismatch");
+    if (scenario == 2) assert(killed_fixed_launches == 1 && killed_fixed_returns == 1) else $fatal(1, "missing killed EX FP launch/return coverage: %0d/%0d", killed_fixed_launches, killed_fixed_returns);
   end
   $display("RV%0d WB memory/FP authorization, replay, and fault isolation passed", XLEN);
   $finish;

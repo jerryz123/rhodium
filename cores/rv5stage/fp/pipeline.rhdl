@@ -10,6 +10,7 @@ import:
   "../../fp/execute.rhdl" open
   "../../fp/register-file.rhdl" open
   "../../fp/types.rhdl" open
+  "../../fp/timing.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../fp/load-store.rhdl" open
@@ -25,6 +26,9 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   def Issue = RV5StageFpIssue(xlen, profile, Context)
   def Completion = RV5StageFpCompletion(xlen, profile, Context)
   interface issue(Decoupled(Issue), ~role: consumer)
+  interface fixed_issue(Valid(Issue), ~role: consumer)
+  input fixed_reserved: Bool
+  interface authorize(Valid(Issue), ~role: consumer)
   interface completion(Decoupled(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
@@ -52,15 +56,16 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   busy <== Mask(register_count)(0)
   drained <== Bool(#true)
 
-/* Owns scalar FPR state, source/destination scoreboarding, and LSU operand bridges.
-   WB authorizes execution and load reservations; vector movement exclusively reserves
-   an FPR destination, while speculative store snapshots do not prevent drain. */
+/* Owns scalar FPR state, WB reservations, and LSU operand bridges. Optional fixed EX launches
+   retain aligned authorization; divide/sqrt and standalone requests arrive authorized. */
 sync_circuit RV5StageFpScalar(
   xlen :: XLen,
   profile :: FloatingPointProfile,
   Context :: DataType,
   ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-  ~zfa: zfa_enabled :: Boolean = #false
+  ~zfa: zfa_enabled :: Boolean = #false,
+  ~speculative_fixed: speculative_fixed :: Boolean = #false,
+  ~timing: timing :: FpExecutionTiming = FpExecutionTiming()
 ):
   check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   unless floating_point_supports_f(profile)
@@ -71,6 +76,9 @@ sync_circuit RV5StageFpScalar(
   def Completion = RV5StageFpCompletion(xlen, profile, Context)
 
   interface issue(Decoupled(Issue), ~role: consumer)
+  interface fixed_issue(Valid(Issue), ~role: consumer)
+  input fixed_reserved: Bool
+  interface authorize(Valid(Issue), ~role: consumer)
   interface completion(Decoupled(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
@@ -88,7 +96,11 @@ sync_circuit RV5StageFpScalar(
   inst registers(FloatingPointRegisterFile(profile))
   def Array(load_write :: Endpoint, execution_write :: Endpoint) = registers.writes
   reg busy_state(~init: Mask(register_count)(0))
-  reg outstanding(~init: bits(0, 4))
+  // Cover standalone fixed-response capacity and the shared retained variable
+  // owner; scheduled execution does not require additional payload storage.
+  def outstanding_limit = timing.maximum + 4
+  def outstanding_width = index_width(outstanding_limit + 1)
+  reg outstanding(~init: bits(0, outstanding_width))
   reg vector_pending(~init: Bool(#false))
   /* Builds the scoreboard mask for one architectural FPR. */
   fun register_bit(index :: Bits(5)) :~ Mask(register_count):
@@ -96,8 +108,29 @@ sync_circuit RV5StageFpScalar(
 
   interface execution_request(Decoupled(FpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context))), ~role: producer)
   interface execution_result(Decoupled(FpExecutionResult(xlen, profile, RV5StageFpScalarTag(Context))), ~role: consumer)
+  wire fixed_authorized: Bool
+  if speculative_fixed
+  | block:
+      unless math.min(timing.single, timing.double, timing.other) >= 2
+      | error(~who: #'RV5StageFpScalar, "scalar fixed returns must reach WB before architectural completion")
+      def at_writeback = fixed_issue |> valid_pipe(2)
+      when (authorize.valid):
+        assert(at_writeback.valid & (at_writeback.bits.context === authorize.bits.context) & (at_writeback.bits.frd === authorize.bits.frd), "scalar_fp_authorization_is_wb_aligned")
+      def decisions = authorize |> fork_valid(timing.latencies.length())
+      def returns = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
+        def selected = decisions[index] |> filter_valid(operation => timing.latency(operation.control.execution) === bits(latency, timing.width))
+        if latency == 2 | selected | selected |> valid_pipe(latency - 2)
+      def authorized_result = returns |> valid_arbiter()
+      fixed_authorized <== authorized_result.valid
+      when (authorized_result.valid):
+        assert(execution_result.valid & execution_result.bits.tag.speculative & (execution_result.bits.tag.context === authorized_result.bits.context) & (execution_result.bits.tag.rd === authorized_result.bits.frd), "scalar_fp_return_is_scheduled")
+        assert(completion.ready, "scalar_fp_return_has_write_port")
+      when (fixed_issue.valid):
+        assert(execution_request.ready, "scalar_fp_launch_is_immediate")
+  | block:
+      fixed_authorized <== Bool(#false)
   (
-    execution_result |> map_flow(~stable: #true, completed):
+    execution_result |> filter_flow(result => !result.tag.speculative ||| fixed_authorized) |> map_flow(~stable: #true, completed):
       RV5StageFpCompletion(xlen, profile, Context):
         context: completed.tag.context
         destination: completed.tag.destination
@@ -162,26 +195,33 @@ sync_circuit RV5StageFpScalar(
   /* Checks hazards after same-cycle scalar completions, but before vector retirement clears. */
   fun register_busy(index :: Bits(5)) :~ Bool:
     scoreboard_busy(register_count, currently_busy, index)
-  def control = issue.bits.control
+  // The booked slot, not a squash-sensitive EX valid, selects operands and
+  // WB readiness. This keeps WB replay independent of the launch it cancels.
+  inst request_selection(GrantMerge(Issue, 2))
+  request_selection.grants <== vec([fixed_reserved, !fixed_reserved]).into(MaybeOneHot(2))
+  Array(fixed_issue |> to_decoupled(), issue) <=> request_selection.ingress
+  def offered = request_selection.egress
+  def control = offered.bits.control
   def source_hazard = (
-    control.registers.uses_frs1 & register_busy(issue.bits.frs1)
+    control.registers.uses_frs1 & register_busy(offered.bits.frs1)
   ) ||| (
-    control.registers.uses_frs2 & register_busy(issue.bits.frs2)
+    control.registers.uses_frs2 & register_busy(offered.bits.frs2)
   ) ||| (
-    control.registers.uses_frs3 & register_busy(issue.bits.frs3)
+    control.registers.uses_frs3 & register_busy(offered.bits.frs3)
   )
   def fp_destination = control.registers.destination === FloatDestination.FloatingPoint
-  def destination_hazard = fp_destination & register_busy(issue.bits.frd)
+  def destination_hazard = fp_destination & register_busy(offered.bits.frd)
   def issue_hazard = source_hazard ||| destination_hazard
   def memory_request = control.execution.unit === FloatUnit.Memory
   (
-    issue |> gate_flow(!issue_hazard & !memory_request & !vector_pending) |> map_flow(issued):
+    offered |> gate_flow(!issue_hazard & !memory_request & !vector_pending) |> map_flow(issued):
       FpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context)):
         tag:
           RV5StageFpScalarTag(Context):
             context: issued.context
             destination: issued.control.registers.destination
             rd: issued.frd
+            speculative: Bool(speculative_fixed) & fixed_reserved
         control: issued.control
         left: registers.read_data_1
         left_precision: issued.control.execution.source_precision
@@ -193,13 +233,17 @@ sync_circuit RV5StageFpScalar(
         immediate_index: issued.frs1
         rounding_mode: issued.rounding_mode
   ) |> execution_request
-  def issue_fire = issue.fire()
+  def issue_fire = issue.fire() ||| authorize.valid
+  def admitted = mux(authorize.valid, authorize.bits, issue.bits)
+  def immediate_authorization = authorize.valid & (timing.latency(authorize.bits.control.execution) === bits(2, timing.width))
+  when (issue.valid & Bool(speculative_fixed)):
+    assert(issue.bits.control.execution.unit === FloatUnit.DivideSquareRoot, "scalar_fp_wb_launch_is_variable")
 
   // The third read port is shared by accepted execution and store-read events.
   // Store reads are speculative operand preparation; execution issue and load
   // reservations are authorized by scalar WB before they can modify FP state.
   def store_source_free = !register_busy(store_request.bits.rs)
-  def store_request_safe = !issue.valid & !vector_pending & store_source_free
+  def store_request_safe = !offered.valid & !vector_pending & store_source_free
   inst stores(ValidPipe(RV5StageFpStoreResponse(Context), 1))
   stores.egress |> store_response
   (
@@ -208,11 +252,11 @@ sync_circuit RV5StageFpScalar(
         context: request.context
         data: fp_store_value(profile, request.precision, registers.read_data_3)
   ) |> stores.ingress
-  registers.read_address_1 <== mux(issue.valid, issue.bits.frs1, snapshot_read_address)
-  registers.read_address_2 <== issue.bits.frs2
+  registers.read_address_1 <== mux(offered.valid, offered.bits.frs1, snapshot_read_address)
+  registers.read_address_2 <== offered.bits.frs2
   registers.read_address_3 <== mux(
-    issue.valid,
-    issue.bits.frs3,
+    offered.valid,
+    offered.bits.frs3,
     store_request.bits.rs
   )
   snapshot_read_data <== if flen == 64 | registers.read_data_1 | registers.read_data_1.zext(64)
@@ -224,8 +268,8 @@ sync_circuit RV5StageFpScalar(
   def load_reserve_fire = load_reserve.fire()
   vector_reserve.ready <== !vector_pending & !outstanding.or_reduce() & !busy_state.or_reduce()
   def vector_reserve_fire = vector_reserve.fire()
-  def execution_set = issue_fire & fp_destination
-  def execution_set_bit = register_bit(issue.bits.frd)
+  def execution_set = issue_fire & (admitted.control.registers.destination === FloatDestination.FloatingPoint) & !immediate_authorization
+  def execution_set_bit = register_bit(admitted.frd)
   def load_set_bit = register_bit(load_reserve.bits.rd)
   def vector_set_bit = register_bit(vector_reserve.bits)
   def set_mask = mux(execution_set,
@@ -240,7 +284,7 @@ sync_circuit RV5StageFpScalar(
     Mask(register_count)(0)
   )
   when execution_set:
-    assert(!scoreboard_busy(register_count, currently_busy, issue.bits.frd),
+    assert(!scoreboard_busy(register_count, currently_busy, admitted.frd),
            "rv5stage_fp_execution_destination_free")
   when load_reserve_fire:
     assert(!scoreboard_busy(register_count, currently_busy, load_reserve.bits.rd),
@@ -249,10 +293,10 @@ sync_circuit RV5StageFpScalar(
     assert(!scoreboard_busy(register_count, currently_busy, vector_reserve.bits),
            "rv5stage_fp_vector_destination_free")
   when (execution_set & load_reserve_fire):
-    assert(issue.bits.frd =/= load_reserve.bits.rd,
+    assert(admitted.frd =/= load_reserve.bits.rd,
            "rv5stage_fp_reservations_distinct")
   when execution_clear:
-    assert(scoreboard_busy(register_count, busy_state, execution_completion.rd),
+    assert(scoreboard_busy(register_count, busy_state, execution_completion.rd) ||| (immediate_authorization & (admitted.frd === execution_completion.rd)),
            "rv5stage_fp_execution_destination_reserved")
   when load_clear:
     assert(scoreboard_busy(register_count, busy_state, load_completion.bits.rd) ||| (
@@ -288,15 +332,15 @@ sync_circuit RV5StageFpScalar(
   )
   def next_outstanding = mux(
     issue_fire,
-    outstanding + bits(1, 4),
-    outstanding - bits(1, 4)
+    outstanding + bits(1, outstanding_width),
+    outstanding - bits(1, outstanding_width)
   )
   when (issue_fire ^ completion_fire):
     outstanding <== next_outstanding
   when completion_fire:
     assert(outstanding.or_reduce() ||| issue_fire,
            "rv5stage_fp_completion_has_issue")
-  assert(outstanding <= bits(8, 4), "rv5stage_fp_outstanding_in_range")
+  assert(outstanding <= bits(outstanding_limit, outstanding_width), "rv5stage_fp_outstanding_in_range")
   // Speculative store-operand probes are not authorized work and must not
   // prevent a trap or interrupt from draining accepted FP operations.
   drained <== !outstanding.or_reduce() & !busy_state.or_reduce()
@@ -328,6 +372,11 @@ sync_circuit RV5StageFpPipeline(xlen :: XLen, profile :: FloatingPointProfile, C
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result
   issue |> scalar.issue
+  scalar.fixed_issue.valid <== Bool(#false)
+  scalar.fixed_reserved <== Bool(#false)
+  scalar.fixed_issue.bits <== dont_care(Issue)
+  scalar.authorize.valid <== Bool(#false)
+  scalar.authorize.bits <== dont_care(Issue)
   scalar.completion |> completion
   load_reserve |> scalar.load_reserve
   load_completion |> scalar.load_completion

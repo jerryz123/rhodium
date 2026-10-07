@@ -8,7 +8,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("hardfloat/main.rhdl").RoundingMode
 
-/* Carries scalar register indices and captured instruction context for authorized FP issue. */
+/* Carries scalar register indices and captured instruction context for launch or WB admission. */
 bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
   control: FloatingPointControl()
@@ -24,6 +24,7 @@ bundle RV5StageFpScalarTag(Context :: DataType):
   context: Context
   destination: FloatDestination
   rd: Bits(5)
+  speculative: Bool
 
 /* Returns scalar destination metadata alongside values and optional accrued exception flags. */
 bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):

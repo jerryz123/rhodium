@@ -1,0 +1,25 @@
+#lang rhodium
+/* Describes fixed FP execution latency for arithmetic and its scalar/vector schedulers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "types.rhdl" open
+
+/* Selects feed-forward return delays; every fixed lane accepts one operation per cycle.
+   These delays surround the current combinational arithmetic implementation. */
+class FpExecutionTiming(single :: PosInt = 2, double :: PosInt = 2, other :: PosInt = 2):
+  property maximum :: PosInt: math.max(single, double, other)
+  property width :: PosInt: index_width(maximum + 1)
+  property latencies :: List:
+    [single] ++ (if double == single | [] | [double]) ++ (if other == single || other == double | [] | [other])
+
+  /* Aligns short numerical results to a caller's earliest architectural write boundary. */
+  method at_least(minimum :: PosInt) :: FpExecutionTiming:
+    FpExecutionTiming(math.max(single, minimum), math.max(double, minimum), math.max(other, minimum))
+
+  /* Selects a fixed return delay from decoded execution controls, independently of ownership. */
+  method latency(control :: FloatExecutionControl(), ~width: result_width :: PosInt = width) :~ Bits(result_width):
+    def arithmetic = control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd)
+    mux(arithmetic, mux(control.destination_precision === FloatPrecision.Double, bits(double, result_width), bits(single, result_width)), bits(other, result_width))
+
+export FpExecutionTiming

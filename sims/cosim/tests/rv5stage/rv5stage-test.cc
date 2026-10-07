@@ -277,6 +277,30 @@ void cache_operations(unsigned xlen, Word op, bool fault) {
   }
   collector.finish(); require(records==1);
 }
+void immediate_fp(unsigned xlen, bool floating, unsigned rd) {
+  Collector collector; collector.reset(0,0,{0,0x8000,{3,false},xlen,64}); DpiBinding binding(collector);
+  Sample s;
+  s.cycle.xlen=xlen; s.cycle.wb_commit_valid=1;
+  s.boundary.csr_commit=1; s.boundary.csr_retired=1;
+  s.fp.issued=1; s.fp.completed=1;
+  s.fp.issue_fp=floating; s.fp.complete_fp=floating;
+  s.fp.issue_integer=!floating; s.fp.complete_integer=!floating;
+  s.fp.issue_rd=rd; s.fp.rd=rd; s.fp.fp_value=42; s.fp.integer_value=42;
+  s.fp.flags_valid=1; s.fp.exception_flags=1;
+  collector.begin_sample(0);
+  std::vector<std::function<void()>> calls; capture(calls,s,0,0,0);
+  std::reverse(calls.begin(),calls.end());
+  for (auto& call:calls) call();
+  binding.check();
+  const auto records=collector.end_sample(); require(records.size()==1);
+  const auto& record=records.front();
+  if (floating || rd) {
+    const auto& write=std::get<RegisterWrite>(record.effects.at({floating?3ULL:0ULL,0}));
+    require(write.index==rd && write.value==42 && write.bank==(floating?Bank::FloatingPoint:Bank::Integer));
+  } else require(!record.effects.contains({0,0}));
+  require(std::get<CsrUpdate>(record.effects.at({4,0})).value==1);
+  collector.finish();
+}
 void invalid(unsigned mutation) {
   Collector collector; collector.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(collector);
   Sample s;
@@ -289,6 +313,7 @@ void invalid(unsigned mutation) {
   require(failed);
 }
 int main() {
+  for (unsigned xlen : {32,64}) for (bool floating : {false,true}) for (unsigned rd : {0,4}) immediate_fp(xlen,floating,rd);
   for (unsigned xlen : {32,64}) for (Word op : {6,7,8,9}) for (bool fault : {false,true}) cache_operations(xlen,op,fault);
   auto baseline=run(0);
   for (unsigned seed=1;seed<64;++seed) require(run(seed)==baseline);

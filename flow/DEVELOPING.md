@@ -119,6 +119,10 @@ under completion gating and ownership-selected arbitration.
 `GrantDemux` and `GrantMerge` own routing and selection contracts sampled from
 their functional grants. `GrantCrossbar` and its configured adapter delegate
 through these children; do not add a competing whole-crossbar model.
+Keep `GrantMerge` payload selection independent of input validity: registered
+execution grants must permit payload-dependent readiness without coupling WB
+replay to the younger EX valid it cancels. RV5Stage FP elaboration exercises
+this dependency boundary in addition to the generic crossbar fixture.
 `event-crossbar` checks direct/configured traversal through input queues,
 simultaneous outputs, changing grants under stalls, and reset with pending work
 against a public-transfer occurrence scoreboard.

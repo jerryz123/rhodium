@@ -541,6 +541,9 @@ optional-one-hot grant column. A zero grant blocks the corresponding flow;
 both scalar grant ports use `MaybeOneHot`, so ordinary Rhodium construction keeps
 the zero-or-one invariant explicit. An external environment can still violate
 the physical encoding and must satisfy the corresponding boundary contract.
+`GrantMerge` selects its payload from the grant independently of input validity.
+Consumers may inspect the selected operand to compute readiness without feeding
+a cancelled offer's validity back into that readiness decision.
 
 `GrantCrossbar(T, inputs, outputs)` structurally composes one `GrantDemux` per
 input with one `GrantMerge` per output around an externally generated

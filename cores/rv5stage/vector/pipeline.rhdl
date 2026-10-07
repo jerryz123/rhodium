@@ -5,6 +5,7 @@
 
 import:
   "../../fp/bundles.rhdl" open
+  "../../fp/timing.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   lib("cores/vector-layout.rhm").vector_word_bytes
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -41,7 +42,7 @@ import:
 /* Composes one sequencer with fixed operand capture, SIMD execution, and persistent owners.
    Reserves future writes before nonstallable reads or fixed-service launches; owner-indexed
    recurrences, packed carry, and splats survive replacement of the sequencing descriptor. */
-sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false):
+sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def tag_width = index_width(vector_completion_slots)
   def InstructionId = Bits(tag_width)
   def SlotId = Bits(tag_width)
@@ -113,7 +114,9 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def foreign_rows = instructions.blocked_rows
   inst splat(RV5StageVectorSplatLoad(xlen, vlen, vector_completion_slots))
   inst completions(RV5StageVectorCompletionUnit(xlen, vlen, vector_completion_slots, ~fixed_multiply: multiply_latency != #false))
-  inst writeback_calendar(RV5StageWritebackCalendar(3, 8))
+  def calendar_span = math.max(8, fp_timing.maximum)
+  def calendar_width = index_width(calendar_span + 1)
+  inst writeback_calendar(RV5StageWritebackCalendar(3, calendar_span))
   def allocated = vec(for List (s in 0..vector_completion_slots): completions.state[s].allocated)
   def authorized_slots = vec(for List (s in 0..vector_completion_slots): completions.state[s].accepted)
   def entry_owner = vec(for List (s in 0..vector_completion_slots): completions.state[s].owner)
@@ -216,6 +219,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def s1_packed = sequencer.sequence_request.bits.context.packed
   def s1_local_write = !s1_packed & !(s1_control.memory & sequencer.sequence_request.bits.context.instruction.descriptor.precertified) & (!s1_service ||| s1_control.memory ||| sequencer.sequence_request.bits.context.instruction.descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty)
   def s1_write_delay = mux(s1_control.memory, bits(4, 4), bits(2, 4))
+  def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
   def s1_next_slot = if vector_completion_slots == 1 | bits(0, tag_width) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().or_reduce() & !operand_fetch.scheduled_return))
@@ -283,7 +287,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
   writeback_calendar.probe_client <== bits(2, index_width(3))
-  writeback_calendar.probe_delay <== s1_write_delay
+  writeback_calendar.probe_delay <== s1_calendar_delay
   def Array(pending_issue, skipped_splat) = operand_fetch.issue |> demux_flow(2, operation => !operation.packed & splat.probing & !operation.beat.enabled.as_bits()[0].into(Bool) & !operation.beat.last & (operation.context.owner === splat.owner))
   def splat_skip = skipped_splat |> to_valid()
   def issued = pending_issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
@@ -330,7 +334,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
           owner: operation.context.owner
   ) |> packed.reserve
   writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & s1_local_write
-  writeback_calendar.reserve[2].bits <== s1_write_delay
+  writeback_calendar.reserve[2].bits <== s1_calendar_delay
   when (operand_fetch.scheduled_return):
     assert(slot_available, "vector_scheduled_read_has_completion_slot")
     assert(!replay, "vector_replay_kills_scheduled_read")
@@ -392,9 +396,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
   def Array(fp_launch, fp_reservation) = fp_authorized.egress |> atomic_fork(2)
   fp_launch |> fp_request
-  fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> writeback_calendar.reserve[1]
-  reg fp_returns(~init: bits(0, 2))
-  fp_returns <== writeback_calendar.reserve[1].fire().as_bits() ++ fp_returns[1..2]
+  fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => fp_timing.latency(operation.control.execution, ~width: calendar_width)) |> writeback_calendar.reserve[1]
+  reg fp_returns(~init: bits(0, fp_timing.maximum + 1))
+  def fp_return_reservation = mux(writeback_calendar.reserve[1].fire(), bits(1, fp_timing.maximum + 1) << writeback_calendar.reserve[1].bits, bits(0, fp_timing.maximum + 1))
+  fp_returns <== (fp_returns ||| fp_return_reservation) >> 1
   completions.fixed_fp_return <== fp_returns[0].into(Bool)
   completions.reserved_write <== writeback_calendar.occupied[0].into(Bool)
   fp_result |> completions.fp_result
@@ -403,7 +408,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
   def Array(multiply_launch, multiply_reservation) = multiply_authorized.egress |> atomic_fork(2)
   multiply_launch |> multiply_request
-  multiply_reservation |> filter_flow(_operation => Bool(multiply_latency != #false)) |> map_flow(_operation => bits(if multiply_latency | multiply_latency | 1, 4)) |> writeback_calendar.reserve[0]
+  multiply_reservation |> filter_flow(_operation => Bool(multiply_latency != #false)) |> map_flow(_operation => bits(if multiply_latency | multiply_latency | 1, calendar_width)) |> writeback_calendar.reserve[0]
   divide_authorized.egress |> divide_request
   multiply_result |> completions.multiply_result
   divide_result |> completions.divide_result

@@ -5,6 +5,7 @@
 import:
   "../../cache/protocol.rhdl" open
   "../core.rhdl" open
+  "../../fp/timing.rhdl" open
   "../fetch/frontend.rhdl" open
   "../profile.rhm" open
   "../icache/protocol.rhdl" open
@@ -90,7 +91,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     elsewhen (frontend_admitted & completed_match):
       completed <== Bool(#false)
 
-sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6, ~vector_translation: vector_translation :: Boolean = #false, ~split_memory: split_memory :: Boolean = #false):
+sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6, ~vector_translation: vector_translation :: Boolean = #false, ~split_memory: split_memory :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def xlen = profile.xlen
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(xlen.width)
@@ -103,7 +104,7 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   output mstatus: Bits(xlen.width)
   output satp: Bits(xlen.width)
   output translation_flush: Bool
-  inst core(RV5StageCore(profile, ~reset_address: reset_address))
+  inst core(RV5StageCore(profile, ~reset_address: reset_address, ~fp_timing: fp_timing))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
   inst memory(RV5StageTestInstructionMemory(xlen))
   core.frontend_control |> frontend.control

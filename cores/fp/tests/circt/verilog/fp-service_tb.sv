@@ -122,8 +122,11 @@ module fp_service_tb;
     bit flags_valid, integer_result;
     int op;
     assert(pending[client][value.tag]) else $fatal(1, "unsolicited, duplicate, or misrouted result client=%0d tag=%0d", client, value.tag);
-    if (scheduled && accepted[client][value.tag].control.execution.unit != 4'd4)
-      assert(cycles == accepted_cycle[client][value.tag] + 2) else $fatal(1, "fixed result missed its reserved write cycle");
+    if (scheduled && accepted[client][value.tag].control.execution.unit != 4'd4) begin
+      automatic request_t request = accepted[client][value.tag];
+      automatic int latency = request.control.execution.unit inside {4'd1,4'd2,4'd3} ? (request.control.execution.destination_precision == 2'd2 ? 4 : 3) : 2;
+      assert(cycles == accepted_cycle[client][value.tag] + latency) else $fatal(1, "fixed result missed its reserved write cycle");
+    end
     expected = 64'h4008000000000000;
     flags = 0;
     flags_valid = 1;

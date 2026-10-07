@@ -540,6 +540,9 @@ implementation depends on the vector package or on test/backend code.
 `cores/rv5stage/core.rhdl` directly imports the FP execution service and
 HardFloat rounding types to compose scalar and vector operand clients around
 one service. Generic request/result retagging remains in the FP bundles.
+`cores/fp/timing.rhdl` imports only shared FP control types. The execution
+service, scalar FP wrapper, core, and vector composition/pipeline import it to
+share fixed return delays without introducing a named-core dependency into FP.
 
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN only.
 `btb.rhdl` and `ras.rhdl` consume that protocol, XLEN, `std/bits.rhdl`, and

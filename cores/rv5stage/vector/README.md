@@ -224,7 +224,8 @@ completions.
 Standalone compositions leave `~multiply_latency` false and `~fixed_fp` false
 when their external services can return on arbitrary cycles. Integrated fixed
 services declare the multiplier's request-to-result latency and the FP service's
-two-cycle contract; request acceptance then includes the VRF reservation.
+`FpExecutionTiming` contract; request acceptance then includes the selected
+return-cycle VRF reservation.
 `scalar_writeback` offers a one-cycle reservation that must be accepted along
 with any beat producing an integer scalar result. Its consumer must guarantee
 the corresponding `scalar_result` write, not queue that completed value.
@@ -772,14 +773,14 @@ write; redirect and cancellation cannot alter the FPR. Until that write complete
 scalar FP issue is held behind the reservation.
 
 The core composes scalar and vector requests around one FP execution service
-using round-robin arbitration and an owner-tagged union. Scalar FPR state
+using reserved scalar EX slots, intervening vector turns, and an owner-tagged union. Scalar FPR state
 remains in its architectural adapter; only the WB `.vf` source snapshot crosses
 into the vector descriptor.
 Each vector element reserves a completion slot before issue. A bounded
 locally accepted request queue absorbs service backpressure and bypasses an
 empty queue directly into the shared service, while slot exhaustion stops
 earlier issue, keeping MEM/WB feed-forward. Fixed operations reserve their
-two-cycle write opportunity atomically with service acceptance. Variable
+operation-specific write opportunity atomically with service acceptance. Variable
 results wait at the arithmetic producer. Results write directly, with
 completion-time exception-flag updates; slot metadata is reclaimed separately.
 Scalar and vector flag updates on the same cycle are ORed together.

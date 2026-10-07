@@ -86,7 +86,7 @@ from a DPI-result register in the observed design.
    the normal MEM/WB result, or retains an owned store candidate for WB enqueue.
    Replay resource conflicts through the same pipeline, independently of slow
    miss service and faults. WB remains the authorization boundary for miss
-   transactions, device reads, mutations, FP compute, hints, and reservations.
+   transactions, device reads, mutations, FP architectural effects, hints, and reservations.
    A speculative lookup must never allocate, mutate, reserve a destination, or
    start device IO. Rejection replays before transaction acceptance; accepted
    transactions must never be replayed. Keep coherence service independent.
@@ -305,6 +305,17 @@ checks five cycles from producer EX to dependent ID admission and consecutive
 independent launches. `rv5stage-integer-execution` checks exact five-cycle
 returns, WB authorization, cancellation, and reset through the production scalar
 adapter; `rv5stage-vector-muldiv` covers shared scalar/vector execution.
+
+Fixed FP similarly reserves EX service ownership and its selected return cycle
+at ID. `cores/fp/timing.rhdl` is the common timing contract for execution, scalar
+authorization, and vector VRF scheduling. Results earlier than WB are aligned
+to WB; longer results carry delayed authorization, not a generic result buffer.
+Only authorized results set/clear architectural destinations or accrue flags.
+FP-to-GPR results at WB use the ordinary port, while later results reserve the
+deferred port. Divide/sqrt remains WB-launched and retains its terminal result.
+ID avoids promising EX FPR reads over older WB division or vector snapshots.
+An EX reservation takes priority over vector launch, with admission gaps giving
+waiting vector work a turn. Store probes retain their independent ID/EX timing.
 
 ## Pointer-masking ownership
 
@@ -567,6 +578,9 @@ owner queues rely on the ordered authorized scalar memory service and ordered
 scalar arithmetic responses; assert the original response tag at removal.
 FP compute uses a destination-indexed FPR owner table because fixed and variable
 responses can reorder, plus a FIFO for fixed integer results including x0.
+The FP admission event is WB authorization, never speculative EX launch. A
+fixed completion coinciding with its own authorization uses that WB owner
+directly; an older queued owner still takes precedence on replacement edges.
 FP load writes retain the memory owner separately. Check these invariants with
 the native adapter tests; use existing software suites with `COSIM=1` for
 instruction coverage rather than a separate FP qualification payload.
@@ -1017,8 +1031,12 @@ FIXTURES='rv5stage-core rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fa
 
 The RV32F/RV64D benches exercise rejected memory dispatch, committed prefetches,
 deferred FP and atomic completion, FP stores/loads, CSR flags, and suppression of younger
-FP/register/memory effects behind a data fault. Keep these behavioral checks
-at the core boundary rather than depending on generated internal signal names.
+FP/register/memory effects behind a data fault. RV64D uses longer fixed delays
+than RV32F to exercise deferred versus WB-time returns. The killed-arithmetic
+case samples the scalar adapter's public launch/result ports to prove arithmetic
+actually ran, while trap-handler stores check that its FPR write and flags did
+not escape. Keep architectural checks at the core boundary and avoid generated
+temporary signal names.
 
 For Zicboz, keep permission/fault ownership above the cache, and exercise
 both XLEN SRAM sequences as well as the one-completion uncached sequence:

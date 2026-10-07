@@ -57,22 +57,30 @@ decoded operands + opaque tag
      fixed/variable dispatch
        /              \
  fixed arithmetic   divide/sqrt (retained terminal result)
- two-cycle delay         |
+ selected fixed delay    |
        \                /
          completion arbitration -> tagged result
 ```
 
-Fixed results return two cycles after launch. This is a nonstallable delay
-around the combinational datapath, not a claim of balanced arithmetic stages.
-The default service reserves four fixed-response slots and fairly merges
+[`FpExecutionTiming`](timing.rhdl) supplies the execution and scheduling contract:
+single/half arithmetic, double arithmetic, and other fixed operations have
+independently configurable delays. Defaults preserve the current two-cycle
+return. Each lane has initiation interval one. These are nonstallable delays around combinational arithmetic,
+not a claim of balanced arithmetic stages. Launch arbitration prevents two
+different-latency operations from claiming the same return cycle.
+The default service reserves `timing.maximum + 2` fixed-response slots and fairly merges
 fixed and variable completions into its held result. With
 `~scheduled_writeback: #true`, fixed results have no completion queue and must
 be consumed on their reserved return cycle. The caller must reserve writeback
 capacity before accepting the request. The scheduled output is `Decoupled`:
 a fixed return can preempt an unaccepted variable offer. Aging pauses new
-fixed launches so a blocked variable result can drain.
+fixed launches so a blocked variable result can drain. Its
+`fixed_admission_available` output allows a scheduled caller to reserve the
+following cycle's launch without crossing that aging pause. The caller must
+also reserve service ownership and the return cycle; this output alone is not
+an admission grant.
 
-Results may reorder across fixed and variable paths. Use
+Results may reorder across fixed latencies and variable paths. Use
 [`fp_request_with_tag` and `fp_result_with_tag`](bundles.rhdl) with ordinary
 Flow arbitration and tag-based routing to share the service. Tags remain
 opaque; the service has no client count, destination scoreboard, or

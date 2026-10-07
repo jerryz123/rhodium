@@ -5,6 +5,7 @@
 import:
   "../bundles.rhdl" open
   "../execute.rhdl" open
+  "../timing.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
@@ -48,7 +49,7 @@ sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boole
         exception_flags: completed.exception_flags
         exception_flags_valid: completed.exception_flags_valid
 
-  inst execution(FpExecutionService(xlen, profile, Owner(), ~scheduled_writeback: scheduled_writeback))
+  inst execution(FpExecutionService(xlen, profile, Owner(), ~scheduled_writeback: scheduled_writeback, ~timing: FpExecutionTiming(3, 4, 2)))
   Array(first |> tagged_request(#false), second |> tagged_request(#true))
     |> rr_arbiter()
     |> execution.request

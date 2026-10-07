@@ -5,6 +5,7 @@
 
 import:
   "../fp/bundles.rhdl" open
+  "../fp/timing.rhdl" open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
@@ -32,7 +33,7 @@ import:
 /* Queues two WB-admitted descriptors and certifies only the head before execution dispatch.
    Keeps page-window ownership, fault-certainty barriers, and registered architectural
    outcomes separate from the older execution owner's retained requests and results. */
-sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #false):
+sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~hypervisor: hypervisor :: Boolean = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
   def MultiplyTag = RV5StageVectorMultiplyTag(slots)
@@ -62,7 +63,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
-  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp))
+  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   execution.schedule_enable <== Bool(#true)
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
   input request_fault_address: Bits(xlen.width)

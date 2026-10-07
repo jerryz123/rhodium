@@ -32,6 +32,7 @@ the caller rather than adding a dependency back toward a core.
 | [`load-store.rhdl`](load-store.rhdl) | FP load boxing and raw low-precision store shaping without LSU policy |
 | [`datapath.rhdl`](datapath.rhdl) | Fixed F/D/half/Zfa execution and exact per-operand promotion |
 | [`div-sqrt.rhdl`](div-sqrt.rhdl) | One active variable operation with retained terminal state/tag |
+| [`timing.rhdl`](timing.rhdl) | Shared fixed-operation return-delay descriptor |
 | [`execute.rhdl`](execute.rhdl) | Lane routing, fixed-return timing, and completion arbitration |
 | [`tests/`](tests/) | Shared decode contracts and standalone behavioral fixtures |
 
@@ -50,6 +51,10 @@ the caller rather than adding a dependency back toward a core.
 5. Run `make check-boundaries` after moves or import changes and
    `make ci-plan-test` after moving executable tests or fixture inventory.
    Generated HDL/MLIR and simulator output are not checked in.
+
+`timing.rhdl` owns fixed return delays and initiation interval one. Keep service
+return collision checks, scalar authorization alignment, and vector reservations
+on this shared descriptor; do not repeat a literal latency in callers.
 
 ## Validation
 
