@@ -4,18 +4,18 @@
 
 import:
   "protocol.rhdl" open
-  "../../../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
 /* Stores a shared valid upper-address tag used by branch and target entries. */
-bundle RV5StageBtbPage(tag_width :: PosInt):
+bundle BtbPage(tag_width :: PosInt):
   valid: Bool
   tag: Bits(tag_width)
 
 /* Stores low PC/target bits, shared-page indices, local direction counter, length, and RAS
    hint. */
-bundle RV5StageBtbEntry(match_bits :: PosInt, page_count :: PosInt):
+bundle BtbEntry(match_bits :: PosInt, page_count :: PosInt):
   valid: Bool
   pc_low: Bits(match_bits)
   pc_page: Bits(index_width(page_count))
@@ -24,34 +24,31 @@ bundle RV5StageBtbEntry(match_bits :: PosInt, page_count :: PosInt):
   conditional: Bool
   compressed: Bool
   counter: Bits(2)
-  ras_action: RV5StageRasAction
+  ras_action: RasAction
 
-/* Predicts the earliest taken branch in the current word using full-address matches via shared
+/* Predicts the earliest taken branch in the current four-byte word using full-address matches via shared
    pages.
    Resolved training precedes discovery; page replacement invalidates all dependent entries. */
-sync_circuit RV5StageBtb(xlen :: XLen,
-                         entry_count :: Nat = 32,
-                         match_bits :: PosInt = 14,
-                         page_count :: PosInt = 8):
+sync_circuit Btb(xlen :: XLen, entry_count :: Nat = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8):
   // Lookup is combinational; only predictor state changes are event flows.
   unless match_bits >= 2 && match_bits < xlen.width
-  | error(~who: #'RV5StageBtb, "match bits must include the fetch-word offset and leave an upper address tag")
+  | error(~who: #'Btb, "match bits must include the fetch-word offset and leave an upper address tag")
   unless page_count >= 2
-  | error(~who: #'RV5StageBtb, "shared page count must be at least two")
+  | error(~who: #'Btb, "shared page count must be at least two")
   input cursor: Bits(xlen.width)
   interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
-  interface update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
-  interface discover(Valid(RV5StagePrediction(xlen)), ~role: consumer)
-  output prediction: RV5StagePrediction(xlen)
+  interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
+  interface discover(Valid(BranchPrediction(xlen)), ~role: consumer)
+  output prediction: BranchPrediction(xlen)
 
   if entry_count == 0
-  | prediction <== literal(RV5StagePrediction(xlen), 0)
+  | prediction <== literal(BranchPrediction(xlen), 0)
   | block:
       def index_bits = index_width(entry_count)
       def page_index_bits = index_width(page_count)
-      def Page = RV5StageBtbPage(xlen.width - match_bits)
-      def Entry = RV5StageBtbEntry(match_bits, page_count)
+      def Page = BtbPage(xlen.width - match_bits)
+      def Entry = BtbEntry(match_bits, page_count)
       reg pages(~init: vec(for List (_index in 0..page_count): literal(Page, 0)))
       reg entries(~init: vec(for List (_index in 0..entry_count): literal(Entry, 0)))
       reg replacement(~init: bits(0, index_bits))
@@ -74,7 +71,7 @@ sync_circuit RV5StageBtb(xlen :: XLen,
       )
       def lower = vec(for List (index in 0..entry_count): candidates[index] & !entries[index].pc_low[1].into(Bool))
       def selected = entries[priority_encoder(mux(lower.or_reduce(), lower, candidates))]
-      prediction <== RV5StagePrediction(xlen):
+      prediction <== BranchPrediction(xlen):
         valid: candidates.or_reduce() & !invalidate_all.valid
         pc: pages[selected.pc_page].tag ++ selected.pc_low
         target: pages[selected.target_page].tag ++ selected.target_low
@@ -143,11 +140,11 @@ sync_circuit RV5StageBtb(xlen :: XLen,
         when (invalidate_all.valid):
           pages[index] <== literal(Page, 0)
         elsewhen (allocate_pages & !pc_page_found & (pc_page === bits(index, page_index_bits))):
-          pages[index] <== RV5StageBtbPage(xlen.width - match_bits):
+          pages[index] <== BtbPage(xlen.width - match_bits):
             valid: Bool(#true)
             tag: page_tag(write_pc)
         elsewhen (allocate_pages & !same_page & !target_page_found & (target_page === bits(index, page_index_bits))):
-          pages[index] <== RV5StageBtbPage(xlen.width - match_bits):
+          pages[index] <== BtbPage(xlen.width - match_bits):
             valid: Bool(#true)
             tag: page_tag(write_target)
       for (index in 0..entry_count):
@@ -156,7 +153,7 @@ sync_circuit RV5StageBtb(xlen :: XLen,
         elsewhen (invalidate.valid & invalidate_matches[index]):
           entries[index] <== entries[index].updated(~valid: Bool(#false))
         elsewhen (commit_write & (selected_index === bits(index, index_bits))):
-          entries[index] <== RV5StageBtbEntry(match_bits, page_count):
+          entries[index] <== BtbEntry(match_bits, page_count):
             valid: write_valid
             pc_low: write_pc[0..match_bits]
             pc_page: pc_page
@@ -170,6 +167,6 @@ sync_circuit RV5StageBtb(xlen :: XLen,
           entries[index] <== entries[index].updated(~valid: Bool(#false))
 
 export:
-  RV5StageBtbPage
-  RV5StageBtbEntry
-  RV5StageBtb
+  BtbPage
+  BtbEntry
+  Btb

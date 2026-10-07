@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../fetch/source.rhdl" open
-  "../fetch/bpd/protocol.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
   lib("flow/main.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
 
@@ -21,15 +21,15 @@ sync_circuit EventFetchSource():
   source.redirect.valid <== Bool(#false)
   source.redirect.bits <== bits(0, 64)
   source.ras_speculate.valid <== Bool(#false)
-  source.ras_speculate.bits <== literal(RV5StageRasUpdate(xlen), 0)
+  source.ras_speculate.bits <== literal(RasUpdate(xlen), 0)
   source.ras_restore.valid <== Bool(#false)
   source.btb_discover.valid <== Bool(#false)
-  source.btb_discover.bits <== literal(RV5StagePrediction(xlen), 0)
+  source.btb_discover.bits <== literal(BranchPrediction(xlen), 0)
   source.predictor_flush.valid <== Bool(#false)
   source.predictor_invalidate.valid <== Bool(#false)
   source.predictor_invalidate.bits <== bits(0, 64)
   source.branch_update.valid <== Bool(#false)
-  source.branch_update.bits <== literal(RV5StageBranchUpdate(xlen), 0)
+  source.branch_update.bits <== literal(BranchUpdate(xlen), 0)
   def restart_event = restart |> trace_valid_event("restart", ~fields: pc):
     pc: pc
   restart_event |> source.restart

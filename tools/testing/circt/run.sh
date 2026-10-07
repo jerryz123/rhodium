@@ -110,7 +110,7 @@ integration_fixtures=(
   rv32i-alu rv64i-alu-integrated simd-alu simd-alu32 load-store-rv32-word bit-manip bit-manip-rv32 cache-replacement
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
   fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-inclusive-directory chi-read-once-home chi-read-stream chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
-  rv5stage-core rv5stage-branch-prediction rv5stage-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
+  rv5stage-core rv5stage-branch-prediction bpred-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
 repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -275,10 +275,10 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:hdmi-*|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores-components:fp-*|cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-control-policy|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
+    cores-components:bpred-*|cores-components:fp-*|cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-control-policy|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
-    cores-execution-frontend:rv5stage-access-fault|cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-btb|cores-execution-frontend:rv5stage-ras|cores-execution-frontend:rv5stage-return-prediction|cores-execution-frontend:rv5stage-instruction-buffer|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput|cores-execution-frontend:rv5stage-branch-prediction|cores-execution-frontend:rv5stage-data-fault|cores-execution-frontend:rv5stage-zcb|cores-execution-frontend:rv5stage-mop)
+    cores-execution-frontend:rv5stage-access-fault|cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-return-prediction|cores-execution-frontend:rv5stage-instruction-buffer|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput|cores-execution-frontend:rv5stage-branch-prediction|cores-execution-frontend:rv5stage-data-fault|cores-execution-frontend:rv5stage-zcb|cores-execution-frontend:rv5stage-mop)
       return 0
       ;;
     cores-components:riscv-csr|cores-components:riscv-zihpm-*|cores-components:riscv-hypervisor-csr|cores-execution-control:rv5stage-hypervisor-core|cores-components:riscv-sstc-rv32|cores-execution-control:rv5stage-interrupt|cores-execution-control:rv5stage-wfi|cores-execution-control:rv5stage-zawrs|cores-execution-control:rv5stage-pause)
@@ -946,8 +946,8 @@ direct_fixture_specs=(
   'riscv-atomic|riscv_atomic_tb'
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'
-  'rv5stage-btb|rv5stage_btb_tb'
-  'rv5stage-ras|rv5stage_ras_tb'
+  'bpred-btb|bpred_btb_tb'
+  'bpred-ras|bpred_ras_tb'
   'rv5stage-return-prediction|rv5stage_return_prediction_tb'
   'rv5stage-instruction-buffer|rv5stage_instruction_buffer_tb'
   'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'

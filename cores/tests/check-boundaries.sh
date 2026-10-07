@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Checks shared-core dependency enforcement with ripgrep and the portable fallback.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -22,7 +23,7 @@ expect_failure() {
 }
 check_shared_ownership() {
   audit
-  for directory in cores cores/csr cores/mmu/nested cores/cache/chi cores/fp; do
+  for directory in cores cores/csr cores/mmu/nested cores/cache/chi cores/fp cores/bpred; do
     local probe="$fixture/$directory/shared-probe.rhdl"
     printf '  lib("riscv/rtl/csr.rhdl") open\n' > "$probe"
     audit
@@ -42,8 +43,17 @@ check_shared_ownership() {
   audit
 }
 check_shared_ownership
+cp "$fixture/cores/bpred/protocol.rhdl" "$fixture/predictor-protocol"
+for dependency in '  "btb.rhdl" open' '  lib("cores/bpred/ras.rhdl") open'; do
+  printf '%s\n' "$dependency" > "$fixture/cores/bpred/protocol.rhdl"
+  expect_failure 'branch prediction protocols must not import predictor implementations'
+done
+cp "$fixture/predictor-protocol" "$fixture/cores/bpred/protocol.rhdl"
 if command -v rg >/dev/null 2>&1; then
   ln -s "$(command -v rg)" "$fixture/bin/rg"
   check_shared_ownership
+  printf '  lib("cores/bpred/btb.rhdl") open\n' > "$fixture/cores/bpred/protocol.rhdl"
+  expect_failure 'branch prediction protocols must not import predictor implementations'
+  cp "$fixture/predictor-protocol" "$fixture/cores/bpred/protocol.rhdl"
 fi
 echo "Core boundary audit regressions passed"

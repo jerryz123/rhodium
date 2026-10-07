@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "bpd/protocol.rhdl" open
-  "bpd/btb.rhdl" open
-  "bpd/ras.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/bpred/btb.rhdl") open
+  lib("cores/bpred/ras.rhdl") open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -15,7 +15,7 @@ bundle RV5StageFetchAttempt(xlen :: XLen):
   pc: Bits(xlen.width)
   continuation: Bool
   continuation_target: Bits(xlen.width)
-  prediction: RV5StagePrediction(xlen)
+  prediction: BranchPrediction(xlen)
 
 /* Retains the last cursor update and its trace owner; the caller supplies the reset fallback. */
 sync_circuit RV5StageFetchCursor(xlen :: XLen):
@@ -55,10 +55,10 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   interface replay(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
   interface predictor_flush(Pulse(), ~role: consumer)
   interface predictor_invalidate(Valid(Bits(width)), ~role: consumer)
-  interface branch_update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
-  interface ras_speculate(Valid(RV5StageRasUpdate(xlen)), ~role: consumer)
+  interface branch_update(Valid(BranchUpdate(xlen)), ~role: consumer)
+  interface ras_speculate(Valid(RasUpdate(xlen)), ~role: consumer)
   interface ras_restore(Pulse(), ~role: consumer)
-  interface btb_discover(Valid(RV5StagePrediction(xlen)), ~role: consumer)
+  interface btb_discover(Valid(BranchPrediction(xlen)), ~role: consumer)
   interface attempts(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)
   interface stage1(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
   output ras_head_valid: Bool
@@ -67,8 +67,8 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   reg running(~init: Bool(#true))
   inst cursor(RV5StageFetchCursor(xlen))
   inst offer(RV5StageFetchOffer(xlen))
-  inst btb(RV5StageBtb(xlen, btb_entries))
-  inst ras(RV5StageRas(xlen, if btb_entries == 0 | 0 | ras_entries))
+  inst btb(Btb(xlen, btb_entries))
+  inst ras(Ras(xlen, if btb_entries == 0 | 0 | ras_entries))
   def command = clear.valid ||| restart.valid ||| redirect.valid
   inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   btb.cursor <== s1.egress.bits.pc
@@ -78,9 +78,9 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   btb_discover |> btb.discover
   def Array(btb_update, ras_resolution) = branch_update |> fork_valid(2)
   btb_update |> btb.update
-  (ras_resolution |> map_valid(update => RV5StageRasResolution(xlen)):
+  (ras_resolution |> map_valid(update => RasResolution(xlen)):
     actual:
-      RV5StageRasUpdate(xlen):
+      RasUpdate(xlen):
         action: update.ras_action
         return_address: update.return_address
     predicted_action: update.predicted_ras_action
@@ -90,9 +90,9 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   ras_head_valid <== ras.head_valid
   ras_head <== ras.head
   def stored_prediction = btb.prediction
-  def predicted_return = stored_prediction.ras_action.is_one_of(RV5StageRasAction.Pop, RV5StageRasAction.PopPush) & ras.head_valid
+  def predicted_return = stored_prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras.head_valid
   def btb_prediction = stored_prediction.updated(~target: mux(predicted_return, ras.head, stored_prediction.target))
-  def prediction = mux(s1.egress.bits.continuation, literal(RV5StagePrediction(xlen), 0), btb_prediction)
+  def prediction = mux(s1.egress.bits.continuation, literal(BranchPrediction(xlen), 0), btb_prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
   def next_pc = mux(s1.egress.bits.continuation, s1.egress.bits.continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, s1.egress.bits.pc.align_down(4) + bits(4, width)))
   def redirecting = restart.valid ||| redirect.valid
@@ -100,15 +100,15 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     pc: pc
     continuation: Bool(#false)
     continuation_target: pc
-    prediction: literal(RV5StagePrediction(xlen), 0)
+    prediction: literal(BranchPrediction(xlen), 0)
   def Array(restart_offer, restart_update) = restart_candidates |> fork_valid(2)
-  def Array(replay_offer, replay_update) = (replay |> map_valid(attempt => attempt.updated(~prediction: literal(RV5StagePrediction(xlen), 0)))) |> fork_valid(2)
+  def Array(replay_offer, replay_update) = (replay |> map_valid(attempt => attempt.updated(~prediction: literal(BranchPrediction(xlen), 0)))) |> fork_valid(2)
   def Array(prediction_source, lookup_source) = s1.egress |> fork_valid(2)
   def next_candidates = prediction_source |> map_valid(_attempt => RV5StageFetchAttempt(xlen)):
     pc: next_pc
     continuation: predicted_straddle
     continuation_target: prediction.target
-    prediction: literal(RV5StagePrediction(xlen), 0)
+    prediction: literal(BranchPrediction(xlen), 0)
   def Array(next_offer, next_update) = next_candidates |> fork_valid(2)
   def seed :: Handle = interface_link(Valid(RV5StageFetchAttempt(xlen)))
   seed.left.valid <== Bool(#true)

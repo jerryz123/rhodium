@@ -1,18 +1,17 @@
 #lang rhodium
-/* Implements RV5Stage's speculative six-entry-style return-address stack and resolved recovery
-   state. */
+/* Maintains a bounded speculative return-address stack with resolved-state recovery. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "protocol.rhdl" open
-  "../../../../riscv/isa/xlen.rhm" open
-  "../../../../riscv/model/formats.rhm" as riscv_fields
-  "../../../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/model/formats.rhm" as riscv_fields
+  "../../riscv/rtl/instruction-fields.rhdl".instruction_field
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
 /* Decodes JAL/JALR x1/x5 hints, distinguishing push, pop, and coroutine pop-then-push. */
-fun rv5stage_ras_action(instruction :: Bits(32)) :~ RV5StageRasAction:
+fun riscv_ras_action(instruction :: Bits(32)) :~ RasAction:
   def opcode = instruction_field(riscv_fields.opcode, instruction)
   def rd = instruction_field(riscv_fields.rd, instruction)
   def rs1 = instruction_field(riscv_fields.rs1, instruction)
@@ -20,20 +19,20 @@ fun rv5stage_ras_action(instruction :: Bits(32)) :~ RV5StageRasAction:
   def rs1_link = rs1.is_one_of(bits(1, 5), bits(5, 5))
   mux(
     (opcode === bits(0x6f, 7)) & rd_link,
-    RV5StageRasAction.Push,
+    RasAction.Push,
     mux(
       opcode === bits(0x67, 7),
       mux(
         rd_link & rs1_link,
-        mux(rd === rs1, RV5StageRasAction.Push, RV5StageRasAction.PopPush),
-        mux(rd_link, RV5StageRasAction.Push, mux(rs1_link, RV5StageRasAction.Pop, RV5StageRasAction.None))
+        mux(rd === rs1, RasAction.Push, RasAction.PopPush),
+        mux(rd_link, RasAction.Push, mux(rs1_link, RasAction.Pop, RasAction.None))
       ),
-      RV5StageRasAction.None
+      RasAction.None
     )
   )
 
 /* Classifies raw C.JAL, C.JR, and C.JALR hints, including RV32-only direct calls. */
-fun rv5stage_compressed_ras_action(xlen :: XLen, instruction :: Bits(16)) :~ RV5StageRasAction:
+fun riscv_compressed_ras_action(xlen :: XLen, instruction :: Bits(16)) :~ RasAction:
   def direct_call = Bool(xlen == XLen.X32) & (instruction[0..2] === bits(1, 2)) & (instruction[13..16] === bits(1, 3))
   def indirect = (instruction[0..2] === bits(2, 2)) & (instruction[13..16] === bits(4, 3)) & (instruction[2..7] === bits(0, 5)) & instruction[7..12].or_reduce()
   def rs1 = instruction[7..12]
@@ -41,24 +40,24 @@ fun rv5stage_compressed_ras_action(xlen :: XLen, instruction :: Bits(16)) :~ RV5
   def link = instruction[12].into(Bool)
   mux(
     direct_call,
-    RV5StageRasAction.Push,
+    RasAction.Push,
     mux(
       indirect,
-      mux(link, mux(rs1 === bits(5, 5), RV5StageRasAction.PopPush, RV5StageRasAction.Push), mux(rs1_link, RV5StageRasAction.Pop, RV5StageRasAction.None)),
-      RV5StageRasAction.None
+      mux(link, mux(rs1 === bits(5, 5), RasAction.PopPush, RasAction.Push), mux(rs1_link, RasAction.Pop, RasAction.None)),
+      RasAction.None
     )
   )
 
 /* Identifies stack actions that store a new return address. */
-fun rv5stage_ras_writes(action :: RV5StageRasAction) :~ Bool:
-  action.is_one_of(RV5StageRasAction.Push, RV5StageRasAction.PopPush)
+fun ras_writes(action :: RasAction) :~ Bool:
+  action.is_one_of(RasAction.Push, RasAction.PopPush)
 
 /* Maintains speculative and resolved bounded stacks; recovery/action mismatch restores resolved
    state.
    Overflow wraps the top while saturating depth; zero entries disables return prediction. */
-sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
-  interface speculate(Valid(RV5StageRasUpdate(xlen)), ~role: consumer)
-  interface resolve(Valid(RV5StageRasResolution(xlen)), ~role: consumer)
+sync_circuit Ras(xlen :: XLen, entry_count :: Nat = 6):
+  interface speculate(Valid(RasUpdate(xlen)), ~role: consumer)
+  interface resolve(Valid(RasResolution(xlen)), ~role: consumer)
   interface restore(Pulse(), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   output head_valid: Bool
@@ -86,35 +85,35 @@ sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
       fun decrement(index :: Bits(index_bits)) :~ Bits(index_bits):
         mux(index === bits(0, index_bits), bits(entry_count - 1, index_bits), index - bits(1, index_bits))
       /* Computes the top after push/pop; pop-then-push replaces the current top. */
-      fun updated_top(top :: Bits(index_bits), count :: Bits(count_bits), action :: RV5StageRasAction) :~ Bits(index_bits):
+      fun updated_top(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
         mux(
-          action === RV5StageRasAction.Push,
+          action === RasAction.Push,
           mux(count === bits(0, count_bits), top, increment(top)),
           mux(
-            action === RV5StageRasAction.Pop,
+            action === RasAction.Pop,
             mux(count === bits(0, count_bits), top, decrement(top)),
             top
           )
         )
       /* Saturates depth on push/pop and makes pop-then-push nonempty without increasing
          existing depth. */
-      fun updated_count(count :: Bits(count_bits), action :: RV5StageRasAction) :~ Bits(count_bits):
+      fun updated_count(count :: Bits(count_bits), action :: RasAction) :~ Bits(count_bits):
         mux(
-          action === RV5StageRasAction.Push,
+          action === RasAction.Push,
           mux(count === bits(entry_count, count_bits), count, count + bits(1, count_bits)),
           mux(
-            action === RV5StageRasAction.Pop,
+            action === RasAction.Pop,
             mux(count === bits(0, count_bits), count, count - bits(1, count_bits)),
             mux(
-              action === RV5StageRasAction.PopPush,
+              action === RasAction.PopPush,
               mux(count === bits(0, count_bits), bits(1, count_bits), count),
               count
             )
           )
         )
       /* Selects the next top for push, or the current top for pop-then-push replacement. */
-      fun write_index(top :: Bits(index_bits), count :: Bits(count_bits), action :: RV5StageRasAction) :~ Bits(index_bits):
-        mux(action === RV5StageRasAction.Push, mux(count === bits(0, count_bits), top, increment(top)), top)
+      fun write_index(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
+        mux(action === RasAction.Push, mux(count === bits(0, count_bits), top, increment(top)), top)
 
       def speculative_write_index = write_index(speculative_top, speculative_count, speculate.bits.action)
       def speculative_next_entries = speculative_entries.updated(speculative_write_index, speculate.bits.return_address)
@@ -132,7 +131,7 @@ sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
         committed_top <== bits(0, index_bits)
         committed_count <== bits(0, count_bits)
       elsewhen (resolve.valid):
-        committed_entries <== mux(rv5stage_ras_writes(resolve.bits.actual.action), committed_next_entries, committed_entries)
+        committed_entries <== mux(ras_writes(resolve.bits.actual.action), committed_next_entries, committed_entries)
         committed_top <== committed_next_top
         committed_count <== committed_next_count
 
@@ -141,7 +140,7 @@ sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
         speculative_top <== bits(0, index_bits)
         speculative_count <== bits(0, count_bits)
       elsewhen (resolve.valid & (restore.valid ||| reconcile)):
-        speculative_entries <== mux(rv5stage_ras_writes(resolve.bits.actual.action), committed_next_entries, committed_entries)
+        speculative_entries <== mux(ras_writes(resolve.bits.actual.action), committed_next_entries, committed_entries)
         speculative_top <== committed_next_top
         speculative_count <== committed_next_count
       elsewhen (restore.valid):
@@ -149,11 +148,11 @@ sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
         speculative_top <== committed_top
         speculative_count <== committed_count
       elsewhen (speculate.valid):
-        speculative_entries <== mux(rv5stage_ras_writes(speculate.bits.action), speculative_next_entries, speculative_entries)
+        speculative_entries <== mux(ras_writes(speculate.bits.action), speculative_next_entries, speculative_entries)
         speculative_top <== updated_top(speculative_top, speculative_count, speculate.bits.action)
         speculative_count <== updated_count(speculative_count, speculate.bits.action)
 
 export:
-  rv5stage_ras_action
-  rv5stage_compressed_ras_action
-  RV5StageRas
+  riscv_ras_action
+  riscv_compressed_ras_action
+  Ras

@@ -7,7 +7,7 @@ import:
   "../../../sims/cosim/events/transport.rhdl".capture_lane
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
-  "../fetch/bpd/protocol.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
   "../memory-context.rhdl" open
   "../../cache/operation.rhdl".CacheOperation
   "../mmu/protocol.rhdl" open
@@ -87,7 +87,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       mask: mux(instruction[0..2] =/= bits(3, 2), bits(1, 2), bits(3, 2))
       page_fault: Bool(#false)
       access_fault: Bool(#false)
-      prediction: literal(RV5StagePrediction(xlen), 0)
+      prediction: literal(BranchPrediction(xlen), 0)
     core.pipeline_access.response.valid <== lookup_valid & lookup_mode.or_reduce()
     core.pipeline_access.response.bits <== CachePipelineResult(xlen):
       outcome: mux(lookup_mode === bits(1, 2), CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)

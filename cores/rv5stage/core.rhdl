@@ -10,8 +10,8 @@ import:
   "../cosim-source.rhm".describe_cosim_hart
   "observation.rhdl".RV5StageObservationContract
   lib("riscv/rtl/hypervisor.rhdl") open
-  "fetch/bpd/protocol.rhdl" open
-  "fetch/bpd/ras.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/bpred/ras.rhdl") open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../load-store.rhdl" open
@@ -1244,7 +1244,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     state: ex_vector_snapshot
     scalar: ex_vector_resolved_rs1
     stride: ex_vector_resolved_rs2
-  def ex_ras_action = rv5stage_ras_action(ex_input.bits.instruction)
+  def ex_ras_action = riscv_ras_action(ex_input.bits.instruction)
   def ex_ras_mispredicted = ex_ras_action =/= ex_input.bits.predicted_ras_action
   def ex_next_pc_mispredicted = ex_resume_pc =/= ex_input.bits.predicted_next_pc
   def ex_redirect_valid = (ex_next_pc_mispredicted ||| ex_ras_mispredicted) & !ex_exception.valid
@@ -1259,7 +1259,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_payload.redirect_valid <== ex_redirect_valid
   ex_payload.branch_prediction <== mux(!ex_input.bits.vector_launch & ex_input.bits.branch_control.enable, mux(ex_next_pc_mispredicted, RV5StageBranchPrediction.Mispredicted, RV5StageBranchPrediction.Correct), RV5StageBranchPrediction.NotBranch)
   ex_payload.branch_update <== block:
-      RV5StageBranchUpdate(xlen):
+      BranchUpdate(xlen):
         pc: ex_input.bits.pc
         target: ex_redirect_target
         branch: ex_input.bits.branch_control.enable

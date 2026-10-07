@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "bpd/protocol.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
   "source.rhdl" open
   "packet.rhdl" open
   "scan.rhdl" open
@@ -28,7 +28,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   def recovery = control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
   inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
   def command = recovery ||| repair.egress.valid
-  inst late_return(ValidPipe(RV5StagePrediction(xlen), 1, ~flushable: #true))
+  inst late_return(ValidPipe(BranchPrediction(xlen), 1, ~flushable: #true))
   def fallback_redirect = late_return.egress |> filter_valid(_prediction => !command)
   repair.flush <== recovery ||| fallback_redirect.valid
   late_return.flush <== command
@@ -96,8 +96,8 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   ) |> scan.ingress
   scan.egress |> to_decoupled() |> queue.ingress
   (scan.egress
-    |> filter_valid(packet => queue.ingress.ready & !packet.page_fault & !packet.access_fault & packet.prediction.valid & (packet.prediction.ras_action =/= RV5StageRasAction.None))
-    |> map_valid(packet => RV5StageRasUpdate(xlen)):
+    |> filter_valid(packet => queue.ingress.ready & !packet.page_fault & !packet.access_fault & packet.prediction.valid & (packet.prediction.ras_action =/= RasAction.None))
+    |> map_valid(packet => RasUpdate(xlen)):
          action: packet.prediction.ras_action
          return_address: packet.prediction.pc + mux(packet.prediction.compressed, bits(2, xlen.width), bits(4, xlen.width))
   ) |> source.ras_speculate

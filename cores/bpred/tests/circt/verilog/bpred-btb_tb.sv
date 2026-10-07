@@ -1,6 +1,6 @@
 // Checks compact associative matching, counters, entry/page replacement, and invalidation.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_btb_tb;
+module bpred_btb_tb;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed {
     logic [63:0] pc, target;
@@ -19,7 +19,7 @@ module rv5stage_btb_tb;
   update_t update_in = '0;
   discovery_t discover_in = '0;
   invalidate_t invalidate_in = '0;
-  RV5StageBtb dut (.*);
+  Btb dut (.*);
   always #5 clock = ~clock;
 
   task automatic train(input logic [63:0] pc, target, input bit conditional, taken, compressed = 0, branch = 1, input logic [1:0] ras_action = 0);
@@ -116,7 +116,7 @@ module rv5stage_btb_tb;
     check('h104, 0); // Replacing a source page invalidates entries that source it.
     check('h8100, 0); // The same replacement invalidates entries that target it.
     check('hc100, 1, 'h8100);
-    $display("RV5Stage associative BTB counters and replacement passed");
+    $display("Shared associative BTB counters and replacement passed");
     $finish;
   end
   initial begin #20000; $fatal(1, "BTB timeout"); end

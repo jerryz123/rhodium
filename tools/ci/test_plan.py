@@ -628,6 +628,11 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(set.union(*leaves), combined)
         self.assertTrue({"rv2wide-core", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
 
+    def test_shared_predictor_fixtures_belong_to_components(self):
+        runner = REPO / "tools/testing/circt/run.sh"
+        output = subprocess.run(["bash", runner, "--group", "cores-components", "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+        self.assertTrue({"bpred-btb", "bpred-ras"} <= set(output.splitlines()))
+
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()
         suffixes = (".mk", ".inc", ".py", ".rhm", ".rhdl", ".rkt", ".rktd", ".sh", ".sv", ".cc", ".cpp", ".h", ".S", ".ld", ".rfpl", ".yml", ".yaml")

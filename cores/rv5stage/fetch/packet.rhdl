@@ -4,7 +4,7 @@
 
 import:
   lib("riscv/rtl/hypervisor.rhdl") open
-  "bpd/protocol.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
   "../../../riscv/isa/xlen.rhm" open
 
 /* Carries one raw fetch word with valid-parcel mask, prediction, and optional guest-fault
@@ -17,7 +17,7 @@ bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
   mask: Bits(2)
   page_fault: Bool
   access_fault: Bool
-  prediction: RV5StagePrediction(xlen)
+  prediction: BranchPrediction(xlen)
 
 /* Names the restart PC and stale predictor PC when S2 repairs a prediction cut. */
 bundle RV5StageFetchRepair(xlen :: XLen):

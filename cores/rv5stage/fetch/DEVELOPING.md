@@ -18,16 +18,14 @@ instruction storage, refill, and coherence rather than fetch sequencing.
 | [`source.rhdl`](source.rhdl) | S0 PC selection, continuation, replay, and prediction lookup |
 | [`packet.rhdl`](packet.rhdl), [`scan.rhdl`](scan.rhdl) | Raw packet representation, prediction-cut validation, and S2 control-flow predecode |
 | [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Compressed expansion, straddling assembly, and residual-halfword state |
-| [`bpd/protocol.rhdl`](bpd/protocol.rhdl) | Prediction, training, and return-stack payload contracts |
-| [`bpd/btb.rhdl`](bpd/btb.rhdl) | Compact fully associative entries, shared upper-address pages, local direction counters, S2 discovery, and replacement |
-| [`bpd/ras.rhdl`](bpd/ras.rhdl) | RISC-V call/return classification and speculative/resolved stack state |
+| [`../../bpred/`](../../bpred/DEVELOPING.md) | Shared prediction payloads, BTB state, RISC-V hints, and speculative/resolved RAS |
 
 ## Dependency direction
 
-Keep `bpd/protocol.rhdl` independent of predictor implementations and fetch
-sequencing. BTB and RAS implementations may depend on that protocol; the fetch
-pipeline may depend on all three. Predictor modules must not import their fetch
-consumers. Keep `FetchDecode` in `fetch/protocol.rhdl` rather than the scalar
+The fetch pipeline consumes the shared `cores/bpred/` components and protocols.
+Keep cursor selection, prediction validation, fallback discovery, and RAS update
+qualification here; shared predictors must not import fetch consumers.
+Keep `FetchDecode` in `fetch/protocol.rhdl` rather than the scalar
 pipeline's general `bundles.rhdl`, so instruction assembly does not depend back
 on execution-owned payloads.
 
@@ -49,8 +47,8 @@ for direct/compressed jumps, returns, straddles, and blocked redirect issuance
 alongside ordinary S0-to-S0 successor ancestry and functional prediction checks.
 
 After changing layout or imports, run `make check-boundaries` and confirm no old
-paths remain. Fetch and predictor behavior is covered by the `rv5stage-btb`,
-`rv5stage-ras`, `rv5stage-instruction-buffer`, `rv5stage-fetch-prediction`,
+paths remain. Direct predictor behavior is covered by the shared `bpred-btb`
+and `bpred-ras` fixtures. Fetch integration is covered by `rv5stage-instruction-buffer`, `rv5stage-fetch-prediction`,
 `rv5stage-fetch-throughput`, `rv5stage-return-prediction`,
 `rv5stage-branch-prediction`, `rv5stage-fetch`, `rv5stage-core`, and
 `event-frontend` CIRCT fixtures. Run Racket and Rhombus checks through the

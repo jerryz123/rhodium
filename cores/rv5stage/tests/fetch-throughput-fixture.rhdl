@@ -6,7 +6,7 @@ import:
   "../../cache/protocol.rhdl" open
   "fetch-fixture.rhdl" open
   lib("cores/rv5stage/profile.rhm") open
-  lib("cores/rv5stage/fetch/bpd/protocol.rhdl") open
+  lib("cores/bpred/protocol.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
   lib("cores/rv5stage/mmu/protocol.rhdl") open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
@@ -52,9 +52,9 @@ sync_circuit RV5StageFetchThroughput():
   inject_interface(Pulse(), ~valid: Bool(#false)) |> fetch.control.invalidate_all
   inject_interface(Pulse(), ~valid: Bool(#false)) |> fetch.control.predictor_flush
   inject_interface(
-    Valid(RV5StageBranchUpdate(XLen.X64)),
+    Valid(BranchUpdate(XLen.X64)),
     ~valid: Bool(#false),
-    ~bits: literal(RV5StageBranchUpdate(XLen.X64), 0)
+    ~bits: literal(BranchUpdate(XLen.X64), 0)
   ) |> fetch.control.branch_update
   fetch.fetched.ready <== sink_ready
   valid <== fetch.fetched.valid

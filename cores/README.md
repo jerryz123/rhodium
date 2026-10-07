@@ -12,7 +12,7 @@ Contributors adding components or named cores should read
 
 ## Pick a reusable component
 
-All reusable blocks expose already-decoded physical controls. Their callers own
+Reusable execution datapaths expose already-decoded physical controls. Their callers own
 instruction recognition, operand selection, pipeline scheduling, and
 architectural result selection.
 
@@ -161,6 +161,7 @@ The package is organized by component, not by ISA namespace:
 | [`csr/`](csr/README.md) | Core-neutral CSR/trap state behind authorized commands |
 | [`mmu/`](mmu/README.md) | Host/guest TLBs, page-table walking, and translation contracts |
 | [`fp/`](fp/README.md) | FP instruction/control mappings, opaque-tag arithmetic service, and 3R2W FPR storage |
+| [`bpred/`](bpred/README.md) | Core-neutral BTB, speculative/resolved RAS, prediction payloads, and call/return hints |
 | Root integration helpers | CHI placement, split accesses, vector row layout, and passive observations |
 | `rv5stage/`, `rv2wide/`, `spike/` | Named-core configuration, pipeline policy, and integration |
 

@@ -1,0 +1,50 @@
+#lang rhodium
+/* Defines core-neutral branch prediction, training, and return-stack payloads. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../riscv/isa/xlen.rhm" open
+
+/* Encodes the x1/x5 implicit call/return hints, including coroutine pop-then-push. */
+hardware_enum RasAction:
+  None
+  Push
+  Pop
+  PopPush
+
+/* Pairs a speculative or resolved stack action with the return address for a push. */
+bundle RasUpdate(xlen :: XLen):
+  action: RasAction
+  return_address: Bits(xlen.width)
+
+/* Compares the actual stack action with its prediction for speculative-state reconciliation. */
+bundle RasResolution(xlen :: XLen):
+  actual: RasUpdate(xlen)
+  predicted_action: RasAction
+
+/* Names a predicted control-flow instruction, target, length, and implicit stack action. */
+bundle BranchPrediction(xlen :: XLen):
+  valid: Bool
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  compressed: Bool
+  ras_action: RasAction
+
+/* Carries a caller-qualified resolved control-flow outcome for BTB training and RAS recovery. */
+bundle BranchUpdate(xlen :: XLen):
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  branch: Bool
+  conditional: Bool
+  taken: Bool
+  compressed: Bool
+  ras_action: RasAction
+  predicted_ras_action: RasAction
+  return_address: Bits(xlen.width)
+
+export:
+  RasAction
+  RasUpdate
+  RasResolution
+  BranchPrediction
+  BranchUpdate

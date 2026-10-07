@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "bpd/protocol.rhdl" open
-  "bpd/ras.rhdl".rv5stage_compressed_ras_action
-  "bpd/ras.rhdl".rv5stage_ras_action
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/bpred/ras.rhdl").riscv_compressed_ras_action
+  lib("cores/bpred/ras.rhdl").riscv_ras_action
   "packet.rhdl" open
   "../profile.rhm".RV5StageConfig
   "../../../riscv/isa/c.rhm" open
@@ -30,7 +30,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   interface ingress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
   interface egress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
   interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
-  interface fallback(Valid(RV5StagePrediction(xlen)), ~role: producer)
+  interface fallback(Valid(BranchPrediction(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)
   input ras_head_valid: Bool
   input ras_head: Bits(xlen.width)
@@ -56,10 +56,10 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def first_compressed = if compressed_enabled | first_halfword[0..2] =/= bits(3, 2) | Bool(#false)
   def first_complete = first_compressed ||| partial ||| !first_upper
   def first_instruction = mux(partial, packet.word[0..16] ++ partial_halfword, packet.word)
-  def first_action = mux(first_compressed, rv5stage_compressed_ras_action(xlen, first_halfword), rv5stage_ras_action(first_instruction))
+  def first_action = mux(first_compressed, riscv_compressed_ras_action(xlen, first_halfword), riscv_ras_action(first_instruction))
   def first_valid = mux(partial, packet.mask[0].into(Bool), mux(first_upper, packet.mask[1].into(Bool), packet.mask[0].into(Bool)))
   def first_pc = mux(partial, packet.pc - bits(2, xlen.width), packet.pc)
-  def first_return = first_valid & first_complete & first_action.is_one_of(RV5StageRasAction.Pop, RV5StageRasAction.PopPush)
+  def first_return = first_valid & first_complete & first_action.is_one_of(RasAction.Pop, RasAction.PopPush)
   def first_compressed_direct = (first_halfword[0..2] === bits(1, 2)) & ((first_halfword[13..16] === bits(5, 3)) ||| (Bool(xlen == XLen.X32) & (first_halfword[13..16] === bits(1, 3))))
   def first_compressed_conditional = (first_halfword[0..2] === bits(1, 2)) & first_halfword[13..16].is_one_of(bits(6, 3), bits(7, 3))
   def first_compressed_indirect = (first_halfword[0..2] === bits(2, 2)) & (first_halfword[13..16] === bits(4, 3)) & (first_halfword[2..7] === bits(0, 5)) & first_halfword[7..12].or_reduce()
@@ -71,8 +71,8 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def second_follows = mux(partial, !first_full_control_flow, !first_upper & first_compressed & !first_compressed_control_flow)
   def second_valid = packet.mask[1].into(Bool) & upper_compressed & second_follows
   def second_pc = packet.pc.align_down(4) + bits(2, xlen.width)
-  def second_action = rv5stage_compressed_ras_action(xlen, packet.word[16..32])
-  def second_return = second_valid & second_action.is_one_of(RV5StageRasAction.Pop, RV5StageRasAction.PopPush)
+  def second_action = riscv_compressed_ras_action(xlen, packet.word[16..32])
+  def second_return = second_valid & second_action.is_one_of(RasAction.Pop, RasAction.PopPush)
   def second_compressed_direct = (packet.word[16..18] === bits(1, 2)) & ((packet.word[29..32] === bits(5, 3)) ||| (Bool(xlen == XLen.X32) & (packet.word[29..32] === bits(1, 3))))
   def second_direct_jump = second_valid & second_compressed_direct
   def second_direct_target = second_pc + compressed_jump_offset(packet.word[16..32], xlen.width)
@@ -82,7 +82,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def fallback_valid = ingress.valid & prediction_missing & !packet.page_fault & !packet.access_fault & (first_fallback ||| second_fallback)
   def fallback_pc = mux(first_fallback, first_pc, second_pc)
   def fallback_target = mux(first_fallback, mux(first_direct_jump, first_direct_target, ras_head), mux(second_direct_jump, second_direct_target, ras_head))
-  def fallback_prediction = RV5StagePrediction(xlen):
+  def fallback_prediction = BranchPrediction(xlen):
     valid: fallback_valid
     pc: fallback_pc
     target: fallback_target

@@ -6,7 +6,7 @@ import:
   "../core.rhdl" open
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
-  "../fetch/bpd/protocol.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
   "../memory-context.rhdl" open
   "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
@@ -23,7 +23,7 @@ sync_circuit RV5StageRetirementTrace():
   input instruction: Bits(32)
   input predicted: Bool
   input target: Bits(64)
-  input ras: RV5StageRasAction
+  input ras: RasAction
   output packet_ready: Bool
   input(data_ready, data_fault, response_valid, response_fault, reservation): Bool
   input response_tag: RV5StageMemoryWriteback(8)
@@ -42,7 +42,7 @@ sync_circuit RV5StageRetirementTrace():
     page_fault: Bool(#false)
     access_fault: Bool(#false)
     prediction:
-      RV5StagePrediction(XLen.X64):
+      BranchPrediction(XLen.X64):
         valid: predicted
         pc: pc
         target: target

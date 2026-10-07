@@ -853,7 +853,7 @@ accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 
 `RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 32, zero disables
 prediction) and `~ras_entries` (default 6, zero disables return prediction). The
-fully associative [BTB](fetch/bpd/btb.rhdl) stores 14 low address bits and
+fully associative shared [BTB](../bpred/btb.rhdl) stores 14 low address bits and
 references one of eight shared upper-address tags for both its instruction PC
 and target. This preserves exact full-address matching while compacting entries.
 Entries also retain instruction lengths, return-stack actions, and
@@ -864,7 +864,7 @@ slots are allocated first, then round-robin replacement is used. Disabling the
 BTB also elaborates away the RAS. No global history or separate direction table
 is present.
 
-The [RAS](fetch/bpd/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
+The shared [RAS](../bpred/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
 return hints, including the pop-then-push coroutine case. Calls push their two-
 or four-byte sequential PC; return BTB hits use the stack head and fall back to
 the BTB target when the stack is empty. On a BTB miss, fault-free S2 fetch data

@@ -254,7 +254,7 @@ compressed `C.JAL`, `C.JR`, and `C.JALR` from the RISC-V `x1`/`x5` implicit hint
 table, preserving distinct push, pop, and pop-then-push actions. Do not infer
 calls from arbitrary nonzero link registers.
 
-For predictor changes run `rv5stage-btb`, `rv5stage-ras`,
+For predictor changes run the shared `bpred-btb`, `bpred-ras`,
 `rv5stage-fetch-prediction`, `rv5stage-return-prediction`, and
 `rv5stage-branch-prediction`, then existing `rv5stage-fetch`, `rv5stage-core`,
 and fault/replay fixtures. The paired branch core test compares actual stores,

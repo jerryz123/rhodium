@@ -1,6 +1,6 @@
 // Checks speculative RAS updates, resolved recovery, wraparound, underflow, and coroutine replacement.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_ras_tb;
+module bpred_ras_tb;
   typedef struct packed { logic [1:0] action; logic [63:0] return_address; } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
   typedef struct packed { update_bits_t actual; logic [1:0] predicted_action; } resolution_bits_t;
@@ -16,7 +16,7 @@ module rv5stage_ras_tb;
   pulse_t restore_in = '0, clear_in = '0;
   logic head_valid;
   logic [63:0] head;
-  RV5StageRasFixture dut (.*);
+  RasFixture dut (.*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] jal(input logic [4:0] rd);
@@ -139,7 +139,7 @@ module rv5stage_ras_tb;
 
     pulse_clear();
     check(0);
-    $display("RV5Stage speculative and resolved RAS simulation passed");
+    $display("Shared speculative and resolved RAS simulation passed");
     $finish;
   end
   initial begin #20000; $fatal(1, "RAS timeout"); end

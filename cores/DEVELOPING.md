@@ -21,6 +21,8 @@ Before adding a component, decide who owns its policy:
   [`csr/`](csr/DEVELOPING.md) owns CSR/trap state and
   [`mmu/`](mmu/DEVELOPING.md) owns translation contracts, TLBs, and PTW state;
   [`fp/`](fp/DEVELOPING.md) owns FP mappings, operand execution, and register storage.
+  [`bpred/`](bpred/DEVELOPING.md) owns shared BTB/RAS state and prediction payloads;
+  callers retain fetch geometry integration, redirect timing, and update qualification.
   Organize by responsibility, not by a second ISA namespace. Shared does not
   mean ISA-independent: these families may depend on architectural `riscv/`
   definitions, but never a named core's configuration or pipeline payloads.
@@ -63,6 +65,9 @@ flowchart LR
   FP --> Riscv
   FP --> Rhodium
   FP --> HardFloat["HardFloat numeric primitives"]
+  Named --> Bpred["shared prediction<br/>cores/bpred/"]
+  Bpred --> Riscv
+  Bpred --> Rhodium
   Named --> Riscv["RISC-V ISA and RTL"]
   Named --> Protocols["shared protocol libraries"]
   Named --> Rhodium["Rhodium language, std, and flow"]
@@ -180,6 +185,9 @@ CSR, translation, and floating-point checks are routed by their respective
 [MMU](mmu/DEVELOPING.md#validation) and [FP](fp/DEVELOPING.md#validation) guides. For shared split-engine changes,
 cover both callers with `rv2wide-mmu` and `rv5stage-hypervisor-core` fixtures.
 Changes to passive observation metadata need the cosim pass tests.
+Shared predictor behavior is covered by the `bpred-btb` and `bpred-ras`
+fixtures; use the [predictor guide](bpred/DEVELOPING.md#validation) for
+RV5Stage integration checks.
 
 The protocol-neutral tree-PLRU policy and its `cache-replacement` fixture are
 owned by [`../rhodium/std/plru.rhdl`](../rhodium/std/plru.rhdl); core cache

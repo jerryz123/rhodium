@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "bpd/protocol.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
   "packet.rhdl" open
   "protocol.rhdl" open
   "../profile.rhm".RV5StageConfig
@@ -20,7 +20,7 @@ import:
 bundle RV5StageFetchParcel(xlen :: XLen):
   pc: Bits(xlen.width)
   halfword: Bits(16)
-  prediction: RV5StagePrediction(xlen)
+  prediction: BranchPrediction(xlen)
 
 /* Assembles word-aligned and straddling instructions directly into Decode, expanding enabled C
    forms.
@@ -75,7 +75,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   fetched.bits.raw_instruction <== raw
   fetched.bits.sequential_pc <== sequential_pc
   fetched.bits.predicted_next_pc <== mux(predicted_taken, prediction.target, sequential_pc)
-  fetched.bits.predicted_ras_action <== mux(predicted_taken, prediction.ras_action, RV5StageRasAction.None)
+  fetched.bits.predicted_ras_action <== mux(predicted_taken, prediction.ras_action, RasAction.None)
   fetched.bits.compressed_illegal <== instruction_is_compressed & !compressed_legal
   fetched.bits.instruction_page_fault <== page_fault
   fetched.bits.instruction_access_fault <== access_fault
