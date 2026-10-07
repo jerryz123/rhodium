@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises bundle-owned hardware methods and their exact static propagation.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -106,7 +111,7 @@ sync_circuit BundleMethodPropagation():
   instance_method <== echo.echoed.is_shared()
   packed <== envelope.as_bits()
 
-def design = elaborate(BundleMethodPropagation())
+def design = compile_program(elaborate(BundleMethodPropagation()), rtl_target).report.design
 
 sync_circuit ParameterizedMethodPropagation():
   input envelope: SizedCacheEnvelope(8)
@@ -125,7 +130,7 @@ sync_circuit ParameterizedMethodPropagation():
   cast_method <== envelope.into(Bits(10)).into(SizedCacheEnvelope(8)).state.is_shared()
   into_method <== envelope.into(Bits(10)).into(SizedCacheEnvelope(8)).state.is_shared()
 
-def parameterized_design = elaborate(ParameterizedMethodPropagation())
+def parameterized_design = compile_program(elaborate(ParameterizedMethodPropagation()), rtl_target).report.design
 
 sync_circuit DirectInterfaceMethodPropagation():
   interface ingress(CacheStateStream(), ~role: consumer)
@@ -134,7 +139,7 @@ sync_circuit DirectInterfaceMethodPropagation():
   def state :: CacheState = ingress.state
   interface_method <== state.is_shared()
 
-def direct_interface_design = elaborate(DirectInterfaceMethodPropagation())
+def direct_interface_design = compile_program(elaborate(DirectInterfaceMethodPropagation()), rtl_target).report.design
 
 export:
   CacheState

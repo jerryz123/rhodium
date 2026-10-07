@@ -2,6 +2,8 @@
 // Exercises direct/configured crossbar ancestry through independent input queues.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventCrossbarLane(direct :: Boolean, partial :: Boolean = #false):
@@ -37,8 +39,8 @@ sync_circuit EventCrossbar():
     direct.egress[index] |> sinks[index]
     configured.egress[index] |> sinks[index + 2]
 
-def crossed = elaborate_with_top(EventCrossbar())
-fun partial(): elaborate_with_top(EventCrossbarLane(#true, #true))
+def crossed = elaborate(EventCrossbar())
+fun partial(): compile_program(elaborate(EventCrossbarLane(#true, #true)), rtl_target).report.elaboration
 export:
   crossed
   partial

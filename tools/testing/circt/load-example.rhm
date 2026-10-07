@@ -1,0 +1,59 @@
+#lang rhombus
+/* Compiles fixture programs and collects reference text and trace headers for external tests. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  rhombus/cmdline open
+  rhombus/private/dynamic_require open
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+
+def arguments = current_command_line()
+unless arguments.length() >= 2 && arguments[0] == "materialize"
+| error("expected materialize OUTPUT-DIRECTORY followed by program, golden, or emitter specifications")
+def output_directory = arguments[1]
+file.#{make-directory*}(output_directory)
+
+/* Write one fixture artifact into the caller-owned temporary output directory. */
+fun write_artifact(name :: String, content :: String):
+  file.#{display-to-file}(content, rkt.#{build-path}(output_directory, name), ~exists: #'#{truncate/replace})
+
+/* Report host compilation duration separately from native lowering and simulation. */
+fun report_materialization(fixture :: String, started :: Real):
+  rkt.fprintf(rkt.#{current-error-port}(), "[circt] ~a materialization: ~as\n",
+              fixture, (rkt.#{current-inexact-monotonic-milliseconds}() - started) / 1000.0)
+
+/* Compile each explicit program top once, or capture a package-owned emitter's artifacts. */
+fun materialize(remaining :: List):
+  unless remaining.length() == 0
+  | def kind = remaining[0]
+    def count = match kind
+    | "golden": 5
+    | "program": 4
+    | "emitter": 3
+    | ~else: 0
+    unless count > 0 && remaining.length() >= count
+    | error("each fixture must be tagged as program, golden, or emitter with its required arguments")
+    def fixture = remaining[1]
+    def source = remaining[2]
+    def started = rkt.#{current-inexact-monotonic-milliseconds}()
+    if kind == "emitter"
+    | rkt.#{call-with-output-file}(
+        rkt.#{build-path}(output_directory, fixture ++ ".mlir"),
+        ~exists: #'#{truncate/replace},
+        fun (out):
+          parameterize { rkt.#{current-output-port}: out }:
+            dynamic_require(source, #false)
+      )
+      def manifest = rkt.#{dynamic-require}(source, #'event_manifest_cpp, fun (): #false)
+      when manifest | write_artifact(fixture ++ "_manifest.h", manifest)
+    | def program = dynamic_require(source, rkt.#{string->symbol}(remaining[3]))
+      def compiled = compile_program(program, circt_target)
+      write_artifact(fixture ++ ".mlir", compiled.artifacts[0].content)
+      when kind == "golden"
+      | write_artifact(fixture ++ ".expected.sv", dynamic_require(source, rkt.#{string->symbol}(remaining[4])))
+    report_materialization(fixture, started)
+    materialize(remaining.drop(count))
+
+materialize(arguments.drop(2))

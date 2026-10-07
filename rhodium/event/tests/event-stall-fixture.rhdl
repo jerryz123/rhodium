@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventStallLane(mode :: Nat, traced :: Boolean):
@@ -85,11 +87,11 @@ sync_circuit EventStallInvalid(kind :: String):
   | "collision-before": source |> trace_event("blocked.stall") |> trace_event("blocked", ~stalls: #true) |> sink
   | ~else: source |> trace_event("blocked", ~stalls: #true) |> trace_event("blocked.stall") |> sink
 
-def stalled = elaborate_with_top(EventStall())
-def selected = elaborate_with_top(EventStallSelection())
-def transfer_selected = elaborate_with_top(EventStallSelection(#false))
-def stable = elaborate_with_top(EventStallIrrevocable())
-fun invalid(kind :: String): elaborate_with_top(EventStallInvalid(kind))
+def stalled = elaborate(EventStall())
+def selected = compile_program(elaborate(EventStallSelection()), rtl_target).report.elaboration
+def transfer_selected = compile_program(elaborate(EventStallSelection(#false)), rtl_target).report.elaboration
+def stable = compile_program(elaborate(EventStallIrrevocable()), rtl_target).report.elaboration
+fun invalid(kind :: String): compile_program(elaborate(EventStallInvalid(kind)), rtl_target).report.elaboration
 export:
   stalled
   selected

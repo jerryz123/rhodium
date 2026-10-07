@@ -14,6 +14,7 @@ import:
   "kernel.rhm".retained_circuit
   "kernel.rhm".ConstructIdentity
   "kernel.rhm".ConstructDefinition
+  "kernel.rhm".retained_call as kernel_retained_call
   "kernel.rhm".SingleClockState
   "kernel.rhm".InputLeaf
   "kernel.rhm".leaf_paths
@@ -29,8 +30,6 @@ import:
   "kernel.rhm".run_circuit_finalizers as kernel_run_circuit_finalizers
   "kernel.rhm".new_circuit_identity as kernel_new_circuit_identity
   "kernel.rhm".run_elaboration as kernel_run_elaboration
-  "kernel.rhm".run_elaboration_with_top as kernel_run_elaboration_with_top
-  "kernel.rhm".run_program_elaboration as kernel_run_program_elaboration
   "kernel.rhm".connect as kernel_connect
   "support/fields.rhm".HardwareFields
   "support/fields.rhm".AnyBitsHardware
@@ -64,6 +63,7 @@ export:
   retained_circuit
   ConstructIdentity
   ConstructDefinition
+  retained_call
   SingleClockState
   InputLeaf
   OutputLeafDependency
@@ -92,8 +92,6 @@ export:
   <==
   circuit
   elaborate
-  elaborate_with_top
-  elaborate_program
 
 defn.macro 'input $bindings: $(type :: expr_meta.Parsed)':
   match bindings
@@ -283,11 +281,11 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
 expr.macro 'elaborate($body)':
   'kernel_run_elaboration(fun (): $body)'
 
-expr.macro 'elaborate_with_top($body)':
-  'kernel_run_elaboration_with_top(fun (): $body)'
-
-expr.macro 'elaborate_program($body)':
-  'kernel_run_program_elaboration(fun (): $body)'
+/* Apply a pure retained circuit while preserving ordinary hardware methods on
+   its single result; the kernel owns argument binding and conditional scope. */
+fun retained_call(reference :: RetainedCircuitReference, arguments :: List.of(HardwareFields),
+                  name :: maybe(String) = #false) :~ HardwareFields:
+  kernel_retained_call(reference, arguments, name)
 
 operator (place <== entity):
   ~weaker_than: ~other

@@ -3,14 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/frontend/layers/interface.rhm" open
   "../../../rhodium/std/ready-valid.rhdl" as std
   "../../../flow/ready-valid-support.rhdl" as ready_valid_support
   "../../../examples/std/ready-valid-compatibility.rhdl" as example
   "std-ready-valid.rhdl" as fixture
+
+def example_design = compile_program(example.program, rtl_target).report.design
 
 def pulse_type = std.Pulse()
 def valid_type = std.Valid(Bits(8))
@@ -19,45 +23,29 @@ def irrevocable_ctrl_type = std.IrrevocableCtrl()
 def decoupled_type = std.Decoupled(Bits(8))
 def irrevocable_type = std.Irrevocable(Bits(8))
 
-def valid_design = embedded.run_elaboration(fun (): fixture.ValidAdapter())
+def valid_design = compile_program(elaborate(fixture.ValidAdapter()), rtl_target).report.design
 def valid_adapter = valid_design.modules[0]
-def pulse_design = embedded.run_elaboration(fun (): fixture.PulseAdapter())
+def pulse_design = compile_program(elaborate(fixture.PulseAdapter()), rtl_target).report.design
 def pulse_adapter = pulse_design.modules[0]
-def valid_to_pulse_design = embedded.run_elaboration(
-  fun (): fixture.ValidToPulse()
-)
+def valid_to_pulse_design = compile_program(elaborate(fixture.ValidToPulse()), rtl_target).report.design
 def valid_to_pulse = valid_to_pulse_design.modules[0]
-def decoupled_design = embedded.run_elaboration(fun (): fixture.DecoupledAdapter())
+def decoupled_design = compile_program(elaborate(fixture.DecoupledAdapter()), rtl_target).report.design
 def decoupled_adapter = decoupled_design.modules[0]
-def irrevocable_design = embedded.run_elaboration(fun (): fixture.IrrevocableAdapter())
+def irrevocable_design = compile_program(elaborate(fixture.IrrevocableAdapter()), rtl_target).report.design
 def irrevocable_adapter = irrevocable_design.modules[0]
-def decoupled_ctrl_design = embedded.run_elaboration(
-  fun (): fixture.DecoupledCtrlAdapter()
-)
-def irrevocable_ctrl_design = embedded.run_elaboration(
-  fun (): fixture.IrrevocableCtrlAdapter()
-)
-def decoupled_fire_design = embedded.run_elaboration(fun (): fixture.DecoupledFire())
+def decoupled_ctrl_design = compile_program(elaborate(fixture.DecoupledCtrlAdapter()), rtl_target).report.design
+def irrevocable_ctrl_design = compile_program(elaborate(fixture.IrrevocableCtrlAdapter()), rtl_target).report.design
+def decoupled_fire_design = compile_program(elaborate(fixture.DecoupledFire()), rtl_target).report.design
 def decoupled_fire = decoupled_fire_design.modules[0]
-def irrevocable_fire_design = embedded.run_elaboration(
-  fun (): fixture.IrrevocableFire()
-)
+def irrevocable_fire_design = compile_program(elaborate(fixture.IrrevocableFire()), rtl_target).report.design
 def irrevocable_fire = irrevocable_fire_design.modules[0]
-def nested_fire_design = embedded.run_elaboration(fun (): fixture.NestedFire())
+def nested_fire_design = compile_program(elaborate(fixture.NestedFire()), rtl_target).report.design
 def nested_fire = nested_fire_design.modules[0]
-def compatibility_design = example.design
-def reversed_compatible_design = embedded.run_elaboration(
-  fun (): fixture.ReversedCompatibleSpelling()
-)
-def irrevocable_ctrl_to_decoupled_ctrl_design = embedded.run_elaboration(
-  fun (): fixture.IrrevocableCtrlToDecoupledCtrl()
-)
-def transitive_control_design = embedded.run_elaboration(
-  fun (): fixture.TransitiveCtrlCompatibility()
-)
-def refined_helpers_design = embedded.run_elaboration(
-  fun (): fixture.RefinedProtocolHelpers()
-)
+def compatibility_design = example_design
+def reversed_compatible_compiled = compile_program(elaborate(fixture.ReversedCompatibleSpelling()), rtl_target)
+def irrevocable_ctrl_to_decoupled_ctrl_compiled = compile_program(elaborate(fixture.IrrevocableCtrlToDecoupledCtrl()), rtl_target)
+def transitive_control_compiled = compile_program(elaborate(fixture.TransitiveCtrlCompatibility()), rtl_target)
+def refined_helpers_compiled = compile_program(elaborate(fixture.RefinedProtocolHelpers()), rtl_target)
 def impostor_decoupled = InterfaceType(
   "Decoupled",
   ["producer", "consumer"],
@@ -159,18 +147,18 @@ check:
   verify_design(decoupled_fire_design) ~is #void
   verify_design(irrevocable_fire_design) ~is #void
   verify_design(compatibility_design) ~is #void
-  verify_design(reversed_compatible_design) ~is #void
-  verify_design(irrevocable_ctrl_to_decoupled_ctrl_design) ~is #void
-  verify_design(transitive_control_design) ~is #void
-  verify_design(refined_helpers_design) ~is #void
-  embedded.run_elaboration(fun (): fixture.MismatchedAdapter()) ~throws "does not support"
-  embedded.run_elaboration(fun (): fixture.UnsupportedFire()) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): fixture.RefinedIsNotExact()) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): fixture.WrongMergeParent()) ~throws "does not support"
-  embedded.run_elaboration(fun (): fixture.MissingMergeMember()) ~throws "requires every refinement member"
-  embedded.run_elaboration(fun (): fixture.ExtraMergeMember()) ~throws "exactly one unmatched field"
-  embedded.run_elaboration(fun (): fixture.WrongMergeMemberType()) ~throws "member types do not match"
-  embedded.run_elaboration(fun (): fixture.WrongSplitMemberDirection()) ~throws "driveable hardware place"
-  embedded.run_elaboration(fun (): fixture.ValidIsNotReadyValidCompatible()) ~throws "does not support"
-  embedded.run_elaboration(fun (): fixture.UnsafeCtrlStrengthening()) ~throws "does not support"
-  embedded.run_elaboration(fun (): fixture.PayloadIsNotCtrl()) ~throws "control-flow chaining requires"
+  reversed_compatible_compiled.has_errors ~is #false
+  irrevocable_ctrl_to_decoupled_ctrl_compiled.has_errors ~is #false
+  transitive_control_compiled.has_errors ~is #false
+  refined_helpers_compiled.has_errors ~is #false
+  elaborate(fixture.MismatchedAdapter()) ~throws "does not support"
+  elaborate(fixture.UnsupportedFire()) ~throws "argument does not satisfy annotation"
+  elaborate(fixture.RefinedIsNotExact()) ~throws "argument does not satisfy annotation"
+  elaborate(fixture.WrongMergeParent()) ~throws "does not support"
+  elaborate(fixture.MissingMergeMember()) ~throws "requires every refinement member"
+  elaborate(fixture.ExtraMergeMember()) ~throws "exactly one unmatched field"
+  elaborate(fixture.WrongMergeMemberType()) ~throws "member types do not match"
+  elaborate(fixture.WrongSplitMemberDirection()) ~throws "driveable hardware place"
+  elaborate(fixture.ValidIsNotReadyValidCompatible()) ~throws "does not support"
+  elaborate(fixture.UnsafeCtrlStrengthening()) ~throws "does not support"
+  elaborate(fixture.PayloadIsNotCtrl()) ~throws "control-flow chaining requires"

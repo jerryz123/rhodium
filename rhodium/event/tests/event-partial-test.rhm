@@ -2,6 +2,8 @@
 // Checks partial manifests without weakening strict missing-contract or unsafe-fanout diagnostics.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "event-partial-fixture.rhdl" as fixture
   "event-feedback-fixture.rhdl" as feedback
   "event-graph-fixture.rhdl" as graph_fixture
@@ -9,7 +11,7 @@ import:
   "event-join-fixture.rhdl" as join_fixture
   "../../../rhodium/event/main.rhm" open
   "../../../rhodium/backend/circt.rhm".emit_circt
-def logical = fixture.partial()
+def logical = compile_program(fixture.partial(), rtl_target).report.elaboration
 def before = emit_circt(logical.design)
 def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
 def manifest = traced.manifest

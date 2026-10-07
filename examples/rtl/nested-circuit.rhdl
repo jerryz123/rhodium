@@ -1,11 +1,14 @@
 #lang rhodium
-// Demonstrates a private child circuit that captures a host parameter.
+/* Demonstrates a private child circuit that captures a host parameter. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Adds one to its input with fixed-width wraparound. */
 circuit Incrementer(width :: PosInt):
   input value_in: Bits(width)
   output value_out: Bits(width)
 
+  /* Instantiates the example incrementer and forwards its ports. */
   circuit Increment():
     input value_in: Bits(width)
     output value_out: Bits(width)
@@ -15,7 +18,7 @@ circuit Incrementer(width :: PosInt):
   increment.value_in <== value_in
   value_out <== increment.value_out
 
-def design = elaborate(Incrementer(8))
+def program = elaborate(Incrementer(8))
 
 def verilog_reference = @str|<<{
 module Incrementer(
@@ -40,5 +43,5 @@ endmodule
 
 export:
   Incrementer
-  design
+  program
   verilog_reference

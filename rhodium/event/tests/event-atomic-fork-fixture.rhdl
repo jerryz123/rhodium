@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventAtomicForkNetwork(buffered :: Boolean):
@@ -126,14 +128,14 @@ sync_circuit EventBadAtomicFork(count :: Nat, duplicate :: Boolean):
   def model = if duplicate | InterfaceTraceModel([InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)], declared.dynamic) | declared
   describe_interface_transform(InterfaceHandle(source, sinks), "atomic-fork", ~trace_model: model)
 
-def replicated = elaborate_with_top(EventAtomicFork())
-fun nested(): elaborate_with_top(EventNestedAtomicFork())
-fun routed(fork_first :: Boolean): elaborate_with_top(EventForkRouting(fork_first))
-fun rejoined(): elaborate_with_top(EventForkArbiter())
-fun singleton(): elaborate_with_top(EventSingletonFork())
-fun bad_count(): elaborate_with_top(EventBadAtomicFork(0, #false))
-fun bad_shape(): elaborate_with_top(EventBadAtomicFork(1, #false))
-fun bad_routes(): elaborate_with_top(EventBadAtomicFork(2, #true))
+def replicated = elaborate(EventAtomicFork())
+fun nested(): compile_program(elaborate(EventNestedAtomicFork()), rtl_target).report.elaboration
+fun routed(fork_first :: Boolean): compile_program(elaborate(EventForkRouting(fork_first)), rtl_target).report.elaboration
+fun rejoined(): compile_program(elaborate(EventForkArbiter()), rtl_target).report.elaboration
+fun singleton(): compile_program(elaborate(EventSingletonFork()), rtl_target).report.elaboration
+fun bad_count(): compile_program(elaborate(EventBadAtomicFork(0, #false)), rtl_target).report.elaboration
+fun bad_shape(): compile_program(elaborate(EventBadAtomicFork(1, #false)), rtl_target).report.elaboration
+fun bad_routes(): compile_program(elaborate(EventBadAtomicFork(2, #true)), rtl_target).report.elaboration
 
 export:
   replicated

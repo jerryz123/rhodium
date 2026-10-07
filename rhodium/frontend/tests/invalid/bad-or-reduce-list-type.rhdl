@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a host reduction list containing a non-data hardware value.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadOrReduceListType():
 
   result <== or_reduce([source])
 
-def design = elaborate(BadOrReduceListType())
+elaborate(BadOrReduceListType())

@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "sn-noc-fixture.rhdl" as fixture
+
+def fixture_sn_noc_design = compile_program(fixture.sn_noc_program, rtl_target).report.design
 
 check:
   fixture.sn_noc_connections.length() ~is 2
@@ -24,12 +28,12 @@ check:
   fixture.sn_noc_compilations.req.routes.map(
     fun (route): route.destination.node_id
   ) ~is [9, 10]
-  fixture.sn_noc_design.modules.map(fun (module): module.name).contains(
+  fixture_sn_noc_design.modules.map(fun (module): module.name).contains(
     "CHISNNoCFixture"
   ) ~is #true
-  fixture.sn_noc_design.modules.map(fun (module): module.name).contains(
+  fixture_sn_noc_design.modules.map(fun (module): module.name).contains(
     "CHIReqNoCInjector"
   ) ~is #true
-  fixture.sn_noc_design.modules.map(fun (module): module.name).contains(
+  fixture_sn_noc_design.modules.map(fun (module): module.name).contains(
     "CHIReqNoCEjector"
   ) ~is #true

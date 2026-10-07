@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../main.rhdl" open
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
@@ -150,14 +152,14 @@ circuit HardFloatRepresentation():
   fma_ieee <== fused_multiply_add.out.to_ieee()
   fma_flags <== fused_multiply_add.exception_flags
 
-def design = elaborate(HardFloatRepresentation())
-def minimum_add_design = elaborate(AddRecFN(FloatFormat(3, 3)))
-def minimum_fma_design = elaborate(MulAddRecFN(FloatFormat(3, 3)))
-def wide_integer_conversion_design = elaborate(RecFNToInteger(FloatFormat.F16, 64))
+def program = elaborate(HardFloatRepresentation())
+def minimum_add_design = compile_program(elaborate(AddRecFN(FloatFormat(3, 3))), rtl_target).report.design
+def minimum_fma_design = compile_program(elaborate(MulAddRecFN(FloatFormat(3, 3))), rtl_target).report.design
+def wide_integer_conversion_design = compile_program(elaborate(RecFNToInteger(FloatFormat.F16, 64)), rtl_target).report.design
 
 export:
   HardFloatRepresentation
-  design
+  program
   minimum_add_design
   minimum_fma_design
   wide_integer_conversion_design

@@ -7,8 +7,8 @@ import:
   lib("chi/transactions/read-stream.rhdl").CHIReadStream
 
 def read_stream_flit = CHIFlitParams(~data_width: 128, ~poison: #true)
-def read_stream_design = elaborate(CHIReadStream(read_stream_flit, 3, 16))
+def read_stream_program = elaborate(CHIReadStream(read_stream_flit, 3, 16))
 
 export:
-  read_stream_design
+  read_stream_program
   read_stream_flit

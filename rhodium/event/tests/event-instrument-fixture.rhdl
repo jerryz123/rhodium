@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 circuit EventRuntimeIdentity():
@@ -72,8 +74,8 @@ circuit EventWrongDomain():
   source |> trace_event("before", ~payload: #true) |> child.ingress
   child.egress |> trace_event("after", ~payload: #true) |> sink
 
-def runtime = elaborate_with_top(EventRuntime())
-fun wrong_domain(): elaborate_with_top(EventWrongDomain())
+def runtime = elaborate(EventRuntime())
+fun wrong_domain(): compile_program(elaborate(EventWrongDomain()), rtl_target).report.elaboration
 
 sync_circuit EventCheckpointChain():
   interface source(Decoupled(Bits(8)), ~role: consumer)
@@ -83,8 +85,8 @@ sync_circuit EventCheckpointChain():
 circuit EventBadGuard():
   def invalid = interface_trace_combinational(~guard: bits(0, 2))
 
-def checkpoint_chain = elaborate_with_top(EventCheckpointChain())
-fun bad_guard(): elaborate_with_top(EventBadGuard())
+def checkpoint_chain = compile_program(elaborate(EventCheckpointChain()), rtl_target).report.elaboration
+fun bad_guard(): compile_program(elaborate(EventBadGuard()), rtl_target).report.elaboration
 
 sync_circuit EventUntouchedCounter():
   output value: Bits(8)
@@ -115,8 +117,8 @@ sync_circuit EventValidCheckpointChain():
   interface sink(Valid(Bits(8)), ~role: producer)
   source |> trace_valid_event("before", ~payload: #true) |> trace_valid_event("start", ~payload: #true) |> trace_valid_event("end", ~payload: #true) |> sink
 
-fun opaque_boundary(): elaborate_with_top(EventOpaqueBoundary())
-def valid_checkpoint_chain = elaborate_with_top(EventValidCheckpointChain())
+fun opaque_boundary(): compile_program(elaborate(EventOpaqueBoundary()), rtl_target).report.elaboration
+def valid_checkpoint_chain = compile_program(elaborate(EventValidCheckpointChain()), rtl_target).report.elaboration
 export:
   runtime
   wrong_domain

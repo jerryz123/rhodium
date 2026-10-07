@@ -51,5 +51,5 @@ sync_circuit RsimCHIMemory():
   read_valid <== memory.port.dat.response.valid
   read_bits <== memory.port.dat.response.bits.as_bits()
 
-def design = elaborate(RsimCHIMemory())
-export design p
+def program = elaborate(RsimCHIMemory())
+export program p

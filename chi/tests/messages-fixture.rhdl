@@ -247,7 +247,7 @@ circuit CHIMessageFixture():
   other_hni_write <== chi_hni_downstream_write_data(w128, dat_w128, data_id, request.qos, other_node_id, node_id, request.txn_id)
   other_hni_read <== chi_hni_upstream_read_data(w128, dat_w128, request.txn_id, node_id, request.qos, 42)
 
-def design = elaborate(CHIMessageFixture())
+def program = elaborate(CHIMessageFixture())
 
 export:
-  design
+  program

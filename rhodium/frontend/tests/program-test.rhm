@@ -1,8 +1,10 @@
 #lang rhombus
-// Checks frontend program phase boundaries and compatibility with existing elaboration results.
+// Checks the single elaboration boundary, explicit RTL preparation, and deferred verification.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../lowering/program.rhm".materialize_reachable_rtl
   "../../core/main.rhm" as core
   "../foundation.rhm" open
@@ -11,12 +13,12 @@ import:
   "program-fixture.rhdl" as fixture
   "circuit-reference-fixture.rhm" as references
 
-for (program in fixture.programs, legacy in fixture.legacy_designs):
+for (program in fixture.programs, concrete in fixture.reference_designs):
   def rtl = materialize_reachable_rtl(program).rtl
   check:
     rtl.design === program.design ~is #false
     rtl.top === program.top ~is #false
-    core.dump_ir(rtl.design) ~is core.dump_ir(materialize_reachable_rtl(ElaboratedProgram(legacy, legacy.find_module_named(program.top.name))).rtl.design)
+    core.dump_ir(rtl.design) ~is core.dump_ir(materialize_reachable_rtl(ElaboratedProgram(concrete, concrete.find_module_named(program.top.name))).rtl.design)
 
 // Keep this test's recipe counter local: other suites also import the fixture.
 def mutable calls = 0
@@ -26,7 +28,7 @@ def reference = CircuitReference(
     calls := calls + 1
     references.Leaf()
 )
-def program = elaborate_program(reference)
+def program = elaborate(reference)
 check:
   program is_a ElaboratedProgram ~is #true
   program.design.sealed ~is #false
@@ -37,21 +39,20 @@ check:
   program.design.sealed ~is #false
   calls ~is 1
   again.top === rtl.top ~is #false
-  core.dump_ir(elaborate(references.Leaf())) ~is core.dump_ir(rtl.design)
-  core.dump_ir(elaborate_with_top(references.Leaf()).design) ~is core.dump_ir(rtl.design)
+  core.dump_ir(compile_program(elaborate(references.Leaf()), rtl_target).report.design) ~is core.dump_ir(rtl.design)
 
-// Finished hierarchy can still contain a combinational cycle. The explicit
-// program API defers whole-design checking; compatibility APIs keep rejecting it.
+// Circuit construction completes before whole-design verification. Explicit RTL
+// preparation rejects cycles without mutating or sealing the source program.
 circuit Cycle():
   output result: Bits(8)
   inst child(references.Leaf())
   child.source <== child.result
   result <== child.result
 
-def cyclic = elaborate_program(Cycle())
+def cyclic = elaborate(Cycle())
 check:
   materialize_reachable_rtl(cyclic).rtl ~throws "combinational cycle"
-  elaborate(Cycle()) ~throws "combinational cycle"
-  elaborate_with_top(Cycle()) ~throws "combinational cycle"
-  elaborate_program(#false) ~throws "did not select a top circuit"
+  compile_program(cyclic, rtl_target) ~throws "combinational cycle"
+  cyclic.design.sealed ~is #false
+  elaborate(#false) ~throws "did not select a top circuit"
   kernel.input("outside", Bits(8)) ~throws "only be called during elaborate"

@@ -48,6 +48,13 @@ test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve config-keyed artifact and
 target identities so switching any axis cannot reuse another simulator.
 
+The configured host emitter calls `elaborate` once and passes the resulting
+program, including retained providers and its explicit top, to `compile_program`.
+Backend targets own preparation; the SV-bound rsim target can retain native
+constructs before generating its wrapper. Selected trace/co-sim RTL passes
+explicitly require concrete preparation. Do not prepare the configured source
+before target selection or reconstruct a program from only its design/top.
+
 All enrolled Mini/Simple RV5Stage and RV2Wide CIRCT rows build with `COSIM=1`,
 as does the RV5Stage direct SystemVerilog variant. Each instrumented row publishes one
 simulator under its unchanged config artifact name; its local build directory

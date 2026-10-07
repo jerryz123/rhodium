@@ -1,11 +1,11 @@
 #lang rhombus
-// Emits the production fetching core with prediction disabled for a behavioral baseline.
+// Defines the production fetching core with prediction disabled for a behavioral baseline.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  lib("rhodium/backend/circt.rhm").emit_circt
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../rv2wide.rhdl".RV2Wide
   "../../profile.rhm".RV2WideConfig
   "../cache-fixture.rhdl" open
 def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~btb_entries: 0, ~ras_entries: 0)
-print(emit_circt(embedded.run_elaboration(fun (): RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))))
+def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
+export program

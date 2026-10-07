@@ -1,32 +1,39 @@
 #lang rhodium
-// Elaborates stable host predicate policies inline through a Valid interface.
+/* Elaborates stable host predicate policies inline through a Valid interface. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Specializes an inline predicate for unsigned values no greater than nine. */
 class SingleDigitPolicy(T :: DataType):
   implements StableCircuitParam
 
+  /* Reuses specialization only for the same predicate class and equivalent hardware types. */
   override method same_stable_circuit_param(other :: StableCircuitParam):
     other is_a SingleDigitPolicy && T.type_equal(other.T) && other.T.type_equal(T)
 
+  /* Constructs the policy predicate on the supplied hardware value. */
   method apply(value :: Hardware.of(T)) :: Bool:
     value <= bits(9, T.width)
 
+/* Specializes an inline predicate that accepts values with bit zero set. */
 class LowBitSetPolicy(T :: DataType):
   implements StableCircuitParam
 
+  /* Reuses specialization only for the same predicate class and equivalent hardware types. */
   override method same_stable_circuit_param(other :: StableCircuitParam):
     other is_a LowBitSetPolicy && T.type_equal(other.T) && other.T.type_equal(T)
 
+  /* Constructs the policy predicate on the supplied hardware value. */
   method apply(value :: Hardware.of(T)) :: Bool:
     value[0].into(Bool)
 
 annot.macro 'PredicatePolicy':
   'SingleDigitPolicy || LowBitSetPolicy'
 
+/* Elaborates stable host predicate policies inline through a Valid interface. */
 circuit SingleEvenFilter(T :: DataType,
                          first :: PredicatePolicy,
                          second :: PredicatePolicy):
@@ -36,7 +43,7 @@ circuit SingleEvenFilter(T :: DataType,
   egress.valid <== ingress.valid & first.apply(ingress.bits) & second.apply(ingress.bits)
   egress.bits <== ingress.bits
 
-def design = elaborate(
+def program = elaborate(
   SingleEvenFilter(Bits(8), SingleDigitPolicy(Bits(8)), LowBitSetPolicy(Bits(8)))
 )
 
@@ -56,5 +63,5 @@ export:
   SingleDigitPolicy
   LowBitSetPolicy
   SingleEvenFilter
-  design
+  program
   verilog_reference

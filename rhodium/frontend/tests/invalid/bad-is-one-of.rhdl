@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects .is_one_of alternatives whose hardware type differs from the subject.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,8 +17,4 @@ circuit BadIsOneOf():
 
   selected <== state.is_one_of(FirstState.Idle, OtherState.Busy)
 
-def design = elaborate(BadIsOneOf())
-
-export:
-  BadIsOneOf
-  design
+elaborate(BadIsOneOf())

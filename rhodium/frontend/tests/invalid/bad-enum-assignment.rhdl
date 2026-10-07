@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects connections between distinct nominal hardware-enum declarations.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -15,4 +16,4 @@ circuit BadEnumAssignment():
   output result: SecondState
   result <== source
 
-def design = elaborate(BadEnumAssignment())
+elaborate(BadEnumAssignment())

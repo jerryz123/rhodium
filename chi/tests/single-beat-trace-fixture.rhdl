@@ -29,5 +29,5 @@ sync_circuit EventSubordinate():
     txn: flit.txn_id
   data |> port.dat.response
 
-def traced_subordinate = elaborate_with_top(EventSubordinate())
+def traced_subordinate = elaborate(EventSubordinate())
 export traced_subordinate

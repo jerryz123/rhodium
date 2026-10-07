@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Builds eager and retained combinational children inside ordinary and clocked RTL parents.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -57,12 +62,12 @@ circuit NestedParent():
   child.b <== b
   result <== child.result
 
-def program = elaborate_program(Parent(#true))
-def clocked_program = elaborate_program(Clocked(#true))
-def nested_program = elaborate_program(NestedParent())
+def program = elaborate(Parent(#true))
+def clocked_program = elaborate(Clocked(#true))
+def nested_program = elaborate(NestedParent())
 def calls_after_elaboration = calls
-def eager = elaborate_with_top(Parent(#false))
-def clocked_eager = elaborate_with_top(Clocked(#false))
+def eager = compile_program(elaborate(Parent(#false)), rtl_target).report.elaboration
+def clocked_eager = compile_program(elaborate(Clocked(#false)), rtl_target).report.elaboration
 fun call_count(): calls
 
 export:

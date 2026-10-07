@@ -1,12 +1,11 @@
 #lang rhombus
-// Emits the RV64 guest-aware HPM counter for behavioral simulation.
+// Defines the RV64 guest-aware HPM counter for behavioral simulation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../isa/xlen.rhm" open
   "../../hpm-counter.rhdl" as hpm
 
-def design = embedded.run_elaboration(fun (): hpm.RiscvHpmCounter(XLen.X64, ~hypervisor: #true))
-print(emit_circt(design))
+def program = elaborate(hpm.RiscvHpmCounter(XLen.X64, ~hypervisor: #true))
+export program

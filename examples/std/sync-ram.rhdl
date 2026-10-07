@@ -1,17 +1,18 @@
 #lang rhodium
-// Demonstrates a masked fixed-latency synchronous RAM through Valid flows.
+/* Demonstrates a masked fixed-latency synchronous RAM through Valid flows. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
 
+/* Demonstrates a masked fixed-latency synchronous RAM through Valid flows. */
 sync_circuit SyncRamExample():
   interface port(ReadWritePort(2, Bits(8), 4), ~role: responder)
   inst storage(SyncRam1RW(4, Bits(8), 4))
   port |> storage.port
 
-def design = elaborate(SyncRamExample())
+def program = elaborate(SyncRamExample())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -120,5 +121,5 @@ endmodule
 
 export:
   SyncRamExample
-  design
+  program
   verilog_reference

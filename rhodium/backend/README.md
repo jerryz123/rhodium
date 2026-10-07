@@ -43,7 +43,7 @@ def result = compile_program(ElaboratedProgram(design, top), circt_target)
 def mlir = result.artifacts[0].content
 ```
 
-Frontend callers supply `elaborate_program(Top())` as the program. The result
+Frontend callers supply `elaborate(Top())` as the program. The result
 contains one `<top>.mlir` artifact, the physical port signature, and a report
 of portable expansions per instance occurrence. The source graph remains
 unchanged; unrelated modules and unused providers do not enter the output.

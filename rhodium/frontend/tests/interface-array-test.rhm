@@ -3,42 +3,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/interface-array.rhdl" as example
   "interface-array.rhdl" as fixture
 
-def array_design = embedded.run_elaboration(fun (): example.InterfaceArrayAdapter(3))
+def example_generic_handle_compiled = compile_program(example.generic_handle_program, rtl_target)
+def example_parallel_handle_compiled = compile_program(example.parallel_handle_program, rtl_target)
+def example_parallel_sink_compiled = compile_program(example.parallel_sink_program, rtl_target)
+
+def array_design = compile_program(elaborate(example.InterfaceArrayAdapter(3)), rtl_target).report.design
 def array_module = array_design.modules[0]
-def indexed_design = embedded.run_elaboration(
-  fun (): fixture.IndexedInterfaceArrayAdapter(3)
-)
-def parenthesized_design = embedded.run_elaboration(
-  fun (): example.InterfaceSequenceAdapter()
-)
+def indexed_compiled = compile_program(elaborate(fixture.IndexedInterfaceArrayAdapter(3)), rtl_target)
+def parenthesized_design = compile_program(elaborate(example.InterfaceSequenceAdapter()), rtl_target).report.design
 def parenthesized_module = parenthesized_design.modules[0]
-def hierarchy_design = embedded.run_elaboration(
-  fun (): example.InterfaceArrayHierarchy(3)
-)
-def type_once_design = embedded.run_elaboration(
-  fun (): fixture.InterfaceArrayTypeOnce(3)
-)
-def handle_design = embedded.run_elaboration(
-  fun (): example.GenericHandleChain()
-)
-def handle_ends_design = embedded.run_elaboration(
-  fun (): fixture.InterfaceHandleEnds()
-)
+def hierarchy_design = compile_program(elaborate(example.InterfaceArrayHierarchy(3)), rtl_target).report.design
+def type_once_design = compile_program(elaborate(fixture.InterfaceArrayTypeOnce(3)), rtl_target).report.design
+def handle_design = compile_program(elaborate(example.GenericHandleChain()), rtl_target).report.design
+def handle_ends_design = compile_program(elaborate(fixture.InterfaceHandleEnds()), rtl_target).report.design
 def handle_ends_module = handle_ends_design.modules[0]
-def parallel_handle_design = embedded.run_elaboration(
-  fun (): example.ParallelHandleChain()
-)
-def parallel_sink_design = embedded.run_elaboration(
-  fun (): example.ParallelSinkChain()
-)
-def composed_sink_design = embedded.run_elaboration(
-  fun (): fixture.ComposedInterfaceSinkAdapter()
-)
+def parallel_handle_compiled = compile_program(elaborate(example.ParallelHandleChain()), rtl_target)
+def parallel_sink_compiled = compile_program(elaborate(example.ParallelSinkChain()), rtl_target)
+def composed_sink_compiled = compile_program(elaborate(fixture.ComposedInterfaceSinkAdapter()), rtl_target)
 def hierarchy_module = hierarchy_design.modules.find(
   fun (module_def): module_def.name.starts_with("InterfaceArrayHierarchy")
 )
@@ -64,7 +52,7 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 12
   verify_design(array_design) ~is #void
-  verify_design(indexed_design) ~is #void
+  indexed_compiled.has_errors ~is #false
   parenthesized_module.inputs.map(fun (port): port.name) ~is [
     "ingress0_in", "ingress1_in", "egress_0_in", "egress_1_in"
   ]
@@ -78,12 +66,12 @@ check:
   verify_design(hierarchy_design) ~is #void
   verify_design(handle_design) ~is #void
   verify_design(handle_ends_design) ~is #void
-  verify_design(parallel_handle_design) ~is #void
-  verify_design(parallel_sink_design) ~is #void
-  verify_design(composed_sink_design) ~is #void
-  verify_design(example.generic_handle_design) ~is #void
-  verify_design(example.parallel_handle_design) ~is #void
-  verify_design(example.parallel_sink_design) ~is #void
+  parallel_handle_compiled.has_errors ~is #false
+  parallel_sink_compiled.has_errors ~is #false
+  composed_sink_compiled.has_errors ~is #false
+  example_generic_handle_compiled.has_errors ~is #false
+  example_parallel_handle_compiled.has_errors ~is #false
+  example_parallel_sink_compiled.has_errors ~is #false
   handle_design.modules[0].operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.instance"
   ).length() ~is 0
@@ -94,24 +82,10 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.instance"
   ).length() ~is 0
   type_once_design.modules[0].inputs.length() ~is 6
-  embedded.run_elaboration(
-    fun (): fixture.ParenthesizedInterfaceArrayLengthMismatch()
-  ) ~throws "must have the same length"
-  embedded.run_elaboration(
-    fun (): fixture.ParenthesizedInterfaceArrayNamedMember()
-  ) ~throws "cannot use named refinement members"
-  embedded.run_elaboration(
-    fun (): fixture.ReusedInterfaceHandle()
-  ) ~throws "can be consumed only once"
-  embedded.run_elaboration(
-    fun (): fixture.ReusedInterfaceSink()
-  ) ~throws "an interface sink can be consumed only once"
-  embedded.run_elaboration(
-    fun (): fixture.MixedParallelInterfacePaths()
-  ) ~throws "requires all handles or all sinks"
-  embedded.run_elaboration(
-    fun (): fixture.ParallelInterfaceSinkLengthMismatch()
-  ) ~throws "must have the same length"
-  embedded.run_elaboration(
-    fun (): fixture.InterfaceSinkTypeMismatch()
-  ) ~throws "does not support the peer interface contract"
+  elaborate(fixture.ParenthesizedInterfaceArrayLengthMismatch()) ~throws "must have the same length"
+  elaborate(fixture.ParenthesizedInterfaceArrayNamedMember()) ~throws "cannot use named refinement members"
+  elaborate(fixture.ReusedInterfaceHandle()) ~throws "can be consumed only once"
+  elaborate(fixture.ReusedInterfaceSink()) ~throws "an interface sink can be consumed only once"
+  elaborate(fixture.MixedParallelInterfacePaths()) ~throws "requires all handles or all sinks"
+  elaborate(fixture.ParallelInterfaceSinkLengthMismatch()) ~throws "must have the same length"
+  elaborate(fixture.InterfaceSinkTypeMismatch()) ~throws "does not support the peer interface contract"

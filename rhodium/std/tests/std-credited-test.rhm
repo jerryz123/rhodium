@@ -3,16 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../flow/main.rhdl" as std
   "../../../examples/std/credited-transport.rhdl" as example
   "std-credited.rhdl" as fixture
 
+def example_compiled = compile_program(example.program, rtl_target)
+def example_monitor_design = compile_program(example.monitor_program, rtl_target).report.design
+def example_chained_compiled = compile_program(example.chained_program, rtl_target)
+
 def credited = std.Credited(Bits(8), 2)
 def refined = std.credited_protocol_type(example.RefinedCredited8())
-def monitor_top = example.monitor_design.modules[0]
+def monitor_top = example_monitor_design.modules[0]
 def sender = fixture.sender_design.modules.find(
   fun (module_def): module_def.name == "CreditSender"
 )
@@ -68,27 +74,15 @@ check:
     "credited_balance_in_range"
   ]
 
-  verify_design(example.monitor_design) ~is #void
+  verify_design(example_monitor_design) ~is #void
   verify_design(fixture.sender_design) ~is #void
   verify_design(fixture.buffer_design) ~is #void
-  verify_design(example.design) ~is #void
-  verify_design(example.chained_design) ~is #void
+  example_compiled.has_errors ~is #false
+  example_chained_compiled.has_errors ~is #false
 
-  embedded.run_elaboration(
-    fun (): fixture.InvalidCreditLimit()
-  ) ~throws "PosInt"
-  embedded.run_elaboration(
-    fun (): fixture.InvalidSenderLimit()
-  ) ~throws "PosInt"
-  embedded.run_elaboration(
-    fun (): fixture.InvalidBufferDepth()
-  ) ~throws "PosInt"
-  embedded.run_elaboration(
-    fun (): fixture.MismatchedCreditLimits()
-  ) ~throws "does not support"
-  embedded.run_elaboration(
-    fun (): fixture.WrongCreditBufferProtocol()
-  ) ~throws "requires a Credited protocol"
-  embedded.run_elaboration(
-    fun (): fixture.WrongCreditBufferLimit()
-  ) ~throws "depth must match the protocol credit limit"
+  elaborate(fixture.InvalidCreditLimit()) ~throws "PosInt"
+  elaborate(fixture.InvalidSenderLimit()) ~throws "PosInt"
+  elaborate(fixture.InvalidBufferDepth()) ~throws "PosInt"
+  elaborate(fixture.MismatchedCreditLimits()) ~throws "does not support"
+  elaborate(fixture.WrongCreditBufferProtocol()) ~throws "requires a Credited protocol"
+  elaborate(fixture.WrongCreditBufferLimit()) ~throws "depth must match the protocol credit limit"

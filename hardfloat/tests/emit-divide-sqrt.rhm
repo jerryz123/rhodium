@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits the permanent iterative HardFloat division and square-root fixture through the CIRCT backend.
-// SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "divide-sqrt-fixture.rhdl" as fixture
-
-print(emit_circt(fixture.design))

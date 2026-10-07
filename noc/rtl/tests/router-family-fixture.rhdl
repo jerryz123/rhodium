@@ -41,9 +41,9 @@ sync_circuit RouterFamilyFixture():
   hub_egress[family_plan.egress_count] <=> hub.target[family_plan.egress_count].egress
   hub.target[family_plan.egress_count].available <== hub.target[family_plan.egress_count].egress.ready
 
-def design = elaborate(RouterFamilyFixture())
+def program = elaborate(RouterFamilyFixture())
 
 export:
   family_plan
   config
-  design
+  program

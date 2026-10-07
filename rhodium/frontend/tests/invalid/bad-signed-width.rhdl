@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects signed modular arithmetic across different explicit widths.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadSignedWidth():
   output result: SInt(8)
   result <== left + right
 
-def design = elaborate(BadSignedWidth())
+elaborate(BadSignedWidth())

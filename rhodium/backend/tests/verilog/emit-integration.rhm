@@ -16,19 +16,17 @@ def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[0] in ["direct", "circt"]
 | error("expected direct|circt sync-ram|uart-dpi|event-runtime|event-elastic")
 def fixture = match arguments[1]
-| "sync-ram": ["examples/std/sync-ram.rhdl", "SyncRamExample"]
-| "uart-dpi": ["devices/tests/uart-dpi-fixture.rhdl", "UartDPI"]
-| "event-runtime": ["rhodium/event/tests/event-instrument-fixture.rhdl", "runtime"]
-| "event-elastic": ["rhodium/event/tests/event-elastic-fixture.rhdl", "elastic"]
+| "sync-ram": ["examples/std/sync-ram.rhdl", #'program]
+| "uart-dpi": ["devices/tests/uart-dpi-fixture.rhdl", #'program]
+| "event-runtime": ["rhodium/event/tests/event-instrument-fixture.rhdl", #'runtime]
+| "event-elastic": ["rhodium/event/tests/event-elastic-fixture.rhdl", #'elastic]
 | ~else: error("unknown integration fixture")
 def tracing = arguments[1].starts_with("event-")
-def logical :: maybe(DesignElaboration) = if tracing | dynamic_require(fixture[0], (if arguments[1] == "event-runtime" | #'runtime | #'elastic)) | #false
-def design :: Design = if logical | logical.design | dynamic_require(fixture[0], #'design)
-def top = if logical | logical.top | design.find_module_named(fixture[1])
-unless top | error("integration fixture is missing its explicit top")
+def program :: ElaboratedProgram = dynamic_require(fixture[0], fixture[1])
+def design = program.design
+def top = program.top
 def before = dump_ir(design)
 def was_sealed = design.sealed
-def program = ElaboratedProgram(design, top)
 def passes = if tracing | [event_trace_pass()] | []
 def direct = compile_program(program, rtl_pipeline_target(verilog_target, passes))
 unless direct.manifest.top == top.name && direct.manifest.signature == module_signature(top)

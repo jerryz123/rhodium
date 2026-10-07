@@ -1,7 +1,9 @@
 #lang rhodium
-// Showcases concise width-changing operations over explicit kernel/core semantics.
+/* Showcases concise width-changing operations over explicit kernel/core semantics. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exercises explicit width extension, truncation, concatenation, and extraction. */
 circuit WidthOps8():
   input a: Bits(8)
   input b: Bits(4)
@@ -14,7 +16,7 @@ circuit WidthOps8():
   widened <== a.zext(12)
   narrowed <== trunc(a, 4)
 
-def design = elaborate(WidthOps8())
+def program = elaborate(WidthOps8())
 
 def verilog_reference = @str|<<{
 module WidthOps8(
@@ -35,5 +37,5 @@ endmodule
 
 export:
   WidthOps8
-  design
+  program
   verilog_reference

@@ -45,5 +45,5 @@ sync_circuit EventHome():
   port.subordinate.rsp |> home.port.subordinate.rsp
   port.subordinate.dat.response |> home.port.subordinate.dat.response
 
-def elaboration = elaborate_with_top(EventHome())
+def elaboration = elaborate(EventHome())
 export elaboration

@@ -1,13 +1,18 @@
 #lang rhombus
-// Proves that standard and explicitly composed adders are behaviorally equivalent.
+/* Proves that standard and explicitly composed adders are behaviorally equivalent. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../rhodium/formal/main.rhm" open
   "../lop/adder-standard.rhdl" as standard
   "../lop/adder-composed.rhdl" as composed
 
-def result = check_equivalent(standard.design, composed.design)
+def standard_design = compile_program(standard.program, rtl_target).report.design
+def composed_design = compile_program(composed.program, rtl_target).report.design
+
+def result = check_equivalent(standard_design, composed_design)
 
 check:
   result.equivalent() ~is #true

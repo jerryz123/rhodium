@@ -1,12 +1,11 @@
 #lang rhombus
-// Emits CIRCT MLIR for the RV32 specialization of reusable RISC-V base counters.
+// Defines a program for the RV32 specialization of reusable RISC-V base counters.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../../../riscv/rtl/counters.rhdl" as counters
 
-def design = embedded.run_elaboration(fun (): counters.RiscvBaseCounters(XLen.X32))
-print(emit_circt(design))
+def program = elaborate(counters.RiscvBaseCounters(XLen.X32))
+export program

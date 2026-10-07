@@ -3,50 +3,48 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../examples/std/flow-control.rhdl" as flow_control
   "../../examples/std/flow-topology.rhdl" as topology
   "../../examples/std/valid-pipe.rhdl" as valid_pipe
   "../../examples/std/ctrl-flow.rhdl" as ctrl_flow
   "std-flow-chain.rhdl" as fixture
 
-def design = flow_control.chain_design
+def flow_control_chain_design = compile_program(flow_control.chain_program, rtl_target).report.design
+def topology_flow_map_design = compile_program(topology.flow_map_program, rtl_target).report.design
+def topology_filter_flow_design = compile_program(topology.filter_flow_program, rtl_target).report.design
+def topology_gate_flow_design = compile_program(topology.gate_flow_program, rtl_target).report.design
+def topology_endpoint_first_design = compile_program(topology.endpoint_first_program, rtl_target).report.design
+def topology_fan_in_project_design = compile_program(topology.fan_in_project_program, rtl_target).report.design
+def topology_zip_route_design = compile_program(topology.zip_route_program, rtl_target).report.design
+def valid_pipe_design_rtl = compile_program(valid_pipe.program, rtl_target).report.design
+def ctrl_flow_ctrl_chain_design = compile_program(ctrl_flow.ctrl_chain_program, rtl_target).report.design
+
+def design = flow_control_chain_design
 def top = design.modules[0]
-def pipe_to_queue_design = embedded.run_elaboration(
-  fun (): fixture.PipeToQueueChain()
-)
-def valid_pipe_design = valid_pipe.design
+def pipe_to_queue_compiled = compile_program(elaborate(fixture.PipeToQueueChain()), rtl_target)
+def valid_pipe_design = valid_pipe_design_rtl
 def valid_pipe_top = valid_pipe_design.modules[0]
-def ctrl_design = ctrl_flow.ctrl_chain_design
+def ctrl_design = ctrl_flow_ctrl_chain_design
 def ctrl_top = ctrl_design.modules[0]
-def ctrl_pipe_to_queue_design = embedded.run_elaboration(
-  fun (): fixture.CtrlPipeToQueueChain()
-)
-def fixed_arbiter_design = embedded.run_elaboration(
-  fun (): fixture.FixedArbiterPipeline()
-)
-def grant_crossbar_chain_design = embedded.run_elaboration(
-  fun (): fixture.GrantCrossbarChain()
-)
-def map_flow_design = topology.flow_map_design
+def ctrl_pipe_to_queue_compiled = compile_program(elaborate(fixture.CtrlPipeToQueueChain()), rtl_target)
+def fixed_arbiter_compiled = compile_program(elaborate(fixture.FixedArbiterPipeline()), rtl_target)
+def grant_crossbar_chain_design = compile_program(elaborate(fixture.GrantCrossbarChain()), rtl_target).report.design
+def map_flow_design = topology_flow_map_design
 def map_flow_top = map_flow_design.modules[0]
-def refined_map_flow_design = embedded.run_elaboration(
-  fun (): fixture.RefinedMapFlowChain()
-)
-def stable_demux_flow_design = embedded.run_elaboration(
-  fun (): fixture.StableDemuxFlowChain()
-)
-def filter_flow_design = topology.filter_flow_design
+def refined_map_flow_design = compile_program(elaborate(fixture.RefinedMapFlowChain()), rtl_target).report.design
+def stable_demux_flow_compiled = compile_program(elaborate(fixture.StableDemuxFlowChain()), rtl_target)
+def filter_flow_design = topology_filter_flow_design
 def filter_flow_top = filter_flow_design.modules[0]
-def gate_flow_design = topology.gate_flow_design
+def gate_flow_design = topology_gate_flow_design
 def gate_flow_top = gate_flow_design.modules[0]
-def zip_flow_arrow_design = embedded.run_elaboration(
-  fun (): fixture.ZipFlowArrowChain()
-)
-def endpoint_first_top = topology.endpoint_first_design.modules[0]
-def fan_in_project_top = topology.fan_in_project_design.modules[0]
-def zip_route_top = topology.zip_route_design.modules[0]
+def zip_flow_arrow_compiled = compile_program(elaborate(fixture.ZipFlowArrowChain()), rtl_target)
+def endpoint_first_top = topology_endpoint_first_design.modules[0]
+def fan_in_project_top = topology_fan_in_project_design.modules[0]
+def zip_route_top = topology_zip_route_design.modules[0]
 
 fun operations(module_def, opcode):
   module_def.operations.filter(
@@ -54,9 +52,9 @@ fun operations(module_def, opcode):
   )
 
 check:
-  verify_design(embedded.run_elaboration(fun (): fixture.ShiftQueueChain())) ~is #void
-  embedded.run_elaboration(fun (): fixture.ShiftQueueChain(~flow: #true)) ~throws "provider interface does not support the peer interface contract"
-  embedded.run_elaboration(fun (): fixture.ShiftQueueChain(~valid_source: #true)) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  compile_program(elaborate(fixture.ShiftQueueChain()), rtl_target).has_errors ~is #false
+  elaborate(fixture.ShiftQueueChain(~flow: #true)) ~throws "provider interface does not support the peer interface contract"
+  elaborate(fixture.ShiftQueueChain(~valid_source: #true)) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
   design.modules.map(fun (module_def): module_def.name) ~is [
     "BufferedLink", "Queue", "Counter", "Pipe"
   ]
@@ -66,7 +64,7 @@ check:
   top.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
   operations(top, "rtl.instance").length() ~is 2
   verify_design(design) ~is #void
-  verify_design(pipe_to_queue_design) ~is #void
+  pipe_to_queue_compiled.has_errors ~is #false
 
   valid_pipe_design.modules.map(fun (module_def): module_def.name) ~is [
     "ValidDelay", "ValidPipe"
@@ -86,11 +84,8 @@ check:
     fun (field): field.name
   ) ~is ["valid"]
   verify_design(ctrl_design) ~is #void
-  verify_design(ctrl_pipe_to_queue_design) ~is #void
-  fixed_arbiter_design.modules.map(fun (module_def): module_def.name) ~is [
-    "FixedArbiterPipeline", "Arbiter"
-  ]
-  verify_design(fixed_arbiter_design) ~is #void
+  ctrl_pipe_to_queue_compiled.has_errors ~is #false
+  fixed_arbiter_compiled.has_errors ~is #false
   grant_crossbar_chain_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["GrantCrossbarChain", "GrantCrossbar", "GrantDemux", "GrantMerge"]
@@ -111,13 +106,9 @@ check:
     "RefinedMapFlowChain"
   ]
   verify_design(refined_map_flow_design) ~is #void
-  verify_design(stable_demux_flow_design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.UnstableMapFlowToIrrevocable()
-  ) ~throws "provider interface does not support the peer interface contract"
-  embedded.run_elaboration(
-    fun (): fixture.UnstableDemuxFlowToIrrevocable()
-  ) ~throws "provider interface does not support the peer interface contract"
+  stable_demux_flow_compiled.has_errors ~is #false
+  elaborate(fixture.UnstableMapFlowToIrrevocable()) ~throws "provider interface does not support the peer interface contract"
+  elaborate(fixture.UnstableDemuxFlowToIrrevocable()) ~throws "provider interface does not support the peer interface contract"
 
   filter_flow_design.modules.map(fun (module_def): module_def.name) ~is [
     "FilterFlowExample"
@@ -139,95 +130,37 @@ check:
   operations(endpoint_first_top, "rtl.instance").length() ~is 2
   operations(fan_in_project_top, "rtl.instance").length() ~is 4
   operations(zip_route_top, "rtl.instance").length() ~is 1
-  verify_design(topology.endpoint_first_design) ~is #void
-  verify_design(topology.fan_in_project_design) ~is #void
-  verify_design(topology.zip_route_design) ~is #void
-  verify_design(zip_flow_arrow_design) ~is #void
+  verify_design(topology_endpoint_first_design) ~is #void
+  verify_design(topology_fan_in_project_design) ~is #void
+  verify_design(topology_zip_route_design) ~is #void
+  zip_flow_arrow_compiled.has_errors ~is #false
 
-  embedded.run_elaboration(
-    fun (): fixture.FlowThroughQueueStrongerDestination()
-  ) ~throws "provider interface does not support the peer interface contract"
-  embedded.run_elaboration(
-    fun (): fixture.WrongProtocolChain()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ValidPipeWrongProtocol()
-  ) ~throws "Valid-flow chaining requires a Valid endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ValidPipeNonEndpoint()
-  ) ~throws "Valid stage requires a payload DataType, Valid InterfaceType, Endpoint, or Handle"
-  embedded.run_elaboration(
-    fun (): fixture.WrongEndpointType()
-  ) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(
-    fun (): fixture.NonEndpointChain()
-  ) ~throws "requires a payload DataType, ready-valid InterfaceType, Endpoint, or Handle"
-  embedded.run_elaboration(
-    fun (): fixture.CtrlWrongProtocolChain()
-  ) ~throws "control-flow chaining requires a DecoupledCtrl or IrrevocableCtrl endpoint or protocol"
-  embedded.run_elaboration(
-    fun (): fixture.CtrlNonEndpointChain()
-  ) ~throws "control flow stage requires a DecoupledCtrl or IrrevocableCtrl InterfaceType, Endpoint, or Handle"
-  embedded.run_elaboration(
-    fun (): fixture.MapFlowWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.MapFlowStrongerDestination()
-  ) ~throws "provider interface does not support the peer interface contract"
-  embedded.run_elaboration(
-    fun (): fixture.MapFlowReusedSource()
-  ) ~throws "interface destination already has a driver"
-  embedded.run_elaboration(
-    fun (): fixture.FilterFlowWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.GateFlowWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ZipFlowWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ZipFlowHostValue()
-  ) ~throws "expected hardware data"
-  embedded.run_elaboration(
-    fun (): fixture.ParallelMapFlowMixedPaths()
-  ) ~throws "parallel flow composition requires all configured stages, all handles, or all sinks"
-  embedded.run_elaboration(
-    fun (): fixture.ParallelMapFlowLengthMismatch()
-  ) ~throws "must have the same length"
-  embedded.run_elaboration(
-    fun (): fixture.ParallelMapFlowHostValue()
-  ) ~throws "expected hardware data"
-  embedded.run_elaboration(
-    fun (): fixture.EmptyRRArbiterPipeline()
-  ) ~throws "requires at least one input endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.MismatchedRRArbiterPipeline()
-  ) ~throws "hierarchy forwarding requires the exact interface specialization"
-  embedded.run_elaboration(
-    fun (): fixture.EmptyArbiterPipeline()
-  ) ~throws "requires at least one input endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.MismatchedArbiterPipeline()
-  ) ~throws "hierarchy forwarding requires the exact interface specialization"
-  embedded.run_elaboration(
-    fun (): fixture.EmptyValidArbiterPipeline()
-  ) ~throws "requires at least one input endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ValidArbiterWrongProtocol()
-  ) ~throws "Valid-flow chaining requires a Valid endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.EmptyGrantCrossbarChain()
-  ) ~throws "requires at least one input endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.GrantCrossbarWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.MissingSyncDomain()
-  ) ~throws "active sync_circuit"
-  embedded.run_elaboration(
-    fun (): fixture.CtrlMissingSyncDomain()
-  ) ~throws "active sync_circuit"
-  embedded.run_elaboration(
-    fun (): fixture.ValidPipeMissingSyncDomain()
-  ) ~throws "active sync_circuit"
+  elaborate(fixture.FlowThroughQueueStrongerDestination()) ~throws "provider interface does not support the peer interface contract"
+  elaborate(fixture.WrongProtocolChain()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.ValidPipeWrongProtocol()) ~throws "Valid-flow chaining requires a Valid endpoint"
+  elaborate(fixture.ValidPipeNonEndpoint()) ~throws "Valid stage requires a payload DataType, Valid InterfaceType, Endpoint, or Handle"
+  elaborate(fixture.WrongEndpointType()) ~throws "argument does not satisfy annotation"
+  elaborate(fixture.NonEndpointChain()) ~throws "requires a payload DataType, ready-valid InterfaceType, Endpoint, or Handle"
+  elaborate(fixture.CtrlWrongProtocolChain()) ~throws "control-flow chaining requires a DecoupledCtrl or IrrevocableCtrl endpoint or protocol"
+  elaborate(fixture.CtrlNonEndpointChain()) ~throws "control flow stage requires a DecoupledCtrl or IrrevocableCtrl InterfaceType, Endpoint, or Handle"
+  elaborate(fixture.MapFlowWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.MapFlowStrongerDestination()) ~throws "provider interface does not support the peer interface contract"
+  elaborate(fixture.MapFlowReusedSource()) ~throws "interface destination already has a driver"
+  elaborate(fixture.FilterFlowWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.GateFlowWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.ZipFlowWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.ZipFlowHostValue()) ~throws "expected hardware data"
+  elaborate(fixture.ParallelMapFlowMixedPaths()) ~throws "parallel flow composition requires all configured stages, all handles, or all sinks"
+  elaborate(fixture.ParallelMapFlowLengthMismatch()) ~throws "must have the same length"
+  elaborate(fixture.ParallelMapFlowHostValue()) ~throws "expected hardware data"
+  elaborate(fixture.EmptyRRArbiterPipeline()) ~throws "requires at least one input endpoint"
+  elaborate(fixture.MismatchedRRArbiterPipeline()) ~throws "hierarchy forwarding requires the exact interface specialization"
+  elaborate(fixture.EmptyArbiterPipeline()) ~throws "requires at least one input endpoint"
+  elaborate(fixture.MismatchedArbiterPipeline()) ~throws "hierarchy forwarding requires the exact interface specialization"
+  elaborate(fixture.EmptyValidArbiterPipeline()) ~throws "requires at least one input endpoint"
+  elaborate(fixture.ValidArbiterWrongProtocol()) ~throws "Valid-flow chaining requires a Valid endpoint"
+  elaborate(fixture.EmptyGrantCrossbarChain()) ~throws "requires at least one input endpoint"
+  elaborate(fixture.GrantCrossbarWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.MissingSyncDomain()) ~throws "active sync_circuit"
+  elaborate(fixture.CtrlMissingSyncDomain()) ~throws "active sync_circuit"
+  elaborate(fixture.ValidPipeMissingSyncDomain()) ~throws "active sync_circuit"

@@ -71,11 +71,11 @@ circuit Adder(width :: PosInt):
   output sum: Bits(width)
   sum <== a + b
 
-def design = elaborate(Adder(8))
+def program = elaborate(Adder(8))
 
 export:
   Adder
-  design
+  program
 ```
 
 Run the standard adder example from the checkout:
@@ -104,10 +104,11 @@ A Rhodium source file contains two kinds of computation:
   hierarchy. Hardware values have explicit types and cannot control ordinary
   host conditionals.
 
-Calling `elaborate` runs the host program, constructs the selected hardware,
-and verifies the completed design. Macro expansion and frontend layers do not
-create intermediate hardware languages: every authoring path converges on the
-same public core IR.
+Calling `elaborate` runs the host program and returns the selected hardware as
+an `ElaboratedProgram`, preserving retained constructs and their portable
+implementations. Pass that program to `compile_program(program, target)`;
+the selected target owns verification, lowering, and emission. Macro expansion
+and frontend layers share the same public core IR.
 
 ### Authoring profiles
 

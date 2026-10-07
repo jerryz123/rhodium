@@ -1,8 +1,8 @@
 #lang rhombus
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../../rhodium/backend/circt.rhm".emit_circt
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../attribute-fixture.rhdl".SpikeAttributeFixture
 
-print(emit_circt(embedded.run_elaboration(fun (): SpikeAttributeFixture())))
+def program = elaborate(SpikeAttributeFixture())
+export program

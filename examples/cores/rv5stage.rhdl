@@ -32,7 +32,7 @@ def example_profile = RV5StageConfig(
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
-def design = elaborate(RV5Stage(example_profile, ~chi: example_chi_config, ~reset_address: 0))
+def program = elaborate(RV5Stage(example_profile, ~chi: example_chi_config, ~reset_address: 0))
 
 export:
-  design
+  program

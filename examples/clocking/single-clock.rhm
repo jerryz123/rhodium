@@ -6,7 +6,6 @@ import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
   lib("rhodium/compile/program.rhm").compile_program
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   "../rtl/reset-shift-register.rhdl" as shift_register
 
 /* Select a named top-level sink from the hierarchy-aware temporal summary. */
@@ -22,10 +21,6 @@ fun next_classification(sink :: TemporalSink,
     fun (input): input.name == "next" && input.path == path
   ).classification
 
-def system = shift_register.design
-def top = system.modules.find(
-  fun (module_def): module_def.name == "ResetShiftRegister"
-)
 /* Build timing assumptions from the target-owned top so no source IR enters the report. */
 fun environment(prepared_top :: Module):
   def clock = prepared_top.find_input("clock").value
@@ -35,7 +30,7 @@ fun environment(prepared_top :: Module):
     [TopInputContract(data_in, [], SynchronousInputTiming(clock)),
      TopInputContract(shift, [], SynchronousInputTiming(clock))]
   )
-def compiled = compile_program(ElaboratedProgram(system, top), clocking_target(~environment: environment))
+def compiled = compile_program(shift_register.program, clocking_target(~environment: environment))
 def summary = compiled.report.summary
 def report = compiled.artifacts[0].content
 

@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds the width-operations showcase through explicit elaboration-kernel calls.
+/* Builds the width-operations showcase through explicit elaboration-kernel calls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,7 +8,9 @@ import:
 
 def width_ops_identity = new_circuit_identity("WidthOps8")
 
+/* Exercises explicit width extension, truncation, concatenation, and extraction. */
 fun WidthOps8():
+  /* Creates the ports and operations in the active kernel construction context. */
   fun implementation():
     def a = input("a", Bits(8))
     def b = input("b", Bits(4))
@@ -23,7 +25,7 @@ fun WidthOps8():
     connect(narrowed, trunc(a, 4))
   build_circuit(width_ops_identity, "WidthOps8", [], implementation)
 
-def design = run_elaboration(fun (): WidthOps8())
+def program = run_elaboration(fun (): WidthOps8())
 
 def verilog_reference = @str|<<{
 module WidthOps8(
@@ -44,5 +46,5 @@ endmodule
 
 export:
   WidthOps8
-  design
+  program
   verilog_reference

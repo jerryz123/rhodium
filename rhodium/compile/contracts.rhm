@@ -40,7 +40,7 @@ class Artifact(name :: String, media_type :: String, content :: String):
     | error(~who: #'Artifact, "artifact name and media type must not be empty")
     super(name, media_type, content)
 
-/* Records one construct occurrence and why the target expanded it.
+/* Records one construct occurrence and why the target expanded or executed it natively.
    Paths use source instance names relative to the top; a retained top has an empty
    path. Shared definitions still receive separate entries for each occurrence. */
 class LoweringDecision(path :: List.of(String), definition :: ConstructDefinition,
@@ -65,7 +65,7 @@ class Diagnostic(code :: String, severity :: String, message :: String,
     | error(~who: #'Diagnostic, "diagnostic code and message must not be empty")
     super(code, severity, message, location, path)
 
-/* A completed target result containing its artifacts, report, and diagnostics.
+/* A completed target result containing artifacts and/or a report, plus diagnostics.
    The compiler constructs it only after preparation and artifact validation succeed. */
 class CompilationResult(target :: String, manifest :: CompileManifest,
                         artifacts :: List.of(Artifact), report :: maybe(CompilationReport) = #false,
@@ -78,7 +78,7 @@ class CompilationResult(target :: String, manifest :: CompileManifest,
 interface TargetPlan:
   /* Describe this plan's selected boundary and lowering decisions without emitting text. */
   method manifest() :: CompileManifest
-  /* Produce all artifacts in memory; failures propagate without a partial result. */
+  /* Produce artifacts in memory; structured-only targets may return an empty list. */
   method emit() :: List.of(Artifact)
   /* Return structured findings when supported; ordinary emission targets default to none. */
   method report() :: maybe(CompilationReport): #false

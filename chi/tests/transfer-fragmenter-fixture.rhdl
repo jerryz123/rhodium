@@ -29,7 +29,7 @@ sync_circuit CHITransferFragmenterFixture():
   port <=> fragmenter.upstream
   fragmenter.downstream <=> ram.port
 
-def fragmenter_design = elaborate(CHITransferFragmenterFixture())
+def fragmenter_program = elaborate(CHITransferFragmenterFixture())
 
 export:
   fragmenter_flit
@@ -38,4 +38,4 @@ export:
   fragmenter_config
   fragmenter_params
   CHITransferFragmenterFixture
-  fragmenter_design
+  fragmenter_program

@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates explicit-width signed arithmetic, ordering, shifts, and resizing.
+/* Demonstrates explicit-width signed arithmetic, ordering, shifts, and resizing. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes widened, narrowed, negative_one for this signed integers example. */
 circuit SignedIntegers():
   input(a, b): SInt(8)
   input amount: Bits(3)
@@ -28,7 +30,7 @@ circuit SignedIntegers():
   eq <== (a === b)
   negative_one <== sint(-1, 8)
 
-def design = elaborate(SignedIntegers())
+def program = elaborate(SignedIntegers())
 
 def verilog_reference = @str|<<{
 module SignedIntegers(
@@ -74,5 +76,5 @@ endmodule
 
 export:
   SignedIntegers
-  design
+  program
   verilog_reference

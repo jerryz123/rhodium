@@ -13,4 +13,4 @@ circuit BadClockingDuplicateRelationship():
   identical_clocks(left, right)
   identical_clocks(right, left)
 
-def clocked = compile_program(elaborate_program(BadClockingDuplicateRelationship()), clocking_target())
+def clocked = compile_program(elaborate(BadClockingDuplicateRelationship()), clocking_target())

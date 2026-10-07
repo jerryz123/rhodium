@@ -1,16 +1,18 @@
 #lang rhodium
-// Builds a host-specialized SIMD microengine with typed instructions and generated lanes.
+/* Builds a host-specialized SIMD microengine with typed instructions and generated lanes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
 
+/* Carries lane count, datapath widths, and elaboration-selected engine features. */
 class EngineConfig(lanes :: PosInt,
                    width :: PosInt,
                    program_depth :: Pow2Int,
                    enable_multiply :: Boolean):
   implements StableCircuitParam
 
+  /* Validates engine geometry and stores the immutable specialization parameters. */
   constructor (lanes :: PosInt,
                width :: PosInt,
                program_depth :: Pow2Int,
@@ -43,6 +45,7 @@ interface ProgramLoader(Address :: DataType, Data :: DataType):
   engine -> host:
     ready: Bool
 
+/* Implements a SIMD lane with elaboration-selected multiply support. */
 sync_circuit Lane(width :: PosInt, enable_multiply :: Boolean):
 
   input load_seed: Bool
@@ -79,6 +82,7 @@ sync_circuit Lane(width :: PosInt, enable_multiply :: Boolean):
 
   result <== accumulator
 
+/* Instantiates and connects the configured parallel SIMD lanes. */
 sync_circuit TinySIMD(config :: EngineConfig):
   def address_width = index_width(config.program_depth)
   def instruction_width = config.width + enum_width(Opcode)
@@ -123,8 +127,8 @@ sync_circuit TinySIMD(config :: EngineConfig):
   pc_out <== pc
 
 def showcase_config = EngineConfig(2, 8, 4, #true)
-def design = elaborate(TinySIMD(showcase_config))
-def no_multiply_design = elaborate(TinySIMD(EngineConfig(2, 8, 4, #false)))
+def program = elaborate(TinySIMD(showcase_config))
+def no_multiply_program = elaborate(TinySIMD(EngineConfig(2, 8, 4, #false)))
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -336,7 +340,7 @@ export:
   Lane
   TinySIMD
   showcase_config
-  design
-  no_multiply_design
+  program
+  no_multiply_program
   verilog_reference
   no_multiply_verilog_reference

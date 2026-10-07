@@ -2,6 +2,8 @@
 // Exercises selected upstream parents through filtering, reconvergence, and flushed storage.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventParents(kind :: String = "valid"):
@@ -30,7 +32,7 @@ sync_circuit EventParents(kind :: String = "valid"):
   cache_path |> filter_valid(data => data[0].into(Bool)) |> trace_valid_event("cache", ~payload: #true) |> cache
   both_path |> filter_valid(data => data[0].into(Bool)) |> trace_valid_event("both", ~parents: [root, middle], ~payload: #true) |> both
 
-fun selected(kind = "valid"): elaborate_with_top(EventParents(kind))
+fun selected(kind = "valid"): compile_program(elaborate(EventParents(kind)), rtl_target).report.elaboration
 
 sync_circuit EventParentsSibling():
   interface source(Valid(Bits(8)), ~role: consumer)
@@ -50,8 +52,8 @@ sync_circuit EventParentsTwice():
   left.flush <== Bool(#false)
   right.flush <== Bool(#false)
 
-fun sibling(): elaborate_with_top(EventParentsSibling())
-fun repeated(): elaborate_with_top(EventParentsTwice())
+fun sibling(): compile_program(elaborate(EventParentsSibling()), rtl_target).report.elaboration
+fun repeated(): compile_program(elaborate(EventParentsTwice()), rtl_target).report.elaboration
 
 // WB is declared first, but references a later MEM checkpoint. Observation-gated
 // checkpoints preserve the only functional pipe and its ordinary consumer fork.
@@ -97,12 +99,12 @@ sync_circuit EventGatedParents(kind :: String = "valid"):
     assert(output.valid === reference.egress.valid, "gated_valid_unchanged")
     assert(output.bits === reference.egress.bits, "gated_payload_unchanged")
 
-fun gated(kind = "valid"): elaborate_with_top(EventGatedParents(kind))
+fun gated(kind = "valid"): elaborate(EventGatedParents(kind))
 
 sync_circuit EventInvalidObservationPredicate():
   interface source(Valid(Bits(8)), ~role: consumer)
   source |> trace_valid_event("bad", ~when: bits(1, 2))
-fun invalid_predicate(): elaborate_with_top(EventInvalidObservationPredicate())
+fun invalid_predicate(): compile_program(elaborate(EventInvalidObservationPredicate()), rtl_target).report.elaboration
 export:
   selected
   sibling

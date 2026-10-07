@@ -13,4 +13,4 @@ circuit BadClockingConditional():
   when data:
     synchronous_input(data, clock)
 
-def clocked = compile_program(elaborate_program(BadClockingConditional()), clocking_target())
+def clocked = compile_program(elaborate(BadClockingConditional()), clocking_target())

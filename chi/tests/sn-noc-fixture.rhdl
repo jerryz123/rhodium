@@ -73,7 +73,7 @@ sync_circuit CHISNNoCFixture():
                       ~node: sn_noc_second,
                       ~ports: router_ports, ~adapters: sn_noc_adapters)
 
-def sn_noc_design = elaborate(CHISNNoCFixture())
+def sn_noc_program = elaborate(CHISNNoCFixture())
 
 export:
   sn_noc_flit
@@ -89,4 +89,4 @@ export:
   sn_noc_rsp_router_config
   sn_noc_dat_router_config
   CHISNNoCFixture
-  sn_noc_design
+  sn_noc_program

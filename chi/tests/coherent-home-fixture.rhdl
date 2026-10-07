@@ -91,7 +91,7 @@ def coherent_home_params = CHIHNFParams(
   coherent_home_config,
   memory_service
 )
-def coherent_home_design = elaborate(CHIHNF(coherent_home_config))
+def coherent_home_program = elaborate(CHIHNF(coherent_home_config))
 
 export:
   coherent_home_flit
@@ -102,4 +102,4 @@ export:
   memory_service
   coherent_home_config
   coherent_home_params
-  coherent_home_design
+  coherent_home_program

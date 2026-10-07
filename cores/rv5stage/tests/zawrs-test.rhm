@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../riscv/rtl/csr.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/std/decode.rhdl" open
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -70,7 +72,7 @@ for (configuration in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, Floatin
   def fp = configuration[1]
   for (enabled in [#false, #true]):
     def instructions = rv5stage_instructions(xlen, fp, HalfPrecisionProfile.None, ~zawrs: enabled)
-    def design = embedded.run_elaboration(fun (): RV5StageInstructionDecoder(xlen, fp, ~zawrs: enabled))
+    def design = compile_program(elaborate(RV5StageInstructionDecoder(xlen, fp, ~zawrs: enabled)), rtl_target).report.design
     def decoders = design.modules[0].operations.filter(~keep: fun (operation): operation.opcode == "rtl.decode")
     check:
       decoders.length() ~is 1

@@ -1,9 +1,6 @@
 #lang rhombus
-/* Emits a three-entry shared return-address stack for wraparound and recovery tests. */
+// Defines a three-entry shared return-address stack for wraparound and recovery tests.
 // SPDX-License-Identifier: Apache-2.0
-
 import:
-  "../../../../rhodium/backend/circt.rhm".emit_circt
-  "../ras-fixture.rhdl".design
-
-print(emit_circt(design))
+  "../ras-fixture.rhdl".program
+export program

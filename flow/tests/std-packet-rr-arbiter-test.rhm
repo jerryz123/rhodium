@@ -3,24 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../flow/main.rhdl" as flow
   "../../flow/packet-rr-arbiter.rhdl" as packet_arbiter
   "std-packet-rr-arbiter.rhdl" as fixture
 
-def direct_design = embedded.run_elaboration(
-  fun (): packet_arbiter.PacketRRArbiter(Bits(8), 3)
-)
-def facade_design = embedded.run_elaboration(
-  fun (): flow.PacketRRArbiter(Bits(8), 3)
-)
-def chain_design = embedded.run_elaboration(
-  fun (): fixture.PacketRRArbiterChain()
-)
-def disconnected_design = embedded.run_elaboration(
-  fun (): fixture.DisconnectedPacketRRArbiterChain()
-)
+def direct_compiled = compile_program(elaborate(packet_arbiter.PacketRRArbiter(Bits(8), 3)), rtl_target)
+def facade_design = compile_program(elaborate(flow.PacketRRArbiter(Bits(8), 3)), rtl_target).report.design
+def chain_design = compile_program(elaborate(fixture.PacketRRArbiterChain()), rtl_target).report.design
+def disconnected_design = compile_program(elaborate(fixture.DisconnectedPacketRRArbiterChain()), rtl_target).report.design
 def packet_module = facade_design.modules[0]
 
 fun operations(module_def, opcode):
@@ -34,7 +28,7 @@ fun assertion_labels(module_def):
   )
 
 check:
-  verify_design(direct_design) ~is #void
+  direct_compiled.has_errors ~is #false
   verify_design(facade_design) ~is #void
   verify_design(chain_design) ~is #void
   verify_design(disconnected_design) ~is #void
@@ -60,15 +54,7 @@ check:
     "DisconnectedPacketRRArbiterChain", "PacketRRArbiter", "Pipe"
   ]
 
-  embedded.run_elaboration(
-    fun (): fixture.EmptyPacketRRArbiterChain()
-  ) ~throws "requires at least one input endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.MismatchedPacketRRArbiterCount()
-  ) ~throws "configured input count does not match"
-  embedded.run_elaboration(
-    fun (): fixture.PacketRRArbiterWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.PacketRRArbiterWrongPredicate()
-  ) ~throws "annotation"
+  elaborate(fixture.EmptyPacketRRArbiterChain()) ~throws "requires at least one input endpoint"
+  elaborate(fixture.MismatchedPacketRRArbiterCount()) ~throws "configured input count does not match"
+  elaborate(fixture.PacketRRArbiterWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.PacketRRArbiterWrongPredicate()) ~throws "annotation"

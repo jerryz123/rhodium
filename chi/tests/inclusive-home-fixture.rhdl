@@ -46,8 +46,7 @@ def inclusive_home_serial_config = CHIInclusiveHNFConfig(
   ~ways: 2,
   ~comp_ack_entries: 2
 )
-def inclusive_home_elaboration = elaborate_with_top(CHIInclusiveHNF(inclusive_home_config))
-def inclusive_home_design = inclusive_home_elaboration.design
+def inclusive_home_program = elaborate(CHIInclusiveHNF(inclusive_home_config))
 
 export:
   inclusive_home_addressing
@@ -55,5 +54,4 @@ export:
   inclusive_home_config
   inclusive_home_serial_base_config
   inclusive_home_serial_config
-  inclusive_home_design
-  inclusive_home_elaboration
+  inclusive_home_program

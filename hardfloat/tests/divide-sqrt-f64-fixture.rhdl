@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../main.rhdl" open
 
 sync_circuit HardFloatDivideSqrtF64():
@@ -33,10 +35,10 @@ sync_circuit HardFloatDivideSqrtF64():
   out <== operation.out.to_ieee()
   exception_flags <== operation.exception_flags
 
-def design = elaborate(HardFloatDivideSqrtF64())
-def external_multiplier_design = elaborate(DivSqrtRecF64MulAddZ31())
+def program = elaborate(HardFloatDivideSqrtF64())
+def external_multiplier_design = compile_program(elaborate(DivSqrtRecF64MulAddZ31()), rtl_target).report.design
 
 export:
   HardFloatDivideSqrtF64
-  design
+  program
   external_multiplier_design

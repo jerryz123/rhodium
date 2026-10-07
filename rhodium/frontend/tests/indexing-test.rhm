@@ -4,7 +4,7 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "indexing-fixture.rhdl" as fixture
 
 def indexed = fixture.design.modules[0]
@@ -31,9 +31,9 @@ check:
   member_extracts.length() ~is 3
   member_extracts.map(fun (operation): operation.attribute("low")) ~is [0, 1, 2]
   verify_design(fixture.member_design) ~is #void
-  embedded.run_elaboration(fun (): fixture.DynamicIndex()) ~throws "hardware index must be a host natural number or bounded host natural-number range"
-  embedded.run_elaboration(fun (): fixture.UnboundedIndex()) ~throws "hardware slice indices must form a bounded host natural-number range"
-  embedded.run_elaboration(fun (): fixture.EmptyIndex()) ~throws "hardware slice range must select at least one bit"
-  embedded.run_elaboration(fun (): fixture.OutOfBoundsIndex()) ~throws "extract indices must satisfy 0 <= low <= high < source width"
-  embedded.run_elaboration(fun (): fixture.NonBitsIndex()) ~throws "extract operand must have a Bits type"
-  embedded.run_elaboration(fun (): fixture.SelectedPlace()) ~throws "connection target must be a driveable hardware place"
+  elaborate(fixture.DynamicIndex()) ~throws "hardware index must be a host natural number or bounded host natural-number range"
+  elaborate(fixture.UnboundedIndex()) ~throws "hardware slice indices must form a bounded host natural-number range"
+  elaborate(fixture.EmptyIndex()) ~throws "hardware slice range must select at least one bit"
+  elaborate(fixture.OutOfBoundsIndex()) ~throws "extract indices must satisfy 0 <= low <= high < source width"
+  elaborate(fixture.NonBitsIndex()) ~throws "extract operand must have a Bits type"
+  elaborate(fixture.SelectedPlace()) ~throws "connection target must be a driveable hardware place"

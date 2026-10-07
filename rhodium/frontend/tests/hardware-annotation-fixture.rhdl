@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/types.rhm".BitwiseType
 
 // Models a scalar type supplied by an extension library. The declaration owns
@@ -106,7 +108,7 @@ circuit WrongExtensionFamily():
   input source: Bits(4)
   def checked = checked_extension_family(source)
 
-def design = elaborate(HardwareAnnotations(4))
+def design = compile_program(elaborate(HardwareAnnotations(4)), rtl_target).report.design
 
 export:
   Nibble

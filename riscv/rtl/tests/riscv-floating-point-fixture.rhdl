@@ -61,8 +61,8 @@ circuit RiscvFloatingPointFixture():
   float_move <== riscv_integer_to_float_move(FloatFormat.F32, 64, integer_value).as_bits()
   classification <== riscv_classify(FloatFormat.F32, ieee)
 
-def design = elaborate(RiscvFloatingPointFixture())
+def program = elaborate(RiscvFloatingPointFixture())
 
 export:
   RiscvFloatingPointFixture
-  design
+  program

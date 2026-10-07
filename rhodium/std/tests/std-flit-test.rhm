@@ -3,20 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/std/flit.rhdl" as flit
   "std-flit.rhdl" as fixture
 
-def fixed_design = embedded.run_elaboration(
-  fun (): fixture.FixedFramingRoundTrip()
-)
-def packet_design = embedded.run_elaboration(
-  fun (): fixture.PacketRoundTrip()
-)
-def variable_design = embedded.run_elaboration(
-  fun (): fixture.VariableFixedRoundTrip()
-)
+def fixed_design = compile_program(elaborate(fixture.FixedFramingRoundTrip()), rtl_target).report.design
+def packet_design = compile_program(elaborate(fixture.PacketRoundTrip()), rtl_target).report.design
+def variable_design = compile_program(elaborate(fixture.VariableFixedRoundTrip()), rtl_target).report.design
 def fixed_top = fixed_design.modules[0]
 def packetizer = packet_design.modules.find(
   fun (module_def): module_def.name == "Packetizer"
@@ -72,18 +68,8 @@ check:
   type_equal(structural_fixed_flit, flit.FixedFlit(Bits(8))) ~is #true
   flit.FixedFlit.require_specialization(structural_fixed_flit) ~throws "expected a FixedFlit specialization"
 
-  embedded.run_elaboration(
-    fun (): fixture.FrameWrongShape()
-  ) ~throws "expected a FixedFlit specialization"
-  embedded.run_elaboration(
-    fun (): fixture.RequireWrongShape()
-  ) ~throws "expected a VariableFlit specialization"
-  embedded.run_elaboration(
-    fun (): fixture.StripVariableShape()
-  ) ~throws "expected a FramedFixedFlit specialization"
-  embedded.run_elaboration(
-    fun (): fixture.DirectFramingConnection()
-  ) ~throws "provider interface does not support the peer interface contract"
-  embedded.run_elaboration(
-    fun (): fixture.FrameMissingSyncDomain()
-  ) ~throws "active sync_circuit"
+  elaborate(fixture.FrameWrongShape()) ~throws "expected a FixedFlit specialization"
+  elaborate(fixture.RequireWrongShape()) ~throws "expected a VariableFlit specialization"
+  elaborate(fixture.StripVariableShape()) ~throws "expected a FramedFixedFlit specialization"
+  elaborate(fixture.DirectFramingConnection()) ~throws "provider interface does not support the peer interface contract"
+  elaborate(fixture.FrameMissingSyncDomain()) ~throws "active sync_circuit"

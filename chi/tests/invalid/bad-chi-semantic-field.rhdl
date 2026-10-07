@@ -10,4 +10,4 @@ circuit BadCHISemanticField():
 
   tag_op <== bits(0, 2)
 
-def design = elaborate(BadCHISemanticField())
+elaborate(BadCHISemanticField())

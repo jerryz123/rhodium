@@ -36,11 +36,11 @@ fun SingleCoreRV5StageSoC(params :: SingleCoreSoCParams = single_core_rv5stage_s
   def core_profile :: RV5StageConfig = params.core_profile
   generic.SingleCoreSoC(generic.SingleCoreSoCConfig(rv5stage_hart(core_profile), params))
 
-def design = elaborate(SingleCoreRV5StageSoC())
+def program = elaborate(SingleCoreRV5StageSoC())
 
 export:
   single_core_rv5stage_soc_core_profile
   make_single_core_rv5stage_soc_params
   single_core_rv5stage_soc_params
   SingleCoreRV5StageSoC
-  design
+  program

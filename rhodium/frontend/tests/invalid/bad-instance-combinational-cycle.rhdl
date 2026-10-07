@@ -1,6 +1,11 @@
 #lang rhodium
+
 // Rejects a combinational feedback loop that crosses an identity-child boundary.
 // SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
 
 circuit Identity():
   input a: Bits(1)
@@ -11,4 +16,5 @@ circuit Top():
   inst u(Identity())
   u.a <== u.y
 
-def design = elaborate(Top())
+// Cross-module cycle detection belongs to target preparation.
+compile_program(elaborate(Top()), rtl_target)

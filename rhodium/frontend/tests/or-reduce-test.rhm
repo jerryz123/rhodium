@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../examples/rtl/bit-utilities.rhdl" as fixture
 
-def module_def = fixture.reduction_design.modules[0]
+def fixture_reduction_design = compile_program(fixture.reduction_program, rtl_target).report.design
+
+def module_def = fixture_reduction_design.modules[0]
 def equalities = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.eq"
 )
@@ -39,4 +43,4 @@ check:
   constants.map(fun (operation): operation.attribute("value")) ~is [0, 0, 255, 15, 0, 15, 0, 1]
   (for all (negation in negations):
      bool.bool_type(negation.results[0].type)) ~is #true
-  verify_design(fixture.reduction_design) ~is #void
+  verify_design(fixture_reduction_design) ~is #void

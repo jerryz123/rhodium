@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Supplies a non-Boolean hardware condition to the ordered priority mux.
 // SPDX-License-Identifier: Apache-2.0
 

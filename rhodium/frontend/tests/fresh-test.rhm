@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as kernel
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/fresh-generators.rhdl" open
 
 def outer_identity = kernel.new_circuit_identity("SameName")
@@ -18,9 +21,9 @@ fun outer_generator():
   fun implementation(): inner_generator()
   kernel.build_circuit(outer_identity, "SameName", [], implementation)
 
-def same_name_design = kernel.run_elaboration(fun (): outer_generator())
-def first_adder_design = kernel.run_elaboration(fun (): Adder(8))
-def second_adder_design = kernel.run_elaboration(fun (): Adder(8))
+def same_name_design = elaborate(outer_generator()).design
+def first_adder_design = compile_program(elaborate(Adder(8)), rtl_target).report.design
+def second_adder_design = compile_program(elaborate(Adder(8)), rtl_target).report.design
 
 check:
   design.modules.map(fun (module_def): module_def.name) ~is ["Top", "Adder"]

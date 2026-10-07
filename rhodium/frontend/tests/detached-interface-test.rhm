@@ -2,6 +2,8 @@
 // Checks lazy grouped member binding and physical, nominal, and array declaration diagnostics.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../foundation.rhm" open
   "../layers/interface.rhm" open
   "../../core/main.rhm" as core
@@ -38,12 +40,12 @@ check:
 
 def bad_ordinary = CircuitReference(CircuitIdentity("Wrong"), fixture.signature, fun (): fixture.WrongNominal(), ~declarations: fixture.declarations)
 check:
-  elaborate_with_top(fixture.Top(bad_ordinary)) ~throws "does not match declared interface"
+  compile_program(elaborate(fixture.Top(bad_ordinary)), rtl_target).report.elaboration ~throws "does not match declared interface"
 
 def short_array = [InterfaceDeclaration("ingress", fixture.declarations[0].type, "consumer", ~count: 1), InterfaceDeclaration("egress", fixture.declarations[1].type, "producer", ~count: 1)]
 def bad_array = CircuitReference(CircuitIdentity("BadArray"), interface_signature(fixture.array_declarations), fun (): fixture.ArrayPass(), ~declarations: short_array)
 check:
-  elaborate_with_top(bad_array) ~throws "does not match declared interface array"
+  compile_program(elaborate(bad_array), rtl_target).report.elaboration ~throws "does not match declared interface array"
 
 def before_bad_connection = fixture.call_count()
 check:
@@ -62,7 +64,7 @@ def alias_rtl = materialize_reachable_rtl(aliases).rtl
 check:
   fixture.call_count() ~is calls_before_aliases + 1
   alias_rtl.top.find_instance("first").attribute("module") === alias_rtl.top.find_instance("second").attribute("module") ~is #true
-  elaborate_with_top(alias_one).top.name ~is "Pass"
+  compile_program(elaborate(alias_one), rtl_target).report.top.name ~is "Pass"
 
 class RejectImplementation():
   implements CircuitDeclaration
@@ -76,5 +78,5 @@ def conflicting = RetainedCircuitReference(base.definition, ExpansionProvider(fu
 check:
   materialize_reachable_rtl(fixture.aliases(alias_one, rejecting)).rtl ~throws "additional declaration rejected implementation"
   materialize_reachable_rtl(fixture.aliases(rejecting, alias_one)).rtl ~throws "additional declaration rejected implementation"
-  elaborate_with_top(rejecting) ~throws "additional declaration rejected implementation"
+  compile_program(elaborate(rejecting), rtl_target).report.elaboration ~throws "additional declaration rejected implementation"
   fixture.aliases(alias_one, conflicting) ~throws "conflicting portable providers"

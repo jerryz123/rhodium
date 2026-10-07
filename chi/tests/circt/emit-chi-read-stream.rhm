@@ -1,9 +1,9 @@
 #lang rhombus
-// Emits CIRCT MLIR for the concurrent CHI-backed line-read stream fixture.
+// Defines a program for the concurrent CHI-backed line-read stream fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../rhodium/backend/circt.rhm" open
   "../read-stream-fixture.rhdl" as fixture
 
-print(emit_circt(fixture.read_stream_design))
+def program = fixture.read_stream_program
+export program

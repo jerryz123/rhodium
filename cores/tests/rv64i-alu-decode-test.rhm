@@ -3,14 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../rhodium/backend/circt.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../alu-decode.rhdl" as controls
 
-def design = embedded.run_elaboration(
-  fun (): controls.RV64IAluInstructionDecoder()
-)
-def circt = emit_circt(design)
+def program = elaborate(controls.RV64IAluInstructionDecoder())
+def circt = compile_program(program, circt_target).artifacts[0].content
 
 check:
   circt.contains("sv.constantX : i1") ~is #true

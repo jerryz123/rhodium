@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../rhodium/frontend/layers/bool.rhm" as bool
   "../branch-resolver.rhdl" as branch
 
-def design = embedded.run_elaboration(fun (): branch.BranchResolver(64))
+def design = compile_program(elaborate(branch.BranchResolver(64)), rtl_target).report.design
 def module_def = design.modules[0]
 def control_type = branch.BranchResolverControl()
 def request_payload_type = branch.BranchResolverRequest(64)
@@ -64,6 +66,4 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
   ).length() ~is 0
   verify_design(design) ~is #void
-  embedded.run_elaboration(
-    fun (): branch.BranchResolver(0)
-  ) ~throws "PosInt"
+  elaborate(branch.BranchResolver(0)) ~throws "PosInt"

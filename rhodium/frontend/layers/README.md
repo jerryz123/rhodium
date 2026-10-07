@@ -121,7 +121,7 @@ circuit Top():
   input data: Bits(8)
   synchronous_input(data, clock)
 
-def compiled = compile_program(elaborate_program(Top()), clocking_target())
+def compiled = compile_program(elaborate(Top()), clocking_target())
 def findings = compiled.report.summary
 ```
 

@@ -3,10 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/rtl/adder4.rhdl" as fixture
 
-def design = fixture.design
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def design = fixture_design
 def top = design.modules.find(fun (module_def): module_def.name == "Adder4")
 def child = design.modules.find(fun (module_def): module_def.name == "FullAdder")
 def instances = top.operations.filter(

@@ -54,7 +54,7 @@ circuit Adder(width):
   output sum: Bits(width)
   sum <== a + b
 
-def design = elaborate(Adder(8))
+def program = elaborate(Adder(8))
 ```
 
 The standard profile adds the curated layers without changing the resulting
@@ -75,10 +75,10 @@ hardware:
 1. A circuit call selects a module specialization from host parameters.
 2. The circuit body constructs ports, operations, state, instances, and drives.
 3. Stable equivalent calls reuse the same module definition.
-4. `elaborate_program` returns an `ElaboratedProgram` with a completed design
+4. `elaborate` returns an `ElaboratedProgram` with a completed design
    and explicit top. Pass it to `compile_program` with the desired target.
-5. `elaborate` and `elaborate_with_top` finalize concrete construction, returning a
-   verified core `Design` or `DesignElaboration`, respectively.
+5. The selected target verifies and prepares the representation it consumes;
+   elaboration never selects portable RTL expansion.
 
 The explicit phase boundary is available in both language profiles:
 
@@ -87,15 +87,18 @@ import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/backend/circt-target.rhm").circt_target
 
-def program = elaborate_program(Top())
+def program = elaborate(Top())
 def result = compile_program(program, circt_target)
 ```
+
+Ordinary `#lang rhombus` clients use the same `elaborate` form by importing
+`lib("rhodium/frontend/foundation.rhm").elaborate`. A circuit call stays inside
+`elaborate(...)`; no callback or elaboration-kernel import is needed.
 
 Program construction completes circuit bodies and closes the frontend context.
 It checks the selected top's ownership and completion; whole-design verification
 occurs during target preparation. For example, a cycle across finished instances is
-rejected during compilation, while eager `elaborate` rejects it before
-returning. Existing construction-local and sync-certification checks remain at
+rejected during compilation or explicit RTL preparation. Existing construction-local and sync-certification checks remain at
 their authoring boundaries.
 
 Ordinary `CircuitReference` recipes still run during program elaboration.
@@ -151,9 +154,17 @@ existing circuit declarations retain their richer expansion-time port informatio
 
 `retained_circuit(definition, implementation)` pairs a core `ConstructDefinition`
 with a zero-argument circuit recipe. `inst child(reference)` records its typed
-ports and provider without executing that recipe. `elaborate_program` preserves
-these instances; legacy `elaborate` and `elaborate_with_top` expand them before
-returning.
+ports and provider without executing that recipe. `elaborate` preserves
+these instances until the selected target chooses native handling or portable
+expansion.
+
+For a combinational retained reference with exactly one output,
+`retained_call(reference, [arguments, ...])` returns that output as a hardware
+expression. Arguments follow signature input order and must have the exact
+declared types. Inside `when` or `switch`, argument wiring remains unconditional;
+the surrounding assignment supplies the guard. Stateful references, multiple
+outputs, and incorrect argument counts are rejected. The call still defers the
+portable recipe until target selection.
 
 ```rhombus
 def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
@@ -162,10 +173,10 @@ def definition = ConstructDefinition(ConstructIdentity("Leaf"), [8], signature,
 def retained = retained_circuit(definition, fun (): Leaf())
 ```
 
-A retained reference may also be the selected top. `elaborate_program(reference)`
+A retained reference may also be the selected top. `elaborate(reference)`
 returns its detached `ConstructDefinition` as `.top`, with no synthetic wrapper
-or provider execution. Concrete elaboration returns the expanded implementation
-as `.top`. `leaf_paths(type)` is available from the public language to describe
+or provider execution. Explicit RTL preparation returns the expanded implementation
+as `.rtl.top`. `leaf_paths(type)` is available from the public language to describe
 exact scalar, record, and vector leaves without importing compiler modules.
 
 The default retained contract is combinational, with data ports and declared
@@ -207,19 +218,28 @@ circuit Passthrough(T):
   output result: T
   result <== source
 
-def design = elaborate(Passthrough(Bits(8)))
+def program = elaborate(Passthrough(Bits(8)))
 ```
 
-Consumers that need a stable explicit top, such as RFPL physical annotation,
-use `elaborate_with_top`:
+Every program carries its explicit top and provider environment. Consumers that
+need verified concrete RTL, such as RFPL physical annotation or logical diagrams,
+select the RTL compilation target:
 
 ```rhombus
-def logical = elaborate_with_top(Passthrough(Bits(8)))
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
+def program = elaborate(Passthrough(Bits(8)))
+def logical = compile_program(program, rtl_target).report
 def design = logical.design
 def top = logical.top
 ```
 
-`elaborate` remains the concise compatibility form returning a bare `Design`.
+`rtl_target` expands retained constructs into a fresh, verified concrete graph.
+The report exposes `.design`, `.top`, and `.elaboration` for graph consumers.
+Pass the original program directly to `compile_program` when selecting a backend;
+preparing RTL first would discard the target's opportunity to retain constructs.
 `Module.find_instance(name)` provides stable direct-instance inspection; tools
 must not infer the top or hierarchy from module-list positions.
 

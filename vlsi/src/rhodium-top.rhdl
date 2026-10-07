@@ -9,8 +9,8 @@ circuit RhodiumTop():
 
   out_bit <== !in_bit
 
-def design = elaborate(RhodiumTop())
+def program = elaborate(RhodiumTop())
 
 export:
   RhodiumTop
-  design
+  program

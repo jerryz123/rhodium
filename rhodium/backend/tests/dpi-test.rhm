@@ -3,16 +3,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/backend/circt.rhm" open
   "../../../examples/rtl/clocked-dpi.rhdl" as fixture
 
-def circt = emit_circt(fixture.design)
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def circt = emit_circt(fixture_design)
+def pair_call = fixture_design.modules[0].operations.find(
+  fun (op): op.opcode == "sim.dpi_register" && op.attribute("dpi_import").name == "rhodium_step_pair"
+)
+def return_id = to_string(pair_call.results[1].id)
 
 check:
   circt.contains("sim.func.dpi @rhodium_trace(in %value : i8)") ~is #true
   circt.contains("sim.func.dpi @rhodium_step_pair(in %value : i8, out doubled : i8, return incremented : i8)") ~is #true
   circt.contains("seq.to_clock %clock") ~is #true
   circt.contains("sim.func.dpi.call @rhodium_trace(%value) clock") ~is #true
-  circt.contains(", %__rhodium_value_18 = sim.func.dpi.call @rhodium_step_pair(%value) clock") ~is #true
+  circt.contains(", %__rhodium_value_" ++ return_id ++ " = sim.func.dpi.call @rhodium_step_pair(%value) clock") ~is #true
   circt.contains("enable %enable : (i8) -> ()") ~is #true
   circt.contains("enable %enable : (i8) -> (i8, i8)") ~is #true

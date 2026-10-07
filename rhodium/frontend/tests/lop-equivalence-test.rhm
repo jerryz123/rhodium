@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/lop/adder-core.rhm" as core_fixture
   "../../../examples/lop/adder-kernel.rhm" as kernel_fixture
@@ -11,14 +13,20 @@ import:
   "../../../examples/lop/width-ops-kernel.rhm" as width_kernel_fixture
   "../../../examples/rtl/width-ops.rhdl" as width_standard_fixture
 
+def kernel_fixture_design = compile_program(kernel_fixture.program, rtl_target).report.design
+def composed_fixture_design = compile_program(composed_fixture.program, rtl_target).report.design
+def standard_fixture_design = compile_program(standard_fixture.program, rtl_target).report.design
+def width_kernel_fixture_design = compile_program(width_kernel_fixture.program, rtl_target).report.design
+def width_standard_fixture_design = compile_program(width_standard_fixture.program, rtl_target).report.design
+
 def core_ir = dump_ir(core_fixture.design)
-def kernel_ir = dump_ir(kernel_fixture.design)
-def composed_ir = dump_ir(composed_fixture.design)
-def standard_ir = dump_ir(standard_fixture.design)
+def kernel_ir = dump_ir(kernel_fixture_design)
+def composed_ir = dump_ir(composed_fixture_design)
+def standard_ir = dump_ir(standard_fixture_design)
 def core_module = core_fixture.design.modules[0]
-def kernel_module = kernel_fixture.design.modules[0]
-def composed_module = composed_fixture.design.modules[0]
-def standard_module = standard_fixture.design.modules[0]
+def kernel_module = kernel_fixture_design.modules[0]
+def composed_module = composed_fixture_design.modules[0]
+def standard_module = standard_fixture_design.modules[0]
 def core_interface = core_module.inputs.map(
   fun (port): [port.name, port.type.describe()]
 )
@@ -29,14 +37,14 @@ def core_opcodes = core_module.operations.map(fun (operation): operation.opcode)
 def kernel_opcodes = kernel_module.operations.map(fun (operation): operation.opcode)
 def composed_opcodes = composed_module.operations.map(fun (operation): operation.opcode)
 def standard_opcodes = standard_module.operations.map(fun (operation): operation.opcode)
-def width_kernel_ir = dump_ir(width_kernel_fixture.design)
-def width_standard_ir = dump_ir(width_standard_fixture.design)
+def width_kernel_ir = dump_ir(width_kernel_fixture_design)
+def width_standard_ir = dump_ir(width_standard_fixture_design)
 
 check:
   verify_design(core_fixture.design) ~is #void
-  verify_design(kernel_fixture.design) ~is #void
-  verify_design(composed_fixture.design) ~is #void
-  verify_design(standard_fixture.design) ~is #void
+  verify_design(kernel_fixture_design) ~is #void
+  verify_design(composed_fixture_design) ~is #void
+  verify_design(standard_fixture_design) ~is #void
   core_ir ~is kernel_ir
   kernel_ir ~is composed_ir
   composed_ir ~is standard_ir
@@ -49,6 +57,6 @@ check:
   kernel_module.operations[3].origin.kind ~is "embedded add"
   composed_module.operations[3].origin.kind ~is "embedded add"
   standard_module.operations[3].origin.kind ~is "embedded add"
-  verify_design(width_kernel_fixture.design) ~is #void
-  verify_design(width_standard_fixture.design) ~is #void
+  verify_design(width_kernel_fixture_design) ~is #void
+  verify_design(width_standard_fixture_design) ~is #void
   width_standard_ir ~is width_kernel_ir

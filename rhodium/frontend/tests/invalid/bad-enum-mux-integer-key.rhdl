@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture using an untyped integer key with an enum mux selector.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -13,4 +14,4 @@ circuit BadEnumMuxIntegerKey():
   next_state <== mux_lookup(state, ~default: State.Idle):
     0: State.Running
 
-def design = elaborate(BadEnumMuxIntegerKey())
+elaborate(BadEnumMuxIntegerKey())

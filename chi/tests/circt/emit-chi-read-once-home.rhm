@@ -1,9 +1,9 @@
 #lang rhombus
-// Emits CIRCT MLIR for focused ReadOnce policy checks against the inclusive Home.
+// Defines a program for focused ReadOnce policy checks against the inclusive Home.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../rhodium/backend/circt.rhm" open
   "../../../chi/tests/inclusive-home-fixture.rhdl" as fixture
 
-print(emit_circt(fixture.inclusive_home_design))
+def program = fixture.inclusive_home_program
+export program

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects bang inversion for a nominal enum that has no bitwise capability.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,4 +12,4 @@ circuit BadInvertEnum():
   output inverted: State
   inverted <== !state
 
-def design = elaborate(BadInvertEnum())
+elaborate(BadInvertEnum())

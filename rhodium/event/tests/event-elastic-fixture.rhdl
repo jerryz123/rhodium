@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventElasticChild(traced :: Boolean):
@@ -72,10 +74,10 @@ sync_circuit EventMissingElastic():
   inst missing(ValidPipe(Bits(8), 1))
   interface_trace_elastic(missing)
 
-def elastic = elaborate_with_top(EventElastic())
-fun bad_width(): elaborate_with_top(EventBadElasticWidth())
-fun bad_count(): elaborate_with_top(EventBadElasticCount())
-fun missing_controls(): elaborate_with_top(EventMissingElastic())
+def elastic = elaborate(EventElastic())
+fun bad_width(): compile_program(elaborate(EventBadElasticWidth()), rtl_target).report.elaboration
+fun bad_count(): compile_program(elaborate(EventBadElasticCount()), rtl_target).report.elaboration
+fun missing_controls(): compile_program(elaborate(EventMissingElastic()), rtl_target).report.elaboration
 
 export:
   elastic

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture using a mux lookup key that does not fit the selector width.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,4 +11,4 @@ circuit BadMuxKeyWidth():
   result <== mux_lookup(selector, ~default: value):
     8: value
 
-def design = elaborate(BadMuxKeyWidth())
+elaborate(BadMuxKeyWidth())

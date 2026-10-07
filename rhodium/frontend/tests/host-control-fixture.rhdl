@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus.(!) as host_invert
 
 circuit HostControl():
@@ -39,7 +41,7 @@ circuit HostControl():
   | host_inverted_selected <== signal
   | host_inverted_selected <== fallback
 
-def design = elaborate(HostControl())
+def design = compile_program(elaborate(HostControl()), rtl_target).report.design
 
 export:
   design

@@ -48,5 +48,5 @@ circuit PointerMaskingFixture():
   rv32_address <== apply_pointer_mask(XLen.X32, address[0..32], user_pointer_mask_control(XLen.X32, privilege, mstatus[0..32], satp[0..32], senvcfg[0..32], ~enabled: #true))
   disabled_address <== apply_pointer_mask(XLen.X64, address, user_pointer_mask_control(XLen.X64, privilege, mstatus, satp, senvcfg, ~enabled: #false))
 
-def design = elaborate(PointerMaskingFixture())
-export design
+def program = elaborate(PointerMaskingFixture())
+export program

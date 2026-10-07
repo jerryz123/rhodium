@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects duplicate named replacements in one immutable bundle update.
 // SPDX-License-Identifier: Apache-2.0
 

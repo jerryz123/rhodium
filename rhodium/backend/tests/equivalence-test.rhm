@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/backend/circt.rhm" open
   "../../../examples/lop/adder-core.rhm" as core_adder
   "../../../examples/lop/adder-kernel.rhm" as kernel_adder
@@ -20,13 +22,26 @@ import:
   "../../../examples/rtl/enum-state.rhdl" as enum_standard
   "../../frontend/tests/enum-composed.rhdl" as enum_composed
 
+def kernel_adder_design = compile_program(kernel_adder.program, rtl_target).report.design
+def composed_adder_design = compile_program(composed_adder.program, rtl_target).report.design
+def standard_adder_design = compile_program(standard_adder.program, rtl_target).report.design
+def bundle_kernel_design = compile_program(bundle_kernel.program, rtl_target).report.design
+def bundle_standard_design = compile_program(bundle_standard.program, rtl_target).report.design
+def interface_records_design = compile_program(interface_records.program, rtl_target).report.design
+def interface_standard_design = compile_program(interface_standard.program, rtl_target).report.design
+def width_kernel_design = compile_program(width_kernel.program, rtl_target).report.design
+def width_standard_design = compile_program(width_standard.program, rtl_target).report.design
+def sync_implicit_design = compile_program(sync_implicit.program, rtl_target).report.design
+def sync_composed_design = compile_program(sync_composed.program, rtl_target).report.design
+def enum_standard_design = compile_program(enum_standard.program, rtl_target).report.design
+
 check:
-  emit_circt(core_adder.design) ~is emit_circt(kernel_adder.design)
-  emit_circt(kernel_adder.design) ~is emit_circt(composed_adder.design)
-  emit_circt(composed_adder.design) ~is emit_circt(standard_adder.design)
-  emit_circt(bundle_standard.design) ~is emit_circt(bundle_kernel.design)
-  emit_circt(interface_standard.design) ~is emit_circt(interface_records.design)
-  emit_circt(width_standard.design) ~is emit_circt(width_kernel.design)
-  emit_circt(sync_implicit.design) ~is emit_circt(sync_explicit.design)
-  emit_circt(sync_composed.design) ~is emit_circt(sync_explicit.design)
-  emit_circt(enum_standard.design) ~is emit_circt(enum_composed.design)
+  emit_circt(core_adder.design) ~is emit_circt(kernel_adder_design)
+  emit_circt(kernel_adder_design) ~is emit_circt(composed_adder_design)
+  emit_circt(composed_adder_design) ~is emit_circt(standard_adder_design)
+  emit_circt(bundle_standard_design) ~is emit_circt(bundle_kernel_design)
+  emit_circt(interface_standard_design) ~is emit_circt(interface_records_design)
+  emit_circt(width_standard_design) ~is emit_circt(width_kernel_design)
+  emit_circt(sync_implicit_design) ~is emit_circt(sync_explicit.design)
+  emit_circt(sync_composed_design) ~is emit_circt(sync_explicit.design)
+  emit_circt(enum_standard_design) ~is emit_circt(enum_composed.design)

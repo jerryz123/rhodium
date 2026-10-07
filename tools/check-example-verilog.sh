@@ -26,25 +26,25 @@ for source_root in "${source_roots[@]}"; do
   fi
 done
 
+# Check declared program exports, not every circuit declared in the source:
+# target compilation emits only the selected top and its reachable definitions.
 status=0
 while IFS= read -r source_file; do
-  source_has_golden=false
-  while IFS= read -r design_export; do
-    manifest_prefix="|$source_file|$design_export|"
+  while IFS= read -r program_export; do
+    manifest_prefix="|$source_file|$program_export|"
     manifest_count="$(grep -Fc "$manifest_prefix" tools/testing/circt/run.sh || true)"
     manifest_entry="$(grep -F "$manifest_prefix" tools/testing/circt/run.sh || true)"
     if [[ "$manifest_count" != 1 ]]; then
-      echo "$source_file: $design_export requires exactly one backend manifest entry" >&2
+      echo "$source_file: $program_export requires exactly one backend manifest entry" >&2
       status=1
       continue
     fi
     reference_export="${manifest_entry##*|}"
     reference_export="${reference_export%\'}"
     [[ "$reference_export" != - ]] || continue
-    source_has_golden=true
 
     if ! grep -Fq "def $reference_export = @str|<<{" "$source_file"; then
-      echo "$source_file: $design_export requires $reference_export" >&2
+      echo "$source_file: $program_export requires $reference_export" >&2
       status=1
     elif ! grep -Eq "^[[:space:]]+$reference_export$" "$source_file"; then
       echo "$source_file: $reference_export must be exported" >&2
@@ -60,7 +60,7 @@ while IFS= read -r source_file; do
       status=1
     fi
 
-  done < <(sed -n 's/^def \([A-Za-z0-9_]*design\) = .*/\1/p' "$source_file")
+  done < <(sed -n 's/^def \([A-Za-z0-9_]*program\) = .*/\1/p' "$source_file")
 
   while IFS= read -r reference_export; do
     reference_manifest_count="$(
@@ -73,14 +73,6 @@ while IFS= read -r source_file; do
     fi
   done < <(sed -n 's/^def \([A-Za-z0-9_]*verilog_reference\) = @str|<<{.*/\1/p' "$source_file")
 
-  if [[ "$allow_empty" == false && "$source_has_golden" == true ]]; then
-    while IFS= read -r circuit_name; do
-      if ! grep -Eq "^module ${circuit_name}([_(]|$)" "$source_file"; then
-        echo "$source_file: circuit $circuit_name has no colocated Verilog module" >&2
-        status=1
-      fi
-    done < <(sed -n -E 's/^(sync_)?circuit ([A-Za-z0-9_]+).*/\2/p' "$source_file")
-  fi
 done < <(find "${source_roots[@]}" -type f \( -name '*.rhm' -o -name '*.rhdl' \) | sort)
 
 exit "$status"

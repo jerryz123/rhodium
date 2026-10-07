@@ -1,6 +1,7 @@
 #lang rhombus
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/rtl.rhm").prepare_rtl
   "pass-fixture.rhdl".make_fixture
   "pass-fixture.rhdl".recipe
   "pass-fixture.rhdl".make_wrong_domain_fixture
@@ -14,7 +15,7 @@ import:
   lib("rhodium/backend/circt-target.rhm").circt_target
   lib("rhodium/backend/verilog-target.rhm").verilog_target
   lib("rhodium/event/trace-pass.rhm").event_trace_pass
-  lib("rhodium/frontend/foundation.rhm").elaborate_with_top
+  lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/lowering/program.rhm").ElaboratedProgram
   lib("cores/rv2wide/core.rhdl").RV2WideCore
   lib("cores/rv2wide/profile.rhm").RV2WideConfig
@@ -57,9 +58,9 @@ for (backend in [circt_target, verilog_target]):
 // The production contract must preserve the authored graph and public ports on
 // both targets, rather than adding functional observation ports during elaboration.
 for (profile in [FloatingPointProfile.None, FloatingPointProfile.D]):
-  def rv2wide = elaborate_with_top(RV2WideCore(RV2WideConfig(~floating_point: profile)))
+  def rv2wide = elaborate(RV2WideCore(RV2WideConfig(~floating_point: profile)))
   def rv2wide_before = dump_ir(rv2wide.design)
-  def rv2wide_program = ElaboratedProgram(rv2wide.design, rv2wide.top)
+  def rv2wide_program = rv2wide
   for (backend in [circt_target, verilog_target]):
     def normal = compile_program(rv2wide_program, backend)
     def observed = compile_program(rv2wide_program, rtl_pipeline_target(backend, [cosim_pass()]))

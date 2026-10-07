@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../core/printer.rhm".dump_ir
   "../../frontend/foundation.rhm" open
   "../../frontend/layers/hierarchy.rhm" open
@@ -28,7 +30,7 @@ check:
   first.attribute("module") === second.attribute("module") ~is #true
   first.results[0] === second.results[0] ~is #false
 
-def next_elaboration = elaborate_with_top(reference)
+def next_elaboration = compile_program(elaborate(reference), rtl_target).report.elaboration
 check:
   construction_count() ~is 2
   next_elaboration.top.name ~is "Leaf"
@@ -40,7 +42,7 @@ class Definition(reference :: CircuitReference):
   implements CircuitDefinition
   override method definition_reference(): reference
 
-def wrapped = elaborate_with_top(Definition(reference))
+def wrapped = compile_program(elaborate(Definition(reference)), rtl_target).report.elaboration
 check:
   dump_ir(wrapped.design) ~is dump_ir(next_elaboration.design)
 
@@ -51,20 +53,20 @@ circuit MissingDomain():
 
 def before_missing_domain = sync_construction_count()
 check:
-  elaborate(MissingDomain()) ~throws "active sync_circuit"
+  compile_program(elaborate(MissingDomain()), rtl_target).report.design ~throws "active sync_circuit"
   sync_construction_count() ~is before_missing_domain
 
 def wrong_signature = CircuitReference(CircuitIdentity("Wrong"), ModuleSignature([], []), fun (): Leaf())
 check:
-  elaborate(wrong_signature) ~throws "does not match the declared signature"
-  elaborate(Definition(circuit_reference(next_elaboration.top))) ~throws "different design"
+  compile_program(elaborate(wrong_signature), rtl_target).report.design ~throws "does not match the declared signature"
+  compile_program(elaborate(Definition(circuit_reference(next_elaboration.top))), rtl_target).report.design ~throws "different design"
   CircuitReference(CircuitIdentity("BadSync"), signature, fun (): Leaf(), "clock", "reset") ~throws "Clock and Reset"
   CircuitReference(CircuitIdentity("PartialSync"), sync_signature, fun (): SyncLeaf(), "clock") ~throws "both clock and reset"
 
 def mutable recursive = #false
 recursive := CircuitReference(CircuitIdentity("Recursive"), signature, fun (): recursive)
 check:
-  elaborate(recursive) ~throws "recursive materialization"
+  compile_program(elaborate(recursive), rtl_target).report.design ~throws "recursive materialization"
 
 // A failed provider must not poison recursion tracking when a caller handles
 // the failure and retries during the same elaboration.
@@ -75,12 +77,12 @@ def retryable = CircuitReference(
     attempts := attempts + 1
     if attempts == 1 | error("try again") | Leaf()
 )
-def retry_result = kernel.run_elaboration_with_top(
-  fun ():
+def retry_result = compile_program(elaborate(
+  block:
     check:
       kernel.materialize_circuit(retryable) ~throws "try again"
     retryable
-)
+), rtl_target).report.elaboration
 check:
   attempts ~is 2
   retry_result.top.name ~is "Leaf"

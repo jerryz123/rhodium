@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises inferred canonical packing and vector-shaped representation casts.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -47,7 +52,7 @@ circuit UnevenAsVec():
   output lanes: Vec(2, Bits(2))
   lanes <== raw.as_vec(Bits(2))
 
-def design = elaborate(AsBits())
+def design = compile_program(elaborate(AsBits()), rtl_target).report.design
 
 export:
   AsBits

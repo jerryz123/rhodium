@@ -1,4 +1,9 @@
 #lang rhodium/base
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises ordinary Rhombus host control with a hardware object in the base profile.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,7 +16,7 @@ circuit BaseHostControl():
   | selected <== signal
   | selected <== fallback
 
-def design = elaborate(BaseHostControl())
+def design = compile_program(elaborate(BaseHostControl()), rtl_target).report.design
 
 export:
   design

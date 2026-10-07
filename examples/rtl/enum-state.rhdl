@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates equivalent enum mux and switch forms plus explicit encodings.
+/* Demonstrates equivalent enum mux and switch forms plus explicit encodings. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 hardware_enum State:
   Idle
@@ -12,6 +13,7 @@ hardware_enum Opcode(~width: 4):
   Sub = 1
   Load = 8
 
+/* Exposes state_out for this enum state example. */
 circuit StateMachineLookup():
   input clock: Clock
   input reset: Reset
@@ -25,8 +27,8 @@ circuit StateMachineLookup():
     State.Done: State.Idle
   state_out <== current
 
-// This statement form has the same transition and invalid-encoding behavior
-// as StateMachineLookup, while allowing multiple assignments or effects per case.
+/* This statement form has the same transition and invalid-encoding behavior
+   as StateMachineLookup, while allowing multiple assignments or effects per case. */
 circuit StateMachine():
   input clock: Clock
   input reset: Reset
@@ -45,6 +47,7 @@ circuit StateMachine():
       current <== State.Idle
   state_out <== current
 
+/* Exposes is_load, next_opcode for this enum state example. */
 circuit OpcodeDecoder():
   input opcode: Opcode
   output is_load: Bool
@@ -55,9 +58,9 @@ circuit OpcodeDecoder():
     Opcode.Sub: Opcode.Load
     Opcode.Load: Opcode.Add
 
-def design = elaborate(StateMachine())
-def lookup_design = elaborate(StateMachineLookup())
-def opcode_design = elaborate(OpcodeDecoder())
+def program = elaborate(StateMachine())
+def lookup_program = elaborate(StateMachineLookup())
+def opcode_program = elaborate(OpcodeDecoder())
 
 def verilog_reference = @str|<<{
 module StateMachine(
@@ -113,9 +116,9 @@ export:
   StateMachine
   StateMachineLookup
   OpcodeDecoder
-  design
-  lookup_design
-  opcode_design
+  program
+  lookup_program
+  opcode_program
   verilog_reference
   lookup_verilog_reference
   opcode_verilog_reference

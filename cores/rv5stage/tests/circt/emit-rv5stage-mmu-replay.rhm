@@ -1,13 +1,11 @@
 #lang rhombus
-// Emits CIRCT MLIR for RV5Stage's pulse-and-replay DTLB miss fixture.
+// Defines a program for RV5Stage's pulse-and-replay DTLB miss fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../cores/rv5stage/tests/mmu-data-port-fixture.rhdl".RV5StageMmuDataPortFixture
 
-def design = embedded.run_elaboration(
-  fun (): RV5StageMmuDataPortFixture()
+def program = elaborate(RV5StageMmuDataPortFixture()
 )
-print(emit_circt(design))
+export program

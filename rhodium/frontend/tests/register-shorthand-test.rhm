@@ -3,29 +3,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/register-forms.rhdl" as example
   "register-shorthand.rhdl" as fixture
 
-def ambient_design = embedded.run_elaboration(
-  fun (): fixture.AmbientShorthand()
-)
+def example_compiled = compile_program(example.program, rtl_target)
+
+def ambient_design = compile_program(elaborate(fixture.AmbientShorthand()), rtl_target).report.design
 def ambient = ambient_design.modules[0]
 def ambient_registers = ambient.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
 )
 
-def explicit_design = embedded.run_elaboration(
-  fun (): fixture.ExplicitShorthand()
-)
+def explicit_design = compile_program(elaborate(fixture.ExplicitShorthand()), rtl_target).report.design
 def explicit = explicit_design.modules[0]
 def explicit_registers = explicit.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
 )
 
 check:
-  verify_design(example.design) ~is #void
+  example_compiled.has_errors ~is #false
   ambient_registers.map(fun (operation): operation.attribute("name")) ~is ["inferred_init", "inferred_next", "inferred_both", "typed", "typed_init"]
   ambient_registers.map(fun (operation): operation.results[0].type.width) ~is [8, 8, 8, 8, 8]
   ambient_registers.map(fun (operation): operation.opcode) ~is ["rtl.register_reset", "rtl.register", "rtl.register_reset", "rtl.register", "rtl.register_reset"]
@@ -48,6 +48,6 @@ check:
      operation.places[0].driver === explicit.find_input("data_in").value) ~is #true
   verify_design(ambient_design) ~is #void
   verify_design(explicit_design) ~is #void
-  embedded.run_elaboration(fun (): fixture.DoubleDrive()) ~throws "already has a driver"
-  embedded.run_elaboration(fun (): fixture.TypedImmediateNext()) ~throws "expected a type or ~next value"
-  embedded.run_elaboration(fun (): fixture.ResetWithoutInit()) ~throws "expected a type or ~next value"
+  elaborate(fixture.DoubleDrive()) ~throws "already has a driver"
+  elaborate(fixture.TypedImmediateNext()) ~throws "expected a type or ~next value"
+  elaborate(fixture.ResetWithoutInit()) ~throws "expected a type or ~next value"

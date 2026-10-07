@@ -3,25 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../chi/main.rhdl" as chi
   "../../chi/transactions/read-stream.rhdl" as read_stream
 
 def p = chi.CHIFlitParams()
-def direct_design = embedded.run_elaboration(
-  fun (): read_stream.CHIReadStream(p, 3, 16)
-)
-def facade_design = embedded.run_elaboration(
-  fun (): chi.CHIReadStream(p, 3, 16)
-)
+def direct_compiled = compile_program(elaborate(read_stream.CHIReadStream(p, 3, 16)), rtl_target)
+def facade_compiled = compile_program(elaborate(chi.CHIReadStream(p, 3, 16)), rtl_target)
 
 check:
-  verify_design(direct_design) ~is #void
-  verify_design(facade_design) ~is #void
+  direct_compiled.has_errors ~is #false
+  facade_compiled.has_errors ~is #false
   chi.CHIReadStream === read_stream.CHIReadStream ~is #true
   chi.CHIReadStreamCommand === read_stream.CHIReadStreamCommand ~is #true
   chi.CHIReadStreamLine === read_stream.CHIReadStreamLine ~is #true
-  embedded.run_elaboration(
-    fun (): read_stream.CHIReadStream(p, 3, 4094)
-  ) ~throws "transaction-ID range must fit the 12-bit CHI field"
+  elaborate(read_stream.CHIReadStream(p, 3, 4094)) ~throws "transaction-ID range must fit the 12-bit CHI field"

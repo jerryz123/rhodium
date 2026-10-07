@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects an interface member that is neither hardware data nor a nested interface type.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,4 +17,4 @@ circuit BadInterfaceMemberType():
   interface endpoint(BadNested(), ~role: producer)
   #void
 
-def design = elaborate(BadInterfaceMemberType())
+elaborate(BadInterfaceMemberType())

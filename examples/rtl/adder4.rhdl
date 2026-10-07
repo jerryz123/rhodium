@@ -1,10 +1,11 @@
 #lang rhodium
-// Builds a four-bit ripple-carry adder from one reusable FullAdder definition.
+/* Builds a four-bit ripple-carry adder from one reusable FullAdder definition. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "full-adder.rhdl".FullAdder
 
+/* Chains four full adders, propagating carry from the least significant bit. */
 circuit Adder4():
   input(A, B): Bits(4)
   input Cin: Bits(1)
@@ -36,7 +37,7 @@ circuit Adder4():
   Sum <== concat(adder3.sum, adder2.sum, adder1.sum, adder0.sum)
   Cout <== adder3.cout.as_bits()
 
-def design = elaborate(Adder4())
+def program = elaborate(Adder4())
 
 def verilog_reference = @str|<<{
 module Adder4(
@@ -100,5 +101,5 @@ endmodule
 
 export:
   Adder4
-  design
+  program
   verilog_reference

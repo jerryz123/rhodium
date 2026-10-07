@@ -1,7 +1,9 @@
 #lang rhodium
-// Showcases layer-defined Bool, equality, and canonical N-way selection.
+/* Showcases layer-defined Bool, equality, and canonical N-way selection. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes result, equal for this alu example. */
 circuit ALU(width :: PosInt):
   input(a, b): Bits(width)
   input op: Bits(3)
@@ -17,7 +19,7 @@ circuit ALU(width :: PosInt):
 
   equal <== a === b
 
-def design = elaborate(ALU(8))
+def program = elaborate(ALU(8))
 
 def verilog_reference = @str|<<{
 module ALU(
@@ -36,5 +38,5 @@ endmodule
 
 export:
   ALU
-  design
+  program
   verilog_reference

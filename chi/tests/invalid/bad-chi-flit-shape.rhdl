@@ -15,7 +15,7 @@ def icn_link = CHIRNILinkParams(CHIFlitParams(
   ~stream_id_width: 16,
   ~sec_sid_width: 1
 ))
-def design = elaborate(
+elaborate(
   fixture.CHIRNILinkAdapter(node_link,
                             fixture.rni_node,
                             icn_link,

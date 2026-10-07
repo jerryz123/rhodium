@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates a host-sized memory with async reads and one synchronous write port.
+/* Demonstrates a host-sized memory with async reads and one synchronous write port. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes read_data for this async read memory example. */
 circuit AsyncReadMemory(depth :: PosInt, width :: PosInt):
   input clock: Clock
   input read_address: Bits(index_width(depth))
@@ -16,7 +18,7 @@ circuit AsyncReadMemory(depth :: PosInt, width :: PosInt):
   storage.write(write_address, write_data,
                 ~enable: write_enable, ~clock: clock)
 
-def design = elaborate(AsyncReadMemory(4, 8))
+def program = elaborate(AsyncReadMemory(4, 8))
 
 def verilog_reference = @str|<<{
 module AsyncReadMemory(
@@ -44,5 +46,5 @@ endmodule
 
 export:
   AsyncReadMemory
-  design
+  program
   verilog_reference

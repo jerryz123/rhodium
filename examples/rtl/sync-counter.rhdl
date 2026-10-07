@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates sync circuits, ambient registers, and nested clock/reset propagation.
+/* Demonstrates sync circuits, ambient registers, and nested clock/reset propagation. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Updates the count under the declared increment and reset controls. */
 sync_circuit Counter(width :: PosInt):
   output count: Bits(width)
 
@@ -9,6 +11,7 @@ sync_circuit Counter(width :: PosInt):
   state <== state + bits(1, width)
   count <== state
 
+/* Instantiates a counter under the enclosing synchronous domain. */
 sync_circuit CounterTop(width :: PosInt):
   output count: Bits(width)
 
@@ -16,6 +19,7 @@ sync_circuit CounterTop(width :: PosInt):
   inst counter(CounterModule)
   count <== counter.count
 
+/* Increments state in the ambient clock domain without a reset value. */
 sync_circuit ResetlessCounter(width :: PosInt):
   output count: Bits(width)
 
@@ -23,7 +27,7 @@ sync_circuit ResetlessCounter(width :: PosInt):
   state <== state + bits(1, width)
   count <== state
 
-// An ordinary parent can supply a sync child's domain explicitly.
+/* An ordinary parent can supply a sync child's domain explicitly. */
 circuit ExplicitClockTop(width :: PosInt):
   input source_clock: Clock
   input source_reset: Reset
@@ -35,9 +39,9 @@ circuit ExplicitClockTop(width :: PosInt):
                ~reset: source_reset)
   count <== counter.count
 
-def design = elaborate(CounterTop(8))
-def resetless_design = elaborate(ResetlessCounter(8))
-def explicit_clock_design = elaborate(ExplicitClockTop(8))
+def program = elaborate(CounterTop(8))
+def resetless_program = elaborate(ResetlessCounter(8))
+def explicit_clock_program = elaborate(ExplicitClockTop(8))
 
 def verilog_reference = @str|<<{
 module CounterTop(
@@ -119,9 +123,9 @@ export:
   CounterTop
   ResetlessCounter
   ExplicitClockTop
-  design
-  resetless_design
-  explicit_clock_design
+  program
+  resetless_program
+  explicit_clock_program
   verilog_reference
   resetless_verilog_reference
   explicit_clock_verilog_reference

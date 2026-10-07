@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../examples/rtl/bit-utilities.rhdl" as fixture
   "base-is-one-of-fixture.rhdl" as base_fixture
   "is-one-of-surfaces-fixture.rhdl" as surfaces
 
-def module_def = fixture.membership_design.modules[0]
+def fixture_membership_design = compile_program(fixture.membership_program, rtl_target).report.design
+
+def module_def = fixture_membership_design.modules[0]
 fun output_operation(module_def :: Module, name :: String):
   module_def.find_operation(module_def.find_output(name).place.driver.defining_op_id)
 def surface_module = surfaces.design.modules[0]
@@ -34,7 +38,7 @@ check:
   output_operation(module_def, "listed").attribute("cases") ~is [[4, 15, 1, 1], [5, 15, 1, 1]]
   output_operation(module_def, "active").attribute("default_value") ~is 0
   output_operation(module_def, "active").attribute("default_care") ~is 1
-  verify_design(fixture.membership_design) ~is #void
+  verify_design(fixture_membership_design) ~is #void
   bool.bool_type(base_module.find_output("member").type) ~is #true
   verify_design(base_fixture.design) ~is #void
   surface_outputs_boolean ~is #true

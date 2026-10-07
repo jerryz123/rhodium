@@ -21,8 +21,8 @@ sync_circuit SoCHarness(uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   soc.uart.rx <== uart.uart_rx
   exit <== requester.exit
 
-def design = elaborate(SoCHarness())
+def program = elaborate(SoCHarness())
 
 export:
   SoCHarness
-  design
+  program

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture adding embedded hardware values with mismatched widths.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadWidth():
   output sum: Bits(4)
   sum <== a + b
 
-def design = elaborate(BadWidth())
+elaborate(BadWidth())

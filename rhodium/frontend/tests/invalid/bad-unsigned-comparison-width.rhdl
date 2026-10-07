@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects unsigned comparison between bit vectors with different widths.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,4 +10,4 @@ circuit BadUnsignedComparisonWidth():
 
   result <== (a < b)
 
-def design = elaborate(BadUnsignedComparisonWidth())
+elaborate(BadUnsignedComparisonWidth())

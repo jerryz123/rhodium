@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("chi/main.rhdl") open
 
 def chi_dpi_memory_flit = CHIFlitParams()
@@ -12,12 +14,12 @@ def chi_dpi_memory_config = CHIRamConfig(
   ~max_outstanding: 4,
   ~max_transfer_bytes: 64
 )
-def design = elaborate(CHIDPIMemory(chi_dpi_memory_config, 0))
-def wide_design = elaborate(CHIDPIMemory(CHIRamConfig(
+def design = compile_program(elaborate(CHIDPIMemory(chi_dpi_memory_config, 0)), rtl_target).report.design
+def wide_design = compile_program(elaborate(CHIDPIMemory(CHIRamConfig(
   CHIFlitParams(~data_width: 512),
   4096,
   ~max_outstanding: 2
-), 1))
+), 1)), rtl_target).report.design
 
 export:
   chi_dpi_memory_flit

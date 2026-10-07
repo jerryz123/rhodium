@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates endpoint arrays, generic handles, and terminated interface sinks.
+/* Demonstrates endpoint arrays, generic handles, and terminated interface sinks. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,12 +15,14 @@ interface ByteExchange():
   responder -> requester:
     response: Bits(8)
 
+/* Connects corresponding ready-valid lanes with backpressure in the reverse direction. */
 circuit InterfaceArrayAdapter(n :: PosInt):
   interface ingress[n](Decoupled(Bits(8)), ~role: consumer)
   interface egress[n](Decoupled(Bits(8)), ~role: producer)
 
   egress <=> ingress
 
+/* Routes an endpoint array through a child adapter. */
 circuit InterfaceArrayHierarchy(n :: PosInt):
   interface ingress[n](Decoupled(Bits(8)), ~role: consumer)
   interface egress[n](Decoupled(Bits(8)), ~role: producer)
@@ -29,6 +31,7 @@ circuit InterfaceArrayHierarchy(n :: PosInt):
   adapter.ingress <=> ingress
   egress <=> adapter.egress
 
+/* Connects two individual ingress endpoints to a two-lane egress array. */
 circuit InterfaceSequenceAdapter():
   interface ingress0(Decoupled(Bits(8)), ~role: consumer)
   interface ingress1(Decoupled(Bits(8)), ~role: consumer)
@@ -36,9 +39,9 @@ circuit InterfaceSequenceAdapter():
 
   egress <=> (ingress0, ingress1)
 
-// Generic handles are not specific to ready-valid flow. Each interface_link
-// contributes a transparent local connection; handle-to-handle application
-// composes the links before either external endpoint is attached.
+/* Generic handles are not specific to ready-valid flow. Each interface_link
+   contributes a transparent local connection; handle-to-handle application
+   composes the links before either external endpoint is attached. */
 circuit GenericHandleChain():
   interface ingress(ByteExchange(), ~role: responder)
   interface egress(ByteExchange(), ~role: requester)
@@ -47,8 +50,8 @@ circuit GenericHandleChain():
              |> interface_link(ByteExchange(), "second")
   ingress |> path |> egress
 
-// Parallel handle composition gives one handle array-shaped ends. The same
-// ordinary endpoint-array bulk connection terminates both sides of the path.
+/* Parallel handle composition gives one handle array-shaped ends. The same
+   ordinary endpoint-array bulk connection terminates both sides of the path. */
 circuit ParallelHandleChain():
   interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
   interface egress[2](Decoupled(Bits(8)), ~role: producer)
@@ -60,8 +63,8 @@ circuit ParallelHandleChain():
   def connected = ingress |> lanes
   egress <=> connected
 
-// Closing each handle against its destination produces a one-ended sink.
-// Parallel sink composition lets one endpoint array complete both lanes.
+/* Closing each handle against its destination produces a one-ended sink.
+   Parallel sink composition lets one endpoint array complete both lanes. */
 circuit ParallelSinkChain():
   interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
   interface egress[2](Decoupled(Bits(8)), ~role: producer)
@@ -72,12 +75,12 @@ circuit ParallelSinkChain():
   ))
   ingress |> lanes
 
-def design = elaborate(InterfaceArrayAdapter(2))
-def generic_handle_design = elaborate(GenericHandleChain())
-def parallel_handle_design = elaborate(ParallelHandleChain())
-def parallel_sink_design = elaborate(ParallelSinkChain())
-def hierarchy_design = elaborate(InterfaceArrayHierarchy(2))
-def sequence_design = elaborate(InterfaceSequenceAdapter())
+def program = elaborate(InterfaceArrayAdapter(2))
+def generic_handle_program = elaborate(GenericHandleChain())
+def parallel_handle_program = elaborate(ParallelHandleChain())
+def parallel_sink_program = elaborate(ParallelSinkChain())
+def hierarchy_program = elaborate(InterfaceArrayHierarchy(2))
+def sequence_program = elaborate(InterfaceSequenceAdapter())
 
 def verilog_reference = @str|<<{
 module InterfaceArrayAdapter(
@@ -215,12 +218,12 @@ export:
   GenericHandleChain
   ParallelHandleChain
   ParallelSinkChain
-  design
-  generic_handle_design
-  parallel_handle_design
-  parallel_sink_design
-  hierarchy_design
-  sequence_design
+  program
+  generic_handle_program
+  parallel_handle_program
+  parallel_sink_program
+  hierarchy_program
+  sequence_program
   verilog_reference
   generic_handle_verilog_reference
   parallel_handle_verilog_reference

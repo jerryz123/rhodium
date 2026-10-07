@@ -1,14 +1,16 @@
 #lang rhodium
-// Implements same-width unsigned multiplication with modular fixed-width results.
+/* Implements same-width unsigned multiplication with modular fixed-width results. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Multiplies two width-sized operands using the declared result width. */
 circuit Multiplier(width :: PosInt):
   input(a, b): Bits(width)
   output product: Bits(width)
 
   product <== a * b
 
-def design = elaborate(Multiplier(8))
+def program = elaborate(Multiplier(8))
 
 def verilog_reference = @str|<<{
 module Multiplier(
@@ -23,5 +25,5 @@ endmodule
 
 export:
   Multiplier
-  design
+  program
   verilog_reference

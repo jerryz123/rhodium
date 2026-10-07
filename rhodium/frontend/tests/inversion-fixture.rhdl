@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises width-preserving bang inversion for hardware Bits and Bool values.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,7 +16,7 @@ circuit Inversion():
   bits_out <== !bits_in
   bool_out <== !bool_in
 
-def design = elaborate(Inversion())
+def design = compile_program(elaborate(Inversion()), rtl_target).report.design
 
 export:
   Inversion

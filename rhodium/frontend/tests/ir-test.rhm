@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/bool.rhm" as bool
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/lop/adder-standard.rhdl" as adder_fixture
   "../../../examples/rtl/alu.rhdl" as alu_fixture
   "../../../examples/rtl/width-ops.rhdl" as width_fixture
@@ -13,7 +15,14 @@ import:
   "../../../examples/rtl/multiply.rhdl" as multiply_fixture
   "../../../examples/rtl/hierarchy.rhdl" as hierarchy_fixture
 
-def adder_design = adder_fixture.design
+def adder_fixture_design = compile_program(adder_fixture.program, rtl_target).report.design
+def alu_fixture_design = compile_program(alu_fixture.program, rtl_target).report.design
+def width_fixture_design = compile_program(width_fixture.program, rtl_target).report.design
+def counter_fixture_design = compile_program(counter_fixture.program, rtl_target).report.design
+def multiply_fixture_design = compile_program(multiply_fixture.program, rtl_target).report.design
+def hierarchy_fixture_design = compile_program(hierarchy_fixture.program, rtl_target).report.design
+
+def adder_design = adder_fixture_design
 def adder = adder_design.modules[0]
 def a = adder.find_input("a").value
 def b = adder.find_input("b").value
@@ -36,7 +45,7 @@ check:
   schema_for("rtl.add").required_attributes ~is ["name"]
   verify_design(adder_design) ~is #void
 
-def counter_design = counter_fixture.design
+def counter_design = counter_fixture_design
 def counter = counter_design.modules[0]
 def register_operation = counter.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
@@ -64,7 +73,7 @@ check:
   ).length() ~is 1
   verify_design(counter_design) ~is #void
 
-def multiply_design = multiply_fixture.design
+def multiply_design = multiply_fixture_design
 def multiply = multiply_design.modules[0]
 def multiply_operation = multiply.operations.find(
   fun (operation): operation.opcode == "rtl.mul"
@@ -77,7 +86,7 @@ check:
   dump_ir(multiply_design).contains("rtl.mul") ~is #true
   verify_design(multiply_design) ~is #void
 
-def alu_design = alu_fixture.design
+def alu_design = alu_fixture_design
 def alu = alu_design.modules[0]
 def alu_lookup = alu.operations.find(
   fun (operation): operation.opcode == "rtl.mux_lookup"
@@ -102,7 +111,7 @@ check:
   alu.operations.find(fun (operation): operation.opcode == "rtl.eq") != #false ~is #true
   verify_design(alu_design) ~is #void
 
-def alu5_design = embedded.run_elaboration(fun (): alu_fixture.ALU(5))
+def alu5_design = compile_program(elaborate(alu_fixture.ALU(5)), rtl_target).report.design
 def alu5 = alu5_design.modules[0]
 
 check:
@@ -111,7 +120,7 @@ check:
   alu5.find_output("result").type.width ~is 5
   verify_design(alu5_design) ~is #void
 
-def width_design = width_fixture.design
+def width_design = width_fixture_design
 def width_module = width_design.modules[0]
 def joined = width_module.find_output("joined").place.driver
 def middle = width_module.find_output("middle").place.driver
@@ -129,7 +138,7 @@ check:
   middle.module_def.find_operation(middle.defining_op_id).attribute("low") ~is 2
   verify_design(width_design) ~is #void
 
-def hierarchy_design = hierarchy_fixture.design
+def hierarchy_design = hierarchy_fixture_design
 def child = hierarchy_design.modules.find(fun (module_def): module_def.name == "Adder")
 def top = hierarchy_design.modules.find(fun (module_def): module_def.name == "TwoAdders")
 def instances = top.operations.filter(~keep: fun (operation): operation.opcode == "rtl.instance")

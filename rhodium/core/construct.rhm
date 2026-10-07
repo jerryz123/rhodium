@@ -44,6 +44,7 @@ class ConstructDefinition(identity :: ConstructIdentity,
                           signature :: ModuleSignature,
                           dependencies :: List.of(List.of(OutputLeafDependency)),
                           state :: maybe(SingleClockState) = #false):
+  nonfinal
   /* Validate immutable parameters, legal control/data ports, and complete ordered
      output-leaf dependencies before the definition can enter a mixed IR design. */
   constructor (identity :: ConstructIdentity, parameters :: List,

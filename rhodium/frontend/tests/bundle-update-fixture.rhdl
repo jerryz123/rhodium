@@ -1,4 +1,6 @@
 #lang rhodium
+
+
 // Exercises immutable record replacement, exact result surfaces, and invalid updates.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -124,10 +126,10 @@ circuit InvalidRecordUpdate(kind :: String):
   | kind == "vector": result <== entries.updated(~data: bits(0, 8))[0]
   | ~else: result <== source.data.updated(~data: bits(0, 8))
 
-def design = elaborate(BundleUpdateFixture())
+def program = elaborate(BundleUpdateFixture())
 
 export:
-  design
+  program
   UpdatePayload
   UpdateEnvelope
   InvalidRecordUpdate

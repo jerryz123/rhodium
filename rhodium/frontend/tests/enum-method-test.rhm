@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/enum.rhm".enum_encoding
   "../../../rhodium/frontend/layers/enum.rhm".enum_width
   "../../../rhodium/frontend/layers/enum.rhm".enum_names
@@ -25,7 +27,7 @@ check:
   fixture.ReflectionCollision.names.packed_value() ~is 1
   enum_names(fixture.ReflectionCollision) ~is ["values", "names"]
   enum_values(fixture.ReflectionCollision).map(fun (value): value.packed_value()) ~is [7, 1]
-  dump_ir(embedded.run_elaboration(fun (): fixture.EnumeratedMethods(#true))) ~is dump_ir(embedded.run_elaboration(fun (): fixture.EnumeratedMethods(#false)))
+  dump_ir(compile_program(elaborate(fixture.EnumeratedMethods(#true)), rtl_target).report.design) ~is dump_ir(compile_program(elaborate(fixture.EnumeratedMethods(#false)), rtl_target).report.design)
   record_type(module_def.find_input("envelope").type) ~is #true
   enum_width(fixture.SparseState) ~is 3
   enum_encoding(fixture.SparseState, "Cold") ~is 1
@@ -40,11 +42,11 @@ check:
 
 // Annotating helpers changes neither the selection IR nor its concrete widths.
 for (width in [8, 16]):
-  def direct = embedded.run_elaboration(fun (): fixture.AnnotatedBundleSelection(width, #false))
-  def annotated = embedded.run_elaboration(fun (): fixture.AnnotatedBundleSelection(width, #true))
+  def direct = compile_program(elaborate(fixture.AnnotatedBundleSelection(width, #false)), rtl_target).report.design
+  def annotated = compile_program(elaborate(fixture.AnnotatedBundleSelection(width, #true)), rtl_target).report.design
   check:
     dump_ir(annotated) ~is dump_ir(direct)
     verify_design(annotated) ~is #void
 
 check:
-  embedded.run_elaboration(fun (): fixture.WrongBundleSpecialization()) ~throws "annotation"
+  elaborate(fixture.WrongBundleSpecialization()) ~throws "annotation"

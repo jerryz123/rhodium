@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects passing a runtime hardware value directly to a circuit generator.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,4 +12,4 @@ circuit BadParameter():
   input hardware_argument: Bits(1)
   Child(hardware_argument)
 
-def design = elaborate(BadParameter())
+elaborate(BadParameter())

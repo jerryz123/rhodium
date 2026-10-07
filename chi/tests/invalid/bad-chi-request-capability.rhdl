@@ -23,4 +23,4 @@ def icn = CHIICNPortParams(
   ~max_outstanding: 1
 )
 def link = CHIRNILinkParams(CHIFlitParams())
-def design = elaborate(fixture.CHIRNILinkAdapter(link, node, link, icn))
+elaborate(fixture.CHIRNILinkAdapter(link, node, link, icn))

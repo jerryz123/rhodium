@@ -1,12 +1,15 @@
 #lang rhodium
-// Demonstrates StableCircuitParam reuse and hardware-type circuit parameters.
+/* Demonstrates StableCircuitParam reuse and hardware-type circuit parameters. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Carries immutable width-selection and port-label parameters for specialization reuse. */
 class HostConfig(use_configured_width :: Boolean,
                  width :: PosInt,
                  labels :: List):
   implements StableCircuitParam
 
+/* Selects the configured width or fallback type after validating the two port labels. */
 fun select_type(fallback_type :: DataType, config :: HostConfig):
   unless config.labels.length() == 2
   | error(~who: #'HostParameterized, "expected input and output labels")
@@ -14,12 +17,14 @@ fun select_type(fallback_type :: DataType, config :: HostConfig):
   | Bits(config.width)
   | fallback_type
 
+/* Forwards the payload using the hardware type selected by the host configuration. */
 circuit HostParameterized(fallback_type :: DataType, config :: HostConfig):
   def T = select_type(fallback_type, config)
   input x: T
   output y: T
   y <== x
 
+/* Wires a configured child while preserving its selected payload type. */
 circuit HostWrapper(config :: HostConfig):
   def T = select_type(Bits(16), config)
   input x: T
@@ -28,10 +33,11 @@ circuit HostWrapper(config :: HostConfig):
   u.x <== x
   y <== u.y
 
+/* Selects the eight-bit wrapper with immutable input and output labels. */
 fun top():
   HostWrapper(HostConfig(#true, 8, ["input", "output"]))
 
-def design = elaborate(top())
+def program = elaborate(top())
 
 def verilog_reference = @str|<<{
 module HostWrapper(
@@ -58,5 +64,5 @@ export:
   HostConfig
   HostParameterized
   HostWrapper
-  design
+  program
   verilog_reference

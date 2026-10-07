@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
   "../memory-context.rhdl" open
-  "../../../rhodium/backend/circt.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/xlen.rhm" open
   "../../cache/geometry.rhdl" open
   "../../cache/protocol.rhdl".PhysicalMemoryResp
@@ -15,38 +16,23 @@ import:
 
 def config = test_params.test_rv5stage_chi_config
 
-def instruction_design = embedded.run_elaboration(
-  fun (): l1i.L1ICache(XLen.X64, CacheConfig(8, 1), ~chi: config, ~fetch_bits: 32)
-)
-def data_design = embedded.run_elaboration(
-  fun (): l1d.L1DCache(XLen.X64, CacheConfig(8, 1), ~chi: config, ~context: RV5StageMemoryContext(8))
-)
+def instruction_program = elaborate(l1i.L1ICache(XLen.X64, CacheConfig(8, 1), ~chi: config, ~fetch_bits: 32))
+def data_program = elaborate(l1d.L1DCache(XLen.X64, CacheConfig(8, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
 // Thirty-two 64-byte lines make the intended 2 KiB RV32 private-cache shape.
-def rv32_instruction_design = embedded.run_elaboration(
-  fun (): l1i.L1ICache(XLen.X32, CacheConfig(32, 1), ~chi: config, ~fetch_bits: 32)
-)
-def associative_instruction_design = embedded.run_elaboration(
-  fun (): l1i.L1ICache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~fetch_bits: 32)
-)
-def rv32_data = embedded.run_elaboration_with_top(
-  fun (): l1d.L1DCache(XLen.X32, CacheConfig(32, 1), ~chi: config, ~context: RV5StageMemoryContext(8))
-)
-def rv32_data_design = rv32_data.design
-def rv32_core_output = rv32_data.top.outputs.find(fun (port): port.name == "core_out")
+def rv32_instruction_program = elaborate(l1i.L1ICache(XLen.X32, CacheConfig(32, 1), ~chi: config, ~fetch_bits: 32))
+def associative_instruction_program = elaborate(l1i.L1ICache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~fetch_bits: 32))
+def rv32_data_program = elaborate(l1d.L1DCache(XLen.X32, CacheConfig(32, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
+def associative_data_program = elaborate(l1d.L1DCache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~context: RV5StageMemoryContext(8)))
+def three_way_data_program = elaborate(l1d.L1DCache(XLen.X64, CacheConfig(8, 3), ~chi: config, ~context: RV5StageMemoryContext(8)))
+def rv32_core_output = rv32_data_program.top.outputs.find(fun (port): port.name == "core_out")
 def rv32_response_type = rv32_core_output.type.field("response").type.field("bits").type
-def associative_data_design = embedded.run_elaboration(
-  fun (): l1d.L1DCache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~context: RV5StageMemoryContext(8))
-)
-def three_way_data_design = embedded.run_elaboration(
-  fun (): l1d.L1DCache(XLen.X64, CacheConfig(8, 3), ~chi: config, ~context: RV5StageMemoryContext(8))
-)
-def instruction_circt = emit_circt(instruction_design)
-def data_circt = emit_circt(data_design)
-def rv32_instruction_circt = emit_circt(rv32_instruction_design)
-def rv32_data_circt = emit_circt(rv32_data_design)
-def associative_instruction_circt = emit_circt(associative_instruction_design)
-def associative_data_circt = emit_circt(associative_data_design)
-def three_way_data_circt = emit_circt(three_way_data_design)
+def instruction_circt = compile_program(instruction_program, circt_target).artifacts[0].content
+def data_circt = compile_program(data_program, circt_target).artifacts[0].content
+def rv32_instruction_circt = compile_program(rv32_instruction_program, circt_target).artifacts[0].content
+def rv32_data_circt = compile_program(rv32_data_program, circt_target).artifacts[0].content
+def associative_instruction_circt = compile_program(associative_instruction_program, circt_target).artifacts[0].content
+def associative_data_circt = compile_program(associative_data_program, circt_target).artifacts[0].content
+def three_way_data_circt = compile_program(three_way_data_program, circt_target).artifacts[0].content
 
 check:
   instruction_circt.contains("seq.firmem") ~is #true

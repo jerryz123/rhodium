@@ -2,6 +2,7 @@
 /* Demonstrates arithmetic negation, reductions, membership tests, and enum validity. */
 // SPDX-License-Identifier: Apache-2.0
 
+
 hardware_enum MembershipState:
   Idle
   Refill
@@ -83,10 +84,10 @@ circuit EnumValidity():
   dense_valid <== enum_valid(dense)
   one_hot_valid <== enum_valid(one_hot)
 
-def negation_design = elaborate(ArithmeticNegation())
-def reduction_design = elaborate(Reductions())
-def membership_design = elaborate(Membership())
-def enum_validity_design = elaborate(EnumValidity())
+def negation_program = elaborate(ArithmeticNegation())
+def reduction_program = elaborate(Reductions())
+def membership_program = elaborate(Membership())
+def enum_validity_program = elaborate(EnumValidity())
 
 def negation_verilog_reference = @str|<<{
 module ArithmeticNegation(
@@ -207,10 +208,10 @@ export:
   Reductions
   Membership
   EnumValidity
-  negation_design
-  reduction_design
-  membership_design
-  enum_validity_design
+  negation_program
+  reduction_program
+  membership_program
+  enum_validity_program
   negation_verilog_reference
   reduction_verilog_reference
   membership_verilog_reference

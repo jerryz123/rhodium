@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects receiver membership on an aggregate rather than a flat hardware value.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,8 +13,4 @@ circuit BadBundleMembership():
 
   selected <== pair.is_one_of(pair)
 
-def design = elaborate(BadBundleMembership())
-
-export:
-  BadBundleMembership
-  design
+elaborate(BadBundleMembership())

@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates a linkless one-router NoC with three independent ingress and ejection terminals.
+/* Elaborates a linkless one-router NoC with three independent ingress and ejection terminals. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,7 +22,7 @@ export:
   router_plan
   router_config
   OneRouterCrossbarFixture
-  design
+  program
 
 def router_ref = NodeRef("router")
 def injection_specs = for List (index in 0..3):
@@ -68,6 +68,7 @@ def router_plan = network_plan.router_plan(lowered_topology.node_id(router_ref))
 def router_config = compile_simple_router(router_plan)
 def Beat = RoutedBeat(Bits(8), router_config.route_decoder.route_width)
 
+/* Elaborates a linkless one-router NoC with three independent ingress and ejection terminals. */
 sync_circuit OneRouterCrossbarFixture():
   interface ingress[3](Decoupled(Beat), ~role: consumer)
   interface egress[3](Decoupled(Beat), ~role: producer)
@@ -78,4 +79,4 @@ sync_circuit OneRouterCrossbarFixture():
     egress[index] <=> router.target[index].egress
     router.target[index].available <== router.target[index].egress.ready
 
-def design = elaborate(OneRouterCrossbarFixture())
+def program = elaborate(OneRouterCrossbarFixture())

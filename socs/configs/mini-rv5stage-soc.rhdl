@@ -58,7 +58,7 @@ def mini_rv5stage_soc_home_map = mini_rv5stage_soc_fabric_params.home_map
 fun MiniRV5StageSoC(params :: MiniRV5StageSoCParams = mini_rv5stage_soc_params):
   mini.MiniSoC(mini.MiniSoCConfig(rv5stage_hart(params.core_profile), params.ram, ~clocks: params.clocks, ~boot: params.boot))
 
-def design = elaborate(MiniRV5StageSoC())
+def program = elaborate(MiniRV5StageSoC())
 
 export:
   mini_rv5stage_soc_memory_base
@@ -75,4 +75,4 @@ export:
   MiniRV5StageSoCParams
   mini_rv5stage_soc_params
   MiniRV5StageSoC
-  design
+  program

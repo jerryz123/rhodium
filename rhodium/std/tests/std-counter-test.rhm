@@ -3,17 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/std/counter.rhdl" as counter
 
-def counter_one_design = embedded.run_elaboration(
-  fun (): counter.Counter(1)
-)
+def counter_one_design = compile_program(elaborate(counter.Counter(1)), rtl_target).report.design
 def counter_one = counter_one_design.modules[0]
-def counter_ten_design = embedded.run_elaboration(
-  fun (): counter.Counter(10)
-)
+def counter_ten_design = compile_program(elaborate(counter.Counter(10)), rtl_target).report.design
 def counter_ten = counter_ten_design.modules[0]
 
 fun operations(module_def, opcode):
@@ -40,6 +38,6 @@ check:
   ) ~is ["counter_state_in_range"]
   verify_design(counter_one_design) ~is #void
   verify_design(counter_ten_design) ~is #void
-  embedded.run_elaboration(fun (): counter.Counter(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): counter.Counter(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): counter.Counter("ten")) ~throws "argument does not satisfy annotation"
+  elaborate(counter.Counter(0)) ~throws "PosInt"
+  elaborate(counter.Counter(-1)) ~throws "PosInt"
+  elaborate(counter.Counter("ten")) ~throws "argument does not satisfy annotation"

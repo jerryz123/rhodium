@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects an explicit sync-child override that supplies only one domain signal.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -13,4 +14,4 @@ circuit BadSyncOverride():
   inst child(ChildModule, ~clock: source_clock)
   value <== child.value
 
-def design = elaborate(BadSyncOverride())
+elaborate(BadSyncOverride())

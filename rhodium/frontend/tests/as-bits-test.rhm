@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "as-bits-fixture.rhdl" as fixture
 
@@ -33,6 +35,6 @@ check:
   module_def.find_output("restored_lanes").place.driver === casts[4].results[0] ~is #true
   module_def.find_output("same_lanes").place.driver === module_def.find_input("lanes").value ~is #true
   verify_design(fixture.design) ~is #void
-  verify_design(embedded.run_elaboration(fun (): fixture.ComparisonAsBits())) ~is #void
-  embedded.run_elaboration(fun (): fixture.ControlAsBits()) ~throws "value must have a packable DataType"
-  embedded.run_elaboration(fun (): fixture.UnevenAsVec()) ~throws "evenly divisible"
+  compile_program(elaborate(fixture.ComparisonAsBits()), rtl_target).has_errors ~is #false
+  elaborate(fixture.ControlAsBits()) ~throws "value must have a packable DataType"
+  elaborate(fixture.UnevenAsVec()) ~throws "evenly divisible"

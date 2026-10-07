@@ -1,4 +1,9 @@
 #lang rhodium/base
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises member-style casting using only the compositional base language.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,7 +14,7 @@ circuit BaseInto():
   def reset = raw.into(Reset)
   restored <== reset.into(Bits(1))
 
-def design = elaborate(BaseInto())
+def design = compile_program(elaborate(BaseInto()), rtl_target).report.design
 
 export:
   design

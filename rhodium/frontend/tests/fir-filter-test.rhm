@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/standard.rhm" as frontend
   "../../../examples/rtl/fir-filter.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 
 fun operations(opcode):
   module_def.operations.filter(
@@ -27,10 +31,6 @@ check:
   ) ~is #true
   operations("rtl.mul").length() ~is 4
   operations("rtl.add").length() ~is 3
-  verify_design(fixture.design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.FirFilter(8, 3, [1])
-  ) ~throws "expected at least two coefficients"
-  embedded.run_elaboration(
-    fun (): fixture.FirFilter(8, 3, [1, 4])
-  ) ~throws "fit the declared signed width"
+  verify_design(fixture_design) ~is #void
+  elaborate(fixture.FirFilter(8, 3, [1])) ~throws "expected at least two coefficients"
+  elaborate(fixture.FirFilter(8, 3, [1, 4])) ~throws "fit the declared signed width"

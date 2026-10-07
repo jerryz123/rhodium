@@ -3,16 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../core/main.rhm" open
   "../../../rhodium/backend/circt.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/sync-memory-masked.rhdl" as fixture
   "../../frontend/tests/sync-memory-fixture.rhdl" as frontend_fixture
 
-def circt = emit_circt(fixture.design)
-def write_only_design = embedded.run_elaboration(
-  fun (): frontend_fixture.MaskedWriteOnlySyncMemory()
-)
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def circt = emit_circt(fixture_design)
+def write_only_design = compile_program(elaborate(frontend_fixture.MaskedWriteOnlySyncMemory()), rtl_target).report.design
 def write_only_circt = emit_circt(write_only_design)
 
 check:

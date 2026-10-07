@@ -1,10 +1,11 @@
 #lang rhodium
-// Demonstrates a completion queue that reserves response capacity before issue.
+/* Demonstrates a completion queue that reserves response capacity before issue. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Demonstrates a completion queue that reserves response capacity before issue. */
 sync_circuit CompletionQueueWrapper():
   interface request(Decoupled(Bits(8)), ~role: consumer)
   interface issue(Valid(Bits(8)), ~role: producer)
@@ -17,8 +18,8 @@ sync_circuit CompletionQueueWrapper():
   completion |> bridge.completion
   bridge.response |> response
 
-def design = elaborate(CompletionQueueWrapper())
-def single_design = elaborate(CompletionQueue(Bits(8), Bits(16), 1))
+def program = elaborate(CompletionQueueWrapper())
+def single_program = elaborate(CompletionQueue(Bits(8), Bits(16), 1))
 
 def verilog_reference = @str|<<{
 module CompletionQueueWrapper(
@@ -263,7 +264,7 @@ endmodule
 
 export:
   CompletionQueueWrapper
-  design
-  single_design
+  program
+  single_program
   verilog_reference
   single_verilog_reference

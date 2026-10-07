@@ -13,25 +13,26 @@ the frontend and independent of backend selection, analyses, and libraries.
 
 The frontend owns active construction contexts and circuit recipes. It closes
 its context before returning a program. Materialization owns the transition to
-verified concrete RTL; eager elaboration invokes it when constructs need
-expansion. Direct Builder clients construct the same envelope without a
+verified concrete RTL or target-selected retained boundaries; frontend elaboration
+does not invoke whole-program materialization. Direct Builder clients construct the same envelope without a
 frontend context.
 
 The materializer validates mixed source IR without sealing it, then copies the
 selected top closure into a fresh destination. Providers run with explicit
 scratch Builders. Their module boundaries, state/effect permissions, control
 bindings, and leaf dependencies are checked before copying and again after
-nested expansion. Only a fully concrete verified design can be returned.
+nested expansion. Concrete requests return sealed verified RTL. Target-selected
+preparation may retain admitted semantic definitions and return a mixed verified
+graph.
 
 [`copy.rhm`](copy.rhm) owns graph copying. It preallocates local values and
 places to preserve forward references, remaps operation attributes/resources,
 and rebuilds use-def and driver links. It finishes collection order before
 checking expanded dependencies, but leaves module shells open. Once every body
 exists, a materialization-local resolver copies metadata and projected-place
-views; only then does Builder finish each module and verification seal the design.
-After core verification, invoke extension-owned `MaterializationCheck` payloads
-on the sealed destination modules. Eager frontend construction also runs these
-checks after verifying its graph. This keeps analysis policy in its owner
+views; only then does Builder finish each module and verification check the graph.
+Concrete verification also seals the design. After verification, invoke
+extension-owned `MaterializationCheck` payloads on the destination modules. This keeps analysis policy in its owner
 without importing analysis or frontend modules into lowering. Failed checks must never return a result.
 
 This ordering supports forward sibling references without attaching metadata to
@@ -48,8 +49,15 @@ the destination child through their copied operation, allowing shared definition
 to specialize without guessing which child module a bare reference denotes.
 Dependency direction stays event-to-lowering; this package imports no event code.
 
-`materialize_reachable_rtl` is the sole internal materialization primitive.
-It uses the copier and checks with a fresh graph,
+`materialize_reachable_program` owns discovery and copying;
+`materialize_reachable_rtl` selects no native definitions through that same path.
+Discovery executes each required portable provider once and closes late provider
+registrations before copying. Native candidates remain deferred. Any reachable
+provider check or metadata certification that requires concrete RTL forces full
+portable preparation; this includes checks registered by a later sibling's
+provider. `MaterializationCheck.accepts_retained` defaults false. Only checks
+that already understand declared boundaries should opt in; certification still
+runs on the final graph. The common preparation uses fresh graph copying,
 including for concrete input. Verify the complete source before selecting its
 top closure. Copy only reachable modules and lazily remap DPI imports; reserve
 names from reachable source modules so an unused name cannot perturb emission.
@@ -62,9 +70,11 @@ Run merged checks after all metadata is remapped and concrete verification is
 complete, including checks supplied by providers visited after a shared expansion.
 The active definition stack rejects recursion and the expansion budget bounds changing-specialization
 recursion. Definition identity, not display names or closure equality, controls
-reuse. A detached retained top follows the same expansion path as a child;
-concrete roots retain their existing ownership checks. The graph remapper turns
-`ConstructInstance` metadata views into `Instance` views of the expanded operation. A provider exception never triggers a silent fallback.
+reuse. A detached retained top follows the same selection as a child; native
+tops get a port-only wrapper. Concrete roots retain their existing ownership
+checks. The graph remapper turns `ConstructInstance` metadata views into
+`Instance` views on expansion, or fresh retained views on native selection.
+A provider exception never triggers a silent fallback.
 
 [`tests/program-test.rhm`](tests/program-test.rhm) checks direct Builder
 ownership, deferred whole-design verification, destination sealing, and source preservation.

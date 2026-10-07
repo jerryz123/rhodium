@@ -3,21 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/vec-shift-register-param.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def register_operation = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
-def alternate_design = embedded.run_elaboration(
-  fun (): fixture.VecShiftRegisterParam(2, 8)
-)
+def alternate_design = compile_program(elaborate(fixture.VecShiftRegisterParam(2, 8)), rtl_target).report.design
 def alternate = alternate_design.modules[0]
-def single_stage_design = embedded.run_elaboration(
-  fun (): fixture.VecShiftRegisterParam(1, 3)
-)
+def single_stage_design = compile_program(elaborate(fixture.VecShiftRegisterParam(1, 3)), rtl_target).report.design
 def single_stage = single_stage_design.modules[0]
 
 check:
@@ -37,6 +37,6 @@ check:
                fun (operation): operation.opcode == "rtl.register_reset"
              ).results[0].type,
              VectorType(1, Bits(3))) ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
   verify_design(alternate_design) ~is #void
   verify_design(single_stage_design) ~is #void

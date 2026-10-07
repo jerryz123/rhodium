@@ -30,8 +30,8 @@ flowchart TD
 
 | Location | Implementation responsibility |
 |---|---|
-| [`kernel.rhm`](kernel.rhm) | Own the active elaboration context, module specialization, deferred values, construction calls into the core Builder, conditional effect collection, program construction, and eager construction finalization |
-| [`foundation.rhm`](foundation.rhm) | Export the common authoring surface: circuits, ports, connection, elaboration entry points, base hardware annotations, and public extension protocols |
+| [`kernel.rhm`](kernel.rhm) | Own the active elaboration context, module specialization, deferred values, construction calls into the core Builder, conditional effect collection, program construction, and deferred provider registration |
+| [`foundation.rhm`](foundation.rhm) | Export the common authoring surface: circuits, ports, connection, elaboration boundary, base hardware annotations, and public extension protocols |
 | [`support/`](support/) | Share non-profile macro and static-information machinery across the foundation and independent layers |
 | [`layers/`](layers/DEVELOPING.md) | Implement independently selectable authoring features over existing semantics |
 | [`standard.rhm`](standard.rhm) | Aggregate the foundation and curated layers without defining feature behavior |
@@ -47,10 +47,10 @@ not import one another.
 
 `foundation.rhm` expands a circuit declaration into a stable
 `CircuitIdentity`, normalized generator parameters, and a call to
-`kernel.build_circuit`. All top-level elaboration entry points then use the
+`kernel.build_circuit`. The elaboration boundary uses the
 following lifecycle:
 
-1. `run_program_elaboration` creates one core `Design`, `Builder`, and
+1. `run_elaboration` creates one core `Design`, `Builder`, and
    `FrontendContext`.
 2. `build_circuit` rejects live circuit-bound hardware parameters, resolves or
    creates the selected module definition, and establishes the active module.
@@ -64,12 +64,11 @@ following lifecycle:
    without realizing the implementation. A retained top records its definition
    and provider directly in the program envelope.
 6. The context is deactivated on success or failure. Successful
-   `run_program_elaboration` returns an `ElaboratedProgram` with the completed
+   `run_elaboration` returns an `ElaboratedProgram` with the completed
    design and selected top.
-7. Eager entry points verify and certify their concrete construction graph,
-   returning `DesignElaboration`. When constructs require expansion they call
-   the internal reachable materializer. The explicit `elaborate_program` API
-   leaves preparation to the selected compile target.
+7. `elaborate` returns that program without lowering retained constructs or
+   sealing its source graph. Compile targets own verification and preparation;
+   concrete graph consumers select `rtl_target` through `compile_program`.
 
 Keep frontend checks close to the authoring construct when they diagnose syntax,
 static information, or an elaboration-time contract. Put representation-wide
@@ -77,8 +76,8 @@ invariants in the core verifier so every frontend and direct Builder client is
 checked.
 
 The [lowering package](../lowering/DEVELOPING.md) owns portable expansion.
-The frontend owns final verification of its eager construction graph. No backend is imported by the frontend or
-materializer. Sync certification checks concrete local effects and retained
+Targets own whole-program verification during preparation. No backend is imported
+by the frontend or materializer. Sync certification checks concrete local effects and retained
 clock contracts during construction, then reruns after materialization.
 
 ## Specialization and cache safety
@@ -134,7 +133,7 @@ Sync wrappers expose their control-port names through the reference rather
 than requiring instantiation to match a particular wrapper class. Actual
 `sync_circuit` construction checks retained clock bindings alongside local
 effects. `SyncCircuitMetadata` implements `MaterializationCheck` to repeat
-certification on finished concrete modules before elaboration returns. Instance
+certification on finished concrete modules during preparation. Instance
 members first bind explicit declarations to the instance's Value/Place ports.
 Concrete children without a matching declaration retain the existing metadata
 resolver path. Retained children never inspect a concrete module for members.

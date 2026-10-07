@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("devices/interrupt/plic.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
 
 def flit = CHIFlitParams()
 def config = PlicConfig(flit, 3, 2, 3)
 def params = PlicParams("test-plic", 13, config, 0x0c000000)
-def design = elaborate(Plic(config))
+def design = compile_program(elaborate(Plic(config)), rtl_target).report.design
 
 export:
   flit

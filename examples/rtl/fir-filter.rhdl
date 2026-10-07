@@ -1,11 +1,12 @@
 #lang rhodium
-// Demonstrates a signed direct-form FIR filter with generated taps and explicit widths.
+/* Demonstrates a signed direct-form FIR filter with generated taps and explicit widths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/shift-register.rhdl").shift_register
   lib("rhodium/std/reduction.rhdl").tree_reduce
 
+/* Exposes filtered for this fir filter example. */
 sync_circuit FirFilter(sample_width :: PosInt,
                        coefficient_width :: PosInt,
                        coefficients :: List.of(Int)):
@@ -32,7 +33,7 @@ sync_circuit FirFilter(sample_width :: PosInt,
   filtered <== tree_reduce(products, fun (left, right): left + right)
 
 // The binomial coefficients form a small smoothing low-pass filter.
-def design = elaborate(FirFilter(8, 3, [1, 3, 3, 1]))
+def program = elaborate(FirFilter(8, 3, [1, 3, 3, 1]))
 
 def verilog_reference = @str|<<{
 module FirFilter(
@@ -62,5 +63,5 @@ endmodule
 
 export:
   FirFilter
-  design
+  program
   verilog_reference

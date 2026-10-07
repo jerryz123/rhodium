@@ -2,6 +2,8 @@
 // Checks lazy synchronous wiring, state sharing boundaries, and mixed clock certification.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../lowering/program.rhm".materialize_reachable_rtl
   "../foundation.rhm" open
   "../kernel.rhm" as kernel
@@ -28,7 +30,7 @@ check:
   first.top.find_instance("first").results[0] === first.top.find_instance("second").results[0] ~is #false
   first.top.find_instance("first").attribute("module") === second.top.find_instance("first").attribute("module") ~is #false
   materialize_reachable_rtl(fixture.nested_program).rtl.design.sealed ~is #true
-  elaborate_with_top(fixture.Top(fixture.reference)).design.sealed ~is #true
+  compile_program(elaborate(fixture.Top(fixture.reference)), rtl_target).report.design.sealed ~is #true
 
 // Deliberately use the kernel to bypass automatic sync wiring: certification
 // must reject a foreign retained clock before the provider is invoked.
@@ -44,7 +46,7 @@ fun wrong_domain():
   sync.build_sync_circuit(CircuitIdentity("WrongDomain"), "WrongDomain", [], wrong_body)
 def count_before_invalid = fixture.call_count()
 check:
-  kernel.run_program_elaboration(wrong_domain) ~throws "instead of expected clock"
+  elaborate(wrong_domain()) ~throws "instead of expected clock"
   fixture.call_count() ~is count_before_invalid
 
 // State breaks only the declared registered path, never a combinational bypass.

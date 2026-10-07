@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "snp-noc-fixture.rhdl" as fixture
+
+def fixture_snp_noc_design = compile_program(fixture.snp_noc_program, rtl_target).report.design
 
 check:
   fixture.snp_noc_compilation.injections.length() ~is 1
@@ -20,9 +24,9 @@ check:
   fixture.snp_noc_adapter.ejection(
     fixture.snp_noc_second.snp.terminal
   ).target_index ~is 1
-  fixture.snp_noc_design.modules.map(fun (module): module.name).contains(
+  fixture_snp_noc_design.modules.map(fun (module): module.name).contains(
     "CHISnpNoCInjector"
   ) ~is #true
-  fixture.snp_noc_design.modules.map(fun (module): module.name).contains(
+  fixture_snp_noc_design.modules.map(fun (module): module.name).contains(
     "CHISnpNoCEjector"
   ) ~is #true

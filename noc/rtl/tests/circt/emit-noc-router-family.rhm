@@ -1,10 +1,11 @@
 #lang rhombus
-// Emits CIRCT MLIR for the site-selected shared router-family fixture.
+// Defines a program for the site-selected shared router-family fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
   "../../../../noc/rtl/tests/router-family-fixture.rhdl" as fixture
 
-print(emit_circt(fixture.design))
+def program = fixture.program
+export program
+
 print("\n")

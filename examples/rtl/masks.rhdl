@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates nominal lane-set masks, safe selector widening, and set operations.
+/* Demonstrates nominal lane-set masks, safe selector widening, and set operations. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes eligible, exact_set, optional_set, any_eligible, first_eligible for this masks example. */
 circuit LaneSets(n :: PosInt):
   input requested: Mask(n)
   input available: Mask(n)
@@ -19,7 +21,7 @@ circuit LaneSets(n :: PosInt):
   any_eligible <== or_reduce(eligible)
   first_eligible <== priority_encoder_oh(eligible)
 
-def design = elaborate(LaneSets(4))
+def program = elaborate(LaneSets(4))
 
 def verilog_reference = @str|<<{
 module LaneSets(
@@ -46,5 +48,5 @@ endmodule
 
 export:
   LaneSets
-  design
+  program
   verilog_reference

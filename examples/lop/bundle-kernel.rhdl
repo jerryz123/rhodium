@@ -1,14 +1,16 @@
 #lang rhodium/base
-// Builds a record-valued swap through explicit core types and kernel operations.
+/* Builds a record-valued swap through explicit core types and kernel operations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm" open
   "../../rhodium/frontend/kernel.rhm" as kernel
 
+/* Constructs a two-field record with the same hardware type in both fields. */
 fun Pair(T :: DataType):
   RecordType([RecordField("left", T), RecordField("right", T)], "Pair")
 
+/* Swaps the two record fields without changing their declared width. */
 circuit BundleSwap(width :: PosInt):
   input source: Pair(Bits(width))
   output result: Pair(Bits(width))
@@ -18,7 +20,7 @@ circuit BundleSwap(width :: PosInt):
   kernel.connect(kernel.project(result, "right"),
                  kernel.project(source, "left"))
 
-def design = elaborate(BundleSwap(8))
+def program = elaborate(BundleSwap(8))
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -37,5 +39,5 @@ endmodule
 export:
   Pair
   BundleSwap
-  design
+  program
   verilog_reference

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
@@ -50,8 +52,8 @@ sync_circuit MetadataTop(retain):
   side.source <== identity
   result <== side.result
 
-def program = elaborate_program(MetadataTop(#true))
-def eager = elaborate_with_top(MetadataTop(#false))
+def program = elaborate(MetadataTop(#true))
+def eager = compile_program(elaborate(MetadataTop(#false)), rtl_target).report.elaboration
 export:
   program
   eager

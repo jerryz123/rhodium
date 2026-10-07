@@ -17,4 +17,4 @@ def node = CHINodeParams(
 circuit BadCHILinkKind():
   interface link(CHIRNILink(CHIRNILinkParams(CHIFlitParams()), node), ~role: node)
 
-def design = elaborate(BadCHILinkKind())
+elaborate(BadCHILinkKind())

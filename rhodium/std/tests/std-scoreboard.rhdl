@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/scoreboard.rhdl") open
 
 circuit ScoreboardLookup():
@@ -29,9 +31,9 @@ circuit SingleScoreboardLookup():
   output result: Bool
   result <== scoreboard_busy(1, busy, index)
 
-def lookup_design = elaborate(ScoreboardLookup())
-def nonpower_lookup_design = elaborate(NonPowerOfTwoScoreboardLookup())
-def single_lookup_design = elaborate(SingleScoreboardLookup())
+def lookup_design = compile_program(elaborate(ScoreboardLookup()), rtl_target).report.design
+def nonpower_lookup_design = compile_program(elaborate(NonPowerOfTwoScoreboardLookup()), rtl_target).report.design
+def single_lookup_design = compile_program(elaborate(SingleScoreboardLookup()), rtl_target).report.design
 
 export:
   ScoreboardLookup

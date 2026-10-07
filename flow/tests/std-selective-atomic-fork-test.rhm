@@ -3,20 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../flow/main.rhdl" as flow
   "../../flow/atomic-fork.rhdl" as atomic_fork
   "../../examples/std/selective-atomic-fork.rhdl" as example
   "std-selective-atomic-fork-invalid.rhdl" as invalid
 
-def direct_design = embedded.run_elaboration(
-  fun (): atomic_fork.SelectiveAtomicFork(Bits(8), 3)
-)
-def facade_design = embedded.run_elaboration(
-  fun (): flow.SelectiveAtomicFork(Bits(8), 3)
-)
-def example_design = example.design
+def example_design_rtl = compile_program(example.program, rtl_target).report.design
+
+def direct_design = compile_program(elaborate(atomic_fork.SelectiveAtomicFork(Bits(8), 3)), rtl_target).report.design
+def facade_compiled = compile_program(elaborate(flow.SelectiveAtomicFork(Bits(8), 3)), rtl_target)
+def example_design = example_design_rtl
 def direct_module = direct_design.modules[0]
 
 fun operations(module_def, opcode):
@@ -26,7 +26,7 @@ fun operations(module_def, opcode):
 
 check:
   verify_design(direct_design) ~is #void
-  verify_design(facade_design) ~is #void
+  facade_compiled.has_errors ~is #false
   verify_design(example_design) ~is #void
 
   direct_module.inputs.map(fun (port): port.name) ~is [
@@ -41,9 +41,5 @@ check:
     "SelectiveFanout", "SelectiveAtomicFork"
   ]
 
-  embedded.run_elaboration(
-    fun (): invalid.NonpositiveSelectiveAtomicFork()
-  ) ~throws "output count must be PosInt"
-  embedded.run_elaboration(
-    fun (): invalid.WrongSelectiveAtomicForkMask()
-  ) ~throws "annotation"
+  elaborate(invalid.NonpositiveSelectiveAtomicFork()) ~throws "output count must be PosInt"
+  elaborate(invalid.WrongSelectiveAtomicForkMask()) ~throws "annotation"

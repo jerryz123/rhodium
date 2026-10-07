@@ -5,8 +5,6 @@
 import:
   "../../rhodium/backend/circt-target.rhm".circt_target
   "../../rhodium/compile/program.rhm".compile_program
-  "../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../../socs/configs/mini-rv5stage-soc.rhdl" as soc
 
-def program = ElaboratedProgram(soc.design, soc.design.find_module_named("MiniSoC"))
-print(compile_program(program, circt_target).artifacts[0].content)
+print(compile_program(soc.program, circt_target).artifacts[0].content)

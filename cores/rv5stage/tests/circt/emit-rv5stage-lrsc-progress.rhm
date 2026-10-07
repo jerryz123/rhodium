@@ -1,11 +1,10 @@
 #lang rhombus
-// Emits the two-cache inclusive-Home LR/SC progress integration fixture.
+// Defines the two-cache inclusive-Home LR/SC progress integration fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../cores/rv5stage/tests/lrsc-progress-fixture.rhdl".RV5StageLRSCProgress
 
-def design = embedded.run_elaboration(fun (): RV5StageLRSCProgress())
-print(emit_circt(design))
+def program = elaborate(RV5StageLRSCProgress())
+export program

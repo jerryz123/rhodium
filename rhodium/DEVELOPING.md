@@ -106,9 +106,9 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
 | [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
 | [`lowering/`](lowering/README.md) | Program envelope, checked state expansion, and extension certification after concrete verification | Core IR, signatures, construct contracts and instance views, Builder, schemas, verifier, dependency summaries; local graph copier |
-| [`compile/`](compile/README.md) | Explicit target orchestration, in-memory artifacts, and occurrence reports | Core IR/signatures/construct contracts and verifier; portable lowering; neutral local contracts |
+| [`compile/`](compile/README.md) | Explicit target orchestration, concrete RTL inspection target, in-memory artifacts, and occurrence reports | Core IR/signatures/construct contracts and verifier; portable lowering; neutral local contracts |
 | [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
-| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder, verifier; `lowering/program.rhm` |
+| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder; `lowering/program.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
 | [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
@@ -327,7 +327,10 @@ the generic DPI binding owns its lifetime and settled-sample flush, without
 depending on a named core. The native adapter consumes generic collector types,
 not Sail or generated RTL. Its separate native library is linked by simulator
 consumers; no core source imports `sims/`.
-`sims/cosim/rv5stage/capture.rhdl` uses frontend `kernel.input` for deferred, typed tap
+`sims/cosim/rv5stage/capture.rhdl` and `sims/cosim/rv2wide/capture.rhdl`
+use `compile/program.rhm` and `compile/rtl.rhm` to compile their separately
+elaborated observer programs with `rtl_target` before the instrumentation pass
+imports the resulting graph. `sims/cosim/rv5stage/capture.rhdl` uses frontend `kernel.input` for deferred, typed tap
 ports and public authoring APIs for the observer, plus `riscv/rtl/interrupt.rhdl`
 for architectural pin encoding, and the FP issue/completion bundles and destination
 controls for passive scalar capture. It also consumes the MMU's virtual split-outcome

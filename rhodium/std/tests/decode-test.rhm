@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/std/decode.rhdl" open
   "../../../examples/std/decode.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def decode_operations = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.decode"
 )
@@ -21,7 +25,7 @@ check:
                                            [0b00010, 0b11110, 0b100, 0b110]]
   decode_operation.attribute("default_value") ~is 0
   decode_operation.attribute("default_care") ~is 0b110
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
 
 circuit WrongSelectorDecoder():
   input encoded: Bits(5)
@@ -30,7 +34,7 @@ circuit WrongSelectorDecoder():
   control <== fixture.control_decode(encoded)
 
 check:
-  elaborate(WrongSelectorDecoder()) ~throws "Hardware.of(table.input_type)"
+  compile_program(elaborate(WrongSelectorDecoder()), rtl_target).report.design ~throws "Hardware.of(table.input_type)"
 
 def in_a = Pattern(~value: bits(0b1000, 4), ~care: bits(0b1000, 4))
 def in_b = Pattern(~value: bits(0b1010, 4), ~care: bits(0b1100, 4))
@@ -49,7 +53,7 @@ circuit PatternSetDecoder():
 
   result <== set_decode(encoded)
 
-def set_design = elaborate(PatternSetDecoder())
+def set_design = compile_program(elaborate(PatternSetDecoder()), rtl_target).report.design
 def set_operation = set_design.modules[0].operations.find(
   fun (operation): operation.opcode == "rtl.decode"
 )

@@ -3,10 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/rtl/stack.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def memory = module_def.memories[0]
 
 fun operations(opcode):
@@ -33,4 +37,4 @@ check:
   operations("rtl.add").length() ~is 1
   operations("rtl.sub").length() ~is 2
   operations("rtl.extract").length() ~is 2
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void

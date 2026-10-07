@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a scoped reset condition wider than one bit.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ sync_circuit WideResetScope():
   reset_when(condition):
     value <== bits(0, 1)
 
-def design = elaborate(WideResetScope())
+elaborate(WideResetScope())

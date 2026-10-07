@@ -4,7 +4,7 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "std-reduction.rhdl" as fixture
 
 def tree_module = fixture.tree_design.modules[0]
@@ -35,6 +35,4 @@ check:
   operations(singleton_module, "rtl.add").length() ~is 0
   verify_design(fixture.tree_design) ~is #void
   verify_design(fixture.singleton_design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.EmptyReduction()
-  ) ~throws "expected at least one value"
+  elaborate(fixture.EmptyReduction()) ~throws "expected at least one value"

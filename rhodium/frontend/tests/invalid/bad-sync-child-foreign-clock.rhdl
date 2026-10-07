@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects overriding a sync child to a foreign clock inside a sync parent.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -15,4 +16,4 @@ sync_circuit Parent():
   inst child(ChildModule, ~clock: other_clock, ~reset: other_reset)
   value <== child.value
 
-def design = elaborate(Parent())
+elaborate(Parent())

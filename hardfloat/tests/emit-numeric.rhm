@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits the ISA-neutral HardFloat numeric fixture through the CIRCT backend.
-// SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "numeric-fixture.rhdl" as fixture
-
-print(emit_circt(fixture.design))

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects an explicit synchronous-memory clock inside a sync circuit.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,4 +12,4 @@ sync_circuit ExplicitMemoryClock():
   storage.read.enable <== bits(1, 1)
   data <== storage.read.data
 
-def design = elaborate(ExplicitMemoryClock())
+elaborate(ExplicitMemoryClock())

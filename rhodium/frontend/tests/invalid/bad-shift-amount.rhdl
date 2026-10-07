@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a nominal Boolean where a hardware Bits shift amount is required.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadShiftAmount():
   output result: Bits(8)
   result <== value << amount
 
-def design = elaborate(BadShiftAmount())
+elaborate(BadShiftAmount())

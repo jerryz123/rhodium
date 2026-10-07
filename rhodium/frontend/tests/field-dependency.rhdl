@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/ready-valid.rhdl") open
 
 circuit FieldSelectiveEndpoint():
@@ -34,7 +36,7 @@ circuit FieldSelectiveHierarchy():
   accepted <== child.ingress.ready
   sent <== child.egress.valid
 
-def design = elaborate(FieldSelectiveHierarchy())
+def design = compile_program(elaborate(FieldSelectiveHierarchy()), rtl_target).report.design
 
 export:
   FieldSelectiveEndpoint

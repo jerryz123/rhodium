@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates a multi-subordinate, multi-beat initial-profile HN-I bridge.
+/* Demonstrates a multi-subordinate, multi-beat initial-profile HN-I bridge. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -82,7 +82,7 @@ def subordinate_map = CHISubordinateMap(
 def home_params = CHIHNIParams(home,
                                [requester_endpoint],
                                subordinate_map)
-def home_design = elaborate(CHIHNI(home_params))
+def home_program = elaborate(CHIHNI(home_params))
 
 export:
   home_flit
@@ -94,4 +94,4 @@ export:
   second_subordinate_service
   subordinate_map
   home_params
-  home_design
+  home_program

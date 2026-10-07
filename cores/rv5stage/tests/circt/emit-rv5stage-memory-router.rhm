@@ -1,10 +1,9 @@
 #lang rhombus
-// Emits CIRCT MLIR for RV5Stage's physical-memory permission and routing boundary.
+// Defines a program for RV5Stage's physical-memory permission and routing boundary.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../rhodium/std/interconnect.rhdl".AddressSet
   "../../../../riscv/isa/xlen.rhm".XLen
   "../../../../riscv/rtl/pma.rhdl" open
@@ -25,5 +24,5 @@ def physical_map = RiscvPhysicalMemoryMap(
    RiscvPhysicalMemoryRegion(AddressSet(0x7000, 0x0fff), zero_uncached_memory),
    RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x001f), readable_writable_memory)]
 )
-def design = embedded.run_elaboration(fun (): RV5StageMemoryRouter(XLen.X32, physical_map))
-print(emit_circt(design))
+def program = elaborate(RV5StageMemoryRouter(XLen.X32, physical_map))
+export program

@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates reading a single-driver vector wire before declaring its drivers.
+/* Demonstrates reading a single-driver vector wire before declaring its drivers. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes sum for this wire example. */
 circuit VectorWire(n :: PosInt):
   input(left, right): Vec(n, Bool)
   output sum: Vec(n, Bool)
@@ -16,7 +18,7 @@ circuit VectorWire(n :: PosInt):
   for (i in 0..n):
     staged[i] <== left[i] ^ right[i]
 
-def design = elaborate(VectorWire(4))
+def program = elaborate(VectorWire(4))
 
 def verilog_reference = @str|<<{
 module VectorWire(
@@ -35,5 +37,5 @@ endmodule
 
 export:
   VectorWire
-  design
+  program
   verilog_reference

@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates unsigned fixed-width ordering with nominal Boolean results.
+/* Demonstrates unsigned fixed-width ordering with nominal Boolean results. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Demonstrates unsigned fixed-width ordering with nominal Boolean results. */
 circuit UnsignedComparisons(width :: PosInt):
   input(a, b): Bits(width)
   output(lt, gt, le, ge): Bool
@@ -11,7 +13,7 @@ circuit UnsignedComparisons(width :: PosInt):
   le <== (a <= b)
   ge <== (a >= b)
 
-def design = elaborate(UnsignedComparisons(8))
+def program = elaborate(UnsignedComparisons(8))
 
 def verilog_reference = @str|<<{
 module UnsignedComparisons(
@@ -32,5 +34,5 @@ endmodule
 
 export:
   UnsignedComparisons
-  design
+  program
   verilog_reference

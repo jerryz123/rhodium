@@ -1,8 +1,8 @@
 #lang rhombus
-/* Emits the behavioral architectural observation transport fixture. */
+/* Defines the behavioral architectural observation transport fixture. */
 // SPDX-License-Identifier: Apache-2.0
 import:
-  lib("rhodium/backend/circt.rhm") open
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../events/hooks-fixture.rhdl".CosimHooksFixture
-print(emit_circt(embedded.run_elaboration(fun (): CosimHooksFixture())))
+def program = elaborate(CosimHooksFixture())
+export program

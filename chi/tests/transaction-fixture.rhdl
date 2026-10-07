@@ -208,9 +208,9 @@ sync_circuit MonitoredInitialCHIRNF():
   mirror.right.snoops.ready <== Bool(#true)
   monitor_chi_rn_channels(transaction_flit, transaction_rnf_node, mirror.left, ~label_prefix: "ready")
 
-def transaction_rni_design = elaborate(MonitoredInitialCHIRNI())
-def transaction_sn_design = elaborate(MonitoredInitialCHISN())
-def transaction_rnf_design = elaborate(MonitoredInitialCHIRNF())
+def transaction_rni_program = elaborate(MonitoredInitialCHIRNI())
+def transaction_sn_program = elaborate(MonitoredInitialCHISN())
+def transaction_rnf_program = elaborate(MonitoredInitialCHIRNF())
 
 export:
   transaction_flit
@@ -223,6 +223,6 @@ export:
   MonitoredInitialCHIRNI
   MonitoredInitialCHISN
   MonitoredInitialCHIRNF
-  transaction_rni_design
-  transaction_sn_design
-  transaction_rnf_design
+  transaction_rni_program
+  transaction_sn_program
+  transaction_rnf_program

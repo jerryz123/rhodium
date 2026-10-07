@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds the reference adder by explicitly importing the context-based elaboration kernel.
+/* Builds the reference adder by explicitly importing the context-based elaboration kernel. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,7 +8,9 @@ import:
 
 def adder_identity = new_circuit_identity("Adder")
 
+/* Adds the two width-sized operands with fixed-width wraparound. */
 fun Adder(width :: PosInt):
+  /* Creates the ports and operations in the active kernel construction context. */
   fun implementation():
     def a = input("a", Bits(width))
     def b = input("b", Bits(width))
@@ -17,7 +19,7 @@ fun Adder(width :: PosInt):
     connect(sum, result)
   build_circuit(adder_identity, "Adder", [width], implementation)
 
-def design = run_elaboration(fun (): Adder(8))
+def program = run_elaboration(fun (): Adder(8))
 
 def verilog_reference = @str|<<{
 module Adder(
@@ -32,5 +34,5 @@ endmodule
 
 export:
   Adder
-  design
+  program
   verilog_reference

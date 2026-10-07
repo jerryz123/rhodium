@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "concat-fixture.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
@@ -14,7 +16,7 @@ def concatenations = module_def.operations.filter(
 def casts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )
-def nested_design = embedded.run_elaboration(fun (): fixture.NestedAppend(2))
+def nested_design = compile_program(elaborate(fixture.NestedAppend(2)), rtl_target).report.design
 def nested_module = nested_design.modules[0]
 def nested_result = nested_module.find_output("result").place.driver
 def nested_concatenations = nested_module.operations.filter(
@@ -48,6 +50,6 @@ check:
   nested_result.type.width ~is 4
   verify_design(fixture.design) ~is #void
   verify_design(nested_design) ~is #void
-  embedded.run_elaboration(fun (): fixture.ControlConcat()) ~throws "concat operand must have a packable DataType"
-  embedded.run_elaboration(fun (): fixture.ControlAppend()) ~throws "++: left operand must have a packable DataType"
-  embedded.run_elaboration(fun (): fixture.TooFewConcat()) ~throws "concat requires at least two operands"
+  elaborate(fixture.ControlConcat()) ~throws "concat operand must have a packable DataType"
+  elaborate(fixture.ControlAppend()) ~throws "++: left operand must have a packable DataType"
+  elaborate(fixture.TooFewConcat()) ~throws "concat requires at least two operands"

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Must reject an endpoint whose selected role is absent from its interface.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,4 +17,4 @@ circuit BadInterfaceRole(width):
   interface link(Link(Bits(width)), ~role: observer)
   #void
 
-def design = elaborate(BadInterfaceRole(8))
+elaborate(BadInterfaceRole(8))

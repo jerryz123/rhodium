@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates payload-bearing and nullary variants sharing nominal enum tags.
+/* Demonstrates payload-bearing and nullary variants sharing nominal enum tags. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 bundle WritePayload():
   address: Bits(8)
@@ -26,6 +27,7 @@ tagged_union Option(T :: DataType):
 def idle_request = Request.Idle
 def read_request = Request.Read(bits(0x5A, 8))
 
+/* Exposes request_tag, is_idle, is_read, read_payload, write_address, rebuilt_write for this tagged union example. */
 circuit TaggedUnionRouter():
   input request: Request
   input write_payload: WritePayload()
@@ -45,7 +47,7 @@ circuit TaggedUnionRouter():
   write_address <== write.payload.address
   rebuilt_write <== Request.Write(write_payload)
 
-def design = elaborate(TaggedUnionRouter())
+def program = elaborate(TaggedUnionRouter())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -82,5 +84,5 @@ export:
   idle_request
   read_request
   TaggedUnionRouter
-  design
+  program
   verilog_reference

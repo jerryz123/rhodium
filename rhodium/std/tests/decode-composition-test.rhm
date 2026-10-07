@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/comb.rhm" open
   "../../../rhodium/std/decode.rhdl" open
   "../../../examples/std/decode-composition.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def control_width = fixture.Control().packed_width()
 def fallback = DecodeCase(
   Pattern(~value: bits(0, 4), ~care: bits(0, 4)),
@@ -58,7 +62,7 @@ check:
              fixture.Instruction()) ~is #true
   type_equal(module_def.find_output("control").type,
              fixture.Control()) ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
   overlaid.length() ~is 3
   DecodeTable(overlaid, ~default: bits(0, 2)).packed_cases.length() ~is 3
   overlaid.find(fun (case): case.input.matches(bits(2, 4))).output.value_bits ~is 1

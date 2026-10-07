@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../control-policy-fixture.rhdl" open
 
-def design = embedded.run_elaboration(fun (): RiscvControlPolicyFixture())
-print(emit_circt(design))
+def program = elaborate(RiscvControlPolicyFixture())
+export program

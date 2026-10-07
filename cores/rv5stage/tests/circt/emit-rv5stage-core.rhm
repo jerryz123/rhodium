@@ -3,18 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
+  lib("rhodium/compile/rtl.rhm").prepare_rtl
+  lib("rhodium/backend/circt-target.rhm").circt_target
   "../../../../rhodium/core/dependencies.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../../../cores/rv5stage/profile.rhm".RV5StageConfig
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100000000, ~split_memory: #true))
+def program = elaborate(core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100000000, ~split_memory: #true))
+
+// Inspect and emit the same prepared graph so these checks cover the emitted RTL.
+def prepared = prepare_rtl(program)
 
 // This timing contract stops at the core payloads and parallel LSU response capture.
 // In particular, retirement arbitration must not become an EX operand source.
-def top = design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
+def top = prepared.rtl.design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
 def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "ex_alu")
 unless alu
 | error(~who: #'ex_forwarding, "missing ALU timing boundary")
@@ -65,4 +69,4 @@ for (operand_name in ["left", "right"]):
   | error(~who: #'ex_forwarding, "ALU operand no longer reads its registered stage selector")
   unless bypass_muxes.length() == 1 && bypass_muxes[0].operands.length() == 4 && bypass_muxes[0].operands[0].type.width == 3
   | error(~who: #'ex_forwarding, "bypass must lower to one three-source one-hot mux")
-print(emit_circt(design))
+print(circt_target.plan(prepared).emit()[0].content)

@@ -1,11 +1,11 @@
 #lang rhodium
-// Materializes a three-entry occupancy scoreboard with set and clear assertions.
+/* Materializes a three-entry occupancy scoreboard with set and clear assertions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/scoreboard.rhdl") open
 
-def design = elaborate(Scoreboard(3))
+def program = elaborate(Scoreboard(3))
 
 def verilog_reference = @str|<<{
 module Scoreboard(
@@ -60,5 +60,5 @@ endmodule
 }>>|
 
 export:
-  design
+  program
   verilog_reference

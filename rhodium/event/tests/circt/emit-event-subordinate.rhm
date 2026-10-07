@@ -2,12 +2,15 @@
 // Emits production single-beat subordinate instrumentation and its matching descriptor.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../../rhodium/event/main.rhm" open
-  "../../../../rhodium/backend/circt.rhm".emit_circt
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
   "../../../../chi/tests/single-beat-trace-fixture.rhdl".traced_subordinate
-def traced = instrument_events(traced_subordinate)
-def site_constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
+def compiled = compile_program(traced_subordinate, rtl_pipeline_target(circt_target, [event_trace_pass()]))
+def manifest = compiled.report.stages[0].findings.manifest
+def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
   "inline constexpr unsigned " ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
-def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content ++ "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
 export event_manifest_cpp
-print(emit_circt(traced.instrumented.design))
+print(compiled.artifacts[0].content)

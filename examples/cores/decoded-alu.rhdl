@@ -23,8 +23,8 @@ circuit DecodedALU():
   valid <== decoder.valid
   result <== alu.result
 
-def design = elaborate(DecodedALU())
+def program = elaborate(DecodedALU())
 
 export:
   DecodedALU
-  design
+  program

@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm".emit_circt
-  "../../../../rhodium/event/main.rhm".instrument_events
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
   "../event-atomic-fork-fixture.rhdl" as fixture
 
-print(emit_circt(instrument_events(fixture.replicated).instrumented.design))
+def compiled = compile_program(fixture.replicated, rtl_pipeline_target(circt_target, [event_trace_pass()]))
+print(compiled.artifacts[0].content)

@@ -1,10 +1,14 @@
 #lang rhombus
-// Demonstrates backend-independent inspection of an elaborated Rhodium design.
+/* Demonstrates backend-independent inspection of an elaborated Rhodium design. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/core/main.rhm") open
   "adder-standard.rhdl" as adder
+
+def adder_design = compile_program(adder.program, rtl_target).report.design
 
 fun operation_count(design :: Design, opcode :: String):
   design.walk().filter(
@@ -16,7 +20,7 @@ fun summarize_design(design :: Design):
    ["operations", design.walk().length()],
    ["additions", operation_count(design, "rtl.add")]]
 
-print(summarize_design(adder.design))
+print(summarize_design(adder_design))
 
 export:
   operation_count

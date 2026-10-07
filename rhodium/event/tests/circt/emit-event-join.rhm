@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm".emit_circt
-  "../../../../rhodium/event/main.rhm" open
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
   "../event-join-fixture.rhdl" as fixture
 
 export event_manifest_cpp
-def traced = instrument_events(fixture.joined)
-def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
-print(emit_circt(traced.instrumented.design))
+def compiled = compile_program(fixture.joined, rtl_pipeline_target(circt_target, [event_trace_pass()]))
+def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content
+print(compiled.artifacts[0].content)

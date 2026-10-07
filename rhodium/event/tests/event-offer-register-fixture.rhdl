@@ -19,5 +19,5 @@ sync_circuit EventOfferRegister():
   assert(storage.egress.valid === reference.egress.valid, "offer_valid_unchanged")
   assert(storage.egress.bits === reference.egress.bits, "offer_payload_unchanged")
 
-def offered = elaborate_with_top(EventOfferRegister())
+def offered = elaborate(EventOfferRegister())
 export offered

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture repeating an enum member key in one mux lookup.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -14,4 +15,4 @@ circuit BadEnumMuxDuplicateKey():
     State.Idle: State.Running
     State.Idle: State.Idle
 
-def design = elaborate(BadEnumMuxDuplicateKey())
+elaborate(BadEnumMuxDuplicateKey())

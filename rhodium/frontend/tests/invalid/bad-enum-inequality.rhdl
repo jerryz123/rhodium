@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects inequality between distinct nominal hardware-enum declarations.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,4 +17,4 @@ circuit BadEnumInequality():
   output different: Bool
   different <== left =/= right
 
-def design = elaborate(BadEnumInequality())
+elaborate(BadEnumInequality())

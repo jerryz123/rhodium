@@ -3,9 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "router-composition-fixture.rhdl" as fixture
   lib("chi/main.rhdl") as chi
   lib("rhodium/core/main.rhm").verify_design
+
+def fixture_shared_design = compile_program(fixture.shared_program, rtl_target).report.design
 
 check:
   fixture.shared_compilations.snp ~is #false
@@ -14,9 +18,9 @@ check:
   fixture.shared_router_params.attachment.hni_requester_locals.length() ~is 1
   fixture.shared_router_params.attachment.hn_subordinate_locals.length() ~is 1
   fixture.shared_router_params.attachment.sn_locals.length() ~is 2
-  fixture.shared_design.modules.map(fun (module_def): module_def.name).contains("CHIHNI") ~is #true
-  fixture.shared_design.modules.map(fun (module_def): module_def.name).contains("CHIRouter") ~is #true
-  verify_design(fixture.shared_design) ~is #void
+  fixture_shared_design.modules.map(fun (module_def): module_def.name).contains("CHIHNI") ~is #true
+  fixture_shared_design.modules.map(fun (module_def): module_def.name).contains("CHIRouter") ~is #true
+  verify_design(fixture_shared_design) ~is #void
 
 check:
   fixture.requester_compilations.snp ~is #false

@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/std/decode.rhdl" open
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -58,17 +60,13 @@ def expected_disabled_prefetch = partial_pattern(controls.RV5StageControl()):
   writeback:
     partial_pattern(writeback.RV5StageWritebackControl()):
       enable: Bool(#true)
-def decoder64_design = embedded.run_elaboration(
-  fun (): controls.RV5StageInstructionDecoder(XLen.X64, ~zicbop: #true)
-)
-def decoder32_design = embedded.run_elaboration(
-  fun (): controls.RV5StageInstructionDecoder(XLen.X32, ~zicbop: #true)
-)
+def decoder64_design = compile_program(elaborate(controls.RV5StageInstructionDecoder(XLen.X64, ~zicbop: #true)), rtl_target).report.design
+def decoder32_design = compile_program(elaborate(controls.RV5StageInstructionDecoder(XLen.X32, ~zicbop: #true)), rtl_target).report.design
 def core_profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicbop: #true)
 )
-def core_design = embedded.run_elaboration(fun (): core.RV5StageCore(core_profile, ~reset_address: 0))
+def core_design = compile_program(elaborate(core.RV5StageCore(core_profile, ~reset_address: 0)), rtl_target).report.design
 def core_module = core_design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
 
 check:

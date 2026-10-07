@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects an explicit asynchronous-memory write clock inside a sync circuit.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -7,4 +8,4 @@ sync_circuit ExplicitWriteClock():
   mem storage(2, Bits(1))
   storage.write(bits(0, 1), bits(0, 1), ~clock: other_clock)
 
-def design = elaborate(ExplicitWriteClock())
+elaborate(ExplicitWriteClock())

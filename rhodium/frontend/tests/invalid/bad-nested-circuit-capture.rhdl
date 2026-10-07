@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalidly captures parent hardware directly inside a nested child module.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,4 +12,4 @@ circuit Parent():
 
   Child()
 
-def design = elaborate(Parent())
+elaborate(Parent())

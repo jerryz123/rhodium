@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Supplies an empty ordered case list to the priority mux.
 // SPDX-License-Identifier: Apache-2.0
 

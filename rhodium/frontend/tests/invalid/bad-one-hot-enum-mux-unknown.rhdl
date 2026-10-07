@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a one-hot enum mux whose named arms do not match its declaration.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -19,4 +20,4 @@ circuit BadOneHotEnumMuxUnknown():
     OtherSelect.Second: second
   })
 
-def design = elaborate(BadOneHotEnumMuxUnknown())
+elaborate(BadOneHotEnumMuxUnknown())

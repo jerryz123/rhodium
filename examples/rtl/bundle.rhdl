@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates fixed and elaboration-conditional bundles over core record semantics.
+/* Demonstrates fixed and elaboration-conditional bundles over core record semantics. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 bundle Pair(T :: DataType):
   left: T
@@ -15,6 +16,7 @@ bundle TaggedPayload(T :: DataType, include_tag :: Boolean):
   if include_tag:
     tag: Bits(4)
 
+/* Swaps the two payload fields combinationally. */
 circuit Swap(width :: PosInt):
   input source: Pair(Bits(width))
   output result: Pair(Bits(width))
@@ -22,6 +24,7 @@ circuit Swap(width :: PosInt):
   result.left <== source.right
   result.right <== source.left
 
+/* Swaps nested payload fields while forwarding the enclosing tag. */
 circuit NestedSwap(width :: PosInt):
   input source: Envelope(Bits(width))
   output result: Envelope(Bits(width))
@@ -30,6 +33,7 @@ circuit NestedSwap(width :: PosInt):
   result.payload.right <== source.payload.left
   result.tag <== source.tag
 
+/* Routes a record through a child field-swap circuit. */
 circuit BundleHierarchy(width :: PosInt):
   input source: Pair(Bits(width))
   output result: Pair(Bits(width))
@@ -38,6 +42,7 @@ circuit BundleHierarchy(width :: PosInt):
   swap.source <== source
   result <== swap.result
 
+/* Packs the record and restores the same fields through a typed bit cast. */
 circuit BundleCast(width :: PosInt):
   input source: Pair(Bits(width))
   output bits_out: Bits(width + width)
@@ -47,6 +52,7 @@ circuit BundleCast(width :: PosInt):
   bits_out <== raw
   restored <== raw.into(Pair(Bits(width)))
 
+/* Forwards narrow and wide records with distinct type specializations. */
 circuit BundleSpecializations():
   input narrow: Pair(Bits(8))
   input wide: Pair(Bits(16))
@@ -56,6 +62,7 @@ circuit BundleSpecializations():
   narrow_result <== narrow
   wide_result <== wide
 
+/* Forwards payloads with and without the elaboration-selected tag field. */
 circuit ConditionalBundleSpecializations():
   input plain: TaggedPayload(Bits(8), #false)
   input tagged: TaggedPayload(Bits(8), #true)
@@ -65,6 +72,7 @@ circuit ConditionalBundleSpecializations():
   plain_result <== plain
   tagged_result <== tagged
 
+/* Registers the selected record payload with synchronous reset. */
 circuit BundlePipeline(width :: PosInt):
   input clk: Clock
   input reset: Reset
@@ -81,12 +89,12 @@ circuit BundlePipeline(width :: PosInt):
   state <== selected
   result <== state
 
-def design = elaborate(BundlePipeline(8))
-def cast_design = elaborate(BundleCast(8))
-def specialization_design = elaborate(BundleSpecializations())
-def conditional_specialization_design = elaborate(ConditionalBundleSpecializations())
-def nested_swap_design = elaborate(NestedSwap(8))
-def hierarchy_design = elaborate(BundleHierarchy(8))
+def program = elaborate(BundlePipeline(8))
+def cast_program = elaborate(BundleCast(8))
+def specialization_program = elaborate(BundleSpecializations())
+def conditional_specialization_program = elaborate(ConditionalBundleSpecializations())
+def nested_swap_program = elaborate(NestedSwap(8))
+def hierarchy_program = elaborate(BundleHierarchy(8))
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -215,12 +223,12 @@ export:
   BundleSpecializations
   ConditionalBundleSpecializations
   BundlePipeline
-  design
-  cast_design
-  specialization_design
-  conditional_specialization_design
-  nested_swap_design
-  hierarchy_design
+  program
+  cast_program
+  specialization_program
+  conditional_specialization_program
+  nested_swap_program
+  hierarchy_program
   verilog_reference
   cast_verilog_reference
   specialization_verilog_reference

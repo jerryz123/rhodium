@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/rtl.rhm").RTLReport
   "../../../rhodium/core/ir.rhm".DesignElaboration
   "../../../rhodium/frontend/foundation.rhm" open
   "../../../rhodium/frontend/layers/hierarchy.rhm" open
@@ -19,7 +22,8 @@ circuit Top():
   child.value_in <== value_in
   value_out <== child.value_out
 
-def elaboration = elaborate_with_top(Top())
+def program = elaborate(Top())
+def elaboration = compile_program(program, rtl_target).report.elaboration
 def child = elaboration.top.find_instance("child")
 
 check:
@@ -29,3 +33,14 @@ check:
   child.opcode ~is "rtl.instance"
   child.attribute("module").name ~is "Leaf"
   elaboration.top.find_instance("missing") ~is #false
+
+// Both public phase results carry enough static information for static clients.
+block:
+  use_static
+  def source = elaborate(Top())
+  def compiled = compile_program(source, rtl_target)
+  def report :: RTLReport = compiled.report
+  check:
+    source.design.sealed ~is #false
+    report.design.sealed ~is #true
+    report.top.name ~is "Top"

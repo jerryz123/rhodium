@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises typed hardware inequality over Bits and a nominal enum.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,7 +21,7 @@ circuit Inequality():
   bits_differ <== left_bits =/= right_bits
   states_differ <== left_state =/= right_state
 
-def design = elaborate(Inequality())
+def design = compile_program(elaborate(Inequality()), rtl_target).report.design
 
 export:
   ComparisonState

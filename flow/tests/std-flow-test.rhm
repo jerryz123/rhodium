@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../rhodium/frontend/layers/bool.rhm" as bool
   "../../flow/main.rhdl" as flow
   "../../flow/pipe.rhdl" as pipe
@@ -21,242 +23,106 @@ import:
   "../../flow/atomic-fork.rhdl" as atomic_fork
 
 // The aggregate and focused modules are both supported public import paths.
-def direct_pipe_design = embedded.run_elaboration(
-  fun (): pipe.Pipe(Bits(8), 1)
-)
-def direct_valid_pipe_design = embedded.run_elaboration(
-  fun (): pipe.ValidPipe(Bits(8), 1)
-)
-def direct_offer_register_design = embedded.run_elaboration(
-  fun (): offer_register.OfferRegister(Bits(8))
-)
-def direct_queue_design = embedded.run_elaboration(
-  fun (): queue.Queue(Bits(8), 1)
-)
-def direct_arbiter_design = embedded.run_elaboration(
-  fun (): arbiter.Arbiter(Bits(8), 1)
-)
-def direct_valid_arbiter_design = embedded.run_elaboration(
-  fun (): arbiter.ValidArbiter(Bits(8), 1)
-)
-def direct_rr_arbiter_design = embedded.run_elaboration(
-  fun (): rr_arbiter.RRArbiter(Bits(8), 1)
-)
-def direct_demux_design = embedded.run_elaboration(
-  fun (): demux.Demux(Bits(8), 1)
-)
-def direct_matcher_design = embedded.run_elaboration(
-  fun (): matcher.GreedyMatcher(1, 1)
-)
-def direct_output_greedy_matcher_design = embedded.run_elaboration(
-  fun (): matcher.OutputGreedyRoundRobinMatcher(1, 1)
-)
-def direct_grant_demux_design = embedded.run_elaboration(
-  fun (): grant.GrantDemux(Bits(8), 1)
-)
-def direct_grant_merge_design = embedded.run_elaboration(
-  fun (): grant.GrantMerge(Bits(8), 1)
-)
-def direct_crossbar_design = embedded.run_elaboration(
-  fun (): crossbar.GrantCrossbar(Bits(8), 1, 1)
-)
-def direct_join_design = embedded.run_elaboration(
-  fun (): join.Join(Bits(8), 1)
-)
-def direct_broadcast_design = embedded.run_elaboration(
-  fun (): broadcast.Broadcast(Bits(8), 1)
-)
-def direct_atomic_fork_design = embedded.run_elaboration(
-  fun (): atomic_fork.AtomicFork(Bits(8), 1)
-)
-def direct_ctrl_pipe_design = embedded.run_elaboration(
-  fun (): pipe.CtrlPipe(1)
-)
-def direct_ctrl_queue_design = embedded.run_elaboration(
-  fun (): queue.CtrlQueue(1)
-)
-def direct_ctrl_arbiter_design = embedded.run_elaboration(
-  fun (): arbiter.CtrlArbiter(1)
-)
-def direct_ctrl_rr_arbiter_design = embedded.run_elaboration(
-  fun (): rr_arbiter.CtrlRRArbiter(1)
-)
-def direct_ctrl_demux_design = embedded.run_elaboration(
-  fun (): demux.CtrlDemux(1)
-)
-def direct_ctrl_join_design = embedded.run_elaboration(
-  fun (): join.CtrlJoin(1)
-)
-def direct_ctrl_broadcast_design = embedded.run_elaboration(
-  fun (): broadcast.CtrlBroadcast(1)
-)
-def direct_ctrl_atomic_fork_design = embedded.run_elaboration(
-  fun (): atomic_fork.CtrlAtomicFork(1)
-)
+def direct_pipe_compiled = compile_program(elaborate(pipe.Pipe(Bits(8), 1)), rtl_target)
+def direct_valid_pipe_compiled = compile_program(elaborate(pipe.ValidPipe(Bits(8), 1)), rtl_target)
+def direct_offer_register_compiled = compile_program(elaborate(offer_register.OfferRegister(Bits(8))), rtl_target)
+def direct_queue_compiled = compile_program(elaborate(queue.Queue(Bits(8), 1)), rtl_target)
+def direct_arbiter_compiled = compile_program(elaborate(arbiter.Arbiter(Bits(8), 1)), rtl_target)
+def direct_valid_arbiter_compiled = compile_program(elaborate(arbiter.ValidArbiter(Bits(8), 1)), rtl_target)
+def direct_rr_arbiter_compiled = compile_program(elaborate(rr_arbiter.RRArbiter(Bits(8), 1)), rtl_target)
+def direct_demux_compiled = compile_program(elaborate(demux.Demux(Bits(8), 1)), rtl_target)
+def direct_matcher_compiled = compile_program(elaborate(matcher.GreedyMatcher(1, 1)), rtl_target)
+def direct_output_greedy_matcher_compiled = compile_program(elaborate(matcher.OutputGreedyRoundRobinMatcher(1, 1)), rtl_target)
+def direct_grant_demux_compiled = compile_program(elaborate(grant.GrantDemux(Bits(8), 1)), rtl_target)
+def direct_grant_merge_compiled = compile_program(elaborate(grant.GrantMerge(Bits(8), 1)), rtl_target)
+def direct_crossbar_compiled = compile_program(elaborate(crossbar.GrantCrossbar(Bits(8), 1, 1)), rtl_target)
+def direct_join_compiled = compile_program(elaborate(join.Join(Bits(8), 1)), rtl_target)
+def direct_broadcast_compiled = compile_program(elaborate(broadcast.Broadcast(Bits(8), 1)), rtl_target)
+def direct_atomic_fork_compiled = compile_program(elaborate(atomic_fork.AtomicFork(Bits(8), 1)), rtl_target)
+def direct_ctrl_pipe_compiled = compile_program(elaborate(pipe.CtrlPipe(1)), rtl_target)
+def direct_ctrl_queue_compiled = compile_program(elaborate(queue.CtrlQueue(1)), rtl_target)
+def direct_ctrl_arbiter_compiled = compile_program(elaborate(arbiter.CtrlArbiter(1)), rtl_target)
+def direct_ctrl_rr_arbiter_compiled = compile_program(elaborate(rr_arbiter.CtrlRRArbiter(1)), rtl_target)
+def direct_ctrl_demux_compiled = compile_program(elaborate(demux.CtrlDemux(1)), rtl_target)
+def direct_ctrl_join_compiled = compile_program(elaborate(join.CtrlJoin(1)), rtl_target)
+def direct_ctrl_broadcast_compiled = compile_program(elaborate(broadcast.CtrlBroadcast(1)), rtl_target)
+def direct_ctrl_atomic_fork_compiled = compile_program(elaborate(atomic_fork.CtrlAtomicFork(1)), rtl_target)
 
-def pipe_one_design = embedded.run_elaboration(
-  fun (): flow.Pipe(Bits(8), 1)
-)
+def pipe_one_design = compile_program(elaborate(flow.Pipe(Bits(8), 1)), rtl_target).report.design
 def pipe_one = pipe_one_design.modules[0]
-def pipe_three_design = embedded.run_elaboration(
-  fun (): flow.Pipe(Bits(16), 3)
-)
+def pipe_three_design = compile_program(elaborate(flow.Pipe(Bits(16), 3)), rtl_target).report.design
 def pipe_three = pipe_three_design.modules[0]
-def valid_pipe_one_design = embedded.run_elaboration(
-  fun (): flow.ValidPipe(Bits(8), 1)
-)
+def valid_pipe_one_design = compile_program(elaborate(flow.ValidPipe(Bits(8), 1)), rtl_target).report.design
 def valid_pipe_one = valid_pipe_one_design.modules[0]
-def valid_pipe_three_design = embedded.run_elaboration(
-  fun (): flow.ValidPipe(Bits(16), 3)
-)
+def valid_pipe_three_design = compile_program(elaborate(flow.ValidPipe(Bits(16), 3)), rtl_target).report.design
 def valid_pipe_three = valid_pipe_three_design.modules[0]
-def queue_one_design = embedded.run_elaboration(
-  fun (): flow.Queue(Bits(8), 1)
-)
+def queue_one_design = compile_program(elaborate(flow.Queue(Bits(8), 1)), rtl_target).report.design
 def queue_one = queue_one_design.modules[0]
-def queue_three_design = embedded.run_elaboration(
-  fun (): flow.Queue(Bits(8), 3)
-)
+def queue_three_design = compile_program(elaborate(flow.Queue(Bits(8), 3)), rtl_target).report.design
 def queue_three = queue_three_design.modules[0]
 def queue_three_pointer_counter = queue_three_design.modules[1]
-def queue_pipe_design = embedded.run_elaboration(
-  fun (): flow.Queue(Bits(8), 2, ~pipe: #true)
-)
-def queue_flow_design = embedded.run_elaboration(
-  fun (): flow.Queue(Bits(8), 2, ~flow: #true)
-)
-def queue_options_design = embedded.run_elaboration(
-  fun ():
-    flow.Queue(Bits(8), 2,
-               ~pipe: #true,
-               ~flow: #true)
-)
+def queue_pipe_compiled = compile_program(elaborate(flow.Queue(Bits(8), 2, ~pipe: #true)), rtl_target)
+def queue_flow_compiled = compile_program(elaborate(flow.Queue(Bits(8), 2, ~flow: #true)), rtl_target)
+def queue_options_design = compile_program(elaborate(flow.Queue(Bits(8), 2, ~pipe: #true, ~flow: #true)), rtl_target).report.design
 def queue_options = queue_options_design.modules[0]
-def arbiter_one_design = embedded.run_elaboration(
-  fun (): flow.Arbiter(Bits(8), 1)
-)
+def arbiter_one_design = compile_program(elaborate(flow.Arbiter(Bits(8), 1)), rtl_target).report.design
 def arbiter_one = arbiter_one_design.modules[0]
-def valid_arbiter_three_design = embedded.run_elaboration(
-  fun (): flow.ValidArbiter(Bits(8), 3)
-)
+def valid_arbiter_three_design = compile_program(elaborate(flow.ValidArbiter(Bits(8), 3)), rtl_target).report.design
 def valid_arbiter_three = valid_arbiter_three_design.modules[0]
-def arbiter_three_design = embedded.run_elaboration(
-  fun (): flow.Arbiter(Bits(8), 3)
-)
+def arbiter_three_design = compile_program(elaborate(flow.Arbiter(Bits(8), 3)), rtl_target).report.design
 def arbiter_three = arbiter_three_design.modules[0]
-def rr_arbiter_three_design = embedded.run_elaboration(
-  fun (): flow.RRArbiter(Bits(8), 3)
-)
+def rr_arbiter_three_design = compile_program(elaborate(flow.RRArbiter(Bits(8), 3)), rtl_target).report.design
 def rr_arbiter_three = rr_arbiter_three_design.modules[0]
-def demux_three_design = embedded.run_elaboration(
-  fun (): flow.Demux(Bits(8), 3)
-)
+def demux_three_design = compile_program(elaborate(flow.Demux(Bits(8), 3)), rtl_target).report.design
 def demux_three = demux_three_design.modules[0]
-def matcher_design = embedded.run_elaboration(
-  fun (): flow.GreedyMatcher(2, 3)
-)
+def matcher_design = compile_program(elaborate(flow.GreedyMatcher(2, 3)), rtl_target).report.design
 def matcher_module = matcher_design.modules[0]
-def output_greedy_matcher_design = embedded.run_elaboration(
-  fun (): flow.OutputGreedyRoundRobinMatcher(3, 2)
-)
+def output_greedy_matcher_design = compile_program(elaborate(flow.OutputGreedyRoundRobinMatcher(3, 2)), rtl_target).report.design
 def output_greedy_matcher_module = output_greedy_matcher_design.modules[0]
-def grant_demux_design = embedded.run_elaboration(
-  fun (): flow.GrantDemux(Bits(8), 3)
-)
+def grant_demux_design = compile_program(elaborate(flow.GrantDemux(Bits(8), 3)), rtl_target).report.design
 def grant_demux_module = grant_demux_design.modules[0]
-def grant_merge_design = embedded.run_elaboration(
-  fun (): flow.GrantMerge(Bits(8), 3)
-)
+def grant_merge_design = compile_program(elaborate(flow.GrantMerge(Bits(8), 3)), rtl_target).report.design
 def grant_merge_module = grant_merge_design.modules[0]
-def crossbar_design = embedded.run_elaboration(
-  fun (): flow.GrantCrossbar(Bits(8), 2, 3)
-)
+def crossbar_design = compile_program(elaborate(flow.GrantCrossbar(Bits(8), 2, 3)), rtl_target).report.design
 def crossbar_module = crossbar_design.modules[0]
-def join_three_design = embedded.run_elaboration(
-  fun (): flow.Join(Bits(8), 3)
-)
+def join_three_design = compile_program(elaborate(flow.Join(Bits(8), 3)), rtl_target).report.design
 def join_three = join_three_design.modules[0]
-def broadcast_three_design = embedded.run_elaboration(
-  fun (): flow.Broadcast(Bits(8), 3)
-)
+def broadcast_three_design = compile_program(elaborate(flow.Broadcast(Bits(8), 3)), rtl_target).report.design
 def broadcast_three = broadcast_three_design.modules[0]
-def atomic_fork_three_design = embedded.run_elaboration(
-  fun (): flow.AtomicFork(Bits(8), 3)
-)
+def atomic_fork_three_design = compile_program(elaborate(flow.AtomicFork(Bits(8), 3)), rtl_target).report.design
 def atomic_fork_three = atomic_fork_three_design.modules[0]
-def ctrl_pipe_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlPipe(3)
-)
+def ctrl_pipe_three_design = compile_program(elaborate(flow.CtrlPipe(3)), rtl_target).report.design
 def ctrl_pipe_three = ctrl_pipe_three_design.modules[0]
-def ctrl_queue_one_design = embedded.run_elaboration(
-  fun (): flow.CtrlQueue(1)
-)
+def ctrl_queue_one_design = compile_program(elaborate(flow.CtrlQueue(1)), rtl_target).report.design
 def ctrl_queue_one = ctrl_queue_one_design.modules[0]
-def ctrl_queue_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlQueue(3)
-)
+def ctrl_queue_three_design = compile_program(elaborate(flow.CtrlQueue(3)), rtl_target).report.design
 def ctrl_queue_three = ctrl_queue_three_design.modules[0]
-def ctrl_queue_options_design = embedded.run_elaboration(
-  fun ():
-    flow.CtrlQueue(2,
-                   ~pipe: #true,
-                   ~flow: #true)
-)
-def ctrl_arbiter_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlArbiter(3)
-)
+def ctrl_queue_options_compiled = compile_program(elaborate(flow.CtrlQueue(2, ~pipe: #true, ~flow: #true)), rtl_target)
+def ctrl_arbiter_three_design = compile_program(elaborate(flow.CtrlArbiter(3)), rtl_target).report.design
 def ctrl_arbiter_three = ctrl_arbiter_three_design.modules[0]
-def ctrl_rr_arbiter_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlRRArbiter(3)
-)
+def ctrl_rr_arbiter_three_design = compile_program(elaborate(flow.CtrlRRArbiter(3)), rtl_target).report.design
 def ctrl_rr_arbiter_three = ctrl_rr_arbiter_three_design.modules[0]
-def ctrl_demux_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlDemux(3)
-)
+def ctrl_demux_three_design = compile_program(elaborate(flow.CtrlDemux(3)), rtl_target).report.design
 def ctrl_demux_three = ctrl_demux_three_design.modules[0]
-def ctrl_join_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlJoin(3)
-)
+def ctrl_join_three_design = compile_program(elaborate(flow.CtrlJoin(3)), rtl_target).report.design
 def ctrl_join_three = ctrl_join_three_design.modules[0]
-def ctrl_broadcast_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlBroadcast(3)
-)
+def ctrl_broadcast_three_design = compile_program(elaborate(flow.CtrlBroadcast(3)), rtl_target).report.design
 def ctrl_broadcast_three = ctrl_broadcast_three_design.modules[0]
-def ctrl_atomic_fork_three_design = embedded.run_elaboration(
-  fun (): flow.CtrlAtomicFork(3)
-)
+def ctrl_atomic_fork_three_design = compile_program(elaborate(flow.CtrlAtomicFork(3)), rtl_target).report.design
 def ctrl_atomic_fork_three = ctrl_atomic_fork_three_design.modules[0]
 def aggregate_type = RecordType([
   RecordField("tag", Bits(2)),
   RecordField("data", Bits(8))
 ])
-def aggregate_pipe_design = embedded.run_elaboration(
-  fun (): flow.Pipe(aggregate_type, 2)
-)
-def aggregate_queue_design = embedded.run_elaboration(
-  fun (): flow.Queue(aggregate_type, 2)
-)
-def aggregate_arbiter_design = embedded.run_elaboration(
-  fun (): flow.Arbiter(aggregate_type, 2)
-)
-def aggregate_rr_arbiter_design = embedded.run_elaboration(
-  fun (): flow.RRArbiter(aggregate_type, 2)
-)
-def aggregate_demux_design = embedded.run_elaboration(
-  fun (): flow.Demux(aggregate_type, 2)
-)
-def aggregate_crossbar_design = embedded.run_elaboration(
-  fun (): flow.GrantCrossbar(aggregate_type, 2, 2)
-)
-def aggregate_join_design = embedded.run_elaboration(
-  fun (): flow.Join(aggregate_type, 2)
-)
-def aggregate_broadcast_design = embedded.run_elaboration(
-  fun (): flow.Broadcast(aggregate_type, 2)
-)
-def aggregate_atomic_fork_design = embedded.run_elaboration(
-  fun (): flow.AtomicFork(aggregate_type, 2)
-)
+def aggregate_pipe_compiled = compile_program(elaborate(flow.Pipe(aggregate_type, 2)), rtl_target)
+def aggregate_queue_compiled = compile_program(elaborate(flow.Queue(aggregate_type, 2)), rtl_target)
+def aggregate_arbiter_compiled = compile_program(elaborate(flow.Arbiter(aggregate_type, 2)), rtl_target)
+def aggregate_rr_arbiter_compiled = compile_program(elaborate(flow.RRArbiter(aggregate_type, 2)), rtl_target)
+def aggregate_demux_compiled = compile_program(elaborate(flow.Demux(aggregate_type, 2)), rtl_target)
+def aggregate_crossbar_compiled = compile_program(elaborate(flow.GrantCrossbar(aggregate_type, 2, 2)), rtl_target)
+def aggregate_join_compiled = compile_program(elaborate(flow.Join(aggregate_type, 2)), rtl_target)
+def aggregate_broadcast_compiled = compile_program(elaborate(flow.Broadcast(aggregate_type, 2)), rtl_target)
+def aggregate_atomic_fork_compiled = compile_program(elaborate(flow.AtomicFork(aggregate_type, 2)), rtl_target)
 
 fun operations(module_def, opcode):
   module_def.operations.filter(
@@ -269,30 +135,30 @@ fun assertion_labels(module_def):
   )
 
 check:
-  verify_design(direct_pipe_design) ~is #void
-  verify_design(direct_valid_pipe_design) ~is #void
-  verify_design(direct_offer_register_design) ~is #void
-  verify_design(direct_queue_design) ~is #void
-  verify_design(direct_arbiter_design) ~is #void
-  verify_design(direct_valid_arbiter_design) ~is #void
-  verify_design(direct_rr_arbiter_design) ~is #void
-  verify_design(direct_demux_design) ~is #void
-  verify_design(direct_matcher_design) ~is #void
-  verify_design(direct_output_greedy_matcher_design) ~is #void
-  verify_design(direct_grant_demux_design) ~is #void
-  verify_design(direct_grant_merge_design) ~is #void
-  verify_design(direct_crossbar_design) ~is #void
-  verify_design(direct_join_design) ~is #void
-  verify_design(direct_broadcast_design) ~is #void
-  verify_design(direct_atomic_fork_design) ~is #void
-  verify_design(direct_ctrl_pipe_design) ~is #void
-  verify_design(direct_ctrl_queue_design) ~is #void
-  verify_design(direct_ctrl_arbiter_design) ~is #void
-  verify_design(direct_ctrl_rr_arbiter_design) ~is #void
-  verify_design(direct_ctrl_demux_design) ~is #void
-  verify_design(direct_ctrl_join_design) ~is #void
-  verify_design(direct_ctrl_broadcast_design) ~is #void
-  verify_design(direct_ctrl_atomic_fork_design) ~is #void
+  direct_pipe_compiled.has_errors ~is #false
+  direct_valid_pipe_compiled.has_errors ~is #false
+  direct_offer_register_compiled.has_errors ~is #false
+  direct_queue_compiled.has_errors ~is #false
+  direct_arbiter_compiled.has_errors ~is #false
+  direct_valid_arbiter_compiled.has_errors ~is #false
+  direct_rr_arbiter_compiled.has_errors ~is #false
+  direct_demux_compiled.has_errors ~is #false
+  direct_matcher_compiled.has_errors ~is #false
+  direct_output_greedy_matcher_compiled.has_errors ~is #false
+  direct_grant_demux_compiled.has_errors ~is #false
+  direct_grant_merge_compiled.has_errors ~is #false
+  direct_crossbar_compiled.has_errors ~is #false
+  direct_join_compiled.has_errors ~is #false
+  direct_broadcast_compiled.has_errors ~is #false
+  direct_atomic_fork_compiled.has_errors ~is #false
+  direct_ctrl_pipe_compiled.has_errors ~is #false
+  direct_ctrl_queue_compiled.has_errors ~is #false
+  direct_ctrl_arbiter_compiled.has_errors ~is #false
+  direct_ctrl_rr_arbiter_compiled.has_errors ~is #false
+  direct_ctrl_demux_compiled.has_errors ~is #false
+  direct_ctrl_join_compiled.has_errors ~is #false
+  direct_ctrl_broadcast_compiled.has_errors ~is #false
+  direct_ctrl_atomic_fork_compiled.has_errors ~is #false
 
   pipe_one.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in", "egress_in"
@@ -349,7 +215,6 @@ check:
     "egress_out", "chosen"
   ]
   valid_arbiter_three.find_output("chosen").type.width ~is 2
-  operations(valid_arbiter_three, "rtl.onehot_mux").length() ~is 1
   arbiter_three.inputs.map(fun (port): port.name) ~is [
     "ingress_0_in", "ingress_1_in", "ingress_2_in", "egress_in"
   ]
@@ -357,7 +222,6 @@ check:
     "ingress_0_out", "ingress_1_out", "ingress_2_out", "egress_out", "chosen"
   ]
   arbiter_three.find_output("chosen").type.width ~is 2
-  operations(arbiter_three, "rtl.onehot_mux").length() ~is 1
 
   rr_arbiter_three.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_0_in", "ingress_1_in", "ingress_2_in", "egress_in"
@@ -500,8 +364,8 @@ check:
   verify_design(valid_pipe_three_design) ~is #void
   verify_design(queue_one_design) ~is #void
   verify_design(queue_three_design) ~is #void
-  verify_design(queue_pipe_design) ~is #void
-  verify_design(queue_flow_design) ~is #void
+  queue_pipe_compiled.has_errors ~is #false
+  queue_flow_compiled.has_errors ~is #false
   verify_design(queue_options_design) ~is #void
   verify_design(arbiter_one_design) ~is #void
   verify_design(valid_arbiter_three_design) ~is #void
@@ -516,19 +380,19 @@ check:
   verify_design(join_three_design) ~is #void
   verify_design(broadcast_three_design) ~is #void
   verify_design(atomic_fork_three_design) ~is #void
-  verify_design(aggregate_pipe_design) ~is #void
-  verify_design(aggregate_queue_design) ~is #void
-  verify_design(aggregate_arbiter_design) ~is #void
-  verify_design(aggregate_rr_arbiter_design) ~is #void
-  verify_design(aggregate_demux_design) ~is #void
-  verify_design(aggregate_crossbar_design) ~is #void
-  verify_design(aggregate_join_design) ~is #void
-  verify_design(aggregate_broadcast_design) ~is #void
-  verify_design(aggregate_atomic_fork_design) ~is #void
+  aggregate_pipe_compiled.has_errors ~is #false
+  aggregate_queue_compiled.has_errors ~is #false
+  aggregate_arbiter_compiled.has_errors ~is #false
+  aggregate_rr_arbiter_compiled.has_errors ~is #false
+  aggregate_demux_compiled.has_errors ~is #false
+  aggregate_crossbar_compiled.has_errors ~is #false
+  aggregate_join_compiled.has_errors ~is #false
+  aggregate_broadcast_compiled.has_errors ~is #false
+  aggregate_atomic_fork_compiled.has_errors ~is #false
   verify_design(ctrl_pipe_three_design) ~is #void
   verify_design(ctrl_queue_one_design) ~is #void
   verify_design(ctrl_queue_three_design) ~is #void
-  verify_design(ctrl_queue_options_design) ~is #void
+  ctrl_queue_options_compiled.has_errors ~is #false
   verify_design(ctrl_arbiter_three_design) ~is #void
   verify_design(ctrl_rr_arbiter_three_design) ~is #void
   verify_design(ctrl_demux_three_design) ~is #void
@@ -536,94 +400,86 @@ check:
   verify_design(ctrl_broadcast_three_design) ~is #void
   verify_design(ctrl_atomic_fork_three_design) ~is #void
 
-  embedded.run_elaboration(fun (): flow.Pipe(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Pipe(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ValidPipe(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ValidPipeAlwaysCapture(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Pipe(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Pipe(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.ValidPipe(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.ValidPipeAlwaysCapture(Bits(8), 0)) ~throws "PosInt"
   flow.valid_pipe_always_capture(0) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ValidPipe(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Queue(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Queue(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ShiftQueue(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ShiftQueue(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ShiftQueue(Bits(8), 2, ~pipe: "yes")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.ShiftQueue(Bits(8), 2, ~flow: 1)) ~throws "argument does not satisfy annotation"
+  elaborate(flow.ValidPipe(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.Queue(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Queue(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.ShiftQueue(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.ShiftQueue(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.ShiftQueue(Bits(8), 2, ~pipe: "yes")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.ShiftQueue(Bits(8), 2, ~flow: 1)) ~throws "argument does not satisfy annotation"
   flow.shift_queue(0) ~throws "PosInt"
   flow.shift_queue(-1) ~throws "PosInt"
   flow.shift_queue(2, ~pipe: "yes") ~throws "argument does not satisfy annotation"
   flow.shift_queue(2, ~flow: 1) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.Arbiter(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Arbiter(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ValidArbiter(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.ValidArbiter(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.RRArbiter(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Demux(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Join(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Broadcast(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.RRArbiter(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Demux(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Join(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Broadcast(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.AtomicFork(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.AtomicFork(Bits(8), -1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.GreedyMatcher(0, 1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.GreedyMatcher(1, 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.OutputGreedyRoundRobinMatcher(0, 1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.OutputGreedyRoundRobinMatcher(1, 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.GrantDemux(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.GrantMerge(Bits(8), 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.GrantCrossbar(Bits(8), 0, 1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.GrantCrossbar(Bits(8), 1, 0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.Pipe(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.ValidPipe(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.Queue(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(
-    fun (): flow.Queue(Bits(8), 2, ~pipe: "yes")
-  ) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(
-    fun (): flow.Queue(Bits(8), 2, ~flow: 1)
-  ) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.Arbiter(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.RRArbiter(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.Demux(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.GreedyMatcher("two", 1)) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.GreedyMatcher(1, "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.OutputGreedyRoundRobinMatcher("two", 1)) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.OutputGreedyRoundRobinMatcher(1, "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.GrantDemux(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.GrantMerge(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.GrantCrossbar(Bits(8), "two", 1)) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.GrantCrossbar(Bits(8), 1, "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.Join(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.Broadcast(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.AtomicFork(Bits(8), "two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlPipe(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlPipe(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlQueue(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlQueue(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlArbiter(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlArbiter(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlRRArbiter(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlRRArbiter(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlDemux(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlDemux(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlJoin(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlJoin(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlBroadcast(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlBroadcast(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlAtomicFork(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlAtomicFork(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): flow.CtrlPipe("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlQueue("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(
-    fun (): flow.CtrlQueue(2, ~pipe: "yes")
-  ) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(
-    fun (): flow.CtrlQueue(2, ~flow: 1)
-  ) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlArbiter("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlRRArbiter("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlDemux("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlJoin("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlBroadcast("two")) ~throws "argument does not satisfy annotation"
-  embedded.run_elaboration(fun (): flow.CtrlAtomicFork("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Arbiter(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Arbiter(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.ValidArbiter(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.ValidArbiter(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.RRArbiter(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Demux(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Join(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.Broadcast(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.RRArbiter(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.Demux(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.Join(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.Broadcast(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.AtomicFork(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.AtomicFork(Bits(8), -1)) ~throws "PosInt"
+  elaborate(flow.GreedyMatcher(0, 1)) ~throws "PosInt"
+  elaborate(flow.GreedyMatcher(1, 0)) ~throws "PosInt"
+  elaborate(flow.OutputGreedyRoundRobinMatcher(0, 1)) ~throws "PosInt"
+  elaborate(flow.OutputGreedyRoundRobinMatcher(1, 0)) ~throws "PosInt"
+  elaborate(flow.GrantDemux(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.GrantMerge(Bits(8), 0)) ~throws "PosInt"
+  elaborate(flow.GrantCrossbar(Bits(8), 0, 1)) ~throws "PosInt"
+  elaborate(flow.GrantCrossbar(Bits(8), 1, 0)) ~throws "PosInt"
+  elaborate(flow.Pipe(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.ValidPipe(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Queue(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Queue(Bits(8), 2, ~pipe: "yes")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Queue(Bits(8), 2, ~flow: 1)) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Arbiter(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.RRArbiter(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Demux(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.GreedyMatcher("two", 1)) ~throws "argument does not satisfy annotation"
+  elaborate(flow.GreedyMatcher(1, "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.OutputGreedyRoundRobinMatcher("two", 1)) ~throws "argument does not satisfy annotation"
+  elaborate(flow.OutputGreedyRoundRobinMatcher(1, "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.GrantDemux(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.GrantMerge(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.GrantCrossbar(Bits(8), "two", 1)) ~throws "argument does not satisfy annotation"
+  elaborate(flow.GrantCrossbar(Bits(8), 1, "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Join(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.Broadcast(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.AtomicFork(Bits(8), "two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlPipe(0)) ~throws "PosInt"
+  elaborate(flow.CtrlPipe(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlQueue(0)) ~throws "PosInt"
+  elaborate(flow.CtrlQueue(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlArbiter(0)) ~throws "PosInt"
+  elaborate(flow.CtrlArbiter(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlRRArbiter(0)) ~throws "PosInt"
+  elaborate(flow.CtrlRRArbiter(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlDemux(0)) ~throws "PosInt"
+  elaborate(flow.CtrlDemux(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlJoin(0)) ~throws "PosInt"
+  elaborate(flow.CtrlJoin(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlBroadcast(0)) ~throws "PosInt"
+  elaborate(flow.CtrlBroadcast(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlAtomicFork(0)) ~throws "PosInt"
+  elaborate(flow.CtrlAtomicFork(-1)) ~throws "PosInt"
+  elaborate(flow.CtrlPipe("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlQueue("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlQueue(2, ~pipe: "yes")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlQueue(2, ~flow: 1)) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlArbiter("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlRRArbiter("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlDemux("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlJoin("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlBroadcast("two")) ~throws "argument does not satisfy annotation"
+  elaborate(flow.CtrlAtomicFork("two")) ~throws "argument does not satisfy annotation"

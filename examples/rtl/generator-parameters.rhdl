@@ -1,38 +1,44 @@
 #lang rhodium
-// Demonstrates positional, keyword, typed, defaulted, and synchronous generator parameters.
+/* Demonstrates positional, keyword, typed, defaulted, and synchronous generator parameters. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Demonstrates host-evaluated positional and keyword defaults in a circuit generator. */
 circuit OrdinaryDefaults(width :: PosInt = 4 + 4,
                          ~extra: extra :: PosInt = 2 - 1):
   output result: Bits(width + extra)
   result <== bits(0, width + extra)
 
+/* Applies typed default generator arguments before constructing ports. */
 circuit OrdinaryTypedDefaults(width :: PosInt = 3 * 2,
                               ~extra: extra :: Nat = 1 + 1):
   output result: Bits(width + extra)
   result <== bits(0, width + extra)
 
+/* Builds ports from a required keyword width argument. */
 circuit OrdinaryRequiredKeyword(~width: width :: PosInt):
   output result: Bits(width)
   result <== bits(0, width)
 
+/* Applies host-evaluated defaults while constructing a synchronous circuit. */
 sync_circuit SyncDefaults(width :: PosInt = 2 + 3,
                           ~extra: extra :: PosInt = 1 + 1):
   output result: Bits(width + extra)
   result <== bits(0, width + extra)
 
+/* Validates typed generator defaults in the ambient synchronous domain. */
 sync_circuit SyncTypedDefaults(width :: PosInt = 2 * 2,
                                ~extra: extra :: Nat = 1 + 2):
   output result: Bits(width + extra)
   result <== bits(0, width + extra)
 
-def ordinary_defaults_design = elaborate(OrdinaryDefaults())
-def ordinary_overrides_design = elaborate(OrdinaryDefaults(3, ~extra: 4))
-def ordinary_typed_defaults_design = elaborate(OrdinaryTypedDefaults())
-def ordinary_required_keyword_design = elaborate(OrdinaryRequiredKeyword(~width: 9))
-def sync_defaults_design = elaborate(SyncDefaults())
-def sync_overrides_design = elaborate(SyncDefaults(6, ~extra: 2))
-def sync_typed_defaults_design = elaborate(SyncTypedDefaults())
+def ordinary_defaults_program = elaborate(OrdinaryDefaults())
+def ordinary_overrides_program = elaborate(OrdinaryDefaults(3, ~extra: 4))
+def ordinary_typed_defaults_program = elaborate(OrdinaryTypedDefaults())
+def ordinary_required_keyword_program = elaborate(OrdinaryRequiredKeyword(~width: 9))
+def sync_defaults_program = elaborate(SyncDefaults())
+def sync_overrides_program = elaborate(SyncDefaults(6, ~extra: 2))
+def sync_typed_defaults_program = elaborate(SyncTypedDefaults())
 
 def ordinary_defaults_verilog_reference = @str|<<{
 module OrdinaryDefaults(
@@ -103,13 +109,13 @@ export:
   OrdinaryRequiredKeyword
   SyncDefaults
   SyncTypedDefaults
-  ordinary_defaults_design
-  ordinary_overrides_design
-  ordinary_typed_defaults_design
-  ordinary_required_keyword_design
-  sync_defaults_design
-  sync_overrides_design
-  sync_typed_defaults_design
+  ordinary_defaults_program
+  ordinary_overrides_program
+  ordinary_typed_defaults_program
+  ordinary_required_keyword_program
+  sync_defaults_program
+  sync_overrides_program
+  sync_typed_defaults_program
   ordinary_defaults_verilog_reference
   ordinary_overrides_verilog_reference
   ordinary_typed_defaults_verilog_reference

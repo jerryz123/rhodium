@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a one-hot enum mux that omits a declared member arm.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,4 +13,4 @@ circuit BadOneHotEnumMuxMissing():
   output result: Bits(8)
   result <== select.mux({Select.First: first})
 
-def design = elaborate(BadOneHotEnumMuxMissing())
+elaborate(BadOneHotEnumMuxMissing())

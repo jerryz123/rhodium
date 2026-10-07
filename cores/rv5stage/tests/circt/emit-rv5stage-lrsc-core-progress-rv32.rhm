@@ -1,12 +1,11 @@
 #lang rhombus
-// Emits predictor-enabled X32 constrained-loop validation.
+// Defines predictor-enabled X32 constrained-loop validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm".XLen
   "../../../../cores/rv5stage/tests/lrsc-core-progress-fixture.rhdl".RV5StageLRSCCoreProgress
 
-def design = embedded.run_elaboration(fun (): RV5StageLRSCCoreProgress(XLen.X32, 16))
-print(emit_circt(design))
+def program = elaborate(RV5StageLRSCCoreProgress(XLen.X32, 16))
+export program

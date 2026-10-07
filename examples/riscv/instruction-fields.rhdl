@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates descriptor-generated RISC-V fields and immediate extraction.
+/* Demonstrates descriptor-generated RISC-V fields and immediate extraction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,7 @@ import:
   lib("riscv/model/formats.rhm") open
   lib("riscv/rtl/instruction-fields.rhdl") open
 
+/* Exposes rd_value, rs1_value, rs2_value, i_value, s_value, b_value, u_value, j_value, shift_value for this instruction fields example. */
 circuit InstructionFieldsFixture():
   input instruction: Bits(32)
   output rd_value: Bits(5)
@@ -28,7 +29,7 @@ circuit InstructionFieldsFixture():
   j_value <== instruction_immediate(JImmediate, instruction, 64)
   shift_value <== instruction_immediate(Shift64Immediate, instruction, 64)
 
-def design = elaborate(InstructionFieldsFixture())
+def program = elaborate(InstructionFieldsFixture())
 
 def verilog_reference = @str|<<{
 module InstructionFieldsFixture(
@@ -64,5 +65,5 @@ endmodule
 
 export:
   InstructionFieldsFixture
-  design
+  program
   verilog_reference

@@ -9,7 +9,7 @@ import:
 def flit = CHIFlitParams()
 def node_link = CHIRNILinkParams(flit, ~tx_req_credits: 2)
 def icn_link = CHIRNILinkParams(flit, ~tx_req_credits: 3)
-def design = elaborate(
+elaborate(
   fixture.CHIRNILinkAdapter(node_link,
                             fixture.rni_node,
                             icn_link,

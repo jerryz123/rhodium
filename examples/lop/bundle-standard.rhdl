@@ -1,11 +1,13 @@
 #lang rhodium
-// Builds the record-valued swap through the concise bundle layer.
+/* Builds the record-valued swap through the concise bundle layer. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 bundle Pair(T :: DataType):
   left: T
   right: T
 
+/* Swaps the two record fields without changing their declared width. */
 circuit BundleSwap(width :: PosInt):
   input source: Pair(Bits(width))
   output result: Pair(Bits(width))
@@ -13,7 +15,7 @@ circuit BundleSwap(width :: PosInt):
   result.left <== source.right
   result.right <== source.left
 
-def design = elaborate(BundleSwap(8))
+def program = elaborate(BundleSwap(8))
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -32,5 +34,5 @@ endmodule
 export:
   Pair
   BundleSwap
-  design
+  program
   verilog_reference

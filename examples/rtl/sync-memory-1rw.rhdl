@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates a synchronous memory with one shared read-write physical port.
+/* Demonstrates a synchronous memory with one shared read-write physical port. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes read_data for this sync memory 1rw example. */
 sync_circuit SyncMemory1RWExample(depth :: PosInt, width :: PosInt):
   input address: Bits(index_width(depth))
   input enable: Bits(1)
@@ -18,7 +20,7 @@ sync_circuit SyncMemory1RWExample(depth :: PosInt, width :: PosInt):
   storage.read_write.write_data <== write_data
   read_data <== storage.read_write.read_data
 
-def design = elaborate(SyncMemory1RWExample(4, 8))
+def program = elaborate(SyncMemory1RWExample(4, 8))
 
 def verilog_reference = @str|<<{
 module storage_4x8(
@@ -71,5 +73,5 @@ endmodule
 
 export:
   SyncMemory1RWExample
-  design
+  program
   verilog_reference

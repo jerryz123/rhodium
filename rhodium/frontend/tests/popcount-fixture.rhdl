@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises population counts over packed bits, aggregates, lists, and identities.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -18,7 +23,7 @@ circuit PopcountFixture():
   single_count <== popcount(single)
   empty_count <== popcount([])
 
-def design = elaborate(PopcountFixture())
+def design = compile_program(elaborate(PopcountFixture()), rtl_target).report.design
 
 export:
   PopcountFixture

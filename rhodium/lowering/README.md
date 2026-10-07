@@ -9,8 +9,8 @@ the public core; direct Builder clients need no frontend or source text.
 
 `ElaboratedProgram(design, top)` records an explicit, finished top belonging to
 the supplied design, or a detached `ConstructDefinition` top with an entry in
-`providers`. A retained top expands directly to the selected concrete module
-without an extra wrapper. Construction checks that boundary but does not certify
+`providers`. A portably expanded retained top becomes its concrete module directly. A native
+retained top may use a port-only wrapper with the declared signature. Construction checks that boundary but does not certify
 the whole design. Whole-design errors, including hierarchy cycles and
 unfinished sibling modules, are rejected during compile-target preparation.
 
@@ -36,7 +36,12 @@ read-only checks of the finished concrete module. Registrations with the same
 expansion callback merge their checks; distinct callbacks for one definition
 conflict. All merged checks run before returning, even when registered after
 the shared body was expanded. Conflicting providers and recursive expansion are
-errors. The compiler's `CompileOptions(expansion_limit)` bounds the total number of distinct expansions
+errors. Targets may preserve supported semantic definitions without invoking
+their portable providers. Any reachable concrete-body check forces portable
+preparation, including a check registered later by another reachable provider.
+Metadata certification similarly requires concrete preparation unless its
+`MaterializationCheck.accepts_retained` property explicitly permits mixed IR.
+The compiler's `CompileOptions(expansion_limit)` bounds the total number of distinct expansions
 (default 256), including recursion that keeps inventing new definitions.
 Reachable source module names, including the selected top, are reserved. Expansion
 modules receive deterministic suffixes when their names collide.
@@ -102,13 +107,9 @@ def result = compile_program(program, circt_target)
 ```
 
 Language users can construct a program with
-[`elaborate_program(...)`](../frontend/README.md#circuits-and-elaboration).
-The eager `elaborate(...)` and `elaborate_with_top(...)` construction helpers
-return verified concrete IR. Use the program API to select a compilation target.
-Compile targets own provider execution and consumer preparation. Retained children are
-opt-in through the frontend `retained_circuit` API. Ordinary `CircuitReference`
-bodies retain their eager instantiation behavior. Frontend [detached interface declarations](../frontend/layers/README.md#detached-interface-declarations)
-provide grouped retained members without changing core physical signatures.
-Additional effect contracts remain separate work.
+[`elaborate(...)`](../frontend/README.md#circuits-and-elaboration).
+Elaboration preserves the program's retained definitions and provider environment.
+Concrete graph consumers select [`rtl_target`](../compile/README.md#targets-and-compatibility)
+through `compile_program`; emission consumers select their emission target on the original program.
 
 Implementation ownership and validation are in [`DEVELOPING.md`](DEVELOPING.md).

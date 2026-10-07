@@ -1,10 +1,9 @@
 #lang rhombus
-// Emits the shared CSR bank for the sscofpmf-rv32 behavioral fixture.
+// Defines the shared CSR bank for the sscofpmf-rv32 behavioral fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/backend/circt.rhm") open
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("riscv/isa/fp-profile.rhm") open
@@ -15,5 +14,5 @@ import:
   "../csr-profile.rhm".csr_test_isa
 
 def config = RiscvCsrConfig(csr_test_isa(XLen.X32), ~sscofpmf: #true)
-def design = embedded.run_elaboration(fun (): RiscvCsrFile(config))
-print(emit_circt(design))
+def program = elaborate(RiscvCsrFile(config))
+export program

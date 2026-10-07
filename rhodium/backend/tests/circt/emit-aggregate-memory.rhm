@@ -105,5 +105,7 @@ builder.drive(singleton_async_data, singleton_async_value)
 builder.drive(singleton_sync_data, singleton_sync_storage.read_write_port.read_data)
 def singleton_finished = builder.finish(singleton_module)
 
+// Exercise the low-level renderer on several independent Builder-owned modules.
+// Ordinary circuit drivers compile one explicit program through a target.
 verify_design(design)
 print(emit_circt(design))

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit DiagramFlow():
@@ -79,11 +81,11 @@ circuit DiagramReconvergent():
     current := current & current
   result <== current
 
-def logical = elaborate_with_top(DiagramFlow())
-def transparent_link_logical = elaborate_with_top(DiagramTransparentLink())
-def behavior_logical = elaborate_with_top(DiagramBehavior())
-def explicit_control_logical = elaborate_with_top(DiagramExplicitControl())
-def reconvergent_logical = elaborate_with_top(DiagramReconvergent())
+def logical = compile_program(elaborate(DiagramFlow()), rtl_target).report.elaboration
+def transparent_link_logical = compile_program(elaborate(DiagramTransparentLink()), rtl_target).report.elaboration
+def behavior_logical = compile_program(elaborate(DiagramBehavior()), rtl_target).report.elaboration
+def explicit_control_logical = compile_program(elaborate(DiagramExplicitControl()), rtl_target).report.elaboration
+def reconvergent_logical = compile_program(elaborate(DiagramReconvergent()), rtl_target).report.elaboration
 
 export:
   logical

@@ -1,18 +1,16 @@
 #lang rhombus
-// Emits CIRCT MLIR for the standalone multihart-aware CHI BootROM fixture.
+// Defines a program for the standalone multihart-aware CHI BootROM fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../rhodium/backend/circt.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../chi/main.rhdl" as chi
   "../../../devices/boot/bootrom.rhdl" as bootrom
 
-def design = embedded.run_elaboration(
-  fun (): bootrom.CHIBootROM(
+def program = elaborate(bootrom.CHIBootROM(
     bootrom.CHIBootROMConfig(
       bootrom.CHIBootROMLayout(chi.CHIFlitParams(), ~window_bytes: 64)
     )
   )
 )
-print(emit_circt(design))
+export program

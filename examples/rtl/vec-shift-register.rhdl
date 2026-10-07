@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates element-wise conditional updates to one aggregate vector register.
+/* Demonstrates element-wise conditional updates to one aggregate vector register. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes out for this vec shift register example. */
 sync_circuit VecShiftRegister():
   input ins: Vec(4, Bits(4))
   input load: Bool
@@ -23,7 +25,7 @@ sync_circuit VecShiftRegister():
 
   out <== delays[3]
 
-def design = elaborate(VecShiftRegister())
+def program = elaborate(VecShiftRegister())
 
 def verilog_reference = @str|<<{
 module VecShiftRegister(
@@ -47,5 +49,5 @@ endmodule
 
 export:
   VecShiftRegister
-  design
+  program
   verilog_reference

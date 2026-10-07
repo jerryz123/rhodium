@@ -1,11 +1,10 @@
 #lang rhombus
-// Emits CIRCT MLIR for nested bundle construction and projection.
+// Defines a program for nested bundle construction and projection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../examples/rtl/bundle.rhdl" as bundle_fixture
 
-def design = embedded.run_elaboration(fun (): bundle_fixture.NestedSwap(8))
-print(emit_circt(design))
+def program = elaborate(bundle_fixture.NestedSwap(8))
+export program

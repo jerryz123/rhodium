@@ -3,36 +3,40 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/sync-memory.rhdl" as fixture
   "../../../examples/rtl/sync-memory-1rw.rhdl" as shared_fixture
   "../../../examples/rtl/sync-memory-masked.rhdl" as masked_fixture
   "sync-memory-fixture.rhdl" as focused
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+def shared_fixture_design = compile_program(shared_fixture.program, rtl_target).report.design
+def masked_fixture_design = compile_program(masked_fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def operation = module_def.operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
-def read_only_design = embedded.run_elaboration(fun (): focused.ReadOnlySyncMemory())
+def read_only_design = compile_program(elaborate(focused.ReadOnlySyncMemory()), rtl_target).report.design
 def read_only = read_only_design.modules[0].operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
-def write_only_design = embedded.run_elaboration(fun (): focused.WriteOnlySyncMemory())
+def write_only_design = compile_program(elaborate(focused.WriteOnlySyncMemory()), rtl_target).report.design
 def write_only = write_only_design.modules[0].operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
-def shared_module = shared_fixture.design.modules[0]
+def shared_module = shared_fixture_design.modules[0]
 def shared = shared_module.operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
-def masked_module = masked_fixture.design.modules[0]
+def masked_module = masked_fixture_design.modules[0]
 def masked = masked_module.operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
-def explicit_masked_design = embedded.run_elaboration(
-  fun (): focused.MaskedWriteOnlySyncMemory()
-)
+def explicit_masked_design = compile_program(elaborate(focused.MaskedWriteOnlySyncMemory()), rtl_target).report.design
 def explicit_masked = explicit_masked_design.modules[0].operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
@@ -50,7 +54,7 @@ check:
                                                      "storage.write.data",
                                                      "storage.write.enable"]
   operation.results[0].name ~is "storage.read.data"
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
   read_only.attribute("has_read") ~is #true
   read_only.attribute("has_write") ~is #false
   read_only.places.length() ~is 2
@@ -79,10 +83,10 @@ check:
                                                   "storage.read_write.write_mask"]
   explicit_masked.attribute("mask_granularity") ~is 8
   explicit_masked.places[3].type.width ~is 4
-  verify_design(shared_fixture.design) ~is #void
-  verify_design(masked_fixture.design) ~is #void
+  verify_design(shared_fixture_design) ~is #void
+  verify_design(masked_fixture_design) ~is #void
   verify_design(explicit_masked_design) ~is #void
-  embedded.run_elaboration(fun (): focused.MissingWritePort()) ~throws "has no write port"
-  embedded.run_elaboration(fun (): focused.UnmaskedMaskAccess()) ~throws "has no mask"
-  embedded.run_elaboration(fun (): focused.WrongMaskWidth()) ~throws "exactly the same hardware type"
-  embedded.run_elaboration(fun (): focused.MaskedReadOnlySyncMemory()) ~throws "requires a write or read-write port"
+  elaborate(focused.MissingWritePort()) ~throws "has no write port"
+  elaborate(focused.UnmaskedMaskAccess()) ~throws "has no mask"
+  elaborate(focused.WrongMaskWidth()) ~throws "exactly the same hardware type"
+  elaborate(focused.MaskedReadOnlySyncMemory()) ~throws "requires a write or read-write port"

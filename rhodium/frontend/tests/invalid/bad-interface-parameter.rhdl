@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects passing a frontend interface endpoint directly to a circuit generator.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -19,4 +20,4 @@ circuit BadInterfaceParameter():
   interface link(Link(Bits(8)), ~role: producer)
   Child(link)
 
-def design = elaborate(BadInterfaceParameter())
+elaborate(BadInterfaceParameter())

@@ -1,10 +1,10 @@
 #lang rhombus
-// Emits the production nested page-table walker through its public simulation wrapper.
+// Defines the production nested page-table walker through its public simulation wrapper.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/backend/circt.rhm") open
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../nested-walker-fixture.rhdl".RiscvNestedWalkerFixture
 
-print(emit_circt(embedded.run_elaboration(fun (): RiscvNestedWalkerFixture())))
+def program = elaborate(RiscvNestedWalkerFixture())
+export program

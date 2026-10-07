@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "priority-mux-fixture.rhdl" as fixture
 
 fun muxes(module_def :: Module):
@@ -24,9 +26,9 @@ fun check_priority_shape(module_def :: Module):
     inner.origin.kind == "embedded priority mux"
   ]): matches)
 
-def block_design = embedded.run_elaboration(fun (): fixture.PriorityMuxBlock())
+def block_design = compile_program(elaborate(fixture.PriorityMuxBlock()), rtl_target).report.design
 def block_module = block_design.modules[0]
-def list_design = embedded.run_elaboration(fun (): fixture.PriorityMuxList())
+def list_design = compile_program(elaborate(fixture.PriorityMuxList()), rtl_target).report.design
 def list_module = list_design.modules[0]
 
 check:

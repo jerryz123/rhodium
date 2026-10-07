@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates lossless unsigned addition and signed and unsigned multiplication.
+/* Demonstrates lossless unsigned addition and signed and unsigned multiplication. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes sum, product, signed_product for this expanding arithmetic example. */
 circuit ExpandingArithmetic():
   input a: Bits(8)
   input b: Bits(4)
@@ -15,7 +17,7 @@ circuit ExpandingArithmetic():
   product <== a *& b
   signed_product <== signed_a *& signed_b
 
-def design = elaborate(ExpandingArithmetic())
+def program = elaborate(ExpandingArithmetic())
 
 def verilog_reference = @str|<<{
 module ExpandingArithmetic(
@@ -36,5 +38,5 @@ endmodule
 
 export:
   ExpandingArithmetic
-  design
+  program
   verilog_reference

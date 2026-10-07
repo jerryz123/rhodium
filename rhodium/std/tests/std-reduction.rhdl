@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/reduction.rhdl").tree_reduce
 
 bundle Candidate():
@@ -36,8 +38,8 @@ circuit EmptyReduction():
 
   result <== tree_reduce([], fun (left, right): left + right)
 
-def tree_design = elaborate(TreeReduction())
-def singleton_design = elaborate(SingletonReduction())
+def tree_design = compile_program(elaborate(TreeReduction()), rtl_target).report.design
+def singleton_design = compile_program(elaborate(SingletonReduction()), rtl_target).report.design
 
 export:
   Candidate

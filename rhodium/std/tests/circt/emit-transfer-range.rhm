@@ -1,10 +1,10 @@
 #lang rhombus
-// Emits generic transfer containment over every window size in a four-bit address space.
+// Defines generic transfer containment over every window size in a four-bit address space.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../std-interconnect-fixture.rhdl" as fixture
 
-print(emit_circt(embedded.run_elaboration(fun (): fixture.TransferRangeFixture())))
+def program = elaborate(fixture.TransferRangeFixture())
+export program

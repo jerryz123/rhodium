@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects unsigned ordering of nominal Boolean hardware values.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadUnsignedComparisonType():
 
   result <== (a < b)
 
-def design = elaborate(BadUnsignedComparisonType())
+elaborate(BadUnsignedComparisonType())

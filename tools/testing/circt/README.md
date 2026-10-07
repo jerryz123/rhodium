@@ -11,7 +11,7 @@ with CIRCT, exact SystemVerilog references, and Verilator.
 The [backend guide](../../../rhodium/backend/README.md) owns lowering architecture
 and operation contracts. The [example guide](../../../examples/README.md) owns the
 canonical example catalog. This guide owns the cross-package CIRCT workflow;
-each package owns its emitters and benches, while the fixture manifest in
+each package owns its fixtures and benches, while the fixture manifest in
 [`run.sh`](run.sh) remains authoritative for
 fixture names, groups, exports, and available simulations.
 
@@ -20,8 +20,8 @@ should read [`DEVELOPING.md`](DEVELOPING.md).
 
 ```mermaid
 flowchart LR
-    Example["Example export<br/>design and Verilog reference"] --> Materialize["Materialize selected fixtures<br/>in one Rhombus process"]
-    Direct["emit-*.rhm<br/>MLIR-only integration fixture"] --> Materialize
+    Example["Example export<br/>program and Verilog reference"] --> Materialize["Compile selected fixtures<br/>in one Rhombus process"]
+    Direct["Package-local fixture<br/>program export or custom emitter"] --> Materialize
     Materialize --> MLIR["Rhodium CIRCT MLIR"]
     MLIR --> CIRCT["CIRCT verification<br/>and lowering"]
     CIRCT --> SV["ExportVerilog<br/>SystemVerilog"]
@@ -52,7 +52,7 @@ FIXTURE=bundle bash tools/testing/circt/run.sh
 ```
 
 Use `FIXTURES` for a focused batch. The runner materializes the selected
-examples and emitters together, avoiding a separate Rhombus startup for each
+examples and package-local fixtures together, avoiding a separate Rhombus startup for each
 fixture:
 
 ```sh
@@ -98,7 +98,7 @@ The main targets differ in scope and stage:
 | `make circt-verify-test` | Curated spine; materialize and lower only, with no golden comparison or simulation |
 | `make verilator-test` | Curated fixtures that have simulations; lower, build, and run them without golden comparison |
 | `make verilog-golden-test` | Every explicitly golden example fixture; require the pinned CIRCT version and compare each exact reference, with no simulation |
-| `make circt-full-test` | Every declared example and direct emitter; compare selected simple-example references with the pinned tool and run every available simulation |
+| `make circt-full-test` | Every declared example and package-local fixture; compare selected simple-example references with the pinned tool and run every available simulation |
 
 The default curated spine covers representative external behavior across the
 lowering families while avoiding every frontend and parameter variation.

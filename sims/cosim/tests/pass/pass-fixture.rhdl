@@ -1,6 +1,8 @@
 #lang rhodium
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
   "../../../../cores/cosim-source.rhm" open
 
@@ -20,7 +22,7 @@ sync_circuit TestObserver(instance :: Nat, context :: Boolean):
 
 fun recipe(configuration :: Map, types :: Map, _parameters :: Map, instance :: Nat):
   if configuration["unsupported"] | error(~who: #'recipe, "unsupported test profile") | #void
-  elaborate_with_top(TestObserver(instance, types.has_key("external_child_value")))
+  compile_program(elaborate(TestObserver(instance, types.has_key("external_child_value"))), rtl_target).report.elaboration
 
 sync_circuit ObservedComponent():
   input value: Bits(8)
@@ -79,8 +81,8 @@ export:
   make_unsupported_fixture
   make_wrong_context_fixture
   make_wrong_nested_fixture
-fun make_fixture(): elaborate_program(ObservedTop())
-fun make_wrong_domain_fixture(): elaborate_program(ObservedLane(#true))
-fun make_unsupported_fixture(): elaborate_program(ObservedLane(#false, #true))
-fun make_wrong_context_fixture(): elaborate_program(ObservedTop(#true))
-fun make_wrong_nested_fixture(): elaborate_program(ObservedLane(#false, #false, #true))
+fun make_fixture(): elaborate(ObservedTop())
+fun make_wrong_domain_fixture(): elaborate(ObservedLane(#true))
+fun make_unsupported_fixture(): elaborate(ObservedLane(#false, #true))
+fun make_wrong_context_fixture(): elaborate(ObservedTop(#true))
+fun make_wrong_nested_fixture(): elaborate(ObservedLane(#false, #false, #true))

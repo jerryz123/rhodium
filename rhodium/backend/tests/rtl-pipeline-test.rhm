@@ -81,7 +81,7 @@ class CountedPlan(delegate :: TargetPlan, calls :: MutableList):
     calls.add("emit")
     delegate.emit()
 
-for (backend in [circt_target, verilog_target, rsim_target]):
+for (backend in [circt_target, verilog_target, rsim_target, rtl_target]):
   def calls = MutableList[]
   def snapshots = MutableList[]
   def graphs = MutableList[]
@@ -109,7 +109,6 @@ for (backend in [circt_target, verilog_target, rsim_target]):
     result.artifacts.take(backend_artifacts.length()) ~is backend_artifacts
     result.diagnostics.map(fun (diagnostic): diagnostic.code) ~is ["first.observed", "second.observed", "backend.note"]
     report.stages.map(fun (stage): stage.name) ~is ["first", "second"]
-    report.backend ~is #false
     result.manifest.lowerings.map(fun (decision): decision.path) ~is [["left"], ["right"]]
     result.manifest.lowerings.map(fun (decision): decision.implementation) ~is ["Increment_left_first_left_second", "Increment_right_first_right_second"]
     result.manifest.lowerings.map(fun (decision): decision.definition === definition) ~is [#true, #true]
@@ -119,6 +118,11 @@ for (backend in [circt_target, verilog_target, rsim_target]):
     dump_ir(design) ~is source_before
     design.sealed ~is #false
     rtl_pipeline_target(backend, []) === backend ~is #true
+  if backend === rtl_target
+  | check:
+      report.backend is_a RTLReport ~is #true
+      report.backend.elaboration === final.rtl ~is #true
+  | check: report.backend ~is #false
   for (snapshot in snapshots):
     check: dump_ir(snapshot[0]) ~is snapshot[1]
   for (stage in report.stages, tags in [["source", "first"], ["source", "first", "second"]]):

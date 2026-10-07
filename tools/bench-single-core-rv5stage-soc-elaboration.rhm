@@ -1,10 +1,12 @@
 #lang rhombus
-/* Benchmarks repeated elaboration of the existing SingleCoreRV5StageSoC design. */
+/* Separately times program elaboration and RTL preparation of the existing SingleCoreRV5StageSoC design. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus/cmdline open
-  "../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../socs/configs/single-core-rv5stage-soc.rhdl" as single_core_rv5stage_soc
   lib("racket/base.rkt") as rkt
 
@@ -15,6 +17,8 @@ unless arguments.length() == 0
 
 for (repetition in 0..6):
   def start = rkt.#{current-inexact-milliseconds}()
-  def design = embedded.run_elaboration(fun (): single_core_rv5stage_soc.SingleCoreRV5StageSoC())
+  def program = elaborate(single_core_rv5stage_soc.SingleCoreRV5StageSoC())
   def after_elaboration = rkt.#{current-inexact-milliseconds}()
-  println("single-core-rv5stage-soc repetition=" ++ to_string(repetition) ++ " elaboration_ms=" ++ to_string(after_elaboration - start) ++ " modules=" ++ to_string(design.modules.length()))
+  def design = compile_program(program, rtl_target).report.design
+  def after_preparation = rkt.#{current-inexact-milliseconds}()
+  println("single-core-rv5stage-soc repetition=" ++ to_string(repetition) ++ " elaboration_ms=" ++ to_string(after_elaboration - start) ++ " preparation_ms=" ++ to_string(after_preparation - after_elaboration) ++ " modules=" ++ to_string(design.modules.length()))

@@ -1,7 +1,9 @@
 #lang rhodium
-// Implements a four-stage shift register with synchronous reset and a hardware enable.
+/* Implements a four-stage shift register with synchronous reset and a hardware enable. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes data_out for this enable shift register example. */
 circuit EnableShiftRegister():
   input data_in: Bits(4)
   input shift: Bool
@@ -26,7 +28,7 @@ circuit EnableShiftRegister():
 
   data_out <== r3
 
-def design = elaborate(EnableShiftRegister())
+def program = elaborate(EnableShiftRegister())
 
 def verilog_reference = @str|<<{
 module EnableShiftRegister(
@@ -61,5 +63,5 @@ endmodule
 
 export:
   EnableShiftRegister
-  design
+  program
   verilog_reference

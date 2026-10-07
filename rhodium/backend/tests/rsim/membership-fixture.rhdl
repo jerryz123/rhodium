@@ -32,5 +32,5 @@ sync_circuit RsimMembership():
   result <== predicates
   sampled <== held
 
-def program = elaborate_program(RsimMembership())
+def program = elaborate(RsimMembership())
 export program

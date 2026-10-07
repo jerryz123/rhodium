@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as kernel
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/comb.rhm" as comb
   "../../../examples/rtl/shifts.rhdl" as fixture
   "host-shift-fixture.rhdl" as host_fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def shifts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.shl" || operation.opcode == "rtl.shru"
 )
@@ -44,7 +48,7 @@ check:
   shifts[5].operands[1].type.width ~is 2
   8 comb.(<<) 2 ~is 32
   8 comb.(>>) 2 ~is 2
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
 
   host_shifts.length() ~is 7
   host_shifts[0].operands[1].type.width ~is 1
@@ -57,6 +61,4 @@ check:
     fun (operation): operation.attribute("value")
   ) ~is [0, 3, 3, 3, 3, 3]
   verify_design(host_fixture.design) ~is #void
-  kernel.run_elaboration(
-    fun (): host_fixture.NegativeHostShift()
-  ) ~throws "shift amount must be a host natural number or hardware Bits"
+  elaborate(host_fixture.NegativeHostShift()) ~throws "shift amount must be a host natural number or hardware Bits"

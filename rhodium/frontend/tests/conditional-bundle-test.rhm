@@ -4,7 +4,7 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "conditional-bundle-fixture.rhdl" as fixture
 
 def plain = fixture.OptionalPacket(#false, #false)
@@ -39,21 +39,9 @@ check:
   ).length() ~is 2
   verify_design(fixture.shapes_design) ~is #void
   verify_design(fixture.construction_design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.InvalidConditionalBundleCondition()
-  ) ~throws "Boolean"
-  embedded.run_elaboration(
-    fun (): fixture.EmptyConditionalBundle()
-  ) ~throws "bundle specialization must contain at least one field"
-  embedded.run_elaboration(
-    fun (): fixture.DuplicatePresentConditionalField()
-  ) ~throws "record field names must be unique"
-  embedded.run_elaboration(
-    fun (): fixture.AbsentConditionalProjection()
-  ) ~throws "no field named"
-  embedded.run_elaboration(
-    fun (): fixture.SuppliedAbsentConditionalField()
-  ) ~throws "literal must supply every record field exactly once"
-  embedded.run_elaboration(
-    fun (): fixture.MissingPresentConditionalField()
-  ) ~throws "literal must supply every record field exactly once"
+  elaborate(fixture.InvalidConditionalBundleCondition()) ~throws "Boolean"
+  elaborate(fixture.EmptyConditionalBundle()) ~throws "bundle specialization must contain at least one field"
+  elaborate(fixture.DuplicatePresentConditionalField()) ~throws "record field names must be unique"
+  elaborate(fixture.AbsentConditionalProjection()) ~throws "no field named"
+  elaborate(fixture.SuppliedAbsentConditionalField()) ~throws "literal must supply every record field exactly once"
+  elaborate(fixture.MissingPresentConditionalField()) ~throws "literal must supply every record field exactly once"

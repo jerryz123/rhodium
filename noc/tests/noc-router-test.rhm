@@ -3,28 +3,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../noc/rtl/main.rhdl" open
   "../../noc/model/main.rhm" open
   "../../noc/analysis/main.rhm" open
   "../../noc/plan/main.rhm" open
   "../../examples/noc/noc-router.rhdl" as fixture
 
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
 def middle = fixture.middle_config
 def destination = fixture.destination_config
 def buffered_middle = compile_simple_router(fixture.middle_plan, ~input_buffer_depth: 3)
-def top = fixture.design.modules.find(
+def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFixture"
 )
-def router_modules = fixture.design.modules.filter(
+def router_modules = fixture_design.modules.filter(
   ~keep: fun (module_def): module_def.name.starts_with("SimpleRouter") && (
     module_def.name != "SimpleRouterFixture"
   )
 )
-def allocator_design = embedded.run_elaboration(
-  fun (): RouterAllocator(2, 2)
-)
+def allocator_compiled = compile_program(elaborate(RouterAllocator(2, 2)), rtl_target)
 def escape_n0 = NodeId(10)
 def escape_n1 = NodeId(11)
 def adaptive_loop = PhysicalLink(LinkId(10), escape_n0, escape_n0, 1)
@@ -129,5 +131,5 @@ check:
     ["simple_router_ingress_valid_route_0",
      "simple_router_ingress_valid_route_1"]
   ]
-  verify_design(allocator_design) ~is #void
-  verify_design(fixture.design) ~is #void
+  allocator_compiled.has_errors ~is #false
+  verify_design(fixture_design) ~is #void

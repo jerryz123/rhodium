@@ -65,5 +65,5 @@ sync_circuit EventCompAck():
     dbid: flit.txn_id
   iack_event |> iack
 
-def traced_compack = elaborate_with_top(EventCompAck())
+def traced_compack = elaborate(EventCompAck())
 export traced_compack

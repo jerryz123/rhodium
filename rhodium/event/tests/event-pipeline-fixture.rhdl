@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventPipelineChild(~flushable: flushable :: Boolean = #false):
@@ -50,8 +52,8 @@ sync_circuit EventPipeline(~flushable: flushable :: Boolean = #false):
     |> trace_valid_event("completed", ~payload: #true)
     |> sink
 
-def pipeline = elaborate_with_top(EventPipeline())
-def flush_pipeline = elaborate_with_top(EventPipeline(~flushable: #true))
+def pipeline = compile_program(elaborate(EventPipeline()), rtl_target).report.elaboration
+def flush_pipeline = elaborate(EventPipeline(~flushable: #true))
 
 fun foreign_flush(instance):
   module_interface_transforms(instance.module_def)[0].trace_model.fixed_latency_flush()
@@ -67,7 +69,7 @@ sync_circuit EventBadFlush(kind :: String):
   | ~else:
       describe_interface_transform(InterfaceHandle(source, sink), "bad-flush", ~trace_model: InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(1, foreign)))
 
-fun bad_flush(kind): elaborate_with_top(EventBadFlush(kind))
+fun bad_flush(kind): compile_program(elaborate(EventBadFlush(kind)), rtl_target).report.elaboration
 
 // The core crosses a ready-valid conversion and fans out Valid observations.
 sync_circuit EventValidConversion():
@@ -77,7 +79,7 @@ sync_circuit EventValidConversion():
   left |> trace_valid_event("left", ~payload: #true) |> sinks[0]
   right |> filter_valid(payload => payload =/= bits(0, 8)) |> trace_valid_event("right", ~payload: #true) |> sinks[1]
 
-def valid_conversion = elaborate_with_top(EventValidConversion())
+def valid_conversion = compile_program(elaborate(EventValidConversion()), rtl_target).report.elaboration
 
 interface EventNestedBus():
   role requester
@@ -119,7 +121,7 @@ sync_circuit EventNestedChannels():
   requester.sink |> sink
   requester.bus |> interface_link(EventNestedEnvelope(), "first") |> interface_link(EventNestedEnvelope(), "second") |> responder.bus
 
-def nested_channels = elaborate_with_top(EventNestedChannels())
+def nested_channels = compile_program(elaborate(EventNestedChannels()), rtl_target).report.elaboration
 
 // Access sibling leaves separately so nested record projections are repeated.
 sync_circuit EventNestedProjectedChannels():
@@ -133,7 +135,7 @@ sync_circuit EventNestedProjectedChannels():
   requester.bus.traffic.auxiliary |> responder.bus.traffic.auxiliary
   responder.bus.traffic.response |> requester.bus.traffic.response
 
-def nested_projected_channels = elaborate_with_top(EventNestedProjectedChannels())
+def nested_projected_channels = compile_program(elaborate(EventNestedProjectedChannels()), rtl_target).report.elaboration
 export nested_projected_channels
 
 sync_circuit EventPrivateResetChild():
@@ -160,7 +162,7 @@ sync_circuit EventTracedPrivateReset():
   storage.egress |> trace_valid_event("after") |> sink
 
 fun private_reset(traced_reset :: Boolean):
-  if traced_reset | elaborate_with_top(EventTracedPrivateReset()) | elaborate_with_top(EventPrivateReset())
+  if traced_reset | compile_program(elaborate(EventTracedPrivateReset()), rtl_target).report.elaboration | compile_program(elaborate(EventPrivateReset()), rtl_target).report.elaboration
 
 // Invalid use of the supported fixed-latency contract: a route cannot
 // describe two inputs as a one-to-one pipeline.
@@ -170,7 +172,7 @@ sync_circuit EventBadLatencyShape():
   sink <=> source[0]
   describe_interface_transform(InterfaceHandle(source, sink), "invalid-delay", ~trace_model: interface_trace_fixed_latency(1))
 
-fun bad_latency_shape(): elaborate_with_top(EventBadLatencyShape())
+fun bad_latency_shape(): compile_program(elaborate(EventBadLatencyShape()), rtl_target).report.elaboration
 fun bad_latency_count(): interface_trace_fixed_latency(0)
 
 // The same local controls can belong to a primitive boundary or inline adapter.
@@ -258,14 +260,14 @@ sync_circuit EventForeignContract():
   def foreign = InterfaceTraceModel(bound.routes, InterfaceTraceElastic(#false, bound.elastic_stages()))
   describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "foreign", ~trace_model: foreign)
 
-fun adapter_contract(): elaborate_with_top(EventAdapterContract())
-fun named_contracts(intrinsic, wrapped): elaborate_with_top(EventNamedContracts(intrinsic, wrapped))
+fun adapter_contract(): compile_program(elaborate(EventAdapterContract()), rtl_target).report.elaboration
+fun named_contracts(intrinsic, wrapped): compile_program(elaborate(EventNamedContracts(intrinsic, wrapped)), rtl_target).report.elaboration
 fun invalid_contract(mode):
   cond
-  | mode == "foreign": elaborate_with_top(EventForeignContract())
-  | mode == "duplicate-boundary": elaborate_with_top(EventNamedStorage(#true, mode))
-  | mode in ["duplicate-inline", "missing-name"]: elaborate_with_top(EventNamedStorage(#false, mode))
-  | ~else: elaborate_with_top(EventConflictingContract(mode))
+  | mode == "foreign": compile_program(elaborate(EventForeignContract()), rtl_target).report.elaboration
+  | mode == "duplicate-boundary": compile_program(elaborate(EventNamedStorage(#true, mode)), rtl_target).report.elaboration
+  | mode in ["duplicate-inline", "missing-name"]: compile_program(elaborate(EventNamedStorage(#false, mode)), rtl_target).report.elaboration
+  | ~else: compile_program(elaborate(EventConflictingContract(mode)), rtl_target).report.elaboration
 
 export:
   pipeline

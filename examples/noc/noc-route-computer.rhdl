@@ -1,5 +1,5 @@
 #lang rhodium
-// Builds router-local route computers for every node in a validated two-hop NoC.
+/* Builds router-local route computers for every node in a validated two-hop NoC. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,9 +15,11 @@ def second = PhysicalLink(LinkId(1), n1, n2, 2)
 def topology = Topology([n0, n1, n2], [first, second])
 def route = RouteClass(RouteClassId(0), n0, n2)
 
+/* Tests whether a virtual channel belongs to the specified physical link. */
 fun on_link(vc :: VCId, link :: PhysicalLink):
   link_id_equal(vc.link_id, link.id)
 
+/* Defines the legal next-hop virtual channels for the example routing problem. */
 fun allows(_route_class :: RouteClass,
            origin :: Injection || HeldVC,
            candidate :: VCId):
@@ -42,6 +44,7 @@ def source_decoder = compile_route_decoder(source_plan)
 def middle_decoder = compile_route_decoder(middle_plan)
 def destination_decoder = compile_route_decoder(destination_plan)
 
+/* Exposes source_target_mask, source_fallback_mask, source_valid, middle_target_mask, middle_fallback_mask, middle_valid, destination_target_mask, destination_fallback_mask, destination_valid for this noc route computer example. */
 circuit RouteComputerFixture():
   input source_route_key: Bits(source_decoder.route_width)
   input source_origin_key: Bits(source_decoder.origin_width)
@@ -83,7 +86,7 @@ circuit RouteComputerFixture():
   destination_fallback_mask <== destination.fallback_mask
   destination_valid <== destination.valid
 
-def design = elaborate(RouteComputerFixture())
+def program = elaborate(RouteComputerFixture())
 
 // Exact normalized SystemVerilog reference for the focused backend fixture.
 def verilog_reference = @str|<<{
@@ -233,5 +236,5 @@ export:
   middle_decoder
   destination_decoder
   RouteComputerFixture
-  design
+  program
   verilog_reference

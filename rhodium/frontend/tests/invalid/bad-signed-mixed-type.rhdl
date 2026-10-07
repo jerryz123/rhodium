@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects implicit arithmetic between signed integers and raw unsigned Bits.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadSignedMixedType():
   output result: SInt(8)
   result <== left + right
 
-def design = elaborate(BadSignedMixedType())
+elaborate(BadSignedMixedType())

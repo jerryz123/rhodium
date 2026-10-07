@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates a finite non-coherent CHI RAM with native cache-line transfers.
+/* Demonstrates a finite non-coherent CHI RAM with native cache-line transfers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,10 +13,10 @@ def ram_params = CHIRamParams(
   ram_config,
   ~base_address: 0x80000000
 )
-def ram_design = elaborate(CHIRam(ram_config))
+def ram_program = elaborate(CHIRam(ram_config))
 
 export:
   ram_flit
   ram_config
   ram_params
-  ram_design
+  ram_program

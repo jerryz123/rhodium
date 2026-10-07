@@ -1,16 +1,18 @@
 #lang rhodium
-// Demonstrates explicit-role interfaces layered over directional record ports.
+/* Demonstrates explicit-role interfaces layered over directional record ports. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Forwards valid and payload toward egress and ready toward ingress. */
 circuit ReadyValidAdapter(width :: PosInt):
   interface ingress(Decoupled(Bits(width)), ~role: consumer)
   interface egress(Decoupled(Bits(width)), ~role: producer)
 
   ingress |> egress
 
+/* Produces the example payload and validity through a ready-valid interface. */
 circuit ReadyValidSource(width :: PosInt):
   input valid: Bool
   input bits_in: Bits(width)
@@ -21,6 +23,7 @@ circuit ReadyValidSource(width :: PosInt):
   tx.bits <== bits_in
   accepted <== tx.ready
 
+/* Composes the source and adapter through their declared interface ports. */
 circuit ReadyValidHierarchy(width :: PosInt):
   input valid: Bool
   input bits_in: Bits(width)
@@ -33,8 +36,8 @@ circuit ReadyValidHierarchy(width :: PosInt):
   accepted <== source.accepted
   source.tx |> tx
 
-def design = elaborate(ReadyValidAdapter(8))
-def hierarchy_design = elaborate(ReadyValidHierarchy(8))
+def program = elaborate(ReadyValidAdapter(8))
+def hierarchy_program = elaborate(ReadyValidHierarchy(8))
 
 def verilog_reference = @str|<<{
 module ReadyValidAdapter(
@@ -84,7 +87,7 @@ export:
   ReadyValidAdapter
   ReadyValidSource
   ReadyValidHierarchy
-  design
-  hierarchy_design
+  program
+  hierarchy_program
   verilog_reference
   hierarchy_verilog_reference

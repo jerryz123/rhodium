@@ -734,6 +734,8 @@ class InterfaceTransformGroup(module_def :: Module,
                               trace_model :: maybe(InterfaceTraceModel) = #false,
                               contract_name :: maybe(String) = #false):
   implements kernel.MaterializationCheck
+  /* This check already handles detached construct contracts during elaboration. */
+  override property accepts_retained: #true
   /* Recertify interface contracts against the finished destination implementation. */
   override method check_materialized(module_def :: Module):
     validate_interface_contracts(module_def)

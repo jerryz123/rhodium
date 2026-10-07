@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("noc/authoring/main.rhm").VCGroup
   lib("noc/std/topology/main.rhm").rectangular_mesh
   lib("flow/main.rhdl") open
@@ -34,7 +36,7 @@ sync_circuit TiledDistributionFixture():
   network.interrupt_egress <=> interrupt_egress
   network.external_interrupt_egress <=> external_interrupt_egress
 
-def distribution_design = elaborate(TiledDistributionFixture())
+def distribution_design = compile_program(elaborate(TiledDistributionFixture()), rtl_target).report.design
 
 sync_circuit TiledTimeFixture():
   interface update(Valid(Bits(64)), ~role: consumer)
@@ -55,7 +57,7 @@ sync_circuit TiledTimeFixture():
     hart_time[index] <== receiver.value
   transferred <== sweeper.egress.fire()
 
-def time_design = elaborate(TiledTimeFixture())
+def time_design = compile_program(elaborate(TiledTimeFixture()), rtl_target).report.design
 
 export:
   DistributionHartCount

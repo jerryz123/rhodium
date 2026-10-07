@@ -1,10 +1,11 @@
 #lang rhodium
-// Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion.
+/* Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion. */
 circuit ValidMapForkChain():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress[2](Valid(Bits(9)), ~role: producer)
@@ -13,6 +14,7 @@ circuit ValidMapForkChain():
   def outputs = mapped |> fork_valid(2)
   egress <=> outputs
 
+/* Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion. */
 circuit AcceptedFilteredValid():
   interface ingress(Irrevocable(Bits(8)), ~role: consumer)
   interface egress(Valid(Bits(8)), ~role: producer)
@@ -21,15 +23,16 @@ circuit AcceptedFilteredValid():
     |> filter_valid(payload => payload[0].into(Bool))
     |> eject_interface(~valid: egress.valid, ~bits: egress.bits)
 
+/* Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion. */
 sync_circuit CheckedValidToDecoupled():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
 
   ingress |> to_decoupled() |> egress
 
-def design = elaborate(ValidMapForkChain())
-def accepted_design = elaborate(AcceptedFilteredValid())
-def decoupled_design = elaborate(CheckedValidToDecoupled())
+def program = elaborate(ValidMapForkChain())
+def accepted_program = elaborate(AcceptedFilteredValid())
+def decoupled_program = elaborate(CheckedValidToDecoupled())
 
 def verilog_reference = @str|<<{
 module ValidMapForkChain(
@@ -79,9 +82,9 @@ export:
   ValidMapForkChain
   AcceptedFilteredValid
   CheckedValidToDecoupled
-  design
-  accepted_design
-  decoupled_design
+  program
+  accepted_program
+  decoupled_program
   verilog_reference
   accepted_verilog_reference
   decoupled_verilog_reference

@@ -1,10 +1,11 @@
 #lang rhodium
-// Demonstrates ready-valid weakening plus principled control/payload routing.
+/* Demonstrates ready-valid weakening plus principled control/payload routing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Exposes decoupled_split_payload, irrevocable_split_payload for this ready valid compatibility example. */
 circuit ReadyValidCompatibility():
   input decoupled_payload: Bits(8)
   input irrevocable_payload: Bits(8)
@@ -40,7 +41,7 @@ circuit ReadyValidCompatibility():
     ~bits: irrevocable_payload
   )
 
-def design = elaborate(ReadyValidCompatibility())
+def program = elaborate(ReadyValidCompatibility())
 
 def verilog_reference = @str|<<{
 module ReadyValidCompatibility(
@@ -89,5 +90,5 @@ endmodule
 
 export:
   ReadyValidCompatibility
-  design
+  program
   verilog_reference

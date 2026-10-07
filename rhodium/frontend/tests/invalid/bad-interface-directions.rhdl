@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Must reject bulk connection when endpoint roles and boundary directions conflict.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17,4 +18,4 @@ circuit BadInterfaceDirections(width):
   interface right(Link(Bits(width)), ~role: producer)
   left <=> right
 
-def design = elaborate(BadInterfaceDirections(8))
+elaborate(BadInterfaceDirections(8))

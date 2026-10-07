@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../riscv/isa/xlen.rhm".XLen
   "../fesvr/direct-memory-htif.rhdl" as fesvr
 
@@ -12,9 +14,7 @@ def fesvr_import = fesvr.design.dpi_imports[0]
 def fesvr_module = fesvr.design.modules.find(
   fun (module_def): module_def.name == "DirectMemoryHTIF"
 )
-def fesvr_rv32_design = embedded.run_elaboration(
-  fun (): fesvr.DirectMemoryHTIF(XLen.X32, 0x4000)
-)
+def fesvr_rv32_compiled = compile_program(elaborate(fesvr.DirectMemoryHTIF(XLen.X32, 0x4000)), rtl_target)
 def fesvr_register = fesvr_module.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register"
 )
@@ -38,7 +38,7 @@ check:
   type_equal(fesvr_import.results[4].type, Bits(8)) ~is #true
   type_equal(fesvr_import.results[6].type, Bits(32)) ~is #true
   fesvr_register.results.length() ~is 7
-  embedded.run_elaboration(fun (): fesvr.DirectMemoryHTIF(XLen.X64, 3)) ~throws "aligned 64-bit address"
-  embedded.run_elaboration(fun (): fesvr.DirectMemoryHTIF(XLen.X64, 0x10000000000000000)) ~throws "aligned 64-bit address"
+  elaborate(fesvr.DirectMemoryHTIF(XLen.X64, 3)) ~throws "aligned 64-bit address"
+  elaborate(fesvr.DirectMemoryHTIF(XLen.X64, 0x10000000000000000)) ~throws "aligned 64-bit address"
   verify_design(fesvr.design) ~is #void
-  verify_design(fesvr_rv32_design) ~is #void
+  fesvr_rv32_compiled.has_errors ~is #false

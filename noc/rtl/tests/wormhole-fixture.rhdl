@@ -149,11 +149,11 @@ sync_circuit WormholeNetworkFixture():
   transit.outgoing_vc_ready <== destination.vc_ready
   destination.ejection <=> ejection
 
-def design = elaborate(WormholeNetworkFixture())
+def program = elaborate(WormholeNetworkFixture())
 
 export:
   source_config
   transit_config
   destination_config
   network_plan
-  design
+  program

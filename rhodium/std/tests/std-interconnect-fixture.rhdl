@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/interconnect.rhdl") open
 
 circuit AddressSetMatchFixture():
@@ -17,7 +19,7 @@ circuit AddressSetMatchFixture():
                                    AddressSet(0xa000, 0x0fff)])
   empty <== address_sets_match(address, [])
 
-def design = elaborate(AddressSetMatchFixture())
+def design = compile_program(elaborate(AddressSetMatchFixture()), rtl_target).report.design
 
 circuit StripedProjectionFixture(layout :: StripedAddressLayout, width :: PosInt):
   input address: Bits(width)
@@ -25,7 +27,7 @@ circuit StripedProjectionFixture(layout :: StripedAddressLayout, width :: PosInt
   projected <== layout.project_offset(address)
 
 fun projection_design(layout :: StripedAddressLayout, width :: PosInt):
-  elaborate(StripedProjectionFixture(layout, width))
+  compile_program(elaborate(StripedProjectionFixture(layout, width)), rtl_target).report.design
 
 circuit TransferRangeFixture():
   input address: Bits(4)
@@ -41,7 +43,7 @@ circuit TransferRangeTypeFixture(T :: DataType, window :: PosInt):
   matches <== transfer_in_range(address, length, bits(0, 4), window)
 
 fun transfer_range_design(T :: DataType, window :: PosInt):
-  elaborate(TransferRangeTypeFixture(T, window))
+  compile_program(elaborate(TransferRangeTypeFixture(T, window)), rtl_target).report.design
 
 export:
   TransferRangeFixture

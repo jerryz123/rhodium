@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates monitored and composed credited transport with sender and buffer adapters.
+/* Demonstrates monitored and composed credited transport with sender and buffer adapters. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,7 @@ import:
 
 interface RefinedCredited8() refines Credited(Bits(8), 2)
 
+/* Demonstrates monitored and composed credited transport with sender and buffer adapters. */
 sync_circuit MonitoredCreditedTransmitter():
   input send: Bool
   input payload: Bits(8)
@@ -16,6 +17,7 @@ sync_circuit MonitoredCreditedTransmitter():
   link.bits <== payload
   monitor_credited(link)
 
+/* Exposes credit_count, count, reserved for this credited transport example. */
 sync_circuit CreditedRoundTrip():
   input grant_enable: Bool
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
@@ -34,6 +36,7 @@ sync_circuit CreditedRoundTrip():
   count <== buffer.count
   reserved <== buffer.reserved
 
+/* Demonstrates monitored and composed credited transport with sender and buffer adapters. */
 sync_circuit CreditedChainedRoundTrip():
   input grant_enable: Bool
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
@@ -44,9 +47,9 @@ sync_circuit CreditedChainedRoundTrip():
     |> credit_buffer(2, ~grant_enable: grant_enable)
     |> egress
 
-def design = elaborate(CreditedRoundTrip())
-def chained_design = elaborate(CreditedChainedRoundTrip())
-def monitor_design = elaborate(MonitoredCreditedTransmitter())
+def program = elaborate(CreditedRoundTrip())
+def chained_program = elaborate(CreditedChainedRoundTrip())
+def monitor_program = elaborate(MonitoredCreditedTransmitter())
 
 def verilog_reference = @str|<<{
 module CreditedRoundTrip(
@@ -601,9 +604,9 @@ export:
   MonitoredCreditedTransmitter
   CreditedRoundTrip
   CreditedChainedRoundTrip
-  design
-  chained_design
-  monitor_design
+  program
+  chained_program
+  monitor_program
   verilog_reference
   chained_verilog_reference
   monitor_verilog_reference

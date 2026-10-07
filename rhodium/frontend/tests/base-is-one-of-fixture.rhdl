@@ -1,4 +1,9 @@
 #lang rhodium/base
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises foundational receiver membership without importing optional frontend layers.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,7 +15,7 @@ circuit BaseMembership():
 
   member <== value.is_one_of(first, second)
 
-def design = elaborate(BaseMembership())
+def design = compile_program(elaborate(BaseMembership()), rtl_target).report.design
 
 export:
   BaseMembership

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   "../../../rhodium/core/main.rhm" open
 
 export:
@@ -21,7 +22,7 @@ export:
   onehot_reference
   onehot_candidate
   onehot_defect
-  differential_design
+  differential_program
 
 fun onehot_selected(builder, module_def, selector, choices, implementation):
   if implementation == "reference"
@@ -209,7 +210,7 @@ fun build_hierarchy_module(name, implementation):
       builder.drive(difference, instance.output("difference"))
   builder.finish(module_def)
 
-fun build_differential_design():
+fun build_differential_program():
   def design = Design()
   def builder = Builder(design)
   def child = add_pair_child(builder, design, "FormalDifferentialPairOps")
@@ -288,7 +289,7 @@ fun build_differential_design():
                 onehot_selected(builder, top, onehot_selector,
                                 [onehot_a, onehot_b, onehot_c], "defect"))
   builder.finish(top)
-  design
+  ElaboratedProgram(design, top)
 
 def shift_reference = build_shift_module("FormalShiftReference", "reference")
 def shift_candidate = build_shift_module("FormalShiftCandidate", "candidate")
@@ -305,4 +306,4 @@ def decode_defect = build_decode_module("FormalDecodeDefect", "defect")
 def onehot_reference = build_onehot_module("FormalOneHotReference", "reference")
 def onehot_candidate = build_onehot_module("FormalOneHotCandidate", "candidate")
 def onehot_defect = build_onehot_module("FormalOneHotDefect", "defect")
-def differential_design = build_differential_design()
+def differential_program = build_differential_program()

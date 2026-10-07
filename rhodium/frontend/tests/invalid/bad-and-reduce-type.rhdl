@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects packed AND reduction of a non-data hardware clock value.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadAndReduceType():
 
   result <== and_reduce(source)
 
-def design = elaborate(BadAndReduceType())
+elaborate(BadAndReduceType())

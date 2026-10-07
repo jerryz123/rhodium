@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../frontend/foundation.rhm" open
   "../../frontend/layers/hierarchy.rhm" open
   "../../frontend/layers/comb.rhm" open
@@ -11,7 +13,9 @@ import:
   "../../frontend/layers/interface.rhm" open
   "../../std/ready-valid.rhdl".Decoupled
   "../../../examples/rtl/interface.rhdl".ReadyValidAdapter
-  "../../../examples/rtl/interface.rhdl".design as interface_design
+  "../../../examples/rtl/interface.rhdl".program as interface_design_program
+
+def interface_design = compile_program(interface_design_program, rtl_target).report.design
 
 circuit Leaf():
   input source: Bits(8)
@@ -40,8 +44,8 @@ circuit Pair(use_reference):
   second.source <== first.result
   result <== second.result
 
-def eager = elaborate_with_top(Pair(#false))
-def deferred = elaborate_with_top(Pair(#true))
+def eager = compile_program(elaborate(Pair(#false)), rtl_target).report.elaboration
+def deferred = compile_program(elaborate(Pair(#true)), rtl_target).report.elaboration
 
 sync_circuit SyncLeaf():
   input source: Bits(8)
@@ -91,12 +95,12 @@ circuit ExplicitParent(use_reference):
   stage.source <== source
   result <== stage.result
 
-def sync_eager = elaborate_with_top(SyncParent(#false))
-def sync_deferred = elaborate_with_top(SyncParent(#true))
-def reset_eager = elaborate_with_top(ResetParent(#false))
-def reset_deferred = elaborate_with_top(ResetParent(#true))
-def explicit_eager = elaborate_with_top(ExplicitParent(#false))
-def explicit_deferred = elaborate_with_top(ExplicitParent(#true))
+def sync_eager = compile_program(elaborate(SyncParent(#false)), rtl_target).report.elaboration
+def sync_deferred = compile_program(elaborate(SyncParent(#true)), rtl_target).report.elaboration
+def reset_eager = compile_program(elaborate(ResetParent(#false)), rtl_target).report.elaboration
+def reset_deferred = compile_program(elaborate(ResetParent(#true)), rtl_target).report.elaboration
+def explicit_eager = compile_program(elaborate(ExplicitParent(#false)), rtl_target).report.elaboration
+def explicit_deferred = compile_program(elaborate(ExplicitParent(#true)), rtl_target).report.elaboration
 
 // The detached port types do not retain the earlier design's live bindings.
 // Grouped interface endpoints are reconstructed from the new implementation.
@@ -113,8 +117,8 @@ circuit InterfaceParent(use_reference):
   ingress |> stage.ingress
   stage.egress |> egress
 
-def interface_eager = elaborate_with_top(InterfaceParent(#false))
-def interface_deferred = elaborate_with_top(InterfaceParent(#true))
+def interface_eager = compile_program(elaborate(InterfaceParent(#false)), rtl_target).report.elaboration
+def interface_deferred = compile_program(elaborate(InterfaceParent(#true)), rtl_target).report.elaboration
 
 export:
   Leaf

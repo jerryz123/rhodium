@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("devices/boot/bootrom.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
 
@@ -10,7 +12,7 @@ def flit = CHIFlitParams()
 def layout = CHIBootROMLayout(flit, ~window_bytes: 64)
 def config = CHIBootROMConfig(layout)
 def params = CHIBootROMParams("test-bootrom", 12, layout)
-def design = elaborate(CHIBootROM(config))
+def design = compile_program(elaborate(CHIBootROM(config)), rtl_target).report.design
 
 export:
   flit

@@ -25,7 +25,7 @@ sync_circuit ReconvergentLevels():
   sampled <== left_sync.synchronized ^ right_sync.synchronized
   combined <== sampled
 
-def clocked_program = elaborate_program(ReconvergentLevels())
+def clocked_program = elaborate(ReconvergentLevels())
 def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
@@ -94,6 +94,7 @@ endmodule
 }>>|
 
 export:
+  clocked_program
   ReconvergentLevels
   clocked
   design

@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates two same-clock physical write ports on one async-read memory.
+/* Demonstrates two same-clock physical write ports on one async-read memory. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes read_data for this multi write memory example. */
 circuit MultiWriteMemory(depth :: PosInt, width :: PosInt):
   input clock: Clock
   input read_address: Bits(index_width(depth))
@@ -21,7 +23,7 @@ circuit MultiWriteMemory(depth :: PosInt, width :: PosInt):
   storage.write(second_address, second_data,
                 ~enable: second_enable, ~clock: clock)
 
-def design = elaborate(MultiWriteMemory(4, 8))
+def program = elaborate(MultiWriteMemory(4, 8))
 
 def verilog_reference = @str|<<{
 module MultiWriteMemory(
@@ -54,5 +56,5 @@ endmodule
 
 export:
   MultiWriteMemory
-  design
+  program
   verilog_reference

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("chi/main.rhdl") open
 
 def flit = CHIFlitParams()
@@ -47,7 +49,7 @@ circuit CHISubordinateMapFixture():
   valid <== lookup.valid
   node_id <== lookup.node_id
 
-def design = elaborate(CHISubordinateMapFixture())
+def design = compile_program(elaborate(CHISubordinateMapFixture()), rtl_target).report.design
 
 export:
   flit

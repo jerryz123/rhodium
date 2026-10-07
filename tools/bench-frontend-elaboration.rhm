@@ -1,10 +1,12 @@
 #lang rhombus
-// Measures repeated frontend elaboration of a generated vector wiring circuit.
+/* Separately times program elaboration and RTL preparation for generated vector wiring. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus/cmdline open
-  "../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../rhodium/frontend/tests/collection-elaboration-benchmark.rhdl" as benchmark
   lib("racket/base.rkt") as rkt
 
@@ -13,11 +15,14 @@ unless arguments.length() >= 1
 | error(~who: #'bench_frontend_elaboration,
         "expected one or more circuit sizes")
 
-def run_once = fun (size, repetition):
+/* Measure source construction and concrete preparation separately for one size. */
+fun run_once(size :: PosInt, repetition :: Nat):
   def start = rkt.#{current-inexact-milliseconds}()
-  def design = embedded.run_elaboration(fun (): benchmark.CollectionElaboration(size))
+  def program = elaborate(benchmark.CollectionElaboration(size))
   def after_elaboration = rkt.#{current-inexact-milliseconds}()
-  println("size=" ++ to_string(size) ++ " repetition=" ++ to_string(repetition) ++ " elaboration_ms=" ++ to_string(after_elaboration - start) ++ " modules=" ++ to_string(design.modules.length()))
+  def design = compile_program(program, rtl_target).report.design
+  def after_preparation = rkt.#{current-inexact-milliseconds}()
+  println("size=" ++ to_string(size) ++ " repetition=" ++ to_string(repetition) ++ " elaboration_ms=" ++ to_string(after_elaboration - start) ++ " preparation_ms=" ++ to_string(after_preparation - after_elaboration) ++ " modules=" ++ to_string(design.modules.length()))
 
 for (size_text in arguments):
   def size = rkt.#{string->number}(size_text)

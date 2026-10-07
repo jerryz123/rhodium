@@ -1,5 +1,5 @@
 #lang rhodium
-// Assembles three user-owned router subsystems into a validated two-hop transport.
+/* Assembles three user-owned router subsystems into a validated two-hop transport. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,9 +17,11 @@ def topology = Topology([n2, n0, n1], [second, first])
 def near_route = RouteClass(RouteClassId(0), n0, n1)
 def far_route = RouteClass(RouteClassId(1), n0, n2)
 
+/* Tests whether a virtual channel belongs to the specified physical link. */
 fun on_link(vc :: VCId, link :: PhysicalLink):
   link_id_equal(vc.link_id, link.id)
 
+/* Defines the legal next-hop virtual channels for the example routing problem. */
 fun allows(route_class :: RouteClass,
            origin :: Injection || HeldVC,
            candidate :: VCId):
@@ -58,8 +60,8 @@ def source_injection = network_plan.injection_port(InjectionId(0))
 def near_ejection = network_plan.ejection_port(EjectionId(1))
 def far_ejection = network_plan.ejection_port(EjectionId(2))
 
-// Each user subsystem owns only its local router and chooses how the physical
-// VC endpoints appear at its hierarchy boundary.
+/* Each user subsystem owns only its local router and chooses how the physical
+   VC endpoints appear at its hierarchy boundary. */
 sync_circuit SourceSubsystem(config :: SimpleRouterConfig,
                              injection_index :: Nat,
                              outgoing_index :: Nat):
@@ -72,6 +74,7 @@ sync_circuit SourceSubsystem(config :: SimpleRouterConfig,
   router.target[outgoing_index].egress |> outgoing
   router.target[outgoing_index].available <== router.target[outgoing_index].egress.ready
 
+/* Assembles three user-owned router subsystems into a validated two-hop transport. */
 sync_circuit TransitSubsystem(config :: SimpleRouterConfig,
                               incoming_index :: Nat,
                               outgoing_index :: Nat,
@@ -88,6 +91,7 @@ sync_circuit TransitSubsystem(config :: SimpleRouterConfig,
   router.target[ejection_index].egress |> ejection
   router.target[ejection_index].available <== router.target[ejection_index].egress.ready
 
+/* Assembles three user-owned router subsystems into a validated two-hop transport. */
 sync_circuit DestinationSubsystem(config :: SimpleRouterConfig,
                                   incoming_index :: Nat,
                                   ejection_index :: Nat):
@@ -100,8 +104,8 @@ sync_circuit DestinationSubsystem(config :: SimpleRouterConfig,
   router.target[ejection_index].egress |> ejection
   router.target[ejection_index].available <== router.target[ejection_index].egress.ready
 
-// The system, not noc/rtl, owns placement in the hierarchy and physical-link
-// connections between independently elaborated router-containing subsystems.
+/* The system, not noc/rtl, owns placement in the hierarchy and physical-link
+   connections between independently elaborated router-containing subsystems. */
 sync_circuit HierarchicalNoCFixture():
   def Beat = RoutedBeat(Bits(8), source_config.route_decoder.route_width)
   interface injection(Decoupled(Beat), ~role: consumer)
@@ -130,7 +134,7 @@ sync_circuit HierarchicalNoCFixture():
   transit.ejection |> ejection[0]
   destination.ejection |> ejection[1]
 
-def design = elaborate(HierarchicalNoCFixture())
+def program = elaborate(HierarchicalNoCFixture())
 
 export:
   n0
@@ -155,4 +159,4 @@ export:
   TransitSubsystem
   DestinationSubsystem
   HierarchicalNoCFixture
-  design
+  program

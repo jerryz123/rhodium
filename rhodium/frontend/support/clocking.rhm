@@ -36,6 +36,8 @@ class SyncDomain(clock :: Value, reset :: Value)
 class SyncCircuitMetadata(clock_port :: AsciiIdentifier,
                           reset_port :: AsciiIdentifier):
   implements kernel.MaterializationCheck
+  /* This check already handles detached construct contracts during elaboration. */
+  override property accepts_retained: #true
   /* Recheck the destination body against its declared clock/reset after expansion. */
   override method check_materialized(module_def :: Module):
     verify_single_clock(module_def, module_def.find_input(clock_port).value, module_def.find_input(reset_port).value)

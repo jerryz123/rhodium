@@ -3,15 +3,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/std/valid-flow.rhdl" as valid_example
   "../../../examples/std/completion-queue.rhdl" as completion_example
   "std-valid-flow.rhdl" as fixture
 
-def valid_top = valid_example.design.modules[0]
-def accepted_top = valid_example.accepted_design.modules[0]
-def checked_decoupled_top = valid_example.decoupled_design.modules[0]
+def valid_example_design = compile_program(valid_example.program, rtl_target).report.design
+def valid_example_accepted_design = compile_program(valid_example.accepted_program, rtl_target).report.design
+def valid_example_decoupled_design = compile_program(valid_example.decoupled_program, rtl_target).report.design
+def completion_example_design = compile_program(completion_example.program, rtl_target).report.design
+def completion_example_single_design = compile_program(completion_example.single_program, rtl_target).report.design
+
+def valid_top = valid_example_design.modules[0]
+def accepted_top = valid_example_accepted_design.modules[0]
+def checked_decoupled_top = valid_example_decoupled_design.modules[0]
 def generic_boundary_top = fixture.generic_boundary_design.modules[0]
 def control_boundary_top = fixture.control_boundary_design.modules[0]
 def reverse_provider_boundary_top = fixture.reverse_provider_boundary_design.modules[0]
@@ -22,7 +30,7 @@ def nested_boundary_top = fixture.nested_boundary_design.modules[0]
 def completion_registered_capacity_top = fixture.completion_registered_capacity_design.modules.find(
   fun (module_def): module_def.name == "CompletionQueueRegisteredCapacity"
 )
-def completion_top = completion_example.design.modules.find(
+def completion_top = completion_example_design.modules.find(
   fun (module_def): module_def.name == "CompletionQueue"
 )
 def assertions = completion_top.operations.filter(
@@ -35,31 +43,31 @@ fun operations(module_def, opcode):
   )
 
 check:
-  valid_example.design.modules.map(fun (module_def): module_def.name) ~is [
+  valid_example_design.modules.map(fun (module_def): module_def.name) ~is [
     "ValidMapForkChain"
   ]
   operations(valid_top, "rtl.instance").length() ~is 0
   operations(valid_top, "rtl.concat").length() ~is 1
   valid_top.find_output("egress_0_out").type.field("bits").type.width ~is 9
   valid_top.find_output("egress_1_out").type.field("bits").type.width ~is 9
-  verify_design(valid_example.design) ~is #void
+  verify_design(valid_example_design) ~is #void
 
-  valid_example.accepted_design.modules.map(fun (module_def): module_def.name) ~is [
+  valid_example_accepted_design.modules.map(fun (module_def): module_def.name) ~is [
     "AcceptedFilteredValid"
   ]
   accepted_top.find_output("ingress_out").type.field("ready").type.packed_width() ~is 1
   accepted_top.find_output("egress_out").type.field("bits").type.width ~is 8
   operations(accepted_top, "rtl.instance").length() ~is 0
   operations(accepted_top, "rtl.and").length() ~is 1
-  verify_design(valid_example.accepted_design) ~is #void
+  verify_design(valid_example_accepted_design) ~is #void
 
-  valid_example.decoupled_design.modules.map(
+  valid_example_decoupled_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["CheckedValidToDecoupled"]
   checked_decoupled_top.find_output("egress_out").type.field("bits").type.width ~is 8
   operations(checked_decoupled_top, "rtl.instance").length() ~is 0
   operations(checked_decoupled_top, "verif.assert").length() ~is 1
-  verify_design(valid_example.decoupled_design) ~is #void
+  verify_design(valid_example_decoupled_design) ~is #void
 
   fixture.generic_boundary_design.modules.map(
     fun (module_def): module_def.name
@@ -102,7 +110,7 @@ check:
   operations(nested_boundary_top, "rtl.instance").length() ~is 0
   verify_design(fixture.nested_boundary_design) ~is #void
 
-  completion_example.design.modules.map(fun (module_def): module_def.name) ~is [
+  completion_example_design.modules.map(fun (module_def): module_def.name) ~is [
     "CompletionQueueWrapper", "CompletionQueue", "Queue", "Counter"
   ]
   operations(completion_top, "rtl.instance").length() ~is 1
@@ -112,40 +120,22 @@ check:
     "completion_queue_slot_reserved",
     "completion_queue_reservations_in_range"
   ]
-  verify_design(completion_example.design) ~is #void
-  completion_example.single_design.modules.map(
+  verify_design(completion_example_design) ~is #void
+  completion_example_single_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["CompletionQueue", "Queue"]
-  verify_design(completion_example.single_design) ~is #void
+  verify_design(completion_example_single_design) ~is #void
   completion_registered_capacity_top.find_output("request_out").type.field(
     "ready"
   ).type.packed_width() ~is 1
   verify_design(fixture.completion_registered_capacity_design) ~is #void
 
-  embedded.run_elaboration(
-    fun (): fixture.MapValidWrongProtocol()
-  ) ~throws "Valid-flow chaining requires a Valid endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ForkValidWrongProtocol()
-  ) ~throws "Valid-flow chaining requires a Valid endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ForkValidZeroOutputs()
-  ) ~throws "PosInt"
-  embedded.run_elaboration(
-    fun (): fixture.FilterValidWrongProtocol()
-  ) ~throws "Valid-flow chaining requires a Valid endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.InjectFlowMissingBinding()
-  ) ~throws "interface boundary requires exactly one named binding for every interface member"
-  embedded.run_elaboration(
-    fun (): fixture.EjectFlowMissingBinding()
-  ) ~throws "interface boundary requires exactly one named binding for every interface member"
-  embedded.run_elaboration(
-    fun (): fixture.ToValidWrongProtocol()
-  ) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.ToDecoupledWrongProtocol()
-  ) ~throws "Valid-flow chaining requires a Valid endpoint"
-  embedded.run_elaboration(
-    fun (): fixture.CompletionQueueZeroDepth()
-  ) ~throws "PosInt"
+  elaborate(fixture.MapValidWrongProtocol()) ~throws "Valid-flow chaining requires a Valid endpoint"
+  elaborate(fixture.ForkValidWrongProtocol()) ~throws "Valid-flow chaining requires a Valid endpoint"
+  elaborate(fixture.ForkValidZeroOutputs()) ~throws "PosInt"
+  elaborate(fixture.FilterValidWrongProtocol()) ~throws "Valid-flow chaining requires a Valid endpoint"
+  elaborate(fixture.InjectFlowMissingBinding()) ~throws "interface boundary requires exactly one named binding for every interface member"
+  elaborate(fixture.EjectFlowMissingBinding()) ~throws "interface boundary requires exactly one named binding for every interface member"
+  elaborate(fixture.ToValidWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
+  elaborate(fixture.ToDecoupledWrongProtocol()) ~throws "Valid-flow chaining requires a Valid endpoint"
+  elaborate(fixture.CompletionQueueZeroDepth()) ~throws "PosInt"

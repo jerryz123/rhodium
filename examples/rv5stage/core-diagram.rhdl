@@ -1,14 +1,16 @@
 #lang rhodium
-// Elaborates the RV64 RV5Stage core into a logical diagram.
+/* Elaborates the RV64 RV5Stage core into a logical diagram. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../cores/rv5stage/core.rhdl" open
   "../../cores/rv5stage/profile.rhm".RV5StageConfig
   "../../rhodium/diagram/main.rhm" open
   "../../riscv/isa/xlen.rhm" open
 
-def logical = elaborate_with_top(RV5StageCore(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0))
+def logical = compile_program(elaborate(RV5StageCore(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0)), rtl_target).report.elaboration
 def view = diagram(logical)
 def core_diagram = view.module("RV5StageCore")
 def json = diagram_module_to_json(core_diagram)

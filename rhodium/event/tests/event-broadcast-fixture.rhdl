@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventBroadcastNetwork(buffered :: Boolean, direct :: Boolean):
@@ -132,17 +134,17 @@ sync_circuit EventBadBroadcastShape(duplicate :: Boolean):
   def routes = if duplicate | [InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)] | [InterfaceTraceRoute(0, 0)]
   describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "broadcast", {}, storage, ~trace_model: InterfaceTraceModel(routes, declared.dynamic))
 
-def replicated = elaborate_with_top(EventBroadcast())
-fun singleton(): elaborate_with_top(EventSingletonBroadcast())
-fun rejoined(): elaborate_with_top(EventBroadcastArbiter())
-fun nested(): elaborate_with_top(EventNestedBroadcast())
-fun bad_width(): elaborate_with_top(EventBadBroadcastWidth())
-fun bad_accept(): elaborate_with_top(EventBadBroadcastAccept())
-fun missing_controls(): elaborate_with_top(EventMissingBroadcast())
-fun mismatched_instance(): elaborate_with_top(EventMismatchedBroadcast())
-fun duplicate_controls(): elaborate_with_top(EventDuplicateBroadcast())
-fun bad_shape(): elaborate_with_top(EventBadBroadcastShape(#false))
-fun bad_routes(): elaborate_with_top(EventBadBroadcastShape(#true))
+def replicated = elaborate(EventBroadcast())
+fun singleton(): compile_program(elaborate(EventSingletonBroadcast()), rtl_target).report.elaboration
+fun rejoined(): compile_program(elaborate(EventBroadcastArbiter()), rtl_target).report.elaboration
+fun nested(): compile_program(elaborate(EventNestedBroadcast()), rtl_target).report.elaboration
+fun bad_width(): compile_program(elaborate(EventBadBroadcastWidth()), rtl_target).report.elaboration
+fun bad_accept(): compile_program(elaborate(EventBadBroadcastAccept()), rtl_target).report.elaboration
+fun missing_controls(): compile_program(elaborate(EventMissingBroadcast()), rtl_target).report.elaboration
+fun mismatched_instance(): compile_program(elaborate(EventMismatchedBroadcast()), rtl_target).report.elaboration
+fun duplicate_controls(): compile_program(elaborate(EventDuplicateBroadcast()), rtl_target).report.elaboration
+fun bad_shape(): compile_program(elaborate(EventBadBroadcastShape(#false)), rtl_target).report.elaboration
+fun bad_routes(): compile_program(elaborate(EventBadBroadcastShape(#true)), rtl_target).report.elaboration
 export:
   replicated
   singleton

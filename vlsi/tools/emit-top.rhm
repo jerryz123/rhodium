@@ -5,8 +5,6 @@
 import:
   "../../rhodium/backend/circt-target.rhm".circt_target
   "../../rhodium/compile/program.rhm".compile_program
-  "../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../src/rhodium-top.rhdl" as top
 
-def program = ElaboratedProgram(top.design, top.design.find_module_named("RhodiumTop"))
-print(compile_program(program, circt_target).artifacts[0].content)
+print(compile_program(top.program, circt_target).artifacts[0].content)

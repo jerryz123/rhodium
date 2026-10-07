@@ -1,11 +1,10 @@
 #lang rhombus
-// Emits the composed X64 vector configuration, CSR, and decode fixture.
+// Defines the composed X64 vector configuration, CSR, and decode fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../cores/rv5stage/tests/vector-control-fixture.rhdl" open
 
-def design = embedded.run_elaboration(fun (): RV5StageVectorControlFixture(128))
-print(emit_circt(design))
+def program = elaborate(RV5StageVectorControlFixture(128))
+export program

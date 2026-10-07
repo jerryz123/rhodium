@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates recursively nested bidirectional interfaces, field access, and hierarchy reconstruction.
+/* Demonstrates recursively nested bidirectional interfaces, field access, and hierarchy reconstruction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,11 +29,13 @@ interface SystemPlane(T :: DataType):
   peripheral -> host:
     interrupt: Bool
 
+/* Demonstrates recursively nested bidirectional interfaces, field access, and hierarchy reconstruction. */
 circuit NestedInterfaceAdapter(width :: PosInt):
   interface ingress(ControlPlane(Bits(width)), ~role: device)
   interface egress(ControlPlane(Bits(width)), ~role: manager)
   ingress |> egress
 
+/* Demonstrates recursively nested bidirectional interfaces, field access, and hierarchy reconstruction. */
 circuit NestedMemberAdapter(width :: PosInt):
   interface ingress(ControlPlane(Bits(width)), ~role: device)
   interface egress(ControlPlane(Bits(width)), ~role: manager)
@@ -43,11 +45,13 @@ circuit NestedMemberAdapter(width :: PosInt):
   egress.enable <== ingress.enable
   ingress.status <== egress.status
 
+/* Demonstrates recursively nested bidirectional interfaces, field access, and hierarchy reconstruction. */
 circuit DeepNestedAdapter(width :: PosInt):
   interface peripheral(SystemPlane(Bits(width)), ~role: peripheral)
   interface host(SystemPlane(Bits(width)), ~role: host)
   peripheral |> host
 
+/* Exposes accepted, response_valid, response_bits, status for this nested interface example. */
 circuit NestedInterfaceSource(width :: PosInt):
   input valid: Bool
   input bits_in: Bits(width)
@@ -68,6 +72,7 @@ circuit NestedInterfaceSource(width :: PosInt):
   response_bits <== bus.response.bits
   status <== bus.status
 
+/* Exposes accepted, response_valid, response_bits, status for this nested interface example. */
 circuit NestedInterfaceHierarchy(width :: PosInt):
   input valid: Bool
   input bits_in: Bits(width)
@@ -90,10 +95,10 @@ circuit NestedInterfaceHierarchy(width :: PosInt):
   status <== source.status
   source.bus |> bus
 
-def design = elaborate(NestedInterfaceAdapter(8))
-def member_design = elaborate(NestedMemberAdapter(8))
-def deep_design = elaborate(DeepNestedAdapter(8))
-def hierarchy_design = elaborate(NestedInterfaceHierarchy(8))
+def program = elaborate(NestedInterfaceAdapter(8))
+def member_program = elaborate(NestedMemberAdapter(8))
+def deep_program = elaborate(DeepNestedAdapter(8))
+def hierarchy_program = elaborate(NestedInterfaceHierarchy(8))
 
 def verilog_reference = @str|<<{
 module NestedInterfaceAdapter(
@@ -192,10 +197,10 @@ export:
   DeepNestedAdapter
   NestedInterfaceSource
   NestedInterfaceHierarchy
-  design
-  member_design
-  deep_design
-  hierarchy_design
+  program
+  member_program
+  deep_program
+  hierarchy_program
   verilog_reference
   member_verilog_reference
   deep_verilog_reference

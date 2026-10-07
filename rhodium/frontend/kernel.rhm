@@ -8,7 +8,6 @@ import:
   "../core/signature.rhm" open
   "../core/construct.rhm" open
   "../core/builder.rhm" open
-  "../core/verify.rhm".verify_design
   "../lowering/program.rhm" open
 
 export:
@@ -23,6 +22,7 @@ export:
   declared_instance_member
   RetainedCircuitReference
   retained_circuit
+  retained_call
   ConstructIdentity
   ConstructDefinition
   SingleClockState
@@ -38,10 +38,7 @@ export:
   ElaboratedProgram
   FrontendContext
   new_circuit_identity
-  frontend_run
   run_elaboration
-  run_elaboration_with_top
-  run_program_elaboration
   build_circuit
   circuit_arguments_same
   defer_circuit_finalizer
@@ -305,7 +302,7 @@ class CircuitReference(identity :: CircuitIdentity,
   override method definition_reference(): this
 
 /* Pairs a core construct descriptor with a portable provider outside core IR.
-   Its body is deferred until a concrete target or eager elaboration requests expansion. */
+   Its body is deferred until target preparation requests portable expansion. */
 class RetainedCircuitReference(definition :: ConstructDefinition,
                                provider :: ExpansionProvider,
                                declarations :: List.of(CircuitDeclaration) = []):
@@ -336,6 +333,22 @@ fun retained_circuit(definition :: ConstructDefinition, implementation :: Functi
       ExpansionResult(top, context.providers.snapshot())
   )
   RetainedCircuitReference(definition, provider, ~declarations: declarations)
+
+/* Apply a pure single-result retained circuit as an expression. Argument wires
+   are unconditional even inside when/switch; the caller's enclosing assignment
+   owns the guard. This never executes the portable recipe during elaboration. */
+fun retained_call(reference :: RetainedCircuitReference, arguments :: List.of(HardwareEntity),
+                  name :: maybe(AsciiIdentifier) = #false, location :: Location = Location()):
+  unless !reference.definition.state && reference.signature.outputs.length() == 1
+  | frontend_fail("retained_call requires a combinational single-output circuit", location)
+  unless arguments.length() == reference.signature.inputs.length()
+  | frontend_fail("retained_call argument count must match the input signature", location)
+  def context = require_context(location)
+  def instance = inst(name || reference.definition.identity.name, reference, location)
+  for (port in reference.signature.inputs, argument in arguments):
+    context.builder.drive(instance.input(port.name), read(argument, location), location,
+                          Origin("retained expression input", port.name))
+  instance.output(reference.signature.outputs[0].name)
 
 class.together:
   /* Tracks one active declaration's pending finalizers and dynamic vector-register writes. */
@@ -2078,31 +2091,8 @@ fun run_program_body(program :: Function.of_arity(0), context :: FrontendContext
 
 /* Build a source inventory with an explicit top and snapshot its portable providers.
    Retained implementations remain deferred for the chosen compile target. */
-fun run_program_elaboration(program :: Function.of_arity(0)):
+fun run_elaboration(program :: Function.of_arity(0)) :: ElaboratedProgram:
   def design = Design()
   def context = FrontendContext(design, Builder(design))
   def top = run_program_body(program, context, ~retain_top: #true)
   ElaboratedProgram(design, top, context.providers.snapshot())
-
-/* Produce the eager concrete frontend result. Expand retained programs internally;
-   otherwise verify the existing graph and preserve its object identities. */
-fun frontend_elaboration(program :: Function.of_arity(0)):
-  def elaborated = run_program_elaboration(program)
-  if elaborated.top is_a ConstructDefinition || elaborated.design.modules.find(fun (module_def): module_def.operations.find(fun (op): op.opcode == "construct.instance"))
-  | materialize_reachable_rtl(elaborated).rtl
-  | block:
-      verify_design(elaborated.design)
-      check_materialized_design(elaborated.design)
-      DesignElaboration(elaborated.design, elaborated.top)
-
-/* Return the verified concrete inventory for frontend clients that do not need the top. */
-fun frontend_run(program :: Function.of_arity(0)):
-  frontend_elaboration(program).design
-
-/* Run the public eager inventory elaboration entry point. */
-fun run_elaboration(program :: Function.of_arity(0)):
-  frontend_run(program)
-
-/* Run eager elaboration while preserving the explicitly selected top in the result. */
-fun run_elaboration_with_top(program :: Function.of_arity(0)):
-  frontend_elaboration(program)

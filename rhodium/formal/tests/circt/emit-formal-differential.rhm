@@ -1,9 +1,9 @@
 #lang rhombus
-// Emits the shared formal differential DUT as CIRCT MLIR for Verilator replay.
+// Defines the shared formal differential DUT as CIRCT MLIR for Verilator replay.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
   "../differential-fixture.rhm" as fixture
 
-print(emit_circt(fixture.differential_design))
+def program = fixture.differential_program
+export program

@@ -3,19 +3,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../examples/lop/adder-core.rhm" as core_adder
   "../../../examples/lop/adder-kernel.rhm" as kernel_adder
   "../../../examples/lop/adder-composed.rhdl" as composed_adder
   "../../../examples/lop/adder-standard.rhdl" as standard_adder
   "../kernel.rhm" as kernel
 
+def kernel_adder_design = compile_program(kernel_adder.program, rtl_target).report.design
+def composed_adder_design = compile_program(composed_adder.program, rtl_target).report.design
+def standard_adder_design = compile_program(standard_adder.program, rtl_target).report.design
+
 def core_program = ElaboratedProgram(core_adder.design, core_adder.design.find_module_named("Adder"))
-def kernel_program = kernel.run_program_elaboration(fun (): kernel_adder.Adder(8))
-def composed_program = elaborate_program(composed_adder.Adder(8))
-def standard_program = elaborate_program(standard_adder.Adder(8))
+def kernel_program = kernel.run_elaboration(fun (): kernel_adder.Adder(8))
+def composed_program = elaborate(composed_adder.Adder(8))
+def standard_program = elaborate(standard_adder.Adder(8))
 def programs = [core_program, kernel_program, composed_program, standard_program]
-def legacy_designs = [core_adder.design, kernel_adder.design, composed_adder.design, standard_adder.design]
+def reference_designs = [core_adder.design, kernel_adder_design, composed_adder_design, standard_adder_design]
 
 export:
   programs
-  legacy_designs
+  reference_designs

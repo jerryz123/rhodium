@@ -4,7 +4,7 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "std-shift-register.rhdl" as fixture
 
 fun operations(module_def, opcode):
@@ -41,15 +41,7 @@ check:
   verify_design(fixture.per_stage_design) ~is #void
   verify_design(fixture.dual_design) ~is #void
   verify_design(fixture.option_design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.BadShiftRegisterInitialType()
-  ) ~throws "element type or the full stage-vector type"
-  embedded.run_elaboration(
-    fun (): fixture.BadShiftRegisterInitialLength()
-  ) ~throws "element type or the full stage-vector type"
-  embedded.run_elaboration(
-    fun (): fixture.BadShiftRegisterDynamicInitial()
-  ) ~throws "initial value must be a hardware literal"
-  embedded.run_elaboration(
-    fun (): fixture.BadShiftRegisterEnable()
-  ) ~throws "enable must have Bool hardware type"
+  elaborate(fixture.BadShiftRegisterInitialType()) ~throws "element type or the full stage-vector type"
+  elaborate(fixture.BadShiftRegisterInitialLength()) ~throws "element type or the full stage-vector type"
+  elaborate(fixture.BadShiftRegisterDynamicInitial()) ~throws "initial value must be a hardware literal"
+  elaborate(fixture.BadShiftRegisterEnable()) ~throws "enable must have Bool hardware type"

@@ -1,5 +1,5 @@
 #lang rhodium/base
-// Demonstrates typed transforms over custom bidirectional interfaces without flow libraries.
+/* Demonstrates typed transforms over custom bidirectional interfaces without flow libraries. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -37,6 +37,7 @@ interface EventChannel():
   producer -> consumer:
     payload: Bits(8)
 
+/* Builds a transparent transform between the example channel member layouts. */
 fun rename_channel()
   :: ((source :: Any) -> InterfaceTransformResult(source, Endpoint)):
   fun (source) :~ InterfaceTransformResult(source, Endpoint):
@@ -49,6 +50,7 @@ fun rename_channel()
       interface_transform(input_link, output_link)
     )
 
+/* Builds a transform that duplicates a Valid event across the requested outputs. */
 fun duplicate_event(outputs :: PosInt)
   :: ((source :: Any) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source) :~ InterfaceTransformResult(source, InterfaceArrayFields):
@@ -63,6 +65,7 @@ fun duplicate_event(outputs :: PosInt)
       interface_transform(input_link, output_links)
     )
 
+/* Demonstrates typed transforms over custom bidirectional interfaces without flow libraries. */
 circuit CustomInterfaceTransforms():
   interface commands(CommandChannel(), ~role: consumer)
   interface renamed(RenamedChannel(), ~role: producer)
@@ -79,6 +82,7 @@ circuit CustomInterfaceTransforms():
 
   #void
 
+/* Demonstrates typed transforms over custom bidirectional interfaces without flow libraries. */
 circuit DetachedInterfaceTerminal():
   interface commands(CommandChannel(), ~role: consumer)
   interface renamed(RenamedChannel(), ~role: producer)
@@ -88,6 +92,7 @@ circuit DetachedInterfaceTerminal():
 
   #void
 
+/* Exposes accepted, payload for this interface transform example. */
 circuit CustomInterfaceBoundary():
   input command: Bits(8)
   input ready: Bits(1)
@@ -101,9 +106,9 @@ circuit CustomInterfaceBoundary():
   ) |> rename_channel()
     |> eject_interface(~payload: payload, ~ready: ready)
 
-def design = elaborate(CustomInterfaceTransforms())
-def boundary_design = elaborate(CustomInterfaceBoundary())
-def detached_terminal_design = elaborate(DetachedInterfaceTerminal())
+def program = elaborate(CustomInterfaceTransforms())
+def boundary_program = elaborate(CustomInterfaceBoundary())
+def detached_terminal_program = elaborate(DetachedInterfaceTerminal())
 
 def verilog_reference = @str|<<{
 module CustomInterfaceTransforms(
@@ -158,9 +163,9 @@ export:
   CustomInterfaceTransforms
   CustomInterfaceBoundary
   DetachedInterfaceTerminal
-  design
-  boundary_design
-  detached_terminal_design
+  program
+  boundary_program
+  detached_terminal_program
   verilog_reference
   boundary_verilog_reference
   detached_terminal_verilog_reference

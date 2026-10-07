@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/standard.rhm" as frontend
   "../../../examples/rtl/bit-utilities.rhdl" as fixture
 
-def design = fixture.negation_design
+def fixture_negation_design = compile_program(fixture.negation_program, rtl_target).report.design
+
+def design = fixture_negation_design
 def module_def = design.modules[0]
 def subtractions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.sub"

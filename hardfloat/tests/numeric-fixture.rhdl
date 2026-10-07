@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../main.rhdl" open
 
 circuit HardFloatNumeric():
@@ -91,10 +93,10 @@ circuit HardFloatNumeric():
   estimate64 <== estimate64_unit.out
   estimate64_flags <== estimate64_unit.exception_flags
 
-def design = elaborate(HardFloatNumeric())
-def minimum_integral_design = elaborate(RoundToIntegralRecFN(FloatFormat(3, 3)))
+def program = elaborate(HardFloatNumeric())
+def minimum_integral_design = compile_program(elaborate(RoundToIntegralRecFN(FloatFormat(3, 3))), rtl_target).report.design
 
 export:
   HardFloatNumeric
-  design
+  program
   minimum_integral_design

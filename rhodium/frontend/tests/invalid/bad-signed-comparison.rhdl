@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects signed ordering across different explicit widths.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadSignedComparison():
   output result: Bool
   result <== (left < right)
 
-def design = elaborate(BadSignedComparison())
+elaborate(BadSignedComparison())

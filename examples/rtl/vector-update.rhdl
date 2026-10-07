@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates functional vector replacement and dynamic vector-register writes.
+/* Demonstrates functional vector replacement and dynamic vector-register writes. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Replaces the indexed vector element while preserving all other elements. */
 circuit VectorUpdate():
   input source: Vec(3, Bits(4))
   input selector: Bits(2)
@@ -10,6 +12,7 @@ circuit VectorUpdate():
 
   result <== source.updated(selector, replacement)
 
+/* Applies indexed writes to vector state under the authored guards. */
 sync_circuit IndexedVectorRegister():
   input write_enable: Bool
   input selector: Bits(2)
@@ -23,8 +26,8 @@ sync_circuit IndexedVectorRegister():
 
   result <== state
 
-def design = elaborate(VectorUpdate())
-def register_design = elaborate(IndexedVectorRegister())
+def program = elaborate(VectorUpdate())
+def register_program = elaborate(IndexedVectorRegister())
 
 def verilog_reference = @str|<<{
 module VectorUpdate(
@@ -71,7 +74,7 @@ endmodule
 export:
   VectorUpdate
   IndexedVectorRegister
-  design
-  register_design
+  program
+  register_program
   verilog_reference
   register_verilog_reference

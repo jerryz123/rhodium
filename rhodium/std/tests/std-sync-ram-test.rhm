@@ -3,18 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/std/read-write.rhdl" as read_write
   "../../../rhodium/std/sync-ram.rhdl" as ram
 
-def single_lane_design = embedded.run_elaboration(
-  fun (): ram.SyncRam1RW(8, Bits(16), 1)
-)
+def single_lane_design = compile_program(elaborate(ram.SyncRam1RW(8, Bits(16), 1)), rtl_target).report.design
 def single_lane = single_lane_design.modules[0]
-def four_lane_design = embedded.run_elaboration(
-  fun (): ram.SyncRam1RW(4, Bits(8), 4)
-)
+def four_lane_design = compile_program(elaborate(ram.SyncRam1RW(4, Bits(8), 4)), rtl_target).report.design
 def four_lane = four_lane_design.modules[0]
 def generic_port = read_write.ReadWritePort(2, Bits(8), 2)
 
@@ -52,9 +50,5 @@ check:
     fun (member): member.name == "bits"
   ).type.packed_width() ~is 16
 
-  embedded.run_elaboration(
-    fun (): ram.SyncRam1RW(0, Bits(8), 1)
-  ) ~throws "PosInt"
-  embedded.run_elaboration(
-    fun (): ram.SyncRam1RW(4, Bits(8), 0)
-  ) ~throws "PosInt"
+  elaborate(ram.SyncRam1RW(0, Bits(8), 1)) ~throws "PosInt"
+  elaborate(ram.SyncRam1RW(4, Bits(8), 0)) ~throws "PosInt"

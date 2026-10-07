@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects derived-reset instantiation for an ordinary circuit child.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,4 +13,4 @@ sync_circuit DerivedResetOrdinaryChild():
   inst child(OrdinaryChild(), ~reset_when: condition)
   value <== child.value
 
-def design = elaborate(DerivedResetOrdinaryChild())
+elaborate(DerivedResetOrdinaryChild())

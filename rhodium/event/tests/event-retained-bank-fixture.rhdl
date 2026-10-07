@@ -62,5 +62,5 @@ sync_circuit EventRetainedBank(intrinsic :: Boolean = #true, residency :: Boolea
     bank.attempts[index] |> trace_valid_event("child" ++ to_string(index), ~payload: #true) |> sinks[index]
 
 fun bank(intrinsic :: Boolean = #true, residency :: Boolean = #true, invalid :: String = ""):
-  elaborate_with_top(EventRetainedBank(intrinsic, residency, invalid))
+  elaborate(EventRetainedBank(intrinsic, residency, invalid))
 export bank

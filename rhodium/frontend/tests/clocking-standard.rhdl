@@ -43,7 +43,7 @@ circuit ClockingTop():
   asynchronous_clocks(clock, asynchronous_clock)
   exclusive_clocks(clock, exclusive_clock, "mode-selected clocks")
 
-def program = elaborate_program(ClockingTop())
+def program = elaborate(ClockingTop())
 
 export:
   ClockingTop

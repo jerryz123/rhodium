@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit CreditSenderWrapper():
@@ -53,8 +55,8 @@ sync_circuit WrongCreditBufferLimit():
   interface ingress(Credited(Bits(8), 3), ~role: transmitter)
   ingress |> credit_buffer(2)
 
-def sender_design = elaborate(CreditSenderWrapper())
-def buffer_design = elaborate(CreditBufferWrapper())
+def sender_design = compile_program(elaborate(CreditSenderWrapper()), rtl_target).report.design
+def buffer_design = compile_program(elaborate(CreditBufferWrapper()), rtl_target).report.design
 
 export:
   CreditSenderWrapper

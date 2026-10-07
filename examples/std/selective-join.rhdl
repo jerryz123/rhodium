@@ -1,10 +1,11 @@
 #lang rhodium
-// Demonstrates a selection flow atomically joining a chosen subset of data flows.
+/* Demonstrates a selection flow atomically joining a chosen subset of data flows. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Demonstrates a selection flow atomically joining a chosen subset of data flows. */
 circuit SelectiveRendezvous():
   interface selection(Decoupled(Mask(3)), ~role: consumer)
   interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
@@ -14,7 +15,7 @@ circuit SelectiveRendezvous():
     |> selective_join()
     |> egress
 
-def design = elaborate(SelectiveRendezvous())
+def program = elaborate(SelectiveRendezvous())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -85,5 +86,5 @@ endmodule
 
 export:
   SelectiveRendezvous
-  design
+  program
   verilog_reference

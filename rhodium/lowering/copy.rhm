@@ -1,10 +1,10 @@
 #lang rhombus
-/* Clones mixed module graphs into fresh concrete RTL with explicit object and metadata remapping. */
+/* Clones mixed module graphs into fresh target-selected hardware with explicit object and metadata remapping. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open
-  "../core/construct.rhm".ConstructInstance
+  "../core/construct.rhm" open
   "../core/builder.rhm".Builder
 
 export:
@@ -34,12 +34,14 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
 
   for (op in original.operations):
     def is_instance = op.opcode in ["rtl.instance", "construct.instance"]
+    def child = is_instance && resolve_child(op)
+    def retained = child is_a ConstructDefinition
     def attributes:
       if is_instance
-      | {"name": op.attribute("name"), "module": resolve_child(op)}
+      | {"name": op.attribute("name"), (if retained | "definition" | "module"): child}
       | remap(op.attributes)
     def operands = op.operands.map(remap)
-    def opcode = if is_instance | "rtl.instance" | op.opcode
+    def opcode = if is_instance | (if retained | "construct.instance" | "rtl.instance") | op.opcode
     def replacement = Operation(ids[op.id], opcode,
                                 target, operands, op.results.map(remap), op.places.map(remap),
                                 attributes, op.location, op.origin)
@@ -98,7 +100,9 @@ fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)
               Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
           | value is_a ConstructInstance:
               def operation = remap(value.operation)
-              Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
+              if operation.opcode == "construct.instance"
+              | ConstructInstance(operation, operation.attribute("definition"), remap(value.input_bindings), remap(value.output_bindings))
+              | Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
           | value is_a Array: Array(& (for List (item in value): remap(item)))
           | ~else: value.remap_ir(remap)
         active.remove(value)

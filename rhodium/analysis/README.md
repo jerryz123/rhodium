@@ -25,7 +25,7 @@ circuit Sample():
   result <== sampled
   synchronous_input(data, clock)
 
-def program = elaborate_program(Sample())
+def program = elaborate(Sample())
 def compiled = compile_program(program, clocking_target())
 def findings = compiled.report
 def text = compiled.artifacts[0].content

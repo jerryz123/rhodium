@@ -3,20 +3,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../main.rhm" open
   "../../backend/circt.rhm".emit_circt
   "../../core/verify.rhm".verify_design
   "event-instance-fixture.rhdl" as fixture
 
-def before = emit_circt(fixture.instances.design)
-def traced = instrument_events(fixture.instances)
+def fixture_instances_rtl = compile_program(fixture.instances, rtl_target).report.elaboration
+
+def before = emit_circt(fixture_instances_rtl.design)
+def traced = instrument_events(fixture_instances_rtl)
 def manifest = traced.manifest
 check:
   manifest.instances.map(fun (scope): scope.label) ~is ["chip", "hart", "hart", "bank"]
   manifest.instances.map(fun (scope): scope.id) ~is ["EventInstances", "EventInstances/a", "EventInstances/b", "EventInstances/bank"]
   manifest.sites.length() ~is 6
   manifest.dependencies.length() ~is 3
-  emit_circt(fixture.instances.design) ~is before
+  emit_circt(fixture_instances_rtl.design) ~is before
   emit_circt(traced.instrumented.design).contains("rheg_instance") ~is #true
   verify_design(traced.instrumented.design) ~is #void
   event_manifest_to_json(manifest).contains("site_instances") ~is #true

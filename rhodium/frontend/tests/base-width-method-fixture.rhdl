@@ -1,4 +1,9 @@
 #lang rhodium/base
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises foundational zero extension without importing optional frontend layers.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,7 +13,7 @@ circuit BaseWidthMethod():
 
   widened <== value.zext(8)
 
-def design = elaborate(BaseWidthMethod())
+def design = compile_program(elaborate(BaseWidthMethod()), rtl_target).report.design
 
 export:
   BaseWidthMethod

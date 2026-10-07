@@ -69,5 +69,5 @@ sync_circuit EventPartial():
   middle_fire <== traced.middle_fire
   middle_stall <== traced.middle_stall
 
-fun partial(): elaborate_with_top(EventPartial())
+fun partial(): elaborate(EventPartial())
 export partial

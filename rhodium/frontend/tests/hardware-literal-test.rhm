@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as kernel
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/support/hardware-literal.rhm" open
   "hardware-literal-fixture.rhdl" as fixture
 
@@ -83,12 +85,4 @@ check:
   ).length() ~is 0
   verify_design(fixture.design) ~is #void
 
-  kernel.run_elaboration(
-    fun (): fixture.LiteralParameters(fixture.bits_initial,
-                                      fixture.bool_initial,
-                                      fixture.mode_initial,
-                                      fixture.grant_initial,
-                                      fixture.nibble_initial,
-                                      fixture.raw_nibble_initial,
-                                      fixture.aggregate_initial)
-  ) is_a Design ~is #true
+  compile_program(elaborate(fixture.LiteralParameters(fixture.bits_initial, fixture.bool_initial, fixture.mode_initial, fixture.grant_initial, fixture.nibble_initial, fixture.raw_nibble_initial, fixture.aggregate_initial) ), rtl_target).report.design is_a Design ~is #true

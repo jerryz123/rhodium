@@ -3,10 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/rtl/predicate-filter.rhdl" as fixture
 
-def top = fixture.design.modules.find(
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "SingleEvenFilter"
 )
 def instances = top.operations.filter(
@@ -14,7 +18,7 @@ def instances = top.operations.filter(
 )
 
 check:
-  fixture.design.modules.length() ~is 1
+  fixture_design.modules.length() ~is 1
   top.inputs.map(fun (port): port.name) ~is ["ingress_in"]
   top.outputs.map(fun (port): port.name) ~is ["egress_out"]
   instances.length() ~is 0
@@ -27,4 +31,4 @@ check:
   top.operations.find(
     fun (operation): operation.opcode == "rtl.constant" && operation.attribute("value") == 9
   ) != #false ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void

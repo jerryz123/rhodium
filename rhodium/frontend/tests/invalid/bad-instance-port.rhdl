@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects dot access to a port absent from an instantiated child interface.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -15,7 +16,4 @@ circuit BadInstancePort():
   u.value <== value
   result <== u.missing
 
-def design = elaborate(BadInstancePort())
-
-export:
-  design
+elaborate(BadInstancePort())

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/ready-valid.rhdl") open
 
 bundle Pair(T):
@@ -61,7 +63,7 @@ circuit TooFewConcat():
   output result: Bits(1)
   result <== concat(bit)
 
-def design = elaborate(Concatenation())
+def design = compile_program(elaborate(Concatenation()), rtl_target).report.design
 
 export:
   Pair

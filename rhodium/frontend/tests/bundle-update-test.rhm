@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "bundle-update-fixture.rhdl" as fixture
 
-def module_def = fixture.design.modules.find(fun (module_def): module_def.name.starts_with("BundleUpdateFixture"))
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules.find(fun (module_def): module_def.name.starts_with("BundleUpdateFixture"))
 def envelope = module_def.find_input("source").type
 def result = module_def.find_output("changed").place.driver
 def construction = module_def.find_operation(result.defining_op_id)
@@ -25,13 +29,13 @@ check:
   payload.operands[0] === module_def.find_input("data").value ~is #true
   payload.operands[1] === module_def.find_input("tag").value ~is #true
   module_def.find_output("plain").type.fields.map(fun (field): field.name) ~is ["data", "state"]
-  verify_design(fixture.design) ~is #void
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("unknown")) ~throws "record has no field"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("absent")) ~throws "record has no field"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("width")) ~throws "wrong hardware type"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("nominal")) ~throws "wrong hardware type"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("host")) ~throws "expected readable hardware data"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("positional")) ~throws "named field replacements"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("mixed")) ~throws "named field replacements"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("vector")) ~throws "selector and replacement"
-  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("scalar")) ~throws "RecordType or VectorType"
+  verify_design(fixture_design) ~is #void
+  elaborate(fixture.InvalidRecordUpdate("unknown")) ~throws "record has no field"
+  elaborate(fixture.InvalidRecordUpdate("absent")) ~throws "record has no field"
+  elaborate(fixture.InvalidRecordUpdate("width")) ~throws "wrong hardware type"
+  elaborate(fixture.InvalidRecordUpdate("nominal")) ~throws "wrong hardware type"
+  elaborate(fixture.InvalidRecordUpdate("host")) ~throws "expected readable hardware data"
+  elaborate(fixture.InvalidRecordUpdate("positional")) ~throws "named field replacements"
+  elaborate(fixture.InvalidRecordUpdate("mixed")) ~throws "named field replacements"
+  elaborate(fixture.InvalidRecordUpdate("vector")) ~throws "selector and replacement"
+  elaborate(fixture.InvalidRecordUpdate("scalar")) ~throws "RecordType or VectorType"

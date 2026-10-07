@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a scoped reset without an enclosing sync circuit.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit ResetScopeOutsideSync():
   reset_when(local_reset):
     value <== bits(0, 1)
 
-def design = elaborate(ResetScopeOutsideSync())
+elaborate(ResetScopeOutsideSync())

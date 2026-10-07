@@ -1,10 +1,11 @@
 #lang rhodium
-// Builds a host-parameterized, zero-initialized vector shift register.
+/* Builds a host-parameterized, zero-initialized vector shift register. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/shift-register.rhdl").shift_register
 
+/* Exposes data_out for this vec shift register param example. */
 sync_circuit VecShiftRegisterParam(n :: PosInt, w :: PosInt):
   input data_in: Bits(w)
   output data_out: Bits(w)
@@ -12,7 +13,7 @@ sync_circuit VecShiftRegisterParam(n :: PosInt, w :: PosInt):
   shift_register delays(data_in, n, ~init: bits(0, w))
   data_out <== delays[n - 1]
 
-def design = elaborate(VecShiftRegisterParam(4, 4))
+def program = elaborate(VecShiftRegisterParam(4, 4))
 
 def verilog_reference = @str|<<{
 module VecShiftRegisterParam(
@@ -39,5 +40,5 @@ endmodule
 
 export:
   VecShiftRegisterParam
-  design
+  program
   verilog_reference

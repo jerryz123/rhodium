@@ -80,6 +80,10 @@ with:
 make hardfloat-host-test
 ```
 
+The four fixture sources export elaborated `program` values. The package runner
+uses the shared CIRCT test driver to compile those exports; fixtures do not
+select a backend or extract artifacts.
+
 Run CIRCT lowering, generated-SystemVerilog compilation, and the four permanent
 Verilator fixtures with:
 

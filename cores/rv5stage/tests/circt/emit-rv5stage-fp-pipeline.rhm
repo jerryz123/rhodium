@@ -1,17 +1,15 @@
 #lang rhombus
-// Emits CIRCT MLIR for RV5Stage's standalone double-profile FP pipeline.
+// Defines a program for RV5Stage's standalone double-profile FP pipeline.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../../rhodium/core/main.rhm" open
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/fp-profile.rhm" open
   "../../../../riscv/isa/xlen.rhm" open
   "../../../../cores/rv5stage/fp/pipeline.rhdl" as pipeline
 
-def design = embedded.run_elaboration(
-  fun (): pipeline.RV5StageFpPipeline(
+def program = elaborate(pipeline.RV5StageFpPipeline(
     XLen.X64,
     FloatingPointProfile.D,
     Bits(8),
@@ -19,4 +17,4 @@ def design = embedded.run_elaboration(
     ~zfa: #true
   )
 )
-print(emit_circt(design))
+export program

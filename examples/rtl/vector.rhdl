@@ -1,7 +1,9 @@
 #lang rhodium
-// Showcases first-class vectors, static and dynamic indexing, packing, and state.
+/* Showcases first-class vectors, static and dynamic indexing, packing, and state. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes the first and last elements of a statically sized carry vector. */
 circuit CarryEndpoints(n :: PosInt):
   input carries: Vec(n + 1, Bool)
   output(first, last): Bool
@@ -9,12 +11,14 @@ circuit CarryEndpoints(n :: PosInt):
   first <== carries[0]
   last <== carries[n]
 
+/* Applies the authored elementwise mapping to a hardware vector. */
 circuit VectorMap():
   input lanes: Vec(3, Bits(4))
   output occupied: Vec(3, Bool)
 
   occupied <== lanes.map(lane => lane =/= bits(0, 4))
 
+/* Exercises vector construction, projection, selection, and packing. */
 circuit VectorDatapath():
   input clk: Clock
   input reset: Reset
@@ -46,9 +50,9 @@ circuit VectorDatapath():
   state <== selected
   state_out <== state
 
-def design = elaborate(VectorDatapath())
-def carry_design = elaborate(CarryEndpoints(4))
-def map_design = elaborate(VectorMap())
+def program = elaborate(VectorDatapath())
+def carry_program = elaborate(CarryEndpoints(4))
+def map_program = elaborate(VectorMap())
 
 def verilog_reference = @str|<<{
 module VectorDatapath(
@@ -68,7 +72,7 @@ module VectorDatapath(
                     state_out
 );
 
-  wire [1:0]      __rhodium_vector_index_35 = selector;
+  wire [1:0]      __rhodium_vector_index_19 = selector;
   wire [2:0][3:0] _GEN = {{c}, {b}, {a}};
   wire [2:0][3:0] _GEN_0 = selector == 2'h1 ? alternate : _GEN;
   reg  [2:0][3:0] state;
@@ -80,7 +84,7 @@ module VectorDatapath(
   end // always @(posedge)
   assign assembled = _GEN;
   assign selected = _GEN_0;
-  assign chosen = _GEN[__rhodium_vector_index_35];
+  assign chosen = _GEN[__rhodium_vector_index_19];
   assign packed_0 = /*cast(bit[11:0])*/_GEN;
   assign restored = _GEN;
   assign reversed = {{a}, {b}, {c}};
@@ -114,9 +118,9 @@ export:
   CarryEndpoints
   VectorMap
   VectorDatapath
-  design
-  carry_design
-  map_design
+  program
+  carry_program
+  map_program
   verilog_reference
   carry_verilog_reference
   map_verilog_reference

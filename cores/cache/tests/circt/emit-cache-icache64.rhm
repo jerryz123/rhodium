@@ -1,11 +1,11 @@
 #lang rhombus
-// Emits the shared instruction cache with 64-bit fetch blocks for behavioral validation.
+// Defines the shared instruction cache with 64-bit fetch blocks for behavioral validation.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../l1i/cache.rhdl" open
   "../../config.rhm" open
   "../params.rhdl" open
-print(emit_circt(embedded.run_elaboration(fun (): L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_instruction_cache_config, ~fetch_bits: 64))))
+def program = elaborate(L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_instruction_cache_config, ~fetch_bits: 64))
+export program

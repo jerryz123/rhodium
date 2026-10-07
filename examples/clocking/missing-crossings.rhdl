@@ -86,12 +86,12 @@ circuit CorrectedCrossingSystem():
   asynchronous_clocks(ingress_clock, core_clock)
   asynchronous_clocks(core_clock, egress_clock)
 
-def broken_program = elaborate_program(MissingCrossingSystem())
+def broken_program = elaborate(MissingCrossingSystem())
 def broken_compilation = compile_program(broken_program, clocking_target())
 def broken = broken_compilation.report
 def broken_design = broken_program.design
 def broken_report = broken_compilation.artifacts[0].content
-def clocked_program = elaborate_program(CorrectedCrossingSystem())
+def clocked_program = elaborate(CorrectedCrossingSystem())
 def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
@@ -210,18 +210,6 @@ module CorrectedCrossingSystem(
   assign worker_sampled = _worker_sampled;
 endmodule
 
-module SampleBit(
-  input  clock,
-         data,
-  output sampled
-);
-
-  reg state;
-  always @(posedge clock)
-    state <= data;
-  assign sampled = state;
-endmodule
-
 module SyncLevel(
   input  clock,
          reset,
@@ -239,9 +227,23 @@ module SyncLevel(
   end // always @(posedge)
   assign synchronized = stage1;
 endmodule
+
+module SampleBit(
+  input  clock,
+         data,
+  output sampled
+);
+
+  reg state;
+  always @(posedge clock)
+    state <= data;
+  assign sampled = state;
+endmodule
 }>>|
 
 export:
+  clocked_program
+  broken_program
   SampleBit
   MissingCrossingSystem
   CorrectedCrossingSystem

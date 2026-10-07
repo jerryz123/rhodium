@@ -1,27 +1,28 @@
 #lang rhodium
-// Materializes the standard payloadless token-flow generators and chaining helpers.
+/* Materializes the standard payloadless token-flow generators and chaining helpers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Materializes the standard payloadless token-flow generators and chaining helpers. */
 sync_circuit CtrlBufferedLink():
   interface ingress(DecoupledCtrl(), ~role: consumer)
   interface egress(DecoupledCtrl(), ~role: producer)
 
   ingress |> ctrl_queue(3, ~pipe: #true) |> ctrl_pipe(2) |> egress
 
-def ctrl_pipe_design = elaborate(CtrlPipe(2))
-def ctrl_queue_design = elaborate(CtrlQueue(3))
-def ctrl_queue_options_design = elaborate(
+def ctrl_pipe_program = elaborate(CtrlPipe(2))
+def ctrl_queue_program = elaborate(CtrlQueue(3))
+def ctrl_queue_options_program = elaborate(
   CtrlQueue(2, ~pipe: #true, ~flow: #true)
 )
-def ctrl_arbiter_design = elaborate(CtrlArbiter(3))
-def ctrl_rr_arbiter_design = elaborate(CtrlRRArbiter(3))
-def ctrl_demux_design = elaborate(CtrlDemux(3))
-def ctrl_join_design = elaborate(CtrlJoin(3))
-def ctrl_broadcast_design = elaborate(CtrlBroadcast(3))
-def ctrl_chain_design = elaborate(CtrlBufferedLink())
+def ctrl_arbiter_program = elaborate(CtrlArbiter(3))
+def ctrl_rr_arbiter_program = elaborate(CtrlRRArbiter(3))
+def ctrl_demux_program = elaborate(CtrlDemux(3))
+def ctrl_join_program = elaborate(CtrlJoin(3))
+def ctrl_broadcast_program = elaborate(CtrlBroadcast(3))
+def ctrl_chain_program = elaborate(CtrlBufferedLink())
 
 def ctrl_pipe_verilog_reference = @str|<<{
 module CtrlPipe(
@@ -371,15 +372,15 @@ endmodule
 }>>|
 
 export:
-  ctrl_pipe_design
-  ctrl_queue_design
-  ctrl_queue_options_design
-  ctrl_arbiter_design
-  ctrl_rr_arbiter_design
-  ctrl_demux_design
-  ctrl_join_design
-  ctrl_broadcast_design
-  ctrl_chain_design
+  ctrl_pipe_program
+  ctrl_queue_program
+  ctrl_queue_options_program
+  ctrl_arbiter_program
+  ctrl_rr_arbiter_program
+  ctrl_demux_program
+  ctrl_join_program
+  ctrl_broadcast_program
+  ctrl_chain_program
   ctrl_pipe_verilog_reference
   ctrl_queue_verilog_reference
   ctrl_queue_options_verilog_reference

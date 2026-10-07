@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventQueueStorage(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean, direct :: Boolean):
@@ -113,12 +115,12 @@ sync_circuit EventDuplicateQueue():
   describe_interface_queue_storage(1, Bool(#false), Bool(#false), bits(0, 1), bits(0, 1), Bool(#false), Bool(#false))
   describe_interface_queue_storage(1, Bool(#false), Bool(#false), bits(0, 1), bits(0, 1), Bool(#false), Bool(#false))
 
-def queued = elaborate_with_top(EventQueue())
-fun bad_width(): elaborate_with_top(EventBadQueueWidth())
-fun bad_enable(): elaborate_with_top(EventBadQueueEnable())
-fun missing_controls(): elaborate_with_top(EventMissingQueue())
-fun mismatched_instance(): elaborate_with_top(EventMismatchedQueue())
-fun duplicate_controls(): elaborate_with_top(EventDuplicateQueue())
+def queued = elaborate(EventQueue())
+fun bad_width(): compile_program(elaborate(EventBadQueueWidth()), rtl_target).report.elaboration
+fun bad_enable(): compile_program(elaborate(EventBadQueueEnable()), rtl_target).report.elaboration
+fun missing_controls(): compile_program(elaborate(EventMissingQueue()), rtl_target).report.elaboration
+fun mismatched_instance(): compile_program(elaborate(EventMismatchedQueue()), rtl_target).report.elaboration
+fun duplicate_controls(): compile_program(elaborate(EventDuplicateQueue()), rtl_target).report.elaboration
 
 export:
   queued

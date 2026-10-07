@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Defines nested combinational and synchronous circuits for lexical-scope tests.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -49,8 +54,8 @@ sync_circuit SyncParent(width):
   child.enable <== enable
   value <== child.value
 
-def design = elaborate(SpecializedParents())
-def sync_design = elaborate(SyncParent(8))
+def design = compile_program(elaborate(SpecializedParents()), rtl_target).report.design
+def sync_design = compile_program(elaborate(SyncParent(8)), rtl_target).report.design
 
 export:
   LocalParent

@@ -27,7 +27,7 @@ sync_circuit ReturnPredictionFixture():
     core.pipeline_access.commit_ready <== Bool(#false)
     core.pipeline_access.response.bits <== literal(CachePipelineResult(XLen.X64), 0)
 
-def design = elaborate(ReturnPredictionFixture())
+def program = elaborate(ReturnPredictionFixture())
 
 export:
-  design
+  program

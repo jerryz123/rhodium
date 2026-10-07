@@ -3,12 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/backend/circt.rhm".emit_circt
   "../../../examples/rtl/tagged-union.rhdl" as fixture
   "../../../examples/rtl/nested-tagged-union.rhdl" as nested_fixture
 
-def circt = emit_circt(fixture.design)
-def nested_circt = emit_circt(nested_fixture.design)
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+def nested_fixture_design = compile_program(nested_fixture.program, rtl_target).report.design
+
+def circt = emit_circt(fixture_design)
+def nested_circt = emit_circt(nested_fixture_design)
 
 check:
   circt.contains("in %request : i18") ~is #true

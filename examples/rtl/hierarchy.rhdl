@@ -1,12 +1,15 @@
 #lang rhodium
-// Showcases binding-derived instances and dot access to elaborated child ports.
+/* Showcases binding-derived instances and dot access to elaborated child ports. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Adds the two width-sized operands with fixed-width wraparound. */
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)
   output sum: Bits(width)
   sum <== a + b
 
+/* Connects two reusable adder instances through the declared top-level wiring. */
 circuit TwoAdders():
   input(a, b, c): Bits(8)
   output(sum0, sum1): Bits(8)
@@ -21,7 +24,7 @@ circuit TwoAdders():
   sum0 <== u0.sum
   sum1 <== u1.sum
 
-def design = elaborate(TwoAdders())
+def program = elaborate(TwoAdders())
 
 def verilog_reference = @str|<<{
 module TwoAdders(
@@ -57,5 +60,5 @@ endmodule
 export:
   Adder
   TwoAdders
-  design
+  program
   verilog_reference

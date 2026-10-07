@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "interface-nominal-contract.rhdl" as foreign
   "../../../examples/rtl/interface-specialization.rhdl" as example
 
@@ -137,15 +139,15 @@ circuit CompatibleEndpointSupport():
   require_capacity(source)
   #void
 
-def local_nominal_design = elaborate(LocalNominalIdentity())
-def exact_reverse_design = elaborate(ExactReverseOnly())
-def compatible_reverse_design = elaborate(CompatibleReverseOnly())
-def compatible_specialization_arrays_design = elaborate(CompatibleSpecializationArrays())
-def compatible_endpoint_support_design = elaborate(CompatibleEndpointSupport())
-def provider_policy_forwarding_design = elaborate(ProviderPolicyForwarding())
-def consumer_policy_forwarding_design = elaborate(ConsumerPolicyForwarding())
-def nested_policy_forwarding_design = elaborate(NestedPolicyForwarding())
-def array_policy_forwarding_design = elaborate(ArrayPolicyForwarding())
+def local_nominal_design = compile_program(elaborate(LocalNominalIdentity()), rtl_target).report.design
+def exact_reverse_design = compile_program(elaborate(ExactReverseOnly()), rtl_target).report.design
+def compatible_reverse_design = compile_program(elaborate(CompatibleReverseOnly()), rtl_target).report.design
+def compatible_specialization_arrays_design = compile_program(elaborate(CompatibleSpecializationArrays()), rtl_target).report.design
+def compatible_endpoint_support_design = compile_program(elaborate(CompatibleEndpointSupport()), rtl_target).report.design
+def provider_policy_forwarding_design = compile_program(elaborate(ProviderPolicyForwarding()), rtl_target).report.design
+def consumer_policy_forwarding_design = compile_program(elaborate(ConsumerPolicyForwarding()), rtl_target).report.design
+def nested_policy_forwarding_design = compile_program(elaborate(NestedPolicyForwarding()), rtl_target).report.design
+def array_policy_forwarding_design = compile_program(elaborate(ArrayPolicyForwarding()), rtl_target).report.design
 
 export:
   ReverseOnly

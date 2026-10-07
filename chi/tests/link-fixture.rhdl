@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("chi/main.rhdl") open
 
 def flit = CHIFlitParams()
@@ -196,15 +198,15 @@ sync_circuit MonitoredCHISN():
   port.rx_dat.credit <== rx_dat_credit
   monitor_chi_sn(sn_link, sn_node, port)
 
-def rni_design = elaborate(CHIRNILinkAdapter(rni_link, rni_node, rni_link, rni_icn))
-def rnf_design = elaborate(CHIRNLinkAdapter(rnf_link, rnf_node, rnf_link, rnf_icn))
-def sn_design = elaborate(CHISNLinkAdapter(sn_link, sn_node, sn_link, sn_icn))
-def monitored_rni_design = elaborate(MonitoredCHIRNI())
-def monitored_rnf_design = elaborate(MonitoredCHIRN())
-def monitored_sn_design = elaborate(MonitoredCHISN())
+def rni_program = elaborate(CHIRNILinkAdapter(rni_link, rni_node, rni_link, rni_icn))
+def rnf_design = compile_program(elaborate(CHIRNLinkAdapter(rnf_link, rnf_node, rnf_link, rnf_icn)), rtl_target).report.design
+def sn_design = compile_program(elaborate(CHISNLinkAdapter(sn_link, sn_node, sn_link, sn_icn)), rtl_target).report.design
+def monitored_rni_program = elaborate(MonitoredCHIRNI())
+def monitored_rnf_design = compile_program(elaborate(MonitoredCHIRN()), rtl_target).report.design
+def monitored_sn_design = compile_program(elaborate(MonitoredCHISN()), rtl_target).report.design
 
 fun link_monitor_design(transaction_checks :: Boolean):
-  elaborate(MonitoredCHIRNI(~transaction_checks: transaction_checks))
+  compile_program(elaborate(MonitoredCHIRNI(~transaction_checks: transaction_checks)), rtl_target).report.design
 
 export:
   link_monitor_design
@@ -224,9 +226,9 @@ export:
   MonitoredCHIRNI
   MonitoredCHIRN
   MonitoredCHISN
-  rni_design
+  rni_program
   rnf_design
   sn_design
-  monitored_rni_design
+  monitored_rni_program
   monitored_rnf_design
   monitored_sn_design

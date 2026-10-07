@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates ordinary host functions that accept, construct, and return hardware objects.
+/* Demonstrates ordinary host functions that accept, construct, and return hardware objects. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Returns zero when the widened value exceeds the maximum, otherwise the value. */
 fun wrap_around(n :: Bits,
                 max :: Bits) :: Bits(n.type.width):
   def width = n.type.width
@@ -9,8 +11,8 @@ fun wrap_around(n :: Bits,
     if (max.type.width == width) | max | max.zext(width)
   mux(n > comparable_max, bits(0, width), n)
 
-// This is an ordinary host function, but calling it during elaboration creates
-// a register and returns its readable hardware value.
+/* This is an ordinary host function, but calling it during elaboration creates
+   a register and returns its readable hardware value. */
 fun counter(max :: Bits,
             en :: Bool,
             amt :: Bits) :: Bits(max.type.width):
@@ -24,6 +26,7 @@ fun counter(max :: Bits,
 
   x
 
+/* Updates the count under the declared increment and reset controls. */
 sync_circuit Counter():
   input inc: Bool
   input amt: Bits(4)
@@ -31,7 +34,7 @@ sync_circuit Counter():
 
   tot <== counter(bits(255, 8), inc, amt)
 
-def design = elaborate(Counter())
+def program = elaborate(Counter())
 
 def verilog_reference = @str|<<{
 module Counter(
@@ -58,5 +61,5 @@ export:
   wrap_around
   counter
   Counter
-  design
+  program
   verilog_reference

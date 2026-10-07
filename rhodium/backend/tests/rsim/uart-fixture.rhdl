@@ -16,5 +16,5 @@ sync_circuit RsimUartPair():
   first_rx <== first.uart_rx
   second_rx <== second.uart_rx
 
-def design = elaborate(RsimUartPair())
-export design
+def program = elaborate(RsimUartPair())
+export program

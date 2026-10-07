@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates lower-index-first priority encoders over packed and aggregate data.
+/* Demonstrates lower-index-first priority encoders over packed and aggregate data. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes selected_index, selected_oh, selected_two_index, selected_two_oh, selected_single_index, selected_single_oh for this priority encoder example. */
 circuit PriorityEncoderFive():
   input requests: Bits(5)
   output selected_index: Bits(3)
@@ -18,6 +20,7 @@ circuit PriorityEncoderFive():
   selected_single_index <== priority_encoder(requests[0])
   selected_single_oh <== priority_encoder_oh(requests[0])
 
+/* Exposes flags_index, flags_oh, single_index, single_oh for this priority encoder example. */
 circuit PriorityEncoderShapes():
   input flags: Vec(5, Bool)
   input single: Bool
@@ -31,8 +34,8 @@ circuit PriorityEncoderShapes():
   single_index <== priority_encoder(single)
   single_oh <== priority_encoder_oh(single)
 
-def five_design = elaborate(PriorityEncoderFive())
-def shapes_design = elaborate(PriorityEncoderShapes())
+def five_program = elaborate(PriorityEncoderFive())
+def shapes_program = elaborate(PriorityEncoderShapes())
 
 def five_verilog_reference = @str|<<{
 module PriorityEncoderFive(
@@ -81,7 +84,7 @@ endmodule
 export:
   PriorityEncoderFive
   PriorityEncoderShapes
-  five_design
-  shapes_design
+  five_program
+  shapes_program
   five_verilog_reference
   shapes_verilog_reference

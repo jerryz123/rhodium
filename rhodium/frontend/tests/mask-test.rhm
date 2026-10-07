@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/frontend/layers/signed.rhm".SInt
   "mask-fixture.rhdl" as fixture
 
-def design = embedded.run_elaboration(fun (): fixture.MaskFixture())
+def design = compile_program(elaborate(fixture.MaskFixture()), rtl_target).report.design
 def module_def = design.modules[0]
 
 fun operation_count(opcode):
@@ -42,12 +44,12 @@ check:
   bool.Mask(0) ~throws "PosInt"
   bool.mask_width(Bits(4)) ~throws "expected a Mask type"
   fixture.Mask4(16) ~throws "does not fit mask<4>"
-  embedded.run_elaboration(fun (): fixture.ShiftMask()) ~throws "ArithmeticType"
-  embedded.run_elaboration(fun (): fixture.RightShiftMask()) ~throws "shifted value must be Bits"
-  embedded.run_elaboration(fun (): fixture.AddMask()) ~throws "arithmetic type"
-  embedded.run_elaboration(fun (): fixture.WrongMaskWidth()) ~throws "same canonical packed width"
-  embedded.run_elaboration(fun (): fixture.ImplicitBitsMask()) ~throws "exactly the same hardware type"
-  embedded.run_elaboration(fun (): fixture.BadMaskIndex(SInt(4))) ~throws "hardware mask index must be Bits"
-  embedded.run_elaboration(fun (): fixture.BadMaskIndex(bool.Bool)) ~throws "hardware mask index must be Bits"
-  embedded.run_elaboration(fun (): fixture.BadMaskIndex(fixture.Mask4)) ~throws "hardware mask index must be Bits"
-  embedded.run_elaboration(fun (): fixture.OutOfRangeMaskIndex()) ~throws "index"
+  elaborate(fixture.ShiftMask()) ~throws "ArithmeticType"
+  elaborate(fixture.RightShiftMask()) ~throws "shifted value must be Bits"
+  elaborate(fixture.AddMask()) ~throws "arithmetic type"
+  elaborate(fixture.WrongMaskWidth()) ~throws "same canonical packed width"
+  elaborate(fixture.ImplicitBitsMask()) ~throws "exactly the same hardware type"
+  elaborate(fixture.BadMaskIndex(SInt(4))) ~throws "hardware mask index must be Bits"
+  elaborate(fixture.BadMaskIndex(bool.Bool)) ~throws "hardware mask index must be Bits"
+  elaborate(fixture.BadMaskIndex(fixture.Mask4)) ~throws "hardware mask index must be Bits"
+  elaborate(fixture.OutOfRangeMaskIndex()) ~throws "index"

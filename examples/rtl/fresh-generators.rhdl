@@ -1,34 +1,30 @@
 #lang rhodium
-// Shows repeated calls reusing one circuit specialization during elaboration.
+/* Shows repeated calls reusing one circuit specialization during elaboration. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Adds the two width-sized operands with fixed-width wraparound. */
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)
   output sum: Bits(width)
   sum <== a + b
 
+/* Reuses one specialization across two generator calls without instantiating it. */
 circuit Top(width :: PosInt):
   for:
     each ignored in [0, 1]
     Adder(width)
 
-def design = elaborate(Top(8))
+def program = elaborate(Top(8))
+// Inspect the source inventory, including specializations not instantiated by the top.
+def design = program.design
 
 def verilog_reference = @str|<<{
 module Top();
 endmodule
-
-module Adder(
-  input  [7:0] a,
-               b,
-  output [7:0] sum
-);
-
-  assign sum = a + b;
-endmodule
 }>>|
 
 export:
+  program
   Adder
   Top
   design

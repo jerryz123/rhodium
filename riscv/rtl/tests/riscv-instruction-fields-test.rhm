@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/riscv/instruction-fields.rhdl" as example
   "riscv-instruction-fields-fixture.rhdl" as fixture
 
-def design = example.design
+def example_design = compile_program(example.program, rtl_target).report.design
+
+def design = example_design
 def module_def = design.modules[0]
 def extracts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.extract"
@@ -43,9 +47,5 @@ check:
   sign_extensions.length() ~is 5
   zero_extensions.length() ~is 1
   verify_design(design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.NarrowImmediateFixture()
-  ) ~throws "must cover the architectural immediate"
-  embedded.run_elaboration(
-    fun (): fixture.OutsideFieldFixture()
-  ) ~throws "must fit the 32-bit instruction word"
+  elaborate(fixture.NarrowImmediateFixture()) ~throws "must cover the architectural immediate"
+  elaborate(fixture.OutsideFieldFixture()) ~throws "must fit the 32-bit instruction word"

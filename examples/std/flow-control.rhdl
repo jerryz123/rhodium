@@ -1,26 +1,27 @@
 #lang rhodium
-// Materializes the standard pipe, queue, and arbiter for readable Verilog references.
+/* Materializes the standard pipe, queue, and arbiter for readable Verilog references. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Buffers one ready-valid stream through a three-entry queue and two pipe stages. */
 sync_circuit BufferedLink():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
 
   ingress |> queue(3, ~pipe: #true) |> pipe(2) |> egress
 
-def pipe_design = elaborate(Pipe(Bits(8), 2))
-def queue_design = elaborate(Queue(Bits(8), 3))
-def queue_one_design = elaborate(Queue(Bits(8), 1))
-def queue_options_design = elaborate(
+def pipe_program = elaborate(Pipe(Bits(8), 2))
+def queue_program = elaborate(Queue(Bits(8), 3))
+def queue_one_program = elaborate(Queue(Bits(8), 1))
+def queue_options_program = elaborate(
   Queue(Bits(8), 2,
         ~pipe: #true,
         ~flow: #true)
 )
-def arbiter_design = elaborate(Arbiter(Bits(8), 3))
-def chain_design = elaborate(BufferedLink())
+def arbiter_program = elaborate(Arbiter(Bits(8), 3))
+def chain_program = elaborate(BufferedLink())
 
 def pipe_verilog_reference = @str|<<{
 module Pipe(
@@ -427,12 +428,12 @@ endmodule
 }>>|
 
 export:
-  pipe_design
-  queue_design
-  queue_one_design
-  queue_options_design
-  arbiter_design
-  chain_design
+  pipe_program
+  queue_program
+  queue_one_program
+  queue_options_program
+  arbiter_program
+  chain_program
   pipe_verilog_reference
   queue_verilog_reference
   queue_one_verilog_reference

@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises module-local identities inherited by repeated hardware instances.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -41,7 +46,7 @@ sync_circuit EventInstances():
   b.egress |> sinks[1]
   bank.egress |> sinks[2]
 
-def instances = elaborate_with_top(EventInstances())
+def instances = elaborate(EventInstances())
 
 sync_circuit EventInstanceInvalid(kind :: String):
   input identity: Bits(8)
@@ -63,4 +68,4 @@ sync_circuit EventInstanceInvalid(kind :: String):
       trace_instance("hart", identity)
       trace_instance("bank", identity)
 
-fun invalid(kind): elaborate_with_top(EventInstanceInvalid(kind))
+fun invalid(kind): compile_program(elaborate(EventInstanceInvalid(kind)), rtl_target).report.elaboration

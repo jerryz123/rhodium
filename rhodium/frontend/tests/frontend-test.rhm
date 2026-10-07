@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/standard.rhm" as frontend
   "../../../examples/lop/adder-standard.rhdl" as adder_fixture
@@ -10,16 +12,21 @@ import:
   "../../../examples/rtl/layered-adder.rhdl" as layered_fixture
   "../../../examples/rtl/host-parameters.rhdl" as host_parameter_fixture
 
-def design = adder_fixture.design
+def adder_fixture_design = compile_program(adder_fixture.program, rtl_target).report.design
+def kernel_fixture_design = compile_program(kernel_fixture.program, rtl_target).report.design
+def layered_fixture_design = compile_program(layered_fixture.program, rtl_target).report.design
+def host_parameter_fixture_design = compile_program(host_parameter_fixture.program, rtl_target).report.design
+
+def design = adder_fixture_design
 def add_operation = design.modules[0].operations.find(
   fun (operation): operation.opcode == "rtl.add"
 )
-def kernel_design = kernel_fixture.design
+def kernel_design = kernel_fixture_design
 def kernel_module = kernel_design.modules[0]
 def kernel_add = kernel_module.operations.find(
   fun (operation): operation.opcode == "rtl.add"
 )
-def layered_design = layered_fixture.design
+def layered_design = layered_fixture_design
 def layered_module = layered_design.modules[0]
 def layered_adds = layered_module.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.add"
@@ -27,8 +34,8 @@ def layered_adds = layered_module.operations.filter(
 def layered_mux = layered_module.operations.find(
   fun (operation): operation.opcode == "rtl.mux_lookup"
 )
-def host_parameter_wrapper = host_parameter_fixture.design.modules[0]
-def host_parameter_module = host_parameter_fixture.design.modules[1]
+def host_parameter_wrapper = host_parameter_fixture_design.modules[0]
+def host_parameter_module = host_parameter_fixture_design.modules[1]
 
 check:
   design.modules.length() ~is 1
@@ -59,6 +66,6 @@ check:
   host_parameter_wrapper.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.instance"
   ).length() ~is 1
-  verify_design(host_parameter_fixture.design) ~is #void
+  verify_design(host_parameter_fixture_design) ~is #void
   6 frontend.(*) 3 ~is 18
   frontend.(!) #true ~is #false

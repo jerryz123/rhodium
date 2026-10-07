@@ -3,16 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/std/scoreboard.rhdl" as scoreboard
   "std-scoreboard.rhdl" as fixture
 
-def design = embedded.run_elaboration(fun (): scoreboard.Scoreboard(8))
+def design = compile_program(elaborate(scoreboard.Scoreboard(8)), rtl_target).report.design
 def module_def = design.modules[0]
-def nonpower_design = embedded.run_elaboration(fun (): scoreboard.Scoreboard(3))
-def single_design = embedded.run_elaboration(fun (): scoreboard.Scoreboard(1))
+def nonpower_compiled = compile_program(elaborate(scoreboard.Scoreboard(3)), rtl_target)
+def single_compiled = compile_program(elaborate(scoreboard.Scoreboard(1)), rtl_target)
 def lookup_module = fixture.lookup_design.modules[0]
 def nonpower_lookup_module = fixture.nonpower_lookup_design.modules[0]
 def single_lookup_module = fixture.single_lookup_design.modules[0]
@@ -46,10 +48,10 @@ check:
   (for all (module in [lookup_module, nonpower_lookup_module, single_lookup_module]):
      bool.bool_type(module.find_output("result").type)) ~is #true
   verify_design(design) ~is #void
-  verify_design(nonpower_design) ~is #void
-  verify_design(single_design) ~is #void
+  nonpower_compiled.has_errors ~is #false
+  single_compiled.has_errors ~is #false
   verify_design(fixture.lookup_design) ~is #void
   verify_design(fixture.nonpower_lookup_design) ~is #void
   verify_design(fixture.single_lookup_design) ~is #void
-  embedded.run_elaboration(fun (): scoreboard.Scoreboard(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): fixture.BadScoreboardLookup()) ~throws "Bits(index_width(entries))"
+  elaborate(scoreboard.Scoreboard(0)) ~throws "PosInt"
+  elaborate(fixture.BadScoreboardLookup()) ~throws "Bits(index_width(entries))"

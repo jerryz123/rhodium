@@ -7,18 +7,16 @@ import:
   "chi-memory-fixture.rhdl" open
   lib("chi/protocol/flits.rhdl") open
   "../../../core/printer.rhm".dump_ir
-  "../../../lowering/program.rhm".ElaboratedProgram
   "../../../compile/program.rhm".compile_program
   "../../rsim-target.rhm".rsim_sv_target
   "../../verilog-target.rhm".verilog_target
 
 def arguments = current_command_line()
 unless arguments.length() == 1 | error("expected OUTPUT_DIRECTORY")
-def before = dump_ir(design)
-def program = ElaboratedProgram(design, design.find_module_named("RsimCHIMemory"))
+def before = dump_ir(program.design)
 def native = compile_program(program, rsim_sv_target)
 def reference = compile_program(program, verilog_target)
-unless native.manifest.signature == reference.manifest.signature && dump_ir(design) == before
+unless native.manifest.signature == reference.manifest.signature && dump_ir(program.design) == before
 | error("CHI memory compilation changed source or signature")
 for (result in [native, reference]):
   for (artifact in result.artifacts):

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/types.rhm".BitwiseType
 
 // This type and its semantic literal class model an independently authored
@@ -112,7 +114,7 @@ circuit LiteralParameters(bits_value,
   raw_nibble_out <== raw_nibble_value
   aggregate_out <== aggregate_value
 
-def design = elaborate(
+def design = compile_program(elaborate(
   LiteralParameters(bits_initial,
                     bool_initial,
                     mode_initial,
@@ -120,7 +122,7 @@ def design = elaborate(
                     nibble_initial,
                     raw_nibble_initial,
                     aggregate_initial)
-)
+), rtl_target).report.design
 
 export:
   ExplicitScalar

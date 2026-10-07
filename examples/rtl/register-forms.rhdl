@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates inferred register types, immediate next values, reset values, and direct next-state drives.
+/* Demonstrates inferred register types, immediate next values, reset values, and direct next-state drives. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes delayed, reset_delayed, explicit_delayed for this register forms example. */
 sync_circuit RegisterForms():
   input data: Bits(8)
   input initial: Bits(8)
@@ -18,7 +20,7 @@ sync_circuit RegisterForms():
   reset_delayed <== inferred_reset
   explicit_delayed <== explicit
 
-def design = elaborate(RegisterForms())
+def program = elaborate(RegisterForms())
 
 def verilog_reference = @str|<<{
 module RegisterForms(
@@ -52,5 +54,5 @@ endmodule
 
 export:
   RegisterForms
-  design
+  program
   verilog_reference

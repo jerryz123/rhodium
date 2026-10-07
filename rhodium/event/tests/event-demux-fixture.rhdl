@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventDemuxNetwork(buffered :: Boolean):
@@ -138,15 +140,15 @@ sync_circuit EventUncertifiedFanout():
   root |> trace_valid_event("left", ~payload: #true) |> sinks[0]
   root |> trace_valid_event("right", ~payload: #true) |> sinks[1]
 
-def routed = elaborate_with_top(EventDemux())
-fun nested(): elaborate_with_top(EventNestedDemux())
-fun rejoined(): elaborate_with_top(EventRoutingRejoin())
-fun bad_width(): elaborate_with_top(EventBadRoutingWidth())
-fun bad_shape(): elaborate_with_top(EventBadRoutingShape())
-fun bad_routes(): elaborate_with_top(EventBadRoutingRoutes())
-fun foreign_controls(): elaborate_with_top(EventForeignRouting())
-fun uncertified_fanout(): elaborate_with_top(EventUncertifiedFanout())
-fun singleton(): elaborate_with_top(EventSingletonDemux())
+def routed = elaborate(EventDemux())
+fun nested(): compile_program(elaborate(EventNestedDemux()), rtl_target).report.elaboration
+fun rejoined(): compile_program(elaborate(EventRoutingRejoin()), rtl_target).report.elaboration
+fun bad_width(): compile_program(elaborate(EventBadRoutingWidth()), rtl_target).report.elaboration
+fun bad_shape(): compile_program(elaborate(EventBadRoutingShape()), rtl_target).report.elaboration
+fun bad_routes(): compile_program(elaborate(EventBadRoutingRoutes()), rtl_target).report.elaboration
+fun foreign_controls(): compile_program(elaborate(EventForeignRouting()), rtl_target).report.elaboration
+fun uncertified_fanout(): compile_program(elaborate(EventUncertifiedFanout()), rtl_target).report.elaboration
+fun singleton(): compile_program(elaborate(EventSingletonDemux()), rtl_target).report.elaboration
 
 export:
   routed

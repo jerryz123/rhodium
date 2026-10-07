@@ -18,7 +18,7 @@ sync_circuit SyncLevelTop():
   synchronizer.level <== asynchronous_level
   synchronized_level <== synchronizer.synchronized
 
-def clocked_program = elaborate_program(SyncLevelTop())
+def clocked_program = elaborate(SyncLevelTop())
 def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
@@ -73,6 +73,7 @@ endmodule
 }>>|
 
 export:
+  clocked_program
   SyncLevelTop
   clocked
   design

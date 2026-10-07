@@ -5,6 +5,6 @@
 import:
   "../display/tmds.rhdl".TMDSChannelEncoder
 
-def design = elaborate(TMDSChannelEncoder())
+def program = elaborate(TMDSChannelEncoder())
 export:
-  design
+  program

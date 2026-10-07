@@ -4,11 +4,10 @@ import:
   "../../../backend/circt-target.rhm".circt_target
   "../../../compile/pipeline.rhm".rtl_pipeline_target
   "../../../compile/program.rhm".compile_program
-  "../../../lowering/program.rhm".ElaboratedProgram
   "../../trace-pass.rhm".event_trace_pass
   "../event-instance-fixture.rhdl" as fixture
 export event_manifest_cpp
 def source = fixture.instances
-def compiled = compile_program(ElaboratedProgram(source.design, source.top), rtl_pipeline_target(circt_target, [event_trace_pass()]))
+def compiled = compile_program(source, rtl_pipeline_target(circt_target, [event_trace_pass()]))
 def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content
 print(compiled.artifacts[0].content)

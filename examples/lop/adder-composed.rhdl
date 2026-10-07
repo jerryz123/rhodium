@@ -1,16 +1,17 @@
 #lang rhodium/base
-// Builds the reference adder by composing the minimal language with combinational syntax.
+/* Builds the reference adder by composing the minimal language with combinational syntax. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/comb.rhm") open
 
+/* Adds the two width-sized operands with fixed-width wraparound. */
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)
   output sum: Bits(width)
   sum <== a + b
 
-def design = elaborate(Adder(8))
+def program = elaborate(Adder(8))
 
 def verilog_reference = @str|<<{
 module Adder(
@@ -25,5 +26,5 @@ endmodule
 
 export:
   Adder
-  design
+  program
   verilog_reference

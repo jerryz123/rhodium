@@ -47,9 +47,9 @@ sync_circuit EscapeRouterFixture():
     egress[index] <=> router.target[index].egress
     router.target[index].available <== router.target[index].egress.ready
 
-def design = elaborate(EscapeRouterFixture())
+def program = elaborate(EscapeRouterFixture())
 
 export:
   plan
   config
-  design
+  program

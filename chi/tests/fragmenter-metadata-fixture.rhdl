@@ -46,7 +46,7 @@ sync_circuit CHIFragmenterMetadataFixture():
   upstream_o512 <=> fragmenter_o512.upstream
   downstream_o512 <=> fragmenter_o512.downstream
 
-def design = elaborate(CHIFragmenterMetadataFixture())
+def program = elaborate(CHIFragmenterMetadataFixture())
 
 export:
-  design
+  program

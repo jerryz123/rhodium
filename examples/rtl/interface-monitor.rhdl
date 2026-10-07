@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates explicit endpoint monitors over read-only interface observations.
+/* Demonstrates explicit endpoint monitors over read-only interface observations. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 interface MonitoredWordStream(width :: PosInt):
   role producer
@@ -11,6 +12,7 @@ interface MonitoredWordStream(width :: PosInt):
   consumer -> producer:
     ready: Bool
 
+/* Attaches endpoint-role-specific assertions to the observed word stream. */
 fun monitor_word_stream(link :: Observation, endpoint_role :: String):
   def label:
     if endpoint_role == "producer"
@@ -18,6 +20,7 @@ fun monitor_word_stream(link :: Observation, endpoint_role :: String):
     | "consumer_ready_requires_valid"
   assert(!(link.ready & !link.valid), label)
 
+/* Demonstrates explicit endpoint monitors over read-only interface observations. */
 sync_circuit MonitoredProducer():
   interface stream(MonitoredWordStream(8), ~role: producer)
 
@@ -25,7 +28,7 @@ sync_circuit MonitoredProducer():
   stream.bits <== bits(0, 8)
   monitor_word_stream(stream.observe(), "producer")
 
-def design = elaborate(MonitoredProducer())
+def program = elaborate(MonitoredProducer())
 
 def verilog_reference = @str|<<{
 module MonitoredProducer(
@@ -47,5 +50,5 @@ export:
   MonitoredWordStream
   monitor_word_stream
   MonitoredProducer
-  design
+  program
   verilog_reference

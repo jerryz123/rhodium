@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../cache/protocol.rhdl" open
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/xlen.rhm" open
   "../../cache/geometry.rhdl" open
   "../../chi-hart.rhdl" open
@@ -16,19 +18,13 @@ import:
 def config = test_params.test_rv5stage_chi_config
 def cache_config = CacheConfig(8, 1)
 def associative_cache_config = CacheConfig(8, 2)
-def design = embedded.run_elaboration(
-  fun (): l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~context: protocol.RV5StageMemoryContext(8))
-)
+def design = compile_program(elaborate(l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~context: protocol.RV5StageMemoryContext(8))), rtl_target).report.design
 def cache = design.modules.find(fun (module_def): module_def.name == "L1DCache")
 def data_access_type = CacheAccess(XLen.X64, protocol.RV5StageMemoryContext(8))
 def data_request_member = data_access_type.members.find(fun (member): member.name == "request")
 def data_response_member = data_access_type.members.find(fun (member): member.name == "response")
-def rv32_design = embedded.run_elaboration(
-  fun (): l1d.L1DCache(XLen.X32, cache_config, ~chi: config, ~service_queue_depth: 1, ~context: protocol.RV5StageMemoryContext(8))
-)
-def deeper_queue_design = embedded.run_elaboration(
-  fun (): l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~service_queue_depth: 3, ~context: protocol.RV5StageMemoryContext(8))
-)
+def rv32_design = compile_program(elaborate(l1d.L1DCache(XLen.X32, cache_config, ~chi: config, ~service_queue_depth: 1, ~context: protocol.RV5StageMemoryContext(8))), rtl_target).report.design
+def deeper_queue_design = compile_program(elaborate(l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~service_queue_depth: 3, ~context: protocol.RV5StageMemoryContext(8))), rtl_target).report.design
 def rv32_cache = rv32_design.modules.find(fun (module_def): module_def.name == "L1DCache")
 
 // The public wire contract grows only when the slot index is the widest variant.
@@ -67,12 +63,6 @@ check:
   rv32_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 32
   rv32_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 32
   rv32_cache.find_output("chi_out").type.field("requests").type.field("bits").type.field("address").type.width ~is 44
-  embedded.run_elaboration(
-    fun (): l1d.L1DCache(64, cache_config, ~chi: config, ~context: protocol.RV5StageMemoryContext(8))
-  ) ~throws "XLen"
-  embedded.run_elaboration(
-    fun (): l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~service_queue_depth: 0, ~context: protocol.RV5StageMemoryContext(8))
-  ) ~throws "PosInt"
-  embedded.run_elaboration(
-    fun (): l1d.L1DCache(XLen.X64, cache_config, ~chi: RiscvHartCHIConfig(config.flit, 32, config.regions), ~context: Bits(1))
-  ) ~throws "64-byte cache lines"
+  elaborate(l1d.L1DCache(64, cache_config, ~chi: config, ~context: protocol.RV5StageMemoryContext(8))) ~throws "XLen"
+  elaborate(l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~service_queue_depth: 0, ~context: protocol.RV5StageMemoryContext(8))) ~throws "PosInt"
+  elaborate(l1d.L1DCache(XLen.X64, cache_config, ~chi: RiscvHartCHIConfig(config.flit, 32, config.regions), ~context: Bits(1))) ~throws "64-byte cache lines"

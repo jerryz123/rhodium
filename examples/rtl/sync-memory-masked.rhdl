@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates byte-masked writes through one shared synchronous memory port.
+/* Demonstrates byte-masked writes through one shared synchronous memory port. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes read_data for this sync memory masked example. */
 sync_circuit MaskedSyncMemoryExample(depth :: PosInt):
   input address: Bits(index_width(depth))
   input enable: Bits(1)
@@ -20,7 +22,7 @@ sync_circuit MaskedSyncMemoryExample(depth :: PosInt):
   storage.read_write.write_mask <== write_mask
   read_data <== storage.read_write.read_data
 
-def design = elaborate(MaskedSyncMemoryExample(4))
+def program = elaborate(MaskedSyncMemoryExample(4))
 
 def verilog_reference = @str|<<{
 module storage_4x32(
@@ -88,5 +90,5 @@ endmodule
 
 export:
   MaskedSyncMemoryExample
-  design
+  program
   verilog_reference

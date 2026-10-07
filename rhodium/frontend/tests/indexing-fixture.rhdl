@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Defines valid and invalid circuits used to test host-range hardware indexing.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -72,8 +77,8 @@ circuit SelectedPlace():
   input driver: Bits(1)
   source[0] <== driver
 
-def design = elaborate(Indexed(8, 2, 6))
-def member_design = elaborate(IndexedMembers())
+def design = compile_program(elaborate(Indexed(8, 2, 6)), rtl_target).report.design
+def member_design = compile_program(elaborate(IndexedMembers()), rtl_target).report.design
 
 export:
   Indexed

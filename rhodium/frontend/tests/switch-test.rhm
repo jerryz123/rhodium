@@ -3,44 +3,46 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "switch-fixture.rhdl" as fixture
 
-fun elaborate(generator):
-  embedded.run_elaboration(generator)
+fun elaborate_design(generator):
+  compile_program(elaborate(generator()), rtl_target).report.design
 
 fun operations(module_def, opcode):
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == opcode
   )
 
-def bits_design = elaborate(fun (): fixture.BitsSwitch())
+def bits_design = elaborate_design(fun (): fixture.BitsSwitch())
 def bits_module = bits_design.modules[0]
 def bits_mux = operations(bits_module, "rtl.mux_lookup")[0]
 
-def enum_design = elaborate(fun (): fixture.EnumSwitch())
+def enum_design = elaborate_design(fun (): fixture.EnumSwitch())
 def enum_module = enum_design.modules[0]
 def enum_mux = operations(enum_module, "rtl.mux_lookup")[0]
 
-def one_hot_design = elaborate(fun (): fixture.OneHotSwitch())
+def one_hot_design = elaborate_design(fun (): fixture.OneHotSwitch())
 def one_hot_module = one_hot_design.modules[0]
 def one_hot_mux = operations(one_hot_module, "rtl.mux_lookup")[0]
 
-def hold_design = elaborate(fun (): fixture.SwitchRegisterHold())
+def hold_design = elaborate_design(fun (): fixture.SwitchRegisterHold())
 def hold_module = hold_design.modules[0]
 def hold_register = operations(hold_module, "rtl.register")[0]
 def hold_mux = operations(hold_module, "rtl.mux_lookup")[0]
 
-def nested_design = elaborate(fun (): fixture.NestedSwitch())
+def nested_design = elaborate_design(fun (): fixture.NestedSwitch())
 def nested_module = nested_design.modules[0]
 
-def memory_design = elaborate(fun (): fixture.SwitchMemoryWrites())
+def memory_design = elaborate_design(fun (): fixture.SwitchMemoryWrites())
 def memory_module = memory_design.modules[0]
 def memory_write = operations(memory_module, "rtl.memory_write")[0]
 def memory_muxes = operations(memory_module, "rtl.mux_lookup")
 
-def assertion_design = elaborate(fun (): fixture.SwitchAssertions())
+def assertion_design = elaborate_design(fun (): fixture.SwitchAssertions())
 def assertion_module = assertion_design.modules[0]
 def assertions = operations(assertion_module, "verif.assert")
 
@@ -84,12 +86,12 @@ check:
   operations(assertion_module, "rtl.and").length() ~is 1
   verify_design(assertion_design) ~is #void
 
-  elaborate(fun (): fixture.HostSwitchSelector()) ~throws "switch selector must be a hardware value"
-  elaborate(fun (): fixture.UnsupportedSwitchSelector()) ~throws "switch selector must be Bits or a typed mux-key selector"
-  elaborate(fun (): fixture.DuplicateSwitchKey()) ~throws "switch case keys must be unique"
-  elaborate(fun (): fixture.WideSwitchKey()) ~throws "switch case key does not fit the selector width"
-  elaborate(fun (): fixture.NonIntegerSwitchKey()) ~throws "host natural-number keys"
-  elaborate(fun (): fixture.MissingSwitchOtherwise()) ~throws "requires otherwise"
-  elaborate(fun (): fixture.MissingSwitchBranch()) ~throws "does not assign selected"
-  elaborate(fun (): fixture.IntegerEnumSwitchKey()) ~throws "enum mux lookup keys"
-  elaborate(fun (): fixture.ForeignEnumSwitchKey()) ~throws "enum mux lookup keys"
+  elaborate_design(fun (): fixture.HostSwitchSelector()) ~throws "switch selector must be a hardware value"
+  elaborate_design(fun (): fixture.UnsupportedSwitchSelector()) ~throws "switch selector must be Bits or a typed mux-key selector"
+  elaborate_design(fun (): fixture.DuplicateSwitchKey()) ~throws "switch case keys must be unique"
+  elaborate_design(fun (): fixture.WideSwitchKey()) ~throws "switch case key does not fit the selector width"
+  elaborate_design(fun (): fixture.NonIntegerSwitchKey()) ~throws "host natural-number keys"
+  elaborate_design(fun (): fixture.MissingSwitchOtherwise()) ~throws "requires otherwise"
+  elaborate_design(fun (): fixture.MissingSwitchBranch()) ~throws "does not assign selected"
+  elaborate_design(fun (): fixture.IntegerEnumSwitchKey()) ~throws "enum mux lookup keys"
+  elaborate_design(fun (): fixture.ForeignEnumSwitchKey()) ~throws "enum mux lookup keys"

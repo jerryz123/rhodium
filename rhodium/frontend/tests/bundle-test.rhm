@@ -3,13 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bundle.rhm" as bundles
   "../../../examples/rtl/bundle.rhdl" as bundle_fixture
   "hardware-literal-fixture.rhdl" as literal_fixture
 
-def pipeline_design = bundle_fixture.design
+def bundle_fixture_design = compile_program(bundle_fixture.program, rtl_target).report.design
+def bundle_fixture_cast_design = compile_program(bundle_fixture.cast_program, rtl_target).report.design
+
+def pipeline_design = bundle_fixture_design
 def pipeline = pipeline_design.modules[0]
 def pair_type = bundle_fixture.Pair(Bits(8))
 def pair_type_family = bundle_fixture.Pair
@@ -25,18 +30,18 @@ def selected = pipeline.operations.find(
 def state = pipeline.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
-def swap_design = embedded.run_elaboration(fun (): bundle_fixture.Swap(8))
+def swap_design = compile_program(elaborate(bundle_fixture.Swap(8)), rtl_target).report.design
 def swap = swap_design.modules[0]
-def nested_design = embedded.run_elaboration(fun (): bundle_fixture.NestedSwap(8))
+def nested_design = compile_program(elaborate(bundle_fixture.NestedSwap(8)), rtl_target).report.design
 def nested = nested_design.modules[0]
-def hierarchy_design = embedded.run_elaboration(fun (): bundle_fixture.BundleHierarchy(8))
+def hierarchy_design = compile_program(elaborate(bundle_fixture.BundleHierarchy(8)), rtl_target).report.design
 def hierarchy = hierarchy_design.modules.find(
   fun (module_def): module_def.name.starts_with("BundleHierarchy")
 )
 def hierarchy_instance = hierarchy.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
-def cast_module = bundle_fixture.cast_design.modules[0]
+def cast_module = bundle_fixture_cast_design.modules[0]
 def casts = cast_module.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )
@@ -100,13 +105,7 @@ check:
   verify_design(swap_design) ~is #void
   verify_design(nested_design) ~is #void
   verify_design(hierarchy_design) ~is #void
-  verify_design(bundle_fixture.cast_design) ~is #void
-  embedded.run_elaboration(
-    fun (): literal_fixture.MissingBundleField()
-  ) ~throws "literal must supply every record field exactly once"
-  embedded.run_elaboration(
-    fun (): literal_fixture.DuplicateBundleField()
-  ) ~throws "literal must supply every record field exactly once"
-  embedded.run_elaboration(
-    fun (): literal_fixture.WrongBundleFieldType()
-  ) ~throws "literal field right has the wrong hardware type"
+  verify_design(bundle_fixture_cast_design) ~is #void
+  elaborate(literal_fixture.MissingBundleField()) ~throws "literal must supply every record field exactly once"
+  elaborate(literal_fixture.DuplicateBundleField()) ~throws "literal must supply every record field exactly once"
+  elaborate(literal_fixture.WrongBundleFieldType()) ~throws "literal field right has the wrong hardware type"

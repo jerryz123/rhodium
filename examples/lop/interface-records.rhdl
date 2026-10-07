@@ -1,16 +1,18 @@
 #lang rhodium/base
-// Builds a ready-valid adapter from explicit directional record ports.
+/* Builds a ready-valid adapter from explicit directional record ports. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm" open
   "../../rhodium/frontend/layers/bool.rhm".Bool
 
+/* Describes the forward valid and payload fields of a ready-valid channel. */
 fun Forward(T :: DataType):
   RecordType([RecordField("valid", Bool), RecordField("bits", T)])
 
 def Backward = RecordType([RecordField("ready", Bool)])
 
+/* Forwards valid and payload toward egress and ready toward ingress. */
 circuit ReadyValidAdapter(width :: PosInt):
   input ingress_in: Forward(Bits(width))
   output ingress_out: Backward
@@ -20,7 +22,7 @@ circuit ReadyValidAdapter(width :: PosInt):
   egress_out <== ingress_in
   ingress_out <== egress_in
 
-def design = elaborate(ReadyValidAdapter(8))
+def program = elaborate(ReadyValidAdapter(8))
 
 def verilog_reference = @str|<<{
 module ReadyValidAdapter(
@@ -39,5 +41,5 @@ export:
   Forward
   Backward
   ReadyValidAdapter
-  design
+  program
   verilog_reference

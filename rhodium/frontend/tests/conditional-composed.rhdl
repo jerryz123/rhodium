@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/layers/sequential.rhm") open
   lib("rhodium/frontend/layers/conditional.rhm") open
 
@@ -17,7 +19,7 @@ circuit ComposedConditionalRegister():
     state <== data_in
   data_out <== state
 
-def design = elaborate(ComposedConditionalRegister())
+def design = compile_program(elaborate(ComposedConditionalRegister()), rtl_target).report.design
 
 export:
   ComposedConditionalRegister

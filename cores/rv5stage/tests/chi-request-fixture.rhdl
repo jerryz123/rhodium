@@ -100,7 +100,7 @@ circuit RV5StageCHIRequestFixture():
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
 
-def design = elaborate(RV5StageCHIRequestFixture())
+def program = elaborate(RV5StageCHIRequestFixture())
 
 export:
-  design
+  program

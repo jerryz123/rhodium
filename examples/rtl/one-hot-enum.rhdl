@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates a nominal one-hot enum selecting named datapath result families.
+/* Demonstrates a nominal one-hot enum selecting named datapath result families. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 hardware_enum ResultSelect(~encoding: one_hot):
   Arithmetic
@@ -10,6 +11,7 @@ hardware_enum ResultSelect(~encoding: one_hot):
   Or
   And
 
+/* Exposes result for this one hot enum example. */
 circuit OneHotEnumSelect():
   input select: ResultSelect
   input arithmetic_result: Bits(8)
@@ -29,7 +31,7 @@ circuit OneHotEnumSelect():
     ResultSelect.And: and_result
   })
 
-def design = elaborate(OneHotEnumSelect())
+def program = elaborate(OneHotEnumSelect())
 
 def verilog_reference = @str|<<{
 module OneHotEnumSelect(
@@ -53,5 +55,5 @@ endmodule
 export:
   ResultSelect
   OneHotEnumSelect
-  design
+  program
   verilog_reference

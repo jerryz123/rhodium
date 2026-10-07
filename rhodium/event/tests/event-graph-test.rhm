@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("json/main.rkt").#{string->jsexpr} as parse_json
   "../../../rhodium/event/main.rhm" open
   "event-graph-fixture.rhdl" as fixture
   "event-offer-fixture.rhdl" as offer
   "event-retained-fixture.rhdl" as retained_fixture
+
+def offer_offered_rtl = compile_program(offer.offered, rtl_target).report.elaboration
 
 fun dependency_labels(manifest :: EventManifest):
   manifest.dependencies.map(
@@ -38,7 +42,7 @@ check:
   offer.invalid("protocol") ~throws "Valid-flow chaining requires a Valid endpoint"
   offer.invalid("stronger") ~throws "provider interface does not support the peer interface contract"
   offer.invalid("predicate") ~throws "argument does not satisfy annotation"
-  dependency_labels(infer_event_manifest(offer.offered)) ~is ["attempt->admitted", "attempt->admitted.stall"]
+  dependency_labels(infer_event_manifest(offer_offered_rtl)) ~is ["attempt->admitted", "attempt->admitted.stall"]
   enum_captures.sites[0].payload_width ~is 14
   enum_captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding, field.label]) ~is [
     ["operation", 7, 7, "enum", #true], ["observed", 7, 0, "enum", #false]

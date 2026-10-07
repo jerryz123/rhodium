@@ -3,10 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../main.rhdl" as chi
   "transfer-fragmenter-fixture.rhdl" as fixture
 
-def modules = fixture.fragmenter_design.modules.map(fun (module): module.name)
+def fixture_fragmenter_design = compile_program(fixture.fragmenter_program, rtl_target).report.design
+
+def modules = fixture_fragmenter_design.modules.map(fun (module): module.name)
 
 check:
   fixture.fragmenter_params.downstream_service.supports(

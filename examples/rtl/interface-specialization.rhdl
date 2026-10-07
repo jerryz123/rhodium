@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates declaration-owned compatibility between parameterized interface specializations.
+/* Demonstrates declaration-owned compatibility between parameterized interface specializations. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 interface CapacityLink(capacity :: PosInt, width :: PosInt):
   role producer
@@ -20,24 +21,28 @@ interface CapacityEnvelope(capacity :: PosInt, width :: PosInt):
   producer -> consumer:
     link: CapacityLink(capacity, width)
 
+/* Connects interfaces with compatible declared capacity parameters. */
 circuit CapacityBridge():
   // The represented provider offers four units to a peer requiring two.
   interface provided(CapacityLink(4, 8), ~role: consumer)
   interface required(CapacityLink(2, 8), ~role: producer)
   provided <=> required
 
+/* Checks capacity compatibility with the opposite endpoint orientation. */
 circuit ReversedCapacityBridge():
   interface provided(CapacityLink(4, 8), ~role: consumer)
   interface required(CapacityLink(2, 8), ~role: producer)
   // Operand order does not change provider-to-peer compatibility.
   required <=> provided
 
+/* Connects capacity-specialized interfaces through nested member groups. */
 circuit NestedCapacityBridge():
   interface provided(CapacityEnvelope(4, 8), ~role: consumer)
   interface required(CapacityEnvelope(2, 8), ~role: producer)
   // Nested interface members apply their own compatibility rule recursively.
   provided <=> required
 
+/* Adapts between the declared payload widths and interface capacities. */
 circuit CapacityWidthAdapter():
   interface narrow(CapacityLink(4, 8), ~role: consumer)
   interface wide(CapacityLink(2, 16), ~role: producer)
@@ -45,10 +50,10 @@ circuit CapacityWidthAdapter():
   // compatible. The explicit adapter owns the widening policy.
   wide.payload <== narrow.payload.zext(16)
 
-def design = elaborate(CapacityBridge())
-def reversed_design = elaborate(ReversedCapacityBridge())
-def nested_design = elaborate(NestedCapacityBridge())
-def width_adapter_design = elaborate(CapacityWidthAdapter())
+def program = elaborate(CapacityBridge())
+def reversed_program = elaborate(ReversedCapacityBridge())
+def nested_program = elaborate(NestedCapacityBridge())
+def width_adapter_program = elaborate(CapacityWidthAdapter())
 
 def verilog_reference = @str|<<{
 module CapacityBridge(
@@ -94,10 +99,10 @@ export:
   ReversedCapacityBridge
   NestedCapacityBridge
   CapacityWidthAdapter
-  design
-  reversed_design
-  nested_design
-  width_adapter_design
+  program
+  reversed_program
+  nested_program
+  width_adapter_program
   verilog_reference
   reversed_verilog_reference
   nested_verilog_reference

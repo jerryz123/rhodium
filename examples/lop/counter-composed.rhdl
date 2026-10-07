@@ -1,5 +1,5 @@
 #lang rhodium/base
-// Builds a counter hierarchy from only explicitly selected sequential frontend layers.
+/* Builds a counter hierarchy from only explicitly selected sequential frontend layers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("rhodium/frontend/layers/hierarchy.rhm") open
   lib("rhodium/frontend/layers/sync.rhm") open
 
+/* Updates the count under the declared increment and reset controls. */
 sync_circuit Counter(width):
   output count: Bits(width)
 
@@ -17,6 +18,7 @@ sync_circuit Counter(width):
   state <== state + one
   count <== state
 
+/* Instantiates a counter under the enclosing synchronous domain. */
 sync_circuit CounterTop(width):
   output count: Bits(width)
 
@@ -24,7 +26,7 @@ sync_circuit CounterTop(width):
   inst counter(CounterModule)
   count <== counter.count
 
-def design = elaborate(CounterTop(8))
+def program = elaborate(CounterTop(8))
 
 def verilog_reference = @str|<<{
 module CounterTop(
@@ -60,5 +62,5 @@ endmodule
 export:
   Counter
   CounterTop
-  design
+  program
   verilog_reference

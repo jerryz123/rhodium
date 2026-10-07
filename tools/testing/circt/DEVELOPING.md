@@ -20,8 +20,8 @@ eligibility, and expected failures.
 | Path | Maintenance responsibility |
 |---|---|
 | [`run.sh`](run.sh) | Fixture manifest, selection, package-owned artifact resolution, CIRCT pipeline, exact diff, and Verilator orchestration |
-| [`load-example.rkt`](load-example.rkt) | Materializing selected example exports in one process |
-| `<package>/tests/circt/emit-*.rhm` | Package-owned direct MLIR integration shapes without an example-owned reference |
+| [`load-example.rhm`](load-example.rhm) | Compiling selected program exports through the CIRCT target in one process |
+| `<package>/tests/circt/emit-*.rhm` | Package-owned program exports or custom compilation drivers without an example-owned reference |
 | `<package>/tests/circt/verilog/` | Package-owned behavioral benches and optional local DPI companions |
 | [`examples/`](../../../examples/README.md) | Canonical designs and their exact Verilog-reference exports |
 
@@ -80,28 +80,42 @@ XLEN value already covered at its owning boundary.
 
 ## Fixture and artifact ownership
 
-Example-backed entries name an example module, a concrete design export, an
+Example-backed entries name an example module, an elaborated program export, an
 optional Verilator top, and either a Verilog-reference export or `-`. A named
 reference marks a compact fixture whose readable generated output is part of
 the example; `-` keeps integration-scale fixtures under lowering and behavioral
-coverage without a large exact snapshot. The ordinary golden pair is `design`
-and `verilog_reference`; additional designs use the same prefix for both
-exports, such as `cast_design` and `cast_verilog_reference`. References live
+coverage without a large exact snapshot. The ordinary golden pair is `program`
+and `verilog_reference`; additional programs use the same prefix for both
+exports, such as `cast_program` and `cast_verilog_reference`. References live
 beside their designs so reviewers can see the authoring input and generated
 result together.
 
-Direct `emit-*.rhm` fixtures own integration shapes that do not belong
-to one canonical example. They print MLIR for CIRCT verification and may name
-a Verilator top, but they do not own example Verilog references. Add or rename
-either kind through the manifest. The runner resolves each declared direct
+Examples export `elaborate(...)` programs without preparing RTL eagerly. The
+runner selects the CIRCT target with `compile_program`. Tests that inspect a
+concrete graph prepare it locally; emission drivers should not prepare a graph
+and reconstruct an elaborated program from it. Traced drivers compose
+`event_trace_pass` with `rtl_pipeline_target`, so RTL and trace descriptors come
+from the same compilation.
+
+Package-local `emit-*.rhm` fixtures own integration shapes that do not belong
+to one canonical example. Ordinary fixtures export an elaborated `program`;
+the shared runner selects `circt_target`, compiles it, and writes its MLIR.
+Keep compiler imports and artifact extraction out of those fixtures. A fixture
+that inspects prepared RTL or generates instrumentation-specific descriptors
+may instead own its compilation and print MLIR. Neither form owns an example
+Verilog reference. Add or rename either kind through the manifest. The runner resolves each declared direct
 emitter and each selected `<fixture>_tb.sv` or optional `<fixture>_dpi.cpp`
 from exactly one package-local `tests/circt/` directory; zero or multiple owners
 are errors.
 An optional third field in a direct-fixture entry names an expected assertion
-label. Such a fixture lowers its own explicit root and passes only when its
-bench fails with that label. Use separate emitters for independent compilation
+label. A fourth field names a program export, normally `program`; omitting
+that field selects a custom emitter. For example,
+`chi-cache-maintenance|chi_cache_maintenance_tb||program` uses ordinary shared
+compilation, while a traced emitter that exports scoreboard constants owns its
+compilation. An expected-failure fixture passes only when its bench fails with
+the declared label. Use separate emitters for independent compilation
 roots rather than collecting uninstantiated circuit references in a suite.
-`make examples` and `make check-example-verilog` check every concrete design's
+`make examples` and `make check-example-verilog` check every elaborated program's
 manifest coverage and validate only declared golden exports without running
 CIRCT or Verilator.
 
@@ -260,7 +274,7 @@ checks exact parent occurrence IDs for equal payloads, all routes, simultaneous
 outputs, zero grants, changing stalled selections, full replacement, and reset.
 
 An emitter may additionally export `event_manifest_cpp`, generated from the
-same instrumented elaboration it prints. `load-example.rkt` writes this string
+same target compilation that emits its RTL. `load-example.rhm` writes this string
 to `<fixture>_manifest.h` beside temporary MLIR. The runner supplies that directory
 and the event runtime include directory to the C++ compiler. The join fixture
 uses this path to bind its manifest before callbacks and export a validated
@@ -318,7 +332,7 @@ diff disappear.
 
 ### Add an example-backed fixture
 
-1. Keep the canonical design and its `verilog_reference` export together in
+1. Keep the canonical program and its `verilog_reference` export together in
    the owning example source.
 2. Add the fixture, group, export names, optional top, and expected behavior to
    the manifest in [`run.sh`](run.sh).
@@ -330,11 +344,14 @@ diff disappear.
 5. If the reference changed intentionally, update only that fixture with the
    pinned CIRCT tool and review the example-source diff.
 
-### Add a direct emitter
+### Add a package-local fixture
 
 1. Add `<package>/tests/circt/emit-<fixture>.rhm` for an integration shape that
    does not belong to a canonical example.
-2. Declare it in the manifest; do not rely on filename discovery.
+2. Define `program = elaborate(...)`, export it, and name `program` in the
+   manifest entry's fourth field. The shared driver owns compilation and output. Use
+   a custom emitter without that field only when the fixture needs its own
+   prepared-graph checks or instrumentation artifacts.
 3. Add a matching bench only when the fixture needs behavioral validation.
    A direct emitter may use a local DPI companion or the fixture-name-matched
    source under [`devices/uart/dpi/`](../../../devices/uart/dpi/).

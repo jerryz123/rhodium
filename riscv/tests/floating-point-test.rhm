@@ -4,7 +4,6 @@
 
 import:
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
   "../../hardfloat/main.rhdl" open
   "../rtl/floating-point.rhdl" open
 

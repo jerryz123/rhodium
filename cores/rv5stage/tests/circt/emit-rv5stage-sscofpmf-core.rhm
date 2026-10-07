@@ -1,14 +1,13 @@
 #lang rhombus
-// Emits the full core for retirement overflow and older-store drain validation.
+// Defines the full core for retirement overflow and older-store drain validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../profile.rhm" open
   "../core-fixture.rhdl" as core
 
 def profile = RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~sscofpmf: #true))
-def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(profile, ~reset_address: 0))
-print(emit_circt(design))
+def program = elaborate(core.RV5StageCoreFixture(profile, ~reset_address: 0))
+export program

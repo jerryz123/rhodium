@@ -1,17 +1,18 @@
 #lang rhodium
-// Demonstrates transfer-counted framing for fixed-length ready-valid flits.
+/* Demonstrates transfer-counted framing for fixed-length ready-valid flits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Demonstrates transfer-counted framing for fixed-length ready-valid flits. */
 sync_circuit FixedFlitFramer():
   interface ingress(Decoupled(FixedFlit(Bits(8))), ~role: consumer)
   interface egress(Decoupled(FramedFixedFlit(Bits(8))), ~role: producer)
 
   ingress |> frame_fixed_flits(3) |> egress
 
-def design = elaborate(FixedFlitFramer())
+def program = elaborate(FixedFlitFramer())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -70,5 +71,5 @@ endmodule
 }>>|
 
 export:
-  design
+  program
   verilog_reference

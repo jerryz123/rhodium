@@ -16,8 +16,7 @@ target also imports compilation; internal analysis algorithms, core, lowering,
 and frontend remain independent of it.
 
 A target owns preparation and its `TargetPlan`. Keep that interface independent
-of concrete RTL so direct construct adapters can eventually bypass portable
-expansion. The concrete helper uses the existing verifier and materializer;
+of concrete RTL so native construct adapters can bypass portable expansion. The concrete helper uses the existing verifier and materializer;
 it must not grow a second implementation of provider recursion, state checking,
 or metadata copying.
 
@@ -27,9 +26,13 @@ or metadata copying.
   target-owned plan protocol; imports public core descriptors only.
 - `program.rhm`: invokes the explicit target and returns a complete result only
   after emission and artifact-set validation.
-- `rtl.rhm`: asks lowering for a fresh reachable graph and maps its expansion
+- `rtl.rhm`: shares `prepare_program` and occurrence reporting between mixed
+  target preparation (`PreparedProgram`) and concrete `prepare_rtl`
+  (`PreparedRTL`). Native decisions remain per occurrence. It asks lowering for a fresh reachable graph and maps its expansion
   provenance to a deterministic depth-first report. Traverse shared definitions
   per occurrence while retaining materialization's per-definition reuse.
+  `rtl_target` exposes concrete graph inspection through ordinary compilation;
+  its `RTLReport` owns the verified graph and it emits no text artifacts.
   `PreparedRTLConsumer` separates prepared-graph consumption from ordinary
   target preparation. `RTLTarget` implements it with one checked plan factory
   and mandatory portable RTL expansion; neither changes generic target policy.
@@ -74,7 +77,9 @@ pipeline. Prefer existing Builder, metadata-remapping, verifier, artifact, and
 report contracts to new feature-specific protocols. Add machinery only when an
 implemented consumer needs it.
 
-Collect each plan projection once, including diagnostics. Error-severity findings
+Collect each plan projection once, including diagnostics. Require artifacts or
+a structured report; graph-only targets must not fabricate text artifacts just
+to satisfy result validation. Error-severity findings
 must not suppress completed artifacts; enforcement belongs in the invoking
 workflow. Keep `has_errors` derived from diagnostics and preserve exception
 propagation for failures that prevent a trustworthy result. Generic diagnostics
@@ -84,6 +89,12 @@ CIRCT plan's existing failure-injection coverage.
 
 `tests/rtl-test.rhm` checks fresh concrete/retained preparation, nested occurrence
 paths, expansion reuse and limits, unused providers, and source preservation.
+It also checks structured-only RTL compilation, rejection of plans with no
+output, target-selected provider bypass, retained instance metadata, and
+concrete-check fallback, including late provider checks and mixed-aware
+certification. Ordinary graph consumers select `rtl_target`; direct `prepare_rtl`
+calls belong to target implementation, prepared-graph composition, and tests
+specifically exercising those boundaries.
 `../backend/tests/compile-test.rhm` checks the real CIRCT target with Builder-owned concrete and retained
 fixtures, mixed hierarchy, deterministic output, compatibility, and failures.
 `../backend/tests/prepared-rtl-test.rhm` covers both real targets on concrete,

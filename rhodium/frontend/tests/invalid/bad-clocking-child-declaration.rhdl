@@ -20,4 +20,4 @@ circuit Top():
   child.clock <== clock
   child.data <== data
 
-def clocked = compile_program(elaborate_program(Top()), clocking_target())
+def clocked = compile_program(elaborate(Top()), clocking_target())

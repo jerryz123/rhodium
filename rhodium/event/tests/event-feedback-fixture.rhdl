@@ -2,6 +2,8 @@
 // Exercises singleton and joined-parent recirculation through intrinsic queue and grant contracts.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventFeedbackLane(traced :: Boolean, flow :: Boolean = #false, split :: Boolean = #false):
@@ -62,8 +64,8 @@ sync_circuit EventFeedback():
   joined.egress |> egress[2]
 
 fun feedback(~bypass: bypass :: Boolean = #false, ~split: split :: Boolean = #false):
-  elaborate_with_top(EventFeedbackLane(#true, bypass, split))
-def paired = elaborate_with_top(EventJoinedFeedbackLane())
+  compile_program(elaborate(EventFeedbackLane(#true, bypass, split)), rtl_target).report.elaboration
+def paired = compile_program(elaborate(EventJoinedFeedbackLane()), rtl_target).report.elaboration
 
 // Valid wiring permits this electrical fanout, but there is deliberately no
 // replication contract authorizing both the tap and the feedback consumer.
@@ -85,7 +87,7 @@ sync_circuit EventUnsafeFeedback():
   storage.egress |> route.ingress
   route.egress[1] |> merge.ingress[1]
   route.egress[0] |> trace_event("finish") |> egress
-fun unsafe_feedback(): elaborate_with_top(EventUnsafeFeedback())
+fun unsafe_feedback(): compile_program(elaborate(EventUnsafeFeedback()), rtl_target).report.elaboration
 
 // A real 3x3 crossbar routes two fresh sources and one recirculating source
 // to two independently buffered exits or back into the registered feedback queue.
@@ -128,8 +130,8 @@ sync_circuit EventFeedbackCrossbar():
       ingress[lane_index * 2 + index] |> lane.ingress[index]
       lane.egress[index] |> egress[lane_index * 2 + index]
 
-def compared = elaborate_with_top(EventFeedback())
-def branching = elaborate_with_top(EventFeedbackCrossbar())
+def compared = elaborate(EventFeedback())
+def branching = elaborate(EventFeedbackCrossbar())
 export:
   feedback
   paired

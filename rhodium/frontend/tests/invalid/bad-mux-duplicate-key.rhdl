@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture repeating a key in a canonical mux lookup.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,4 +12,4 @@ circuit BadMuxDuplicateKey():
     1: value
     1: value
 
-def design = elaborate(BadMuxDuplicateKey())
+elaborate(BadMuxDuplicateKey())

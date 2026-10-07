@@ -2,6 +2,8 @@
 // Exercises retained/live window lineage locally, through a child, and in the real frontend.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
   "../../../cores/rv5stage/tests/fetch-fixture.rhdl" open
   "../../../cores/rv5stage/fetch/protocol.rhdl" open
@@ -101,9 +103,9 @@ sync_circuit BadWindow(kind :: String):
       describe_interface_window_storage(3, flag, amount, amount, flag, [flag])
       describe_interface_window_storage(3, flag, amount, amount, flag, [flag])
 
-fun bad_window(kind): elaborate_with_top(BadWindow(kind))
-fun window(intrinsic, live_support = #true, batched = #false): elaborate_with_top(EventWindow(intrinsic, live_support, batched))
-def frontend = elaborate_with_top(EventFrontend())
+fun bad_window(kind): compile_program(elaborate(BadWindow(kind)), rtl_target).report.elaboration
+fun window(intrinsic, live_support = #true, batched = #false): elaborate(EventWindow(intrinsic, live_support, batched))
+def frontend = elaborate(EventFrontend())
 export:
   window
   frontend

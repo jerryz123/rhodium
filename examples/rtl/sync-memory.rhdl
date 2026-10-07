@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates a circuit-shaped synchronous memory with fixed read and write ports.
+/* Demonstrates a circuit-shaped synchronous memory with fixed read and write ports. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes read_data for this sync memory example. */
 sync_circuit SyncMemoryExample(depth :: PosInt, width :: PosInt):
   input read_address: Bits(index_width(depth))
   input read_enable: Bits(1)
@@ -22,7 +24,7 @@ sync_circuit SyncMemoryExample(depth :: PosInt, width :: PosInt):
   storage.write.data <== write_data
   storage.write.enable <== write_enable
 
-def design = elaborate(SyncMemoryExample(4, 8))
+def program = elaborate(SyncMemoryExample(4, 8))
 
 def verilog_reference = @str|<<{
 module storage_4x8(
@@ -76,5 +78,5 @@ endmodule
 
 export:
   SyncMemoryExample
-  design
+  program
   verilog_reference

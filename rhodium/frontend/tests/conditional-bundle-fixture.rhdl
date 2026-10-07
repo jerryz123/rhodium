@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises elaboration-conditional bundle fields across types, literals, and circuits.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -87,8 +92,8 @@ circuit MissingPresentConditionalField():
     parity: Bool(#false)
   #void
 
-def shapes_design = elaborate(ConditionalBundleShapes())
-def construction_design = elaborate(ConditionalBundleConstruction())
+def shapes_design = compile_program(elaborate(ConditionalBundleShapes()), rtl_target).report.design
+def construction_design = compile_program(elaborate(ConditionalBundleConstruction()), rtl_target).report.design
 
 export:
   OptionalPacket

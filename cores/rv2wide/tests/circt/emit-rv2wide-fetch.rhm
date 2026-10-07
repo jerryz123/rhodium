@@ -1,16 +1,17 @@
 #lang rhombus
-// Emits traced production RV2Wide fetch so recovery also checks transfer ownership assertions.
+// Compiles the production fetching core with its matching event descriptor.
 // SPDX-License-Identifier: Apache-2.0
-
 import:
-  lib("rhodium/backend/circt.rhm") open
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/circt-target.rhm").circt_target
   lib("rhodium/event/main.rhm") open
   "../../rv2wide.rhdl" open
   "../cache-fixture.rhdl" open
 
-def design = embedded.run_elaboration_with_top(fun (): RV2Wide(test_cache, ~chi: test_fetch_chi))
-def traced = instrument_events(design, EventInstrumentationConfig(~partial: #true))
-def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi))
+def compiled = compile_program(program, rtl_pipeline_target(circt_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
+def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content
 export event_manifest_cpp
-print(emit_circt(traced.instrumented.design))
+print(compiled.artifacts[0].content)

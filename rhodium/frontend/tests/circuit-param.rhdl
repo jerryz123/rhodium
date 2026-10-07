@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises nominal and structural StableCircuitParam specialization equality.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -28,7 +33,7 @@ circuit CircuitParamHierarchy():
   inst nominal_second(NominalLeaf(shared))
   inst nominal_distinct(NominalLeaf(_NominalConfig(4)))
 
-def design = elaborate(CircuitParamHierarchy())
+def design = compile_program(elaborate(CircuitParamHierarchy()), rtl_target).report.design
 
 export:
   WidthConfig

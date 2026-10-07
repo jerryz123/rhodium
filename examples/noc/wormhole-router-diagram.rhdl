@@ -1,8 +1,10 @@
 #lang rhodium
-// Generates a flow-aware diagram of the packet-retaining phased-XY NoC router.
+/* Generates a flow-aware diagram of the packet-retaining phased-XY NoC router. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../noc/examples/mesh-phased-xy.rhm" as phased
   "../../noc/plan/main.rhm" open
   "../../noc/rtl/main.rhdl" open
@@ -19,7 +21,7 @@ def router_node = phased.phased_topology.node_id(
 )
 def router_plan = RouterPlan(phased.phased_routing, router_node)
 def router_config = compile_wormhole_router(router_plan)
-def logical = elaborate_with_top(WormholeRouter(Bits(32), router_config))
+def logical = compile_program(elaborate(WormholeRouter(Bits(32), router_config)), rtl_target).report.elaboration
 def view = diagram(logical)
 def router_diagram = view.module("WormholeRouter")
 def json = diagram_module_to_json(router_diagram)

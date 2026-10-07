@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../rhodium/frontend/foundation.rhm".elaborate
-  "../../../rhodium/backend/circt.rhm".emit_circt
   "../inclusive-directory-fixture.rhdl".CHIDirectoryFixture
 
-print(emit_circt(elaborate(CHIDirectoryFixture(3))))
+def program = elaborate(CHIDirectoryFixture(3))
+export program

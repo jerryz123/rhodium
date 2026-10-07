@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("chi/protocol/flits.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl") open
 
@@ -34,7 +36,7 @@ circuit InvalidResponseEffects(T :: DataType):
   result <== profile.milestone(effects, "dbid")
 
 fun invalid_effects_design(T :: DataType):
-  elaborate(InvalidResponseEffects(T))
+  compile_program(elaborate(InvalidResponseEffects(T)), rtl_target).report.design
 
 export:
   CHIResponseProfileFixture

@@ -4,23 +4,21 @@ import:
   rhombus/cmdline open
   lib("racket/base.rkt") as rkt
   lib("racket/file.rkt") as file
-  lib("rhodium/frontend/foundation.rhm").elaborate_with_top
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
+  lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/backend/rsim-target.rhm").rsim_target
   lib("rhodium/backend/verilog-target.rhm").verilog_target
-  lib("rhodium/backend/circt.rhm").emit_circt
+  lib("rhodium/backend/circt-target.rhm").circt_target
   "inclusive-directory-fixture.rhdl".CHIDirectoryFixture
 
 def arguments = current_command_line()
 unless arguments.length() == 3 | error("expected OUTPUT_DIRECTORY SLOT_COUNT SET_COUNT")
 def slots = rkt.#{string->number}(arguments[1])
 def sets = rkt.#{string->number}(arguments[2])
-def e = elaborate_with_top(CHIDirectoryFixture(slots, sets))
-def p = ElaboratedProgram(e.design, e.top)
+def p = elaborate(CHIDirectoryFixture(slots, sets))
 for (target in [rsim_target, verilog_target]):
   def result = compile_program(p, target)
   for (artifact in result.artifacts):
     file.#{display-to-file}(artifact.content, rkt.#{build-path}(arguments[0], artifact.name), ~exists: #'replace)
 
-file.#{display-to-file}(emit_circt(e.design), rkt.#{build-path}(arguments[0], "directory.mlir"), ~exists: #'replace)
+file.#{display-to-file}(compile_program(p, circt_target).artifacts[0].content, rkt.#{build-path}(arguments[0], "directory.mlir"), ~exists: #'replace)

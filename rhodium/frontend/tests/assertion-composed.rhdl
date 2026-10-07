@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/layers/assertion.rhm") open
   lib("rhodium/frontend/layers/sync.rhm") open
 
@@ -10,7 +12,7 @@ sync_circuit ComposedAssertion():
   input condition: Bits(1)
   assert(condition, "composed_holds")
 
-def design = elaborate(ComposedAssertion())
+def design = compile_program(elaborate(ComposedAssertion()), rtl_target).report.design
 
 export:
   design

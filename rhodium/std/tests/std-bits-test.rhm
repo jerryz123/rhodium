@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/std/bits.rhdl" as bits_std
   "std-bits-fixture.rhdl" as fixture
@@ -12,9 +14,9 @@ import:
 fun checked_pow2(value :: bits_std.Pow2Int):
   value
 
-def design = embedded.run_elaboration(fun (): fixture.BitsAlignmentFixture())
+def design = compile_program(elaborate(fixture.BitsAlignmentFixture()), rtl_target).report.design
 def module_def = design.modules[0]
-def bit_order_design = embedded.run_elaboration(fun (): fixture.BitOrderFixture())
+def bit_order_design = compile_program(elaborate(fixture.BitOrderFixture()), rtl_target).report.design
 def bit_order_module = bit_order_design.modules[0]
 def extracts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.extract"
@@ -22,26 +24,22 @@ def extracts = module_def.operations.filter(
 def bitwise_ands = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.and" && operation.results[0].type.type_equal(Bits(8))
 )
-def transfer_design = embedded.run_elaboration(
-  fun (): fixture.TransferByteMaskFixture()
-)
+def transfer_design = compile_program(elaborate(fixture.TransferByteMaskFixture()), rtl_target).report.design
 def transfer_module = transfer_design.modules[0]
-def registered_transfer_design = embedded.run_elaboration(
-  fun (): fixture.RegisteredTransferByteMaskFixture()
-)
-def pack_design = embedded.run_elaboration(fun (): fixture.PackFieldsFixture())
+def registered_transfer_compiled = compile_program(elaborate(fixture.RegisteredTransferByteMaskFixture()), rtl_target)
+def pack_design = compile_program(elaborate(fixture.PackFieldsFixture()), rtl_target).report.design
 def pack_module = pack_design.modules[0]
-def mask_design = embedded.run_elaboration(fun (): fixture.MaskExpansionFixture())
+def mask_design = compile_program(elaborate(fixture.MaskExpansionFixture()), rtl_target).report.design
 
 check:
-  embedded.run_elaboration(fun (): fixture.InvalidRuntimeAlignmentBoundFixture(-1)) ~throws "Nat"
-  embedded.run_elaboration(fun (): fixture.InvalidRuntimeAlignmentBoundFixture(9)) ~throws "maximum alignment must fit the Bits width"
-  embedded.run_elaboration(fun (): fixture.NonBitsRuntimeAlignmentFixture()) ~throws "Bits"
-  embedded.run_elaboration(fun (): fixture.NonBitsAlignmentExponentFixture()) ~throws "Bits"
+  elaborate(fixture.InvalidRuntimeAlignmentBoundFixture(-1)) ~throws "Nat"
+  elaborate(fixture.InvalidRuntimeAlignmentBoundFixture(9)) ~throws "maximum alignment must fit the Bits width"
+  elaborate(fixture.NonBitsRuntimeAlignmentFixture()) ~throws "Bits"
+  elaborate(fixture.NonBitsAlignmentExponentFixture()) ~throws "Bits"
   mask_design.modules[0].outputs.map(fun (port): port.type) ~is [Bits(8), Bits(24), Bits(64), Bits(1), Bits(7), Bits(20)]
-  embedded.run_elaboration(fun (): fixture.InvalidMaskLaneWidthFixture(0)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): fixture.InvalidMaskLaneWidthFixture(-1)) ~throws "PosInt"
-  embedded.run_elaboration(fun (): fixture.NonBitsMaskExpansionFixture()) ~throws "Bits"
+  elaborate(fixture.InvalidMaskLaneWidthFixture(0)) ~throws "PosInt"
+  elaborate(fixture.InvalidMaskLaneWidthFixture(-1)) ~throws "PosInt"
+  elaborate(fixture.NonBitsMaskExpansionFixture()) ~throws "Bits"
   bits_std.power_of_two(-2) ~is #false
   bits_std.power_of_two(0) ~is #false
   bits_std.power_of_two(1) ~is #true
@@ -91,7 +89,7 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.shl"
   ).length() ~is 3
   verify_design(transfer_design) ~is #void
-  verify_design(registered_transfer_design) ~is #void
+  registered_transfer_compiled.has_errors ~is #false
   pack_module.outputs.map(fun (port): port.type) ~is [Bits(8), Bits(2), Bits(8)]
   pack_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.concat"
@@ -102,24 +100,10 @@ check:
   verify_design(pack_design) ~is #void
   bits_std.alignment_bits(0) ~throws "Pow2Int"
   bits_std.alignment_bits(3) ~throws "Pow2Int"
-  embedded.run_elaboration(
-    fun (): fixture.AlignmentTooWideFixture()
-  ) ~throws "alignment must fit the Bits width"
-  embedded.run_elaboration(
-    fun (): fixture.NonPowerAlignmentFixture()
-  ) ~throws "Pow2Int"
-  embedded.run_elaboration(
-    fun (): fixture.NonBitsAlignmentFixture()
-  ) ~throws "Bits"
-  embedded.run_elaboration(
-    fun (): fixture.NonPowerTransferBeatFixture()
-  ) ~throws "Pow2Int"
-  embedded.run_elaboration(
-    fun (): fixture.TransferBeatTooWideFixture()
-  ) ~throws "alignment must fit the Bits width"
-  embedded.run_elaboration(
-    fun (): fixture.OverlappingPackFieldsFixture()
-  ) ~throws "fields must not overlap"
-  embedded.run_elaboration(
-    fun (): fixture.OutOfRangePackFieldsFixture()
-  ) ~throws "field must fit the result width"
+  elaborate(fixture.AlignmentTooWideFixture()) ~throws "alignment must fit the Bits width"
+  elaborate(fixture.NonPowerAlignmentFixture()) ~throws "Pow2Int"
+  elaborate(fixture.NonBitsAlignmentFixture()) ~throws "Bits"
+  elaborate(fixture.NonPowerTransferBeatFixture()) ~throws "Pow2Int"
+  elaborate(fixture.TransferBeatTooWideFixture()) ~throws "alignment must fit the Bits width"
+  elaborate(fixture.OverlappingPackFieldsFixture()) ~throws "fields must not overlap"
+  elaborate(fixture.OutOfRangePackFieldsFixture()) ~throws "field must fit the result width"

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../chi/writeback.rhdl" open
   "../chi/flits.rhdl" open
   lib("rhodium/std/interconnect.rhdl").AddressSet
@@ -91,5 +93,5 @@ sync_circuit CacheCopyBackFixture():
       done: engine.completion.valid
       cookie: engine.completion.bits.context
 
-def design = elaborate(CacheCopyBackFixture())
+def design = compile_program(elaborate(CacheCopyBackFixture()), rtl_target).report.design
 export: design CacheCopyBackFixture

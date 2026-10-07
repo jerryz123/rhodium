@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises receiver membership across generic and specialized flat-data surfaces.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -40,7 +45,7 @@ circuit MembershipSurfaces():
   generic_member <== generic_membership(generic_bits,
                                         [bits(3, 4), bits(12, 4)])
 
-def design = elaborate(MembershipSurfaces())
+def design = compile_program(elaborate(MembershipSurfaces()), rtl_target).report.design
 
 export:
   MembershipSurfaces

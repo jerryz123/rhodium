@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects automatic sync-child propagation when the parent has no ambient domain.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,4 +13,4 @@ circuit BadSyncParent():
   inst child(ChildModule)
   value <== child.value
 
-def design = elaborate(BadSyncParent())
+elaborate(BadSyncParent())

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture using a non-Int host value as a mux lookup key.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,4 +11,4 @@ circuit BadMuxKeyType():
   result <== mux_lookup(selector, ~default: value):
     #true: value
 
-def design = elaborate(BadMuxKeyType())
+elaborate(BadMuxKeyType())

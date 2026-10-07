@@ -32,7 +32,7 @@ sync_circuit RasFixture():
   head_valid <== ras.head_valid
   head <== ras.head
 
-def design = elaborate(RasFixture())
+def program = elaborate(RasFixture())
 
 export:
-  design
+  program

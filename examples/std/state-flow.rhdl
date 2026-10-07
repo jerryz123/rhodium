@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates reliable changed-state emission and local state replication over ready-valid flow.
+/* Demonstrates reliable changed-state emission and local state replication over ready-valid flow. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,7 @@ def IdleControl = ReplicatedControl():
   enabled: Bool(#false)
   mode: bits(0, 3)
 
+/* Exposes replica for this state flow example. */
 sync_circuit StateFlowExample():
   input desired: Vec(3, ReplicatedControl())
   interface changes(Irrevocable(IndexedState(ReplicatedControl(), 3)), ~role: producer)
@@ -27,10 +28,10 @@ sync_circuit StateFlowExample():
   replica_update <=> state_replica.ingress
   replica <== state_replica.current
 
-def design = elaborate(StateFlowExample())
+def program = elaborate(StateFlowExample())
 
 export:
   ReplicatedControl
   IdleControl
   StateFlowExample
-  design
+  program

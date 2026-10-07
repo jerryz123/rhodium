@@ -3,19 +3,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../rhodium/core/main.rhm" open
   "../../examples/noc/noc-network.rhdl" as fixture
 
-def top = fixture.design.modules.find(
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "HierarchicalNoCFixture"
 )
-def source = fixture.design.modules.find(
+def source = fixture_design.modules.find(
   fun (module_def): module_def.name == "SourceSubsystem"
 )
-def transit = fixture.design.modules.find(
+def transit = fixture_design.modules.find(
   fun (module_def): module_def.name == "TransitSubsystem"
 )
-def destination = fixture.design.modules.find(
+def destination = fixture_design.modules.find(
   fun (module_def): module_def.name == "DestinationSubsystem"
 )
 
@@ -76,4 +80,4 @@ check:
   instances(destination)[0].attribute("module").name.starts_with(
     "SimpleRouter"
   ) ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void

@@ -4,31 +4,34 @@
 # Compile a program
 
 This package compiles an elaborated program through an explicitly supplied
-target. CIRCT, direct SystemVerilog, and clock analysis supply targets.
+target. RTL inspection, CIRCT, direct SystemVerilog, Rsim, and clock analysis supply targets.
 Compilation returns in-memory artifacts, a manifest, diagnostics, and optional structured findings; it does not
 write files or run external tools. Contributors should
 read [DEVELOPING.md](DEVELOPING.md).
 
 ```rhombus
-#lang rhombus
+#lang rhodium
 import:
-  lib("rhodium/core/main.rhm") open
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/backend/circt-target.rhm").circt_target
 
-def design = Design()
-def builder = Builder(design)
-def top = builder.module("Identity")
-def source = builder.input(top, "source", Bits(8))
-builder.drive(builder.output(top, "result", Bits(8)), source)
-builder.finish(top)
-def compiled = compile_program(ElaboratedProgram(design, top), circt_target)
+circuit Identity():
+  input source: Bits(8)
+  output result: Bits(8)
+  result <== source
+
+def program = elaborate(Identity())
+def compiled = compile_program(program, circt_target)
 def mlir = compiled.artifacts[0].content
 ```
 
+Elaboration runs the source generators once. Compilation lets the selected
+target choose which constructs to expand or execute directly. Reuse the same
+program with another target; ordinary callers do not invoke `prepare_rtl` or
+backend emitters themselves.
+
 Direct Builder clients pass an
-[`ElaboratedProgram`](../lowering/README.md) without using the frontend.
+[`ElaboratedProgram(design, top)`](../lowering/README.md) without using the frontend.
 Targets are explicit objects, not names resolved through a global registry.
 Importing the compiler does not load any backend.
 
@@ -50,10 +53,10 @@ projections and returns them together only after artifact validation succeeds.
 
 `compile_program(program, target, ~options: CompileOptions())` returns a
 `CompilationResult` only after preparation and complete artifact emission
-succeed. The default expansion limit is 256; `CompileOptions(limit)` selects
+succeed. Structured-only targets need not emit text artifacts. The default expansion limit is 256; `CompileOptions(limit)` selects
 another positive limit. Provider, verification, and emitter exceptions propagate
 without a silent fallback or a partial result. Artifact names must be unique
-within the nonempty returned set.
+within the returned set. A target must return artifacts, a structured report, or both.
 
 The result contains:
 
@@ -67,7 +70,7 @@ The result contains:
 - `artifacts`: immutable `Artifact(name, media_type, content)` values. CIRCT
   returns one `<top>.mlir` artifact with media type `text/x-mlir`.
 - `report`: an optional target-owned `CompilationReport`. Clock analysis returns
-  a `ClockingReport`; CIRCT returns `#false`. Findings reference the target
+  a `ClockingReport`; RTL inspection returns an `RTLReport`; CIRCT returns `#false`. Findings reference the target
   prepared graph, never source IR.
 - `manifest.top`, `.modules`, and `.signature`: the emitted top name, ordered
   module names, and physical top ports. CIRCT preserves port names, directions,
@@ -110,14 +113,41 @@ prepared representation and must validate it before returning artifacts.
 These are trusted extension interfaces: target implementations must preserve
 the source and keep emission free of publication side effects.
 
-[`rtl.rhm`](rtl.rhm) supplies `prepare_rtl(program, options, reason)` for targets
-requiring concrete RTL and re-exports `ElaboratedProgram` for target input
+Graph consumers select `rtl_target` through the same compilation API:
+
+```rhombus
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
+def compiled = compile_program(program, rtl_target)
+def rtl = compiled.report
+def design = rtl.design
+def top = rtl.top
+```
+
+`RTLReport.design` and `.top` refer to a fresh, verified concrete graph.
+`.elaboration` supplies the corresponding `DesignElaboration` for tools that
+accept that pair. The target expands retained constructs through their portable
+implementations, preserves occurrence provenance in the compilation manifest,
+and leaves the source untouched. Its artifact list is empty: inspection does
+not serialize the graph. Static clients can bind `compiled.report` with the
+exported `RTLReport` annotation.
+
+Emission callers pass the original program to their emission target so that
+target can choose which constructs to retain. `rtl_target` also supports
+`rtl_pipeline_target`; its graph report then appears in the pipeline report's
+`.backend`, alongside the stage reports and any instrumentation artifacts.
+
+For target implementations requiring concrete RTL, [`rtl.rhm`](rtl.rhm) supplies
+`prepare_rtl(program, options = CompileOptions(), reason = "explicit RTL preparation")`
+and re-exports `ElaboratedProgram` for target input
 annotations. It returns a `PreparedRTL` containing `.rtl` and
 `.manifest`. CIRCT and direct SystemVerilog use this helper and expand every
-reachable retained construct through its portable implementation. A future target can supply
-its own plan without first erasing retained constructs.
+reachable retained construct through its portable implementation. Rsim supplies its own
+preparation plan to retain supported constructs.
 
-`PreparedRTLConsumer` is the narrow interface for targets that can also consume
+`PreparedRTLConsumer` is the backend extension interface for targets that can also consume
 concrete RTL. It provides `.plan(prepared)` and an `.expansion_reason` string
 for portable expansion selected by instrumentation. Implementing it does not
 require ordinary target preparation to use RTL. Pipeline backends must implement

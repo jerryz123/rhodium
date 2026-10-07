@@ -3,22 +3,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../../../riscv/isa/fp-profile.rhm" open
   "../../../../riscv/isa/vector-profile.rhm" open
   "../../../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../../../cores/rv5stage/profile.rhm" open
-  "../../../../rhodium/event/main.rhm" open
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
 
-def traced = instrument_events(embedded.run_elaboration_with_top(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0)), EventInstrumentationConfig(~partial: #true))
-def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_core_sites {\n" ++ String.join(
+def compiled = compile_program(elaborate(core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0)), rtl_pipeline_target(circt_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
+def manifest = compiled.report.stages[0].findings.manifest
+def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content ++ "\nnamespace vector_core_sites {\n" ++ String.join(
   for List (label in ["core/s5.wb", "core/s4.memory", "core/s3.execute", "vector/s1.sequence"], name in ["wb", "mem", "ex", "sequence"]):
-    def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
+    def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
     unless matches.length() == 1 | error("expected one core/vector site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
   ""
 ) ++ "}\n"
 export event_manifest_cpp
-print(emit_circt(traced.instrumented.design))
+print(compiled.artifacts[0].content)

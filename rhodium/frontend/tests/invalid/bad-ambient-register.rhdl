@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects ambient register syntax outside an active sync circuit.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadAmbientRegister():
   state <== state
   value <== state
 
-def design = elaborate(BadAmbientRegister())
+elaborate(BadAmbientRegister())

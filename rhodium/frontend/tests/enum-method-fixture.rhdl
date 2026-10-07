@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises enum-owned hardware methods across precise frontend value producers.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -111,7 +116,7 @@ sync_circuit EnumMethodPropagation():
   instance_output_method <== echo.echoed.is_shared()
   packed <== state.as_bits()
 
-def design = elaborate(EnumMethodPropagation())
+def design = compile_program(elaborate(EnumMethodPropagation()), rtl_target).report.design
 
 // Parameterized argument and result annotations must preserve nested selectors.
 bundle SelectedOperand(width :: PosInt):

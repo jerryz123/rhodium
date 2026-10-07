@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/std/state-flow.rhdl" as example
   "std-state-flow.rhdl" as fixture
 
-def design = example.design
+def example_design = compile_program(example.program, rtl_target).report.design
+
+def design = example_design
 def top = design.modules[0]
 def change_source = design.modules.find(
   fun (module_def): module_def.name == "StateChangeSource"
@@ -33,6 +37,4 @@ check:
   state_replica.find_output("current").type.packed_width() ~is 4
   verify_design(design) ~is #void
 
-  embedded.run_elaboration(
-    fun (): fixture.WrongStateInitial()
-  ) ~throws "initial literal must have the state DataType"
+  elaborate(fixture.WrongStateInitial()) ~throws "initial literal must have the state DataType"

@@ -17,10 +17,10 @@ def hdmi_frame_reader_config = HDMIFrameReaderConfig(
   3,
   16
 )
-def hdmi_frame_reader_design = elaborate(HDMIFrameReader(hdmi_frame_reader_config))
+def hdmi_frame_reader_program = elaborate(HDMIFrameReader(hdmi_frame_reader_config))
 
 export:
   hdmi_frame_reader_flit
   hdmi_frame_reader_mode
   hdmi_frame_reader_config
-  hdmi_frame_reader_design
+  hdmi_frame_reader_program

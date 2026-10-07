@@ -1,11 +1,11 @@
 #lang rhodium
-// Materializes the standard ten-state counter and its readable Verilog reference.
+/* Materializes the standard ten-state counter and its readable Verilog reference. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/counter.rhdl") open
 
-def design = elaborate(Counter(10))
+def program = elaborate(Counter(10))
 
 def verilog_reference = @str|<<{
 module Counter(
@@ -34,5 +34,5 @@ endmodule
 }>>|
 
 export:
-  design
+  program
   verilog_reference

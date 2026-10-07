@@ -2,6 +2,8 @@
 /* Captures passive hart outcomes and environmental inputs for native instruction ownership. */
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../cores/cache/protocol.rhdl" open
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   "vector.rhdl".rv5stage_cosim_vector
@@ -72,7 +74,7 @@ dpi_import procedure rhodium_rv5stage_fp(
 /* Build the simulation-owned adapter from detached profile and remapped tap types. */
 fun rv5stage_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
   def profile :: RV5StageConfig = configuration["profile"]
-  elaborate_with_top(RV5StageCosimObserver(profile, types, instance))
+  compile_program(elaborate(RV5StageCosimObserver(profile, types, instance)), rtl_target).report.elaboration
 
 /* Reports pre-edge facts without observation state or functional feedback. */
 sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, instance :: Nat):

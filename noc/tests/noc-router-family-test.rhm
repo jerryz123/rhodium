@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../rhodium/core/main.rhm" open
   "../../noc/model/main.rhm" open
   "../../noc/plan/main.rhm" open
@@ -10,13 +12,15 @@ import:
   "../../noc/examples/router-family.rhm" as model_fixture
   "../../noc/rtl/tests/router-family-fixture.rhdl" as rtl_fixture
 
+def rtl_fixture_design = compile_program(rtl_fixture.program, rtl_target).report.design
+
 def family = model_fixture.router_family_plan
 def decoder = rtl_fixture.config.route_decoder
 def buffered_config = compile_simple_router_family(family, ~input_buffer_depth: 4)
-def top = rtl_fixture.design.modules.find(
+def top = rtl_fixture_design.modules.find(
   fun (module_def): module_def.name == "RouterFamilyFixture"
 )
-def router = rtl_fixture.design.modules.find(
+def router = rtl_fixture_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFamily"
 )
 def router_instances = top.operations.filter(
@@ -69,10 +73,10 @@ check:
   ]
   (for all (instance in router_instances):
      instance.attribute("module") === router) ~is #true
-  rtl_fixture.design.modules.filter(
+  rtl_fixture_design.modules.filter(
     ~keep: fun (module_def): module_def.name.starts_with("SimpleRouterFamily")
   ).length() ~is 1
-  verify_design(rtl_fixture.design) ~is #void
+  verify_design(rtl_fixture_design) ~is #void
 
 check:
   compile_router_family_route_decoder("not a family") ~throws "RouterFamilyPlan"

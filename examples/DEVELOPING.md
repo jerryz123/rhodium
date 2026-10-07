@@ -31,9 +31,9 @@ package README defines the public contract; the example demonstrates it.
    comment and keep the example import path public.
 3. Add the example to the matching catalog section in [README.md](README.md)
    and to the owning example target in the root [`Makefile`](../Makefile).
-4. If the program exports a concrete design, add or update its manifest entry
+4. If the example exports an elaborated program, add or update its manifest entry
    in [`../tools/testing/circt/run.sh`](../tools/testing/circt/run.sh). Generic
-   circuit generators need a concrete elaboration before they can own one exact
+   circuit generators need an explicit elaboration before they can own one exact
    reference.
 5. Run the owning example group before the complete non-formal catalog.
 
@@ -42,9 +42,14 @@ Keep valid authoring programs here. Intentional frontend failures belong under
 backend-only integration shapes belong under the owning package's `tests/circt/`
 directory as described in the [CIRCT guide](../tools/testing/circt/DEVELOPING.md).
 
+Export `program = elaborate(...)` for compilation. The backend runner selects
+the target; graph-inspection tests compile with `rtl_target`. Keep concrete
+graphs in examples only when concrete IR inspection, transformation, or physical
+annotation is what the example demonstrates.
+
 ## Maintain generated Verilog
 
-Concrete example designs colocate their exact generated-Verilog reference with
+Elaborated example programs colocate their exact generated-Verilog reference with
 the authoring source so a reviewer can see both sides of an intentional output
 change. The backend manifest owns export names, CIRCT grouping, optional
 Verilator tops, and reference eligibility.

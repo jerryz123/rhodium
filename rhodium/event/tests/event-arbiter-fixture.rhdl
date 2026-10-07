@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventArbiterNetwork(mode :: Nat, direct :: Boolean = #false):
@@ -175,13 +177,13 @@ sync_circuit EventPartialSelection():
   def annotated = sources[0] |> trace_event("input", ~payload: #true)
   Array(annotated, sources[1]) |> arbiter() |> trace_event("output", ~payload: #true) |> sink
 
-def arbitrated = elaborate_with_top(EventArbiter())
-fun bad_width(): elaborate_with_top(EventBadSelectionWidth())
-fun duplicate_controls(): elaborate_with_top(EventDuplicateSelection())
-fun missing_controls(): elaborate_with_top(EventMissingSelection())
-fun mismatched_instance(): elaborate_with_top(EventMismatchedSelection())
-fun bad_shape(): elaborate_with_top(EventSelectionShape())
-fun partial(): elaborate_with_top(EventPartialSelection())
+def arbitrated = elaborate(EventArbiter())
+fun bad_width(): compile_program(elaborate(EventBadSelectionWidth()), rtl_target).report.elaboration
+fun duplicate_controls(): compile_program(elaborate(EventDuplicateSelection()), rtl_target).report.elaboration
+fun missing_controls(): compile_program(elaborate(EventMissingSelection()), rtl_target).report.elaboration
+fun mismatched_instance(): compile_program(elaborate(EventMismatchedSelection()), rtl_target).report.elaboration
+fun bad_shape(): compile_program(elaborate(EventSelectionShape()), rtl_target).report.elaboration
+fun partial(): compile_program(elaborate(EventPartialSelection()), rtl_target).report.elaboration
 
 export:
   arbitrated

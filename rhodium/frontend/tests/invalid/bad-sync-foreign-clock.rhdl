@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects a clocked effect in a sync circuit that uses a second clock input.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ sync_circuit ForeignClockedState():
   reg state(Bits(1), ~clock: other_clock)
   state <== state
 
-def design = elaborate(ForeignClockedState())
+elaborate(ForeignClockedState())

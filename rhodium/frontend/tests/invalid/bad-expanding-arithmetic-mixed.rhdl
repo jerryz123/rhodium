@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects expanding multiplication between unsigned Bits and signed arithmetic.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,4 +10,4 @@ circuit BadExpandingArithmeticMixed():
 
   result <== left *& right
 
-def design = elaborate(BadExpandingArithmeticMixed())
+elaborate(BadExpandingArithmeticMixed())

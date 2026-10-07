@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Constructs the enum state machine with its explicit two-bit representation.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -19,7 +24,7 @@ circuit StateMachine():
     current <== idle
   state_out <== current
 
-def design = elaborate(StateMachine())
+def design = compile_program(elaborate(StateMachine()), rtl_target).report.design
 
 export:
   StateMachine

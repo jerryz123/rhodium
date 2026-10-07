@@ -1,6 +1,7 @@
 #lang rhodium
-// Demonstrates literal and runtime composition of nested tagged-union values.
+/* Demonstrates literal and runtime composition of nested tagged-union values. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 tagged_union InnerMessage:
   Empty
@@ -14,6 +15,7 @@ def nested_literal = OuterMessage.Nested(
   InnerMessage.Word(bits(0x3C, 8))
 )
 
+/* Exposes nested_word_valid, nested_word, rebuilt for this nested tagged union example. */
 circuit NestedTaggedUnion():
   input message: OuterMessage
   input word: Bits(8)
@@ -27,7 +29,7 @@ circuit NestedTaggedUnion():
   nested_word <== inner.payload
   rebuilt <== OuterMessage.Nested(InnerMessage.Word(word))
 
-def design = elaborate(NestedTaggedUnion())
+def program = elaborate(NestedTaggedUnion())
 
 def verilog_reference = @str|<<{
 module NestedTaggedUnion(
@@ -49,5 +51,5 @@ export:
   OuterMessage
   nested_literal
   NestedTaggedUnion
-  design
+  program
   verilog_reference

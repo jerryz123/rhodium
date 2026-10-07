@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Keeps Endpoint.of exact when an interface family declares relaxed connection compatibility.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -22,4 +23,4 @@ circuit BadInterfaceExactSpecialization():
   require_exact(source)
   #void
 
-def design = elaborate(BadInterfaceExactSpecialization())
+elaborate(BadInterfaceExactSpecialization())

@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus.bits.(<<) as <<
   rhombus.bits.(>>) as >>
   lib("rhodium/std/decode.rhdl") open
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -43,9 +45,9 @@ import:
   "../decode/fence-ctrl.rhdl" as fence_controls
   "../decode/core-ctrl.rhdl" as controls
 
-def design = embedded.run_elaboration(fun (): controls.RV5StageInstructionDecoder(XLen.X64))
+def design = compile_program(elaborate(controls.RV5StageInstructionDecoder(XLen.X64)), rtl_target).report.design
 def module_def = design.modules[0]
-def rv32_design = embedded.run_elaboration(fun (): controls.RV5StageInstructionDecoder(XLen.X32))
+def rv32_design = compile_program(elaborate(controls.RV5StageInstructionDecoder(XLen.X32)), rtl_target).report.design
 def rv32_module = rv32_design.modules[0]
 fun control_for(cases, name):
   def instruction = RV64I.find(name)
@@ -480,6 +482,4 @@ check:
          "floating_point_valid", "floating_point", "vector"]
   type_equal(rv32_module.find_output("control").type,
              controls.RV5StageControl()) ~is #true
-  embedded.run_elaboration(
-    fun (): controls.RV5StageInstructionDecoder(64)
-  ) ~throws "XLen"
+  elaborate(controls.RV5StageInstructionDecoder(64)) ~throws "XLen"

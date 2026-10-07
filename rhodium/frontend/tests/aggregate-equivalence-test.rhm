@@ -3,12 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/lop/bundle-kernel.rhdl" as bundle_kernel
   "../../../examples/lop/bundle-standard.rhdl" as bundle_standard
   "../../../examples/lop/interface-records.rhdl" as interface_records
   "../../../examples/rtl/interface.rhdl" as interface_standard
 
+def bundle_kernel_design = compile_program(bundle_kernel.program, rtl_target).report.design
+def bundle_standard_design = compile_program(bundle_standard.program, rtl_target).report.design
+def interface_records_design = compile_program(interface_records.program, rtl_target).report.design
+def interface_standard_design = compile_program(interface_standard.program, rtl_target).report.design
+
 check:
-  dump_ir(bundle_standard.design) ~is dump_ir(bundle_kernel.design)
-  dump_ir(interface_standard.design) ~is dump_ir(interface_records.design)
+  dump_ir(bundle_standard_design) ~is dump_ir(bundle_kernel_design)
+  dump_ir(interface_standard_design) ~is dump_ir(interface_records_design)

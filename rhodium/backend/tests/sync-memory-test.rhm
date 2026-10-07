@@ -3,10 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/backend/circt.rhm" open
   "../../../examples/rtl/sync-memory.rhdl" as fixture
 
-def circt = emit_circt(fixture.design)
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def circt = emit_circt(fixture_design)
 
 check:
   circt.contains("seq.firmem 1, 1, undefined, undefined") ~is #true

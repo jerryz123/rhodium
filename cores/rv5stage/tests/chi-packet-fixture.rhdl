@@ -66,7 +66,7 @@ sync_circuit CHIPacketFixture():
   valid_ids <== vec([narrow.valid_id, medium.valid_id, wide.valid_id])
   packet_addresses <== vec([narrow.packet_address, medium.packet_address, wide.packet_address])
 
-def design = elaborate(CHIPacketFixture())
+def program = elaborate(CHIPacketFixture())
 
 export:
-  design
+  program

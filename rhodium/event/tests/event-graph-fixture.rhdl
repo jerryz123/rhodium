@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
   lib("flow/ready-valid-support.rhdl").flow_protocol_type
 
@@ -106,15 +108,15 @@ circuit DuplicateEventLabel():
   sources[0] |> trace_event("duplicate", ~payload: #true) |> sinks[0]
   sources[1] |> trace_event("duplicate", ~payload: #true) |> sinks[1]
 
-def linear = elaborate_with_top(EventLinear())
-def forked = elaborate_with_top(EventFork())
-def merged = elaborate_with_top(EventMerge())
-def valid = elaborate_with_top(EventValid())
-def hierarchical = elaborate_with_top(EventHierarchy())
-def opaque = elaborate_with_top(EventOpaque())
+def linear = compile_program(elaborate(EventLinear()), rtl_target).report.elaboration
+def forked = compile_program(elaborate(EventFork()), rtl_target).report.elaboration
+def merged = compile_program(elaborate(EventMerge()), rtl_target).report.elaboration
+def valid = compile_program(elaborate(EventValid()), rtl_target).report.elaboration
+def hierarchical = compile_program(elaborate(EventHierarchy()), rtl_target).report.elaboration
+def opaque = compile_program(elaborate(EventOpaque()), rtl_target).report.elaboration
 
-fun elaborate_empty_event(): elaborate_with_top(EmptyEventLabel())
-fun elaborate_duplicate_event(): elaborate_with_top(DuplicateEventLabel())
+fun elaborate_empty_event(): compile_program(elaborate(EmptyEventLabel()), rtl_target).report.elaboration
+fun elaborate_duplicate_event(): compile_program(elaborate(DuplicateEventLabel()), rtl_target).report.elaboration
 
 bundle CaptureNested():
   pc: Bits(64)
@@ -212,9 +214,9 @@ sync_circuit InvalidCaptures(kind :: String):
         value(~format: kind): payload.nested.pc
       selected |> sink
 
-def captures = elaborate_with_top(EventCaptures())
-def enum_captures = elaborate_with_top(EnumCaptures())
-fun invalid_captures(kind :: String): elaborate_with_top(InvalidCaptures(kind))
+def captures = compile_program(elaborate(EventCaptures()), rtl_target).report.elaboration
+def enum_captures = compile_program(elaborate(EnumCaptures()), rtl_target).report.elaboration
+fun invalid_captures(kind :: String): compile_program(elaborate(InvalidCaptures(kind)), rtl_target).report.elaboration
 
 export:
   captures

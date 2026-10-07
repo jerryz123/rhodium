@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/rtl/pma.rhdl" open
@@ -16,27 +18,9 @@ import:
 def config = test_params.test_rv5stage_chi_config
 def params = test_params.test_rv5stage_chi_params
 def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true)
-def rv64_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(
-    core_profile.RV5StageConfig(
-      ~xlen: XLen.X64,
-      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~svnapot: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
-      ~mmu_mode: core_profile.RV5StageMmuMode.Sv39,
-      ~data_cache_service_queue_depth: 3
-    ),
-    ~chi: config,
-    ~reset_address: 2
-  )
-)
-def rv32_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)
-)
-def guest_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(
-    core_profile.RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: core_profile.RV5StageMmuMode.Sv39, ~extensions: core_profile.RV5StageExtensions(~svpbmt: #true, ~hypervisor: #true)),
-    ~chi: config, ~reset_address: 0
-  )
-)
+def rv64_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig( ~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~svnapot: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)), ~mmu_mode: core_profile.RV5StageMmuMode.Sv39, ~data_cache_service_queue_depth: 3 ), ~chi: config, ~reset_address: 2 )), rtl_target).report.design
+def rv32_design = compile_program(elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)), rtl_target).report.design
+def guest_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: core_profile.RV5StageMmuMode.Sv39, ~extensions: core_profile.RV5StageExtensions(~svpbmt: #true, ~hypervisor: #true)), ~chi: config, ~reset_address: 0 )), rtl_target).report.design
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def guest = guest_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
@@ -51,9 +35,7 @@ for ([attributes, diagnostic] in [
     RiscvPhysicalMemoryRegion(region.physical.address_set, attributes), region.home
   )])
   check:
-    embedded.run_elaboration(
-      fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: extensions), ~chi: restricted, ~reset_address: 0)
-    ) ~throws diagnostic
+    elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: extensions), ~chi: restricted, ~reset_address: 0)) ~throws diagnostic
 
 // Ziccrse is independent of fetch/AMO advertisements, but still needs LR/SC
 // permission and ordinary idempotent memory. Generic CHI maps allow these PMAs.
@@ -67,9 +49,7 @@ for (attributes in [
   )])
   for (xlen in [XLen.X32, XLen.X64]):
     check:
-      embedded.run_elaboration(
-        fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen, ~extensions: core_profile.RV5StageExtensions(~ziccrse: #true)), ~chi: restricted, ~reset_address: 0)
-      ) ~throws "Ziccrse"
+      elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen, ~extensions: core_profile.RV5StageExtensions(~ziccrse: #true)), ~chi: restricted, ~reset_address: 0)) ~throws "Ziccrse"
 
 check:
   params.config === config ~is #true
@@ -85,38 +65,15 @@ check:
   guest.inputs.map(fun (port): port.name) ~is rv64.inputs.map(fun (port): port.name)
   guest.outputs.map(fun (port): port.name) ~is rv64.outputs.map(fun (port): port.name)
   rv32.find_output("dmem_out").type.field("request_data").type.field("bits").type.field("data").type.width ~is 128
-  embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(
-      core_profile.RV5StageConfig(
-        ~xlen: XLen.X32,
-        ~cache_geometry: core_profile.RV5StageCacheGeometry(
-          ~instruction: cache.CacheConfig(268435456, 1)
-        )
-      ),
-      ~chi: config,
-      ~reset_address: 0
-    )
-  ) ~throws "VIPT"
-  embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: 64), ~chi: config, ~reset_address: 0)
-  ) ~throws "XLen"
-  embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32), ~chi: config, ~reset_address: 0x100000000)
-  ) ~throws "fit XLEN"
-  embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~compressed: compressed_extensions(CompressedExtension.Zca))), ~chi: config, ~reset_address: 1)
-  ) ~throws "instruction aligned"
+  elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig( ~xlen: XLen.X32, ~cache_geometry: core_profile.RV5StageCacheGeometry( ~instruction: cache.CacheConfig(268435456, 1) ) ), ~chi: config, ~reset_address: 0 )) ~throws "VIPT"
+  elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: 64), ~chi: config, ~reset_address: 0)) ~throws "XLen"
+  elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32), ~chi: config, ~reset_address: 0x100000000)) ~throws "fit XLEN"
+  elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~compressed: compressed_extensions(CompressedExtension.Zca))), ~chi: config, ~reset_address: 1)) ~throws "instruction aligned"
   chi.RiscvHartCHIParams(config, 1, 3) ~throws "distinct"
   chi.RiscvHartCHIParams(config, 128, 3) ~throws "fit"
-  embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64), ~chi: chi.RiscvHartCHIConfig(config.flit, 32, config.regions), ~reset_address: 0)
-  ) ~throws "64-byte CHI cache lines"
+  elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64), ~chi: chi.RiscvHartCHIConfig(config.flit, 32, config.regions), ~reset_address: 0)) ~throws "64-byte CHI cache lines"
 
 for (xlen in [XLen.X32, XLen.X64]):
   check:
-    embedded.run_elaboration(
-      fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen), ~chi: config, ~reset_address: 0x10000000000000000)
-    ) ~throws "fit XLEN"
-    embedded.run_elaboration(
-      fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen), ~chi: config, ~reset_address: 2)
-    ) ~throws "instruction aligned"
+    elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen), ~chi: config, ~reset_address: 0x10000000000000000)) ~throws "fit XLEN"
+    elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen), ~chi: config, ~reset_address: 2)) ~throws "instruction aligned"

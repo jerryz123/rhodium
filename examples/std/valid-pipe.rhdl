@@ -12,8 +12,8 @@ sync_circuit ValidDelay(T :: DataType, stages :: PosInt):
 
   ingress |> valid_pipe(stages) |> egress
 
-def design = elaborate(ValidDelay(Bits(8), 2))
-def capture_always_design = elaborate(ValidPipeAlwaysCapture(Bits(8), 2))
+def program = elaborate(ValidDelay(Bits(8), 2))
+def capture_always_program = elaborate(ValidPipeAlwaysCapture(Bits(8), 2))
 
 def verilog_reference = @str|<<{
 module ValidDelay(
@@ -60,6 +60,6 @@ endmodule
 
 export:
   ValidDelay
-  design
-  capture_always_design
+  program
+  capture_always_program
   verilog_reference

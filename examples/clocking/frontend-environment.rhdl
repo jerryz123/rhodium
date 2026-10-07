@@ -34,7 +34,7 @@ circuit ClockingEnvironment():
   asynchronous_input(asynchronous_pin)
   asynchronous_clocks(destination_clock, source_clock)
 
-def clocked_program = elaborate_program(ClockingEnvironment())
+def clocked_program = elaborate(ClockingEnvironment())
 def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
@@ -83,6 +83,7 @@ endmodule
 }>>|
 
 export:
+  clocked_program
   ClockingEnvironment
   clocked
   design

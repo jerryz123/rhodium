@@ -2,6 +2,7 @@
 // Checks fresh top-aware preparation, occurrence reports, expansion limits, and source preservation.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../program.rhm".compile_program
   "../contracts.rhm" open
   "../rtl.rhm" open
   "../../core/main.rhm" open
@@ -115,3 +116,133 @@ metadata_builder.finish(metadata_top)
 check:
   prepare_rtl(ElaboratedProgram(metadata_design, metadata_top), CompileOptions(), "concrete target") ~throws "unmapped IR reference"
   metadata_design.sealed ~is #false
+
+// Graph inspection uses ordinary target compilation without serializing the IR.
+def calls_before_target = calls
+def inspected = compile_program(program, rtl_target)
+def inspected_again = compile_program(program, rtl_target)
+check:
+  inspected.target ~is "rtl"
+  inspected.artifacts ~is []
+  inspected.has_errors ~is #false
+  inspected.report is_a RTLReport ~is #true
+  inspected.report.design === inspected.report.elaboration.design ~is #true
+  inspected.report.top === inspected.report.elaboration.top ~is #true
+  inspected.manifest.modules ~is first.manifest.modules
+  inspected.manifest.lowerings.map(fun (decision): decision.path) ~is first.manifest.lowerings.map(fun (decision): decision.path)
+  dump_ir(inspected.report.design) ~is dump_ir(first.rtl.design)
+  inspected.report.design.sealed ~is #true
+  inspected.report.top === inspected_again.report.top ~is #false
+  calls ~is calls_before_target + 2
+  dump_ir(design) ~is before
+  design.sealed ~is #false
+  compile_program(program, rtl_target, ~options: CompileOptions(1)) ~throws "expansion limit"
+  compile_program(ElaboratedProgram(bad_design, good), rtl_target) ~throws "has not been finished"
+
+// A prepared-graph consumer shares the supplied graph instead of preparing again.
+def calls_before_reuse = calls
+def reused = rtl_target.plan(first).report()
+check:
+  reused.elaboration === first.rtl ~is #true
+  calls ~is calls_before_reuse
+
+// Allowing structured-only results must not admit a plan with no output at all.
+class MissingOutput(plan :: TargetPlan):
+  implements TargetPlan
+  override method manifest(): plan.manifest()
+  override method emit(): []
+def missing_output = CompilationTarget("missing-output", fun (source, options): MissingOutput(rtl_target.prepare(source, options)))
+check:
+  compile_program(concrete_program, missing_output) ~throws "artifacts or a structured report"
+
+// Native admission is a target-owned predicate over generic definitions. It
+// preserves lazy providers and occurrence provenance without any Rsim adapter.
+fun retain_identity(candidate :: ConstructDefinition): candidate === definition
+def root_program = ElaboratedProgram(Design(), definition, Map.by(===){definition: provider})
+def before_native = calls
+def retained_root = prepare_program(root_program, CompileOptions(), "portable", retain_identity)
+def retained_nested = prepare_program(program, CompileOptions(), "portable", retain_identity)
+def retained_again = prepare_program(program, CompileOptions(), "portable", retain_identity)
+check:
+  calls ~is before_native
+  signature_equal(retained_root.manifest.signature, signature) ~is #true
+  retained_root.manifest.lowerings.map(fun (d): d.path) ~is [[]]
+  retained_root.manifest.lowerings.map(fun (d): d.action) ~is ["native"]
+  retained_nested.manifest.lowerings.map(fun (d): d.path) ~is first.manifest.lowerings.map(fun (d): d.path)
+  retained_nested.manifest.lowerings.map(fun (d): d.action) ~is ["expand", "native", "expand", "native"]
+  retained_nested.graph.top === retained_again.graph.top ~is #false
+  dump_ir(retained_nested.graph.design) ~is dump_ir(retained_again.graph.design)
+  dump_ir(design) ~is before
+  design.sealed ~is #false
+
+def mutable certification_calls = 0
+class ViewMetadata(view :: ConstructInstance || Instance):
+  implements ModuleMetadataPayload
+  override method remap_ir(remap :: Function.of_arity(1)): ViewMetadata(remap(view))
+class Certification(mixed :: Boolean):
+  implements MaterializationCheck
+  override property accepts_retained: mixed
+  override method remap_ir(remap :: Function.of_arity(1)): Certification(mixed)
+  override method check_materialized(module_def :: Module):
+    unless mixed || module_def.design.sealed | error("certification requires concrete RTL")
+    certification_calls := certification_calls + 1
+fun pair_program(~late_check: late_check = #false, ~certification: certification = #false):
+  def builder = Builder(Design())
+  def top = builder.module("Pair")
+  def source = builder.input(top, "source", Bits(8))
+  def wrapper = ConstructDefinition(ConstructIdentity("CheckedWrapper"), [], signature, definition.dependencies)
+  fun wrap(builder :: Builder, selected :: ConstructDefinition):
+    def body = builder.module("Wrapped")
+    def child = builder.construct_instance(body, definition, "inside")
+    builder.drive(child.input("source"), builder.input(body, "source", Bits(8)))
+    builder.drive(builder.output(body, "result", Bits(8)), child.output("result"))
+    builder.finish(body)
+    ExpansionResult(body, Map.by(===){definition: ExpansionProvider(expand, [fun (body): certification_calls := certification_calls + 1])})
+  for (name in ["first", "second"]):
+    def selected = if late_check && name == "second" | wrapper | definition
+    def child = builder.construct_instance(top, selected, name)
+    builder.drive(child.input("source"), source)
+    builder.drive(builder.output(top, name, Bits(8)), child.output("result"))
+    when name == "first" | top.add_metadata("test.view", ViewMetadata(child))
+  when certification | top.add_metadata("test.certification", certification)
+  builder.finish(top)
+  ElaboratedProgram(builder.design, top, Map.by(===){definition: provider, wrapper: ExpansionProvider(wrap)})
+
+def paired = pair_program()
+def pair_before = dump_ir(paired.design)
+def before_pair = calls
+def native_pair = prepare_program(paired, CompileOptions(), "portable", retain_identity)
+def native_view = native_pair.graph.top.metadata_for("test.view")[0].view
+check:
+  calls ~is before_pair
+  native_pair.manifest.lowerings.map(fun (d): d.path) ~is [["first"], ["second"]]
+  native_view is_a ConstructInstance ~is #true
+  native_view.operation.module_def === native_pair.graph.top ~is #true
+  native_view === paired.top.metadata_for("test.view")[0].view ~is #false
+  dump_ir(paired.design) ~is pair_before
+
+def portable_pair = prepare_rtl(paired)
+check:
+  portable_pair.rtl.top.metadata_for("test.view")[0].view is_a Instance ~is #true
+  calls ~is before_pair + 1
+
+// Neither directly supplied nor late-registered body checks may be skipped.
+def checked_root = ElaboratedProgram(Design(), definition, Map.by(===){definition: ExpansionProvider(expand, [fun (body): certification_calls := certification_calls + 1])})
+for (checked_program in [checked_root, pair_program(~late_check: #true), pair_program(~certification: Certification(#false))]):
+  def before_calls = calls
+  def before_checks = certification_calls
+  def result = prepare_program(checked_program, CompileOptions(), "checked", retain_identity)
+  check:
+    calls ~is before_calls + 1
+    certification_calls ~is before_checks + 1
+    (for all (decision in result.manifest.lowerings): decision.action == "expand") ~is #true
+    result.graph.design.sealed ~is #true
+
+// Mixed-aware certification runs on the remapped graph without forcing bodies.
+def before_mixed_calls = calls
+def before_mixed_checks = certification_calls
+def mixed_checked = prepare_program(pair_program(~certification: Certification(#true)), CompileOptions(), "checked", retain_identity)
+check:
+  calls ~is before_mixed_calls
+  certification_calls ~is before_mixed_checks + 1
+  mixed_checked.manifest.lowerings.map(fun (d): d.action) ~is ["native", "native"]

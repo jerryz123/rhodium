@@ -10,7 +10,7 @@ import:
   "../rhodium/lowering/program.rhm".ElaboratedProgram
   "../rhodium/compile/program.rhm".compile_program
   "../rhodium/compile/pipeline.rhm".rtl_pipeline_target
-  "../rhodium/frontend/foundation.rhm".elaborate_with_top
+  "../rhodium/frontend/foundation.rhm".elaborate
   "../socs/configs/selection.rhm" open
   "../socs/configs/resolve.rhm" open
   "../socs/configs/metadata.rhm" open
@@ -47,24 +47,23 @@ def resolved_config = if resolved | resolved.configuration() | #false
 
 /* Build the selected harness from the same resolved configuration used for attestation.
    Preserve an explicit top so compilation never infers scope from module inventory order. */
-fun selected_elaboration(resolved :: ResolvedSoCConfig):
+fun selected_program(resolved :: ResolvedSoCConfig):
   def config = resolved_config
   match resolved.selection.shape
   | SoCShape.Simple:
       def harness = dynamic_require("sims/single-core-soc-harness.rhdl", #'SoCHarness)
       def soc = dynamic_require("socs/single-core-soc/main.rhdl", #'SingleCoreSoC)
-      elaborate_with_top(harness(config.params, soc(config)))
+      elaborate(harness(config.params, soc(config)))
   | SoCShape.Mini:
       def harness = dynamic_require("sims/mini-soc-harness.rhdl", #'SoCHarness)
-      elaborate_with_top(harness(config))
+      elaborate(harness(config))
   | SoCShape.Tiled:
       def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
-      elaborate_with_top(harness(config))
+      elaborate(harness(config))
 
-def elaboration = if resolved | selected_elaboration(resolved) | #false
-def design = if resolved | elaboration.design | dynamic_require(selectors[0], #'design)
-def top = if resolved | elaboration.top | design.find_module_named("SoCHarness")
-unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
+def program :: ElaboratedProgram = if resolved
+| selected_program(resolved)
+| dynamic_require(selectors[0], #'program)
 // Load only the selected backend. All receive the same explicit top and
 // preserve the selected config and harness identity comments.
 def rtl_target = match backend
@@ -79,7 +78,9 @@ def passes = (if cosim | [dynamic_require("sims/cosim/pass.rhm", #'cosim_pass)()
   | []
 )
 def target = if passes.length() > 0 | rtl_pipeline_target(rtl_target, passes) | rtl_target
-def compiled = compile_program(ElaboratedProgram(design, top), target)
+def compiled = compile_program(program, target)
+unless compiled.manifest.top == "SoCHarness"
+| error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
 // Publish sidecars only after the complete compilation succeeds. Frequency is
 // simulator configuration, not an event compiler policy or architectural profile.
 when instrumented

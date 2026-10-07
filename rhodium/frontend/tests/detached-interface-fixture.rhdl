@@ -2,6 +2,8 @@
 // Builds grouped, array, and nested retained boundaries without executing their implementations.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
   lib("rhodium/core/signature.rhm").leaf_paths
 
@@ -108,18 +110,18 @@ sync_circuit WidthTop():
   inst stage(retained)
   ingress |> stage.ingress
 
-fun invalid_connection(): elaborate_program(WidthTop())
+fun invalid_connection(): elaborate(WidthTop())
 
-def program = elaborate_program(Top(retained))
-def array_program = elaborate_program(ArrayTop(array_retained))
-def nested_program = elaborate_program(NestedTop(nested_retained))
+def program = elaborate(Top(retained))
+def array_program = elaborate(ArrayTop(array_retained))
+def nested_program = elaborate(NestedTop(nested_retained))
 def calls_after_connections = [calls, array_calls, nested_calls]
-def eager = elaborate_with_top(Top(#false))
-def array_eager = elaborate_with_top(ArrayTop(#false))
-def nested_eager = elaborate_with_top(NestedTop(#false))
+def eager = compile_program(elaborate(Top(#false)), rtl_target).report.elaboration
+def array_eager = compile_program(elaborate(ArrayTop(#false)), rtl_target).report.elaboration
+def nested_eager = compile_program(elaborate(NestedTop(#false)), rtl_target).report.elaboration
 fun call_count(): calls
-fun ordinary_design(): elaborate_with_top(Top(ordinary))
-fun wrong_program(): elaborate_program(Top(wrong))
+fun ordinary_design(): compile_program(elaborate(Top(ordinary)), rtl_target).report.elaboration
+fun wrong_program(): elaborate(Top(wrong))
 
 circuit Aliases(first_ref, second_ref):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
@@ -129,7 +131,7 @@ circuit Aliases(first_ref, second_ref):
   ingress |> first.ingress
   first.egress |> second.ingress
   second.egress |> egress
-fun aliases(first_ref, second_ref): elaborate_program(Aliases(first_ref, second_ref))
+fun aliases(first_ref, second_ref): elaborate(Aliases(first_ref, second_ref))
 export:
   aliases
   invalid_connection

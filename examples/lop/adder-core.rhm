@@ -1,8 +1,9 @@
 #lang rhombus
-// Builds the reference adder by explicitly importing and using the public core Builder API.
+/* Builds the reference adder by explicitly importing and using the public core Builder API. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   "../../rhodium/core/main.rhm" open
 
 def design = Design()
@@ -14,7 +15,7 @@ def sum = builder.output(adder, "sum", Bits(8))
 def result = builder.add(adder, a, b)
 builder.drive(sum, result)
 def finished_adder = builder.finish(adder)
-verify_design(design)
+def program = ElaboratedProgram(design, adder)
 
 def verilog_reference = @str|<<{
 module Adder(
@@ -28,5 +29,6 @@ endmodule
 }>>|
 
 export:
+  program
   design
   verilog_reference

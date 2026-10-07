@@ -14,4 +14,4 @@ circuit BadClockingOutputContract():
   result <== data
   synchronous_input(result, clock)
 
-def clocked = compile_program(elaborate_program(BadClockingOutputContract()), clocking_target())
+def clocked = compile_program(elaborate(BadClockingOutputContract()), clocking_target())

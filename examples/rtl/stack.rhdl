@@ -1,7 +1,9 @@
 #lang rhodium
-// Implements a host-sized 32-bit stack with async-read memory and registered output.
+/* Implements a host-sized 32-bit stack with async-read memory and registered output. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Exposes data_out for this stack example. */
 sync_circuit Stack(depth :: PosInt):
 
   def address_width = index_width(depth)
@@ -37,7 +39,7 @@ sync_circuit Stack(depth :: PosInt):
 
   data_out <== out
 
-def design = elaborate(Stack(4))
+def program = elaborate(Stack(4))
 
 def verilog_reference = @str|<<{
 module Stack(
@@ -84,5 +86,5 @@ endmodule
 
 export:
   Stack
-  design
+  program
   verilog_reference

@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates typed synthesis freedom and Pattern-selected fixed output bits.
+/* Demonstrates typed synthesis freedom and Pattern-selected fixed output bits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,7 @@ def partial = Pattern(
   ~care: literal(Pair(), 0xF0)
 )
 
+/* Exposes raw, typed, patterned for this dont care example. */
 circuit DontCare():
   output raw: Bits(8)
   output typed: Pair()
@@ -24,7 +25,7 @@ circuit DontCare():
   typed <== dont_care(Pair())
   patterned <== pattern_value(partial)
 
-def design = elaborate(DontCare())
+def program = elaborate(DontCare())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -48,5 +49,5 @@ export:
   Pair
   partial
   DontCare
-  design
+  program
   verilog_reference

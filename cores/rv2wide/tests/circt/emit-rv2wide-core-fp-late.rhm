@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/backend/circt.rhm") open
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/fp-profile.rhm") open
   lib("cores/fp/timing.rhdl") open
   "../../profile.rhm" open
   "../../core.rhdl" open
 
-def design = embedded.run_elaboration(fun (): RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D), ~fp_timing: FpExecutionTiming(3, 5, 4)))
-print(emit_circt(design))
+def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D), ~fp_timing: FpExecutionTiming(3, 5, 4)))
+export program

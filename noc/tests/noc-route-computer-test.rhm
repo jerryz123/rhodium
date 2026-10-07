@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus.bits.(<<) as <<
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/layers/bool.rhm" as bool
@@ -11,6 +13,8 @@ import:
   "../../noc/model/main.rhm" open
   "../../noc/plan/main.rhm" open
   "../../examples/noc/noc-route-computer.rhdl" as fixture
+
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
 
 fun pattern_field(cube, field_name):
   def field = cube.value.fields.find(
@@ -102,7 +106,7 @@ fun masks_match_materialized(route_decoder):
 def source_decoder = fixture.source_decoder
 def middle_decoder = fixture.middle_decoder
 def destination_decoder = fixture.destination_decoder
-def top = fixture.design.modules.find(
+def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "RouteComputerFixture"
 )
 
@@ -111,7 +115,7 @@ fun contains_decode(module_def):
     fun (operation): operation.opcode == "rtl.decode"
   ) != #false
 
-def decode_modules = fixture.design.modules.filter(
+def decode_modules = fixture_design.modules.filter(
   ~keep: contains_decode
 )
 
@@ -202,7 +206,7 @@ check:
         ~keep: fun (operation): operation.opcode == "rtl.record_get"
       ).length()
   ) ~is [3, 3, 3]
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
 
 def isolated_node = NodeId(0)
 def unused_node = NodeId(1)

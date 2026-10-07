@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture using a member of another nominal enum as a mux key.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17,4 +18,4 @@ circuit BadEnumMuxForeignKey():
   next_state <== mux_lookup(state, ~default: State.Idle):
     OtherState.Idle: State.Running
 
-def design = elaborate(BadEnumMuxForeignKey())
+elaborate(BadEnumMuxForeignKey())

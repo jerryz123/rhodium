@@ -1,8 +1,8 @@
 #lang rhombus
-// Emits eager and retained register-state lanes for differential cycle simulation.
+// Defines eager and retained register-state lanes for differential cycle simulation.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../circt.rhm".emit_circt
   "../../../frontend/foundation.rhm".elaborate
   "../../../frontend/tests/retained-state-fixture.rhdl".ComparisonTop
-print(emit_circt(elaborate(ComparisonTop())))
+def program = elaborate(ComparisonTop())
+export program

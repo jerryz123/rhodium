@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates reset-suppressed assertions with branch-derived activation guards.
+/* Demonstrates reset-suppressed assertions with branch-derived activation guards. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Demonstrates reset-suppressed assertions with branch-derived activation guards. */
 sync_circuit Assertions():
   input always_condition: Bool
   input request: Bool
@@ -11,7 +13,7 @@ sync_circuit Assertions():
   when request:
     assert(request_condition, "request_holds")
 
-def design = elaborate(Assertions())
+def program = elaborate(Assertions())
 
 def verilog_reference = @str|<<{
 module Assertions(
@@ -35,5 +37,5 @@ endmodule
 
 export:
   Assertions
-  design
+  program
   verilog_reference

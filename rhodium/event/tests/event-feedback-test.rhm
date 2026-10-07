@@ -2,9 +2,13 @@
 // Checks cyclic inference, preserved originals, capacity bounds, and bypass rejection.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/event/main.rhm" open
   "../../../rhodium/backend/circt.rhm".emit_circt
   "event-feedback-fixture.rhdl" as fixture
+
+def fixture_branching_rtl = compile_program(fixture.branching, rtl_target).report.elaboration
 
 def logical = fixture.feedback()
 def before = emit_circt(logical.design)
@@ -19,7 +23,7 @@ check:
   instrument_events(fixture.feedback(~split: #true)).manifest.dependencies.length() ~is 2
   instrument_events(fixture.unsafe_feedback()) ~throws "uncertified fanout"
 
-def branches = instrument_events(fixture.branching)
+def branches = instrument_events(fixture_branching_rtl)
 def joined = instrument_events(fixture.paired)
 check:
   branches.manifest.dependencies.length() ~is 8

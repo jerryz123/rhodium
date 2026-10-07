@@ -3,13 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../rhodium/backend/circt.rhm".emit_circt
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../spike.rhdl".SpikeCore
   "params.rhdl" open
 
-def design = embedded.run_elaboration(
-  fun (): SpikeCore(test_spike_config, ~reset_address: 0x1000,
-                    ~chi: test_spike_chi_config)
-)
-print(emit_circt(design))
+def program = elaborate(SpikeCore(test_spike_config, ~reset_address: 0x1000, ~chi: test_spike_chi_config))
+print(compile_program(program, circt_target).artifacts[0].content)

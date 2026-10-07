@@ -57,7 +57,7 @@ sync_circuit CHISnpNoCFixture():
   (second_target.egress |> queue(1) |> chi_snp_noc_eject(second_config)) <=> snoops[1]
   second_target.available <== second_target.egress.ready
 
-def snp_noc_design = elaborate(CHISnpNoCFixture())
+def snp_noc_program = elaborate(CHISnpNoCFixture())
 
 export:
   snp_noc_flit
@@ -72,4 +72,4 @@ export:
   snp_noc_adapter
   snp_noc_router_config
   CHISnpNoCFixture
-  snp_noc_design
+  snp_noc_program

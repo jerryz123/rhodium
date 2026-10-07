@@ -51,7 +51,7 @@ circuit RiscvCmoFixture():
   translation_permitted <== sv39_permission_valid(raw_pte.into(Sv39Pte()), access, user_mode, supervisor_mode, sum, mxr)
   physical_permitted <== cbo_management_physical_permission(physical)
 
-def design = elaborate(RiscvCmoFixture())
+def program = elaborate(RiscvCmoFixture())
 
 export:
-  design
+  program

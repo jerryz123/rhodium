@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Defines ambient, explicit, and priority-guarded assertions for frontend inspection.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -32,7 +37,7 @@ circuit ExplicitAssertion():
 
   assert(condition, ~clock: clock, ~reset: reset)
 
-def design = elaborate(AmbientAssertions())
+def design = compile_program(elaborate(AmbientAssertions()), rtl_target).report.design
 
 export:
   AmbientAssertions

@@ -45,7 +45,7 @@ sync_circuit HDMIScanoutFixture():
   symbol_valid <== encoder.symbol_valid
   symbols <== encoder.symbols
 
-def design = elaborate(HDMIScanoutFixture())
+def program = elaborate(HDMIScanoutFixture())
 
 export:
-  design
+  program

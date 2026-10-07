@@ -110,6 +110,11 @@ cores. Counter 3 supports mode filtering and overflow interrupts; the
 contracts define their implementation-specific cycle events. The shared ISA
 does not imply equal performance counts between hardware and a functional model.
 
+Named source specializations in `configs/mini-rv5stage-soc.rhdl` and
+`configs/single-core-rv5stage-soc.rhdl` export an elaborated `program`. Pass it
+to a compilation target; consumers needing concrete RTL select
+[`rtl_target`](../rhodium/compile/README.md#targets-and-compatibility).
+
 ### Composition choices
 
 The Make entrypoints accept three independent host-side axes:

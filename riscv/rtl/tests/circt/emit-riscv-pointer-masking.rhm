@@ -1,9 +1,8 @@
 #lang rhombus
-// Emits the reusable explicit-address pointer-masking fixture for CIRCT simulation.
+// Defines the reusable explicit-address pointer-masking fixture for CIRCT simulation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../riscv-pointer-masking-fixture.rhdl".design
+  "../riscv-pointer-masking-fixture.rhdl".program
 
-print(emit_circt(design))
+export program

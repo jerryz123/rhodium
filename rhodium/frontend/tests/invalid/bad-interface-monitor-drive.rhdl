@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects an endpoint monitor that attempts to drive its read-only observation.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -18,4 +19,4 @@ sync_circuit BadInterfaceObservationDrive():
   stream.valid <== Bool(#false)
   drive_observation(stream.observe())
 
-def design = elaborate(BadInterfaceObservationDrive())
+elaborate(BadInterfaceObservationDrive())

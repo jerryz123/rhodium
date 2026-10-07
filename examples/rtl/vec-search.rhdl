@@ -1,9 +1,11 @@
 #lang rhodium
-// Cycles through a host-defined pattern using a registered hardware vector index.
+/* Cycles through a host-defined pattern using a registered hardware vector index. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 def search_pattern = [0, 4, 15, 14, 2, 5, 13]
 
+/* Exposes out for this vec search example. */
 sync_circuit VecSearch():
   output out: Bits(4)
 
@@ -16,7 +18,7 @@ sync_circuit VecSearch():
   // Make that cycle's result explicit instead of relying on undefined access.
   out <== elts.lookup(index, ~default: bits(0, 4))
 
-def design = elaborate(VecSearch())
+def program = elaborate(VecSearch())
 
 def verilog_reference = @str|<<{
 module VecSearch(
@@ -40,5 +42,5 @@ endmodule
 export:
   search_pattern
   VecSearch
-  design
+  program
   verilog_reference

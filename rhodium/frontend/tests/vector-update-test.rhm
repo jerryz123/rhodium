@@ -3,11 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/rtl/vector-update.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
-def register_module = fixture.register_design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+def fixture_register_design = compile_program(fixture.register_program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
+def register_module = fixture_register_design.modules[0]
 
 fun operation_count(opcode):
   module_def.operations.filter(
@@ -23,7 +28,7 @@ check:
   operation_count("rtl.vector_create") ~is 1
   type_equal(module_def.find_output("result").type,
              VectorType(3, Bits(4))) ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
   register_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).length() ~is 1
@@ -38,4 +43,4 @@ check:
   ).length() ~is 1
   type_equal(register_module.find_output("result").type,
              VectorType(3, Bits(4))) ~is #true
-  verify_design(fixture.register_design) ~is #void
+  verify_design(fixture_register_design) ~is #void

@@ -49,7 +49,7 @@ circuit CHIRequestUpdateFixture():
   projector.downstream.dat.response.valid <== Bool(#false)
   projector.downstream.dat.response.bits <== dont_care(CHIDatFlit(p))
 
-def design = elaborate(CHIRequestUpdateFixture())
+def program = elaborate(CHIRequestUpdateFixture())
 
 export:
-  design
+  program

@@ -1,17 +1,15 @@
 #lang rhombus
-// Emits CIRCT MLIR for the RV32 specialization of RV5Stage's data cache.
+// Defines a program for the RV32 specialization of RV5Stage's data cache.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../memory-context.rhdl" open
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../../cache/geometry.rhdl" open
   "../../../cache/l1d/cache.rhdl" as cache
   "../../../../cores/rv5stage/tests/params.rhdl" as test_params
 
-def design = embedded.run_elaboration(
-  fun (): cache.L1DCache(XLen.X32, CacheConfig(4, 1), ~chi: test_params.test_rv5stage_chi_config, ~service_queue_depth: 1, ~context: RV5StageMemoryContext(8))
+def program = elaborate(cache.L1DCache(XLen.X32, CacheConfig(4, 1), ~chi: test_params.test_rv5stage_chi_config, ~service_queue_depth: 1, ~context: RV5StageMemoryContext(8))
 )
-print(emit_circt(design))
+export program

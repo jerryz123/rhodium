@@ -1,10 +1,10 @@
 #lang rhombus
-// Emits the scheduled shared FP service without elastic completion storage.
+// Defines the scheduled shared FP service without elastic completion storage.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../rhodium/backend/circt.rhm" open
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../service-fixture.rhdl" open
 
-print(emit_circt(embedded.run_elaboration(fun (): FpServiceFixture(~scheduled_writeback: #true))))
+def program = elaborate(FpServiceFixture(~scheduled_writeback: #true))
+export program

@@ -39,5 +39,5 @@ sync_circuit EventFetchSource():
   source.attempts |> attempts
   source.stage1 |> stage1
 
-def traced_fetch_source = elaborate_with_top(EventFetchSource())
+def traced_fetch_source = elaborate(EventFetchSource())
 export traced_fetch_source

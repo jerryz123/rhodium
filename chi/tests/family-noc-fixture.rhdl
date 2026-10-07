@@ -120,7 +120,7 @@ sync_circuit CHIFamilyNoCFixture():
   def target_plane = CHINoCPlane(target.ingress, target.target)
   target_plane.eject(request_out, family_ejection.target_index, adapter.chi_req_noc_family_eject(family_ejection, target.site_key))
 
-def family_noc_design = elaborate(CHIFamilyNoCFixture())
+def family_noc_program = elaborate(CHIFamilyNoCFixture())
 
 def other_topology = topology:
   node xbar
@@ -150,5 +150,5 @@ export:
   family_noc_source_middle
   family_noc_middle_target
   CHIFamilyNoCFixture
-  family_noc_design
+  family_noc_program
   other_router_family

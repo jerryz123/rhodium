@@ -1,15 +1,17 @@
 #lang rhodium
-// Showcases an imported hardware library and recursive host-generated structure.
+/* Showcases an imported hardware library and recursive host-generated structure. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "add-pair.rhm" open
 
+/* Builds the requested number of add stages during host elaboration. */
 circuit LayeredAdder(width :: PosInt, stages :: Nat):
   input(a, b): Bits(width)
   input bypass: Bool
   output sum: Bits(width)
 
+  /* Recursively constructs the remaining fixed-width add stages. */
   fun add_stages(remaining :: Nat, value :: Bits(width)):
     if (remaining == 0)
     | value
@@ -18,7 +20,7 @@ circuit LayeredAdder(width :: PosInt, stages :: Nat):
   def staged_sum = add_stages(stages, a)
   sum <== mux(bypass, a, staged_sum)
 
-def design = elaborate(LayeredAdder(8, 3))
+def program = elaborate(LayeredAdder(8, 3))
 
 def verilog_reference = @str|<<{
 module LayeredAdder(
@@ -34,5 +36,5 @@ endmodule
 
 export:
   LayeredAdder
-  design
+  program
   verilog_reference

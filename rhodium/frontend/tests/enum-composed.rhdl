@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/layers/comb.rhm") open
   lib("rhodium/frontend/layers/sequential.rhm") open
   lib("rhodium/frontend/layers/enum.rhm") open
@@ -30,7 +32,7 @@ circuit StateMachine():
       current <== State.Idle
   state_out <== current
 
-def design = elaborate(StateMachine())
+def design = compile_program(elaborate(StateMachine()), rtl_target).report.design
 
 export:
   State

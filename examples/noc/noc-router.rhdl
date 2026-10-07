@@ -1,5 +1,5 @@
 #lang rhodium
-// Builds buffered transit and ejection routers from one validated two-hop NoC.
+/* Builds buffered transit and ejection routers from one validated two-hop NoC. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,11 +16,12 @@ def second = PhysicalLink(LinkId(1), n1, n2, 2)
 def topology = Topology([n0, n1, n2], [first, second])
 def route = RouteClass(RouteClassId(0), n0, n2)
 
+/* Tests whether a virtual channel belongs to the specified physical link. */
 fun on_link(vc :: VCId, link :: PhysicalLink):
   link_id_equal(vc.link_id, link.id)
 
-// Both incoming VCs at the transit router may use either outgoing VC. The
-// allocator must therefore prevent duplication while resolving contention.
+/* Both incoming VCs at the transit router may use either outgoing VC. The
+   allocator must therefore prevent duplication while resolving contention. */
 fun allows(_route_class :: RouteClass,
            origin :: Injection || HeldVC,
            candidate :: VCId):
@@ -44,6 +45,7 @@ def middle_config = compile_simple_router(middle_plan)
 def destination_config = compile_simple_router(destination_plan)
 def Beat = RoutedBeat(Bits(8), middle_config.route_decoder.route_width)
 
+/* Builds buffered transit and ejection routers from one validated two-hop NoC. */
 sync_circuit SimpleRouterFixture():
   interface middle_ingress[2](Decoupled(Beat), ~role: consumer)
   interface middle_egress[2](Decoupled(Beat), ~role: producer)
@@ -62,7 +64,7 @@ sync_circuit SimpleRouterFixture():
     destination_egress[index] <=> destination.target[index].egress
     destination.target[index].available <== destination.target[index].egress.ready
 
-def design = elaborate(SimpleRouterFixture())
+def program = elaborate(SimpleRouterFixture())
 
 export:
   n0
@@ -79,4 +81,4 @@ export:
   destination_config
   Beat
   SimpleRouterFixture
-  design
+  program

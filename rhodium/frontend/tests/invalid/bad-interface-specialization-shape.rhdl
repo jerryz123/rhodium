@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects semantically compatible specializations whose realized wire widths differ.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17,4 +18,4 @@ circuit BadInterfaceSpecializationShape():
   interface sink(WidthLink(2, 16), ~role: producer)
   source <=> sink
 
-def design = elaborate(BadInterfaceSpecializationShape())
+elaborate(BadInterfaceSpecializationShape())

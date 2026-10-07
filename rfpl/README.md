@@ -11,8 +11,9 @@ validated physical-view tree.
 
 Use `#lang rfpl` for the annotation file. The language provides ordinary
 Rhombus plus the RFPL forms documented here. Define the logical hierarchy in
-`#lang rhodium`, finish it with `elaborate_with_top`, and import that result into
-the annotation.
+`#lang rhodium`, elaborate it with `elaborate`, compile it with
+[`rtl_target`](../rhodium/compile/README.md#targets-and-compatibility), and import
+the resulting `.report.elaboration` into the annotation.
 Contributors changing RFPL should read [`DEVELOPING.md`](DEVELOPING.md).
 
 ## Follow the annotation workflow
@@ -20,7 +21,7 @@ Contributors changing RFPL should read [`DEVELOPING.md`](DEVELOPING.md).
 ```mermaid
 flowchart TD
   subgraph Logical["Logical design - Rhodium owns structure and behavior"]
-    Source["#lang rhodium circuits"] --> Elaborate["elaborate_with_top"]
+    Source["#lang rhodium circuits"] --> Elaborate["elaborate → compile_program with rtl_target"]
     Elaborate --> Design["DesignElaboration<br/>verified Design and explicit top Module"]
     Design --> Hierarchy["finished Modules<br/>existing rtl.instance operations"]
   end
@@ -43,7 +44,7 @@ flowchart TD
   Result -. "logical Design only" .-> CIRCT["Rhodium CIRCT backend"]
 ```
 
-1. Elaborate the logical top with `elaborate_with_top`, which supplies the
+1. Use `compile_program(program, rtl_target).report.elaboration`, which supplies the
    verified `Design` and explicit top `Module` required by RFPL.
 2. Select existing direct instances with `child_instance(module, name)` and
    inspect their target modules with `instance_target(instance)`. RFPL never

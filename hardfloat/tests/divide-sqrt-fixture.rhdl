@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../main.rhdl" open
 
 sync_circuit HardFloatDivideSqrt():
@@ -53,10 +55,10 @@ sync_circuit HardFloatDivideSqrt():
   two_bit_out <== two_bit.out.to_ieee()
   two_bit_flags <== two_bit.exception_flags
 
-def design = elaborate(HardFloatDivideSqrt())
-def minimum_design = elaborate(DivSqrtRecFN(FloatFormat(3, 3)))
+def program = elaborate(HardFloatDivideSqrt())
+def minimum_design = compile_program(elaborate(DivSqrtRecFN(FloatFormat(3, 3))), rtl_target).report.design
 
 export:
   HardFloatDivideSqrt
-  design
+  program
   minimum_design

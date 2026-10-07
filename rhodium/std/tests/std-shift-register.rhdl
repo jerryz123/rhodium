@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/shift-register.rhdl").shift_register
 
 bundle Sample():
@@ -78,11 +80,11 @@ sync_circuit BadShiftRegisterEnable():
   shift_register stages(source, 2, ~enable: enable)
   stages
 
-def bundle_design = elaborate(BundleShiftRegister())
-def resetless_design = elaborate(ResetlessShiftRegister())
-def per_stage_design = elaborate(PerStageInitialShiftRegister())
-def dual_design = elaborate(DualShiftRegister())
-def option_design = elaborate(OptionCoverageShiftRegister())
+def bundle_design = compile_program(elaborate(BundleShiftRegister()), rtl_target).report.design
+def resetless_design = compile_program(elaborate(ResetlessShiftRegister()), rtl_target).report.design
+def per_stage_design = compile_program(elaborate(PerStageInitialShiftRegister()), rtl_target).report.design
+def dual_design = compile_program(elaborate(DualShiftRegister()), rtl_target).report.design
+def option_design = compile_program(elaborate(OptionCoverageShiftRegister()), rtl_target).report.design
 
 export:
   Sample

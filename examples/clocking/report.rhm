@@ -5,13 +5,9 @@
 import:
   "../../rhodium/analysis/clocking.rhm" open
   "../../rhodium/compile/program.rhm".compile_program
-  "../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../rtl/sync-counter.rhdl" as counter
 
-def top = counter.design.modules.find(
-  fun (module_def): module_def.name == "CounterTop"
-)
-def compiled = compile_program(ElaboratedProgram(counter.design, top), clocking_target())
+def compiled = compile_program(counter.program, clocking_target())
 def child = compiled.report.design.modules.find(fun (module_def): module_def.name == "Counter")
 def clocking = compiled.report.clocks.find(fun (summary): summary.module_def === child)
 def temporal = compiled.report.summary

@@ -1,10 +1,11 @@
 #lang rhodium
-// Demonstrates packet-locked round-robin arbitration over variable flits.
+/* Demonstrates packet-locked round-robin arbitration over variable flits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Demonstrates packet-locked round-robin arbitration over variable flits. */
 sync_circuit PacketArbitration():
   def Flit = VariableFlit(Bits(8))
   interface ingress[3](Decoupled(Flit), ~role: consumer)
@@ -12,7 +13,7 @@ sync_circuit PacketArbitration():
 
   ingress |> packet_rr_arbiter(flit => flit.tail) |> egress
 
-def design = elaborate(PacketArbitration())
+def program = elaborate(PacketArbitration())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -126,5 +127,5 @@ endmodule
 
 export:
   PacketArbitration
-  design
+  program
   verilog_reference

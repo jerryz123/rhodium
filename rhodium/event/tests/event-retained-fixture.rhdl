@@ -2,6 +2,8 @@
 // Exercises retained transaction ownership, replacement, and arbitration with unannotated traffic.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit Residency(kind :: String):
@@ -17,7 +19,7 @@ sync_circuit Residency(kind :: String):
   unless kind == "missing"
   | describe_interface_retained_storage(resident.fire(), release & occupied, occupied, ~name: "owner")
 
-fun residency(kind :: String = "valid"): elaborate_with_top(Residency(kind))
+fun residency(kind :: String = "valid"): compile_program(elaborate(Residency(kind)), rtl_target).report.elaboration
 export residency
 
 sync_circuit RetainedCell(intrinsic :: Boolean):
@@ -107,8 +109,8 @@ sync_circuit InvalidRetained(kind :: String):
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
 
-fun retained(intrinsic :: Boolean = #true, ~region: region :: String = "region", ~residency: residency :: Boolean = #false): elaborate_with_top(EventRetained(intrinsic, region, residency))
-fun invalid(kind :: String): elaborate_with_top(InvalidRetained(kind))
+fun retained(intrinsic :: Boolean = #true, ~region: region :: String = "region", ~residency: residency :: Boolean = #false): elaborate(EventRetained(intrinsic, region, residency))
+fun invalid(kind :: String): compile_program(elaborate(InvalidRetained(kind)), rtl_target).report.elaboration
 
 // One retained owner may feed different declared outputs, not duplicate observers of one output.
 sync_circuit RetainedOutputs():
@@ -139,7 +141,7 @@ sync_circuit EventRetainedOutputs(duplicate :: Boolean):
   for (index in 0..2):
     owner.attempts[if duplicate | 0 | index] |> valid_pipe(index + 1) |> trace_valid_event("child" ++ to_string(index)) |> sinks[index]
 
-fun multi_output(duplicate :: Boolean = #false): elaborate_with_top(EventRetainedOutputs(duplicate))
+fun multi_output(duplicate :: Boolean = #false): compile_program(elaborate(EventRetainedOutputs(duplicate)), rtl_target).report.elaboration
 export multi_output
 
 // Exercises an explicit causal edge across two otherwise disconnected routes.
@@ -169,7 +171,7 @@ sync_circuit EventTraceEdges(kind :: String = "valid"):
       trace_edge(parent, child, ~scope: "owner")
       trace_edge(parent, sibling, ~scope: "owner")
 
-fun trace_edges(kind :: String = "valid"): elaborate_with_top(EventTraceEdges(kind))
+fun trace_edges(kind :: String = "valid"): compile_program(elaborate(EventTraceEdges(kind)), rtl_target).report.elaboration
 
 // Adjacent named relations attach to opposite views of a shared local link.
 sync_circuit EventContractLinks():
@@ -186,7 +188,7 @@ sync_circuit EventContractLinks():
   source |> trace_event("before") |> input
   output.right |> trace_event("after") |> sink
 
-fun contract_links(): elaborate_with_top(EventContractLinks())
+fun contract_links(): compile_program(elaborate(EventContractLinks()), rtl_target).report.elaboration
 export:
   retained
   invalid

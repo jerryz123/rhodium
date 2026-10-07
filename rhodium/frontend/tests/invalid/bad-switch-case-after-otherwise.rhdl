@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalid fixture placing a hardware switch case after its otherwise clause.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,4 +13,4 @@ circuit BadSwitchCaseAfterOtherwise():
     case 0:
       selected <== bits(1, 1)
 
-def design = elaborate(BadSwitchCaseAfterOtherwise())
+elaborate(BadSwitchCaseAfterOtherwise())

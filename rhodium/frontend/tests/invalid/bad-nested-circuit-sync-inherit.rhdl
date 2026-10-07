@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Invalidly relies on an ordinary nested circuit inheriting its parent's sync domain.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,4 +10,4 @@ sync_circuit Parent():
 
   Child()
 
-def design = elaborate(Parent())
+elaborate(Parent())

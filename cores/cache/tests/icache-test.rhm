@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/xlen.rhm" open
   "../geometry.rhdl" open
   "../l1i/cache.rhdl" as l1i
@@ -17,11 +19,11 @@ import:
 def config = test_params.test_cache_chi_config
 def direct_cache = CacheConfig(8, 1)
 def associative_cache = CacheConfig(8, 2)
-def instruction_design = embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 32))
+def instruction_design = compile_program(elaborate(l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 32)), rtl_target).report.design
 def instruction_cache = instruction_design.modules.find(fun (module_def): module_def.name == "L1ICache")
-def rv32_instruction_design = embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X32, direct_cache, ~chi: config, ~fetch_bits: 32))
+def rv32_instruction_design = compile_program(elaborate(l1i.L1ICache(XLen.X32, direct_cache, ~chi: config, ~fetch_bits: 32)), rtl_target).report.design
 def rv32_instruction_cache = rv32_instruction_design.modules.find(fun (module_def): module_def.name == "L1ICache")
-def wide_design = embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X32, direct_cache, ~chi: config, ~fetch_bits: 64))
+def wide_design = compile_program(elaborate(l1i.L1ICache(XLen.X32, direct_cache, ~chi: config, ~fetch_bits: 64)), rtl_target).report.design
 def wide_cache = wide_design.modules.find(fun (module_def): module_def.name == "L1ICache")
 def instruction_access_type = protocol.InstructionCacheLookup(64, 32)
 def instruction_request_member = instruction_access_type.members.find(
@@ -32,7 +34,7 @@ def instruction_response_member = instruction_access_type.members.find(
 )
 check:
   wide_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 64
-  embedded.run_elaboration(fun (): l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 48)) ~throws "fetch block"
+  elaborate(l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 48)) ~throws "fetch block"
   RiscvHartCHIConfig(
     config.flit,
     64,
@@ -67,9 +69,5 @@ check:
   rv32_instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 32
   scalar_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
   rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 32
-  embedded.run_elaboration(
-    fun (): CacheConfig(3, 1)
-  ) ~throws "Pow2Int"
-  embedded.run_elaboration(
-    fun (): CacheConfig(1, 1)
-  ) ~throws "set count"
+  elaborate(CacheConfig(3, 1)) ~throws "Pow2Int"
+  elaborate(CacheConfig(1, 1)) ~throws "set count"

@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises retained asynchronous-read memory, nested assertions, and scoped control binding.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -62,10 +67,10 @@ sync_circuit MemoryTop(child):
   result_a <== first.read_data
   result_b <== second.read_data
 
-def program = elaborate_program(MemoryTop(reference))
-def nested_program = elaborate_program(MemoryTop(wrapped))
+def program = elaborate(MemoryTop(reference))
+def nested_program = elaborate(MemoryTop(wrapped))
 def calls_after_composition = calls
-def eager = elaborate_with_top(MemoryTop(#false))
+def eager = compile_program(elaborate(MemoryTop(#false)), rtl_target).report.elaboration
 fun call_count(): calls
 
 sync_circuit MemoryComparison():

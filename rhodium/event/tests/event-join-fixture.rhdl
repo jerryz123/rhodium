@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
@@ -104,11 +106,11 @@ sync_circuit EventPartialJoin():
   def left = sources[0] |> trace_event("left", ~payload: #true)
   Array(left, sources[1]) |> zip_flow(a, b => a ^ b) |> trace_event("joined", ~payload: #true) |> sink
 
-def joined = elaborate_with_top(EventJoin())
-fun bad_count(): elaborate_with_top(EventBadJoin(0, #false))
-fun bad_shape(): elaborate_with_top(EventBadJoin(1, #false))
-fun bad_routes(): elaborate_with_top(EventBadJoin(2, #true))
-fun partial(): elaborate_with_top(EventPartialJoin())
+def joined = elaborate(EventJoin())
+fun bad_count(): compile_program(elaborate(EventBadJoin(0, #false)), rtl_target).report.elaboration
+fun bad_shape(): compile_program(elaborate(EventBadJoin(1, #false)), rtl_target).report.elaboration
+fun bad_routes(): compile_program(elaborate(EventBadJoin(2, #true)), rtl_target).report.elaboration
+fun partial(): compile_program(elaborate(EventPartialJoin()), rtl_target).report.elaboration
 export:
   joined
   bad_count

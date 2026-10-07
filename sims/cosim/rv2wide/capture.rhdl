@@ -2,6 +2,8 @@
 /* Captures RV2Wide's dual WB slots, actual deferred writes, CSR boundaries, and translated fragments. */
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   "../../../cores/rv2wide/bundles.rhdl" open
   "../../../cores/rv2wide/profile.rhm".RV2WideConfig
@@ -37,10 +39,10 @@ dpi_import procedure rhodium_rv2wide_physical(
   fragment_response: Bits(64), fragment_response_data: Bits(64)
 )
 
-/* Elaborates the stateless adapter selected by the versioned RV2Wide observation contract. */
+/* Compiles the stateless adapter selected by the versioned RV2Wide observation contract. */
 fun rv2wide_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
   def profile :: RV2WideConfig = configuration["profile"]
-  elaborate_with_top(RV2WideCosimObserver(types, instance, configuration["fp_timing"]))
+  compile_program(elaborate(RV2WideCosimObserver(types, instance, configuration["fp_timing"])), rtl_target).report.elaboration
 
 /* Reports pre-edge facts only; all instruction identities and completion retention live in C++. */
 sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: FpExecutionTiming):

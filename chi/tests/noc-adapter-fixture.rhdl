@@ -64,7 +64,7 @@ sync_circuit CHINoCAdapterFixture():
   (dat_in[1] |> chi_dat_noc_family_inject(family_injection, injection_site)) <=> dat_routed[1]
   (dat_eject[1] |> chi_dat_noc_family_eject(family_ejection, ejection_site)) <=> dat_out[1]
 
-def design = elaborate(CHINoCAdapterFixture())
+def program = elaborate(CHINoCAdapterFixture())
 
 export:
-  design
+  program

@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus.bits.(<<) as <<
   "../../../rhodium/core/main.rhm" open
   "../../../examples/rtl/table.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def table_cast = module_def.operations.find(
   fun (operation):
     operation.opcode == "rtl.cast" && vector_type(operation.results[0].type)
@@ -33,4 +37,4 @@ check:
   table_constant.attribute("value") ~is packed_bytes(for List (i in 0..256): i)
   dynamic_index.operands[1] === module_def.find_input("addr").value ~is #true
   type_equal(dynamic_index.results[0].type, Bits(8)) ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void

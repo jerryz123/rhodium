@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/comb.rhm".bits
   "../../../rhodium/frontend/layers/enum.rhm" as enum
@@ -12,7 +14,10 @@ import:
   "../../../examples/rtl/tagged-union.rhdl" as fixture
   "../../../examples/rtl/nested-tagged-union.rhdl" as nested_fixture
 
-def design = fixture.design
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+def nested_fixture_design = compile_program(nested_fixture.program, rtl_target).report.design
+
+def design = fixture_design
 def module_def = design.modules[0]
 def union_type = fixture.Request
 def tag_type = union_type.tag_type
@@ -25,7 +30,7 @@ def equalities = module_def.operations.filter(
 def concats = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.concat"
 )
-def nested_module = nested_fixture.design.modules[0]
+def nested_module = nested_fixture_design.modules[0]
 check:
   union_type.variants ~is ["Idle", "Read", "Write"]
   union_type.payload_width ~is 16
@@ -70,4 +75,4 @@ check:
   type_equal(nested_module.find_output("nested_word").type, Bits(8)) ~is #true
   type_equal(nested_module.find_output("rebuilt").type,
              nested_fixture.OuterMessage) ~is #true
-  verify_design(nested_fixture.design) ~is #void
+  verify_design(nested_fixture_design) ~is #void

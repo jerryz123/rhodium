@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("chi/main.rhdl") open
   lib("examples/chi/home.rhdl") as home_fixture
   lib("noc/authoring/main.rhm") open
@@ -100,7 +102,7 @@ sync_circuit CHISharedRouterCompositionFixture():
     ~snp: #false
   )
 
-def shared_design = elaborate(CHISharedRouterCompositionFixture())
+def shared_program = elaborate(CHISharedRouterCompositionFixture())
 
 def requester_topology = topology:
   vc_group transport: 1
@@ -253,7 +255,7 @@ sync_circuit CHISplitRouterCompositionFixture():
     ~snp: #false
   )
 
-def split_design = elaborate(CHISplitRouterCompositionFixture())
+def split_design = compile_program(elaborate(CHISplitRouterCompositionFixture()), rtl_target).report.design
 
 export:
   composition_flit
@@ -263,7 +265,7 @@ export:
   shared_router_configs
   shared_attachment
   shared_router_params
-  shared_design
+  shared_program
   requester_compilations
   requester_router_configs
   requester_attachment

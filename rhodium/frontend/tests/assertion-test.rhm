@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "assertion-composed.rhdl" as composed
   "assertion-fixture.rhdl" as fixture
 
@@ -20,9 +22,7 @@ def request_assert = assertions.find(
 )
 def always_guard = ambient.find_operation(always_assert.operands[3].defining_op_id)
 def request_guard = ambient.find_operation(request_assert.operands[3].defining_op_id)
-def priority_design = embedded.run_elaboration(
-  fun (): fixture.PriorityAssertions()
-)
+def priority_design = compile_program(elaborate(fixture.PriorityAssertions()), rtl_target).report.design
 def priority = priority_design.modules[0]
 def priority_assertions = priority.operations.filter(
   ~keep: fun (operation): operation.opcode == "verif.assert"
@@ -40,9 +40,7 @@ def second_guard = priority.find_operation(
 def fallback_guard = priority.find_operation(
   assertion_with_label(priority_assertions, "fallback_holds").operands[3].defining_op_id
 )
-def explicit_design = embedded.run_elaboration(
-  fun (): fixture.ExplicitAssertion()
-)
+def explicit_design = compile_program(elaborate(fixture.ExplicitAssertion()), rtl_target).report.design
 def explicit = explicit_design.modules[0]
 def explicit_assert = explicit.operations.find(
   fun (operation): operation.opcode == "verif.assert"

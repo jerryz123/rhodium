@@ -3,33 +3,41 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/generator-parameters.rhdl" as example
   "generator-parameters.rhdl" as fixture
+
+def example_ordinary_defaults_design = compile_program(example.ordinary_defaults_program, rtl_target).report.design
+def example_ordinary_overrides_design = compile_program(example.ordinary_overrides_program, rtl_target).report.design
+def example_ordinary_typed_defaults_design = compile_program(example.ordinary_typed_defaults_program, rtl_target).report.design
+def example_ordinary_required_keyword_design = compile_program(example.ordinary_required_keyword_program, rtl_target).report.design
+def example_sync_defaults_design = compile_program(example.sync_defaults_program, rtl_target).report.design
+def example_sync_overrides_design = compile_program(example.sync_overrides_program, rtl_target).report.design
+def example_sync_typed_defaults_design = compile_program(example.sync_typed_defaults_program, rtl_target).report.design
 
 fun result_width(design):
   design.modules[0].find_output("result").type.width
 
-def opaque_design = embedded.run_elaboration(
-  fun (): fixture.OpaqueHostParameters()
-)
+def opaque_design = compile_program(elaborate(fixture.OpaqueHostParameters()), rtl_target).report.design
 
 check:
-  result_width(example.ordinary_defaults_design) ~is 9
-  result_width(example.ordinary_overrides_design) ~is 7
-  result_width(example.ordinary_typed_defaults_design) ~is 8
-  result_width(example.ordinary_required_keyword_design) ~is 9
-  result_width(example.sync_defaults_design) ~is 7
-  result_width(example.sync_overrides_design) ~is 8
-  result_width(example.sync_typed_defaults_design) ~is 7
-  verify_design(example.ordinary_defaults_design) ~is #void
-  verify_design(example.ordinary_overrides_design) ~is #void
-  verify_design(example.ordinary_typed_defaults_design) ~is #void
-  verify_design(example.ordinary_required_keyword_design) ~is #void
-  verify_design(example.sync_defaults_design) ~is #void
-  verify_design(example.sync_overrides_design) ~is #void
-  verify_design(example.sync_typed_defaults_design) ~is #void
+  result_width(example_ordinary_defaults_design) ~is 9
+  result_width(example_ordinary_overrides_design) ~is 7
+  result_width(example_ordinary_typed_defaults_design) ~is 8
+  result_width(example_ordinary_required_keyword_design) ~is 9
+  result_width(example_sync_defaults_design) ~is 7
+  result_width(example_sync_overrides_design) ~is 8
+  result_width(example_sync_typed_defaults_design) ~is 7
+  verify_design(example_ordinary_defaults_design) ~is #void
+  verify_design(example_ordinary_overrides_design) ~is #void
+  verify_design(example_ordinary_typed_defaults_design) ~is #void
+  verify_design(example_ordinary_required_keyword_design) ~is #void
+  verify_design(example_sync_defaults_design) ~is #void
+  verify_design(example_sync_overrides_design) ~is #void
+  verify_design(example_sync_typed_defaults_design) ~is #void
   opaque_design.modules.map(fun (module_def): module_def.name) ~is [
     "OpaqueHostParameters",
     "ParameterSink",
@@ -40,6 +48,4 @@ check:
     "ParameterSink_5"
   ]
   verify_design(opaque_design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.InvalidKeywordHardwareParameter()
-  ) ~throws "must be a host value, not live hardware"
+  elaborate(fixture.InvalidKeywordHardwareParameter()) ~throws "must be a host value, not live hardware"

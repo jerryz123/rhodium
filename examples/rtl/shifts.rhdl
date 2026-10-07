@@ -1,7 +1,9 @@
 #lang rhodium
-// Demonstrates fixed-width logical shifts with host and hardware amounts.
+/* Demonstrates fixed-width logical shifts with host and hardware amounts. */
 // SPDX-License-Identifier: Apache-2.0
 
+
+/* Demonstrates fixed-width logical shifts with host and hardware amounts. */
 circuit ShiftOps8():
   input value: Bits(8)
   input amount: Bits(3)
@@ -15,7 +17,7 @@ circuit ShiftOps8():
   left_three <== value << 3
   right_three <== value >> 3
 
-def design = elaborate(ShiftOps8())
+def program = elaborate(ShiftOps8())
 
 def verilog_reference = @str|<<{
 module ShiftOps8(
@@ -45,5 +47,5 @@ endmodule
 
 export:
   ShiftOps8
-  design
+  program
   verilog_reference

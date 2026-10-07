@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates a typed aggregate DecodeGen with input and output don't-cares.
+/* Demonstrates a typed aggregate DecodeGen with input and output don't-cares. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -43,6 +43,7 @@ def control_decode = DecodeGen(
   ~default: default_control
 )
 
+/* Exposes alu, write for this decode example. */
 circuit InstructionDecoder():
   input encoded: Bits(5)
   output alu: AluOp
@@ -53,7 +54,7 @@ circuit InstructionDecoder():
   alu <== control.alu
   write <== control.write
 
-def design = elaborate(InstructionDecoder())
+def program = elaborate(InstructionDecoder())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -90,5 +91,5 @@ export:
   Control
   control_decode
   InstructionDecoder
-  design
+  program
   verilog_reference

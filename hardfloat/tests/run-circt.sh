@@ -18,9 +18,10 @@ if [[ -z "$circt_opt" ]]; then
 fi
 
 lower_fixture() {
-  local emitter="$1"
+  local source="$1"
   local stem="$2"
-  tools/run-racket.sh -S "$repo_dir" "$emitter" > "$tmp_dir/$stem.mlir"
+  tools/run-racket.sh -S "$repo_dir" tools/testing/circt/load-example.rhm \
+    materialize "$tmp_dir" program "$stem" "$source" program
   "$circt_opt" --canonicalize --cse \
     --lower-sim-to-sv --lower-verif-to-sv \
     --lower-seq-to-sv='disable-mem-randomization=true disable-reg-randomization=true' \
@@ -30,10 +31,10 @@ lower_fixture() {
 }
 
 cd "$repo_dir"
-lower_fixture hardfloat/tests/emit-hardfloat.rhm hardfloat
-lower_fixture hardfloat/tests/emit-numeric.rhm numeric
-lower_fixture hardfloat/tests/emit-divide-sqrt.rhm divide-sqrt
-lower_fixture hardfloat/tests/emit-divide-sqrt-f64.rhm divide-sqrt-f64
+lower_fixture hardfloat/tests/representation-fixture.rhdl hardfloat
+lower_fixture hardfloat/tests/numeric-fixture.rhdl numeric
+lower_fixture hardfloat/tests/divide-sqrt-fixture.rhdl divide-sqrt
+lower_fixture hardfloat/tests/divide-sqrt-f64-fixture.rhdl divide-sqrt-f64
 
 verilator --binary --timing --assert --build-jobs 0 \
   --top-module hardfloat_representation_tb \

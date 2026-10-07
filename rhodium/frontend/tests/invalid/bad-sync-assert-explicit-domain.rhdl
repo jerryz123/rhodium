@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects explicit assertion controls inside a sync circuit.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ sync_circuit ExplicitAssertionDomain():
   input condition: Bool
   assert(condition, ~clock: other_clock, ~reset: other_reset)
 
-def design = elaborate(ExplicitAssertionDomain())
+elaborate(ExplicitAssertionDomain())

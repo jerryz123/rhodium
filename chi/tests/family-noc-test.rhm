@@ -3,10 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "family-noc-fixture.rhdl" as fixture
   lib("chi/main.rhdl").compile_chi_channel_family_adapter_plan
   lib("noc/plan/main.rhm").RouterFamilyPhysicalPlan
   lib("rhodium/core/main.rhm").verify_design
+
+def fixture_family_noc_design = compile_program(fixture.family_noc_program, rtl_target).report.design
 
 def local_ejection = fixture.family_noc_local_adapters.ejection(
   fixture.family_noc_target.terminal
@@ -14,10 +18,10 @@ def local_ejection = fixture.family_noc_local_adapters.ejection(
 def family_ejection = fixture.family_noc_family_adapters.ejection(
   fixture.family_noc_target.terminal
 )
-def top = fixture.family_noc_design.modules.find(
+def top = fixture_family_noc_design.modules.find(
   fun (module_def): module_def.name == "CHIFamilyNoCFixture"
 )
-def router = fixture.family_noc_design.modules.find(
+def router = fixture_family_noc_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFamily"
 )
 def router_instances = top.operations.filter(
@@ -56,7 +60,7 @@ check:
   router_instances.map(fun (instance): instance.attribute("name")) ~is [
     "source", "middle", "target"
   ]
-  fixture.family_noc_design.modules.filter(
+  fixture_family_noc_design.modules.filter(
     ~keep: fun (module_def): module_def.name.starts_with("SimpleRouterFamily")
   ).length() ~is 1
-  verify_design(fixture.family_noc_design) ~is #void
+  verify_design(fixture_family_noc_design) ~is #void

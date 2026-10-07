@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/comb.rhm" open
   "../../../rhodium/frontend/support/hardware-literal.rhm".HardwareLiteral
   "../../../rhodium/std/decode/pattern-value.rhdl".pattern_value
   "../../../examples/std/dont-care.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def dont_cares = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.dont_care"
 )
@@ -30,6 +34,6 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.or"
   ).length() ~is 1
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
   dont_care(Clock) ~throws "DataType"
   pattern_value(bits(0, 1)) ~throws "Pattern"

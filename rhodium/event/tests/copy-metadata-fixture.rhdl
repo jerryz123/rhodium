@@ -1,6 +1,8 @@
 #lang rhodium
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
   "copy-metadata-support.rhm".observe
 
@@ -30,4 +32,4 @@ sync_circuit MetadataObservedTop():
   observe([left, right])
 
 export make_fixture
-fun make_fixture(): elaborate_with_top(MetadataObservedTop())
+fun make_fixture(): compile_program(elaborate(MetadataObservedTop()), rtl_target).report.elaboration

@@ -2,10 +2,14 @@
 // Checks companion metadata, reserved labels, and conservative stall ancestry.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/event/main.rhm" open
   "event-stall-fixture.rhdl" as fixture
 
-def traced = instrument_events(fixture.stalled)
+def fixture_stalled_rtl = compile_program(fixture.stalled, rtl_target).report.elaboration
+
+def traced = instrument_events(fixture_stalled_rtl)
 def manifest = traced.manifest
 def stalls = manifest.sites.filter(~keep: fun (site): site.kind == "stall")
 def selection = instrument_events(fixture.selected).manifest

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects access to an undeclared hardware-enum member.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,4 +11,4 @@ circuit BadEnumMember():
   output state: State
   state <== State.Missing
 
-def design = elaborate(BadEnumMember())
+elaborate(BadEnumMember())

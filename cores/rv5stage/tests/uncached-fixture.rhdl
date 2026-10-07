@@ -3,17 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../chi/uncached.rhdl" open
   "../memory-router.rhdl" open
   "../instruction-memory-router.rhdl" open
   "params.rhdl" as params
   lib("riscv/isa/xlen.rhm").XLen
 
-def uncached_design = elaborate(RV5StageUncached(XLen.X64,
-                                                 params.test_rv5stage_uncached_config))
-def router_design = elaborate(RV5StageMemoryRouter(XLen.X64,
-                                                   params.test_rv5stage_uncached_config.physical_map))
-def instruction_router_design = elaborate(RV5StageInstructionMemoryRouter(XLen.X64))
+def uncached_design = compile_program(elaborate(RV5StageUncached(XLen.X64,
+                                                 params.test_rv5stage_uncached_config)), rtl_target).report.design
+def router_design = compile_program(elaborate(RV5StageMemoryRouter(XLen.X64,
+                                                   params.test_rv5stage_uncached_config.physical_map)), rtl_target).report.design
+def instruction_router_design = compile_program(elaborate(RV5StageInstructionMemoryRouter(XLen.X64)), rtl_target).report.design
 
 export:
   uncached_design

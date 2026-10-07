@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../flow/main.rhdl" as flow
 
 def sizes = [2, 4, 8, 16]
@@ -14,24 +16,16 @@ fun elaborate_modules(generator):
     generator(size).modules[0]
 
 def matcher_modules = elaborate_modules(
-  fun (size): embedded.run_elaboration(
-    fun (): flow.OutputGreedyRoundRobinMatcher(size, 1)
-  )
+  fun (size): compile_program(elaborate(flow.OutputGreedyRoundRobinMatcher(size, 1)), rtl_target).report.design
 )
 def rr_arbiter_modules = elaborate_modules(
-  fun (size): embedded.run_elaboration(
-    fun (): flow.RRArbiter(Bits(8), size)
-  )
+  fun (size): compile_program(elaborate(flow.RRArbiter(Bits(8), size)), rtl_target).report.design
 )
 def join_modules = elaborate_modules(
-  fun (size): embedded.run_elaboration(
-    fun (): flow.Join(Bits(8), size)
-  )
+  fun (size): compile_program(elaborate(flow.Join(Bits(8), size)), rtl_target).report.design
 )
 def fork_modules = elaborate_modules(
-  fun (size): embedded.run_elaboration(
-    fun (): flow.AtomicFork(Bits(8), size)
-  )
+  fun (size): compile_program(elaborate(flow.AtomicFork(Bits(8), size)), rtl_target).report.design
 )
 
 fun operation_costs(modules):

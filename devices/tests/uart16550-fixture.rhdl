@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("devices/uart/uart16550.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
 
 def flit = CHIFlitParams()
 def config = Uart16550Config(flit, 16)
 def params = Uart16550Params("test-uart", 11, config, 0x10000000)
-def design = elaborate(Uart16550(config))
+def design = compile_program(elaborate(Uart16550(config)), rtl_target).report.design
 
 export:
   flit

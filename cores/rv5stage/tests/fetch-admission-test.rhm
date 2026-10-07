@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/dependencies.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -72,7 +74,7 @@ fun check_dependency(top, output_name, output_path, input_name, input_path, expe
   unless found == expected
   | error(~who: #'fetch_admission, "unexpected combinational dependency: " ++ input_name ++ " -> " ++ output_name)
 
-def fetch = embedded.run_elaboration_with_top(fun (): RV5StageFrontend(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
+def fetch = compile_program(elaborate(RV5StageFrontend(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))), rtl_target).report.elaboration
 for (path in [["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(fetch.top, "memory_out", path, "packets_in", ["ready"])
 check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["active"], #true)
@@ -87,13 +89,13 @@ for (path in [["request", "valid"], ["request", "bits", "address"]]):
     check_dependency(fetch.top, "memory_out", path, "memory_in", ["response", "bits", "response", field])
 check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "memory_in", ["response", "bits", "replay"], #true)
 
-def mmu = embedded.run_elaboration_with_top(fun (): RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map))
+def mmu = compile_program(elaborate(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map)), rtl_target).report.elaboration
 for (path in [["valid"], ["bits"]]):
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_in", ["s1_kill"])
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["response", "bits", "replay"])
 check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_memory_in", ["response", "bits", "replay"])
 
-def cache = embedded.run_elaboration_with_top(fun (): L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config, ~fetch_bits: 32))
+def cache = compile_program(elaborate(L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config, ~fetch_bits: 32)), rtl_target).report.elaboration
 for (path in [["s1_kill"], ["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", path)
 check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"], #true)

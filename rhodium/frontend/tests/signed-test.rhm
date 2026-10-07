@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/standard.rhm" as frontend
   "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
   "../../../examples/rtl/signed-integers.rhdl" as fixture
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 
 fun operations(opcode):
   module_def.operations.filter(
@@ -43,7 +47,7 @@ check:
   operations("rtl.constant").find(
     fun (operation): operation.attribute("value") == 255
   ) != #false ~is #true
-  verify_design(fixture.design) ~is #void
+  verify_design(fixture_design) ~is #void
 
   3 frontend.(<) 4 ~is #true
   4 frontend.(>>) 1 ~is 2

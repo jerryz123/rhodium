@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/core/main.rhm") open
-  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/frontend/layers/bool.rhm") as bool
   "../tlb.rhdl" as tlb
   "../walker.rhdl" as walker
 
-def tlb_design = embedded.run_elaboration(fun (): tlb.RiscvTlb())
+def tlb_design = compile_program(elaborate(tlb.RiscvTlb()), rtl_target).report.design
 def tlb_module = tlb_design.modules[0]
-def walker_design = embedded.run_elaboration(fun (): walker.RiscvPageTableWalker())
+def walker_design = compile_program(elaborate(walker.RiscvPageTableWalker()), rtl_target).report.design
 def walker_module = walker_design.modules[0]
 
 check:

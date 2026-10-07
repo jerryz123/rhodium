@@ -1,11 +1,13 @@
 #lang rhodium
-// Demonstrates explicit DPI procedure effects and result-bearing DPI register state.
+/* Demonstrates explicit DPI procedure effects and result-bearing DPI register state. */
 // SPDX-License-Identifier: Apache-2.0
+
 
 dpi_import procedure rhodium_trace(value: Bits(8))
 dpi_import function rhodium_step(value: Bits(8)) -> result: Bits(8)
 dpi_import function rhodium_step_pair(value: Bits(8)) -> (out doubled: Bits(8), return incremented: Bits(8))
 
+/* Exposes result, doubled for this clocked dpi example. */
 sync_circuit ClockedDPI():
   input enable: Bool
   input value: Bits(8)
@@ -17,6 +19,7 @@ sync_circuit ClockedDPI():
   result <== dpi_incremented
   doubled <== dpi_doubled
 
+/* Exposes result for this clocked dpi example. */
 sync_circuit AlwaysClockedDPI():
   input value: Bits(8)
   output result: Bits(8)
@@ -25,6 +28,7 @@ sync_circuit AlwaysClockedDPI():
   dpi_reg step_result = rhodium_step(value)
   result <== step_result
 
+/* Exposes result for this clocked dpi example. */
 circuit ExplicitClockedDPI():
   input clock: Clock
   input enable: Bool
@@ -35,9 +39,9 @@ circuit ExplicitClockedDPI():
   dpi_reg step_result = rhodium_step(value, ~clock: clock, ~enable: enable)
   result <== step_result
 
-def design = elaborate(ClockedDPI())
-def always_design = elaborate(AlwaysClockedDPI())
-def explicit_design = elaborate(ExplicitClockedDPI())
+def program = elaborate(ClockedDPI())
+def always_program = elaborate(AlwaysClockedDPI())
+def explicit_program = elaborate(ExplicitClockedDPI())
 
 def verilog_reference = @str|<<{
 `ifndef __CIRCT_DPI_IMPORT_RHODIUM_TRACE
@@ -169,9 +173,9 @@ export:
   ClockedDPI
   AlwaysClockedDPI
   ExplicitClockedDPI
-  design
-  always_design
-  explicit_design
+  program
+  always_program
+  explicit_program
   verilog_reference
   always_verilog_reference
   explicit_verilog_reference

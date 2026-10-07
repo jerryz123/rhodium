@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates primitive generators and composable ready-valid handle/sink topologies.
+/* Demonstrates primitive generators and composable ready-valid handle/sink topologies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,6 +17,7 @@ bundle RoutedByte():
   data: Bits(8)
   destination: Bool
 
+/* Demonstrates primitive generators and composable ready-valid handle/sink topologies. */
 circuit MapFlowExample():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   input tag: Bits(4)
@@ -29,9 +30,9 @@ circuit MapFlowExample():
         tag: tag
   ) |> egress
 
-// Filtering consumes rejected offers, while gating leaves disabled offers
-// pending. Both conservatively expose Decoupled outputs after inspecting live
-// sidebands.
+/* Filtering consumes rejected offers, while gating leaves disabled offers
+   pending. Both conservatively expose Decoupled outputs after inspecting live
+   sidebands. */
 circuit FilterFlowExample():
   interface ingress(Irrevocable(Bits(8)), ~role: consumer)
   input keep: Bool
@@ -39,6 +40,7 @@ circuit FilterFlowExample():
 
   ingress |> filter_flow(payload => keep & or_reduce(payload)) |> egress
 
+/* Demonstrates primitive generators and composable ready-valid handle/sink topologies. */
 circuit GateFlowExample():
   interface ingress(Irrevocable(Bits(8)), ~role: consumer)
   input enabled: Bool
@@ -46,17 +48,17 @@ circuit GateFlowExample():
 
   ingress |> gate_flow(enabled) |> egress
 
-// With concrete endpoints on the left, each handle is applied immediately and
-// the final value is the only still-unconnected endpoint.
+/* With concrete endpoints on the left, each handle is applied immediately and
+   the final value is the only still-unconnected endpoint. */
 sync_circuit EndpointFirstTopology():
   interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
   interface egress(Irrevocable(Bits(8)), ~role: producer)
 
   ingress |> rr_arbiter() |> pipe(1) |> egress
 
-// With types on the left, the same operations construct one reusable handle:
-// independently tag two lanes, arbitrate and buffer, atomically fork the
-// winner, then project its fields through independent output paths.
+/* With types on the left, the same operations construct one reusable handle:
+   independently tag two lanes, arbitrate and buffer, atomically fork the
+   winner, then project its fields through independent output paths. */
 sync_circuit FanInProjectTopology():
   interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
   interface data_egress(Irrevocable(Bits(8)), ~role: producer)
@@ -85,9 +87,9 @@ sync_circuit FanInProjectTopology():
          )
   ingress |> path
 
-// Array-shaped inputs can also rendezvous through a heterogeneous zip. The
-// queue makes the offer irrevocable; the payload-only routing and projection
-// stages explicitly preserve that contract.
+/* Array-shaped inputs can also rendezvous through a heterogeneous zip. The
+   queue makes the offer irrevocable; the payload-only routing and projection
+   stages explicitly preserve that contract. */
 sync_circuit ZipRouteTopology():
   interface data_ingress(Decoupled(Bits(8)), ~role: consumer)
   interface destination_ingress(Decoupled(Bool), ~role: consumer)
@@ -109,17 +111,17 @@ sync_circuit ZipRouteTopology():
          )
   Array(data_ingress, destination_ingress) |> path
 
-def rr_arbiter_design = elaborate(RRArbiter(Bits(8), 3))
-def demux_design = elaborate(Demux(Bits(8), 3))
-def join_design = elaborate(Join(Bits(8), 3))
-def broadcast_design = elaborate(Broadcast(Bits(8), 3))
-def atomic_fork_design = elaborate(AtomicFork(Bits(8), 3))
-def flow_map_design = elaborate(MapFlowExample())
-def filter_flow_design = elaborate(FilterFlowExample())
-def gate_flow_design = elaborate(GateFlowExample())
-def endpoint_first_design = elaborate(EndpointFirstTopology())
-def fan_in_project_design = elaborate(FanInProjectTopology())
-def zip_route_design = elaborate(ZipRouteTopology())
+def rr_arbiter_program = elaborate(RRArbiter(Bits(8), 3))
+def demux_program = elaborate(Demux(Bits(8), 3))
+def join_program = elaborate(Join(Bits(8), 3))
+def broadcast_program = elaborate(Broadcast(Bits(8), 3))
+def atomic_fork_program = elaborate(AtomicFork(Bits(8), 3))
+def flow_map_program = elaborate(MapFlowExample())
+def filter_flow_program = elaborate(FilterFlowExample())
+def gate_flow_program = elaborate(GateFlowExample())
+def endpoint_first_program = elaborate(EndpointFirstTopology())
+def fan_in_project_program = elaborate(FanInProjectTopology())
+def zip_route_program = elaborate(ZipRouteTopology())
 
 def rr_arbiter_verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -776,17 +778,17 @@ export:
   EndpointFirstTopology
   FanInProjectTopology
   ZipRouteTopology
-  rr_arbiter_design
-  demux_design
-  join_design
-  broadcast_design
-  atomic_fork_design
-  flow_map_design
-  filter_flow_design
-  gate_flow_design
-  endpoint_first_design
-  fan_in_project_design
-  zip_route_design
+  rr_arbiter_program
+  demux_program
+  join_program
+  broadcast_program
+  atomic_fork_program
+  flow_map_program
+  filter_flow_program
+  gate_flow_program
+  endpoint_first_program
+  fan_in_project_program
+  zip_route_program
   rr_arbiter_verilog_reference
   demux_verilog_reference
   join_verilog_reference

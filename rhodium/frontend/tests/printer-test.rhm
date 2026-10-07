@@ -3,14 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../examples/lop/adder-standard.rhdl" as adder_fixture
   "../../../examples/rtl/alu.rhdl" as alu_fixture
   "../../../examples/rtl/width-ops.rhdl" as width_fixture
   "../../../examples/rtl/counter.rhdl" as counter_fixture
 
-def first = dump_ir(adder_fixture.design)
-def second = dump_ir(adder_fixture.design)
+def adder_fixture_design = compile_program(adder_fixture.program, rtl_target).report.design
+def alu_fixture_design = compile_program(alu_fixture.program, rtl_target).report.design
+def width_fixture_design = compile_program(width_fixture.program, rtl_target).report.design
+def counter_fixture_design = compile_program(counter_fixture.program, rtl_target).report.design
+
+def first = dump_ir(adder_fixture_design)
+def second = dump_ir(adder_fixture_design)
 
 check:
   first ~is second
@@ -18,7 +25,7 @@ check:
   first.contains("%v7 = rtl.add %a, %b : bits<8>") ~is #true
   first.contains("rtl.drive &sum, %v7") ~is #true
 
-def counter_ir = dump_ir(counter_fixture.design)
+def counter_ir = dump_ir(counter_fixture_design)
 
 check:
   counter_ir.contains("in %clock: clock") ~is #true
@@ -29,7 +36,7 @@ check:
   counter_ir.contains("rtl.drive &x.next") ~is #true
   counter_ir.contains("rtl.mux_lookup") ~is #true
 
-def alu_ir = dump_ir(alu_fixture.design)
+def alu_ir = dump_ir(alu_fixture_design)
 
 check:
   alu_ir.contains("out &equal: bool") ~is #true
@@ -38,7 +45,7 @@ check:
   alu_ir.contains(" = rtl.cast ") ~is #true
   alu_ir.contains(" = rtl.mux_lookup %op [0:") ~is #true
 
-def width_ir = dump_ir(width_fixture.design)
+def width_ir = dump_ir(width_fixture_design)
 
 check:
   width_ir.contains("%v13 = rtl.concat %a, %b : bits<12>") ~is #true

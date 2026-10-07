@@ -3,17 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/analysis/clocking.rhm" open
   "../../../rhodium/compile/program.rhm".compile_program
   "../../../rhodium/lowering/program.rhm".ElaboratedProgram
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/sync-counter.rhdl" as implicit_fixture
   "../../../examples/lop/counter-composed.rhdl" as composed_example
   "sync-composed.rhdl" as composed_fixture
   "sync-explicit.rhdl" as explicit_fixture
 
-def implicit_design = implicit_fixture.design
+def implicit_fixture_design = compile_program(implicit_fixture.program, rtl_target).report.design
+def composed_example_design = compile_program(composed_example.program, rtl_target).report.design
+
+def implicit_design = implicit_fixture_design
 def top = implicit_design.modules.find(
   fun (module_def): module_def.name == "CounterTop"
 )
@@ -27,14 +31,10 @@ def register = child.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
 
-def resetless_design = embedded.run_elaboration(
-  fun (): implicit_fixture.ResetlessCounter(4)
-)
+def resetless_design = compile_program(elaborate(implicit_fixture.ResetlessCounter(4)), rtl_target).report.design
 def resetless = resetless_design.modules[0]
 
-def override_design = embedded.run_elaboration(
-  fun (): implicit_fixture.ExplicitClockTop(4)
-)
+def override_design = compile_program(elaborate(implicit_fixture.ExplicitClockTop(4)), rtl_target).report.design
 def override_top = override_design.modules.find(
   fun (module_def): module_def.name == "ExplicitClockTop"
 )
@@ -42,9 +42,7 @@ def override_instance = override_top.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
 
-def local_reset_design = embedded.run_elaboration(
-  fun (): composed_fixture.LocalResetCounter()
-)
+def local_reset_design = compile_program(elaborate(composed_fixture.LocalResetCounter()), rtl_target).report.design
 def local_reset_module = local_reset_design.modules[0]
 def local_reset_summary = compile_program(ElaboratedProgram(local_reset_design, local_reset_module), clocking_target()).report.clocks[0]
 def local_reset_register = local_reset_module.operations.find(
@@ -63,9 +61,7 @@ def scoped_reset_cast = local_reset_module.find_operation(
   local_reset_or.operands[1].defining_op_id
 )
 
-def local_reset_child_design = embedded.run_elaboration(
-  fun (): composed_fixture.LocalResetChildTop()
-)
+def local_reset_child_design = compile_program(elaborate(composed_fixture.LocalResetChildTop()), rtl_target).report.design
 def local_reset_child_top = local_reset_child_design.modules.find(
   fun (module_def): module_def.name == "LocalResetChildTop"
 )
@@ -83,9 +79,7 @@ def child_scoped_reset_cast = local_reset_child_top.find_operation(
   child_reset_or.operands[1].defining_op_id
 )
 
-def explicit_nested_design = embedded.run_elaboration(
-  fun (): composed_fixture.ExplicitNestedBoundary()
-)
+def explicit_nested_design = compile_program(elaborate(composed_fixture.ExplicitNestedBoundary()), rtl_target).report.design
 def explicit_nested_parent = explicit_nested_design.modules.find(
   fun (module_def): module_def.name == "ExplicitNestedBoundary"
 )
@@ -99,7 +93,7 @@ def explicit_nested_register = explicit_nested_child.operations.find(
 
 check:
   dump_ir(implicit_design) ~is dump_ir(explicit_fixture.design)
-  dump_ir(composed_example.design) ~is dump_ir(explicit_fixture.design)
+  dump_ir(composed_example_design) ~is dump_ir(explicit_fixture.design)
   top.inputs.map(fun (port): port.name) ~is ["clock", "reset"]
   child.inputs.map(fun (port): port.name) ~is ["clock", "reset"]
   register.operands[0] === child.find_input("clock").value ~is #true

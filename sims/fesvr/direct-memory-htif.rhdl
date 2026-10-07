@@ -1,8 +1,10 @@
 #lang rhodium
-// Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions.
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
@@ -34,8 +36,8 @@ dpi_import function rhodium_htif_tick(
   return exit: Bits(32)
 )
 
-// Keeps the generated DPI signature flat and stable for the C++ boundary.
-// Rhodium designs should normally instantiate FesvrRequester below.
+/* Keeps the generated DPI signature flat and stable for the C++ boundary.
+   Rhodium designs should normally instantiate FesvrRequester below. */
 sync_circuit DirectMemoryHTIF(xlen :: XLen,
                               boot_address_register :: Nat):
   unless boot_address_register mod 8 == 0 && boot_address_register < (1 << 64)
@@ -73,7 +75,7 @@ sync_circuit DirectMemoryHTIF(xlen :: XLen,
   response_ready <== htif_response_ready
   exit <== htif_exit
 
-def design = elaborate(DirectMemoryHTIF(XLen.X64, 0x3000))
+def design = compile_program(elaborate(DirectMemoryHTIF(XLen.X64, 0x3000)), rtl_target).report.design
 
 hardware_enum FesvrCHIState:
   Idle
@@ -84,6 +86,7 @@ hardware_enum FesvrCHIState:
   WriteData
   WriteAwaitComp
 
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 fun checked_fesvr_chi_requester(p :: CHIFlitParams,
                                 node :: CHINodeParams,
                                 home_map :: CHIHomeMap):
@@ -102,6 +105,7 @@ fun checked_fesvr_chi_requester(p :: CHIFlitParams,
     | #void
   p
 
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 fun fesvr_chi_request(p :: CHIFlitParams,
                       address :: Bits(p.request_address_width),
                       write :: Bool,
@@ -131,6 +135,7 @@ fun fesvr_chi_request(p :: CHIFlitParams,
     ~tgt_id: home_node_id
   )
 
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 fun fesvr_chi_snoop_response(p :: CHIFlitParams,
                              node_id :: Nat,
                              snoop :: CHISnpFlit(p)) :~ CHIRspFlit(p):
@@ -153,8 +158,8 @@ fun fesvr_chi_snoop_response(p :: CHIFlitParams,
     tgt_id: snoop.src_id
     qos: snoop.qos
 
-// FESVR never retains a cache line, but its RN-F endpoint still participates
-// in broadcast snooping and the paired DVM protocol.
+/* FESVR never retains a cache line, but its RN-F endpoint still participates
+   in broadcast snooping and the paired DVM protocol. */
 sync_circuit FesvrSnoopResponder(p :: CHIFlitParams, node_id :: Nat):
   interface snoops(Decoupled(CHISnpFlit(p)), ~role: consumer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
@@ -196,6 +201,7 @@ sync_circuit FesvrSnoopResponder(p :: CHIFlitParams, node_id :: Nat):
   elsewhen dvm_second_fire:
     dvm_first_pending <== Bool(#false)
 
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 fun fesvr_chi_write_data(p :: CHIFlitParams,
                          address :: Bits(p.request_address_width),
                          data :: Bits(64),
@@ -229,6 +235,7 @@ bundle FesvrMemoryResponse():
   data: Bits(64)
   status: FesvrMemoryStatus
 
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 fun fesvr_service_support(services :: NonemptyList.of(CHIHomeServiceParams),
                           address :: Bits,
                           last_address :: Bits,
@@ -245,6 +252,7 @@ fun fesvr_service_support(services :: NonemptyList.of(CHIHomeServiceParams),
     (home_id === bits(service.home.node_id, home_id.type.packed_width())) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
   or_reduce(vec(matches))
 
+/* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
                             node :: CHINodeParams,
                             home_map :: CHIHomeMap,
@@ -375,6 +383,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   elsewhen (responses.fire()):
     state <== FesvrCHIState.Idle
 
+/* Exposes exit for this direct memory htif example. */
 sync_circuit FesvrRequester(xlen :: XLen,
                             flit :: CHIFlitParams,
                             node :: CHINodeParams,

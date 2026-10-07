@@ -5,7 +5,7 @@
 import:
   lib("devices/uart/uart-dpi.rhdl").UartDPI
 
-def design = elaborate(UartDPI(7, 1))
+def program = elaborate(UartDPI(7, 1))
 
 export:
-  design
+  program

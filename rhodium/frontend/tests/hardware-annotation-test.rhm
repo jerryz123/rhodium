@@ -4,7 +4,7 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "hardware-annotation-fixture.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
@@ -20,7 +20,7 @@ check:
   type_equal(fixture.Nibble(4), fixture.Nibble(4)) ~is #true
   type_equal(fixture.Nibble(4), fixture.Nibble(5)) ~is #false
   verify_design(fixture.design) ~is #void
-  embedded.run_elaboration(fun (): fixture.WrongWidth()) ~throws "annotation"
-  embedded.run_elaboration(fun (): fixture.WrongBitsCategory()) ~throws "Bits"
-  embedded.run_elaboration(fun (): fixture.WrongPackableCategory()) ~throws "Hardware.packable"
-  embedded.run_elaboration(fun (): fixture.WrongExtensionFamily()) ~throws "annotation"
+  elaborate(fixture.WrongWidth()) ~throws "annotation"
+  elaborate(fixture.WrongBitsCategory()) ~throws "Bits"
+  elaborate(fixture.WrongPackableCategory()) ~throws "Hardware.packable"
+  elaborate(fixture.WrongExtensionFamily()) ~throws "annotation"

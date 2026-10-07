@@ -1,9 +1,9 @@
 #lang rhombus
-// Emits four-byte packed transport with native four-byte VRF rows and SIMD rotation.
+// Defines four-byte packed transport with native four-byte VRF rows and SIMD rotation.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../../cores/rv5stage/tests/vector-packed-fixture.rhdl" open
   "../../../../riscv/isa/xlen.rhm".XLen
-  "../../../../rhodium/frontend/kernel.rhm" as embedded
-  "../../../../rhodium/backend/circt.rhm".emit_circt
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageVectorPackedFixture(8, ~xlen: XLen.X32))))
+  lib("rhodium/frontend/foundation.rhm").elaborate
+def program = elaborate(RV5StageVectorPackedFixture(8, ~xlen: XLen.X32))
+export program

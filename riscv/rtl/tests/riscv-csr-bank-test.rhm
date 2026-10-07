@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "riscv-csr-bank-fixture.rhdl" as fixture
 
-def design = embedded.run_elaboration(fun (): fixture.CsrBankFixture())
+def design = compile_program(elaborate(fixture.CsrBankFixture()), rtl_target).report.design
 def module_def = design.modules[0]
 
 check:
@@ -15,12 +17,6 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).map(fun (operation): operation.attribute("name")) ~is ["stored"]
   verify_design(design) ~is #void
-  embedded.run_elaboration(
-    fun (): fixture.DuplicateCsrBankFixture()
-  ) ~throws "unique"
-  embedded.run_elaboration(
-    fun (): fixture.DuplicateCsrGroupFixture()
-  ) ~throws "unique"
-  embedded.run_elaboration(
-    fun (): fixture.NarrowCsrBankFixture()
-  ) ~throws "Bits(12)"
+  elaborate(fixture.DuplicateCsrBankFixture()) ~throws "unique"
+  elaborate(fixture.DuplicateCsrGroupFixture()) ~throws "unique"
+  elaborate(fixture.NarrowCsrBankFixture()) ~throws "Bits(12)"

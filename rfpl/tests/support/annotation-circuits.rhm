@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Supplies reusable logical hierarchies for invalid RFPL annotation fixtures.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -27,9 +32,9 @@ circuit Other():
   output value_out: Bits(8)
   value_out <== value_in
 
-def pair_logical = elaborate_with_top(Pair())
-def logic_logical = elaborate_with_top(LogicTop())
-def other_logical = elaborate_with_top(Other())
+def pair_logical = compile_program(elaborate(Pair()), rtl_target).report.elaboration
+def logic_logical = compile_program(elaborate(LogicTop()), rtl_target).report.elaboration
+def other_logical = compile_program(elaborate(Other()), rtl_target).report.elaboration
 
 export:
   pair_logical

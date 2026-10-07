@@ -39,8 +39,8 @@ sync_circuit EventFesvr():
   port.response_data |> access.port.response_data
   port.snoops |> access.port.snoops
 
-fun ordinary(): elaborate_with_top(FesvrCHIAccess(p, soc_host_node(1), home_map, physical_map, services))
-fun traced(): elaborate_with_top(EventFesvr())
+fun ordinary(): elaborate(FesvrCHIAccess(p, soc_host_node(1), home_map, physical_map, services))
+fun traced(): elaborate(EventFesvr())
 export:
   ordinary
   traced

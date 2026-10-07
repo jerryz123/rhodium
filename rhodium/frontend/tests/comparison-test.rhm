@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/standard.rhm" as frontend
   "../../../examples/rtl/unsigned-comparisons.rhdl" as comparison_fixture
 
-def module_def = comparison_fixture.design.modules[0]
+def comparison_fixture_design = compile_program(comparison_fixture.program, rtl_target).report.design
+
+def module_def = comparison_fixture_design.modules[0]
 def comparisons = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.ult"
 )
@@ -35,7 +39,7 @@ check:
   module_def.find_output("gt").type ~is frontend.Bool
   module_def.find_output("le").type ~is frontend.Bool
   module_def.find_output("ge").type ~is frontend.Bool
-  verify_design(comparison_fixture.design) ~is #void
+  verify_design(comparison_fixture_design) ~is #void
   3 frontend.(<) 4 ~is #true
   4 frontend.(>) 3 ~is #true
   3 frontend.(<=) 3 ~is #true

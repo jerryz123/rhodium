@@ -119,8 +119,8 @@ circuit CHIFoundationFixture():
   match_middle <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(4, 16)).matches(req_opcode, size)
   match_large <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(32, 64)).matches(req_opcode, size)
 
-def design = elaborate(CHIFoundationFixture())
-def full_design = elaborate(CHIFlitShapeFixture(full_params))
+def program = elaborate(CHIFoundationFixture())
+def full_program = elaborate(CHIFlitShapeFixture(full_params))
 
 export:
   params
@@ -128,5 +128,5 @@ export:
   CHITransferSize
   CHIFlitShapeFixture
   CHIFoundationFixture
-  design
-  full_design
+  program
+  full_program

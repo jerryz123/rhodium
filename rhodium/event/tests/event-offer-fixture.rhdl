@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
 sync_circuit EventOffer():
@@ -29,8 +31,8 @@ sync_circuit InvalidEventOffer(kind :: String):
   | offered |> trace_event("bad", ~when: bad_predicate) |> sink
   | offered |> sink
 
-def offered = elaborate_with_top(EventOffer())
-fun invalid(kind :: String): elaborate_with_top(InvalidEventOffer(kind))
+def offered = elaborate(EventOffer())
+fun invalid(kind :: String): compile_program(elaborate(InvalidEventOffer(kind)), rtl_target).report.elaboration
 export:
   offered
   invalid

@@ -8,7 +8,7 @@ import:
   "../../lowering/program.rhm".ElaboratedProgram
   "../../frontend/tests/program-fixture.rhdl" as fixture
 
-for (program in fixture.programs, eager in fixture.legacy_designs):
+for (program in fixture.programs, eager in fixture.reference_designs):
   def expected = ElaboratedProgram(eager, eager.find_module_named(program.top.name))
   check:
     compile_program(program, circt_target).artifacts[0].content ~is compile_program(expected, circt_target).artifacts[0].content

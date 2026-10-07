@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises constant host-integer shifts alongside dynamic hardware shifts.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -23,7 +28,7 @@ circuit NegativeHostShift():
   output result: Bits(8)
   result <== value << (-1)
 
-def design = elaborate(HostShiftOps())
+def design = compile_program(elaborate(HostShiftOps()), rtl_target).report.design
 
 export:
   HostShiftOps

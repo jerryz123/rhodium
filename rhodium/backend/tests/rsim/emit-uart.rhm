@@ -4,9 +4,8 @@ import:
   rhombus/cmdline open
   lib("racket/base.rkt") as rkt
   lib("racket/file.rkt") as file
-  "uart-fixture.rhdl".design
+  "uart-fixture.rhdl".program
   "../../../core/printer.rhm".dump_ir
-  "../../../lowering/program.rhm".ElaboratedProgram
   "../../../compile/program.rhm".compile_program
   "../../rsim-target.rhm".rsim_target
   "../../verilog-target.rhm".verilog_target
@@ -14,9 +13,8 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[1] in ["native", "differential"]
 | error("expected OUTPUT_DIRECTORY native|differential")
-def before = dump_ir(design)
-def was_sealed = design.sealed
-def program = ElaboratedProgram(design, design.find_module_named("RsimUartPair"))
+def before = dump_ir(program.design)
+def was_sealed = program.design.sealed
 def native = compile_program(program, rsim_target)
 def results:
   if arguments[1] == "native"
@@ -25,7 +23,7 @@ def results:
     unless native.manifest.top == reference.manifest.top && native.manifest.signature == reference.manifest.signature && native.manifest.modules == reference.manifest.modules
     | error("UART compilation target manifests disagree")
     [native, reference]
-unless dump_ir(design) == before && design.sealed == was_sealed | error("UART compilation changed source RTL")
+unless dump_ir(program.design) == before && program.design.sealed == was_sealed | error("UART compilation changed source RTL")
 for (result in results):
   for (artifact in result.artifacts):
     file.#{display-to-file}(artifact.content, rkt.#{build-path}(arguments[0], artifact.name), ~exists: #'#{truncate/replace})

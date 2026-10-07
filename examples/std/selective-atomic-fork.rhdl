@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates payload-selected atomic multicast from a Decoupled source.
+/* Demonstrates payload-selected atomic multicast from a Decoupled source. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,7 @@ bundle MulticastWord():
   destinations: Mask(3)
   data: Bits(8)
 
+/* Demonstrates payload-selected atomic multicast from a Decoupled source. */
 circuit SelectiveFanout():
   interface ingress(Decoupled(MulticastWord()), ~role: consumer)
   interface egress[3](Decoupled(MulticastWord()), ~role: producer)
@@ -18,7 +19,7 @@ circuit SelectiveFanout():
       |> selective_atomic_fork(3, word => word.destinations)
   ) <=> egress
 
-def design = elaborate(SelectiveFanout())
+def program = elaborate(SelectiveFanout())
 
 def verilog_reference = @str|<<{
 `ifndef _TYPESCOPE_rhodium_types
@@ -79,5 +80,5 @@ endmodule
 export:
   MulticastWord
   SelectiveFanout
-  design
+  program
   verilog_reference

@@ -1,4 +1,5 @@
 #lang rhodium
+
 // Rejects binary priority encoding of a non-data hardware clock value.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,4 +9,4 @@ circuit BadPriorityEncoderType():
 
   result <== priority_encoder(source)
 
-def design = elaborate(BadPriorityEncoderType())
+elaborate(BadPriorityEncoderType())

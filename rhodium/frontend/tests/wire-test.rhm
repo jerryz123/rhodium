@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/program.rhm").compile_program
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/bool.rhm" as bool
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/wire.rhdl" as fixture
   "wire-invalid-fixture.rhdl" as invalid
 
-def module_def = fixture.design.modules[0]
+def fixture_design = compile_program(fixture.program, rtl_target).report.design
+
+def module_def = fixture_design.modules[0]
 def wires = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.wire"
 )
@@ -24,11 +28,10 @@ check:
   type_equal(wires[0].results[0].type, VectorType(4, bool.Bool)) ~is #true
   vector_creates.length() ~is 1
   module_def.find_output("sum").place.driver === wires[0].results[0] ~is #true
-  verify_design(fixture.design) ~is #void
-  verify_design(
-    embedded.run_elaboration(fun (): invalid.ForwardWire())
-  ) ~is #void
-  embedded.run_elaboration(fun (): invalid.UndrivenWire()) ~throws "place temporary is undriven"
-  embedded.run_elaboration(fun (): invalid.MultipleWireDrivers()) ~throws "already has a driver"
-  embedded.run_elaboration(fun (): invalid.PartialVectorWire()) ~throws "incomplete element-wise drivers"
-  embedded.run_elaboration(fun (): invalid.MixedVectorWire()) ~throws "cannot mix whole-value and element-wise drivers"
+  verify_design(fixture_design) ~is #void
+  compile_program(elaborate(invalid.ForwardWire()), rtl_target).has_errors ~is #false
+  // Missing drivers are whole-graph verification errors, checked during compilation.
+  compile_program(elaborate(invalid.UndrivenWire()), rtl_target) ~throws "place temporary is undriven"
+  elaborate(invalid.MultipleWireDrivers()) ~throws "already has a driver"
+  elaborate(invalid.PartialVectorWire()) ~throws "incomplete element-wise drivers"
+  elaborate(invalid.MixedVectorWire()) ~throws "cannot mix whole-value and element-wise drivers"

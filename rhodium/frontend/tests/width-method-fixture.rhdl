@@ -1,4 +1,9 @@
 #lang rhodium
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
 // Exercises receiver width extension through precise frontend value producers.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -69,7 +74,7 @@ sync_circuit WidthMethodPropagation():
   concatenated_unsigned <== (unsigned[0..2] ++ unsigned[2..4]).zext(8)
   generic_unsigned <== generic_zext(unsigned, 8)
 
-def design = elaborate(WidthMethodPropagation())
+def design = compile_program(elaborate(WidthMethodPropagation()), rtl_target).report.design
 
 export:
   WidthPair
