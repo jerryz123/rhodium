@@ -10,15 +10,6 @@ import:
   "kernel.rhm".CircuitDefinition
   "kernel.rhm".CircuitDeclaration
   "kernel.rhm".CircuitReference
-  "kernel.rhm".RetainedCircuitReference
-  "kernel.rhm".retained_circuit
-  "kernel.rhm".ConstructIdentity
-  "kernel.rhm".ConstructDefinition
-  "kernel.rhm".retained_call as kernel_retained_call
-  "kernel.rhm".SingleClockState
-  "kernel.rhm".InputLeaf
-  "kernel.rhm".leaf_paths
-  "kernel.rhm".OutputLeafDependency
   "kernel.rhm".PortSignature
   "kernel.rhm".ModuleSignature
   "kernel.rhm".circuit_reference
@@ -59,15 +50,6 @@ export:
   CircuitDefinition
   CircuitDeclaration
   CircuitReference
-  RetainedCircuitReference
-  retained_circuit
-  ConstructIdentity
-  ConstructDefinition
-  retained_call
-  SingleClockState
-  InputLeaf
-  OutputLeafDependency
-  leaf_paths
   PortSignature
   ModuleSignature
   circuit_reference
@@ -280,12 +262,6 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
 
 expr.macro 'elaborate($body)':
   'kernel_run_elaboration(fun (): $body)'
-
-/* Apply a pure retained circuit while preserving ordinary hardware methods on
-   its single result; the kernel owns argument binding and conditional scope. */
-fun retained_call(reference :: RetainedCircuitReference, arguments :: List.of(HardwareFields),
-                  name :: maybe(String) = #false) :~ HardwareFields:
-  kernel_retained_call(reference, arguments, name)
 
 operator (place <== entity):
   ~weaker_than: ~other

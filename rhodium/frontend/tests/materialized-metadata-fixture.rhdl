@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes Flow storage and trace metadata beside a retained combinational child.
+// Composes Flow storage and trace metadata beside a combinational child.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,14 +7,10 @@ import:
   lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
 
-def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
-def definition = ConstructDefinition(ConstructIdentity("MetadataIdentity"), [], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
 circuit MetadataIdentity():
   input source: Bits(8)
   output result: Bits(8)
   result <== source
-
-def retained = retained_circuit(definition, fun (): MetadataIdentity())
 
 sync_circuit MetadataLane():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
@@ -31,7 +27,7 @@ interface MetadataEnvelope():
   producer -> consumer:
     channel: Decoupled(Bits(8))
 
-sync_circuit MetadataTop(retain):
+sync_circuit MetadataTop():
   input identity: Bits(8)
   output result: Bits(8)
   trace_instance("chip", identity)
@@ -48,12 +44,12 @@ sync_circuit MetadataTop(retain):
   first.egress |> egress[0]
   ingress[1] |> second.ingress
   second.egress |> egress[1]
-  inst side(if retain | retained | MetadataIdentity())
+  inst side(MetadataIdentity())
   side.source <== identity
   result <== side.result
 
-def program = elaborate(MetadataTop(#true))
-def eager = compile_program(elaborate(MetadataTop(#false)), rtl_target).report.elaboration
+def program = elaborate(MetadataTop())
+def eager = compile_program(elaborate(MetadataTop()), rtl_target).report.elaboration
 export:
   program
   eager

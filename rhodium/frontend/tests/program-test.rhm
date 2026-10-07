@@ -14,11 +14,11 @@ import:
   "circuit-reference-fixture.rhm" as references
 
 for (program in fixture.programs, concrete in fixture.reference_designs):
-  def rtl = materialize_reachable_rtl(program).rtl
+  def rtl = materialize_reachable_rtl(program)
   check:
     rtl.design === program.design ~is #false
     rtl.top === program.top ~is #false
-    core.dump_ir(rtl.design) ~is core.dump_ir(materialize_reachable_rtl(ElaboratedProgram(concrete, concrete.find_module_named(program.top.name))).rtl.design)
+    core.dump_ir(rtl.design) ~is core.dump_ir(materialize_reachable_rtl(ElaboratedProgram(concrete, concrete.find_module_named(program.top.name))).design)
 
 // Keep this test's recipe counter local: other suites also import the fixture.
 def mutable calls = 0
@@ -33,8 +33,8 @@ check:
   program is_a ElaboratedProgram ~is #true
   program.design.sealed ~is #false
   calls ~is 1
-def rtl = materialize_reachable_rtl(program).rtl
-def again = materialize_reachable_rtl(program).rtl
+def rtl = materialize_reachable_rtl(program)
+def again = materialize_reachable_rtl(program)
 check:
   program.design.sealed ~is #false
   calls ~is 1
@@ -51,7 +51,7 @@ circuit Cycle():
 
 def cyclic = elaborate(Cycle())
 check:
-  materialize_reachable_rtl(cyclic).rtl ~throws "combinational cycle"
+  materialize_reachable_rtl(cyclic) ~throws "combinational cycle"
   compile_program(cyclic, rtl_target) ~throws "combinational cycle"
   cyclic.design.sealed ~is #false
   elaborate(#false) ~throws "did not select a top circuit"

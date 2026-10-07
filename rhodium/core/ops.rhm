@@ -109,8 +109,6 @@ def schemas:
                    ["name"], "data_register_reset", "register_reset"),
    OperationSchema("cdc.sync_level", "metadata", #false, 0, 0,
                    ["promise"], "sync_level_crossing", "sync_level"),
-   OperationSchema("construct.instance", "structural", 0, #false, #false,
-                   ["name", "definition"], "construct_instance", "construct_instance"),
    OperationSchema("rtl.instance", "structural", #false, #false, #false,
                    ["name", "module"], "instance", "instance"),
    OperationSchema("rtl.drive", "structural", 1, 0, 1,

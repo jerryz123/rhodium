@@ -5,7 +5,6 @@ import:
   "../rsim/plan.rhm" open
   "../rsim/array-updates.rhm".compact_array_updates
   "../rsim/cse.rhm".share_scalar_expressions
-  "../../compile/contracts.rhm".CompileOptions
   "../../compile/rtl.rhm".prepare_rtl
   "../rsim-target.rhm".rsim_target
   "rsim/dynamic-fixtures.rhm".make_dynamic
@@ -84,7 +83,7 @@ check: compact_array_updates(wrapped) === wrapped ~is #true
 
 // Exercise the production preparation/scheduling path, including a shared lane
 // consumer and old-state sampling; native/differential fixtures check behavior.
-def prepared = prepare_rtl(make_dynamic(3, #true), CompileOptions(), "array updates")
+def prepared = prepare_rtl(make_dynamic(3, #true))
 def original = share_scalar_expressions(build_schedule(prepared.rtl))
 def plan = rsim_target.plan(prepared)
 check:

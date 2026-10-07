@@ -12,33 +12,30 @@ import:
   "../../lowering/program.rhm" open
   "../../lowering/copy.rhm" open
 
-def mutable expansions = 0
 class Observation(value :: Value):
   implements ModuleMetadataPayload
   override method remap_ir(remap :: Function.of_arity(1)): Observation(remap(value))
 class StageReport(rtl :: DesignElaboration):
   implements CompilationReport
 
-def signature = ModuleSignature([PortSignature("input", Bits(8))], [PortSignature("output", Bits(8))])
-def definition = ConstructDefinition(ConstructIdentity("PipelineIncrement"), [], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
-fun expand(builder :: Builder, selected :: ConstructDefinition):
-  expansions := expansions + 1
+fun make_child(builder :: Builder):
   def child = builder.module("Increment")
   def input = builder.input(child, "input", Bits(8))
   builder.drive(builder.output(child, "output", Bits(8)), builder.add(child, input, builder.constant(child, Bits(8), 1)))
   child.add_metadata("source", Observation(input))
   builder.finish(child)
-  ExpansionResult(child)
+  child
 def design = Design()
 def builder = Builder(design)
+def shared_child = make_child(builder)
 def top = builder.module("PipelineTop")
 def input = builder.input(top, "input", Bits(8))
 for (name in ["left", "right"]):
-  def instance = builder.construct_instance(top, definition, name, Location("pipeline-fixture", 9, 3))
+  def instance = builder.instance(top, shared_child, name, Location("pipeline-fixture", 9, 3))
   builder.drive(instance.input("input"), input)
   builder.drive(builder.output(top, name, Bits(8)), instance.output("output"))
 builder.finish(top)
-def program = ElaboratedProgram(design, top, Map.by(===){definition: ExpansionProvider(expand)})
+def program = ElaboratedProgram(design, top)
 def source_before = dump_ir(design)
 
 // Rebuild this fixture's two branches, specializing each shared leaf occurrence.
@@ -89,31 +86,24 @@ for (backend in [circt_target, verilog_target, rsim_target, rtl_target]):
     calls.add("plan")
     graphs.add(prepared)
     CountedPlan(backend.plan(prepared), calls)
-  def target = RTLTarget(backend.name, backend.expansion_reason, make_plan)
+  def target = RTLTarget(backend.name, make_plan)
   fun pass(tag :: String):
     fun transform(prepared :: PreparedRTL):
       calls.add(tag)
       snapshots.add([prepared.rtl.design, dump_ir(prepared.rtl.design)])
       instrument(prepared, tag)
     RTLPass(tag, transform)
-  def before_expansions = expansions
   def result = compile_program(program, rtl_pipeline_target(target, [pass("first"), pass("second")]))
   def final = graphs[0]
   def backend_artifacts = backend.plan(final).emit()
   def report :: RTLPipelineReport = result.report
   check:
     calls.snapshot() ~is ["first", "second", "plan", "manifest", "report", "diagnostics", "emit"]
-    expansions ~is before_expansions + 1
     result.target ~is backend.name ++ "+first+second"
     result.artifacts.map(fun (artifact): artifact.name) ~is backend_artifacts.map(fun (artifact): artifact.name) ++ ["first.json", "second.json"]
     result.artifacts.take(backend_artifacts.length()) ~is backend_artifacts
     result.diagnostics.map(fun (diagnostic): diagnostic.code) ~is ["first.observed", "second.observed", "backend.note"]
     report.stages.map(fun (stage): stage.name) ~is ["first", "second"]
-    result.manifest.lowerings.map(fun (decision): decision.path) ~is [["left"], ["right"]]
-    result.manifest.lowerings.map(fun (decision): decision.implementation) ~is ["Increment_left_first_left_second", "Increment_right_first_right_second"]
-    result.manifest.lowerings.map(fun (decision): decision.definition === definition) ~is [#true, #true]
-    result.manifest.lowerings.map(fun (decision): decision.location.describe()) ~is ["pipeline-fixture:9:3", "pipeline-fixture:9:3"]
-    result.manifest.lowerings.map(fun (decision): decision.reason) ~is [backend.expansion_reason, backend.expansion_reason]
     result.manifest.modules ~is final.rtl.design.modules.map(fun (module_def): module_def.name)
     dump_ir(design) ~is source_before
     design.sealed ~is #false
@@ -134,28 +124,23 @@ for (backend in [circt_target, verilog_target, rsim_target, rtl_target]):
         check: entry.payload.value.module_def === module_def ~is #true
   check: report.stages[0].findings.rtl.design === final.rtl.design ~is #false
   // Exercise the actual target's prepared-RTL interface, not just the counting
-  // RTLTarget wrapper. Each compilation must expand the shared provider once.
-  def before_direct = expansions
+  // RTLTarget wrapper. Both paths preserve the same artifacts.
   def direct = compile_program(program, rtl_pipeline_target(backend, [pass("first"), pass("second")]))
   check:
     direct.artifacts ~is result.artifacts
-    expansions ~is before_direct + 1
-    direct.manifest.lowerings.map(fun (decision): decision.path) ~is [["left"], ["right"]]
 
 // Pass labels are unique for report lookup; list order is the complete schedule.
-def before_invalid = expansions
 def first = RTLPass("first", fun (prepared): instrument(prepared, "first"))
 check:
   RTLPass("", fun (prepared): prepared) ~throws "pass name"
   rtl_pipeline_target(circt_target, [first, first]) ~throws "duplicate pass"
-  expansions ~is before_invalid
 
 // Failed transformations cannot construct a backend plan or publish partial sidecars.
 def mutable planned = 0
 fun counted_plan(prepared :: PreparedRTL):
   planned := planned + 1
   circt_target.plan(prepared)
-def counted = RTLTarget("counted", "test", counted_plan)
+def counted = RTLTarget("counted", counted_plan)
 def broken = RTLPass("broken", fun (prepared): error("pass failed deliberately"))
 check:
   compile_program(program, rtl_pipeline_target(counted, [first, broken])) ~throws "pass failed deliberately"

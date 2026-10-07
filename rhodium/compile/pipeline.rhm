@@ -16,7 +16,7 @@ export:
   rtl_pipeline_target
 
 /* Names a configured instrumentation callback; callers choose its position explicitly.
-   Owner-specific configuration stays in the closure, outside CompileOptions. */
+   Owner-specific configuration stays in the closure, captured by the callback. */
 class RTLPass(name :: String, transform :: Function.of_arity(1)):
   /* Require a usable label for this pass's findings. */
   constructor (name :: String, transform :: Function.of_arity(1)):
@@ -59,14 +59,8 @@ fun rtl_occurrences(rtl :: DesignElaboration):
 
 /* Refresh physical module names while keeping source occurrence attribution.
    Instrumentation may specialize definitions, but existing instance paths stay fixed. */
-fun pipeline_prepared(rtl :: DesignElaboration, original :: CompileManifest, modules :: Map):
-  def decisions = original.lowerings.map(
-    fun (decision):
-      LoweringDecision(decision.path, decision.definition, decision.action,
-                       decision.reason, modules[decision.path].name,
-                       decision.location, decision.origin)
-  )
-  def manifest = CompileManifest(rtl.top.name, module_signature(rtl.top), rtl.design.modules.map(fun (module_def): module_def.name), decisions)
+fun pipeline_prepared(rtl :: DesignElaboration):
+  def manifest = CompileManifest(rtl.top.name, module_signature(rtl.top), rtl.design.modules.map(fun (module_def): module_def.name))
   PreparedRTL(rtl, manifest)
 
 /* Collect sidecars and findings without invoking transformations during projection.
@@ -98,8 +92,8 @@ fun rtl_pipeline_target(backend :: CompilationTarget && PreparedRTLConsumer, pas
     | error(~who: #'rtl_pipeline_target, "duplicate pass: " ++ pass.name)
     seen.add(pass.name)
   /* Prepare once, verify each transformation, and construct one final backend plan. */
-  fun prepare(program :: ElaboratedProgram, options :: CompileOptions):
-    def initial = prepare_rtl(program, options, backend.expansion_reason)
+  fun prepare(program :: ElaboratedProgram):
+    def initial = prepare_rtl(program)
     def mutable current = initial
     def mutable modules = rtl_occurrences(initial.rtl)
     def results = MutableList[]
@@ -112,7 +106,7 @@ fun rtl_pipeline_target(backend :: CompilationTarget && PreparedRTLConsumer, pas
       for (path in modules.keys()):
         unless next_modules.has_key(path)
         | error(~who: #'rtl_pipeline_target, "instrumentation must preserve existing instance paths")
-      current := pipeline_prepared(result.rtl, initial.manifest, next_modules)
+      current := pipeline_prepared(result.rtl)
       modules := next_modules
       results.add(result)
     RTLPipelinePlan(backend.plan(current), passes, results.snapshot())

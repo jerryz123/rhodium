@@ -6,7 +6,6 @@ import:
   "../../support/annotations.rhm" open
   "../core/ir.rhm" open
   "../core/signature.rhm" open
-  "../core/construct.rhm" open
   "../core/builder.rhm" open
   "../lowering/program.rhm" open
 
@@ -20,16 +19,7 @@ export:
   CircuitReference
   CircuitDeclaration
   declared_instance_member
-  RetainedCircuitReference
-  retained_circuit
-  retained_call
-  ConstructIdentity
-  ConstructDefinition
-  SingleClockState
   MaterializationCheck
-  InputLeaf
-  OutputLeafDependency
-  leaf_paths
   PortSignature
   ModuleSignature
   circuit_reference
@@ -117,7 +107,7 @@ interface CircuitDefinition:
   /* Returns a signature-bearing circuit reference without executing its implementation. */
   method definition_reference()
 
-/* Normalizes a concrete module or frontend definition into an ordinary or retained circuit reference. */
+/* Normalizes a concrete module or frontend definition into a circuit reference. */
 fun circuit_reference(definition :: Module || CircuitDefinition,
                       location :: Location = Location()):
   cond
@@ -127,7 +117,7 @@ fun circuit_reference(definition :: Module || CircuitDefinition,
                        fun (): definition)
   | ~else:
       def reference = definition.definition_reference()
-      unless reference is_a CircuitReference || reference is_a RetainedCircuitReference
+      unless reference is_a CircuitReference
       | frontend_fail("circuit definition must provide a circuit reference", location)
       reference
 
@@ -141,8 +131,6 @@ fun materialize_circuit(definition :: Module || CircuitDefinition,
                         location :: Location = Location()):
   def context = require_context(location)
   def reference = circuit_reference(definition, location)
-  when reference is_a RetainedCircuitReference
-  | frontend_fail("retained circuit requires a concrete compile target", location)
   def cached = context.materialized_circuits.get(reference, #false)
   if cached
   | cached
@@ -236,7 +224,7 @@ interface CircuitDeclaration:
   method validate_signature(signature :: ModuleSignature)
   /* Certify that a finished concrete body realizes the declared logical interface. */
   method validate_implementation(module_def :: Module)
-  /* Bind a declared logical member to a concrete or retained instance boundary. */
+  /* Bind a declared logical member to an instance boundary. */
   method member(instance :: HardwareEntity, name :: String)
 
 /* Reject logical-name collisions and overlapping physical-port ownership, then
@@ -263,7 +251,7 @@ class CircuitInstanceDeclarations(operation :: Operation, declarations :: List.o
 
 /* Find declarations by operation identity and ask the owning layer to bind a member.
    Return false when this instance has no declaration for the requested name. */
-fun declared_instance_member(instance :: Instance || ConstructInstance, name :: String):
+fun declared_instance_member(instance :: Instance, name :: String):
   def payload = instance.operation.module_def.metadata_for("rhodium.circuit.declarations").find(
     fun (entry): entry.operation === instance.operation
   )
@@ -301,55 +289,6 @@ class CircuitReference(identity :: CircuitIdentity,
   /* Keep the detached recipe available for specialization and instance construction. */
   override method definition_reference(): this
 
-/* Pairs a core construct descriptor with a portable provider outside core IR.
-   Its body is deferred until target preparation requests portable expansion. */
-class RetainedCircuitReference(definition :: ConstructDefinition,
-                               provider :: ExpansionProvider,
-                               declarations :: List.of(CircuitDeclaration) = []):
-  implements CircuitDefinition
-  /* Append declaration checks without wrapping the expansion callback, preserving
-     provider identity when multiple references register the same implementation. */
-  constructor (definition :: ConstructDefinition, provider :: ExpansionProvider,
-               ~declarations: declarations :: List.of(CircuitDeclaration) = []):
-    validate_declarations(definition.signature, declarations)
-    def checked_provider = ExpansionProvider(provider.expand, provider.checks ++ declarations.map(fun (declaration): fun (module_def): declaration.validate_implementation(module_def)))
-    super(definition, checked_provider, declarations)
-  property signature: definition.signature
-  property clock_port: definition.state?.clock_port || #false
-  property reset_port: definition.state?.reset_port || #false
-  /* Expose the retained reference without executing its implementation. */
-  override method definition_reference(): this
-
-/* Adapt a frontend recipe to a scratch-builder provider.
-   Each expansion gets its own context and returns any nested provider registrations. */
-fun retained_circuit(definition :: ConstructDefinition, implementation :: Function.of_arity(0),
-                     ~declarations: declarations :: List.of(CircuitDeclaration) = []):
-  def provider = ExpansionProvider(
-    fun (builder :: Builder, selected :: ConstructDefinition):
-      unless selected === definition
-      | frontend_fail("retained circuit provider received a different definition")
-      def context = FrontendContext(builder.design, builder)
-      def top = run_program_body(implementation, context)
-      ExpansionResult(top, context.providers.snapshot())
-  )
-  RetainedCircuitReference(definition, provider, ~declarations: declarations)
-
-/* Apply a pure single-result retained circuit as an expression. Argument wires
-   are unconditional even inside when/switch; the caller's enclosing assignment
-   owns the guard. This never executes the portable recipe during elaboration. */
-fun retained_call(reference :: RetainedCircuitReference, arguments :: List.of(HardwareEntity),
-                  name :: maybe(AsciiIdentifier) = #false, location :: Location = Location()):
-  unless !reference.definition.state && reference.signature.outputs.length() == 1
-  | frontend_fail("retained_call requires a combinational single-output circuit", location)
-  unless arguments.length() == reference.signature.inputs.length()
-  | frontend_fail("retained_call argument count must match the input signature", location)
-  def context = require_context(location)
-  def instance = inst(name || reference.definition.identity.name, reference, location)
-  for (port in reference.signature.inputs, argument in arguments):
-    context.builder.drive(instance.input(port.name), read(argument, location), location,
-                          Origin("retained expression input", port.name))
-  instance.output(reference.signature.outputs[0].name)
-
 class.together:
   /* Tracks one active declaration's pending finalizers and dynamic vector-register writes. */
   class ActiveCircuit(identity :: CircuitIdentity,
@@ -369,7 +308,7 @@ class CircuitSpecialization(arguments :: List, module_def :: Module)
 fun new_circuit_identity(name :: String):
   CircuitIdentity(name)
 
-/* Owns one elaboration's Builder, active circuits, specialization/reference caches, providers, and symbol allocation. */
+/* Owns one elaboration's Builder, active circuits, specialization/reference caches, and symbol allocation. */
 class FrontendContext(design :: Design,
                       builder :: Builder,
                       mutable active :: Boolean = #true,
@@ -377,7 +316,6 @@ class FrontendContext(design :: Design,
                       specializations_by_circuit :: MutableMap = MutableMap.by(===){},
                       materialized_circuits :: MutableMap = MutableMap.by(===){},
                       materializing_circuits :: MutableSet = MutableSet.by(===){},
-                      providers :: MutableMap = MutableMap.by(===){},
                       mutable allocated_symbols :: List.of(String) = []):
   /* Allocates a deterministic elaboration-local name, suffixing repeated base names. */
   method allocate_symbol(circuit_name :: String):
@@ -1452,23 +1390,13 @@ fun sync_level_crossing(source :: HardwareEntity,
     Origin("embedded stable level crossing")
   )
 
-/* Creates an ordinary or retained child instance and attaches any detached logical member declarations. */
+/* Creates a child instance and attaches any detached logical member declarations. */
 fun inst(name :: AsciiIdentifier,
          child :: Module || CircuitDefinition,
          location :: Location = Location()):
   def context = require_context(location)
   def reference = circuit_reference(child, location)
-  def instance:
-    if reference is_a RetainedCircuitReference
-    | block:
-        register_retained_provider(context, reference)
-        def parent = require_module(location)
-        context.builder.construct_instance(parent, reference.definition,
-                                           context.builder.fresh_instance_name(parent, name),
-                                           location, Origin("embedded instance", name))
-    | context.builder.suggested_instance(require_module(location),
-                                         materialize_circuit(reference, location),
-                                         name, location, Origin("embedded instance", name))
+  def instance = context.builder.suggested_instance(require_module(location), materialize_circuit(reference, location), name, location, Origin("embedded instance", name))
   when reference.declarations.length() > 0
   | instance.operation.module_def.add_metadata("rhodium.circuit.declarations", CircuitInstanceDeclarations(instance.operation, reference.declarations))
   instance
@@ -2067,32 +1995,22 @@ fun switch_chain(selector :: HardwareEntity,
                                "embedded switch",
                                location)
 
-/* Merge registrations by definition and callback identity, retaining every body check. */
-fun register_retained_provider(context :: FrontendContext, reference :: RetainedCircuitReference):
-  def definition = reference.definition
-  context.providers[definition] := if context.providers.has_key(definition) | merge_expansion_providers(definition, context.providers[definition], reference.provider) | reference.provider
-
 /* Execute a top-selecting recipe within its context and close that context on every exit.
-   Program elaboration may retain the top; eager callers require a concrete module. */
-fun run_program_body(program :: Function.of_arity(0), context :: FrontendContext,
-                     ~retain_top: retain_top :: Boolean = #false):
+   The selected reference is realized before the context closes. */
+fun run_program_body(program :: Function.of_arity(0), context :: FrontendContext):
   try:
     parameterize { current_context: context, current_module: #false }:
       def result = program()
       unless result is_a Module || result is_a CircuitDefinition
       | error(~who: #'rhodium, "elaboration did not select a top circuit")
       def reference = circuit_reference(result)
-      if retain_top && reference is_a RetainedCircuitReference
-      | register_retained_provider(context, reference)
-        reference.definition
-      | materialize_circuit(reference)
+      materialize_circuit(reference)
     ~finally:
       context.active := #false
 
-/* Build a source inventory with an explicit top and snapshot its portable providers.
-   Retained implementations remain deferred for the chosen compile target. */
+/* Build a completed source inventory with an explicit top; targets verify and copy it. */
 fun run_elaboration(program :: Function.of_arity(0)) :: ElaboratedProgram:
   def design = Design()
   def context = FrontendContext(design, Builder(design))
-  def top = run_program_body(program, context, ~retain_top: #true)
-  ElaboratedProgram(design, top, context.providers.snapshot())
+  def top = run_program_body(program, context)
+  ElaboratedProgram(design, top)

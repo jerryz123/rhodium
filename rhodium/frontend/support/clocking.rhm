@@ -36,9 +36,7 @@ class SyncDomain(clock :: Value, reset :: Value)
 class SyncCircuitMetadata(clock_port :: AsciiIdentifier,
                           reset_port :: AsciiIdentifier):
   implements kernel.MaterializationCheck
-  /* This check already handles detached construct contracts during elaboration. */
-  override property accepts_retained: #true
-  /* Recheck the destination body against its declared clock/reset after expansion. */
+  /* Recheck the destination body against its declared clock/reset after graph copying. */
   override method check_materialized(module_def :: Module):
     verify_single_clock(module_def, module_def.find_input(clock_port).value, module_def.find_input(reset_port).value)
   /* Copy the detached port-name contract; it contains no live IR to rebind. */
@@ -283,11 +281,9 @@ fun instantiate_reset_when(name :: AsciiIdentifier,
   def reference = kernel.circuit_reference(child, location)
   unless reference.clock_port
   | sync_fail("~reset_when requires a sync_circuit child", location)
-  // Ordinary recipes retain eager declaration order outside the local reset
-  // scope. Retained children bind controls here and expand later.
+  // Realize the recipe outside the local reset scope to preserve declaration order.
   require_sync_domain(location)
-  unless reference is_a kernel.RetainedCircuitReference
-  | kernel.materialize_circuit(reference, location)
+  kernel.materialize_circuit(reference, location)
   ambient_reset_when(
     condition,
     fun (): instantiate(name, reference, #false, #false, location),

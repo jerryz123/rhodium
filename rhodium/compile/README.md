@@ -1,4 +1,4 @@
-<!-- Documents explicit target compilation, immutable artifacts, and occurrence-level lowering reports. -->
+<!-- Documents explicit target compilation, in-memory artifacts, and physical boundary manifests. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Compile a program
@@ -25,8 +25,8 @@ def compiled = compile_program(program, circt_target)
 def mlir = compiled.artifacts[0].content
 ```
 
-Elaboration runs the source generators once. Compilation lets the selected
-target choose which constructs to expand or execute directly. Reuse the same
+Elaboration runs the source generators once. Compilation prepares the selected
+target representation. Reuse the same
 program with another target; ordinary callers do not invoke `prepare_rtl` or
 backend emitters themselves.
 
@@ -46,15 +46,15 @@ flowchart LR
     Plan --> Result["Validated CompilationResult<br/>manifest, artifacts, report, diagnostics"]
 ```
 
-Preparation owns any expansion or lowering. The compiler collects the plan's
+Preparation owns verification and target lowering. The compiler collects the plan's
 projections and returns them together only after artifact validation succeeds.
 
 ## Results and source lifetime
 
-`compile_program(program, target, ~options: CompileOptions())` returns a
+`compile_program(program, target)` returns a
 `CompilationResult` only after preparation and complete artifact emission
-succeed. Structured-only targets need not emit text artifacts. The default expansion limit is 256; `CompileOptions(limit)` selects
-another positive limit. Provider, verification, and emitter exceptions propagate
+succeed. Structured-only targets need not emit text artifacts. Preparation,
+verification, and emitter exceptions propagate
 without a silent fallback or a partial result. Artifact names must be unique
 within the returned set. A target must return artifacts, a structured report, or both.
 
@@ -75,36 +75,28 @@ The result contains:
 - `manifest.top`, `.modules`, and `.signature`: the emitted top name, ordered
   module names, and physical top ports. CIRCT preserves port names, directions,
   types, and order, so this signature is its public port map.
-- `manifest.lowerings`: ordered `LoweringDecision` values containing source
-  instance path, detached construct definition (identity, revision, parameters,
-  and contract), action, reason, emitted implementation name, location, and
-  origin. Paths are relative to the selected top. A retained top has the empty
-  path and no instance location. Shared expansions still have separate entries
-  for each occurrence.
 
 The CIRCT target creates a fresh, verified concrete graph, including for an
 already concrete program. It does not seal or modify the input design. Its
-module inventory is the selected top's reachable hierarchy. Unused providers
-are not called, and unused modules and DPI declarations are not emitted.
+module inventory is the selected top's reachable hierarchy. Unused modules and DPI declarations are not emitted.
 The entire source design still receives structural verification, so malformed
-unused modules remain errors. Retained provider bodies receive the existing
-signature, dependency, state, and metadata checks.
+unused modules remain errors.
 
 Metadata must be remappable within the selected closure. A live metadata
 reference outside that closure is diagnosed rather than silently discarded.
-Target preparation and expansion caches are local to each invocation.
+Target preparation and copying caches are local to each invocation.
 
 Error diagnostics do not suppress a completed result or its artifacts. For example,
 unsafe CDC still produces a complete analysis report. A verification caller checks
 `result.has_errors` before dependent work; inspection callers can display the same
-findings. Invalid IR, invalid timing assumptions, provider failures, and failed
+findings. Invalid IR, invalid timing assumptions, and failed
 projections or emission still raise exceptions without returning a partial result.
 CIRCT returns no diagnostics; this does not certify unrequested clock analysis.
 
 ## Targets and compatibility
 
 [`contracts.rhm`](contracts.rhm) defines `CompilationTarget(name, prepare)` and
-`TargetPlan`. A target's preparation function receives `(program, options)` and
+`TargetPlan`. A target's preparation function receives `program` and
 returns a plan implementing `manifest()` and `emit()`. Its optional `report()`
 method returns structured findings and defaults to `#false`. `diagnostics()` returns
 ordered findings and defaults to `[]`. The compiler reads each projection once;
@@ -128,56 +120,39 @@ def top = rtl.top
 
 `RTLReport.design` and `.top` refer to a fresh, verified concrete graph.
 `.elaboration` supplies the corresponding `DesignElaboration` for tools that
-accept that pair. The target expands retained constructs through their portable
-implementations, preserves occurrence provenance in the compilation manifest,
-and leaves the source untouched. Its artifact list is empty: inspection does
+accept that pair. The target preserves hierarchy and metadata while leaving
+the source untouched. Its artifact list is empty: inspection does
 not serialize the graph. Static clients can bind `compiled.report` with the
 exported `RTLReport` annotation.
 
-Emission callers pass the original program to their emission target so that
-target can choose which constructs to retain. `rtl_target` also supports
+Emission callers pass the original program directly to their emission target. `rtl_target` also supports
 `rtl_pipeline_target`; its graph report then appears in the pipeline report's
 `.backend`, alongside the stage reports and any instrumentation artifacts.
 
-For target implementations requiring concrete RTL, [`rtl.rhm`](rtl.rhm) supplies
-`prepare_rtl(program, options = CompileOptions(), reason = "explicit RTL preparation")`
-and re-exports `ElaboratedProgram` for target input
-annotations. It returns a `PreparedRTL` containing `.rtl` and
-`.manifest`. CIRCT and direct SystemVerilog use this helper and expand every
-reachable retained construct through its portable implementation. Rsim supplies its own
-preparation plan to retain supported constructs.
+For target implementations, [`rtl.rhm`](rtl.rhm) supplies `prepare_rtl(program)`
+and re-exports `ElaboratedProgram` for input annotations. Preparation returns
+`PreparedRTL(rtl, manifest)` with a fresh verified `DesignElaboration` and its
+matching physical boundary manifest.
 
-`PreparedRTLConsumer` is the backend extension interface for targets that can also consume
-concrete RTL. It provides `.plan(prepared)` and an `.expansion_reason` string
-for portable expansion selected by instrumentation. Implementing it does not
-require ordinary target preparation to use RTL. Pipeline backends must implement
-both `CompilationTarget` and `PreparedRTLConsumer`.
-
-For concrete emission, `rtl.rhm` also supplies
-`RTLTarget(name, expansion_reason, build_plan)`, a specialization of
-`CompilationTarget`. Its ordinary `.prepare(program, options)` calls
-`prepare_rtl` once and passes the result to `build_plan`. Its `.plan(prepared)`
-entry point constructs a `TargetPlan` directly from an existing `PreparedRTL`,
-without materializing another graph or invoking providers again. Both CIRCT and
-direct SystemVerilog targets expose this entry point:
+`PreparedRTLConsumer` provides `.plan(prepared)` to reuse a verified graph.
+Pipeline backends implement both this interface and `CompilationTarget`.
+`RTLTarget(name, build_plan)` implements ordinary preparation by calling
+`prepare_rtl` once, then the same plan factory used by `.plan(prepared)`.
+CIRCT and direct SystemVerilog use this class. `RsimTarget` owns its preparation
+and implements the same prepared-graph interface.
 
 ```rhombus
-def prepared = prepare_rtl(program, CompileOptions(), "selected concrete implementation")
+// Inside a target implementation or composition helper:
+def prepared = prepare_rtl(program)
 def circt_plan = circt_target.plan(prepared)
 def verilog_plan = verilog_target.plan(prepared)
 ```
 
-Import `prepare_rtl` from `rtl.rhm`, `CompileOptions` from `contracts.rhm`, and
-each backend target from its owning module. Plan construction does not emit
-text; `plan.emit()` returns in-memory artifacts. The backend plan retains the
-supplied graph and manifest, including occurrence paths, source attribution,
-and lowering reasons. Callers remain responsible for supplying verified RTL
-and a matching manifest; a graph transformation must update physical names,
-ports, and module inventory while preserving its lowering provenance. Ordinary
-drivers continue to use `compile_program`; composed targets can use `.plan`
-inside preparation and return that plan through the same compilation contract.
-The generic target contract and `CompileOptions` impose no RTL or instrumentation
-policy on other targets.
+Import `prepare_rtl` from `rtl.rhm` and backend targets from their owning modules.
+Plan construction does not emit text or repeat graph copying and certification.
+A transformation must supply a verified graph and a matching manifest. Ordinary
+callers continue to use `compile_program(program, target)`. Target configuration
+belongs in each target's constructor or captured preparation callback.
 
 ## Ordered RTL instrumentation
 
@@ -217,9 +192,7 @@ Passes also own preservation of functional behavior, prior instrumentation, and
 all other owners' metadata through the existing IR-remapping protocol. Structural
 verification alone cannot prove those semantic obligations.
 
-The coordinator rebuilds each physical manifest. Lowering decisions retain their
-original source paths, definitions, reasons, locations, and origins, while their
-implementation names identify the final modules at those same paths.
+The coordinator rebuilds the physical manifest from each resulting graph.
 `RTLPipelineReport.stages` contains ordered `RTLPassReport(name, findings)`
 values; each finding belongs to that stage's graph. `.backend` contains the
 backend report.
@@ -230,24 +203,23 @@ instrumentation they describe.
 Diagnostics are returned in pass order followed by backend diagnostics. The
 ordinary compilation rules still apply: duplicate artifact names and failures
 raise without returning a partial result; error diagnostics accompany completed
-artifacts. This interface currently supplies orchestration only. Flow tracing
-and co-simulation have not been migrated into passes.
+artifacts. Flow tracing uses the event package's `event_trace_pass`; see its
+[public contract](../event/README.md).
 
 This is an optional concrete-RTL helper. General `CompilationTarget` plans remain
-free to consume retained high-level constructs directly. Language layers and
+independent of this pipeline. Language layers and
 libraries declare semantics through existing constructs and metadata; their
 owning passes interpret those declarations. Compilation contains no Flow,
 co-simulation, or frontend policy. Analysis targets remain independent, and
 backend choice is separate from the instrumentation list.
 
-## Other targets and future work
+## Other targets
 
 Use the [clock-analysis target](../analysis/README.md) for temporal reports or
-CDC diagnostics; it expands retained constructs for concrete provenance. The
+CDC diagnostics over the prepared graph. The
 [direct SystemVerilog target](../backend/README.md#direct-systemverilog) emits
-its documented scalar combinational subset without CIRCT.
+its documented RTL subset without CIRCT.
 
 All public program compilation goes through `compile_program` with an explicit
 target. Materialization and textual emission are implementation steps owned by
-the target. Direct construct adapters, capability negotiation, and force-expansion
-selection are subsequent work.
+the target.

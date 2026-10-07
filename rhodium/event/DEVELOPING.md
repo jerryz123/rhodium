@@ -419,8 +419,8 @@ python3 rhodium/backend/tests/verilog/run-integration.py --fixture event-runtime
 instances and shared untouched children, instance views, ports, operations,
 memories, DPI references, projected places, mutable payload isolation, subsequent
 materialization with clock certification, and
-unremappable or ambiguous references. `retained-metadata-test.rhm` exercises
-existing Flow storage and interface metadata after portable materialization.
+unremappable or ambiguous references. `materialized-metadata-test.rhm` exercises
+existing Flow storage and interface metadata after graph materialization.
 
 Host tests cover static inference, malformed contracts, capture packing and
 rejection, capacity bounds, JSON/C++ agreement, hierarchy identity, unchanged

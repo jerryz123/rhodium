@@ -46,7 +46,7 @@ for (module_def in first.instrumented.design.modules):
       (for all (port in instance.input_bindings): port.place.module_def === module_def) ~is #true
 
 // A later compiler copy must accept the preserved metadata and rebind it again.
-def recopied = materialize_reachable_rtl(ElaboratedProgram(first.instrumented.design, first.instrumented.top)).rtl
+def recopied = materialize_reachable_rtl(ElaboratedProgram(first.instrumented.design, first.instrumented.top))
 check:
   observer(recopied.top).instances[0].module_def === child(recopied.top, "left") ~is #true
   observer(child(recopied.top, "left")).owner === child(recopied.top, "left") ~is #true

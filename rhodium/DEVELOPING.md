@@ -75,9 +75,9 @@ the [clocking plan](CLOCKING_PLAN.md).
 ## Dependency rules
 
 - Core never imports compilation, lowering, analysis, frontend, backend, or RFPL code.
-- Portable lowering depends only on core. It owns program materialization;
+- Graph materialization depends only on core. It owns program materialization;
   backend selection and frontend construction remain outside that package.
-- Compilation depends only on core and portable lowering. Targets are explicit
+- Compilation depends only on core and graph materialization. Targets are explicit
   objects supplied by callers; compilation never imports a backend registry.
 - Internal analysis consumes completed core IR and does not import authoring,
   compilation, or lowering packages. Only `analysis/clocking.rhm`, the public
@@ -105,10 +105,10 @@ the [clocking plan](CLOCKING_PLAN.md).
 |---|---|---|
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
 | [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
-| [`lowering/`](lowering/README.md) | Program envelope, checked state expansion, and extension certification after concrete verification | Core IR, signatures, construct contracts and instance views, Builder, schemas, verifier, dependency summaries; local graph copier |
-| [`compile/`](compile/README.md) | Explicit target orchestration, concrete RTL inspection target, in-memory artifacts, and occurrence reports | Core IR/signatures/construct contracts and verifier; portable lowering; neutral local contracts |
+| [`lowering/`](lowering/README.md) | Program envelope, reachable graph copying, and extension certification after verification | Core IR, Builder, verifier; local graph copier |
+| [`compile/`](compile/README.md) | Explicit target orchestration, concrete RTL inspection target, in-memory artifacts, and physical boundary manifests | Core IR/signatures and verifier; graph materialization; neutral local contracts |
 | [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
-| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder; `lowering/program.rhm` |
+| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, Builder; `lowering/program.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
 | [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |

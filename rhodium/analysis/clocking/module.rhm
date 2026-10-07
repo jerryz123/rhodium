@@ -6,9 +6,7 @@ import:
   "../../core/types.rhm" open
   "../../core/ir.rhm" open
   "../../core/ops.rhm" open
-  "../../core/construct.rhm".ConstructDefinition
   "../../core/dependencies.rhm" open
-  "../../core/verify.rhm".require_concrete_module
   "types.rhm" open
 
 export:
@@ -136,24 +134,13 @@ fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
     | "ambient": AmbientReset(pending.reset, pending.operations)
     | "local": LocalReset(pending.reset, pending.operations)
 
-/* Classify concrete clocked effects and declared retained state without executing providers.
-   Only concrete materialization can reveal a retained body's interior provenance. */
+/* Classify explicit clocked effects by their clock and optional reset operands. */
 fun operation_clock_use(operation :: Operation):
   def spec = clock_operation_spec(operation.opcode)
   cond
   | spec is_a ClockedOperationSpec:
       ClockUse(operation, canonical_wire_value(operation.operands[spec.clock_operand]),
                if spec.reset_operand is_a Nat | operation.operands[spec.reset_operand] | #false)
-  | operation.opcode == "construct.instance":
-      def definition :: ConstructDefinition = operation.attribute("definition")
-      if definition.state
-      | def controls = for Map (port in definition.signature.inputs, place in operation.places): values(port.name, place.driver)
-        def clock = controls[definition.state.clock_port]
-        def reset = controls[definition.state.reset_port]
-        unless clock && reset
-        | error(~who: #'summarize_module_clocking, "retained clock/reset input is undriven")
-        ClockUse(operation, canonical_wire_value(clock), reset)
-      | #false
   | ~else: #false
 
 /* Requires a finished module and inventories explicit effect clocks and reset groups. */
@@ -439,7 +426,6 @@ fun describe_classification(classification :: SinkInputClassification):
    sink reachable through the module's instance hierarchy. The summary itself
    is policy-neutral; closed-design callers may report it or enforce CDC rules. */
 fun summarize_module_temporal(module_def :: Module):
-  require_concrete_module(module_def)
   unless module_def.finished
   | error(~who: #'summarize_module_temporal,
           "module must be finished before temporal provenance is summarized")

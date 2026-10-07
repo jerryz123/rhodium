@@ -8,7 +8,6 @@ import:
   "ir.rhm" open
   "ops.rhm" open
   "signature.rhm" open
-  "construct.rhm" open
 
 export:
   InputLeaf
@@ -414,13 +413,10 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                         operation
                       )
                     dependencies
-                | operation?.opcode == "rtl.instance" || operation?.opcode == "construct.instance":
+                | operation?.opcode == "rtl.instance":
                     def instance_operation = operation!!
                     def output_index = identity_index(instance_operation.results, value)
-                    def output_dependencies:
-                      if instance_operation.opcode == "construct.instance"
-                      | (instance_operation.attribute("definition") :: ConstructDefinition).dependencies
-                      | summarize_module(instance_operation.attribute("module")).output_leaf_dependencies
+                    def output_dependencies = summarize_module(instance_operation.attribute("module")).output_leaf_dependencies
                     def mutable dependencies = 0
                     def output_leaf = output_dependencies[output_index][leaf_index]
                     for (input_leaf in output_leaf.input_leaves):

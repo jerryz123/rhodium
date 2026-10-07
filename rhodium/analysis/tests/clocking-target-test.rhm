@@ -92,53 +92,6 @@ check:
 unless checked.has_errors | dependent_runs := dependent_runs + 1
 check: dependent_runs ~is 1
 
-// A retained top expands before temporal analysis; declarations from its
-// provider bind to the copied implementation, without any frontend dependency.
-def signature = ModuleSignature([PortSignature("clock", Clock), PortSignature("reset", Reset), PortSignature("data", Bits(8))],
-                                [PortSignature("result", Bits(8))])
-def definition = ConstructDefinition(ConstructIdentity("RetainedSampler"), [], signature,
-                                     [[OutputLeafDependency([], [])]], ~state: SingleClockState("clock", "reset"))
-def mutable calls = 0
-def mutable known_timing = #true
-fun expand(builder :: Builder, selected :: ConstructDefinition):
-  calls := calls + 1
-  def body = builder.module("Sampler")
-  def clock = builder.input(body, "clock", Clock)
-  def reset = builder.input(body, "reset", Reset)
-  def input = builder.input(body, "data", Bits(8))
-  def sample = builder.register(body, "sample", Bits(8), clock)
-  builder.drive(sample.next, input)
-  builder.drive(builder.output(body, "result", Bits(8)), sample.current)
-  declare_clocking_environment(body, TemporalEnvironment([TopInputContract(input, [], if known_timing | SynchronousInputTiming(clock) | UnknownInputTiming())]))
-  builder.finish(body)
-  ExpansionResult(body)
-def retained = ElaboratedProgram(Design(), definition, Map.by(===){definition: ExpansionProvider(expand)})
-def retained_result = compile_program(retained, clocking_target())
-check:
-  calls ~is 1
-  retained_result.manifest.lowerings.length() ~is 1
-  retained_result.manifest.lowerings[0].path ~is []
-  retained_result.manifest.lowerings[0].definition === definition ~is #true
-  retained_result.has_errors ~is #false
-  retained_result.diagnostics ~is []
-  retained_result.report.summary.cdc_violations ~is []
-  retained_result.report.environment.input_contracts[0].input.module_def === retained_result.report.top ~is #true
-  retained.design.modules ~is []
-  retained.design.sealed ~is #false
-
-// The same retained definition can complete with errors on a later preparation.
-known_timing := #false
-def unsafe_retained = compile_program(retained, clocking_target())
-check:
-  calls ~is 2
-  unsafe_retained.has_errors ~is #true
-  unsafe_retained.diagnostics.length() ~is 1
-  unsafe_retained.artifacts[0].content.contains("cdc_violations") ~is #true
-  unsafe_retained.report.top === retained_result.report.top ~is #false
-  retained_result.has_errors ~is #false
-  retained.design.modules ~is []
-  retained.design.sealed ~is #false
-
 // Shared bodies must retain separate instance paths and aggregate leaf attribution.
 block:
   def design = Design()

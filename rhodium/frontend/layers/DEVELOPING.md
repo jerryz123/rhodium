@@ -224,8 +224,7 @@ declaring these contracts.
 Interface transform metadata remaps concrete implementation views and their
 storage controls with the enclosing design. `InterfaceTransformGroup` implements
 `MaterializationCheck` to revalidate interface contracts after materialization,
-including when ordinary modules contain retained descendants. Keep storage
-controls in their owning module and eager checks for concrete children.
+preserving storage controls in their owning module and eager checks for children.
 
 Clocking declarations attach analysis-owned remappable metadata during normal
 elaboration. The layer does not collect a dynamic environment or execute analysis.

@@ -51,11 +51,6 @@ The compiler does not import analysis or register targets globally.
 
 ## Change an analysis
 
-Clock-use inventory reads `ConstructDefinition` state contracts for retained
-instances. Only that boundary-level inventory accepts mixed IR; temporal
-provenance and CDC still require concrete modules. Keep retained control binding
-in `operation_clock_use` so summary reconstruction and certification agree.
-
 When adding a derived fact, decide whether it is module-reusable or requires a
 closed top environment. Preserve aggregate leaf paths, instance paths, stable
 operation identity, and deterministic ordering in every structured result.
@@ -87,7 +82,7 @@ belongs only here.
 The focused ownership is:
 
 - `clocking-target-test.rhm` for compilation, source preservation, declaration
-  remapping, retained expansion, diagnostic attribution, workflow gating, and explicit environments;
+  remapping, diagnostic attribution, workflow gating, and explicit environments;
 - `clocking-test.rhm` for internal clock/reset inventories, aliases, and certification;
 - `clocking-provenance-test.rhm` for leaf-sensitive hierarchy provenance;
 - `clocking-environment-test.rhm` for boundary facts and invalid environments;

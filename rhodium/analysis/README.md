@@ -42,10 +42,9 @@ Inspection workflows use the same result without rerunning analysis.
 Ordinary elaboration records declarations without executing this analysis.
 There are no separate public analysis runners or clock-aware elaboration wrappers.
 
-The target expands reachable retained constructs using their portable providers.
-Clock-use contracts alone do not establish interior sampling provenance or CDC
-correctness. Source preservation, expansion limits, occurrence reports, and
-artifact failure behavior follow the [compilation contract](../compile/README.md).
+The target analyzes a fresh verified copy of the selected hierarchy. Source
+preservation and artifact failure behavior follow the
+[compilation contract](../compile/README.md).
 
 The returned `ClockingReport` in `compiled.report` contains:
 
@@ -120,7 +119,7 @@ The target inventories explicit clocked effects for every prepared module in
   use. Reset inventory does not imply reset-domain analysis.
 
 The frontend independently certifies the ambient clock of `sync_circuit` during
-construction and after retained materialization. This is an internal hardware
+construction and after materialization. This is an internal hardware
 validation step, not a public analysis execution path.
 
 Clock identity follows transparent `rtl.wire` aliases. An equal-width cast to

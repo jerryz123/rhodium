@@ -44,17 +44,16 @@ def mlir = result.artifacts[0].content
 ```
 
 Frontend callers supply `elaborate(Top())` as the program. The result
-contains one `<top>.mlir` artifact, the physical port signature, and a report
-of portable expansions per instance occurrence. The source graph remains
-unchanged; unrelated modules and unused providers do not enter the output.
-See the [compiler contract](../compile/README.md) for options and failures.
+contains one `<top>.mlir` artifact and a physical boundary manifest. The source
+graph remains unchanged; unrelated modules do not enter the output.
+See the [compiler contract](../compile/README.md) for results and failures.
 
 The selected top defines compilation scope. To compile independent roots, make
 one explicit request for each root. There is no whole-inventory program mode.
 
 All emission targets implement `PreparedRTLConsumer`. CIRCT and direct SV use
-`RTLTarget`; rsim owns its preparation and currently uses the same portable RTL
-expansion. A composing compilation target can call
+`RTLTarget`; rsim owns its preparation and currently uses the same RTL
+preparation. A composing compilation target can call
 `circt_target.plan(prepared)`, `verilog_target.plan(prepared)`, or
 `rsim_target.plan(prepared)` or `rsim_sv_target.plan(prepared)` with verified
 `PreparedRTL` to reuse its graph and manifest without another preparation pass.
@@ -79,7 +78,7 @@ when wide storage is needed. Write all returned artifacts into the
 same directory and compile the implementation with a harness using C++17, for
 example `c++ -std=c++17 Counter.cpp harness.cpp -o counter`. Emission and native
 execution require neither CIRCT nor Verilator. The target does not run a compiler
-or write files. Portable retained implementations expand through normal preparation.
+or write files. Preparation copies and verifies the selected hierarchy.
 
 Choose helper partitioning when constructing an rsim target:
 
@@ -304,7 +303,7 @@ while retaining unsigned C++ carriers. Shifts consume the full unsigned count:
 counts at least the operand width produce zero for logical shifts and sign fill
 for arithmetic right shifts.
 All scheduled computations are evaluated unconditionally in dependency order.
-There is no activity tracking or specialized retained-construct interpretation.
+There is no general event-driven activity scheduler.
 SystemVerilog scope/context APIs, event tracing, and multiple clocks
 remain unsupported.
 Unsupported operations or types in the reachable hierarchy produce
@@ -577,13 +576,10 @@ collateral retains its separate synthesis-exclusion policy.
 This target emits SystemVerilog, not Verilog-2005. Opaque data remains outside
 the supported representation. Unsupported verified types or operations raise
 before any compilation result is returned;
-there is no fallback to CIRCT. Portable retained expansion still occurs during
-preparation, and its resulting RTL must fit this subset. This target does not
-yet directly interpret retained constructs.
+there is no fallback to CIRCT. Prepared RTL must fit this subset.
 
-The opcode coverage inventory classifies the current 47 core operations: 46 are
-handled by direct emission (including CDC attributes), `construct.instance` is
-expanded during target preparation. No current core opcode is deferred.
+The opcode coverage inventory covers every current core operation, including
+CDC attributes. No current core opcode is deferred.
 All emitted data types must still
 fit the supported physical representation above.
 

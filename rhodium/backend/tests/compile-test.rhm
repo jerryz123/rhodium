@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the real CIRCT target against internal emission, retained preparation, and atomic failure.
+// Checks the real CIRCT target against internal emission, graph preparation, and atomic failure.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../circt-target.rhm".circt_target
@@ -10,23 +10,17 @@ import:
   "../../core/main.rhm" open
   "../../lowering/program.rhm" open
 
-def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
-def definition = ConstructDefinition(ConstructIdentity("CompileIdentity"), [8], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
-def mutable calls = 0
 fun make_body(builder :: Builder):
   def body = builder.module("Identity")
   def source = builder.input(body, "source", Bits(8))
   builder.drive(builder.output(body, "result", Bits(8)), source)
   builder.finish(body)
   body
-fun expand(builder :: Builder, selected :: ConstructDefinition):
-  calls := calls + 1
-  ExpansionResult(make_body(builder))
-def provider = ExpansionProvider(expand)
-def retained = ElaboratedProgram(Design(), definition, Map.by(===){definition: provider})
-def source_before = dump_ir(retained.design)
-def result = compile_program(retained, circt_target)
-def again = compile_program(retained, circt_target)
+def source_design = Design()
+def source_program = ElaboratedProgram(source_design, make_body(Builder(source_design)))
+def source_before = dump_ir(source_program.design)
+def result = compile_program(source_program, circt_target)
+def again = compile_program(source_program, circt_target)
 check:
   result.target ~is "circt"
   result.report ~is #false
@@ -35,74 +29,51 @@ check:
   result.manifest.top ~is "Identity"
   result.artifacts.map(fun (artifact): artifact.name) ~is ["Identity.mlir"]
   result.artifacts[0].content ~is again.artifacts[0].content
-  result.manifest.lowerings.length() ~is 1
-  result.manifest.lowerings[0].path ~is []
-  result.manifest.lowerings[0].definition === retained.top ~is #true
-  result.manifest.lowerings[0].action ~is "expand"
-  result.manifest.lowerings[0].reason.contains("CIRCT requires concrete RTL") ~is #true
   result.manifest.signature.inputs.map(fun (port): port.name) ~is ["source"]
-  dump_ir(retained.design) ~is source_before
-  retained.design.sealed ~is #false
+  dump_ir(source_program.design) ~is source_before
+  source_program.design.sealed ~is #false
 
 // The target delegates to the internal emitter on the prepared graph.
-def plan = circt_target.prepare(retained, CompileOptions())
-def prepared = prepare_rtl(retained, CompileOptions(), "comparison")
+def plan = circt_target.prepare(source_program)
+def prepared = prepare_rtl(source_program)
 check:
   plan.emit()[0].content ~is emit_circt(prepared.rtl.design)
 
-// Mixed ordinary RTL and a shared retained child keep occurrence attribution.
+// Shared children preserve hierarchy and source attribution.
 def mixed_design = Design()
 def mixed_builder = Builder(mixed_design)
+def shared_child = make_body(mixed_builder)
 def mixed_top = mixed_builder.module("Mixed")
 def mixed_source = mixed_builder.input(mixed_top, "source", Bits(8))
 for (name in ["first", "second"]):
-  def instance = mixed_builder.construct_instance(mixed_top, definition, name, Location("compile-fixture", 7, 2))
+  def instance = mixed_builder.instance(mixed_top, shared_child, name, Location("compile-fixture", 7, 2))
   mixed_builder.drive(instance.input("source"), mixed_source)
   mixed_builder.drive(mixed_builder.output(mixed_top, name, Bits(8)), instance.output("result"))
 mixed_builder.finish(mixed_top)
 def unused = mixed_builder.module("Unused")
-def unused_definition = ConstructDefinition(ConstructIdentity("Unused"), [], signature, definition.dependencies)
-def unused_child = mixed_builder.construct_instance(unused, unused_definition, "unreachable")
-mixed_builder.drive(unused_child.input("source"), mixed_builder.constant(unused, Bits(8), 0))
 mixed_builder.finish(unused)
-def mixed = ElaboratedProgram(mixed_design, mixed_top, Map.by(===){definition: provider})
+def mixed = ElaboratedProgram(mixed_design, mixed_top)
 def mixed_before = dump_ir(mixed_design)
-def before_calls = calls
 def compiled = compile_program(mixed, circt_target)
 check:
-  calls ~is before_calls + 1
   compiled.manifest.modules ~is ["Mixed", "Identity"]
   compiled.artifacts[0].content.contains("Unused") ~is #false
-  compiled.manifest.lowerings.map(fun (decision): decision.path) ~is [["first"], ["second"]]
-  compiled.manifest.lowerings[0].location.describe() ~is "compile-fixture:7:2"
   dump_ir(mixed_design) ~is mixed_before
   mixed_design.sealed ~is #false
 
-// Ordinary Builder programs need no frontend or retained provider execution.
+// Ordinary Builder programs compile without frontend dependencies.
 def concrete_design = Design()
 def concrete_top = make_body(Builder(concrete_design))
 def concrete = ElaboratedProgram(concrete_design, concrete_top)
 def concrete_before = dump_ir(concrete_design)
-def concrete_calls = calls
 def concrete_result = compile_program(concrete, circt_target)
 def concrete_again = compile_program(concrete, circt_target)
 check:
   concrete_result.manifest.top ~is "Identity"
-  concrete_result.manifest.lowerings ~is []
   concrete_result.artifacts[0].content ~is concrete_again.artifacts[0].content
   concrete_result.artifacts[0].content ~is result.artifacts[0].content
-  calls ~is concrete_calls
   dump_ir(concrete_design) ~is concrete_before
   concrete_design.sealed ~is #false
-
-// A provider failure must propagate, never become fallback or a partial result.
-def mutable published = #false
-def broken_provider = ExpansionProvider(fun (builder, definition): error("provider failed deliberately"))
-def broken = ElaboratedProgram(retained.design, retained.top, Map.by(===){retained.top: broken_provider})
-fun publish(): published := compile_program(broken, circt_target)
-check:
-  publish() ~throws "provider failed deliberately"
-  published ~is #false
 
 // Inject failures around the actual CIRCT plan to exercise the publication
 // boundary without inventing another backend or a simulation implementation.
@@ -114,14 +85,15 @@ class BrokenEmission(plan :: TargetPlan, duplicate :: Boolean):
     if duplicate
     | artifacts ++ artifacts
     | error("emission failed after producing text")
-def fail_emission = CompilationTarget("circt-failure-test", fun (program, options): BrokenEmission(circt_target.prepare(program, options), #false))
-def duplicate_artifacts = CompilationTarget("circt-duplicate-test", fun (program, options): BrokenEmission(circt_target.prepare(program, options), #true))
-fun publish_failed_emission(): published := compile_program(retained, fail_emission)
+def mutable published = #false
+def fail_emission = CompilationTarget("circt-failure-test", fun (program): BrokenEmission(circt_target.prepare(program), #false))
+def duplicate_artifacts = CompilationTarget("circt-duplicate-test", fun (program): BrokenEmission(circt_target.prepare(program), #true))
+fun publish_failed_emission(): published := compile_program(source_program, fail_emission)
 check:
   publish_failed_emission() ~throws "emission failed after producing text"
   published ~is #false
-  compile_program(retained, duplicate_artifacts) ~throws "unique artifact names"
-  retained.design.sealed ~is #false
+  compile_program(source_program, duplicate_artifacts) ~throws "unique artifact names"
+  source_program.design.sealed ~is #false
 
 // Diagnostic projection failures cannot leak an otherwise valid prepared result.
 class BrokenDiagnostics(plan :: TargetPlan):
@@ -129,8 +101,8 @@ class BrokenDiagnostics(plan :: TargetPlan):
   override method manifest(): plan.manifest()
   override method diagnostics(): error("diagnostics failed deliberately")
   override method emit(): plan.emit()
-def fail_diagnostics = CompilationTarget("circt-diagnostics-test", fun (program, options): BrokenDiagnostics(circt_target.prepare(program, options)))
-fun publish_failed_diagnostics(): published := compile_program(retained, fail_diagnostics)
+def fail_diagnostics = CompilationTarget("circt-diagnostics-test", fun (program): BrokenDiagnostics(circt_target.prepare(program)))
+fun publish_failed_diagnostics(): published := compile_program(source_program, fail_diagnostics)
 check:
   publish_failed_diagnostics() ~throws "diagnostics failed deliberately"
   published ~is #false
@@ -154,7 +126,7 @@ class ObservedPlan(plan :: TargetPlan):
   override method emit():
     projections.add("emit")
     plan.emit()
-def observed = compile_program(concrete, CompilationTarget("circt-observed", fun (program, options): ObservedPlan(circt_target.prepare(program, options))))
+def observed = compile_program(concrete, CompilationTarget("circt-observed", fun (program): ObservedPlan(circt_target.prepare(program))))
 check:
   projections.snapshot() ~is ["manifest", "report", "diagnostics", "emit"]
   observed.has_errors ~is #false

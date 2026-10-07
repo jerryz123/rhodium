@@ -99,62 +99,6 @@ wrapper. These APIs accept concrete RTL. The separate
 [`ElaboratedProgram`](../lowering/README.md) envelope crosses that verification
 boundary through a concrete compile target.
 
-### Retained constructs
-
-`ConstructIdentity(name, revision)` names a library declaration.
-`ConstructDefinition(identity, parameters, signature, dependencies)` describes
-one specialization without a body or callback. Parameters are immutable host
-booleans, strings, integers, hardware types, and recursively composed lists.
-By default ports are data types and the contract permits no state or effects.
-Optional `~state: SingleClockState(clock_port, reset_port)` permits registers
-on the declared rising-edge `Clock` input, with active-high synchronous reset
-from the declared `Reset` input or resetless operation. All other inputs and
-all outputs must be data types. Scoped resets may add reset conditions by OR;
-they must preserve assertion of the declared reset. Clock wires are aliases,
-but computed or cast clocks do not satisfy the declared domain.
-
-This state contract permits registers; it does not promise a fixed latency,
-require a particular register count, or describe a transaction protocol.
-Two independent keyword permissions extend `SingleClockState`; both default to
-`#false`:
-
-- `~async_read_memory: #true` admits the existing `Memory` resource,
-  asynchronous reads, and synchronous writes on the declared clock. Reads
-  retain their combinational address dependencies. Storage is uninitialized;
-  reset neither clears memory nor suppresses a write. The explicit write enable
-  controls whether each rising edge writes, including during reset.
-- `~clocked_assertions: #true` admits assertions on that clock. Their reset
-  suppression must preserve the declared active-high reset; scoped OR resets
-  may suppress them additionally. Conditions, activation guards, labels, source
-  locations, and origins remain part of the expanded RTL.
-
-These permissions bound the implementation's effects, not its resource count
-or assertion predicates. They are checked through ordinary and retained child
-hierarchy before and after expansion. A retained child's permissions must be a
-subset of its parent's, without executing the child provider to discover them.
-Synchronous-read memory, DPI, and CDC effects remain outside these permissions.
-An assertion permission never authorizes a consumer to discard assertions.
-
-Dependencies contain one list per output port, and one `OutputLeafDependency`
-per aggregate leaf in `leaf_paths(type)` order. Each entry lists `InputLeaf`
-indices and paths; an empty list declares same-cycle independence from all
-inputs. Stateful constructs must still declare their combinational bypass
-paths; register state does not imply that every output is registered.
-Invalid, missing, and misordered leaves are rejected during construction.
-
-`Builder.construct_instance(parent, definition, name)` creates a
-`construct.instance` with normal input `Place`s and output `Value`s.
-`ConstructInstance.input/output` expose those bindings. Its name participates
-in the same collision checks and `Module.find_instance` lookup as concrete
-instances. `verify_program` checks mixed IR ownership, bindings, and cycles
-using declared dependencies without invoking providers or sealing the design.
-
-`verify_design`, `verify_module`, and `require_concrete_module` reject retained
-instances at concrete consumer boundaries. Use the
-[portable materializer](../lowering/README.md) to expand them first. A descriptor
-is a trusted library contract, not a proof of behavioral equivalence; expansion
-checks signature, effects, and dependency refinement against the body.
-
 ### Values, places, and binding
 
 A `Value` is readable hardware data. It records its hardware type, containing
@@ -212,7 +156,7 @@ and rewriting remain deferred until a transformation motivates coherent
 transaction and handle-validity semantics.
 
 Extension metadata implements `ModuleMetadataPayload`. Its `remap_ir(remap)`
-method participates in [portable materialization](../lowering/README.md), and
+method participates in [graph materialization](../lowering/README.md), and
 nested extension-owned views implement the parent `IRRemappable` protocol.
 Core assigns no semantics to their fields; the owner must explicitly remap live
 references and retain only immutable descriptors. The default rejects copying.
@@ -342,7 +286,7 @@ Backend lowering choices are not part of core schemas.
 
 | Group | Core opcodes |
 |---|---|
-| Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance`, `construct.instance` |
+| Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
 | Sources | `rtl.constant`, `rtl.dont_care` |
 | Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
 | Comparison and selection | `rtl.eq`, `rtl.ult`, `rtl.slt`, `rtl.mux_lookup`, `rtl.onehot_mux`, `rtl.decode` |
@@ -515,7 +459,7 @@ Instance      HardwareType       Location    Origin
 Callers can walk designs, modules, and operations; follow definitions,
 drivers, and users; find direct instances by final name; and print deterministic
 text with `dump_ir`. `Module.find_instance(name)` returns the stable direct
-`rtl.instance` or `construct.instance` operation rather than relying on operation or module order.
+`rtl.instance` operation rather than relying on operation or module order.
 
 ### Builder
 

@@ -15,7 +15,7 @@ import:
 
 for (program in [make_bridge_ports(), make_swap(5), make_wide_bridge_ports()]):
   def before = dump_ir(program.design)
-  def prepared = prepare_rtl(program, CompileOptions(), "binding test")
+  def prepared = prepare_rtl(program)
   def snapshot = dump_ir(prepared.rtl.design)
   def binding = rsim_sv_target.plan(prepared)
   def artifacts = binding.emit()
@@ -35,10 +35,8 @@ check:
 check:
   compile_program(make_wide_bridge_ports(100), rsim_sv_target).artifacts ~is compile_program(make_wide_bridge_ports(), rsim_sv_target).artifacts
 
-// Clock the outputs of the existing portable fixture to check that binding
-// composition prepares providers once and retains occurrence provenance.
-def mutable expansions = 0
-def child_program = make_hierarchy_program(5, 0, fun (): expansions := expansions + 1)
+// Clock a shared hierarchy to compare ordinary and instrumented binding output.
+def child_program = make_hierarchy_program(5)
 def b = Builder(child_program.design)
 def top = b.module("ClockedPortable")
 def clock = b.input(top, "clock", Clock)
@@ -49,11 +47,10 @@ for (port in child_program.top.outputs):
   b.drive(state.next, child.output(port.name))
   b.drive(b.output(top, port.name, port.type), state.current)
 b.finish(top)
-def program = ElaboratedProgram(child_program.design, top, child_program.providers)
+def program = ElaboratedProgram(child_program.design, top)
 def result = compile_program(program, rsim_sv_target)
 check:
-  expansions ~is 1
-  result.manifest.lowerings.map(fun (decision): decision.path) ~is [["child", "portable"], ["child", "portable_again"]]
+  result.manifest.signature ~is module_signature(top)
 
 // Both rsim artifact choices consume pipeline-prepared RTL exactly once.
 // Ordered sidecars and provenance survive without reentering model preparation.
@@ -63,14 +60,12 @@ fun observe(tag :: String):
                 visited.add(tag)
                 RTLPassResult(prepared.rtl, [Artifact(tag ++ ".txt", "text/plain", tag)]))
 for (backend in [rsim_target, rsim_sv_target]):
-  def before_expansions = expansions
   def observed = compile_program(program, rtl_pipeline_target(backend, [observe("first"), observe("second")]))
   def model_count = if backend === rsim_target | 2 | 4
   check:
-    expansions ~is before_expansions + 1
     observed.artifacts.take(model_count) ~is result.artifacts.take(model_count)
+    observed.manifest ~is result.manifest
     observed.artifacts.drop(model_count).map(fun (artifact): artifact.name) ~is ["first.txt", "second.txt"]
-    observed.manifest.lowerings ~is result.manifest.lowerings
     rtl_pipeline_target(backend, []) === backend ~is #true
 check: visited.snapshot() ~is ["first", "second", "first", "second"]
 
@@ -119,7 +114,7 @@ check:
 // composition. Use a real hierarchy that splits differently at the normal budget.
 def partitioned = make_partitioned_bridge()
 def partitioned_source = dump_ir(partitioned.design)
-def partitioned_rtl = prepare_rtl(partitioned, CompileOptions(), "partition strategies")
+def partitioned_rtl = prepare_rtl(partitioned)
 def prepared_source = dump_ir(partitioned_rtl.rtl.design)
 def models = MutableMap{}
 for (partitioning in ["cost", "module"]):

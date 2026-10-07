@@ -1,332 +1,64 @@
 #lang rhombus
-/* Prepares retained hardware with target-selected boundaries or fresh verified RTL with checked state contracts and consumer certification. */
+/* Copies a selected RTL closure into a fresh verified design with remapped metadata and certification. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open
-  "../core/signature.rhm" open
-  "../core/construct.rhm" open
   "../core/builder.rhm".Builder
-  "../core/ops.rhm".schema_for
   "../core/verify.rhm" open
-  "../core/dependencies.rhm".summarize_module_dependencies
   "copy.rhm" open
 
 export:
   ElaboratedProgram
   check_materialized_design
   materialize_reachable_rtl
-  materialize_reachable_program
-  MaterializationResult
-  ExpansionProvider
-  merge_expansion_providers
-  ExpansionResult
   MaterializationCheck
 
-/* Extension-owned certification after whole-design verification. Concrete
-   certification is the default; a mixed-graph check must explicitly opt in. */
+/* Extension-owned certification after whole-design verification. */
 interface MaterializationCheck:
   extends ModuleMetadataPayload
-  /* Permit mixed verification only when this check handles declared boundaries. */
-  property accepts_retained :: Boolean: #false
   /* Certify one finished destination module; a failure prevents a result from escaping. */
   method check_materialized(module_def :: Module)
 
-/* Run attached certification after the caller verifies the selected representation. */
+/* Run attached certification after verification of the copied representation. */
 fun check_materialized_design(design :: Design):
   for (module_def in design.modules):
     for (entry in module_def.metadata):
       when entry.payload is_a MaterializationCheck
       | entry.payload.check_materialized(module_def)
 
-/* Pairs a (scratch builder, definition) expansion callback with concrete-body checks.
-   Checks decorate an implementation without changing the callback identity used for reuse. */
-class ExpansionProvider(expand :: Function.of_arity(2), checks :: List.of(Function.of_arity(1)) = [])
+/* A completed source inventory and an explicit, finished top owned by that design.
+   Construction checks ownership; targets verify without sealing the source. */
+class ElaboratedProgram(design :: Design, top :: Module):
+  /* Validate the selected boundary without copying or running whole-design checks. */
+  constructor (design :: Design, top :: Module):
+    DesignElaboration(design, top)
+    super(design, top)
 
-/* Accept repeated registration only for the same expansion callback.
-   Merge distinct validation callbacks in encounter order so later declarations are not lost. */
-fun merge_expansion_providers(definition :: ConstructDefinition, left :: ExpansionProvider, right :: ExpansionProvider):
-  unless left.expand === right.expand
-  | error(~who: #'materialize_reachable_rtl, "conflicting portable providers for " ++ definition.identity.name)
-  if left === right
-  | left
-  | ExpansionProvider(left.expand, left.checks ++ right.checks.filter(~keep: fun (check): !(check in left.checks)))
-/* Returns the provider's finished module and any providers needed by nested constructs.
-   The materializer verifies that the module belongs to the supplied scratch builder. */
-class ExpansionResult(module_def :: Module, providers :: Map = {})
-
-/* A completed source inventory, explicit concrete or retained top, and provider map.
-   Construction checks the boundary; full source verification remains a preparation step. */
-class ElaboratedProgram(design :: Design, top :: Module || ConstructDefinition, providers :: Map = {}):
-  /* Require a finished owned concrete top, or a detached top with a portable provider.
-     Validate provider entry types without executing implementations or sealing the source. */
-  constructor (design :: Design, top :: Module || ConstructDefinition, providers :: Map = {}):
-    when top is_a Module | DesignElaboration(design, top)
-    check_providers(providers)
-    when top is_a ConstructDefinition && !providers.has_key(top)
-    | error(~who: #'ElaboratedProgram, "retained top requires a portable provider")
-    super(design, top, providers)
-
-/* Reject environment entries that are not construct-definition/provider pairs. */
-fun check_providers(providers :: Map):
-  for (definition in providers.keys()):
-    unless definition is_a ConstructDefinition && providers[definition] is_a ExpansionProvider
-    | error(~who: #'ElaboratedProgram, "providers must map construct definitions to ExpansionProvider objects")
-
-/* Resolve wire aliases and hierarchy bindings to compare clock identity.
-   Computed clocks and casts remain distinct; reject cyclic alias chains. */
-fun bound_control(value :: Value, bindings :: ReadableMap, seen :: List.of(Value) = []):
-  when value in seen | error(~who: #'materialize_reachable_rtl, "cyclic control binding")
-  cond
-  | bindings.has_key(value): bound_control(bindings[value], bindings, seen ++ [value])
-  | ~else:
-      def op = value.module_def.find_operation(value.defining_op_id)
-      if op && op.opcode == "rtl.wire" && op.places[0].driver
-      | bound_control(op.places[0].driver, bindings, seen ++ [value])
-      | value
-
-/* Recognize structural preservation of an active-high reset through aliases,
-   one-bit casts, and OR-extension. This is deliberately not Boolean equivalence checking. */
-fun extends_reset(value :: Value, expected :: Value, bindings :: ReadableMap, seen :: List.of(Value) = []):
-  def resolved = bound_control(value, bindings)
-  cond
-  | resolved === expected: #true
-  | resolved in seen: #false
-  | ~else:
-      def op = resolved.module_def.find_operation(resolved.defining_op_id)
-      cond
-      | op && op.opcode == "rtl.cast" && resolved.type.packed_width() == 1 && op.operands[0].type.packed_width() == 1:
-          extends_reset(op.operands[0], expected, bindings, seen ++ [resolved])
-      | op && op.opcode == "rtl.or":
-          extends_reset(op.operands[0], expected, bindings, seen ++ [resolved]) || extends_reset(op.operands[1], expected, bindings, seen ++ [resolved])
-      | ~else: #false
-
-/* Check concrete effects and nested retained contracts against the outer permissions.
-   Run before expansion to constrain nested providers, and afterwards to check realized effects. */
-fun check_implementation_contract(definition :: ConstructDefinition, module_def :: Module):
-  def state = definition.state
-  def expected_clock = state && module_def.find_input(state.clock_port).value
-  def expected_reset = state && module_def.find_input(state.reset_port).value
-  /* Require the declared clock and, when present, a reset preserving its assertion. */
-  fun check_controls(clock :: Value, reset :: maybe(Value), bindings :: ReadableMap):
-    unless state | error(~who: #'materialize_reachable_rtl, "combinational construct implementation contains state or effects")
-    unless bound_control(clock, bindings) === expected_clock
-    | error(~who: #'materialize_reachable_rtl, "construct state uses a clock outside its declared domain")
-    when reset && !extends_reset(reset, expected_reset, bindings)
-    | error(~who: #'materialize_reachable_rtl, "construct state reset does not preserve its declared reset")
-  /* Require explicit asynchronous-read memory permission independently of register state. */
-  fun check_memory():
-    unless state && state.async_read_memory
-    | error(~who: #'materialize_reachable_rtl, "construct implementation contains undeclared asynchronous-read memory state or effects")
-  /* Require explicit clocked-assertion permission independently of storage permission. */
-  fun check_assertions():
-    unless state && state.clocked_assertions
-    | error(~who: #'materialize_reachable_rtl, "construct implementation contains undeclared clocked assertions")
-  /* Follow concrete children with their control bindings and inspect retained boundaries.
-     Handle memory and assertions before generic operation categories so effects cannot bypass checks. */
-  fun visit(candidate :: Module, bindings :: ReadableMap):
-    for (op in candidate.operations):
-      cond
-      | op.opcode == "rtl.instance":
-          def child = op.attribute("module")
-          def child_bindings = MutableMap.by(===){}
-          for (value in bindings.keys()): child_bindings[value] := bindings[value]
-          for (port in child.inputs, place in op.places): child_bindings[port.value] := bound_control(place.driver, bindings)
-          visit(child, child_bindings)
-      | op.opcode == "construct.instance":
-          def child = op.attribute("definition")
-          when child.state
-          | def controls = for Map (port in child.signature.inputs, place in op.places): values(port.name, place.driver)
-            check_controls(controls[child.state.clock_port], controls[child.state.reset_port], bindings)
-            when child.state.async_read_memory | check_memory()
-            when child.state.clocked_assertions | check_assertions()
-      | op.opcode == "rtl.register" || op.opcode == "rtl.register_reset":
-          check_controls(op.operands[0], if op.opcode == "rtl.register_reset" | op.operands[1] | #false, bindings)
-      | op.opcode in ["rtl.memory", "rtl.memory_read_async", "rtl.memory_write"]:
-          check_memory()
-          when op.opcode == "rtl.memory_write" | check_controls(op.operands[2], #false, bindings)
-      | op.opcode == "verif.assert":
-          check_assertions()
-          check_controls(op.operands[1], op.operands[2], bindings)
-      | schema_for(op.opcode).kind in ["structural", "combinational"]: #void
-      | ~else: error(~who: #'materialize_reachable_rtl, "construct implementation contains undeclared state or effects: " ++ op.opcode)
-  visit(module_def, Map.by(===){})
-
-/* Reject realized same-cycle dependencies omitted from the detached contract.
-   Conservative extra declared edges remain legal, including on stateful definitions. */
-fun check_dependencies(definition :: ConstructDefinition, module_def :: Module):
-  def summaries = summarize_module_dependencies([module_def])
-  def actual = summaries[module_def].output_leaf_dependencies
-  for (actual_port in actual, declared_port in definition.dependencies):
-    for (actual_leaf in actual_port, declared_leaf in declared_port):
-      for (input in actual_leaf.input_leaves):
-        unless declared_leaf.input_leaves.find(fun (candidate): candidate.input_index == input.input_index && candidate.path == input.path)
-        | error(~who: #'materialize_reachable_rtl, "construct implementation exceeds its declared combinational dependencies")
-
-/* Pairs the verified selected graph with a definition-to-destination map for provenance.
-   The map records shared expansion bodies, not individual source occurrences. */
-class MaterializationResult(rtl :: DesignElaboration, expansions :: Map)
-
-/* Validate the complete source, then clone and expand only the selected top closure.
-   All bodies precede metadata remapping; finishing, verification, and merged checks
-   precede return. Every call owns fresh IR and leaves the source graph unchanged. */
-fun materialize_reachable_rtl(program :: ElaboratedProgram, ~expansion_limit: expansion_limit :: PosInt = 256):
-  materialize_reachable_program(program, fun (definition): #false, ~expansion_limit: expansion_limit)
-
-/* Preserve only target-admitted semantic definitions; all other definitions use
-   the same checked portable expansion. Retention never executes a provider or
-   drops its concrete-body checks: checked providers use portable expansion. */
-fun materialize_reachable_program(program :: ElaboratedProgram, retain :: Function.of_arity(1),
-                                  ~expansion_limit: expansion_limit :: PosInt = 256):
-  verify_program(program.design)
+/* Validate all source modules, then copy only the selected top's reachable closure.
+   Allocate all bodies before remapping metadata so cross-module references work.
+   Each call owns fresh IR and leaves the source graph unsealed and unchanged. */
+fun materialize_reachable_rtl(program :: ElaboratedProgram) :: DesignElaboration:
+  verify_design_structure(program.design)
+  verify_design_combinational(program.design)
   def builder = Builder(Design())
   def objects = MutableMap.by(===){}
   def copied = MutableList[]
-  def providers = MutableMap.by(===){}
-  def expanded = MutableMap.by(===){}
-  def retained = MutableSet.by(===){}
-  def retained_order = MutableList[]
-  def mutable concrete_required = #false
-  def implementations = MutableMap.by(===){}
-  def discovered = MutableSet.by(===){}
-  def active = MutableList[]
-  def mutable expansions = 0
-  def reserved_names = MutableSet{}
-  def visited_source = MutableSet.by(===){}
-  /* Reserve reachable concrete names before expanding providers, so unused modules
-     cannot perturb names and later copied source modules cannot be shadowed. */
-  fun reserve(module_def :: Module):
-    unless module_def in visited_source
-    | visited_source.add(module_def)
-      reserved_names.add(module_def.name)
-      for (operation in module_def.operations):
-        when operation.opcode == "rtl.instance" | reserve(operation.attribute("module"))
-  when program.top is_a Module | reserve(program.top)
-  /* Merge a provider environment into this compilation without discarding additional checks. */
-  fun register(entries :: Map):
-    check_providers(entries)
-    for (definition in entries.keys()):
-      when definition in retained && entries[definition].checks.length() > 0
-      | concrete_required := #true
-      providers[definition] := if providers.has_key(definition) | merge_expansion_providers(definition, providers[definition], entries[definition]) | entries[definition]
-  register(program.providers)
-
-  /* Copy each referenced DPI declaration once; unused source imports stay outside the result. */
+  /* Copy each used DPI declaration once, omitting unused source imports. */
   fun copy_import(original :: DpiImport):
     unless objects.has_key(original)
     | objects[original] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
     objects[original]
-
   def remap = make_ir_remapper(objects, copy_import)
-
-  /* Discover portable bodies before copying so a later nested registration can
-     require concrete checks on an earlier native candidate. Cache each callback
-     result once; native bodies are never requested unless a check requires them. */
-  fun discover_definition(definition :: ConstructDefinition):
-    when active.snapshot().find(fun (candidate): candidate === definition)
-    | error(~who: #'materialize_reachable_rtl, "recursive construct expansion: " ++ String.join((active.snapshot() ++ [definition]).map(fun (item): item.identity.name), " -> "))
-    unless providers.has_key(definition)
-    | error(~who: #'materialize_reachable_rtl, "missing portable provider for " ++ definition.identity.name)
-    when providers[definition].checks.length() > 0 | concrete_required := #true
-    unless implementations.has_key(definition)
-    | if !concrete_required && retain(definition)
-      | block:
-          unless definition in retained | retained_order.add(definition)
-          retained.add(definition)
-      | block:
-          retained.remove(definition)
-          expansions := expansions + 1
-          when expansions > expansion_limit
-          | error(~who: #'materialize_reachable_rtl, "construct expansion limit exceeded at " ++ definition.identity.name)
-          active.add(definition)
-          try:
-            def scratch = Builder(Design())
-            def implementation = providers[definition].expand(scratch, definition)
-            unless implementation is_a ExpansionResult && implementation.module_def.design === scratch.design && scratch.design.owns_module(implementation.module_def)
-            | error(~who: #'materialize_reachable_rtl, "provider must return an ExpansionResult owned by its supplied builder")
-            def body = implementation.module_def
-            unless body.finished && signature_equal(definition.signature, module_signature(body))
-            | error(~who: #'materialize_reachable_rtl, "construct implementation does not match its declared signature")
-            register(implementation.providers)
-            verify_program(scratch.design)
-            check_implementation_contract(definition, body)
-            check_dependencies(definition, body)
-            discover(body)
-            implementations[definition] := body
-            ~finally:
-              active.delete(active.length() - 1)
-
-  /* Visit only reachable bodies; ordinary child sharing does not rerun providers. */
-  fun discover(module_def :: Module):
-    unless module_def in discovered
-    | discovered.add(module_def)
-      when for any (entry in module_def.metadata): entry.payload is_a MaterializationCheck && !entry.payload.accepts_retained
-      | concrete_required := #true
-      for (op in module_def.operations):
-        cond
-        | op.opcode == "construct.instance": discover_definition(op.attribute("definition"))
-        | op.opcode == "rtl.instance": discover(op.attribute("module"))
-        | ~else: #void
-
-  /* Copy a discovered portable body once, rechecking its realized permissions
-     and dependencies after nested implementation selection. */
-  fun expand(definition :: ConstructDefinition):
-    unless expanded.has_key(definition)
-    | def concrete = copy(implementations[definition])
-      check_implementation_contract(definition, concrete)
-      check_dependencies(definition, concrete)
-      expanded[definition] := concrete
-    expanded[definition]
-
-  /* Selection is stable after discovery has merged all reachable checks. */
-  fun select(definition :: ConstructDefinition):
-    if definition in retained | definition | expand(definition)
-
-  /* Allocate a destination shell before recursively copying its children.
-     Preserve source names where possible, suffix provider collisions, and defer metadata
-     until every reachable body and reference mapping exists. */
+  /* Allocate a shell before recursively copying children, preserving shared definitions. */
   fun copy(original :: Module):
     unless objects.has_key(original)
-    | def mutable name = original.name
-      def mutable suffix = 1
-      while builder.design.find_module_named(name) || (!(original.design === program.design) && name in reserved_names):
-        suffix := suffix + 1
-        name := original.name ++ "_" ++ to_string(suffix)
-      def target = builder.module(name)
+    | def target = builder.module(original.name)
       objects[original] := target
-      /* Resolve each child to copied RTL or a target-admitted retained boundary. */
-      fun child(op :: Operation):
-        if op.opcode == "construct.instance"
-        | select(op.attribute("definition"))
-        | copy(op.attribute("module"))
-      copy_module_body(builder, original, target, child, objects, remap)
+      copy_module_body(builder, original, target, fun (op): copy(op.attribute("module")), objects, remap)
       copied.add(original)
     objects[original]
-
-  if program.top is_a ConstructDefinition | discover_definition(program.top) | discover(program.top)
-  // Newly discovered providers may add checks to native candidates encountered
-  // earlier. Expanding those candidates can reveal more providers, so close the
-  // environment before fixing any copied instance representation.
-  when concrete_required
-  | for (definition in retained_order):
-      discover_definition(definition)
-
-  def selected = if program.top is_a ConstructDefinition | select(program.top) | copy(program.top)
-  // A native root needs physical ports for the same scheduler used by mixed
-  // parents. This wrapper owns no semantics or extra state.
-  def top:
-    if selected is_a ConstructDefinition
-    | def wrapper = builder.module(selected.identity.name)
-      def instance = builder.construct_instance(wrapper, selected, "native")
-      for (port in selected.signature.inputs):
-        builder.drive(instance.input(port.name), builder.input(wrapper, port.name, port.type))
-      for (port in selected.signature.outputs):
-        builder.drive(builder.output(wrapper, port.name, port.type), instance.output(port.name))
-      builder.finish(wrapper)
-      wrapper
-    | selected
-  // Metadata may refer to a later sibling or to another module's payload.
-  // All bodies exist before any extension-owned graph is remapped.
+  def top = copy(program.top)
   for (original in copied):
     def target = objects[original]
     for (place in original.places):
@@ -334,10 +66,6 @@ fun materialize_reachable_program(program :: ElaboratedProgram, retain :: Functi
     for (entry in original.metadata):
       target.add_metadata(entry.namespace, remap(entry.payload))
   for (original in copied): builder.finish(objects[original])
-  if retained.length() == 0 | verify_design(builder.design) | verify_program(builder.design)
-  // Nested environments may add checks after a shared body was expanded.
-  // Run the complete merged set once all concrete metadata is available.
-  for (definition in expanded.keys()):
-    for (check in providers[definition].checks): check(expanded[definition])
+  verify_design(builder.design)
   check_materialized_design(builder.design)
-  MaterializationResult(DesignElaboration(builder.design, top), expanded.snapshot())
+  DesignElaboration(builder.design, top)

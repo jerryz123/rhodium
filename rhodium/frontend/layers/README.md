@@ -1050,16 +1050,10 @@ syntax; arrays use `<name>_<index>_in`/`<name>_<index>_out`. Nested interfaces
 remain fields in those direction records. This API does not introduce port
 aliases or infer protocols from physical port names.
 
-Pass the same `~declarations` to `retained_circuit(definition, implementation)`
-to expose `child.ingress`, `child.egress`, array indexing, and nested fields
-without running its recipe. The core construct still declares its physical
-signature and output-leaf dependencies explicitly. Interface declarations add
-nominal meaning; they do not certify latency, state, or transaction behavior.
-
 Reference construction checks port direction/type compatibility, member-name
 collisions, and overlapping declarations. Connections use existing nominal
 compatibility and role checks immediately. When an ordinary reference is
-realized or a retained provider expands, its actual interface metadata must
+realized, its actual interface metadata must
 match the declaration's specialization, role, physical bindings, and array
 membership/order. Equal wire widths alone do not satisfy this check. Failed
 validation is an error, with no fallback to guessed interfaces.
@@ -1191,13 +1185,10 @@ interface refinement merge and split.
 
 ### Links, transforms, and pipelines
 
-A configured transform may name an ordinary or retained implementation instance.
-Its presentation metadata keeps that symbolic link until materialization remaps
-it to the concrete instance. Intrinsic trace controls remain owned by the
-portable implementation; competing trace summaries are checked again after
-expansion, before a concrete design is returned. A child-bound
-`interface_trace_queue(instance, ~name: ...)` likewise retains the named storage
-binding until expansion; missing storage remains an error.
+A configured transform may name its implementation instance. Materialization
+remaps that link and its trace controls to the copied design, then rechecks
+interface contracts. A child-bound `interface_trace_queue(instance, ~name: ...)`
+resolves storage owned by that child; missing storage remains an error.
 
 `interface_link(protocol)` creates a local pair of complementary endpoint
 views over forward-readable, exactly-one-driver wires. An `InterfaceHandle`

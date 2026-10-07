@@ -28,7 +28,6 @@ for (width in [1, 5, 65]):
     result.manifest.top ~is program.top.name
     result.manifest.modules ~is [program.top.name]
     result.manifest.signature ~is circt.manifest.signature
-    result.manifest.lowerings ~is []
     dump_ir(program.design) ~is before
     program.design.sealed ~is #false
   // Compilation may not seal the original inventory against later construction.
@@ -56,20 +55,15 @@ invalid_builder.finish(invalid_top)
 check:
   compile_program(ElaboratedProgram(invalid_design, invalid_top), verilog_target) ~throws "undriven"
 
-// Shared definitions are emitted once, while portable occurrence reports retain
-// both paths. Preparing either backend cannot seal or mutate the original graph.
+// Shared definitions are emitted once. Preparing either backend preserves the
+// original graph while retaining both instance paths.
 for (width in [1, 5, 65]):
-  def mutable calls = 0
-  def program = make_hierarchy_program(width, 0, fun (): calls := calls + 1)
+  def program = make_hierarchy_program(width)
   def before = dump_ir(program.design)
   def circt = compile_program(program, circt_target)
-  check: calls ~is 1
   def direct = compile_program(program, verilog_target)
-  check: calls ~is 2
   def again = compile_program(program, verilog_target)
-  check: calls ~is 3
   def circt_again = compile_program(program, circt_target)
-  check: calls ~is 4
   def text = direct.artifacts[0].content
   def suffix = to_string(width)
   check:
@@ -78,8 +72,6 @@ for (width in [1, 5, 65]):
     direct.manifest.modules.length() ~is 4
     direct.manifest.modules ~is circt.manifest.modules
     direct.manifest.signature ~is circt.manifest.signature
-    direct.manifest.lowerings.map(fun (decision): decision.path) ~is [["portable"], ["portable_again"]]
-    direct.manifest.lowerings.map(fun (decision): decision.action) ~is ["expand", "expand"]
     text ~is again.artifacts[0].content
     text ~is compile_program(make_hierarchy_program(width, 100), verilog_target).artifacts[0].content
     circt.artifacts[0].content ~is circt_again.artifacts[0].content
@@ -373,7 +365,7 @@ check:
 // the current registry rather than asserting that deferred features don't exist.
 check:
   verilog_opcode_policy.keys().sort() ~is schemas.map(fun (schema): schema.opcode).sort()
-  (for all (opcode in verilog_opcode_policy.keys()): verilog_opcode_policy[opcode] in ["emit", "prepare", "defer"]) ~is #true
+  (for all (opcode in verilog_opcode_policy.keys()): verilog_opcode_policy[opcode] in ["emit", "defer"]) ~is #true
 
 // Metadata adds only attributes to the five designated stage variables. The
 // endpoint drivers are recovered from emitted connections, not hard-coded IDs.

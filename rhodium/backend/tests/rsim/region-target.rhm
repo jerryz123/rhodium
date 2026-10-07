@@ -28,5 +28,5 @@ def setting = rkt.getenv("RHODIUM_RSIM_TEST_REGION_BUDGET")
 def rsim_target:
   if setting
   | def budget :: PosInt = rkt.#{string->number}(setting)
-    RTLTarget("rsim-regions-test", "fixture RTL", fun (prepared): RegionTestPlan(prepared, budget))
+    RTLTarget("rsim-regions-test", fun (prepared): RegionTestPlan(prepared, budget))
   | production.rsim_target

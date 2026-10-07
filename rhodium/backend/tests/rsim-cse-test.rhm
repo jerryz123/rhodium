@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/main.rhm" open
-  "../../compile/contracts.rhm".CompileOptions
   "../../compile/rtl.rhm".prepare_rtl
   "../rsim-target.rhm".rsim_target
   "../rsim/plan.rhm" open
@@ -98,7 +97,7 @@ check: share_scalar_expressions(typed).outputs.map(fun (port): port.value) ~is [
 
 // The production target exposes the optimized schedule and rebuilds dependency
 // planning from it; separately authored additions feed independent consumers.
-def prepared = prepare_rtl(make_scalar(5), CompileOptions(), "scalar CSE")
+def prepared = prepare_rtl(make_scalar(5))
 def raw = build_schedule(prepared.rtl)
 def target = rsim_target.plan(prepared)
 check:

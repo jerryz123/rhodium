@@ -12,17 +12,15 @@ and generated-artifact policy.
 ## Architecture and ownership
 
 `compile_program` selects a target. CIRCT and direct SV use `RTLTarget` with
-mandatory portable RTL expansion. `RsimTarget` owns rsim program preparation;
-it currently uses that same expansion before scheduling. It captures the selected
+fresh verified RTL preparation. `RsimTarget` owns rsim program preparation;
+it currently uses that same preparation before scheduling. It captures the selected
 partition strategy in `RsimPlan` through both program and prepared-RTL entry
-points; option validation and target identity belong in this adapter, not generic
-`CompileOptions`. All implement
+points; option validation and target identity belong in this adapter. All implement
 `PreparedRTLConsumer`: `.plan(prepared)` accepts an existing `PreparedRTL`
 without preparing again, including concrete instrumentation results. Both
 paths return the backend's artifact set: one RTL artifact, the rsim C++ model (with optional support header), or
 that model with an SV/DPI binding.
-Compilation owns requests/results; lowering owns copying and portable
-expansion; each backend owns its representation. Frontend and Flow libraries
+Compilation owns requests/results; lowering owns copying and metadata remapping; each backend owns its representation. Frontend and Flow libraries
 need no backend-specific branches.
 
 The concrete emitters consume public core IR and cannot import frontend,
@@ -839,9 +837,7 @@ Both rsim targets share `prepare_rsim` for ordinary compilation and `plan_rtl`
 for prepared-RTL consumption. `RsimPlan` stores only the manifest and schedule.
 SV binding validates the detached manifest signature and scheduled dependencies,
 then wraps that model plan without another graph preparation or schedule.
-Future native construct selection belongs in rsim preparation before portable
-expansion; this boundary introduces no native adapters or new state semantics.
-Concrete instrumentation still expands all constructs before invoking `.plan`.
+Concrete instrumentation passes their final verified graph to `.plan`.
 The binding emitter propagates external-input dependency flags in schedule order; state roots break those paths. Keep this check separate from
 native model capabilities. The bridge retains unsigned 64-bit DPI carriers for
 narrow ports and uses two-state packed vectors for wider scalar ports. Wide
@@ -881,7 +877,7 @@ not the HDL-free native suite. Changes to `sims/TestDriver.v` or its native
 lifecycle runtime also select that CI lane. Generated models, wrappers, builds, and logs remain temporary; failed
 runs retain them for diagnosis. Host contracts in `tests/rsim-sv-test.rhm` cover
 boundary diagnostics, source preservation, deterministic artifacts, shared
-manifests, identical standalone model artifacts, and single provider expansion.
+manifests, identical standalone model artifacts, and single graph preparation.
 This fixture's scope is the binding contract. Separate full-SoC smoke
 qualification is described in the [simulator guide](../../sims/DEVELOPING.md).
 
@@ -905,7 +901,7 @@ initialize through writes and never assume portable zero contents.
 `CXX` selects the native compiler. The host/backend CI target includes the small
 native run without HDL tools; the existing backend differential lane also runs
 the rsim/direct-SV comparison. Host tests additionally cover source preservation,
-deterministic naming independent of global IDs, and prepared/provider reuse.
+deterministic naming independent of global IDs, and prepared-graph reuse.
 Structural emission checks protect output-only evaluation at state roots and
 empty output dependency sets while retaining pre-edge updates and foreign
 effects. Behavioral scoreboards cover the resulting output and edge semantics;
@@ -988,7 +984,7 @@ qualify optimized SoC compilation and smoke execution separately.
 
 | Family | Required distinctions |
 |---|---|
-| RTL | Widths 1/5/65; modular arithmetic and overshifts; hierarchy/portable expansion; packed layouts/casts; dynamic vectors and write sets; partial outputs; reset/hold/edge timing; asynchronous memories; CDC stage latency |
+| RTL | Widths 1/5/65; modular arithmetic and overshifts; shared hierarchy; packed layouts/casts; dynamic vectors and write sets; partial outputs; reset/hold/edge timing; asynchronous memories; CDC stage latency |
 | Synchronous memory | Depths 1/3/4; 1R/1W/1R1W/1RW; scalar/aggregate data; bit, granule, and whole-word masks; per-bit definedness; old read results; independent instances |
 | Assertions | Guard/reset suppression; pre-update sampling; occurrence/label diagnostics; two passing and six expected failures; all eight scenarios with synthesis defined |
 | DPI | Native and packed widths through 129 bits; wide inputs/out results; held results; independent clocks/enables; call multisets and instance scopes; generated C-header ABI; explicit synthesis rejection |

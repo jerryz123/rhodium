@@ -1,10 +1,9 @@
 #lang rhombus
-/* Clones mixed module graphs into fresh target-selected hardware with explicit object and metadata remapping. */
+/* Clones module graphs into fresh RTL with explicit object and metadata remapping. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open
-  "../core/construct.rhm" open
   "../core/builder.rhm".Builder
 
 export:
@@ -33,16 +32,14 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
     target.add_memory(replacement)
 
   for (op in original.operations):
-    def is_instance = op.opcode in ["rtl.instance", "construct.instance"]
+    def is_instance = op.opcode == "rtl.instance"
     def child = is_instance && resolve_child(op)
-    def retained = child is_a ConstructDefinition
     def attributes:
       if is_instance
-      | {"name": op.attribute("name"), (if retained | "definition" | "module"): child}
+      | {"name": op.attribute("name"), "module": child}
       | remap(op.attributes)
     def operands = op.operands.map(remap)
-    def opcode = if is_instance | (if retained | "construct.instance" | "rtl.instance") | op.opcode
-    def replacement = Operation(ids[op.id], opcode,
+    def replacement = Operation(ids[op.id], op.opcode,
                                 target, operands, op.results.map(remap), op.places.map(remap),
                                 attributes, op.location, op.origin)
     objects[op] := replacement
@@ -68,7 +65,7 @@ fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)
   /* Resolve or clone one reference while preserving shared extension objects.
      Arrays and views receive fresh storage; immutable descriptors may be shared.
      Reject recursive extension graphs instead of retaining source-owned mutable objects. */
-  fun remap(value :: Boolean || String || Number || List || Map || Array || HardwareType || Value || Place || Memory || DpiImport || Module || Operation || Port || Instance || ConstructInstance || IRRemappable):
+  fun remap(value :: Boolean || String || Number || List || Map || Array || HardwareType || Value || Place || Memory || DpiImport || Module || Operation || Port || Instance || IRRemappable):
     cond
     | objects.has_key(value): objects[value]
     | value is_a Place && value.parent:
@@ -88,7 +85,7 @@ fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)
     | value is_a List: value.map(remap)
     | value is_a Map:
         for Map (key in value.keys()): values(remap(key), remap(value[key]))
-    | value is_a Port || value is_a Instance || value is_a ConstructInstance || value is_a IRRemappable || value is_a Array:
+    | value is_a Port || value is_a Instance || value is_a IRRemappable || value is_a Array:
         when value in active | error(~who: #'materialize_reachable_rtl, "cyclic metadata remapping")
         active.add(value)
         def replacement:
@@ -98,11 +95,6 @@ fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)
               // The copied operation selects the child occurrence, even after specialization.
               def operation = remap(value.operation)
               Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
-          | value is_a ConstructInstance:
-              def operation = remap(value.operation)
-              if operation.opcode == "construct.instance"
-              | ConstructInstance(operation, operation.attribute("definition"), remap(value.input_bindings), remap(value.output_bindings))
-              | Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
           | value is_a Array: Array(& (for List (item in value): remap(item)))
           | ~else: value.remap_ir(remap)
         active.remove(value)

@@ -1,33 +1,26 @@
 #lang rhombus
-/* Defines immutable compile requests, target-owned plans, artifact sets, and lowering manifests. */
+/* Defines immutable compile requests, target-owned plans, artifact sets, and boundary manifests. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../core/ir.rhm" open
   "../core/signature.rhm".ModuleSignature
-  "../core/construct.rhm".ConstructDefinition
 
 export:
-  CompileOptions
   CompilationTarget
   TargetPlan
   Artifact
-  LoweringDecision
   CompileManifest
   CompilationResult
   CompilationReport
   Diagnostic
 
-/* Bounds portable expansion per compilation, including changing-specialization recursion.
-   The budget counts distinct expanded definitions, not instance occurrences. */
-class CompileOptions(expansion_limit :: PosInt = 256)
-
-/* Names an explicit target and its (program, options) preparation callback.
+/* Names an explicit target and its program preparation callback.
    The callback owns representation choices; compilation does not consult a registry.
    Subclasses may add specialized entry points without changing compiler dispatch. */
-class CompilationTarget(name :: String, prepare :: Function.of_arity(2)):
+class CompilationTarget(name :: String, prepare :: Function.of_arity(1)):
   nonfinal
   /* Reject an empty target identity before storing its preparation callback. */
-  constructor (name :: String, prepare :: Function.of_arity(2)):
+  constructor (name :: String, prepare :: Function.of_arity(1)):
     unless name != "" | error(~who: #'CompilationTarget, "target name must not be empty")
     super(name, prepare)
 
@@ -40,16 +33,10 @@ class Artifact(name :: String, media_type :: String, content :: String):
     | error(~who: #'Artifact, "artifact name and media type must not be empty")
     super(name, media_type, content)
 
-/* Records one construct occurrence and why the target expanded or executed it natively.
-   Paths use source instance names relative to the top; a retained top has an empty
-   path. Shared definitions still receive separate entries for each occurrence. */
-class LoweringDecision(path :: List.of(String), definition :: ConstructDefinition,
-                       action :: String, reason :: String, implementation :: String,
-                       location :: maybe(Location) = #false, origin :: maybe(Origin) = #false)
-/* Describes the selected physical top, emitted module order, and occurrence decisions.
+/* Describes the selected physical top and emitted module order.
    The signature is detached from live IR and can describe the artifact boundary. */
 class CompileManifest(top :: String, signature :: ModuleSignature,
-                      modules :: List.of(String), lowerings :: List.of(LoweringDecision))
+                      modules :: List.of(String))
 /* Target-owned structured findings; hardware emitters may omit this projection. */
 interface CompilationReport
 /* A target-scoped finding detached from live IR. Instance paths distinguish
@@ -74,9 +61,9 @@ class CompilationResult(target :: String, manifest :: CompileManifest,
     for any (diagnostic in diagnostics): diagnostic.severity == "error"
 
 /* Target-owned prepared state with manifest, artifact, and optional report projections.
-   No concrete RTL type is required, so later targets may retain higher-level constructs. */
+   Targets choose their prepared representation independently. */
 interface TargetPlan:
-  /* Describe this plan's selected boundary and lowering decisions without emitting text. */
+  /* Describe this plan's selected boundary without emitting text. */
   method manifest() :: CompileManifest
   /* Produce artifacts in memory; structured-only targets may return an empty list. */
   method emit() :: List.of(Artifact)

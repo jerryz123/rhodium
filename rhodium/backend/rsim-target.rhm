@@ -17,7 +17,7 @@ export RsimTarget rsim_target rsim_sv_target
    fixed for this plan, independently of later compilations of the same program. */
 class RsimPlan(compiled_manifest :: CompileManifest, schedule :: RsimSchedule, partitioning :: String):
   implements TargetPlan
-  /* Preserve logical ports, occurrence attribution, and portable expansion provenance. */
+  /* Preserve logical ports and emitted module inventory. */
   override method manifest(): compiled_manifest
   /* Return standalone C++ sources; compilation and file publication belong to the caller. */
   override method emit():
@@ -28,23 +28,20 @@ class RsimPlan(compiled_manifest :: CompileManifest, schedule :: RsimSchedule, p
     | artifacts ++ [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])]
     | artifacts
 
-def portable_expansion_reason = "rsim uses concrete RTL; use the portable implementation"
-
-/* Lower already-verified RTL without copying or running providers; retain the
+/* Lower already-verified RTL without copying or repeating certification; retain the
    selected partition policy for emission through either preparation path. */
 fun plan_rtl(prepared :: PreparedRTL, partitioning :: String) :: RsimPlan:
   RsimPlan(prepared.manifest, compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl))), partitioning)
 
-/* Own ordinary rsim lowering selection. For now every construct uses its
-   portable implementation; future native selection belongs before this expansion. */
-fun prepare_rsim(program :: ElaboratedProgram, options :: CompileOptions, partitioning :: String) :: RsimPlan:
-  plan_rtl(prepare_rtl(program, options, portable_expansion_reason), partitioning)
+/* Prepare a fresh verified RTL graph before building the executable schedule. */
+fun prepare_rsim(program :: ElaboratedProgram, partitioning :: String) :: RsimPlan:
+  plan_rtl(prepare_rtl(program), partitioning)
 
 /* Add simulator-host bindings to the same model plan without preparing or
    scheduling the circuit a second time. The manifest remains the logical RTL boundary. */
 class RsimSVPlan(model :: RsimPlan, clock :: String):
   implements TargetPlan
-  /* Reuse the model's occurrence and lowering provenance verbatim. */
+  /* Reuse the model's boundary manifest verbatim. */
   override method manifest(): model.manifest()
   /* Return the C++ model and support sources followed by the SV wrapper and DPI bridge. */
   override method emit():
@@ -71,9 +68,7 @@ class RsimTarget(bind_sv :: Boolean, partitioning :: String):
     unless partitioning in ["cost", "module"]
     | error(~who: #'RsimTarget, "partitioning must be cost or module")
     def name = (if bind_sv | "rsim-sv" | "rsim") ++ (if partitioning == "module" | "-module" | "")
-    super(name, fun (program, options): finish_plan(prepare_rsim(program, options, partitioning), bind_sv))(bind_sv, partitioning)
-  /* Concrete instrumentation still requests the same portable fallback. */
-  override property expansion_reason: portable_expansion_reason
+    super(name, fun (program): finish_plan(prepare_rsim(program, partitioning), bind_sv))(bind_sv, partitioning)
   /* Reuse an instrumented graph with this target's policy, without preparing again. */
   override method plan(prepared :: PreparedRTL) :: TargetPlan:
     finish_plan(plan_rtl(prepared, partitioning), bind_sv)

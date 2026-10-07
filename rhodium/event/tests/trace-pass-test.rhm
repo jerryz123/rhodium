@@ -23,7 +23,7 @@ class CopyReport(rtl :: DesignElaboration):
 // A separate graph-rewriting stage must preserve existing observers and their sidecars.
 fun copy_stage(prepared :: PreparedRTL):
   def result = materialize_reachable_rtl(ElaboratedProgram(prepared.rtl.design, prepared.rtl.top))
-  RTLPassResult(result.rtl, [Artifact("copy.txt", "text/plain", "copied")], CopyReport(result.rtl))
+  RTLPassResult(result, [Artifact("copy.txt", "text/plain", "copied")], CopyReport(result))
 def copier = RTLPass("copy", copy_stage)
 def logical = make_fixture()
 def program = ElaboratedProgram(logical.design, logical.top)

@@ -1,11 +1,10 @@
 #lang rhodium
-// Builds grouped, array, and nested retained boundaries without executing their implementations.
+// Builds grouped, array, and nested interfaces from detached declarations.
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
-  lib("rhodium/core/signature.rhm").leaf_paths
 
 interface Envelope():
   role producer
@@ -49,23 +48,10 @@ def array_declarations = [InterfaceDeclaration("ingress", Decoupled(Bits(8)), "c
 def nested_declarations = [InterfaceDeclaration("ingress", Envelope(), "consumer"), InterfaceDeclaration("egress", Envelope(), "producer")]
 def signature = interface_signature(declarations)
 
-// Mirror each output record onto the opposite endpoint's input record. This
-// preserves leaf precision in both data and ready directions when stages chain.
-fun definition(name :: String, boundaries :: List.of(InterfaceDeclaration)):
-  def ports = interface_signature(boundaries)
-  def dependencies:
-    for List (port in ports.outputs):
-      def source_name = (if port.name.starts_with("ingress") | port.name.replace("ingress", "egress") | port.name.replace("egress", "ingress")).replace("_out", "_in")
-      def indices = for List (i in 0..ports.inputs.length()): i
-      def index = indices.find(fun (i): ports.inputs[i].name == source_name)
-      leaf_paths(port.type).map(fun (path): OutputLeafDependency(path, [InputLeaf(index, path)]))
-  ConstructDefinition(ConstructIdentity(name), [], ports, dependencies)
-
 def mutable calls = 0
 fun counted():
   calls := calls + 1
   Pass()
-def retained = retained_circuit(definition("Pass", declarations), counted, ~declarations: declarations)
 def ordinary = CircuitReference(CircuitIdentity("Pass"), signature, counted, ~declarations: declarations)
 def mutable array_calls = 0
 def mutable nested_calls = 0
@@ -75,9 +61,9 @@ fun counted_array():
 fun counted_nested():
   nested_calls := nested_calls + 1
   NestedPass()
-def array_retained = retained_circuit(definition("ArrayPass", array_declarations), counted_array, ~declarations: array_declarations)
-def nested_retained = retained_circuit(definition("NestedPass", nested_declarations), counted_nested, ~declarations: nested_declarations)
-def wrong = retained_circuit(definition("Wrong", declarations), fun (): WrongNominal(), ~declarations: declarations)
+def array_reference = CircuitReference(CircuitIdentity("ArrayPass"), interface_signature(array_declarations), counted_array, ~declarations: array_declarations)
+def nested_reference = CircuitReference(CircuitIdentity("NestedPass"), interface_signature(nested_declarations), counted_nested, ~declarations: nested_declarations)
+def wrong = CircuitReference(CircuitIdentity("Wrong"), signature, fun (): WrongNominal(), ~declarations: declarations)
 
 sync_circuit Top(child):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
@@ -107,14 +93,14 @@ sync_circuit NestedTop(child):
 
 sync_circuit WidthTop():
   interface ingress(Decoupled(Bits(16)), ~role: consumer)
-  inst stage(retained)
+  inst stage(ordinary)
   ingress |> stage.ingress
 
 fun invalid_connection(): elaborate(WidthTop())
 
-def program = elaborate(Top(retained))
-def array_program = elaborate(ArrayTop(array_retained))
-def nested_program = elaborate(NestedTop(nested_retained))
+def program = elaborate(Top(ordinary))
+def array_program = elaborate(ArrayTop(array_reference))
+def nested_program = elaborate(NestedTop(nested_reference))
 def calls_after_connections = [calls, array_calls, nested_calls]
 def eager = compile_program(elaborate(Top(#false)), rtl_target).report.elaboration
 def array_eager = compile_program(elaborate(ArrayTop(#false)), rtl_target).report.elaboration
@@ -138,9 +124,7 @@ export:
   declarations
   array_declarations
   signature
-  retained
   ordinary
-  definition
   program
   array_program
   nested_program

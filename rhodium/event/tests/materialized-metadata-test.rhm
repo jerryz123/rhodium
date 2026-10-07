@@ -9,7 +9,7 @@ import:
   "../../diagram/main.rhm" open
   "../../backend/circt.rhm".emit_circt
   "../../frontend/layers/interface.rhm" open
-  "../../frontend/tests/retained-metadata-fixture.rhdl" as fixture
+  "../../frontend/tests/materialized-metadata-fixture.rhdl" as fixture
 
 // Module IDs are allocation identities. Compare every serialized topology field
 // after replacing only that ID, leaving names, ordering, ports, and routes exact.
@@ -19,8 +19,8 @@ fun topology(logical :: DesignElaboration):
   )
 
 def before = dump_ir(fixture.program.design)
-def first = materialize_reachable_rtl(fixture.program).rtl
-def second = materialize_reachable_rtl(fixture.program).rtl
+def first = materialize_reachable_rtl(fixture.program)
+def second = materialize_reachable_rtl(fixture.program)
 def original_lane = fixture.program.top.find_instance("first").attribute("module")
 def lane = first.top.find_instance("first").attribute("module")
 def again_lane = second.top.find_instance("first").attribute("module")

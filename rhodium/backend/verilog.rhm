@@ -10,8 +10,7 @@ export:
   verilog_opcode_policy
 
 /* Explicit backend coverage inventory. The emitter consumes only "emit" entries;
-   "prepare" is materialized by the target adapter and "defer" is intentionally
-   outside this target. Host tests compare keys with core schemas so a new core
+   "defer" is intentionally outside this target. Host tests compare keys with core schemas so a new core
    operation requires a deliberate policy decision rather than a silent default. */
 def verilog_opcode_policy:
   {"rtl.input_port": "emit",
@@ -57,7 +56,6 @@ def verilog_opcode_policy:
    "rtl.memory_write": "emit",
    "verif.assert": "emit",
    "cdc.sync_level": "emit",
-   "construct.instance": "prepare",
    "rtl.sync_memory": "emit",
    "sim.dpi_call": "emit",
    "sim.dpi_register": "emit"}

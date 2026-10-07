@@ -1,5 +1,5 @@
 #lang rhombus
-/* Prepares mixed hardware or concrete RTL with shared occurrence provenance and concrete target composition. */
+/* Prepares verified RTL and composes targets over a shared graph and boundary manifest. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "contracts.rhm" open
@@ -12,8 +12,6 @@ export:
   RTLReport
   ElaboratedProgram
   PreparedRTL
-  PreparedProgram
-  prepare_program
   PreparedRTLConsumer
   RTLTarget
   prepare_rtl
@@ -31,78 +29,41 @@ class RTLReport(elaboration :: DesignElaboration):
 /* Returns structured RTL without rendering text or invoking another backend. */
 class RTLGraphPlan(prepared :: PreparedRTL):
   implements TargetPlan
-  /* Preserve occurrence provenance from the one preparation of this graph. */
+  /* Preserve the boundary manifest from the one preparation of this graph. */
   override method manifest(): prepared.manifest
   /* Deliver the graph through the ordinary target-owned report projection. */
   override method report(): RTLReport(prepared.rtl)
   /* RTL inspection has no textual artifacts to publish. */
   override method emit(): []
 
-/* Holds a verified mixed graph whose remaining constructs are owned by the
-   selected target. This is deliberately not certified concrete PreparedRTL. */
-class PreparedProgram(graph :: DesignElaboration, manifest :: CompileManifest)
-
 /* Accept verified RTL independently of how ordinary compilation prepares a
    program. Instrumentation uses this boundary without imposing RTL preparation
    on the target's ordinary entry point. */
 interface PreparedRTLConsumer:
-  /* Explain portable expansion when a concrete instrumentation pipeline is selected. */
-  property expansion_reason :: String
   /* Build a plan from the supplied graph and manifest without preparing again. */
   method plan(prepared :: PreparedRTL) :: TargetPlan
 
 /* Adds prepared-RTL plan construction without imposing RTL on other targets.
    Ordinary compilation prepares once; composition calls plan with its existing
-   verified graph and matching manifest, retaining all lowering provenance. */
-class RTLTarget(reason :: String, build_plan :: Function.of_arity(1)):
+   verified graph and matching manifest, preserving the selected boundary. */
+class RTLTarget(build_plan :: Function.of_arity(1)):
   extends CompilationTarget
   implements PreparedRTLConsumer
   /* Share one checked plan factory between ordinary preparation and composition.
-     Plan construction must not clone the graph, rerun providers, or emit text. */
-  constructor (name :: String, expansion_reason :: String, build_plan :: Function.of_arity(1)):
+     Plan construction must not clone the graph, rerun certification, or emit text. */
+  constructor (name :: String, build_plan :: Function.of_arity(1)):
     /* Require the same prepared input and plan result on both entry paths. */
     fun make_plan(prepared :: PreparedRTL) :: TargetPlan:
       build_plan(prepared)
-    super(name, fun (program, options): make_plan(prepare_rtl(program, options, expansion_reason)))(expansion_reason, make_plan)
-  /* Use the same explanation for ordinary and instrumented portable expansion. */
-  override property expansion_reason: reason
-  /* Reuse the checked plan factory without expanding or copying the supplied graph. */
+    super(name, fun (program): make_plan(prepare_rtl(program)))(make_plan)
+  /* Reuse the checked plan factory without copying the supplied graph. */
   override method plan(prepared :: PreparedRTL) :: TargetPlan:
     build_plan(prepared)
 
-def rtl_target = RTLTarget("rtl", "RTL inspection requires concrete hardware; use the portable implementation", fun (prepared): RTLGraphPlan(prepared))
+def rtl_target = RTLTarget("rtl", fun (prepared): RTLGraphPlan(prepared))
 
-/* Expand the selected closure without mutating the source, then derive occurrence
-   reports from definition identity. The reason is target-supplied explanation text,
-   not a capability-selection rule. */
-fun prepare_rtl(program :: ElaboratedProgram, options :: CompileOptions = CompileOptions(),
-                reason :: String = "explicit RTL preparation") :: PreparedRTL:
-  def prepared = prepare_program(program, options, reason, fun (definition): #false)
-  PreparedRTL(prepared.graph, prepared.manifest)
-
-/* Share fresh graph preparation and occurrence reporting with targets that
-   execute retained semantics. The target explicitly supplies its admission rule. */
-fun prepare_program(program :: ElaboratedProgram, options :: CompileOptions, reason :: String,
-                    retain :: Function.of_arity(1)) :: PreparedProgram:
-  def result = materialize_reachable_program(program, retain, ~expansion_limit: options.expansion_limit)
-  def definitions = MutableMap.by(===){}
-  for (definition in result.expansions.keys()): definitions[result.expansions[definition]] := definition
-  def decisions = MutableList[]
-  /* Walk each instance occurrence in deterministic depth-first order.
-     Do not deduplicate shared modules here: their expansion is reused, but their
-     source paths and parent-instance attribution must remain distinct. */
-  fun visit(module_def :: Module, path :: List.of(String), location :: maybe(Location), origin :: maybe(Origin)):
-    when definitions.has_key(module_def)
-    | decisions.add(LoweringDecision(path, definitions[module_def], "expand", reason, module_def.name, location, origin))
-    for (operation in module_def.operations):
-      when operation.opcode == "construct.instance"
-      | def definition = operation.attribute("definition")
-        def root = program.top === definition && path.length() == 0
-        def native_path = if root | [] | path ++ [operation.attribute("name")]
-        decisions.add(LoweringDecision(native_path, definition, "native", "target executes retained semantics", definition.identity.name,
-                                       if root | #false | operation.location, if root | #false | operation.origin))
-      when operation.opcode == "rtl.instance"
-      | visit(operation.attribute("module"), path ++ [operation.attribute("name")], operation.location, operation.origin)
-  visit(result.rtl.top, [], #false, #false)
-  def manifest = CompileManifest(result.rtl.top.name, module_signature(result.rtl.top), result.rtl.design.modules.map(fun (module_def): module_def.name), decisions.snapshot())
-  PreparedProgram(result.rtl, manifest)
+/* Copy and certify the selected closure, then describe that same physical boundary. */
+fun prepare_rtl(program :: ElaboratedProgram) :: PreparedRTL:
+  def rtl = materialize_reachable_rtl(program)
+  def manifest = CompileManifest(rtl.top.name, module_signature(rtl.top), rtl.design.modules.map(fun (module_def): module_def.name))
+  PreparedRTL(rtl, manifest)

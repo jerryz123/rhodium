@@ -5,7 +5,6 @@
 import:
   rhombus/meta open
   "../../core/ir.rhm" open
-  "../../core/construct.rhm".ConstructInstance
   "../kernel.rhm" as kernel
   "fields.rhm".HardwareFields
   "fields.rhm".HardwareMethodFields
@@ -34,7 +33,7 @@ fun resolved_member(value :: HardwareEntity || Array, name :: String):
   resolved
 
 /* Resolves physical ports first, then detached declarations and concrete-module virtual members, rejecting unknown names. */
-fun instance_member(instance :: Instance || ConstructInstance, name :: String):
+fun instance_member(instance :: Instance, name :: String):
   def input_binding = instance.input_bindings.find(
     fun (candidate): candidate.name == name
   )
@@ -47,7 +46,7 @@ fun instance_member(instance :: Instance || ConstructInstance, name :: String):
       if output_binding
       | output_binding.value
       | block:
-          def resolved = kernel.declared_instance_member(instance, name) || (if instance is_a ConstructInstance | #false | resolved_member(instance, name))
+          def resolved = kernel.declared_instance_member(instance, name) || resolved_member(instance, name)
           unless resolved
           | error(~who: #'inst,
                   String.append("instance ",
@@ -58,7 +57,7 @@ fun instance_member(instance :: Instance || ConstructInstance, name :: String):
 
 /* Selects an instance member or virtual member before falling back to ordinary hardware field projection. */
 fun hardware_member(value :: HardwareEntity || Array, name :: String):
-  if value is_a Instance || value is_a ConstructInstance
+  if value is_a Instance
   | instance_member(value, name)
   | block:
       def resolved = resolved_member(value, name)

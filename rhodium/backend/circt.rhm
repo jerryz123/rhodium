@@ -1274,7 +1274,6 @@ fun emit_module_circt(module_def :: Module):
 /* Renders a concrete module under the current type environment, deriving synchronizer stage
    attributes from verified evidence and resolving output drivers to their SSA values. */
 fun render_module_circt(module_def :: Module):
-  require_concrete_module(module_def)
   def ports:
     module_def.inputs.map(
       fun (port):

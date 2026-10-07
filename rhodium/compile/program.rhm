@@ -9,11 +9,10 @@ export compile_program
 
 /* Prepare exactly the supplied target and collect its projections once.
    Reject an invalid plan, missing output, or duplicate artifact names before returning.
-   Error diagnostics remain available alongside complete artifacts. Provider and
+   Error diagnostics remain available alongside complete artifacts. Preparation and
    emitter failures propagate; this orchestration publishes no files. */
-fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget,
-                    ~options: options :: CompileOptions = CompileOptions()) :: CompilationResult:
-  def plan = target.prepare(program, options)
+fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget) :: CompilationResult:
+  def plan = target.prepare(program)
   unless plan is_a TargetPlan
   | error(~who: #'compile_program, "target preparation must return a TargetPlan")
   def manifest = plan.manifest()

@@ -3,7 +3,6 @@
 import:
   "../../core/main.rhm" open
   "../../compile/rtl.rhm".prepare_rtl
-  "../../compile/contracts.rhm".CompileOptions
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
   "../rsim/regions.rhm".build_regions
@@ -54,7 +53,7 @@ for (shared in [4, 5, 6]):
 
 // The production rewrite pipeline preserves external consumers and both
 // evaluation phases. Every helper receives all leaves used by its assignment.
-def schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(make_dynamic(3, #true), CompileOptions(), "array assignments").rtl)))
+def schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(make_dynamic(3, #true)).rtl)))
 def planned = build_evaluation_plan(schedule)
 def assignments = planned.pre_edge.sinks.filter(~keep: fun (sink): sink.array != #false)
 check: assignments.length() >= 3 ~is #true

@@ -364,7 +364,7 @@ class.together:
       unless operations_by_id.has_key(operation.id)
       | operations_by_id[operation.id] := operation
       operation_set.add(operation)
-      when operation.opcode in ["rtl.instance", "construct.instance"]
+      when operation.opcode == "rtl.instance"
       | def instance_name = operation.attribute("name", #false)
         unless instances_by_name.has_key(instance_name)
         | instances_by_name[instance_name] := operation
@@ -490,12 +490,12 @@ class.together:
     method find_output(name :: String):
       if indexes_complete | outputs_by_name.get(name, #false) | outputs_by_name.get(name, #false) || _outputs.find(fun (port): port.name == name)
 
-    /* Finds a concrete or retained instance operation by its parent-local name. */
+    /* Finds an instance operation by its parent-local name. */
     method find_instance(name :: String):
       if indexes_complete
       | instances_by_name.get(name, #false)
       | instances_by_name.get(name, #false) || _operations.find(
-          fun (operation): operation.opcode in ["rtl.instance", "construct.instance"] && operation.attribute("name", #false) == name
+          fun (operation): operation.opcode == "rtl.instance" && operation.attribute("name", #false) == name
         )
 
     /* Finds the drive operation targeting a root place ID. */

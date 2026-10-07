@@ -14,13 +14,12 @@ import:
   "rsim/sync-memory-fixtures.rhm".make_sync_memory
   "verilog/fixtures.rhm".make_hierarchy_program
   "../../compile/program.rhm".compile_program
-  "../../compile/contracts.rhm".CompileOptions
   "../../compile/rtl.rhm".prepare_rtl
   "../../core/printer.rhm".dump_ir
 
 for (program in [make_scalar(5), make_swap(5), make_hierarchy_program(5), make_arithmetic(64), make_aggregate(64), make_dynamic(3, #true), make_memory(3, #true), make_sync_memory(3, #true), make_sync_memory(3, #true, 7), make_selection(64), make_assertions(), make_foreign()]):
   def before = dump_ir(program.design)
-  def prepared = prepare_rtl(program, CompileOptions(), "test")
+  def prepared = prepare_rtl(program)
   def source = dump_ir(prepared.rtl.design)
   def plan = rsim_target.plan(prepared)
   def artifacts = plan.emit()
@@ -36,16 +35,13 @@ for (program in [make_scalar(5), make_swap(5), make_hierarchy_program(5), make_a
 check:
   compile_program(make_scalar(5, 100), rsim_target).artifacts ~is compile_program(make_scalar(5), rsim_target).artifacts
 
-def mutable expansions = 0
-def program = make_hierarchy_program(5, 0, fun (): expansions := expansions + 1)
-def prepared = prepare_rtl(program, CompileOptions(), "once")
+def program = make_hierarchy_program(5)
+def prepared = prepare_rtl(program)
 def plan = rsim_target.plan(prepared)
 def first_emission = plan.emit()
 def second_emission = plan.emit()
 check:
   first_emission ~is second_emission
-  expansions ~is 1
-  plan.manifest().lowerings.map(fun (decision): decision.path) ~is [["portable"], ["portable_again"]]
 
 check:
   compile_program(make_aggregate(5, 100), rsim_target).artifacts ~is compile_program(make_aggregate(5), rsim_target).artifacts
@@ -104,7 +100,7 @@ check:
 def mutable support_header = #false
 for (program in [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512].map(make_wide_aggregate) ++ [make_relayout()] ++ make_wide_memories() ++ [make_wide_foreign(), make_unused_wide_foreign()]):
   def before = dump_ir(program.design)
-  def prepared = prepare_rtl(program, CompileOptions(), "wide test")
+  def prepared = prepare_rtl(program)
   def rtl_before = dump_ir(prepared.rtl.design)
   def plan = rsim_target.plan(prepared)
   def artifacts = plan.emit()

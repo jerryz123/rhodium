@@ -12,10 +12,15 @@ import:
   "../../core/main.rhm" open
   "../../lowering/program.rhm" open
 
-def mutable expansions = 0
 def mutable remappings = 0
+def mutable certifications = 0
 class ObservedMetadata(value :: Value):
-  implements ModuleMetadataPayload
+  implements MaterializationCheck
+  override method check_materialized(module_def :: Module):
+    check:
+      module_def.design.sealed ~is #true
+      value.module_def === module_def ~is #true
+    certifications := certifications + 1
   override method remap_ir(remap :: Function.of_arity(1)):
     remappings := remappings + 1
     ObservedMetadata(remap(value))
@@ -28,40 +33,33 @@ fun make_body(builder :: Builder):
   builder.finish(body)
   body
 
-def signature = ModuleSignature([PortSignature("input", Bits(8))], [PortSignature("output", Bits(8))])
-def definition = ConstructDefinition(ConstructIdentity("PreparedIncrement"), [], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
-fun expand(builder :: Builder, selected :: ConstructDefinition):
-  expansions := expansions + 1
-  ExpansionResult(make_body(builder))
-def providers = Map.by(===){definition: ExpansionProvider(expand)}
-def retained = ElaboratedProgram(Design(), definition, providers)
 def concrete_design = Design()
 def concrete = ElaboratedProgram(concrete_design, make_body(Builder(concrete_design)))
 def design = Design()
 def builder = Builder(design)
+def shared_child = make_body(builder)
 def top = builder.module("PreparedTop")
 def input = builder.input(top, "input", Bits(8))
 for (name in ["left", "right"]):
-  def child = builder.construct_instance(top, definition, name, Location("prepared-fixture", 7, 2))
+  def child = builder.instance(top, shared_child, name, Location("prepared-fixture", 7, 2))
   builder.drive(child.input("input"), input)
   builder.drive(builder.output(top, name, Bits(8)), child.output("output"))
 builder.finish(top)
-def shared = ElaboratedProgram(design, top, providers)
+def shared = ElaboratedProgram(design, top)
 
-for (program in [concrete, retained, shared]):
+for (program in [concrete, shared]):
   def before = dump_ir(program.design)
-  def before_expansions = expansions
   def before_remappings = remappings
-  def prepared = prepare_rtl(program, CompileOptions(), "prepared composition")
+  def before_certifications = certifications
+  def prepared = prepare_rtl(program)
   def prepared_before = dump_ir(prepared.rtl.design)
-  def prepared_expansions = expansions
   def prepared_remappings = remappings
+  def prepared_certifications = certifications
   check:
-    expansions ~is before_expansions + (if program === concrete | 0 | 1)
     remappings ~is before_remappings + 1
+    certifications ~is before_certifications + 1
     prepared.rtl.design === program.design ~is #false
     prepared.rtl.design.sealed ~is #true
-    prepared.manifest.lowerings.map(fun (decision): decision.path) ~is (if program === concrete | [] | (if program === retained | [[]] | [["left"], ["right"]]))
   for (target in [circt_target, verilog_target], emitter in [emit_circt, emit_verilog]):
     def plan = target.plan(prepared)
     def artifacts = plan.emit()
@@ -69,37 +67,31 @@ for (program in [concrete, retained, shared]):
       target is_a CompilationTarget ~is #true
       target is_a RTLTarget ~is #true
       plan.manifest() === prepared.manifest ~is #true
-      plan.manifest().lowerings === prepared.manifest.lowerings ~is #true
       artifacts[0].content ~is emitter(prepared.rtl.design)
       target.plan(prepared).emit()[0].content ~is artifacts[0].content
-      expansions ~is prepared_expansions
       remappings ~is prepared_remappings
+      certifications ~is prepared_certifications
       dump_ir(prepared.rtl.design) ~is prepared_before
       dump_ir(program.design) ~is before
       program.design.sealed ~is #false
   for (target in [circt_target, verilog_target]):
-    def before_calls = expansions
     def before_copies = remappings
+    def before_checks = certifications
     def ordinary = compile_program(program, target)
     check:
       ordinary.artifacts ~is target.plan(prepared).emit()
       ordinary.manifest.modules ~is prepared.manifest.modules
       ordinary.manifest.signature ~is prepared.manifest.signature
-      ordinary.manifest.lowerings.map(fun (decision): decision.reason) ~is (for List (decision in prepared.manifest.lowerings): target.expansion_reason)
-      expansions ~is before_calls + (if program === concrete | 0 | 1)
       remappings ~is before_copies + 1
+      certifications ~is before_checks + 1
       dump_ir(program.design) ~is before
       program.design.sealed ~is #false
 
-def composed = CompilationTarget("prepared-circt", fun (program, options): circt_target.plan(prepare_rtl(program, options, "composed preparation")))
-def before_composed = expansions
+def composed = CompilationTarget("prepared-circt", fun (program): circt_target.plan(prepare_rtl(program)))
 def result = compile_program(shared, composed)
 check:
-  expansions ~is before_composed + 1
-  result.manifest.lowerings.map(fun (decision): decision.definition === definition) ~is [#true, #true]
-  result.manifest.lowerings.map(fun (decision): decision.location.describe()) ~is ["prepared-fixture:7:2", "prepared-fixture:7:2"]
-  result.manifest.lowerings.map(fun (decision): decision.implementation) ~is ["PreparedChild", "PreparedChild"]
-  result.manifest.lowerings.map(fun (decision): decision.reason) ~is ["composed preparation", "composed preparation"]
+  result.manifest.modules ~is ["PreparedTop", "PreparedChild"]
+  result.artifacts ~is compile_program(shared, circt_target).artifacts
   circt_target.plan("not prepared RTL") ~throws "PreparedRTL"
-  RTLTarget("invalid", "test", fun (prepared): #false).plan(prepare_rtl(concrete, CompileOptions(), "test")) ~throws "TargetPlan"
-  RTLTarget("", "test", fun (prepared): circt_target.plan(prepared)) ~throws "target name must not be empty"
+  RTLTarget("invalid", fun (prepared): #false).plan(prepare_rtl(concrete)) ~throws "TargetPlan"
+  RTLTarget("", fun (prepared): circt_target.plan(prepared)) ~throws "target name must not be empty"

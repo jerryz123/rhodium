@@ -52,8 +52,8 @@ fun finding_diagnostic(code :: String, severity :: String, message :: String,
 fun clocking_target(~environment: environment :: maybe(Function.of_arity(1)) = #false):
   /* Prepare concrete provenance, reject child-owned environments, and analyze once.
      Merge the factory's assumptions with top metadata before environment validation. */
-  fun prepare(program :: ElaboratedProgram, options :: CompileOptions):
-    def prepared = prepare_rtl(program, options, "clock analysis requires concrete temporal provenance")
+  fun prepare(program :: ElaboratedProgram):
+    def prepared = prepare_rtl(program)
     for (module_def in prepared.rtl.design.modules):
       when !(module_def === prepared.rtl.top) && has_clocking_declarations(module_def)
       | error(~who: #'clocking_target, "clocking environment declarations must belong to the elaborated top circuit")

@@ -9,7 +9,7 @@ import:
 export circt_target
 
 /* Holds verified concrete preparation for one CIRCT compilation.
-   Emission reuses this graph rather than executing providers a second time. */
+   Emission reuses this graph without preparing it a second time. */
 class CirctPlan(prepared :: PreparedRTL):
   implements TargetPlan
   /* Return the physical boundary and occurrence decisions recorded during preparation. */
@@ -18,4 +18,4 @@ class CirctPlan(prepared :: PreparedRTL):
   override method emit():
     [Artifact(prepared.rtl.top.name ++ ".mlir", "text/x-mlir", emit_circt(prepared.rtl.design))]
 
-def circt_target = RTLTarget("circt", "CIRCT requires concrete RTL; use the portable implementation", fun (prepared): CirctPlan(prepared))
+def circt_target = RTLTarget("circt", fun (prepared): CirctPlan(prepared))

@@ -4,7 +4,6 @@ import:
   "../../core/main.rhm" open
   "../../lowering/program.rhm".ElaboratedProgram
   "../../compile/rtl.rhm".prepare_rtl
-  "../../compile/contracts.rhm".CompileOptions
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
   "../rsim/regions.rhm" open
@@ -60,7 +59,7 @@ b.drive(b.output(top, "word", Bits(8)), word)
 b.drive(b.output(top, "sync_word", Bits(8)), port.read_data)
 b.assert(top, b.eq(top, reg.current, data), clock, reset, enable, "sampled")
 b.finish(top)
-def prepared = prepare_rtl(ElaboratedProgram(design, top), CompileOptions(), "evaluation test")
+def prepared = prepare_rtl(ElaboratedProgram(design, top))
 def schedule = build_schedule(prepared.rtl)
 def evaluation = build_evaluation_plan(schedule)
 
@@ -160,7 +159,7 @@ for (body in [evaluation.pre_edge, evaluation.outputs]):
       check: value in available ~is #true
 
 // No output traversal is needed to retain calls and their unconsumed results.
-def unused = build_schedule(prepare_rtl(make_unused_wide_foreign(), CompileOptions(), "unused test").rtl)
+def unused = build_schedule(prepare_rtl(make_unused_wide_foreign()).rtl)
 def unused_plan = build_evaluation_plan(unused)
 check:
   unused_plan.outputs ~is RsimEvaluation([], [])
@@ -168,7 +167,7 @@ check:
   unused_plan.pre_edge.sinks[0].dependencies.storage.length() ~is unused.foreign_calls[0].import_decl.results.length()
 
 // Shared definitions must still identify different storage at each occurrence.
-def repeated = build_schedule(prepare_rtl(make_memory(3, #false), CompileOptions(), "occurrences").rtl)
+def repeated = build_schedule(prepare_rtl(make_memory(3, #false)).rtl)
 def repeated_plan = build_evaluation_plan(repeated)
 def sampled = for List (sink in repeated_plan.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "register")):
   def read = repeated_plan.dependencies[repeated.registers[sink.index].next_value]
@@ -230,8 +229,8 @@ fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, bo
     for (value in incoming): future.add(value)
   check: future.snapshot() ~is Set{}
 
-def scalar = build_schedule(prepare_rtl(make_scalar(5), CompileOptions(), "scalar regions").rtl)
-def rom = build_schedule(prepare_rtl(make_constant_rom(65), CompileOptions(), "constant regions").rtl)
+def scalar = build_schedule(prepare_rtl(make_scalar(5)).rtl)
+def rom = build_schedule(prepare_rtl(make_constant_rom(65)).rtl)
 for (scheduled in [schedule, repeated, unused, scalar, rom]):
   def planned = build_evaluation_plan(scheduled)
   for (body in [planned.pre_edge, planned.outputs]):
@@ -283,7 +282,7 @@ fun copy_regions(type :: HardwareType):
   def input = builder.input(module, "value", type)
   builder.drive(builder.output(module, "result", type), input)
   builder.finish(module)
-  def schedule = build_schedule(prepare_rtl(ElaboratedProgram(d, module), CompileOptions(), "copy cost").rtl)
+  def schedule = build_schedule(prepare_rtl(ElaboratedProgram(d, module)).rtl)
   def evaluation = build_evaluation_plan(schedule)
   build_regions(schedule, evaluation, evaluation.outputs, ~budget: 8)
 
@@ -351,7 +350,7 @@ borrow_builder.drive(borrow_builder.output(borrow_top, "result", borrow_type), b
 // A second consumer keeps the constructor eager, exercising ordinary borrowing.
 borrow_builder.drive(borrow_builder.output(borrow_top, "constructed", borrow_type), borrow_local)
 borrow_builder.finish(borrow_top)
-def borrow_schedule = build_schedule(prepare_rtl(ElaboratedProgram(borrow_design, borrow_top), CompileOptions(), "borrow lifetime").rtl)
+def borrow_schedule = build_schedule(prepare_rtl(ElaboratedProgram(borrow_design, borrow_top)).rtl)
 def borrow_evaluation = build_evaluation_plan(borrow_schedule)
 def local_regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: 22)
 for (budget in [1, 22]):
@@ -398,7 +397,7 @@ check:
 // Native aggregate scoreboards include constants, chained/multi-arm lookup
 // muxes, nested records/vectors, state capture, and dirty input padding. Protect
 // that their forced-boundary run actually exercises pointer-backed results.
-def aggregate_schedule = build_schedule(prepare_rtl(make_aggregate(5), CompileOptions(), "aggregate borrowing").rtl)
+def aggregate_schedule = build_schedule(prepare_rtl(make_aggregate(5)).rtl)
 def aggregate_emission = emit_rsim(aggregate_schedule, ~region_budget: 24)
 check:
   aggregate_emission ~is emit_rsim(aggregate_schedule, ~region_budget: 24)
@@ -422,7 +421,7 @@ def kernel_values = for List (index in 0..4):
 def kernel_type = VectorType(4, borrow_type)
 kernel_builder.drive(kernel_builder.output(kernel_top, "gather", kernel_type), kernel_builder.vector_create(kernel_top, kernel_type, kernel_values))
 kernel_builder.finish(kernel_top)
-def kernel_schedule = build_schedule(prepare_rtl(ElaboratedProgram(kernel_design, kernel_top), CompileOptions(), "borrowed gather").rtl)
+def kernel_schedule = build_schedule(prepare_rtl(ElaboratedProgram(kernel_design, kernel_top)).rtl)
 check:
   (for any (line in emit_rsim(kernel_schedule, ~region_budget: 1)[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = *scratch.")) ~is #true
 
@@ -430,7 +429,7 @@ check:
 // in both producers and consumers. The same roots remain local references when
 // the whole body fits the inline budget, including nested records with wide leaves.
 for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
-  def planned = build_schedule(prepare_rtl(program, CompileOptions(), "state bindings").rtl)
+  def planned = build_schedule(prepare_rtl(program).rtl)
   def evaluated = plan_conditionals(planned, build_evaluation_plan(planned))
   def roots = MutableMap{}
   for (step in planned.steps, index in 0..planned.steps.length()):
@@ -462,7 +461,7 @@ def root_reg = root_builder.register(root_top, "value", borrow_type, root_clock)
 root_builder.drive(root_reg.next, root_reg.current)
 root_builder.drive(root_builder.output(root_top, "result", borrow_type), root_reg.current)
 root_builder.finish(root_top)
-def root_schedule = build_schedule(prepare_rtl(ElaboratedProgram(root_design, root_top), CompileOptions(), "state only").rtl)
+def root_schedule = build_schedule(prepare_rtl(ElaboratedProgram(root_design, root_top)).rtl)
 def root_emission = emit_rsim(root_schedule, ~region_budget: 1)
 check:
   root_emission[0].contains("struct preScratch {\n\n  };") ~is #true
@@ -496,7 +495,7 @@ fun projection_program(mode :: String):
   ElaboratedProgram(d, module)
 
 for (mode in ["constant", "state", "input", "decode"]):
-  def planned = build_schedule(prepare_rtl(projection_program(mode), CompileOptions(), "projection lifetime").rtl)
+  def planned = build_schedule(prepare_rtl(projection_program(mode)).rtl)
   def evaluated = build_evaluation_plan(planned)
   def result = planned.outputs[0].value
   def regions = build_regions(planned, evaluated, evaluated.outputs, ~budget: 1)
@@ -585,7 +584,7 @@ for (indirect in [#false, #true]):
 // splitting separates every producer. Shared output/control values stay live;
 // the native companion observes actual skipped multiply executions and retries.
 for (program in [make_branches(), make_conditionals()]):
-  def planned = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(program, CompileOptions(), "conditional evaluation").rtl)))
+  def planned = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(program).rtl)))
   def base = build_evaluation_plan(planned)
   for (limit in [24, 4096]):
     def conditional = plan_conditionals(planned, base, ~budget: limit)
@@ -658,7 +657,7 @@ for (root in [ScratchSlot(0, 0, #true), StateStorage("state", 0)]):
 
 // Exercise real backing, including static subobjects and chains. The mixed
 // state/constant mux must stay eager; direct state aliases need no saved pointer.
-def lifetime_schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(make_cache_borrows(), CompileOptions(), "cache lifetimes").rtl)))
+def lifetime_schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(make_cache_borrows()).rtl)))
 def lifetime_evaluation = plan_conditionals(lifetime_schedule, build_evaluation_plan(lifetime_schedule))
 def lifetime_regions = build_regions(lifetime_schedule, lifetime_evaluation, lifetime_evaluation.outputs, ~budget: 1)
 def lifetime_layout = boundary_layout(lifetime_regions, lifetime_schedule, CppTypes(), lifetime_evaluation.constants)
@@ -701,4 +700,4 @@ def read_owners = for Map (step in repeated.steps.filter(~keep: fun (step): step
   values(step.attributes["slot"], step.occurrence)
 check:
   read_owners[sampled_slots[0]] != read_owners[sampled_slots[1]] ~is #true
-  repeated.steps.map(fun (step): step.occurrence) ~is build_schedule(prepare_rtl(make_memory(3, #false), CompileOptions(), "occurrences").rtl).steps.map(fun (step): step.occurrence)
+  repeated.steps.map(fun (step): step.occurrence) ~is build_schedule(prepare_rtl(make_memory(3, #false)).rtl).steps.map(fun (step): step.occurrence)

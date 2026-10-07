@@ -87,7 +87,7 @@ fun make_keyword_program():
 
 // All input/output ordering is deliberately nonalphabetical. Repeated children
 // receive different data, so port swaps and shared bindings change behavior.
-fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0, on_expand = fun (): #void):
+fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0):
   def design = Design()
   for (_ in 0..consumed_ids): design.fresh_id()
   def builder = Builder(design)
@@ -111,14 +111,7 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0, on_expand =
     builder.drive(builder.output(nested, name, Bits(width)), child.output(name))
   builder.finish(nested)
 
-  def signature = module_signature(leaf)
-  def dependencies = [[OutputLeafDependency([], [InputLeaf(0, []), InputLeaf(1, [])])],
-                      [OutputLeafDependency([], [InputLeaf(0, []), InputLeaf(1, [])])]]
-  def definition = ConstructDefinition(ConstructIdentity("PortableArithmetic"), [width], signature, dependencies)
-  fun expand(destination :: Builder, selected :: ConstructDefinition):
-    on_expand()
-    ExpansionResult(arithmetic_body(destination, "PortableArithmetic" ++ suffix))
-  def provider = ExpansionProvider(expand)
+  def portable_body = arithmetic_body(builder, "PortableArithmetic" ++ suffix)
   def top = builder.module("Hierarchy" ++ suffix)
   def a = builder.input(top, "a", Bits(width))
   def b = builder.input(top, "b", Bits(width))
@@ -127,8 +120,8 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0, on_expand =
   def first = builder.instance(top, nested, "a")
   def second = builder.instance(top, nested, "a_instance")
   def combined = builder.instance(top, leaf, "_sv_0")
-  def portable = builder.construct_instance(top, definition, "portable")
-  def again = builder.construct_instance(top, definition, "portable_again")
+  def portable = builder.instance(top, portable_body, "portable")
+  def again = builder.instance(top, portable_body, "portable_again")
   builder.drive(first.input("x"), a)
   builder.drive(first.input("y"), b)
   builder.drive(second.input("x"), b)
@@ -146,7 +139,7 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0, on_expand =
   builder.finish(top)
   // This valid independent root must never enter the selected artifact.
   arithmetic_body(builder, "Unreachable" ++ suffix)
-  ElaboratedProgram(design, top, Map.by(===){definition: provider})
+  ElaboratedProgram(design, top)
 
 // Mix record MSB order with vector LSB order, including recursive projections.
 fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):

@@ -78,7 +78,7 @@ hardware:
 4. `elaborate` returns an `ElaboratedProgram` with a completed design
    and explicit top. Pass it to `compile_program` with the desired target.
 5. The selected target verifies and prepares the representation it consumes;
-   elaboration never selects portable RTL expansion.
+   elaboration does not invoke a backend.
 
 The explicit phase boundary is available in both language profiles:
 
@@ -102,8 +102,8 @@ rejected during compilation or explicit RTL preparation. Existing construction-l
 their authoring boundaries.
 
 Ordinary `CircuitReference` recipes still run during program elaboration.
-Compilation prepares fresh reachable RTL for both concrete and retained programs.
-Eager construction preserves its original graph when no expansion is required.
+Compilation prepares fresh reachable RTL for elaborated programs.
+The source graph remains unchanged during compilation.
 See the [program contract](../lowering/README.md) for direct Builder usage.
 
 ### Circuit families and explicit tops
@@ -141,9 +141,8 @@ Keep implementation construction in the reference recipe so inspection remains l
 
 This API preserves ordinary eager circuit elaboration. The resulting design
 still contains concrete RTL instances, so existing analyses and CIRCT emission
-remain applicable after materialization. `CircuitReference` itself does not
-retain abstract instances; opt into the separate API below.
-Signatures describe typed physical ports. Both kinds of reference accept
+remain applicable after materialization.
+Signatures describe typed physical ports. References accept
 `~declarations`, an immutable list of extension-owned `CircuitDeclaration`
 objects. The interface layer supplies [detached interface declarations](layers/README.md#detached-interface-declarations)
 for nominal roles, grouped members, arrays, and nested endpoints. They bind to
@@ -151,62 +150,6 @@ instance ports without inspecting an implementation. Ordinary references
 without declarations keep reconstructing groups from concrete module metadata.
 Dynamically constructed references use ordinary instance member lookup;
 existing circuit declarations retain their richer expansion-time port information.
-
-`retained_circuit(definition, implementation)` pairs a core `ConstructDefinition`
-with a zero-argument circuit recipe. `inst child(reference)` records its typed
-ports and provider without executing that recipe. `elaborate` preserves
-these instances until the selected target chooses native handling or portable
-expansion.
-
-For a combinational retained reference with exactly one output,
-`retained_call(reference, [arguments, ...])` returns that output as a hardware
-expression. Arguments follow signature input order and must have the exact
-declared types. Inside `when` or `switch`, argument wiring remains unconditional;
-the surrounding assignment supplies the guard. Stateful references, multiple
-outputs, and incorrect argument counts are rejected. The call still defers the
-portable recipe until target selection.
-
-```rhombus
-def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
-def definition = ConstructDefinition(ConstructIdentity("Leaf"), [8], signature,
-                                    [[OutputLeafDependency([], [InputLeaf(0, [])])]])
-def retained = retained_circuit(definition, fun (): Leaf())
-```
-
-A retained reference may also be the selected top. `elaborate(reference)`
-returns its detached `ConstructDefinition` as `.top`, with no synthetic wrapper
-or provider execution. Explicit RTL preparation returns the expanded implementation
-as `.rtl.top`. `leaf_paths(type)` is available from the public language to describe
-exact scalar, record, and vector leaves without importing compiler modules.
-
-The default retained contract is combinational, with data ports and declared
-leaf dependencies. It supports ordinary typed port access, including aggregate
-ports, and nesting inside ordinary or synchronous RTL parents. Each provider
-runs in a fresh frontend context supplied by the materializer; captured live
-modules or hardware values are invalid. No provider runs while inspecting the
-signature or elaborating the parent. Declared grouped interfaces support ordinary
-Flow connections before expansion; implementation-owned tracing contracts are
-checked and consumed after expansion. Materialization remaps interface and trace
-metadata into the new design.
-
-For register-state children, give `ConstructDefinition` the keyword
-`~state: SingleClockState("clock", "reset")` and include those typed inputs in
-its signature. A retained reference then participates in `sync_circuit` ambient
-clock/reset propagation, including `inst child(reference, ~reset_when: clear)`.
-Composition does not run the provider. Expansion validates the declared domain,
-reset behavior, permitted state, and combinational dependencies; sync
-certification runs again before concrete elaboration returns. The contract
-permits registers, including resetless ones, but does not declare fixed latency.
-Opt into asynchronous-read storage and synchronous writes with
-`SingleClockState("clock", "reset", ~async_read_memory: #true)`, and add
-`~clocked_assertions: #true` when the implementation or its children assert
-properties. These permissions are independent. Memory writes still follow their
-explicit enables during reset; scoped reset suppresses assertions without
-clearing storage. See the [core contract](../core/README.md#retained-constructs)
-for the supported effects and validation rules.
-
-See the [materialization contract](../lowering/README.md) for provider reuse,
-recursion, effects, and dependency checks.
 
 A circuit declaration defines a parameterized module family. Calling it while
 elaborating creates the selected specialization once and reuses that definition
@@ -221,7 +164,7 @@ circuit Passthrough(T):
 def program = elaborate(Passthrough(Bits(8)))
 ```
 
-Every program carries its explicit top and provider environment. Consumers that
+Every program carries its completed design and explicit top. Consumers that
 need verified concrete RTL, such as RFPL physical annotation or logical diagrams,
 select the RTL compilation target:
 
@@ -236,10 +179,10 @@ def design = logical.design
 def top = logical.top
 ```
 
-`rtl_target` expands retained constructs into a fresh, verified concrete graph.
+`rtl_target` copies the selected hierarchy into a fresh, verified concrete graph.
 The report exposes `.design`, `.top`, and `.elaboration` for graph consumers.
 Pass the original program directly to `compile_program` when selecting a backend;
-preparing RTL first would discard the target's opportunity to retain constructs.
+the target owns verification and graph preparation.
 `Module.find_instance(name)` provides stable direct-instance inspection; tools
 must not infer the top or hierarchy from module-list positions.
 

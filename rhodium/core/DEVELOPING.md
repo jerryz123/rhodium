@@ -12,10 +12,7 @@ Package-wide dependency rules are owned by
 ## Architecture and ownership
 
 Core is the shared boundary between elaboration and downstream consumers.
-Mixed designs may contain combinational or single-clock constructs with explicit
-state/effect permissions. Concrete verification rejects those until portable
-materialization has expanded them. It
-must remain independent of frontend syntax, analysis policy, and backend
+It must remain independent of frontend syntax, analysis policy, and backend
 lowering. A change to core semantics normally has four coordinated parts:
 
 ```mermaid
@@ -107,7 +104,6 @@ become a false positive.
 |---|---|---|
 | [`types.rhm`](types.rhm) | Open type capabilities, built-in types, equality, packing, and selector widths | [`types-test.rhm`](../../rhodium/core/tests/types-test.rhm), [`signed-test.rhm`](../../rhodium/core/tests/signed-test.rhm), [`shift-test.rhm`](../../rhodium/core/tests/shift-test.rhm) |
 | [`ir.rhm`](ir.rhm) | Public objects, collections, ownership indexes, lookup, and `DesignElaboration` | [`verify-test.rhm`](../../rhodium/core/tests/verify-test.rhm), [`dpi-test.rhm`](../../rhodium/core/tests/dpi-test.rhm) |
-| [`construct.rhm`](construct.rhm) | Combinational and single-clock state/effect permissions, immutable parameters, and retained instance bindings | [`construct-test.rhm`](tests/construct-test.rhm) |
 | [`signature.rhm`](signature.rhm) | Detached ports, leaf dependency descriptors, finished-module extraction, and structural signature comparison | [`signature-test.rhm`](tests/signature-test.rhm) |
 | [`builder.rhm`](builder.rhm) | Legal construction, naming, aggregate-drive canonicalization, state, resources, and hierarchy | [`wire-test.rhm`](../../rhodium/core/tests/wire-test.rhm), [`memory-test.rhm`](../../rhodium/core/tests/memory-test.rhm), [`sync-memory-test.rhm`](../../rhodium/core/tests/sync-memory-test.rhm) |
 | [`ops.rhm`](ops.rhm) | Opcode registry, categories, arities, type-rule names, and printer forms | Operation-specific tests under [`tests/`](tests/) |
