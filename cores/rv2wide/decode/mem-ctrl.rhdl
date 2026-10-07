@@ -1,5 +1,5 @@
 #lang rhodium
-/* Maps scalar and atomic memory instructions to the shared physical cache controls. */
+/* Maps scalar, atomic, and cache-block-zero instructions to shared physical cache controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("riscv/rtl/atomic.rhdl") open
   lib("riscv/isa/a.rhm") open
   lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/isa/zicboz.rhm") open
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
@@ -18,6 +19,12 @@ bundle RV2WideMemoryControl():
   atomic: RiscvAtomicOperation
   width: MemoryWidth
   unsigned: Bool
+
+def zero_control = partial_pattern(RV2WideMemoryControl()):
+  enable: Bool(#true)
+  access: CacheOperation.CacheBlockZero
+  width: MemoryWidth.Double
+def RV2WideZeroCases = instruction_cases(ZicbozInstructions, zero_control)
 
 def RV2WideLoads = [LB, LH, LW, LD, LBU, LHU, LWU]
 def RV2WideStores = [SB, SH, SW, SD]
@@ -113,5 +120,6 @@ export:
   RV2WideMemoryControl
   RV2WideMemoryCases
   RV2WideAtomicCases
+  RV2WideZeroCases
   RV2WideLoads
   RV2WideStores

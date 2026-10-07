@@ -96,7 +96,7 @@ RAM stores collapse repeated physical bytes to their last written value; device
 writes retain order and multiplicity. Ordinary reads compare architectural
 results, not access counts or addresses. Preserve successful store prefixes before
 later faults. Sail computes traps, restart cursors, and FOF shortening independently.
-Normalize RV5Stage block zero to physical store fragments, including translated
+Normalize RV5Stage and RV2Wide block zero to physical store fragments, including translated
 addresses. Cache maintenance reports no byte mutation; its ordinary instruction
 outcome checks permissions and faults without modeling cache residency.
 Track permitted partial-segment/FOF divergence without repairing reference state;

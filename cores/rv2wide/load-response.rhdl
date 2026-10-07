@@ -18,7 +18,7 @@ sync_circuit RV2WideLoadResponse():
   interface fp_completed(Decoupled(RV2WideFpLoad()), ~role: producer)
   output available: Bool
   output drained: Bool
-  interface atomic_completed(Pulse(), ~role: producer)
+  interface ordered_completed(Pulse(), ~role: producer)
 
   inst owners(Queue(RV2WideResult(), 4))
   allocate |> to_decoupled() |> owners.ingress
@@ -27,7 +27,7 @@ sync_circuit RV2WideLoadResponse():
   def joined :: Endpoint = Array(response, owners.egress) |> zip_flow(data, owner):
     owner.updated(~data: data)
   def result :: RV2WideResult() = joined.bits
-  atomic_completed.valid <== joined.fire() & (result.memory.access =/= CacheOperation.Load) & (result.memory.access =/= CacheOperation.Store)
+  ordered_completed.valid <== joined.fire() & !result.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
   inst load(LoadGen(XLen.X64))
   load.address <== result.address
   load.width <== result.memory.width

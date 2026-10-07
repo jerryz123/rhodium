@@ -33,7 +33,7 @@ module rv2wide_cache_tb;
     .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out),
     .uncached_chi_in('0), .uncached_chi_out());
   always #5 clock = ~clock;
-  logic [31:0] program_words[512];
+  logic [31:0] program_words[1024];
   byte unsigned backing[4096], reference_bytes[4096];
   logic [63:0] registers[32];
   retirement_t completion_queue[$];
@@ -47,6 +47,7 @@ module rv2wide_cache_tb;
   int reservation_width, probe_lr_pc, probe_sc_pc, atomic_commits=0, atomic_dual=0, sc_success=0, sc_failure=0;
   int atomic_ops[9]='{1,0,4,12,8,16,20,24,28};
   int split_resumes=0;
+  int zero_commits=0;
 
   function automatic logic [31:0] addi(int rd, rs1, imm);
     return {12'(imm), 5'(rs1), 3'b000, 5'(rd), 7'h13};
@@ -115,6 +116,14 @@ module rv2wide_cache_tb;
     rd = int'(insn[11:7]); rs1 = int'(insn[19:15]); rs2 = int'(insn[24:20]); width = int'(insn[14:12]);
     value = 0; writes_rd = 0; reference_pc += 4;
     case (insn[6:0])
+      7'h0f: begin
+        assert(insn[31:20]==4 && width==2 && rd==0) else $fatal(1,"unexpected CBO");
+        address=registers[rs1]&~64'd63;
+        for(int b=0;b<64;b++) reference_bytes[int'(address)+b]=0;
+        if(reservation_valid && address/64==reservation_address/64) reservation_valid=0;
+        assert(got.deferred && !got.write) else $fatal(1,"CBO bypassed WB-owned service");
+        zero_commits++;
+      end
       7'h13: begin value = registers[rs1] + 64'($signed(insn[31:20])); writes_rd = rd != 0; end
       7'h03: begin
         address = registers[rs1] + 64'($signed(insn[31:20]));
@@ -317,6 +326,17 @@ module rv2wide_cache_tb;
       emit(load(0,1,56+offset,width));
       emit(load(6,1,56,3)); emit(load(7,1,64,3));
     end
+    // Zero cold and owned-hit blocks, using deliberately unaligned rs1 values.
+    // Observe every byte plus neighboring blocks through normal load retirement.
+    for(int scenario=0;scenario<2;scenario++) begin
+      emit(addi(24,0,scenario==0 ? 1027 : 1151));
+      if(scenario==1) emit(store_insn(2,1,1088,3));
+      emit(32'h0040200f | (24<<15)); emit(addi(29,0,9));
+      for(int word=0;word<10;word++) emit(load(26,1,(scenario==0 ? 1016 : 1080)+word*8,3));
+    end
+    // Kill a CBO before WB; its entire target must remain unchanged.
+    emit(addi(24,0,1215)); emit(jal(0,8)); emit(32'h0040200f | (24<<15));
+    for(int word=0;word<8;word++) emit(load(26,1,1152+word*8,3));
     // Establish a fresh miss immediately before a fault: accepted work must drain first.
     emit(load(22,1,704,3)); emit(addi(23,0,2047));
     emit(addi(23,23,2047)); emit(addi(23,23,-1));
@@ -325,7 +345,7 @@ module rv2wide_cache_tb;
     reset = 0;
     wait(fault_seen);
     repeat (8) @(negedge clock);
-    assert (reads >= 6 && writes > 0 && completions >= 6 && dual_commits > 0 && branches == 1 && replays > 0)
+    assert (reads >= 6 && writes > 0 && completions >= 6 && dual_commits > 0 && branches == 2 && replays > 0 && zero_commits==2)
       else $fatal(1, "missing cache scenario reads=%0d writes=%0d completions=%0d dual=%0d branches=%0d replays=%0d", reads,writes,completions,dual_commits,branches,replays);
     assert (hits_during_miss > 0 && alu_during_miss > 0) else $fatal(1, "no hit/ALU overlap with refill");
     assert(atomic_commits==53 && atomic_dual>0 && sc_success==3 && sc_failure==6 && probe_complete)

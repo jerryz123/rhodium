@@ -24,6 +24,7 @@ import:
   lib("riscv/isa/zimop.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
+  lib("riscv/isa/zicboz.rhm") open
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
@@ -88,17 +89,31 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec)):
 def RV2WideControlCases = compose_control_cases(RV2WideInstructions)
 def RV2WideDecode = ValidDecodeGen(RV2WideControlCases)
 
-/* Selects the exact scalar domain used by decode and compressed expansion. */
-fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false) :: List.of(InstructionSpec):
-  RV2WideInstructions ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
+// CBO.ZERO uses rs1 unchanged and has no register destination or CSR action.
+def RV2WideZeroControlCases = for List (instruction in ZicbozInstructions):
+  def input = instruction_pattern(instruction)
+  def output = pattern(RV2WideControl()):
+    alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
+    operand: component_output(RV2WideOperandCases, instruction_pattern(LR_D))
+    branch: component_output(branch_cases(ZicbozInstructions), input)
+    memory: component_output(RV2WideZeroCases, input)
+    writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
+    system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
+    muldiv: component_output(long_cases(ZicbozInstructions), input)
+    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+  DecodeCase(input, output)
 
-/* Adds selected shared F/D/half/Zfa controls and natural FP memory widths to the integer decoder. */
-fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false) :: List.of(DecodeCase):
+/* Selects the exact scalar domain used by decode and compressed expansion. */
+fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false) :: List.of(InstructionSpec):
+  RV2WideInstructions ++ (if zicboz | ZicbozInstructions | []) ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
+
+/* Adds selected Zicboz and shared F/D/half/Zfa controls to the integer decoder. */
+fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false) :: List.of(DecodeCase):
   def instructions = fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
   def controls = fp_control_cases(XLen.X64, profile, half_precision, ~zfa: zfa)
   def fp_branches = branch_cases(instructions)
   def fp_long = long_cases(instructions)
-  RV2WideControlCases ++ for List (instruction in instructions):
+  RV2WideControlCases ++ (if zicboz | RV2WideZeroControlCases | []) ++ for List (instruction in instructions):
     def input = instruction_pattern(instruction)
     def load = instruction.name in ["FLH", "FLW", "FLD"]
     def store = instruction.name in ["FSH", "FSW", "FSD"]

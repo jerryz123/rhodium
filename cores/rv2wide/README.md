@@ -133,6 +133,26 @@ Accepted load/divide owners survive flushes; precise trap/interrupt entry and
 serializing CSR operations drain older FP effects. FPR writes and completed
 exception flags update the shared FS/fflags/frm state, never speculative launch.
 
+## Cache-block zero
+
+Select `RV2WideConfig(~zicboz: #true)` to implement and advertise Zicboz 1.0;
+it defaults to disabled and does not change the lean SoC presets. `CBO.ZERO`
+zeros the 64-byte block containing rs1, which need not be aligned. The shared
+CSR bank enforces `menvcfg.CBZE` and `senvcfg.CBZE` using execution privilege;
+translation uses the effective data privilege, including MPRV.
+
+Only WB authorizes a mutation. Older memory drains before issue, and younger
+memory cannot retire until the accepted zero completes. Independent integer
+work can continue. Accepted ownership survives branch recovery and replay;
+traps and interrupts drain it. No GPR is written.
+
+The complete aligned block must lie in one writable physical region with
+`cache_block_zero` enabled. Atomic permission is not required. Cacheable memory
+uses the shared L1D hit/refill zero path; noncacheable memory uses the ordered
+CHI service's eight writes. Translation and physical permission failures report
+the original rs1 virtual address, not the aligned block base. The operation is
+not guaranteed atomic across the block. Zicbom is not included.
+
 ## Instruction fetch
 
 RV2Wide requires C and optionally adds Zcb and Zcmop using the shared compressed

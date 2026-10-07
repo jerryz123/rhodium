@@ -5,6 +5,7 @@
 import:
   "bundles.rhdl" open
   "../cache/protocol.rhdl" open
+  "../cache/config.rhm".CacheLineBytes
   "../cache/operation.rhdl" open
   "../chi-hart.rhdl" open
   "../load-store.rhdl" open
@@ -125,12 +126,15 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
   // WB takes the demand lookup port. A simultaneous MEM request replays rather
   // than mistaking WB's translation or cache result for its own.
   def mem_address = data_result.physical_address.zext(64)
-  def region = config.physical_map.lookup(mem_address, mem_address +& (memory_access_bytes(XLen.X64, mem_request.bits.width) - bits(1, 64)))
+  def zero_block = mem.access.is_cache_block_zero()
+  def first_address = mux(zero_block, mem_address.align_down(CacheLineBytes), mem_address)
+  def last_address = first_address +& mux(zero_block, bits(CacheLineBytes - 1, 64), memory_access_bytes(XLen.X64, mem.width) - bits(1, 64))
+  def region = config.physical_map.lookup(first_address, last_address)
   def cacheable = region.cacheable & !region.device & region.read_idempotent
-  def atomic_request = !mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
-  def mem_misaligned = !atomic_request & !mem.width.is_aligned(mem.address)
-  def permitted = region.mapped & mux(mem.access.store_fault_class(), region.writable, region.readable) & (!atomic_request ||| (cacheable & region.atomic & region.readable))
-  def speculative_ok = !data_demand & !misaligned.busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !physical_memory.ordered_busy
+  def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+  def mem_misaligned = mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.width.is_aligned(mem.address)
+  def permitted = region.mapped & mux(mem.access.store_fault_class(), region.writable, region.readable) & (!atomic_request ||| (cacheable & region.atomic & region.readable)) & (!zero_block ||| region.cache_block_zero)
+  def speculative_ok = !data_demand & !misaligned.busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !zero_block & !physical_memory.ordered_busy
   (mem_request |> filter_valid(_request => speculative_ok)
     |> map_valid(request => cache_request(request).updated(~address: mem_address.align_down(8)))
   ) |> physical_pipeline.request
@@ -149,7 +153,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
     outcome <== RV2WideCacheOutcome.PageFault
   elsewhen ((data_result.fault =/= RiscvTranslationFault.None) ||| !permitted):
     outcome <== RV2WideCacheOutcome.AccessFault
-  elsewhen (!cacheable ||| atomic_request):
+  elsewhen (!cacheable ||| atomic_request ||| zero_block):
     outcome <== RV2WideCacheOutcome.Slow
   otherwise:
     outcome <== mux(physical_pipeline.response.valid, cache_outcome, RV2WideCacheOutcome.Replay)

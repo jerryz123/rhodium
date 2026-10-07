@@ -4,6 +4,7 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../core.rhdl" open
+  "../../profile.rhm".RV2WideConfig
 
-def program = elaborate(RV2WideCore())
+def program = elaborate(RV2WideCore(RV2WideConfig(~zicboz: #true)))
 export program

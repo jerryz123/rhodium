@@ -129,7 +129,7 @@ module rv2wide_core_tb;
     split_in.request_ready = !split_active;
     split_in.response.bits = split_reply;
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
-    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5} ? 64'd7 : 64'd5, value: fault_address};
+    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5,6} ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
     memory_in.drained = response_count == 0 && !memory_out.request.valid;
     pipeline_in.response = lookup_response;
@@ -270,7 +270,7 @@ module rv2wide_core_tb;
             expected_completions.push_back(want);
             if ((want.fetched.instruction[6:0] inside {7'h33,7'h3b}) && want.fetched.instruction[31:25]==1 && want.fetched.instruction[14:12]<4)
               multiply_authorized_cycle[want.fetched.pc]=cycles;
-            if(want.fetched.instruction[6:0] inside {7'h03,7'h23,7'h2f}) response_owners.push_back(want);
+            if(want.fetched.instruction[6:0] inside {7'h03,7'h23,7'h2f,7'h0f}) response_owners.push_back(want);
           end
           if (want.write && !retired[lane].bits.deferred)
             assert (retired[lane].bits.rd == want.rd && retired[lane].bits.data == want.data)
@@ -374,7 +374,8 @@ module rv2wide_core_tb;
     memory_req_t want;
     assert (expected_requests.size() > 0) else $fatal(1, "unowned or duplicate memory effect address=%h", actual.address);
     want = expected_requests.pop_front();
-    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && actual.mask == want.mask) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    assert (actual.address == want.address && actual.access == want.access && actual.width == want.width && (want.access==6 || actual.mask == want.mask)) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    if(want.access==6) for(int b=0;b<64;b++) memory_bytes[int'(actual.address&~64'd63)+b]<=0;
     if (want.access == 2) begin
       for (int b = 0; b < 8; b++) begin
         if (want.mask[b]) begin
@@ -468,6 +469,13 @@ module rv2wide_core_tb;
     value = 0;
     if(!bitmanip_value(word,a,b,value)) begin
     case (op)
+      'h0f: begin
+        memory_req_t request;
+        assert(word[31:20]==4 && f3==2 && word[11:7]==0) else $fatal(1,"oracle unsupported CBO");
+        request='0; request.address=a; request.access=6; request.width=3;
+        expected_requests.push_back(request); writes=0;
+        for(int i=0;i<64;i++) model_bytes[int'(a&~64'd63)+i]=0;
+      end
       'h73: begin
         assert(mop_encoding(word)) else $fatal(1,"oracle unsupported SYSTEM encoding %h",word);
         value=0;
@@ -1140,6 +1148,51 @@ module rv2wide_core_tb;
     send('h5210, imm(13, 12, 1), imm(14, 0, 1)); drain();
     assert (stores > 10 && hits > 10 && stall_cycles >= 2) else $fatal(1, "missing memory scenarios");
     assert (requests == responses + canceled && canceled == 1) else $fatal(1, "lost/duplicate completion or reset ownership");
+
+    // An unaligned CBO owns its response across branch recovery and blocks
+    // younger memory, but does not reserve or write any integer destination.
+    reset_core();
+    send('h5800,imm(1,0,67),imm(2,0,7)); drain();
+    hold_responses=1;
+    send('h5808,32'h0040a00f,imm(3,0,9));
+    repeat(10) tick();
+    assert(response_count==1 && expected.size()==0) else $fatal(1,"CBO missing committed owner");
+    stop_at('h5810,'h5850);
+    send('h5810,jump(4,64),32'h0040a00f,2,1,0); repeat(6) tick();
+    stop_at('h5850,'h5850,2);
+    send('h5850,imm(5,1,-3,3,'h03),0,1,0,0);
+    repeat(10) tick();
+    assert(response_count==1 && expected_redirects.size()==0) else $fatal(1,"younger load passed CBO");
+    hold_responses=0; drain();
+    send('h5850,imm(5,1,-3,3,'h03),0,1); drain();
+
+    // Shared xenvcfg permission follows current privilege, independently of
+    // MPRV. Denied CBOs trap before any memory request with the instruction TVAL.
+    for(int mode=0;mode<2;mode++) for(int machine_enable=0;machine_enable<2;machine_enable++) for(int supervisor_enable=0;supervisor_enable<2;supervisor_enable++) begin
+      logic [63:0] pc;
+      bit allowed;
+      reset_core(); pc='h5900; allowed=machine_enable!=0 && (mode==1 || supervisor_enable!=0);
+      constant64(pc,1,67); constant64(pc,2,'h500); constant64(pc,3,64'(mode)<<11); constant64(pc,4,128);
+      if(machine_enable!=0) csr_access(pc,1,0,4,'h30a,0);
+      pc+=4;
+      if(supervisor_enable!=0) csr_access(pc,1,0,4,'h10a,0);
+      pc+=4;
+      csr_access(pc,1,0,3,'h300,64'ha00000000); pc+=4;
+      csr_access(pc,1,0,2,'h341,0); pc+=4;
+      expect_system(pc,32'h30200073); stop_at(pc,'h500,3);
+      send(pc,32'h30200073,0,1,0,0); drain();
+      if(allowed) begin send('h500,32'h0040a00f,0,1); drain(); end
+      else begin
+        stop_at('h500,0,1,2,64'h0040a00f);
+        send('h500,32'h0040a00f,0,1,0,0); drain();
+        csr_access('h600,2,6,0,'h343,64'h0040a00f);
+      end
+    end
+    // Physical admission faults preserve original rs1, not the cache-block base.
+    reset_core(); send('h5a00,imm(1,0,67),0,1); drain();
+    inject_memory_fault=1; fault_address=67;
+    stop_at('h5a04,0,1,7,67); send('h5a04,32'h0040a00f,0,1,0,0); drain();
+    inject_memory_fault=0; csr_access('h5a08,2,6,0,'h343,67);
 
     // Real CSR commands return the old value, preserve source-index write intent,
     // and serialize even without a GPR destination. Younger work is refetched.

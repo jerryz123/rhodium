@@ -293,7 +293,7 @@ W/D width and unshifted rs2 through translation and authorized cache service.
 RR drains older memory pipeline tokens and accepted service work before an
 atomic enters EX, without draining independent integer/M work. EX/MEM check
 alignment, translation, and PMA but never physically execute an atomic.
-WB alone allocates its owner and sets `wb_atomic_pending`; all younger memory
+WB alone allocates its owner and sets `wb_ordered_memory_pending`; all younger memory
 retirement, including previously resolved hits and store candidates, replays
 until the atomic response/owner join transfers to completion arbitration.
 This stronger ordering implements every aq/rl combination without separate
@@ -306,6 +306,20 @@ the same page offset as the physical request, including W at byte lane four.
 LR/AMO results are sign-normalized by L1D; SC status must not pass through
 LoadGen. Both speculative and authorized PMA checks reject non-atomic RAM and
 device/noncacheable atomics. PTE requests remain ordinary raw-beat loads.
+
+Optional Zicboz joins the canonical CBO.ZERO pattern with rs1-plus-zero operand
+controls, the shared cache operation, and disabled register-write controls.
+The profile selects decode, CSR CBZE fields, ISA metadata, and UDB publication
+together. It uses the same ordered-memory pending owner as atomics, but must
+not inherit their alignment, read-permission, or atomic-PMA requirements.
+MMU MEM qualification and physical admission check the full aligned 64-byte
+block and its dedicated zero capability. Only ordinary loads/stores enter the
+speculative physical pipeline; a CBO always uses the WB service. Keep the
+original VA through retirement/fault handling and align only the footprint or
+physical service. The existing shared L1D and uncached engine own zero execution.
+The cache/core/MMU fixtures cover whole-block writes, permissions, fault VA,
+non-speculation, and accepted-owner ordering; the native cosim adapter test
+checks translation-preserving store fragments and rejected attempts.
 
 ## System operations and precise boundaries
 

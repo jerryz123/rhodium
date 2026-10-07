@@ -17,7 +17,20 @@ void HartAdapter::gpr(Collector& c, Word instance, Id id, bool write, Word rd, W
 }
 void HartAdapter::memory(Collector& c, Word instance, const Owner& owner, Word value, bool fault) {
   const auto& l = owner.lane;
-  require(l.access >= 1 && l.access <= 5 && l.width <= 3, "invalid memory operation");
+  require(l.access >= 1 && l.access <= 6 && l.width <= 3, "invalid memory operation");
+  // A completed block zero reports eight physical store beats. Preserve the
+  // original operand for a rejected attempt; it is also the architectural TVAL.
+  if (l.access == 6) {
+    const Word count = fault ? 1 : 8;
+    for (Word i = 0; i < count; ++i) {
+      c.effect(instance,owner.id,{1,i},MemoryEffect{0,i*8,AccessKind::Store,
+        fault ? l.address : (l.address & ~Word{63})+i*8,
+        owner.physical && !fault,(owner.address & ~Word{63})+i*8,255,
+        false,!fault,0,0,fault ? AccessResult::Fault : AccessResult::Success});
+    }
+    c.seal(instance,owner.id,1,count);
+    return;
+  }
   const bool reads = l.access == 1 || l.access == 3 || l.access == 5;
   const bool writes = l.access == 2 || l.access == 4 || l.access == 5;
   const bool failed_sc = l.access == 4 && value;

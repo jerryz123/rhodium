@@ -177,7 +177,34 @@ void reject_bad_fixed_return(bool early) {
   }
   require(rejected);
 }
+void block_zero(bool fault) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(c); std::mt19937 random(0);
+  std::vector<Record> records;
+  for (Word cycle=0;cycle<5;++cycle) {
+    Sample s;
+    if (cycle==0) {
+      auto& l=fault ? s.lanes[2] : s.retire(0,0x8000);
+      l.pc=0x8000; l.encoding=0x0040a00f; l.memory=1; l.access=6; l.width=3; l.address=0x103f;
+      if (fault) { s.boundary.trap=1; s.boundary.cause=15; s.boundary.epc=l.pc; s.boundary.tval=l.address; }
+      else { l.deferred=1; s.physical.request_valid=1; s.physical.request_address=0x903f; }
+    }
+    if (!fault && cycle==1) s.completions[0]={0,1,0x8000,0,0,0};
+    if (!fault && cycle==4) s.completions[3]={3,1,0x8000,0,0,0};
+    auto emitted=sample(c,binding,cycle,s,random);
+    records.insert(records.end(),emitted.begin(),emitted.end());
+  }
+  require(records.size()==1 && records[0].effects.size()==(fault ? 1 : 8));
+  for (Word i=0;i<(fault ? 1 : 8);++i) {
+    const auto& effect=std::get<MemoryEffect>(records[0].effects.at({1,i}));
+    require(effect.kind==AccessKind::Store && effect.byte_mask==255 && !effect.read_valid && effect.write_valid==!fault && effect.write_data==0);
+    require(effect.virtual_address==(fault ? 0x103f : 0x1000+8*i));
+    if (!fault) require(effect.physical_address==0x9000+8*i);
+    require(effect.result==(fault ? AccessResult::Fault : AccessResult::Success));
+  }
+  c.finish();
+}
 int main() {
+  block_zero(false); block_zero(true);
   const auto expected=run(0);
   for (unsigned seed=1;seed<100;++seed) require(run(seed)==expected);
   epoch_and_drain();

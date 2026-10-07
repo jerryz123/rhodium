@@ -8,6 +8,7 @@ import:
   lib("riscv/isa/c.rhm") open
 
 def integer = RV2WideConfig()
+def zero = RV2WideConfig(~zicboz: #true)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
 def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
@@ -17,6 +18,10 @@ def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension
 def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
+  zero.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicboz"]
+  zero.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
+  zero.csr_config.zicboz ~is #true
+  zero.hart_description.cbo_block_bytes ~is 64
   integer.zfa ~is #false
   double.zfa ~is #false
   integer.isa_profile.isa_extensions.contains("zfa") ~is #false
@@ -46,10 +51,11 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [integer, zero, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    extensions.contains("Zicboz") ~is profile.zicboz
     extensions.contains("Zfa") ~is profile.zfa
     extensions.contains("F") ~is (profile.floating_point == FloatingPointProfile.D)
     extensions.contains("D") ~is (profile.floating_point == FloatingPointProfile.D)

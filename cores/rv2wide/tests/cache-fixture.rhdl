@@ -3,6 +3,7 @@
 
 import:
   "../core.rhdl" open
+  "../profile.rhm".RV2WideConfig
   "../cache.rhdl" open
   "../mmu.rhdl" open
   "../bundles.rhdl" open
@@ -22,11 +23,11 @@ def test_home = CHIHomeParams("rv2wide-test-home", 1, CHINodeKind.HNF, ~max_outs
 def test_io_home = CHIHomeParams("rv2wide-test-io", 5, CHINodeKind.HNI, ~max_outstanding: 1)
 def test_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 4095),
-                                               RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)), test_home)
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)), test_home)
 ])
 def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regions ++ [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0xffff),
-                                               RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)), test_home),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)), test_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2000, 0xff),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2100, 7),
@@ -34,7 +35,11 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2203, 0),
                                                RiscvPhysicalMemoryAttributes(#true, #false, #false, #false, #false, #true, #false)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2300, 0xff),
-                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true)), test_io_home)
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)), test_io_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2400, 7),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)), test_io_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2500, 0xff),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true, ~cache_block_zero: #true)), test_home)
 ])
 
 sync_circuit RV2WideCacheFixture():
@@ -46,7 +51,7 @@ sync_circuit RV2WideCacheFixture():
   interface chi(CHIRNChannels(test_flit), ~role: node)
   interface uncached_chi(CHIRNIChannels(test_flit), ~role: node)
   output(issued, retired_count): Bits(2)
-  inst core(RV2WideCore())
+  inst core(RV2WideCore(RV2WideConfig(~zicboz: #true)))
   core.interrupts <== literal(core.interrupts.type, 0)
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)

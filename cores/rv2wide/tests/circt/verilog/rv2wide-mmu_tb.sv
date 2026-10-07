@@ -92,12 +92,12 @@ module rv2wide_mmu_tb;
     tick(); falling();
     // Atomic MEM translation checks permissions without exposing a speculative
     // physical cache request. WB carries the exact operation to the service.
-    for(int operation=3;operation<=5;operation++) begin
-      access=4'(operation); address='h500008; ex_valid=1;
+    for(int operation=3;operation<=6;operation++) begin
+      access=4'(operation); address=operation==6 ? 'h50003f : 'h500008; ex_valid=1;
       tick(); falling(); ex_valid=0; #1;
       assert(result_valid && outcome==0 && !resolve_valid) else $fatal(1,"speculative atomic cache operation");
       tick(); falling(); wb_valid=1; physical_ready=1; #1;
-      assert(wb_ready && physical_valid && physical_address=='h16008 && physical_access==access)
+      assert(wb_ready && physical_valid && physical_address==(operation==6 ? 'h1603f : 'h16008) && physical_access==access)
         else $fatal(1,"atomic operation lost during translation");
       tick(); falling(); wb_valid=0; physical_ready=0;
       return_data(operation==4 ? 64'd1 : 64'hffffffff81234567,1);
@@ -107,18 +107,27 @@ module rv2wide_mmu_tb;
     access=3; wb_valid=1; physical_ready=1; #1;
     assert(wb_ready && !wb_fault && physical_access==3) else $fatal(1,"LR denied readable PTE");
     tick(); falling(); wb_valid=0; physical_ready=0; return_data(64'd7,1);
-    for(int operation=4;operation<=5;operation++) begin
-      access=4'(operation); wb_valid=1; #1;
-      assert(wb_fault && !wb_ready && !physical_valid && wb_fault_bits.cause==15 && wb_fault_bits.value=='h500008)
+    for(int operation=4;operation<=6;operation++) begin
+      access=4'(operation); address=operation==6 ? 'h50003f : 'h500008; wb_valid=1; #1;
+      assert(wb_fault && !wb_ready && !physical_valid && wb_fault_bits.cause==15 && wb_fault_bits.value==address)
         else $fatal(1,"atomic write permission/fault provenance");
       tick(); falling(); wb_valid=0;
     end
     // Device PMAs reject all atomics without a physical or uncached transaction.
     privilege=3; address='h2000;
-    for(int operation=3;operation<=5;operation++) begin
+    for(int operation=3;operation<=6;operation++) begin
       access=4'(operation); ex_valid=1; tick(); falling(); ex_valid=0; #1;
       assert(result_valid && outcome==5 && !resolve_valid && !physical_valid)
         else $fatal(1,"atomic device admission");
+      tick(); falling();
+    end
+    // Zero uses its own PMA capability, not atomic permission or natural alignment.
+    access=6;
+    for(int scenario=0;scenario<4;scenario++) begin
+      address=scenario==0 ? 'h2403 : scenario==1 ? 'h2103 : scenario==2 ? 'h253f : 'h233f;
+      ex_valid=1; tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && !resolve_valid && outcome==(scenario<2 ? 5 : 0))
+        else $fatal(1,"CBO whole-block PMA/atomic independence scenario=%0d",scenario);
       tick(); falling();
     end
     access=1; privilege=1; address='h500008;

@@ -41,7 +41,7 @@ import:
   lib("riscv/rtl/trap.rhdl") open
   lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
-  lib("riscv/rtl/cmo.rhdl").CboManagementOperation
+  lib("riscv/rtl/cmo.rhdl") open
   lib("rhodium/std/decode.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
   lib("flow/main.rhdl") open
@@ -161,7 +161,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   reg wb_pc_known(~init: Bool(#false))
   sleeping <== wb_sleeping
   inst wb_load_response(RV2WideLoadResponse())
-  reg wb_atomic_pending(~init: Bool(#false))
+  reg wb_ordered_memory_pending(~init: Bool(#false))
   inst ex_multiply(RV2WideMultiply())
   inst wb_divide(RV2WideDivide())
   inst rr_completions(RRArbiter(RV2WideRetirement(), 2))
@@ -211,12 +211,15 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
-  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa))
+  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz))
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
   def rr_rounding :: Vec(2, RiscvRoundingMode()) = vec(for List (lane in 0..2): riscv_rounding_mode(rr_head.entries[lane].instruction[12..15], wb_csrs.frm))
   def rr_fp_illegal = for List (lane in 0..2): rr_controls[lane].fp.valid & (!wb_csrs.fp_enabled ||| (rr_controls[lane].fp.bits.execution.uses_rounding_mode & !rr_rounding[lane].valid))
-  def rr_decodable :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decoded[lane].valid & !rr_head.entries[lane].fault.valid & !rr_head.entries[lane].compressed_illegal & !rr_fp_illegal[lane])
+  def rr_cbo_illegal = for List (lane in 0..2):
+    def access :: CacheOperation = rr_controls[lane].memory.access
+    rr_controls[lane].memory.enable & access.is_cache_block_zero() & (wb_csrs.cbo_zero_access =/= CboAccess.Allowed)
+  def rr_decodable :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decoded[lane].valid & !rr_head.entries[lane].fault.valid & !rr_head.entries[lane].compressed_illegal & !rr_fp_illegal[lane] & !rr_cbo_illegal[lane])
   def rr_rs1 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
   def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
   def rr_rd :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rd, rr_head.entries[lane].instruction))
@@ -295,14 +298,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane]
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
-  // All aq/rl combinations use the stronger memory-ordering boundary: drain
-  // older memory before issue and hold younger memory through atomic response.
+  // Atomics and CBO.ZERO drain older memory before issue and hold younger
+  // memory through completion. All aq/rl combinations use this stronger order.
   def rr_memory_in_pipeline = (ex_older.egress.valid & ex_older.egress.bits.control.memory.enable) ||| (ex_younger.egress.valid & ex_younger.egress.bits.control.memory.enable) ||| (mem_older.egress.valid & mem_older.egress.bits.memory.enable) ||| (mem_younger.egress.valid & mem_younger.egress.bits.memory.enable) ||| (wb_older.egress.valid & wb_older.egress.bits.memory.enable) ||| (wb_younger.egress.valid & wb_younger.egress.bits.memory.enable)
-  def rr_atomic_ready = !rr_memory_in_pipeline & memory.drained & wb_load_response.drained & !wb_atomic_pending
-  def rr_atomic = for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].memory.enable & !rr_controls[lane].memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
-  def rr_structural_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| (rr_system[lane] & !(rr_pipeline_empty & wb_drained)) ||| (rr_atomic[lane] & !rr_atomic_ready)
-  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !rr_squash & (!rr_system[0] ||| (rr_pipeline_empty & wb_drained)) & (!rr_atomic[0] ||| rr_atomic_ready)
-  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decodable[0] & !rr_system[0] & !rr_system[1] & (!rr_atomic[1] ||| rr_atomic_ready) & (rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !rr_pair_deferred & !rr_pair_fixed_collision & !(rr_controls[0].fp.valid & rr_controls[1].fp.valid))) & !(rr_completion.valid & rr_completion.bits.write) & !wb_gpr_calendar.occupied[3].into(Bool)
+  def rr_ordered_memory_ready = !rr_memory_in_pipeline & memory.drained & wb_load_response.drained & !wb_ordered_memory_pending
+  def rr_ordered_memory = for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].memory.enable & !rr_controls[lane].memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def rr_structural_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| (rr_system[lane] & !(rr_pipeline_empty & wb_drained)) ||| (rr_ordered_memory[lane] & !rr_ordered_memory_ready)
+  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !rr_squash & (!rr_system[0] ||| (rr_pipeline_empty & wb_drained)) & (!rr_ordered_memory[0] ||| rr_ordered_memory_ready)
+  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decodable[0] & !rr_system[0] & !rr_system[1] & (!rr_ordered_memory[1] ||| rr_ordered_memory_ready) & (rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !rr_pair_deferred & !rr_pair_fixed_collision & !(rr_controls[0].fp.valid & rr_controls[1].fp.valid))) & !(rr_completion.valid & rr_completion.bits.write) & !wb_gpr_calendar.occupied[3].into(Bool)
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   rr_window.consume <== issued
   def rr_fp_admitted = mux(rr_fp_lane === bits(0, 1), rr_first, rr_second) & rr_decodable[rr_fp_lane] & rr_fp_fixed[rr_fp_lane]
@@ -357,7 +360,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       rs2: rr_right[lane].data
       address_from_older: Bool(lane == 1) & rr_pair_address
       rd: rr_rd[lane]
-      illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane]
+      illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane] ||| rr_cbo_illegal[lane]
       fp_request: rr_fp_request
     ) |> ex_ingress
 
@@ -397,7 +400,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def ex_bad_pc = ex.fetched.pc[0].into(Bool)
     def ex_bad_target = ex_taken & ex_target[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.enable
-    def ex_bad_address = ex_memory & !ex.control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !ex.control.memory.width.is_aligned(ex_address)
+    def ex_bad_address = ex_memory & ex.control.memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic) & !ex.control.memory.width.is_aligned(ex_address)
     def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
     ex_output.valid <== ex_input.valid & !rr_squash
     ex_output.bits <== RV2WideResult():
@@ -599,7 +602,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   describe_interface_contract(Array(wb_paths[0][0], wb_split_output.right), wb_owners.left, "wb-owner", ~trace_model: interface_trace_selection(~name: "wb-owner"))
   def wb_slow = wb_memory_active & !wb_split_capture & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
   def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
-  def wb_memory_blocked = memory.ordered_busy ||| wb_atomic_pending
+  def wb_memory_blocked = memory.ordered_busy ||| wb_ordered_memory_pending
   def wb_prior_drained = wb_load_response.drained & memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.or_reduce() & !rr_completion.valid & fp.drained
   split.request.valid <== wb_split_pending & !wb_split_sent & wb_prior_drained
   split.request.bits <== PhysicalMemoryReq(XLen.X64, Bool):
@@ -641,9 +644,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_load_response.allocate.valid <== wb_accepted
   wb_load_response.allocate.bits <== wb_memory
   when (wb_accepted & !wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)):
-    wb_atomic_pending <== Bool(#true)
-  elsewhen (wb_load_response.atomic_completed.valid):
-    wb_atomic_pending <== Bool(#false)
+    wb_ordered_memory_pending <== Bool(#true)
+  elsewhen (wb_load_response.ordered_completed.valid):
+    wb_ordered_memory_pending <== Bool(#false)
   assert(!(memory.request.fire() & wb_admission_fault), "rv2wide_fault_prevents_acceptance")
   def wb_memory_resolution = RV2WideResolution():
     disposition: RV2WideDisposition.Replay
