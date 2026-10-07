@@ -331,7 +331,8 @@ ci-host-socs-test: soc-test
 ci-plan-test:
 	python3 -m unittest tools.ci.test_plan tools.ci.test_install_racket
 
-ci-host-hygiene-test: ci-plan-test check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
+ci-host-hygiene-test: check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
+	python3 -m unittest tools.ci.test_install_racket
 
 host-test: host-checks examples
 

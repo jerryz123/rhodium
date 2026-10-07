@@ -124,9 +124,27 @@ cache before packaging or downstream tests can fail. The cache includes the
 pinned compiler and installed model, keyed by the runner platform, Sail revisions,
 ordered patches, installer, and CMake package definition. Simulator and ACT
 generation jobs download the same exact-commit model artifact; they do not build
-Sail or save competing caches. SoC-specific runtime configuration and checker
-compilation remain in the simulator jobs. The stable gate requires the selected
+Sail or save competing caches. When cosim is selected, this producer also builds
+the config-independent native runtime archives once, without test executables.
+Simulator consumers verify archive checksums, native sources, platform, checkout,
+and absolute link paths before linking. Generated runtime configuration and
+`runtime/session.cc` remain config-specific. The stable gate requires the selected
 Sail producer to succeed.
+
+One target producer emits each selected SoC descriptor once and the required
+OpenSBI DTBs. Simulator, harness, program, and platform jobs consume these shared
+descriptions; none may silently regenerate a missing artifact. Harness ISA smoke
+and eight-hart benchmark builds use the existing suite-specific ELF projection
+to group compatible configs, then bind each shared archive to the execution
+target. Local build-and-run targets remain available; CI uses builder-free run
+targets. Shared build failures retain diagnostics and do not cancel other groups.
+
+One native-check job owns config-independent DPI, transport, runtime, cosim-hook,
+ACT-adapter, and program-adapter tests. Spike native and ABI checks run once when
+any Spike simulator is selected. Per-config hardware elaboration and execution
+remain in their own jobs. Planner tests run only in the plan job, not again in
+host hygiene. The gate requires all selected shared producers and native checks,
+including cancellation or unexpectedly skipped jobs.
 
 Local runner scripts preserve the same freshness boundary with a persistent
 compiled root owned by each worktree under `.rhodium-cache/`. The cache is keyed
@@ -183,16 +201,21 @@ flowchart TD
     Docs -->|no| Selected["Dependency-aware selection"]
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
-    Selected --> Sail["Build or restore shared Sail model once<br/>when cosim or ACT is selected"]
+    Selected --> Sail["Build or restore Sail model once<br/>and shared cosim runtime archives"]
     Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
-    Compile --> Simulators["Per-config reusable workflows<br/>explicit simulator inventory;<br/>six full-suite Single configs for software only"]
+    Compile --> Native["Config-independent native and adapter checks once"]
+    Compile --> Targets["Generate each selected target and required DTB once"]
+    Targets --> HarnessBuilds["Compile harness ISA / multihart ELFs once per group"]
+    Targets --> Simulators["Per-config simulator builds"]
+    HarnessBuilds --> Simulators
     Sail --> Simulators
-    Simulators --> Simulation["Each config's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
-    Compile --> PlatformTargets["Generate platform targets and DTBs<br/>group compatible builds"]
+    Simulators --> Simulation["Each config's build-to-harness chain<br/>bind shared ELFs and run shape/ISA selection"]
+    HarnessBuilds --> Simulation
+    Targets --> PlatformTargets["Group compatible platform builds"]
     PlatformTargets --> PlatformBuilds["Shared litmus / OpenSBI build artifacts"]
     PlatformBuilds --> Platform["Per-config platform tests<br/>litmus histograms; OpenSBI handoff"]
     Simulators --> Platform
-    Compile --> ProgramTargets["Generate program targets<br/>group identical ELF build requirements"]
+    Targets --> ProgramTargets["Group identical program ELF build requirements"]
     Simulators --> ProgramTargets
     ProgramTargets --> ProgramBuilds["Compile program suites once per group<br/>eight groups in the current matrix"]
     ProgramBuilds --> Programs["Bind shared ELFs to each exact target<br/>sixteen SoC/suite execution jobs"]
@@ -202,6 +225,9 @@ flowchart TD
     Simulators --> ActRun["Six-profile ACT execution<br/>16 RV5Stage RVA23; 8 RV5Stage RV32 / Spike RVA23;<br/>4 Spike RV32"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
+    Native --> Gate
+    Targets --> Gate
+    HarnessBuilds --> Gate
     Sail --> Gate
     Simulators --> Gate
     Simulation --> Gate

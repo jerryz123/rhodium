@@ -2,20 +2,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import hashlib
 import os
 import re
 import tempfile
 import textwrap
 import shlex
 import subprocess
+import struct
 import shutil
+import tarfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from .gate import failures
 from .plan import Selection, plan_for_paths
-from .programs import program_matrices
+from .programs import program_matrices, harness_entries
+from sw.build.program_target import elf_build_spec, target_fingerprint
 from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, COSIM_CONFIGS, native_configs, simulation_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, platform_configs
 
 
@@ -235,12 +239,14 @@ class PlanTest(unittest.TestCase):
                 import os
                 import sys
                 from pathlib import Path
+                if Path(sys.argv[0]).name in ('mkdir', 'cp'):
+                    sys.exit(0)
                 with open(os.environ['CALL_LOG'], 'a') as output:
                     output.write(json.dumps([Path(sys.argv[0]).name, *sys.argv[1:]]) + '\\n')
                 print('tool transcript')
                 sys.exit(int(os.environ.get('MAKE_EXIT', '0')) if Path(sys.argv[0]).name == 'make' else 0)
             """)
-            for name in ('make', 'ldd'):
+            for name in ('make', 'ldd', 'mkdir', 'cp'):
                 tool = root / name
                 tool.write_text(stub)
                 tool.chmod(0o755)
@@ -249,6 +255,8 @@ class PlanTest(unittest.TestCase):
                        RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23-rsim',
                        SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000',
                        COSIM='0', GITHUB_OUTPUT=str(root / 'github-output'))
+            (root / 'targets').mkdir()
+            (root / 'targets/simple-rv5stage-rva23.json').write_text('{}')
             for opt in ('-O2', '-O0', ''):
                 calls.write_text('')
                 result = subprocess.run(['bash', '-eo', 'pipefail', '-c', build], env=dict(env, OPT_FAST=opt),
@@ -282,6 +290,59 @@ class PlanTest(unittest.TestCase):
                         self.assertIn('HTIF_ARGS=+max-cycles=100000', commands[0])
                         self.assertIn(f'PREBUILT_SIMULATOR={root}/simple-rv5stage-rva23-rsim/VTestDriver', commands[0])
                         self.assertIn('tool transcript', (root / 'simple-rv5stage-rva23-rsim-smoke.log').read_text())
+
+    def test_shared_harness_binds_before_execution_and_preserves_later_attempts(self):
+        workflow = (REPO / ".github/workflows/ci-harness.yml").read_text()
+        block = workflow.split("      - name: Run shape-and-ISA software selection\n", 1)[1]
+        script = textwrap.dedent(block.split("        run: |\n", 1)[1].split("      - name:", 1)[0])
+        source = dict(soc="mini-rv5stage-rva23", xlen=64, harts=[0], extensions=["i", "m"],
+                      march="rv64im", mabi="lp64", clock_frequency_hz=100000000,
+                      ram=[dict(base=0x80000000, size=0x10000)])
+        target = source | dict(soc="mini-spike-rva23")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("harness-elfs", "targets", target["soc"], "bin", "producer"):
+                (root / name).mkdir()
+            calls = root / "calls"
+            make = root / "bin/make"
+            make.write_text('#!/usr/bin/env python3\nimport json, os, sys\n'
+                            'with open(os.environ["CALLS"], "a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\n')
+            make.chmod(0o755)
+            base = source["ram"][0]["base"]
+            header = b"\x7fELF\x02\x01\x01" + bytes(9)
+            header += struct.pack("<HHIQQQIHHHHHH", 2, 243, 1, base, 64, 0, 0, 64, 56, 1, 0, 0, 0)
+            data = header + struct.pack("<IIQQQQQQ", 1, 5, 120, base, base, 1, 128, 1) + b"\x00"
+            spec = elf_build_spec(source, "isa", dict(isa_selection="smoke"))
+            manifest = dict(suite="isa", target=source, target_fingerprint=target_fingerprint(source),
+                            build_spec=spec, build_spec_fingerprint=target_fingerprint(spec),
+                            tests=[dict(name="test", elf="test.elf", sha256=hashlib.sha256(data).hexdigest())])
+            (root / "producer/manifest.json").write_text(json.dumps(manifest))
+            (root / "producer/test.elf").write_bytes(data)
+            archive_path = root / "harness-elfs/shared.tar.gz"
+            (root / target["soc"] / "program-target.json").write_text(json.dumps(target))
+            (root / "targets/harness-plan.json").write_text(json.dumps(dict(run=dict(include=[
+                dict(soc=target["soc"], run_target="isa-smoke-run", build_id="shared")]))))
+            env = dict(os.environ, PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
+                       RUNNER_TEMP=str(root), SOC=target["soc"], SIMULATOR_ID=target["soc"],
+                       SOFTWARE_TESTS="isa-smoke smoke", CALLS=str(calls))
+            script = script.replace("/tmp/rhodium-program-tests", str(root / "runs"))
+            for bad in (False, True):
+                with self.subTest(corrupt=bad):
+                    (root / "producer/test.elf").write_bytes(b"corrupt" if bad else data)
+                    with tarfile.open(archive_path, "w:gz") as archive:
+                        for name in ("manifest.json", "test.elf"):
+                            archive.add(root / "producer" / name, arcname=name)
+                    calls.write_text("")
+                    result = subprocess.run(["bash", "-eo", "pipefail", "-c", script],
+                                            cwd=REPO, env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, int(bad), result.stderr)
+                    commands = [json.loads(line) for line in calls.read_text().splitlines()]
+                    self.assertEqual([command[2] for command in commands],
+                                     ["smoke"] if bad else ["isa-smoke-run", "smoke"])
+                    if not bad:
+                        bound = root / "runs" / target["soc"] / "isa-smoke/run-manifest.json"
+                        self.assertIn(f"PROGRAM_MANIFEST={bound}", commands[0])
+                        self.assertEqual(json.loads(bound.read_text())["target"], target)
 
     def test_software_selection_is_identical_for_matching_shape_and_isa(self):
         entries = self.plan("sims/Makefile")["simulator_matrix"]["include"]
@@ -366,6 +427,35 @@ class PlanTest(unittest.TestCase):
                 plan = self.plan(path)
                 self.assertEqual(suites(plan), list(NATIVE_SUITES))
                 self.assertTrue(plan["run_program_arch"])
+
+    def test_harness_sharing_preserves_runs_and_distinguishes_build_inputs(self):
+        configs = [simulation_entry(f'{shape}-{core}-rva23', shape, core)
+                   for shape in ('mini', 'tiled') for core in ('rv5stage', 'spike')]
+        entries = harness_entries({'include': configs})
+        targets = {config['soc']: dict(
+            soc=config['soc'], xlen=64, harts=list(range(8)) if config['shape'] == 'tiled' else [0],
+            extensions=['i', 'm', 'a', 'd'], march='rv64imad', mabi='lp64d',
+            clock_frequency_hz=100000000,
+            ram=[dict(base=0x80000000, size=0x100000 if config['shape'] == 'tiled' else 0x10000)])
+            for config in configs}
+        matrices = program_matrices(entries, targets)
+        self.assertEqual(len(matrices['run']['include']), len(entries['include']))
+        self.assertEqual({(e['soc'], e['run_target']) for e in matrices['run']['include']},
+                         {(e['soc'], e['run_target']) for e in entries['include']})
+        self.assertEqual(len(matrices['build']['include']), 3)
+        def ids(matrix):
+            return {(e['soc'], e['suite']): e['build_id'] for e in matrix['run']['include']}
+        original = ids(matrices)
+        for (soc, suite), build_id in original.items():
+            self.assertEqual(build_id, original[soc.replace('rv5stage', 'spike'), suite])
+        full = [dict(e, options=e['options'] | {'isa_selection': 'full'})
+                for e in entries['include'] if e['suite'] == 'isa']
+        self.assertTrue(set(ids(program_matrices({'include': full}, targets)).values()).isdisjoint(
+            e['build_id'] for e in matrices['run']['include'] if e['suite'] == 'isa'))
+        targets['tiled-spike-rva23']['harts'] = list(range(4))
+        changed = ids(program_matrices(entries, targets))
+        self.assertNotEqual(original['tiled-spike-rva23', 'benchmark'], changed['tiled-spike-rva23', 'benchmark'])
+        self.assertEqual(original['tiled-spike-rva23', 'isa'], changed['tiled-spike-rva23', 'isa'])
 
     def test_platforms_group_compatible_builds_without_removing_config_runs(self):
         def build_ids(matrix):
@@ -490,6 +580,15 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(plan["run_simulation"])
         self.assertTrue(plan["run_program_arch"])
 
+    def test_shared_jobs_follow_selected_simulator_capabilities(self):
+        for path in ("README.md", "examples/rtl/alu.rhdl", "sims/Makefile", "sw/build/build-coremark.py"):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                builds = plan["simulator_matrix"]["include"]
+                self.assertEqual(plan["run_native"], bool(builds))
+                self.assertEqual(plan["run_cosim"], any(row["cosim"] for row in builds))
+                self.assertEqual(plan["run_spike_tests"], any(row["core"] == "spike" for row in builds))
+
     def test_check_declarations_are_unique_and_self_consistent(self):
         self.assertEqual(len({check.key for check in CHECKS}), len(CHECKS))
         self.assertEqual(len({check.target for check in CHECKS}), len(CHECKS))
@@ -547,6 +646,8 @@ class PlanTest(unittest.TestCase):
             plan = self.plan(path)
             selected = dict(compile=plan["run_compile"], checks=plan["run_checks"],
                             sail=plan["run_sail"],
+                            targets=plan["run_simulator"], native=plan["run_native"],
+                            **{'harness-elfs': plan['run_simulation']},
                             simulator=plan["run_simulator"], simulation=plan["run_simulation"],
                             software=plan["run_program_native"] or plan["run_program_arch"])
             results = {job: "success" if required else "skipped" for job, required in selected.items()}
@@ -630,6 +731,12 @@ class PlanTest(unittest.TestCase):
             subprocess.run(["bash", "-euo", "pipefail", "-c",
                             script("ci.yml", "Package patched Sail model")],
                            cwd=producer, env=env, check=True)
+            runtime_relative = Path(f".rhodium-cache/sail-cosim/sail-0.20.3-{identity}")
+            runtime = producer / runtime_relative
+            runtime.mkdir(parents=True)
+            (runtime / "libsail_checker.a").write_bytes(b"checker library")
+            with tarfile.open(root / "artifacts/sail-riscv/runtime.tar.gz", "w:gz") as archive:
+                archive.add(runtime, arcname=str(runtime_relative))
             for workflow in ("ci-simulator.yml", "ci-software.yml"):
                 consumer = root / workflow
                 consumer.mkdir()
@@ -641,6 +748,9 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual((installed / "lib/libsail_riscv_model.a").read_bytes(), b"model library")
                 self.assertEqual(subprocess.check_output([str(installed / "bin/sail_riscv_sim"),
                                                          "--version"], text=True), "0.14.1\n")
+                if workflow == "ci-simulator.yml":
+                    self.assertEqual((consumer / runtime_relative / "libsail_checker.a").read_bytes(),
+                                     b"checker library")
 
     def test_arch_execution_matrix_partitions_slow_configurations_without_extra_builds(self):
         plan = self.plan("sims/Makefile")

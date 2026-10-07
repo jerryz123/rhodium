@@ -157,8 +157,19 @@ own environment. Sail patches remain under `riscv/sail-riscv-patches/`.
    configurations, simulators, and software images stay in build directories.
 
 `COSIM_WITH_SAIL=OFF` builds event/adapter tests without Sail or FESVR. With Sail,
-the CMake build produces the reference/checker and link flags consumed by the
-simulator. `runtime/session.cc` is compiled in the config build because it
+the `cosim_runtime` CMake target produces only the reference/checker, hart
+adapter libraries, and link flags consumed by the simulator. `sail-cosim-build`
+configures with `BUILD_TESTING=OFF` and selects that target, not CMake's default
+build of all test executables. CI builds these archives in the shared Sail job.
+`PREBUILT_COSIM_DIR` selects downloaded runtime libraries and verifies the
+`runtime/artifact.py` checksum manifest against native source content, commit,
+platform, workspace, and absolute link paths. Missing or incompatible libraries
+fail before linking; this mode never falls back to compilation. Verification is
+an order-only prerequisite so it does not force otherwise unnecessary relinking.
+`sail-cosim-test` builds and runs the full native test suite; the vector and
+configuration test targets build only their respective executables. These test
+targets explicitly re-enable `BUILD_TESTING` in the incremental CMake cache.
+`runtime/session.cc` is compiled in the config build because it
 consumes that config's generated `runtime-config.h`. Configuration generation
 must preserve the exact selected profile, ROM/DTB, PMAs, and fingerprints.
 Session reset geometry comes from that configuration, not a fixed XLEN/VLEN.

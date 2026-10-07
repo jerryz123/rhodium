@@ -10,6 +10,9 @@ def failures(plan, results):
     required = {
         "compile": plan["run_compile"],
         "sail": plan["run_sail"],
+        "targets": plan["run_simulator"],
+        "native": plan["run_native"],
+        "harness-elfs": plan["run_simulation"],
         "checks": plan["run_checks"],
         "simulator": plan["run_simulator"],
         "simulation": plan["run_simulation"],

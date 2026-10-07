@@ -72,6 +72,12 @@ jobs:
         run: |
           mkdir -p .tools
           tar -xzf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools
+          tar -xzf "$RUNNER_TEMP/sail-riscv/runtime.tar.gz" -C .
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/targets
       - name: Build and attest simulator
         id: simulator
         shell: bash
@@ -85,27 +91,21 @@ jobs:
         run: |
           build_args=()
           if [[ -n "$OPT_FAST" ]]; then build_args+=("OPT_FAST=$OPT_FAST"); fi
+          if [[ "$COSIM" == 1 ]]; then
+            identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
+            build_args+=("PREBUILT_COSIM_DIR=$GITHUB_WORKSPACE/.rhodium-cache/sail-cosim/sail-0.20.3-$identity")
+          fi
           # An empty override must leave the simulator Makefile defaults intact.
           unset OPT_FAST
           build="/tmp/rhodium-sims/$SIMULATOR_ID"
           if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi
+          mkdir -p "$build/obj"
+          cp "$RUNNER_TEMP/targets/$SOC.json" "$build/obj/program-target.json"
           echo "path=$build/obj" >> "$GITHUB_OUTPUT"
-          make -C sims simulator program-target SOC="$SOC" "${build_args[@]}" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
+          make -C sims simulator program-target SOC="$SOC" "${build_args[@]}" \
+            PREBUILT_PROGRAM_TARGET="$build/obj/program-target.json" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
           ldd "$build/obj/VTestDriver" | tee "$RUNNER_TEMP/simulator-libraries.txt"
           ! grep -q 'not found' "$RUNNER_TEMP/simulator-libraries.txt"
-      - name: Test Spike DPI integration
-        if: fromJSON(inputs.config).core == 'spike'
-        run: |
-          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          test -n "$verilator_root"
-          make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
-      - name: Test native harness adapters
-        if: inputs.run-harness && fromJSON(inputs.config).backend == 'circt' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'
-        run: |
-          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          test -n "$verilator_root"
-          make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
-          make -C sims transport-test arch-test-adapter-test program-test-adapter-test cosim-hooks-test simulation-runtime-test
       - name: Publish exact simulator and target descriptor
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

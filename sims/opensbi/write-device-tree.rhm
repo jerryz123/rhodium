@@ -28,14 +28,21 @@ fun opensbi_device_tree(description :: RiscvSoCDescription):
     ~boot_cpuid: base.boot_cpuid
   )
 
+/* Writes a selected platform DTB with the simulator's HTIF reset endpoint. */
+fun write_opensbi_device_tree(description :: RiscvSoCDescription, output :: String):
+  filesystem.write_bytes(output, opensbi_device_tree(description).to_dtb(), ~exists: #'truncate)
+
 def arguments = current_command_line()
-unless arguments.length() == 2 || arguments.length() == 4
-| error(~who: #'write_opensbi_device_tree, "expected a shape-core-isa config key and output file, or shape, core, ISA, and output file")
-def description = if arguments.length() == 4
-| simulator_shape_description(arguments[0], arguments[1], ~isa: parse_isa_preset(arguments[2]))
-| simulator_soc_description(arguments[0])
-filesystem.write_bytes(
-  arguments[arguments.length() - 1],
-  opensbi_device_tree(description).to_dtb(),
-  ~exists: #'truncate
-)
+cond
+| arguments.length() > 0 && arguments[0] == "--batch":
+    unless arguments.length() >= 3 && arguments.length() mod 2 == 1
+    | error(~who: #'write_opensbi_device_tree, "expected --batch followed by config/output pairs")
+    for (pair in 0..((arguments.length() - 1) div 2)):
+      def index = 1 + 2 * pair
+      write_opensbi_device_tree(simulator_soc_description(arguments[index]), arguments[index + 1])
+| arguments.length() == 2:
+    write_opensbi_device_tree(simulator_soc_description(arguments[0]), arguments[1])
+| arguments.length() == 4:
+    write_opensbi_device_tree(simulator_shape_description(arguments[0], arguments[1], ~isa: parse_isa_preset(arguments[2])), arguments[3])
+| ~else:
+    error(~who: #'write_opensbi_device_tree, "expected config and output, shape/core/ISA and output, or --batch followed by config/output pairs")

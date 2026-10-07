@@ -52,8 +52,9 @@ All enrolled Mini/Simple RV5Stage and RV2Wide CIRCT rows build with `COSIM=1`,
 as does the RV5Stage direct SystemVerilog variant. Each instrumented row publishes one
 simulator under its unchanged config artifact name; its local build directory
 retains the `-cosim` suffix. The experimental Rsim backend stays uninstrumented.
-The shared simulator job installs Sail, while the
-consumer needs only its native runtime dependencies. Consumers verify the
+The shared Sail job publishes the model and config-independent cosim archives;
+simulator builds verify these archives and compile only their config-specific
+session binding. Execution consumers need only native runtime dependencies and verify the
 expected cosim variant and run the same shape/ISA workload selection, requiring a
 successful nonempty checked stream. Unsupported checking paths fail explicitly;
 CI enrollment is not a claim of complete checker support. Keep this choice in `tools/ci/policy.py`,
@@ -672,15 +673,20 @@ upstream virtual environment owns its own stack and page tables. Keep its
 fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
-The root simulator matrix starts one reusable build-to-harness chain per config.
-Each producer publishes its exact-commit simulator and target descriptor before
+One shared producer emits each selected target descriptor and required OpenSBI
+DTB once. The target and device-tree writers accept `--batch` followed by
+config/output pairs, loading shared dependencies once while retaining their
+single-target CLI forms. Harness ISA smoke and eight-hart benchmark ELFs are built once per
+compatible suite projection before the simulator matrix starts. Each simulator
+producer publishes its exact-commit simulator and shared target descriptor before
 its own harness starts; no harness waits for unrelated simulator builds.
-`ci-harness.yml` downloads and verifies those artifacts. Ordinary RV5Stage
-harness execution needs the RISC-V software compiler and Python, not hardware
-build tools or Racket. ISA smoke copies the already-generated `PROGRAM_TARGET`
-into its suite directory instead of re-elaborating a target. A missing prebuilt
-descriptor is an error, never permission to regenerate it. Native DPI/transport,
-co-simulation hook, and runtime checks run in the Simple RV5Stage CIRCT producer.
+`ci-harness.yml` verifies the simulator and binds shared ELFs to its exact target.
+`isa-smoke-run` and `tiled-mt-benchmark-run` execute without a software builder;
+their original build-and-run targets remain available locally. Standalone smoke,
+MMIO, boot, and UART payloads still use the compiler. Missing prebuilt artifacts
+are errors, never permission to regenerate them. Native DPI/transport,
+cosim-hook, runtime, ACT/program adapter, and selected Spike native/ABI checks
+run once in the shared native job.
 Mapped Mini execution
 retains its separate build dependencies; Spike consumers retain their runtime
 library setup. Configs other than the three Simple smoke-only
@@ -699,8 +705,8 @@ an optimization. Compare simulator execution on the same ELFs and configured
 hart count before accepting a build-time improvement. Keep assertions and the
 hardware configuration unchanged during these comparisons.
 
-Program suite CI first generates the selected program targets using the shared
-Rhodium bytecode, then `tools/ci/programs.py` groups builds by the suite-specific
+Program suite CI consumes the shared target descriptions, then
+`tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
 not a shape/ISA naming assumption. The six program-suite Simple configs produce
 eight build groups and sixteen execution jobs. Build jobs consume
@@ -713,9 +719,9 @@ and `bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
-Program adapter contracts run once in the planning job. Platform tests
+Program adapter contracts run once in the native job. Platform tests
 use the same grouping/archive/binding machinery in `ci-platform.yml`:
-`platform-plan` emits targets and OpenSBI DTBs, `platform-build`
+`platform-plan` groups the shared targets and OpenSBI DTBs, `platform-build`
 compiles each compatible group, and `platform` executes every config.
 `litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
 neither depends on a builder. The OpenSBI test entry carries a checksum-bearing

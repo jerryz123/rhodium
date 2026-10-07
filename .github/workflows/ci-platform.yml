@@ -5,15 +5,6 @@ name: CI platform
 
 on:
   workflow_call:
-    inputs:
-      racket-version:
-        description: Installed Racket version.
-        required: true
-        type: string
-      rhombus-checksum:
-        description: Pinned Rhombus package checksum.
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -30,29 +21,15 @@ jobs:
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: ./.github/actions/setup-racket
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          racket-version: ${{ inputs.racket-version }}
-      - name: Restore exact Rhodium bytecode
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: ${{ inputs.racket-version }}
-          rhombus-checksum: ${{ inputs.rhombus-checksum }}
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Generate target and platform build identities
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-targets
+      - name: Group compatible platform builds
         id: plan
         run: |
           matrix=$(python3 -c 'import json; from tools.ci.policy import platform_configs; print(json.dumps({"include": platform_configs()}))')
-          mkdir -p "$RUNNER_TEMP/platform-targets"
-          for soc in $(jq -r '[.include[].soc] | unique | .[]' <<< "$matrix"); do
-            tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm \
-              "$soc" "$RUNNER_TEMP/platform-targets/$soc.json"
-          done
-          for soc in $(jq -r '.include[] | select(.suite == "opensbi") | .soc' <<< "$matrix"); do
-            tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/opensbi/write-device-tree.rhm \
-              "$soc" "$RUNNER_TEMP/platform-targets/$soc.dtb"
-          done
           python3 -m tools.ci.programs --matrix "$matrix" \
             --targets "$RUNNER_TEMP/platform-targets" --fdts "$RUNNER_TEMP/platform-targets" \
             --output "$RUNNER_TEMP/platform-plan.json"
@@ -61,13 +38,6 @@ jobs:
           cat "$RUNNER_TEMP/platform-plan.json"
       - name: Test platform adapters once
         run: make -C sims litmus-setup litmus-adapter-test opensbi-adapter-test
-      - name: Publish platform target descriptions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: platform-targets-${{ github.sha }}
-          path: ${{ runner.temp }}/platform-targets
-          if-no-files-found: error
-          retention-days: 3
 
   platform-build:
     name: Build ${{ matrix.suite }} / group ${{ strategy.job-index }}
@@ -111,7 +81,7 @@ jobs:
       - name: Download generated targets and device trees
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: platform-targets-${{ github.sha }}
+          name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/platform-targets
       - name: Cache platform builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -198,7 +168,7 @@ jobs:
         if: matrix.suite == 'opensbi'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: platform-targets-${{ github.sha }}
+          name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/platform-targets
       - name: Verify simulator and bind shared ELFs
         env:

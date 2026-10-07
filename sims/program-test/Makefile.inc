@@ -65,7 +65,7 @@ NATIVE_RUN_CYCLES_bringup = $(BRINGUP_MAX_CYCLES)
 .PHONY: isa-elfs benchmark-elfs tiled-mt-benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test tiled-mt-benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
 .PHONY: single-core-software-test
 .PHONY: isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run
-.PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
+.PHONY: isa-smoke-config isa-smoke-elfs isa-smoke isa-smoke-run tiled-mt-benchmark-run
 .PHONY: litmus-setup litmus-elfs litmus-test litmus-smoke-elfs litmus-smoke-test litmus-smoke-run litmus-full-elfs litmus-full-run litmus-full-test litmus-full-report
 program-target: $(PROGRAM_TARGET)
 
@@ -88,8 +88,9 @@ isa-smoke-elfs: isa-smoke-config
 	  --output "$(ISA_SMOKE_DIR)" --compiler "$(RISCV_CC)" --target "$(ISA_SMOKE_DIR)/target.json" \
 	  --isa-selection smoke
 
-isa-smoke: isa-smoke-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(ISA_SMOKE_DIR)/manifest.json" \
+isa-smoke: isa-smoke-elfs
+isa-smoke isa-smoke-run: simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(ISA_SMOKE_DIR)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(ISA_SMOKE_DIR)/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
@@ -210,10 +211,11 @@ isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-
 	  --output "$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(PROGRAM_TIMEOUT)) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
 
-tiled-mt-benchmark-test: tiled-mt-benchmark-elfs simulator-attestation
+tiled-mt-benchmark-test: tiled-mt-benchmark-elfs
+tiled-mt-benchmark-test tiled-mt-benchmark-run: simulator-attestation
 	@status=0; for hart_count in $(TILED_MT_HART_COUNTS); do \
 	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
-	  $(PYTHON) program-test/run.py --manifest "$$output/manifest.json" \
+	  $(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$$output/manifest.json)" \
 	    --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	    --output "$$output/results" --jobs $(PROGRAM_JOBS) \
 	    --timeout $(TILED_MT_BENCHMARK_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES) || status=1; \

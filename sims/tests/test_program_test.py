@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import tarfile
 from pathlib import Path
 import subprocess
@@ -26,6 +27,33 @@ def program_target(soc='simple-rv5stage-rva23'):
 
 def target_fingerprint(target):
     return hashlib.sha256(json.dumps(target, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+class TargetWriterTest(unittest.TestCase):
+    def test_batch_preserves_single_target_outputs_and_rejects_incomplete_pairs(self):
+        repo = SCRIPTS.parents[1]
+        wrapper = repo / 'tools/run-racket.sh'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for writer, suffix in ((SCRIPTS / 'write-target.rhm', 'json'),
+                                   (repo / 'sims/opensbi/write-device-tree.rhm', 'dtb')):
+                with self.subTest(writer=writer.name):
+                    first = root / ('first.' + suffix)
+                    second = root / ('second.' + suffix)
+                    batch_first = root / ('batch-first.' + suffix)
+                    batch_second = root / ('batch-second.' + suffix)
+                    command = [str(wrapper), '-S', str(repo), str(writer)]
+                    subprocess.run(command + ['mini-rv5stage-rva23', str(first)], cwd=repo, check=True)
+                    subprocess.run(command + ['mini', 'spike', 'rva23', str(second)], cwd=repo, check=True)
+                    subprocess.run(command + ['--batch', 'mini-rv5stage-rva23', str(batch_first),
+                                               'mini-spike-rva23', str(batch_second)], cwd=repo, check=True)
+                    self.assertEqual(first.read_bytes(), batch_first.read_bytes())
+                    self.assertEqual(second.read_bytes(), batch_second.read_bytes())
+                    self.assertNotEqual(first.read_bytes(), second.read_bytes())
+                    bad = subprocess.run(command + ['--batch', 'mini-rv5stage-rva23'],
+                                         cwd=repo, text=True, capture_output=True)
+                    self.assertNotEqual(bad.returncode, 0)
+                    self.assertIn('expected', bad.stderr)
 
 
 class ProgramArchiveTest(unittest.TestCase):
@@ -392,6 +420,44 @@ class ConfigSelectionTest(unittest.TestCase):
         self.assertLess(result.stdout.index(f'mkdir -p {directory}\n'),
                         result.stdout.index('verilator --stats --binary'))
         self.assertIn(f'--Mdir {directory}', result.stdout)
+
+    def test_cosim_runtime_and_test_builds_select_their_own_targets(self):
+        build = f'{self.build_directory.name}/cosim'
+        for target, expected in (
+                ('sail-cosim-build', ['cosim_runtime']),
+                ('sail-cosim-test', ['cosim_runtime', 'all']),
+                ('sail-cosim-vector-test', ['cosim_runtime', 'vector_checker_test']),
+                ('sail-cosim-config-test', ['cosim_runtime', 'sail_soc_config_test'])):
+            with self.subTest(target=target):
+                result = self.dry_run('SOC=simple-rv5stage-rva23',
+                                      'FESVR_LIBRARY=/dev/null', f'COSIM_BUILD_DIR={build}',
+                                      target=target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                commands = [shlex.split(line) for line in result.stdout.splitlines()
+                            if line.startswith(f'cmake --build "{build}"')]
+                targets = [command[command.index('--target') + 1]
+                           if '--target' in command else 'all' for command in commands]
+                self.assertEqual(targets, expected)
+                if target == 'sail-cosim-test':
+                    self.assertIn(f'ctest --test-dir "{build}" --output-on-failure', result.stdout)
+
+    def test_shared_harness_runs_use_bound_manifests_without_building(self):
+        root = Path(self.build_directory.name)
+        binary = root / 'VTestDriver'
+        binary.write_bytes(b'prebuilt')
+        (root / 'program-target.json').write_text('{}')
+        manifest = root / 'run-manifest.json'
+        manifest.write_text('{}')
+        for config, target in (('mini-rv5stage-rva23', 'isa-smoke-run'),
+                               ('tiled-rv5stage-rva23', 'tiled-mt-benchmark-run')):
+            with self.subTest(target=target):
+                result = self.dry_run(f'SOC={config}', f'PREBUILT_SIMULATOR={binary}',
+                                      f'PROGRAM_MANIFEST={manifest}', target=target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'--manifest "{manifest}"', result.stdout)
+                self.assertIn('program-test/run.py', result.stdout)
+                self.assertNotIn('--compiler', result.stdout)
+                self.assertNotIn('write-target.rhm', result.stdout)
 
     def test_explicit_axes_and_config_key_share_artifacts(self):
         axes = self.dry_run('SOC=mini', 'CORE=rv5stage', 'ISA=rva23')

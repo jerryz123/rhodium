@@ -45,6 +45,7 @@ target_compile_options(sail_reference PRIVATE -Wall -Wextra -Werror)
 add_library(sail_checker STATIC sail/checker.cc sail/memory.cc sail/vector.cc)
 target_link_libraries(sail_checker PUBLIC sail_reference cosim_observation)
 target_compile_options(sail_checker PRIVATE -Wall -Wextra -Werror)
+add_custom_target(cosim_runtime DEPENDS sail_checker rv5stage_cosim rv2wide_cosim)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/link-flags.txt" CONTENT "$<TARGET_FILE:sail_checker> $<TARGET_FILE:sail_reference> $<TARGET_FILE:rv5stage_cosim> $<TARGET_FILE:rv2wide_cosim> $<TARGET_FILE:cosim_observation> $<TARGET_FILE:Sail::Model> $<TARGET_FILE:Sail::SoftFloat> $<TARGET_FILE:Sail::Runtime> ${SAIL_GMP_LIBRARY} $<$<BOOL:${CMAKE_DL_LIBS}>:-l${CMAKE_DL_LIBS}>\n")
 
 if(BUILD_TESTING)

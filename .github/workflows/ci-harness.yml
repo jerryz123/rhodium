@@ -52,6 +52,7 @@ jobs:
           sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
           sudo apt-get install --yes "${packages[@]}"
       - name: Install RISC-V software toolchain
+        if: fromJSON(inputs.config).software_tests != 'isa-smoke'
         uses: ./.github/actions/setup-riscv-toolchain
       - name: Install Verilator
         if: fromJSON(inputs.config).soc == 'mini-rv5stage-rva23'
@@ -84,9 +85,19 @@ jobs:
           chmod +x "$RUNNER_TEMP/$SIMULATOR_ID/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SIMULATOR_ID/VTestDriver" \
             --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(inputs.config).cosim && 'cosim' || 'normal' }}" --target "$RUNNER_TEMP/$SIMULATOR_ID/program-target.json"
-      - name: Prepare upstream ISA sources
-        if: contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
-        run: make -C sims isa-setup
+      - name: Download shared harness ELFs
+        if: contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: harness-elfs-*-${{ github.sha }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/harness-elfs
+      - name: Download shared harness build plan
+        if: contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/targets
       - name: Run shape-and-ISA software selection
         timeout-minutes: ${{ fromJSON(inputs.config).harness_timeout_minutes || 60 }}
         shell: bash
@@ -105,8 +116,27 @@ jobs:
           fi
           status=0
           for target in $SOFTWARE_TESTS; do
-            make -C sims "$target" SOC="$SOC" PROGRAM_JOBS=2 \
-              PREBUILT_SIMULATOR="$simulator" "${run_args[@]}" 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-$target.log" || status=1
+            manifest_args=()
+            run_target="$target"
+            case "$target" in
+              isa-smoke) run_target=isa-smoke-run; output="/tmp/rhodium-program-tests/$SOC/isa-smoke" ;;
+              tiled-mt-benchmark-test) run_target=tiled-mt-benchmark-run; output="/tmp/rhodium-program-tests/$SOC/mt-benchmark/8-harts" ;;
+            esac
+            if [[ "$run_target" != "$target" ]]; then
+              build_id=$(jq -er --arg soc "$SOC" --arg run "$run_target" \
+                '.run.include[] | select(.soc == $soc and .run_target == $run) | .build_id' \
+                "$RUNNER_TEMP/targets/harness-plan.json") || { status=1; continue; }
+              mkdir -p "$output"
+              if ! tar -xzf "$RUNNER_TEMP/harness-elfs/$build_id.tar.gz" -C "$output" ||
+                 ! python3 sw/build/bind.py --manifest "$output/manifest.json" \
+                   --target "$RUNNER_TEMP/$SIMULATOR_ID/program-target.json" --output "$output/run-manifest.json"; then
+                status=1
+                continue
+              fi
+              manifest_args=("PROGRAM_MANIFEST=$output/run-manifest.json")
+            fi
+            make -C sims "$run_target" SOC="$SOC" PROGRAM_JOBS=2 \
+              PREBUILT_SIMULATOR="$simulator" "${run_args[@]}" "${manifest_args[@]}" 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-$target.log" || status=1
           done
           exit "$status"
       - name: Verify RV5Stage-specific NTL cache timing
@@ -115,14 +145,6 @@ jobs:
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
         if: fromJSON(inputs.config).soc == 'mini-rv5stage-rva23'
         run: make -C vlsi/sim smoke
-      - name: Package completed ISA smoke ELFs
-        if: always() && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
-        run: |
-          manifest="/tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/manifest.json"
-          if [[ -f "$manifest" ]]; then
-            python3 sims/program-test/archive.py --manifest "$manifest" \
-              --archive "$RUNNER_TEMP/isa-smoke-elfs/${{ fromJSON(inputs.config).soc }}.tar.gz"
-          fi
       - name: Publish config smoke and multihart results
         if: always() && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -131,13 +153,14 @@ jobs:
           path: |
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/target.json
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/manifest.json
+            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/run-manifest.json
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/build.log
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/results
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/manifest.json
+            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/run-manifest.json
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/instruction-report.json
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/build.log
             /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/results
-            ${{ runner.temp }}/isa-smoke-elfs
           if-no-files-found: warn
           retention-days: 7
       - name: Publish standalone SoC smoke ELFs

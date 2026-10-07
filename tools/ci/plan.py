@@ -245,6 +245,9 @@ class Selection:
         return {
             "run_compile": run_checks or run_simulator,
             "run_sail": self.arch or any(build["cosim"] for build in builds),
+            "run_cosim": any(build["cosim"] for build in builds),
+            "run_native": run_simulator,
+            "run_spike_tests": any(build["core"] == "spike" for build in builds),
             "run_checks": run_checks,
             "checks_matrix": matrix,
             "run_simulator": run_simulator,

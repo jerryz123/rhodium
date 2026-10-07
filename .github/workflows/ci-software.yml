@@ -50,40 +50,21 @@ jobs:
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: ./.github/actions/setup-racket
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          racket-version: ${{ inputs.racket-version }}
-      - name: Restore exact Rhodium bytecode
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: ${{ inputs.racket-version }}
-          rhombus-checksum: ${{ inputs.rhombus-checksum }}
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Generate targets and group compatible builds
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/program-targets
+      - name: Group compatible program builds
         id: plan
         env:
           PROGRAM_MATRIX: ${{ inputs.program-matrix }}
         run: |
-          mkdir -p "$RUNNER_TEMP/program-targets"
-          for soc in $(jq -r '[.include[].soc] | unique | .[]' <<< "$PROGRAM_MATRIX"); do
-            tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm \
-              "$soc" "$RUNNER_TEMP/program-targets/$soc.json"
-          done
           python3 -m tools.ci.programs --matrix "$PROGRAM_MATRIX" \
             --targets "$RUNNER_TEMP/program-targets" --output "$RUNNER_TEMP/program-plan.json"
           echo "build-matrix=$(jq -c .build "$RUNNER_TEMP/program-plan.json")" >> "$GITHUB_OUTPUT"
           echo "run-matrix=$(jq -c .run "$RUNNER_TEMP/program-plan.json")" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/program-plan.json"
-      - name: Test program adapter contracts once
-        run: make -C sims program-test-adapter-test
-      - name: Publish generated program targets
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: program-targets-${{ github.sha }}
-          path: ${{ runner.temp }}/program-targets
-          if-no-files-found: error
-          retention-days: 3
 
   program-build:
     name: Build ${{ matrix.suite }} / group ${{ strategy.job-index }}
@@ -115,7 +96,7 @@ jobs:
       - name: Download generated program targets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: program-targets-${{ github.sha }}
+          name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/program-targets
       - name: Cache program builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -433,8 +414,6 @@ jobs:
           mkdir -p /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
           cp "$RUNNER_TEMP/act/configuration.json" /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/configuration.json
           tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
-      - name: Test ACT adapter and partition contracts
-        run: make -C sims arch-test-adapter-test
       - name: Run the complete deterministic shard
         env:
           COSIM: ${{ matrix.cosim && '1' || '0' }}

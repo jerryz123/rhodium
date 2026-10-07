@@ -1,7 +1,7 @@
 # Builds embedded Sail checking, adapter tests, and exact SoC configurations.
 # SPDX-License-Identifier: Apache-2.0
 COSIM_SAIL_PREFIX ?= $(REPO_DIR)/.tools/sail-riscv-0.14.1-sail-0.20.3-$(SAIL_IDENTITY)
-COSIM_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/sail-cosim/sail-0.20.3-$(SAIL_IDENTITY)
+COSIM_BUILD_DIR ?= $(if $(PREBUILT_COSIM_DIR),$(abspath $(PREBUILT_COSIM_DIR)),$(REPO_DIR)/.rhodium-cache/sail-cosim/sail-0.20.3-$(SAIL_IDENTITY))
 COSIM_CONFIG_DIR ?= $(SOC_BUILD_DIR)/cosim
 COSIM_PYTHON ?= $(ACT_PYTHON)
 COSIM_HOOK_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/cosim-hooks
@@ -10,19 +10,30 @@ cosim-hooks-test:
 	cmake -S cosim -B "$(COSIM_HOOK_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCOSIM_WITH_SAIL=OFF
 	cmake --build "$(COSIM_HOOK_BUILD_DIR)" --parallel $(BUILD_JOBS)
 	ctest --test-dir "$(COSIM_HOOK_BUILD_DIR)" --output-on-failure
+	$(PYTHON) -m unittest discover -s cosim/tests/runtime -p 'test_*.py'
 
 .PHONY: sail-cosim-build sail-cosim-test sail-cosim-config sail-cosim-config-test sail-config-adapter-test
-sail-cosim-build: $(FESVR_LIBRARY)
-	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug -DCOSIM_WITH_SAIL=ON \
-	  -DSailModel_DIR="$(COSIM_SAIL_PREFIX)/lib/cmake/SailModel" -DFESVR_PREFIX="$(FESVR_PREFIX)"
-	cmake --build "$(COSIM_BUILD_DIR)" --parallel $(BUILD_JOBS)
+ifneq ($(PREBUILT_COSIM_DIR),)
+sail-cosim-build:
+	$(PYTHON) cosim/runtime/artifact.py verify "$(COSIM_BUILD_DIR)"
+else
+sail-cosim-build:
+	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DCOSIM_WITH_SAIL=ON \
+	  -DSailModel_DIR="$(COSIM_SAIL_PREFIX)/lib/cmake/SailModel"
+	cmake --build "$(COSIM_BUILD_DIR)" --target cosim_runtime --parallel $(BUILD_JOBS)
+endif
+sail-cosim-test sail-cosim-vector-test sail-cosim-config-test: $(FESVR_LIBRARY)
 sail-cosim-test: sail-cosim-build
+	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DBUILD_TESTING=ON -DFESVR_PREFIX="$(FESVR_PREFIX)"
+	cmake --build "$(COSIM_BUILD_DIR)" --parallel $(BUILD_JOBS)
 	ctest --test-dir "$(COSIM_BUILD_DIR)" --output-on-failure
 
 # Keep Sail optional for ordinary CIRCT fixtures; this target consumes every
 # actual RTL effect without filtering snapshots or repairing reference state.
 .PHONY: sail-cosim-vector-test
 sail-cosim-vector-test: sail-cosim-build
+	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DBUILD_TESTING=ON -DFESVR_PREFIX="$(FESVR_PREFIX)"
+	cmake --build "$(COSIM_BUILD_DIR)" --target vector_checker_test --parallel $(BUILD_JOBS)
 	cd "$(REPO_DIR)" && COSIM_VECTOR_RECORDS="$(COSIM_BUILD_DIR)/vector-records.txt" \
 	  FIXTURE=rv5stage-cosim-vector bash tools/testing/circt/run.sh --simulate-only
 	"$(COSIM_BUILD_DIR)/vector_checker_test" "$(COSIM_BUILD_DIR)/vector-records.txt"
@@ -44,9 +55,22 @@ $(COSIM_CONFIG_DIR)/runtime-config.h: $(SOC_BUILD_DIR)/soc_cosim.json $(SIMULATO
 	  --name "$(SOC_ID)" --sail "$(COSIM_SAIL_PREFIX)/bin/sail_riscv_sim" --output "$(COSIM_CONFIG_DIR)" \
 	  --observations "$(SOC_BUILD_DIR)/soc_cosim.json"
 
+ifneq ($(PREBUILT_COSIM_DIR),)
+COSIM_RUNTIME_DEPENDENCIES := $(addprefix $(COSIM_BUILD_DIR)/,artifact.json link-flags.txt libsail_checker.a libsail_reference.a librv5stage_cosim.a librv2wide_cosim.a libcosim_observation.a)
+.PHONY: verify-cosim-runtime
+verify-cosim-runtime:
+	$(PYTHON) cosim/runtime/artifact.py verify "$(COSIM_BUILD_DIR)"
+ifeq ($(PREBUILT_SIMULATOR),)
+$(SIMULATOR_BINARY): | verify-cosim-runtime
+endif
+$(COSIM_RUNTIME_DEPENDENCIES):
+	@echo "Prebuilt cosim runtime file is missing: $@" >&2; exit 2
+else
+COSIM_RUNTIME_DEPENDENCIES := $(COSIM_BUILD_DIR)/runtime.stamp
 $(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/rv2wide/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt
 	$(MAKE) sail-cosim-build SOC=$(SOC_ID)
 	touch "$@"
+endif
 endif
 
 .PHONY: cosim-smoke
@@ -64,6 +88,8 @@ $(SOC_BUILD_DIR)/cosim-smoke.elf: $(CURDIR)/cosim/tests/runtime/scalar.S $(CURDI
 	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
 sail-cosim-config-test: sail-cosim-config sail-cosim-build
+	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DBUILD_TESTING=ON -DFESVR_PREFIX="$(FESVR_PREFIX)"
+	cmake --build "$(COSIM_BUILD_DIR)" --target sail_soc_config_test --parallel $(BUILD_JOBS)
 	"$(COSIM_BUILD_DIR)/sail_soc_config_test" "$(COSIM_CONFIG_DIR)/sail.json" "$(COSIM_CONFIG_DIR)/manifest.json"
 
 sail-config-adapter-test:

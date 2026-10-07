@@ -148,14 +148,180 @@ jobs:
           identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
           mkdir -p "$RUNNER_TEMP/sail-riscv"
           tar -czf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools "sail-riscv-0.14.1-sail-0.20.3-$identity"
+      - name: Build and package shared cosim runtime libraries
+        if: fromJSON(needs.plan.outputs.plan).run_cosim
+        run: |
+          identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
+          runtime=".rhodium-cache/sail-cosim/sail-0.20.3-$identity"
+          make -C sims sail-cosim-build
+          python3 sims/cosim/runtime/artifact.py record "$runtime"
+          tar -czf "$RUNNER_TEMP/sail-riscv/runtime.tar.gz" "$runtime/artifact.json" "$runtime/link-flags.txt" "$runtime"/*.a
       - name: Publish exact-commit Sail model
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sail-riscv-${{ github.sha }}
-          path: ${{ runner.temp }}/sail-riscv/model.tar.gz
+          path: ${{ runner.temp }}/sail-riscv
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
+
+  targets:
+    name: Prepare targets
+    needs: [plan, compile-racket]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      harness-matrix: ${{ steps.targets.outputs.harness-matrix }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Racket
+        uses: ./.github/actions/setup-racket
+        with:
+          racket-version: ${{ env.RACKET_VERSION }}
+      - name: Restore exact Rhodium bytecode
+        uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: ${{ env.RACKET_VERSION }}
+          rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install device-tree compiler
+        run: sudo apt-get update && sudo apt-get install --yes device-tree-compiler
+      - name: Generate each selected target once
+        id: targets
+        env:
+          PLAN: ${{ needs.plan.outputs.plan }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/targets"
+          targets=()
+          for soc in $(jq -r '[.simulator_matrix.include[].soc] | unique | .[]' <<< "$PLAN"); do
+            targets+=("$soc" "$RUNNER_TEMP/targets/$soc.json")
+          done
+          tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm --batch "${targets[@]}"
+          if [[ "$(jq -r .run_simulation <<< "$PLAN")" == true ]]; then
+            trees=()
+            for soc in $(python3 -c 'from tools.ci.policy import platform_configs; print(" ".join(r["soc"] for r in platform_configs() if r["suite"] == "opensbi"))'); do
+              trees+=("$soc" "$RUNNER_TEMP/targets/$soc.dtb")
+            done
+            tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/opensbi/write-device-tree.rhm --batch "${trees[@]}"
+          fi
+          python3 -m tools.ci.programs --harness --matrix "$(jq -c .simulator_matrix <<< "$PLAN")" \
+            --targets "$RUNNER_TEMP/targets" --output "$RUNNER_TEMP/targets/harness-plan.json"
+          echo "harness-matrix=$(jq -c .build "$RUNNER_TEMP/targets/harness-plan.json")" >> "$GITHUB_OUTPUT"
+      - name: Publish shared target descriptions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/targets
+          if-no-files-found: error
+          retention-days: 3
+
+  harness-elfs:
+    name: Harness ELFs / ${{ matrix.suite }} / group ${{ strategy.job-index }}
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.harness-matrix) }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install RISC-V software toolchain
+        uses: ./.github/actions/setup-riscv-toolchain
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/targets
+      - name: Cache compatible harness builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/rhodium-harness-builds/${{ matrix.build_id }}
+          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.gitmodules') }}-${{ github.sha }}"
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.gitmodules') }}-
+      - name: Build compatible harness ELFs once
+        env:
+          SOC: ${{ matrix.soc }}
+          SUITE: ${{ matrix.suite }}
+          BUILD_ID: ${{ matrix.build_id }}
+        run: |
+          make -C sims isa-setup
+          mkdir -p "$RUNNER_TEMP/harness-elfs"
+          output="/tmp/rhodium-harness-builds/$BUILD_ID"
+          if [[ "$SUITE" == isa ]]; then
+            make -C sims isa-smoke-elfs SOC="$SOC" PROGRAM_CONFIG_ROOT="$output" \
+              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/targets/$SOC.json"
+            manifest="$output/isa-smoke/manifest.json"
+          else
+            make -C sims tiled-mt-benchmark-elfs SOC="$SOC" PROGRAM_CONFIG_ROOT="$output" \
+              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/targets/$SOC.json"
+            manifest="$output/mt-benchmark/8-harts/manifest.json"
+          fi
+          python3 sims/program-test/archive.py --manifest "$manifest" \
+            --archive "$RUNNER_TEMP/harness-elfs/$BUILD_ID.tar.gz"
+      - name: Publish shared harness ELFs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: harness-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/harness-elfs
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Publish harness build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: harness-build-${{ matrix.build_id }}-${{ github.sha }}
+          path: |
+            /tmp/rhodium-harness-builds/${{ matrix.build_id }}/**/manifest.json
+            /tmp/rhodium-harness-builds/${{ matrix.build_id }}/**/build.log
+            /tmp/rhodium-harness-builds/${{ matrix.build_id }}/**/instruction-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  native:
+    name: Native checks
+    needs: [plan, compile-racket]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_native }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Racket
+        uses: ./.github/actions/setup-racket
+        with:
+          racket-version: ${{ env.RACKET_VERSION }}
+      - name: Restore exact Rhodium bytecode
+        uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: ${{ env.RACKET_VERSION }}
+          rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
+      - name: Install Spike and FESVR
+        uses: ./.github/actions/setup-fesvr
+      - name: Install Verilator
+        uses: ./.github/actions/setup-verilator
+      - name: Install CIRCT
+        if: fromJSON(needs.plan.outputs.plan).run_spike_tests
+        uses: ./.github/actions/setup-circt
+      - name: Test native adapters once
+        run: |
+          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
+          test -n "$verilator_root"
+          make -C sims dpi-compile-check transport-test arch-test-adapter-test program-test-adapter-test \
+            cosim-hooks-test simulation-runtime-test VERILATOR_ROOT="$verilator_root"
+      - name: Test Spike DPI integration once
+        if: fromJSON(needs.plan.outputs.plan).run_spike_tests
+        run: |
+          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
+          make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
 
   checks:
     name: Checks
@@ -169,8 +335,8 @@ jobs:
 
   simulator:
     name: SoC / ${{ matrix.simulator_id }}
-    needs: [plan, compile-racket, sail]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && (!fromJSON(needs.plan.outputs.plan).run_sail || needs.sail.result == 'success') && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    needs: [plan, compile-racket, sail, targets, harness-elfs]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.targets.result == 'success' && (!fromJSON(needs.plan.outputs.plan).run_sail || needs.sail.result == 'success') && fromJSON(needs.plan.outputs.plan).run_simulator }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_matrix }}
@@ -186,9 +352,6 @@ jobs:
     needs: [plan, compile-racket, simulator]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
     uses: ./.github/workflows/ci-platform.yml
-    with:
-      racket-version: ${{ needs.plan.outputs.racket_version }}
-      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   software:
     name: Software
@@ -206,7 +369,7 @@ jobs:
 
   gate:
     name: CI
-    needs: [plan, compile-racket, sail, checks, simulator, simulation, software]
+    needs: [plan, compile-racket, sail, targets, harness-elfs, native, checks, simulator, simulation, software]
     if: always()
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -218,6 +381,9 @@ jobs:
           PLAN: ${{ needs.plan.outputs.plan }}
           COMPILE_RESULT: ${{ needs.compile-racket.result }}
           SAIL_RESULT: ${{ needs.sail.result }}
+          TARGETS_RESULT: ${{ needs.targets.result }}
+          NATIVE_RESULT: ${{ needs.native.result }}
+          HARNESS_ELFS_RESULT: ${{ needs.harness-elfs.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           SIMULATOR_RESULT: ${{ needs.simulator.result }}
           SIMULATION_RESULT: ${{ needs.simulation.result }}
@@ -227,6 +393,9 @@ jobs:
           python3 -m tools.ci.gate "$PLAN" \
             "compile=$COMPILE_RESULT" \
             "sail=$SAIL_RESULT" \
+            "targets=$TARGETS_RESULT" \
+            "native=$NATIVE_RESULT" \
+            "harness-elfs=$HARNESS_ELFS_RESULT" \
             "checks=$CHECKS_RESULT" \
             "simulator=$SIMULATOR_RESULT" \
             "simulation=$SIMULATION_RESULT" \

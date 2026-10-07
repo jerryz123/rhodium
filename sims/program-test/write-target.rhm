@@ -12,34 +12,42 @@ import:
   "../../socs/configs/resolve.rhm".resolve_soc_config
   "../../socs/configs/metadata.rhm" open
 
-def arguments = current_command_line()
-unless [2, 4].contains(arguments.length())
-| error(~who: #'write_program_target, "expected an explicit shape-core-isa config key and output file, or shape, core, ISA, and output file")
-def selection = if arguments.length() == 4
-| SoCSelection(parse_soc_shape(arguments[0]), parse_core_kind(arguments[1]), parse_isa_preset(arguments[2]))
-| named_soc_selection(arguments[0])
-def name = selection.key
-def config = resolve_soc_config(selection)
-def configuration = config_metadata(config)
-def description :: RiscvSoCDescription = config.description
-def compiler_target = gnu_isa_target(
-  description.hart.xlen,
-  description.hart.isa_profile.isa_extensions
-)
+/* Writes one resolved target, preserving the full configuration fingerprint and compiler contract. */
+fun write_program_target(selection :: SoCSelection, output :: String):
+  def name = selection.key
+  def config = resolve_soc_config(selection)
+  def configuration = config_metadata(config)
+  def description :: RiscvSoCDescription = config.description
+  def compiler_target = gnu_isa_target(description.hart.xlen, description.hart.isa_profile.isa_extensions)
 
-// ISA extension names are canonical identifiers from the core profile.
-def extensions = String.join(description.hart.isa_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
-def region_strings = for List (region in description.memory_regions):
-  "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
-def regions = String.join(region_strings, ",")
-def harts = String.join(description.harts.map(fun (hart :: Nat): to_string(hart)), ",")
-def mmu_mode = if description.hart.mmu_type == RiscvMmuType.Sv39 | "sv39" | "bare"
-def misa_extensions = description.hart.isa_profile.misa_extensions
-def privilege_modes = "\"m\"" ++ (
-  if misa_extensions.contains(MisaExtension.S) | ",\"s\"" | ""
-) ++ (
-  if misa_extensions.contains(MisaExtension.U) | ",\"u\"" | ""
-)
-filesystem.write_string(arguments[arguments.length() - 1],
-                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"mmu_mode\":\"" ++ mmu_mode ++ "\",\"privilege_modes\":[" ++ privilege_modes ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "],\"resolved_configuration\":" ++ metadata_json(configuration) ++ ",\"configuration_fingerprint\":\"" ++ metadata_fingerprint(configuration) ++ "\"}\n",
-                        ~exists: #'truncate)
+  // ISA extension names are canonical identifiers from the core profile.
+  def extensions = String.join(description.hart.isa_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
+  def region_strings = for List (region in description.memory_regions):
+    "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
+  def regions = String.join(region_strings, ",")
+  def harts = String.join(description.harts.map(fun (hart :: Nat): to_string(hart)), ",")
+  def mmu_mode = if description.hart.mmu_type == RiscvMmuType.Sv39 | "sv39" | "bare"
+  def misa_extensions = description.hart.isa_profile.misa_extensions
+  def privilege_modes = "\"m\"" ++ (
+    if misa_extensions.contains(MisaExtension.S) | ",\"s\"" | ""
+  ) ++ (
+    if misa_extensions.contains(MisaExtension.U) | ",\"u\"" | ""
+  )
+  filesystem.write_string(output,
+                          "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"mmu_mode\":\"" ++ mmu_mode ++ "\",\"privilege_modes\":[" ++ privilege_modes ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "],\"resolved_configuration\":" ++ metadata_json(configuration) ++ ",\"configuration_fingerprint\":\"" ++ metadata_fingerprint(configuration) ++ "\"}\n",
+                          ~exists: #'truncate)
+
+def arguments = current_command_line()
+cond
+| arguments.length() > 0 && arguments[0] == "--batch":
+    unless arguments.length() >= 3 && arguments.length() mod 2 == 1
+    | error(~who: #'write_program_target, "expected --batch followed by config/output pairs")
+    for (pair in 0..((arguments.length() - 1) div 2)):
+      def index = 1 + 2 * pair
+      write_program_target(named_soc_selection(arguments[index]), arguments[index + 1])
+| arguments.length() == 2:
+    write_program_target(named_soc_selection(arguments[0]), arguments[1])
+| arguments.length() == 4:
+    write_program_target(SoCSelection(parse_soc_shape(arguments[0]), parse_core_kind(arguments[1]), parse_isa_preset(arguments[2])), arguments[3])
+| ~else:
+    error(~who: #'write_program_target, "expected config and output, shape/core/ISA and output, or --batch followed by config/output pairs")
