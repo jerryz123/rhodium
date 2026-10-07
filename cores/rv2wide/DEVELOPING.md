@@ -204,16 +204,35 @@ suppress the younger branch's retirement and predictor training.
 ### Predictor ownership and recovery
 
 The frontend instantiates shared `Btb` with `fetch_bytes = 8` and shared `Ras`.
-S0 owns the effective prediction and any byte-six continuation. Replay retains
-that context, while the assembler retains the prefix prediction across straddles.
+S0 admits a PC into the registered S1 lookup. S1's combinational BTB/RAS result
+selects the next S0 request directly and travels with its original lookup into S2.
+Byte-six continuations retain their prefix prediction instead of looking up a
+new branch. Replay retains that continuation context; the assembler also retains
+the prefix prediction across straddles. A saved cursor holds an unaccepted
+successor when array admission or block credits prevent a request.
 Instruction metadata survives issue-window compaction and every pipeline stage.
 Do not infer prediction ownership from a lane or an aligned block PC.
 
 Assembly validates predictions while expanding the existing two candidate
-instructions. Its local repair clears returned blocks and partial state only
-after retaining the accepted instruction prefix. A one-cycle repair pipe kills
-younger lookups and redirects S0; it breaks the live-queue feedback path without
-adding a forward fetch stage. The same path handles direct-jump/RAS fallbacks.
+instructions. J/B immediate targets override matching taken BTB targets; target
+mismatches invalidate the stale entry. Only JAL/C.J and RAS returns discover
+fallbacks; never discover a conditional branch through the BTB's unconditional
+discovery port or infer an unknown direction from its immediate.
+Architectural restart/redirect, accepted assembly repair, and S2 replay take
+priority over S1 prediction and the saved cursor in the S0 request mux.
+These replacements reuse canceled reservations rather than waiting a cycle for
+registered credits to clear. On accepted assembly repair, clear old S1/S2
+validity at that edge, but retain a replacement S0 request accepted into S1.
+Kill the younger cache S1 resolution, but do not suppress the current cache S2
+response or gate the assembler's block/input offer with its own repair. This
+keeps the live-queue bypass acyclic and preserves the accepted instruction prefix.
+The assembler's registered `repairing` clears queued suffixes on the following
+edge, before the replacement request reaches S2. Local repair/replay kill lookup
+contexts but do not flush cache-local accepted refill/error ownership. Retained
+refill errors are line-address-qualified; a canceled token cannot publish them.
+Only architectural commands flush the cache, which permits a replacement S0
+array lookup at the same edge. Architectural commands retain priority.
+The same path handles stale boundaries and direct-jump/RAS fallbacks.
 Speculative RAS actions occur only on instruction packet acceptance, with at
 most one action per packet; fetch replay and local repair preserve older actions.
 
@@ -445,6 +464,7 @@ FIXTURE=rv2wide-cache bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-fetch bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-fetch-disabled bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-assembly-prediction bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv2wide-frontend-prediction bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-mmu bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
@@ -546,11 +566,20 @@ core fixture supplies explicit predictions to check correct taken branch/target
 pairing and wrong-direction/target recovery; shared eight-byte cursor ordering
 is covered by `bpred-btb-wide`.
 `rv2wide-assembly-prediction` isolates stale entry boundary/length repairs,
-fallthrough suffix cuts, predicted straddles and continuation faults, and
+immediate-target corrections without changing conditional direction, fallthrough
+suffix cuts, predicted straddles and continuation faults, and
 single-shot RAS actions under packet backpressure. Its D-enabled configuration
 also checks all four compressed FP load/store expansions and raw encodings.
 Local repair clears block and prefix ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.
+`rv2wide-frontend-prediction` supplies fixed-cycle instruction-cache responses
+through public ports. It checks same-cycle S1 prediction and S2 target offers
+for both slots,
+compressed/backward jumps and cold/stale straddles, stale jump/conditional targets,
+preservation of correct S1 predictions, stalled packet acceptance and corrected
+cursors, younger fault/replay cancellation, and architectural redirect priority.
+Keep SRAM/refill and event-lineage integration in the existing
+enabled/disabled production fetching fixtures.
 
 The fetching fixture also boots through satp/MRET into Sv39 supervisor code,
 loads/stores through a separately filled DTLB, executes SFENCE.VMA, and checks

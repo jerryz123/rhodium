@@ -213,16 +213,26 @@ misaligned faults.
 ## Branch prediction
 
 The frontend uses the shared 32-entry BTB with eight-byte lookup and a six-entry
-RAS. S0 selects the earliest predicted-taken instruction at or after the cursor
-and requests its target next, without adding a fetch stage. A 32-bit instruction
-at byte six requests its continuation block before the target.
+RAS. S1 looks up its registered PC and selects the earliest predicted-taken
+instruction at or after the cursor. Its combinational result selects the next
+S0 cache request in that same cycle, without an intervening PC register. A 32-bit
+instruction at byte six requests its continuation block before the target.
 
 Assembly checks actual boundaries, instruction length, and control-flow encoding.
 It emits the prefix through the predicted branch and discards only its fall-through
-suffix. On a BTB miss, direct JAL/C.J targets and RAS-backed returns redirect from
-assembly and discover a BTB entry. Stale predictions invalidate the exact entry
-and restart after the accepted prefix. Local repair discards younger fetch blocks,
-not instructions already accepted by the issue window.
+suffix. At S2 assembly, JAL/C.J uses its encoded immediate target even without a
+BTB entry; a predicted-taken conditional branch also uses its encoded target,
+without changing the BTB's direction decision. A missing direct-jump prediction
+or stale immediate target redirects on packet acceptance, selecting the corrected
+target for the S0 request in that same cycle, ahead of the S1 prediction.
+Cache backpressure can delay the actual lookup; the selected cursor is retained.
+Buffered blocks undergo the same correction when their packet is accepted;
+an incomplete straddling instruction waits for its continuation. RAS-backed
+returns use the same redirect path. Stale predictions invalidate the exact entry;
+only direct-jump and return fallbacks discover entries. Local repair discards
+younger fetch blocks, not instructions already accepted by the issue window.
+General JALR targets still require BTB/RAS prediction or execution. Disabling the
+BTB retains the existing no-direct-jump-fallback behavior.
 
 MEM compares predicted and actual successors. Correct taken predictions retain
 target-stream work, including a target instruction paired in the younger lane.
@@ -568,6 +578,10 @@ must not return pre-reset responses afterward.
 Mini/Simple bindings support the existing event-trace compile pass with `TRACE=1`.
 It is independent of `COSIM=1`; both can be enabled on the same simulator.
 See the [simulator commands](../../sims/README.md#export-soc-events-to-perfetto).
+
+`frontend/s0.request` captures the admitted PC. `frontend/s1.lookup` captures
+that PC's effective `predicted` and `target` fields, alongside permission outcomes;
+`frontend/s2.outcome` captures the returned block or fault.
 
 Each age slot has separate `core/s1.rr.slotN`, `core/s2.ex.slotN`,
 `core/s3.mem.slotN`, and `core/s4.wb.slotN` tracks with raw instruction and PC

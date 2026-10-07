@@ -1,4 +1,4 @@
-// Checks prediction repairs, packet cuts, straddle ownership, RAS actions, and selected compressed FP expansion.
+// Checks accepted immediate-target repairs, packet cuts, straddles, RAS actions, and compressed FP expansion.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_assembly_prediction_tb;
   typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
@@ -33,6 +33,19 @@ module rv2wide_assembly_prediction_tb;
       if(want=='h706) assert(instructions_out.bits.entries[lane].fault.valid && instructions_out.bits.entries[lane].fault.value=='h708) else $fatal(1,"continuation fault owner");
       if(want=='h406) assert(instructions_out.bits.entries[lane].prediction.valid && instructions_out.bits.entries[lane].prediction.target=='h500 && instructions_out.bits.count==1) else $fatal(1,"straddle prediction/cut");
       if(want=='h806) assert(instructions_out.bits.entries[lane].instruction==32'h0fa0006f && instructions_out.bits.entries[lane].prediction.valid && instructions_out.bits.entries[lane].prediction.target=='h900 && instructions_out.bits.count==1) else $fatal(1,"upper-only predicted prefix was discarded");
+      if(want=='hb00 || want=='hb80 || want=='hc00 || want=='hc40 || want=='hc80) begin
+        logic [63:0] target;
+        case(want)
+          'hb00: target='hb40;
+          'hb80: target='hba0;
+          'hc00: target='hc20;
+          default: target=want;
+        endcase
+        assert(instructions_out.bits.entries[lane].prediction.valid && instructions_out.bits.entries[lane].prediction.target==target && instructions_out.bits.count==1)
+          else $fatal(1,"immediate target was not corrected pc=%h",want);
+        assert(repair_out.valid && repair_out.bits.target==target && repair_out.bits.invalidate==(want!='hb00)) else $fatal(1,"missing immediate repair");
+      end
+      if(want=='hd00) assert(!instructions_out.bits.entries[lane].prediction.valid && !repair_out.valid) else $fatal(1,"conditional direction changed");
       if(want>='ha00 && want<'ha08) begin
         logic [31:0] canonical;
         logic [15:0] raw;
@@ -106,6 +119,23 @@ module rv2wide_assembly_prediction_tb;
     clear();
     for(int p='ha00;p<'ha08;p+=2) expected_pc.push_back(64'(p));
     offer('ha00,{16'ha006,16'h2002,16'ha004,16'h2000}); drain();
+    expected_pc.push_back('hb00);
+    offer('hb00,{32'h00100013,32'h0400006f}); drain();
+    expected_pc.push_back('hb80);
+    instructions_in=0;
+    offer('hb80,{32'h00100013,32'h0200006f},'hb80,'hd00);
+    repeat(4) @(negedge clock);
+    assert(!repair_out.valid) else $fatal(1,"unaccepted jump repaired");
+    instructions_in=1; drain();
+    expected_pc.push_back('hc00);
+    offer('hc00,{32'h00100013,32'h02000063},'hc00,'hd00); drain();
+    expected_pc.push_back('hc40);
+    offer('hc40,{48'h000100010001,16'hc001},'hc40,'hd00,1); drain();
+    expected_pc.push_back('hc80);
+    offer('hc80,{48'h000100010001,16'ha001},'hc80,'hd00,1); drain();
+    expected_pc.push_back('hd00); expected_pc.push_back('hd04);
+    offer('hd00,{32'h00100013,32'h00000063}); drain();
+    assert(repairs==7 && speculations==2) else $fatal(1,"repair/RAS count changed");
     $display("RV2Wide assembly prediction repair/cut/straddle/RAS tests passed (%0d instructions)",retired); $finish;
   end
   initial begin #10000; $fatal(1,"assembly timeout"); end
