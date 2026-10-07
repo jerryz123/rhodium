@@ -301,7 +301,7 @@ adapter; `rv5stage-vector-muldiv` covers shared scalar/vector execution.
 ## Pointer-masking ownership
 
 The opt-in RV64 Ssnpm path uses reusable policy and address helpers from
-`riscv/rtl/pointer-masking.rhdl`. The shared `cores/riscv/csr/file.rhdl` owns PMM state and WARL writes,
+`riscv/rtl/pointer-masking.rhdl`. The shared `cores/csr/file.rhdl` owns PMM state and WARL writes,
 and reexports the shared `PrivilegeMode` for existing core consumers.
 ID captures `PointerMaskControl` in `DecodeExecute`; EX transforms only the
 effective memory address and leaves the integer result and low 48 bits intact.
@@ -599,7 +599,7 @@ precise fault PCs/values and suppression of younger stores. Its common machine
 bootstrap explicitly initializes state access for preexisting guest programs.
 
 Sstc's full-width compares and privilege-gate classification use
-`riscv/rtl/timer.rhdl`; comparator storage and CSR writes live in `cores/riscv/csr/file.rhdl`.
+`riscv/rtl/timer.rhdl`; comparator storage and CSR writes live in `cores/csr/file.rhdl`.
 Keep its optional state absent from non-Sstc specializations. RV32 low/high
 writes preserve the other half. Never use V-gated `time` CSR readback as the
 guest comparator input: virtual time advances while HS/M executes too.
@@ -716,7 +716,7 @@ MPRV/MPV accesses, ordered HFENCE remapping, and explicit guest memory widths,
 HU/SPVP legality, warm permissions, and precise denied-store behavior. Pair it with the host core and
 MMU replay regressions and `riscv-hypervisor-csr` when changing this boundary.
 
-Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/riscv/tests/csr-test.rhm`
+Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/csr/tests/csr-test.rhm`
 and `FIXTURES='riscv-hypervisor-csr riscv-csr' bash tools/testing/circt/run.sh`
 when changing this boundary. The [SoC mandatory-requirement gate](../../socs/tests/udb-test.rhm)
 checks the published RVA23 declarations.

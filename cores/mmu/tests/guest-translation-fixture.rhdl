@@ -1,0 +1,100 @@
+#lang rhodium
+// Exposes composed guest translation and architectural fault conversion at public interfaces.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "translation-service.rhdl" open
+  lib("cores/mmu/translation.rhdl") open
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/privilege.rhdl") open
+  lib("riscv/rtl/sv39.rhdl") open
+
+sync_circuit RiscvGuestTranslationFixture():
+  input command_valid: Bool
+  output command_ready: Bool
+  input virtualized: Bool
+  input address: Bits(64)
+  input access: Sv39Access
+  input vs_mode: RiscvVSMode
+  input g_mode: RiscvGMode
+  input vs_root: Bits(44)
+  input g_root: Bits(44)
+  input privilege: PrivilegeMode
+  input vs_sum: Bool
+  input vs_mxr: Bool
+  input hs_mxr: Bool
+  input vs_pbmte: Bool
+  input g_pbmte: Bool
+  input cancel: Bool
+  input invalidate_all: Bool
+  input memory_ready: Bool
+  input memory_fault: Bool
+  input response_valid: Bool
+  input pte: Bits(64)
+  output memory_valid: Bool
+  output memory_address: Bits(64)
+  output memory_pbmt: PageMemoryType
+  input completion_ready: Bool
+  output completed: Bool
+  output fault: RiscvTranslationFault
+  output result_address: Bits(56)
+  output result_virtual: Bits(64)
+  output result_guest: Bits(64)
+  output result_access: Sv39Access
+  output fault_guest: Bits(64)
+  output implicit_read: RiscvGuestFaultAccess
+  output cause: Bits(64)
+  output probe_hit: Bool
+  output probe_fault: Bool
+  output probe_pbmt: PageMemoryType
+  output tinst: Bits(64)
+  output vs_leaf: Bits(64)
+  output g_leaf: Bits(64)
+
+  inst translation(RiscvTranslationTestService(2, ~svnapot: #true))
+  translation.cancel <== cancel
+  translation.invalidate_all <== invalidate_all
+  probe_hit <== translation.probe_hit
+  probe_fault <== translation.probe_fault
+  probe_pbmt <== translation.probe_pbmt
+  translation.request.valid <== command_valid
+  def context = RiscvGuestTranslationContext():
+    vs_mode: vs_mode
+    g_mode: g_mode
+    vs_root_ppn: vs_root
+    g_root_ppn: g_root
+    privilege: privilege
+    vs_sum: vs_sum
+    vs_mxr: vs_mxr
+    hs_mxr: hs_mxr
+    vs_pbmte: vs_pbmte
+    g_pbmte: g_pbmte
+  translation.request.bits <== RiscvTlbLookup():
+    execute_read: Bool(#false)
+    virtualized: virtualized
+    virtual_address: address
+    access: access
+    context: context
+  command_ready <== translation.request.ready
+  translation.memory.request.ready <== memory_ready
+  translation.memory.request_access_fault <== memory_fault
+  translation.memory.response.valid <== response_valid
+  translation.memory.response.bits <== pte
+  memory_valid <== translation.memory.request.valid
+  memory_address <== translation.memory.request.bits.address
+  memory_pbmt <== translation.memory.request.bits.pbmt
+  translation.completion.ready <== completion_ready
+  completed <== translation.completion.valid
+  fault <== translation.completion.bits.fault
+  result_address <== translation.completion.bits.physical_address
+  result_virtual <== translation.completion.bits.virtual_address
+  result_guest <== translation.completion.bits.guest_physical_address
+  result_access <== translation.completion.bits.access
+  fault_guest <== translation.completion.bits.fault_details.guest_physical_address
+  implicit_read <== translation.completion.bits.fault_details.access
+  cause <== riscv_translation_fault_cause(translation.completion.bits)
+  tinst <== guest_fault_instruction(translation.completion.bits.fault_details)
+  vs_leaf <== translation.completion.bits.vs_leaf.into(Bits(64))
+  g_leaf <== translation.completion.bits.g_leaf.into(Bits(64))
+
+export RiscvGuestTranslationFixture

@@ -21,7 +21,7 @@ memory requests, and integer-result completion. Cache, MMU, and uncached paths
 import `types.rhdl` only to preserve FP precision metadata.
 
 The scalar adapter declares passive post-boxing load-write taps through
-`cores/riscv/cosim-source.rhm`. The compilation-selected parent observer combines
+`cores/cosim-source.rhm`. The compilation-selected parent observer combines
 them with issue/completion ownership; neither the adapter nor its datapaths import
 simulator code or instantiate hooks during ordinary elaboration.
 

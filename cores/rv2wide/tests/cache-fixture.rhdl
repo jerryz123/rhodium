@@ -7,7 +7,7 @@ import:
   "../mmu.rhdl" open
   "../bundles.rhdl" open
   "../../cache/config.rhm" open
-  "../../riscv/chi-hart.rhdl" open
+  "../../chi-hart.rhdl" open
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/link.rhdl").CHINodeKind

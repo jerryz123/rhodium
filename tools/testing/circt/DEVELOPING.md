@@ -39,12 +39,13 @@ integrated cores. Keep the three leaves nonempty, disjoint, and exhaustive
 when adding a fixture.
 
 Shared `riscv-csr`, `riscv-hypervisor-csr`, `riscv-sstc-rv32`, `riscv-zihpm-*`,
-and `riscv-sscofpmf-*` fixtures belong to `cores-components`; named-core
+and `riscv-sscofpmf-*` fixtures live under `cores/csr/tests/` and belong to
+`cores-components`; named-core
 retirement and interrupt integration remain in `cores-execution-control`.
 
 Shared `riscv-guest-translation`, `riscv-nested-walker`, `riscv-svnapot`,
 `riscv-svpbmt`, and `riscv-walk-trace` fixtures also belong to `cores-components`
-and live under `cores/riscv/tests/`. Production RV5Stage MMU replay and
+and live under `cores/mmu/tests/`. Production RV5Stage MMU replay and
 physical-port arbitration remain in `cores-memory`.
 
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or

@@ -1017,7 +1017,7 @@ physical-memory map and `CHIHomeMap`, preventing permissions, cacheability, and
 CHI routing from describing different address ranges. Cache transactions decode
 their address once and retain the selected HN-F NodeID through retry, data, and
 completion acknowledgement. The reusable
-[`cores/riscv/chi-hart.rhdl`](../riscv/chi-hart.rhdl) contract owns attachment
+[`cores/chi-hart.rhdl`](../chi-hart.rhdl) contract owns attachment
 configuration and identity; the [RV5Stage CHI contract](chi/README.md) owns the
 core-specific transaction behavior.
 
@@ -1278,7 +1278,7 @@ response stability are specified by the subsystem documents:
 
 ## Privileged and architectural state
 
-The shared [CSR/trap bank](../riscv/csr/README.md) owns user, machine, and supervisor CSRs, current
+The shared [CSR/trap bank](../csr/README.md) owns user, machine, and supervisor CSRs, current
 privilege, trap entry, interrupt selection, and `MRET`/`SRET`. FP profiles add
 the aliased `fflags`, `frm`, and `fcsr` views, `mstatus.FS` state, and derived
 `SD`. The `csr_bank` declaration is the single source for recognized IDs, read

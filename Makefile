@@ -39,7 +39,7 @@ CHI_TESTS := $(sort $(wildcard chi/tests/*-test.rhm))
 SOC_TESTS := $(sort $(wildcard socs/tests/*-test.rhm))
 COSIM_TESTS := $(sort $(wildcard sims/cosim/tests/*/*-test.rhm))
 HARDFLOAT_TESTS := $(sort $(wildcard hardfloat/tests/*-test.rhm))
-PROCESSOR_TESTS := $(sort $(shell find cores/tests cores/riscv/tests cores/rv5stage/tests cores/spike/tests -type f -name '*-test.rhm'))
+PROCESSOR_TESTS := $(sort $(shell find cores -type f -path '*/tests/*' -name '*-test.rhm'))
 RFPL_TESTS := $(sort $(wildcard rfpl/tests/*-test.rhm))
 RFPL_EXAMPLES := $(sort $(wildcard examples/rfpl/*.rfpl))
 RHODIUM_EXAMPLES := $(sort $(shell find examples/rtl -type f \( -name '*.rhm' -o -name '*.rhdl' \)))
@@ -88,6 +88,7 @@ check-boundaries:
 	bash chi/tests/check-boundaries.sh
 	bash hardfloat/check-boundaries.sh
 	bash cores/check-boundaries.sh
+	bash cores/tests/check-boundaries.sh
 	bash socs/check-boundaries.sh
 	bash socs/tests/check-boundaries.sh
 

@@ -9,7 +9,7 @@ WriteUnique, and nonallocating transport engines live in
 [`cores/cache/chi/`](../../cache/DEVELOPING.md).
 The implementation-neutral
 physical-region, Home mapping, requester capability, and placement contract is
-owned by [`cores/riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl).
+owned by [`cores/chi-hart.rhdl`](../../chi-hart.rhdl).
 Contributors should read [DEVELOPING.md](DEVELOPING.md) for engine ownership
 and validation.
 

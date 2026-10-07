@@ -6,8 +6,8 @@ import:
   "profile.rhm" open
   "decode/system-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
-  "../riscv/csr/config.rhm".RiscvCsrConfig
-  "../riscv/csr/protocol.rhdl" open
+  "../csr/config.rhm".RiscvCsrConfig
+  "../csr/protocol.rhdl" open
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/std/bits.rhdl") open
 

@@ -7,7 +7,7 @@ import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/home/home-common.rhdl").CHIHNFIdentity
   lib("rhodium/std/counter.rhdl").Counter
-  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIIdentity
+  lib("cores/chi-hart.rhdl").RiscvHartCHIIdentity
   lib("devices/boot/bootrom.rhdl") open
   lib("devices/boot/boot-address.rhdl") open
   lib("devices/interrupt/aclint.rhdl").AclintIdentity

@@ -8,7 +8,7 @@ import:
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/fabric.rhdl").CHIHomeParams
-  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
+  lib("cores/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/boot/bootrom-image.rhm") open
   lib("devices/interrupt/aclint-layout.rhm").AclintBase

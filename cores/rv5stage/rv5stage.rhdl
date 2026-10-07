@@ -4,7 +4,7 @@
 
 import:
   "memory-context.rhdl" open
-  "../riscv/cosim-source.rhm".describe_cosim_context
+  "../cosim-source.rhm".describe_cosim_context
   "../cache-prefetch.rhdl" open
   "core.rhdl" open
   "fetch/frontend.rhdl" open

@@ -6,14 +6,14 @@ import:
   "bundles.rhdl" open
   "../cache/protocol.rhdl" open
   "../cache/operation.rhdl" open
-  "../riscv/chi-hart.rhdl" open
+  "../chi-hart.rhdl" open
   "../load-store.rhdl" open
-  "../riscv/mmu/protocol.rhdl" open
-  "../riscv/mmu/translation.rhdl" open
-  "../riscv/mmu/tlb.rhdl" open
-  "../riscv/mmu/walker.rhdl" open
-  "../riscv/misaligned-access.rhdl" open
-  "../riscv/cosim-source.rhm".describe_cosim_signals
+  "../mmu/protocol.rhdl" open
+  "../mmu/translation.rhdl" open
+  "../mmu/tlb.rhdl" open
+  "../mmu/walker.rhdl" open
+  "../misaligned-access.rhdl" open
+  "../cosim-source.rhm".describe_cosim_signals
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode

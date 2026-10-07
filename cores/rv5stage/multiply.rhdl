@@ -7,7 +7,7 @@ import:
   "integer-execution.rhdl" open
   "profile.rhm".RV5StageMultiplierKind
   "decode/multiply-ctrl.rhdl" open
-  "../riscv/multiply-decode.rhdl" open
+  "../multiply-decode.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 

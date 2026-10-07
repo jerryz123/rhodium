@@ -18,7 +18,7 @@ unchanged. Context changes wait for admitted vector effects to drain; ordinary
 certified scalar/vector overlap remains enabled. See the core
 [integration guide](../DEVELOPING.md#focused-validation) for guest regressions.
 
-Physical row counts and locations come from `cores/riscv/vector-layout.rhm`,
+Physical row counts and locations come from `cores/vector-layout.rhm`,
 not the ISA model. Thread `xlen` through storage, sequencing, packing,
 completion, and shared-service payloads; instantiate `SimdALU(xlen)` and
 `VectorRegisterLayout(vlen, xlen.width)`. RV32 uses 32-bit rows and permits
@@ -398,7 +398,7 @@ ownership, simultaneous hit/response completion, and precise restart.
 `riscv/isa/v.rhm` owns initial instruction formats and encodings, and
 `riscv/rtl/vector.rhdl` materializes stateless vtype/AVL rules. Core decode owns
 the vector control column; `decode/core-ctrl.rhdl` alone adds scalar source and
-system controls. The shared `cores/riscv/csr/vector.rhdl` owns retained vector state. Its parent CSR
+system controls. The shared `cores/csr/vector.rhdl` owns retained vector state. Its parent CSR
 file gates writes on successful WB, enforces VS access, and handles traps.
 The candidate configuration input is a combinational preview; a separate
 `Pulse` authorizes it only after legality and exception checks. Keep preview

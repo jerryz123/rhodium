@@ -10,7 +10,7 @@ import:
   "../cache/l1d/cache.rhdl" open
   "../cache/io-mshr.rhdl" open
   "../cache/chi/uncached.rhdl" open
-  "../riscv/chi-hart.rhdl" open
+  "../chi-hart.rhdl" open
   "../load-store.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/atomic.rhdl" open

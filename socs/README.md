@@ -364,7 +364,7 @@ single-core composition with `SpikeCore` in place of RV5Stage. The coherent
 fabric, inclusive LLC, external SN-F memory boundary, BootROM, ACLINT, PLIC,
 UART, host interface, address map, and NodeIDs are the same concrete platform
 contracts as `SingleCoreRV5StageSoC`. A hart-neutral
-[`RiscvHartCHIAttachment`](../cores/riscv/chi-hart.rhdl) supplies the named
+[`RiscvHartCHIAttachment`](../cores/chi-hart.rhdl) supplies the named
 core's endpoint capabilities and Home-facing contracts without moving
 transaction policy into the SoC helper.
 

@@ -125,6 +125,8 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
 | [`../cores/cache/`](../cores/cache/README.md) | Shared physical L1I/L1D, cache protocols, geometry, and cache-side CHI engines | Public Rhodium/Flow, shared execution components, CHI, and RISC-V physical-operation/map vocabulary; no named core |
+| [`../cores/csr/`](../cores/csr/README.md) | Shared CSR/trap, privilege, counter, FP, vector, and optional guest state | Public Rhodium/Flow, architectural RISC-V descriptors/adapters, and passive core observation declarations; no named core |
+| [`../cores/mmu/`](../cores/mmu/README.md) | Shared host/guest translation contracts, TLB storage, and page-table walking | Public Rhodium/Flow and architectural RISC-V descriptors/adapters; no named core or cache arbitration |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, RISC-V PMA descriptors, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; explicit compilation targets; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
@@ -206,13 +208,13 @@ The reusable packed execution module `cores/simd-alu.rhdl` directly imports
 for the closed RV32/RV64 host configuration. Its remaining hardware operations
 use the public language; it imports no instruction catalog or named core.
 Its explicit `XLen` specialization prunes datapath width and element cases.
-`cores/riscv/vector-layout.rhm` is pure host physical-row geometry over
+`cores/vector-layout.rhm` is pure host physical-row geometry over
 `riscv/isa/vector.rhm`, with XLEN-derived word geometry from `riscv/isa/xlen.rhm`.
 RV5Stage storage, sequencing, packing, scanning, and completion consumers import
 that layout explicitly and select `xlen.width` rows; architectural vector
 descriptors own no physical rows.
 
-The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
+The reusable `cores/*-decode.rhdl` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
 `cores/cache/` owns shared cache hardware, not architectural completion policy.
 Its protocols use public ready-valid and Bits helpers, XLEN, memory-width,
@@ -226,7 +228,7 @@ never named-core translation metadata. The RV5Stage instruction-memory router
 adapts it to the core's 32-bit fetch result using ordinary combinational Flow.
 The shared line-read engine owns coherent RAM/immutable-ROM snapshot transport.
 Cache-side CHI engines consume shared flits, retry control, and the neutral
-`cores/riscv/chi-hart.rhdl` map, never named-core code. Nonallocating CHI uses
+`cores/chi-hart.rhdl` map, never named-core code. Nonallocating CHI uses
 the shared LoadGen/StoreGen components; IO retention uses the same physical
 payload and uninterpreted context. RV5Stage defines only destination/origin in
 `memory-context.rhdl` and directly specializes these shared services. Its
@@ -245,11 +247,11 @@ Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
 the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
 Bits helpers. Canonical decode remains RV2Wide-owned; `core.rhdl` additionally
 imports the pure C descriptor to configure the shared CSR bank's IALIGN.
-`cores/rv2wide/mmu.rhdl` imports the shared `cores/riscv/mmu/` TLB/walker,
+`cores/rv2wide/mmu.rhdl` imports the shared `cores/mmu/` TLB/walker,
 shared cache protocol/operation and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. It owns EX/MEM translation alignment and
 WB/split/PTE arbitration; the cache package has no reverse dependency. Its MMU
-and core also consume `cores/riscv/misaligned-access.rhdl`: the neutral split
+and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports
 the physical cache protocol, cache operations, load/store shaping, architectural
 XLEN/guest-fault types, Bits helpers, and Flow, never a named core's payload.
@@ -293,7 +295,7 @@ dependency between the named cores.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus
 architectural privilege types; its host receiver lives in `sims/cosim/`, with
 no reverse simulator import or dependency on tracing metadata.
-`cores/riscv/cosim-source.rhm` bridges source declarations to public core metadata
+`cores/cosim-source.rhm` bridges source declarations to public core metadata
 and frontend `kernel`/`support/clocking` read/domain APIs. Its descriptors remap
 live taps and instance views while retaining versioned contract identities and
 detached host configuration. It stores no observer functions.
@@ -320,7 +322,7 @@ consumers; no core source imports `sims/`.
 ports and public authoring APIs for the observer, plus `riscv/rtl/interrupt.rhdl`
 for architectural pin encoding, and the FP issue/completion bundles and destination
 controls for passive scalar capture. It also consumes the MMU's virtual split-outcome
-contract from `cores/riscv/misaligned-access.rhdl`. RV5Stage's MMU, core, and
+contract from `cores/misaligned-access.rhdl`. RV5Stage's MMU, core, and
 `vector/memory.rhdl` specialize it with `RV5StageMemoryContext` through
 `mmu/protocol.rhdl`; guest fault details come from the existing
 RISC-V hypervisor adapter. Physical cache protocols remain unchanged.
@@ -349,7 +351,7 @@ imports both named-core observation identities and simulation-owned capture
 adapters for its default registry. Both native adapters share
 `events/atomic.h` for observed physical AMO write-byte normalization, not
 reference execution. The event package retains no named-core dependency.
-`cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
+`cores/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
 configuration and NodeID-width checks. These modules import no named core.
 The Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm` only for
 the stable generator-parameter contract. Its public core and typed transaction
@@ -370,11 +372,11 @@ policy without importing a concrete processor.
 privilege adapters, and `std/ready-valid.rhdl`. It owns reusable single-counter
 filtering and overflow state; event selection, CSR access control, and local
 interrupt-pending storage remain with the integrating core.
-`cores/riscv/csr/file.rhdl` consumes that adapter for its optional Sscofpmf
+`cores/csr/file.rhdl` consumes that adapter for its optional Sscofpmf
 counter. The shared CSR package uses existing ISA/RTL CSR, trap, interrupt,
 privilege, timer, vector, and feature descriptors, plus `std/bits.rhdl`,
 `std/ready-valid.rhdl`, the stable generator-parameter contract, and the passive
-`cores/riscv/cosim-source.rhm` metadata bridge. It imports no named core.
+`cores/cosim-source.rhm` metadata bridge. It imports no named core.
 `cores/rv5stage/csr.rhdl` projects named configuration/decode controls into its
 neutral configuration and command; `core.rhdl` owns retirement authorization.
 `socs/configs/metadata.rhm` consumes that static specialization and Spike's
@@ -413,15 +415,15 @@ These edges stay within the
 existing core-to-architecture dependency direction.
 The CSR specialization reads MISA from the existing RV5Stage profile projection,
 which owns the pure `riscv/isa/profile.rhm` catalog dependency.
-Shared `cores/riscv/mmu/protocol.rhdl` imports the public Sv39/privilege adapters
+Shared `cores/mmu/protocol.rhdl` imports the public Sv39/privilege adapters
 and `std/ready-valid.rhdl`, without named-core or cache payloads.
-`cores/riscv/mmu/translation.rhdl` imports that host protocol, public hypervisor,
+`cores/mmu/translation.rhdl` imports that host protocol, public hypervisor,
 privilege, Sv39 and trap adapters, pure exception descriptors, and
-`std/ready-valid.rhdl`. Shared `cores/riscv/mmu/tlb.rhdl` and `walker.rhdl`
+`std/ready-valid.rhdl`. Shared `cores/mmu/tlb.rhdl` and `walker.rhdl`
 consume these contracts and `std/bits.rhdl` / `flow/main.rhdl`.
 Both host adapters are wiring-only; entry storage, permission checking, and
 walker continuation/response ownership belong to those shared implementations.
-The serialized composition lives under `cores/riscv/tests/translation-service.rhdl`;
+The serialized composition lives under `cores/mmu/tests/translation-service.rhdl`;
 production never imports it. PTE reads retain the G-stage memory attribute for
 implicit VS reads. No implementation state moves into the RISC-V architecture package.
 RV5Stage's MMU imports the shared protocol, translation projections, TLB, and
@@ -479,7 +481,7 @@ the sequencer owns its cursor and preparation phase. Vector bundles import the
 dependency-neutral packed layout contracts. `vector/packed-load.rhdl` imports shared
 `vector/packed-bundles.rhdl` layouts, the load-response adapter, VRF contracts,
 pure geometry, bit helpers, and Flow.
-The packed-load and vector-memory owners also import `cores/riscv/cosim-source.rhm`
+The packed-load and vector-memory owners also import `cores/cosim-source.rhm`
 for passive write-owner and accepted-memory metadata; no simulator dependency is introduced.
 Packed layouts depend only on pure XLEN/vector geometry and bit-width helpers. `vector/pipeline.rhdl` composes the
 common sequencer and operand-fetch path with independently retained packed response assembly

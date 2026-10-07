@@ -21,7 +21,7 @@ Sail checker -> event records + Sail reference
 collector -> event records
 ```
 
-Functional cores declare passive taps through `cores/riscv/cosim-source.rhm`.
+Functional cores declare passive taps through `cores/cosim-source.rhm`.
 Metadata retains a versioned contract, immutable host configuration, and
 remappable hardware references, not observer closures. The pass selects an
 adapter, elaborates it separately, checks its input/domain contract and absence

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
-  "../../../../cores/riscv/cosim-source.rhm" open
+  "../../../../cores/cosim-source.rhm" open
 
 dpi_import procedure cosim_test_sample(instance: Bits(64), value: Bits(8))
 dpi_import procedure cosim_test_functional(value: Bits(8))

@@ -4,10 +4,10 @@
 
 import:
   "../../cache/protocol.rhdl" open
-  "../../riscv/misaligned-access.rhdl".RiscvSplitResult
+  "../../misaligned-access.rhdl".RiscvSplitResult
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  lib("cores/riscv/mmu/protocol.rhdl").RiscvTranslationResult
+  lib("cores/mmu/protocol.rhdl").RiscvTranslationResult
   "../memory-context.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../riscv/vector-layout.rhm" open
+  "../vector-layout.rhm" open
   lib("riscv/isa/vector.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
 

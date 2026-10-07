@@ -58,7 +58,7 @@ admits power-of-two VLEN values
 VLMAX, aligned register groups, deterministic `min(AVL, VLMAX)` length selection,
 architectural bit offsets, and EEW-to-EMUL conversion. Fractional LMUL uses the
 low portion of a register. Physical row mapping is independently parameterized
-by [`VectorRegisterLayout`](../cores/riscv/vector-layout.rhm); no VRF row width
+by [`VectorRegisterLayout`](../cores/vector-layout.rhm); no VRF row width
 is implied by these architectural descriptors.
 
 `vector_data_overlap_legal` implements ordinary data-operand overlap rules;

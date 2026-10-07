@@ -14,7 +14,7 @@ import:
   lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
   lib("chi/protocol/messages.rhdl").chi_response
   lib("chi/protocol/messages.rhdl").chi_rn_write_data
-  "../../riscv/chi-hart.rhdl" open
+  "../../chi-hart.rhdl" open
 
 def CacheRefillResponses = response_profile("cache_refill"):
   retryable

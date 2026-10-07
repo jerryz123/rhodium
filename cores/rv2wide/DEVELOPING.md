@@ -18,7 +18,7 @@ older blocked instruction. WB is the only transaction and retirement authority;
 its accepted deferred owners later write through the shared younger-slot port.
 Redirect qualification gates new transfers as well as flushing pipe state.
 
-Reuse ALU, branch, load/store shaping, and shared scoreboard components and the `cores/riscv/` instruction
+Reuse ALU, branch, load/store shaping, and shared scoreboard components and the `cores/*-decode.rhdl` instruction
 relations. Never import RV5Stage or another named core. Do not create an
 instruction-kind enum followed by a second runtime control decoder.
 Core control rows join exact canonical instruction patterns using
@@ -97,7 +97,7 @@ refetches its successor, while a fault enters normal retained-trap handling.
 Do not allocate a load-response/scoreboard owner or reuse the admission-certified
 aligned response port. Interrupt entry waits for this noncancelable owner.
 
-`cores/riscv/misaligned-access.rhdl` owns fragment masks, store positioning, and
+`cores/misaligned-access.rhdl` owns fragment masks, store positioning, and
 load assembly; this MMU owns each fragment's translation/PMA check. Fragment
 responses, ordinary core replies, and PTE responses share one ordered physical
 owner FIFO and are routed with `zip_flow`/`demux_flow`. The second fragment must
@@ -288,7 +288,7 @@ make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-si
 
 `observation.rhdl` names the passive `rv2wide.v1` contract. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
-`cores/riscv/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
+`cores/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.
 The simulation-owned [adapter](../../sims/cosim/DEVELOPING.md) assigns age IDs,
 retains deferred owners, and resolves both slots at a settled sample barrier.

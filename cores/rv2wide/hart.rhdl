@@ -5,7 +5,7 @@
 import:
   "profile.rhm" open
   "rv2wide.rhdl".RV2Wide
-  "../riscv/chi-hart.rhdl" open
+  "../chi-hart.rhdl" open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open
   lib("chi/protocol/channels.rhdl") open

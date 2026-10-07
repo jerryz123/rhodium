@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../riscv/cosim-source.rhm".describe_cosim_signals
-  lib("cores/riscv/vector-layout.rhm").vector_word_bytes
+  "../../cosim-source.rhm".describe_cosim_signals
+  lib("cores/vector-layout.rhm").vector_word_bytes
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
   "geometry.rhdl".vector_zero_stride_load

@@ -15,7 +15,7 @@ Rhodium libraries. Transaction engines must not import either cache
 implementation. `uncached.rhdl` owns fetch/data arbitration and fetch cancellation;
 it uses the shared physical protocol specialized with `RV5StageMemoryContext`.
 
-[`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) owns generic RISC-V
+[`../../chi-hart.rhdl`](../../chi-hart.rhdl) owns generic RISC-V
 hart attachment configuration, capabilities, and identities. `foundation.rhdl`
 owns RV5Stage's endpoint capability projection and re-exports shared constructors.
 `cores/cache/chi/flits.rhdl` owns transaction profiles and flit construction;
@@ -59,7 +59,7 @@ including nonzero trace/QoS.
 
 | File | Ownership |
 |---|---|
-| [`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
+| [`../../chi-hart.rhdl`](../../chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
 | [`foundation.rhdl`](foundation.rhdl) | RV5Stage endpoint capabilities and shared constructor exports |
 | [`../../cache/chi/flits.rhdl`](../../cache/chi/flits.rhdl) | Shared cache response profiles and flit constructors |
 | [`../../cache/chi/line-read.rhdl`](../../cache/chi/line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
@@ -101,7 +101,7 @@ an accumulation of all line packets. Do not use packet index order as arrival
 order, or extend acknowledgement ownership through stalled line installation.
 
 1. Put implementation-neutral hart attachment configuration and capabilities in
-   `cores/riscv/chi-hart.rhdl`; put reusable flit construction and transaction
+   `cores/chi-hart.rhdl`; put reusable flit construction and transaction
    machinery in `cores/cache/chi/`, not `foundation.rhdl`.
 2. Keep each retained transaction lifetime in its owning engine; do not move
    cache arrays or replacement policy into this package.

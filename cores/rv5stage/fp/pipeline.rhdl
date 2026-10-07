@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../riscv/cosim-source.rhm".describe_cosim_signals
+  "../../cosim-source.rhm".describe_cosim_signals
   "bundles.rhdl" open
   "execute.rhdl" open
   "register-file.rhdl" open

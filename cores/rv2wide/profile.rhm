@@ -8,7 +8,7 @@ import:
   lib("riscv/isa/hart.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/c.rhm").CCompressedExtensions
-  "../riscv/csr/config.rhm".RiscvCsrConfig
+  "../csr/config.rhm".RiscvCsrConfig
   "../cache/config.rhm" open
 
 def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(

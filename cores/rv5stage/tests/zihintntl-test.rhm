@@ -21,7 +21,7 @@ import:
   "../decode/fence-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
-  "../../riscv/branch-decode.rhdl" open
+  "../../branch-decode.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open

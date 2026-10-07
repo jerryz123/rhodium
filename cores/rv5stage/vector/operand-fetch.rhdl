@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm") open
+  lib("cores/vector-layout.rhm") open
   "bundles.rhdl" open
   "packed-bundles.rhdl" open
   "geometry.rhdl" open

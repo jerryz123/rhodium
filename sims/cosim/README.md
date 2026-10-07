@@ -223,7 +223,7 @@ The pass preserves functional top ports and existing instance paths. It returns
 Only selected harts get passive observer DPI. Ordinary functional DPI is retained
 in every mode. Source programs remain reusable across compilation variants.
 Integration may bind sibling-component taps to a child hart using
-`describe_cosim_context` from `cores/riscv/cosim-source.rhm`. The pass routes
+`describe_cosim_context` from `cores/cosim-source.rhm`. The pass routes
 these read-only taps only when that hart is selected, requiring the same clock
 and reset domain; the uninstrumented design has no additional ports.
 

@@ -11,8 +11,8 @@ import:
   "bundles.rhdl" open
   "../cache/config.rhm" open
   "../cache/l1i/cache.rhdl" open
-  "../riscv/chi-hart.rhdl" open
-  "../riscv/cosim-source.rhm".describe_cosim_context
+  "../chi-hart.rhdl" open
+  "../cosim-source.rhm".describe_cosim_context
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open

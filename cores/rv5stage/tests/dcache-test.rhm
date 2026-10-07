@@ -8,7 +8,7 @@ import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
   "../../cache/geometry.rhdl" open
-  "../../riscv/chi-hart.rhdl" open
+  "../../chi-hart.rhdl" open
   "../../cache/l1d/cache.rhdl" as l1d
   "../memory-context.rhdl" as protocol
   "params.rhdl" as test_params

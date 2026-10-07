@@ -8,7 +8,7 @@ import:
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/noc/noc-router.rhdl") open
-  lib("cores/riscv/chi-hart.rhdl") open
+  lib("cores/chi-hart.rhdl") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   "../../harts/implementation.rhdl".RiscvHartImplementation
   "../time.rhdl" open

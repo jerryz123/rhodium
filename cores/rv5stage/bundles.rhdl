@@ -13,9 +13,9 @@ import:
   "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/atomic.rhdl" open
-  "../riscv/branch-decode.rhdl" open
-  "../riscv/multiply-decode.rhdl" open
-  "../riscv/divide-decode.rhdl" open
+  "../branch-decode.rhdl" open
+  "../multiply-decode.rhdl" open
+  "../divide-decode.rhdl" open
   "decode/vector-ctrl.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open

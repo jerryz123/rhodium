@@ -9,7 +9,8 @@ extension, source navigation, and focused validation.
 
 ## Architecture and dependency boundary
 
-Reusable component mappings live in [`../../riscv/`](../../riscv/README.md).
+Reusable component mappings live beside their shared components in
+[`cores/`](../../README.md#map-risc-v-instructions-onto-components).
 Each RV5Stage adapter here owns the cases that extend one reusable relation
 across the core's complete selected catalog. Component files do not import sibling control modules;
 [`core-ctrl.rhdl`](core-ctrl.rhdl) is the only composition boundary. The parent
@@ -24,12 +25,12 @@ execution and retirement behavior.
 
 | File | Owned control |
 |---|---|
-| [`../../riscv/alu-decode.rhdl`](../../riscv/alu-decode.rhdl), [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | Reusable I/B/Zicond ALU mapping; RV5Stage catalog completion and optional CBO/Zawrs rows |
+| [`../../alu-decode.rhdl`](../../alu-decode.rhdl), [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | Reusable I/B/Zicond ALU mapping; RV5Stage catalog completion and optional CBO/Zawrs rows |
 | [`operand-ctrl.rhdl`](operand-ctrl.rhdl) | Integer register use, ALU operand routing, and immediate format |
-| [`../../riscv/branch-decode.rhdl`](../../riscv/branch-decode.rhdl), [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Reusable branch-resolver mapping; RV5Stage catalog completion and optional rows |
+| [`../../branch-decode.rhdl`](../../branch-decode.rhdl), [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Reusable branch-resolver mapping; RV5Stage catalog completion and optional rows |
 | [`mem-ctrl.rhdl`](mem-ctrl.rhdl) | Load, store, LR/SC, and AMO operation, width, atomic operation, and load extension |
-| [`../../riscv/multiply-decode.rhdl`](../../riscv/multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |
-| [`../../riscv/divide-decode.rhdl`](../../riscv/divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
+| [`../../multiply-decode.rhdl`](../../multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |
+| [`../../divide-decode.rhdl`](../../divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
 | [`system-ctrl.rhdl`](system-ctrl.rhdl) | Zicsr operation, ECALL, EBREAK, WFI, MRET, SRET, and decode-only WRS.NTO/WRS.STO actions |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |

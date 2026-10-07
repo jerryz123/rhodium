@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/multiply-decode.rhdl") open
-  lib("cores/riscv/divide-decode.rhdl") open
+  lib("cores/multiply-decode.rhdl") open
+  lib("cores/divide-decode.rhdl") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/zmmul.rhm") open
   lib("riscv/rtl/decode.rhdl") open

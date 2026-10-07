@@ -328,7 +328,7 @@ transactions block younger memory operations only.
 
 ## CSR, traps, and interrupts
 
-The shared `cores/riscv/csr` bank owns architectural state and permission checks;
+The shared `cores/csr` bank owns architectural state and permission checks;
 RV2Wide owns precise ordering. System instructions issue alone only after older
 pipeline work and accepted deferred operations (including GPR completion writes)
 drain. They execute once at WB. Younger instructions may execute speculatively,

@@ -14,10 +14,10 @@ import:
   "../../cache/operation.rhdl" open
   "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/rtl/csr.rhdl" open
-  "../../riscv/alu-decode.rhdl" open
-  "../../riscv/branch-decode.rhdl" open
-  "../../riscv/multiply-decode.rhdl" open
-  "../../riscv/divide-decode.rhdl" open
+  "../../alu-decode.rhdl" open
+  "../../branch-decode.rhdl" open
+  "../../multiply-decode.rhdl" open
+  "../../divide-decode.rhdl" open
   "alu-ctrl.rhdl" open
   "operand-ctrl.rhdl" open
   "branch-ctrl.rhdl" open

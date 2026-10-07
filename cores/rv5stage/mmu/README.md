@@ -300,8 +300,8 @@ response rules remain in the [L1D guide](../../cache/l1d/README.md#core-facing-p
 ## Shared TLB and walker
 
 The production MMU instantiates the reusable
-[translation banks and walker](../../riscv/mmu/README.md) from
-`cores/riscv/mmu/`. That package owns mapping geometry, permission rechecks,
+[translation banks and walker](../../mmu/README.md) from
+`cores/mmu/`. That package owns mapping geometry, permission rechecks,
 PBMT, nested traversal, and cancellation/drain semantics. RV5Stage owns miss
 selection, useful fills across fetch recovery, fault correlation, and routing
 PTE traffic through its physical data arbiter.
@@ -372,7 +372,7 @@ Machine data accesses modified by `MPRV`/`MPP`, `SUM`, `MXR`, and Svade fault
 behavior. The CSR block accepts RV64 Bare and Sv39 `satp` modes, forces the ASID
 field to zero, and requests a conservative whole-MMU invalidation after an
 accepted `satp` write or legal `SFENCE.VMA`; that architectural sequencing is
-owned by [shared CSR state](../../riscv/csr/README.md) and the
+owned by [shared CSR state](../../csr/README.md) and the
 [parent ordering contract](../README.md#control-hazards-and-ordering).
 
 Deliberate limits are:
@@ -396,7 +396,7 @@ The production MMU supplies host context by default and selects guest context
 when the core profile enables H. The standalone MMU retains an explicit
 `~hypervisor: #true` parameter; the RVA23 SoC composition derives it from its profile.
 
-The [shared translation contract](../../riscv/mmu/README.md#translation-contract)
+The [shared translation contract](../../mmu/README.md#translation-contract)
 describes the host/guest entry bank, lookup context, fault provenance, and
 PTE-memory ownership. RV5Stage uses `RiscvTranslationTlb` and
 `RiscvTranslationWalker` directly, not the host-only projection adapters.
@@ -427,7 +427,7 @@ at that edge and registers the walker cancellation notification. A PTE read
 accepted on that edge is still drained, and cannot refill after invalidation.
 This keeps architectural cancellation out of WB's physical-arbiter ready loop.
 
-The test-only [translation service](../../riscv/tests/translation-service.rhdl)
+The test-only [translation service](../../mmu/tests/translation-service.rhdl)
 serializes commands for behavioral validation of the shared components;
 it is not a production MMU path. See the
 [core implementation guide](../DEVELOPING.md) for integration and validation.

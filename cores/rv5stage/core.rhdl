@@ -5,7 +5,7 @@
 import:
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
-  "../riscv/cosim-source.rhm".describe_cosim_hart
+  "../cosim-source.rhm".describe_cosim_hart
   "observation.rhdl".RV5StageObservationContract
   lib("riscv/rtl/hypervisor.rhdl") open
   "fetch/bpd/protocol.rhdl" open
@@ -31,7 +31,7 @@ import:
   "../../riscv/rtl/zihintntl.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/branch-ctrl.rhdl" open
-  "../riscv/branch-decode.rhdl" open
+  "../branch-decode.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
   "decode/hint-ctrl.rhdl" open
@@ -39,8 +39,8 @@ import:
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
   "csr.rhdl" open
-  "../riscv/csr/file.rhdl" open
-  "../riscv/csr/protocol.rhdl".RiscvCsrCommand
+  "../csr/file.rhdl" open
+  "../csr/protocol.rhdl".RiscvCsrCommand
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "profile.rhm".RV5StageConfig
   "profile.rhm".RV5StageMultiplierKind

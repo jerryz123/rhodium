@@ -33,12 +33,12 @@ import:
   "../../alu.rhdl" as alu
   "../../branch-resolver.rhdl" as branches
   "../../load-store.rhdl" as load_store
-  "../../riscv/alu-decode.rhdl" as alu_controls
+  "../../alu-decode.rhdl" as alu_controls
   "../decode/operand-ctrl.rhdl" as operand_controls
-  "../../riscv/branch-decode.rhdl" as branch_controls
+  "../../branch-decode.rhdl" as branch_controls
   "../decode/mem-ctrl.rhdl" as memory_controls
   "../decode/writeback-ctrl.rhdl" as writeback_controls
-  "../../riscv/divide-decode.rhdl" as divide_controls
+  "../../divide-decode.rhdl" as divide_controls
   "../decode/system-ctrl.rhdl" as system_controls
   "../decode/fence-ctrl.rhdl" as fence_controls
   "../decode/core-ctrl.rhdl" as controls

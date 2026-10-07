@@ -4,8 +4,8 @@
 
 import:
   "../csr.rhdl" open
-  "../../riscv/csr/file.rhdl" open
-  "../../riscv/csr/protocol.rhdl".RiscvCsrCommand
+  "../../csr/file.rhdl" open
+  "../../csr/protocol.rhdl".RiscvCsrCommand
   "../profile.rhm" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../decode/core-ctrl.rhdl" open

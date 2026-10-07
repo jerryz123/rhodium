@@ -8,7 +8,7 @@ import:
   lib("rhodium/frontend/kernel.rhm").CircuitDefinition
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("riscv/isa/hart.rhm").RiscvHartDescription
-  lib("cores/riscv/chi-hart.rhdl") open
+  lib("cores/chi-hart.rhdl") open
 
 /* Binds an immutable processor profile and architectural description to CHI-attachment and circuit factories without importing a named core. */
 class RiscvHartImplementation(name :: NonemptyString,

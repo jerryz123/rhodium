@@ -146,7 +146,7 @@ class Selection:
             self.add_checks("host-models", "host-cores", "host-socs")
         elif path == "tools/write-noc-router-diagram.rhm":
             self.add_checks("host-examples")
-        elif matches(path, ".githooks/pre-commit", "tools/check-license-headers.sh", "tools/check-parameter-annotations.rkt", "tools/parameter-annotation-scope.txt", "tools/check-boundaries.sh", "rfpl/check-boundaries.sh", "noc/check-boundaries.sh", "riscv/check-boundaries.sh", "chi/check-boundaries.sh", "cores/check-boundaries.sh", "socs/check-boundaries.sh"):
+        elif matches(path, ".githooks/pre-commit", "tools/check-license-headers.sh", "tools/check-parameter-annotations.rkt", "tools/parameter-annotation-scope.txt", "tools/check-boundaries.sh", "rfpl/check-boundaries.sh", "noc/check-boundaries.sh", "riscv/check-boundaries.sh", "chi/check-boundaries.sh", "cores/check-boundaries.sh", "cores/tests/check-boundaries.sh", "socs/check-boundaries.sh"):
             self.add_checks("host-hygiene")
         elif matches(path, "rhodium/event/*", "rheg/*"):
             self.add_checks("host-foundation", "host-backend", "circt-language")

@@ -10,7 +10,7 @@ import:
   lib("rhodium/compile/rtl.rhm").PreparedRTL
   lib("rhodium/compile/pipeline.rhm") open
   lib("rhodium/event/copy.rhm").copy_module
-  "../../cores/riscv/cosim-source.rhm" open
+  "../../cores/cosim-source.rhm" open
   "../../cores/rv5stage/observation.rhdl".RV5StageObservationContract
   "rv5stage/capture.rhdl".rv5stage_cosim_adapter
   "../../cores/rv2wide/observation.rhdl".RV2WideObservationContract

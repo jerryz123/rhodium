@@ -141,13 +141,70 @@ launch and buffer the fixed-latency responses outside the reusable block.
 
 ## Map RISC-V instructions onto components
 
-[`riscv/`](riscv/README.md) contains reusable decode relations that map the
-pure architectural catalogs onto the ALU, branch resolver, multiplier, and
-divider above, plus implementation-neutral RISC-V protocol attachments such as
-the CHI hart placement contract. These modules define component-facing controls
-and integration boundaries, but not a complete core catalog or pipeline policy.
-Named cores compose them with their own supported extension set and transaction
-engines.
+Import [`alu-decode.rhdl`](alu-decode.rhdl),
+[`branch-decode.rhdl`](branch-decode.rhdl),
+[`multiply-decode.rhdl`](multiply-decode.rhdl), or
+[`divide-decode.rhdl`](divide-decode.rhdl) for reusable relations from the pure
+RV32/RV64 instruction catalogs to the component controls above. Named cores
+compose those case lists into their complete decode relation and select their
+own extension sets; the mappings do not impose a pipeline policy.
+
+## Shared state and integration
+
+The package is organized by component, not by ISA namespace:
+
+| Location | Shared responsibility |
+|---|---|
+| Root datapaths and `*-decode.rhdl` | Execution blocks and their component-control relations |
+| [`cache/`](cache/README.md) | Physical L1I/L1D, cache protocols, and cache-side CHI engines |
+| [`csr/`](csr/README.md) | Core-neutral CSR/trap state behind authorized commands |
+| [`mmu/`](mmu/README.md) | Host/guest TLBs, page-table walking, and translation contracts |
+| Root integration helpers | CHI placement, split accesses, vector row layout, and passive observations |
+| `rv5stage/`, `rv2wide/`, `spike/` | Named-core configuration, pipeline policy, and integration |
+
+These shared components may be RISC-V-specific. Architectural encodings and
+stateless architectural helpers remain in [`../riscv/`](../riscv/README.md);
+storage and transaction ownership stay in `cores/`.
+
+### CHI hart attachment
+
+[`RiscvHartCHIConfig`](chi-hart.rhdl) derives physical-memory and CHI Home maps
+from one nonempty region list. `RiscvHartCHIParams` validates distinct requester
+and Home NodeIDs; `RiscvHartCHIAttachment` describes RN-I instruction/uncached
+and RN-F data endpoints. `RiscvHartCHIIdentity` carries placement IDs into an
+instance. Named cores retain their transaction engines and capabilities.
+
+### Misaligned ordinary accesses
+
+[`RiscvMisalignedEngine(xlen, Context)`](misaligned-access.rhdl) retains an
+ordinary load/store and emits one or two independently authorized aligned word
+fragments. `Context` is opaque caller metadata. `RiscvSplitAccess` provides a
+Decoupled original request and one final Valid `RiscvSplitResult`.
+
+The guaranteed sequence is capture → first request/response → optional second
+request/response → final outcome. Callers translate and check each fragment and
+retain retirement ownership. First-fragment faults report the original VA;
+second-fragment faults report the next aligned word. Accepted store prefixes
+survive later faults: there is no two-page preflight or prefix rollback/replay.
+Loads assemble and sign/zero-extend the natural-width result. Callers must
+restrict widened fragments to memory where full-word accesses are safe.
+
+### Vector row layout
+
+[`VectorRegisterLayout(vlen, row_bits)`](vector-layout.rhm) maps architectural
+elements and mask bits into physical rows. Row width must divide VLEN and an
+element must fit within a row. The layout exposes `rows_per_register`, `depth`
+for all 32 registers, and row/bit locations. With VLEN=64, 32-bit rows give a
+64-row bank; 64-bit rows give a 32-row bank. This pure host description does
+not prescribe SRAM ports or scheduling.
+
+### Passive architectural observations
+
+[`cosim-source.rhm`](cosim-source.rhm) declares versioned hart contracts and
+read-only semantic taps without capture hardware. The optional
+[simulation pass](../sims/cosim/README.md#compile-target-instrumentation) selects
+adapters and adds DPI capture at compilation. Functional cores import only
+declarations; simulation owns ordered event reconstruction and checking.
 
 ## Add or inspect a named core
 
@@ -171,14 +228,15 @@ datapaths, and scoreboard. It supports dual retirement, speculative hit lookup,
 WB-authorized memory, and separately owned deferred completions. Its cached
 composition fetches 64-bit instruction blocks through the shared L1I and uses
 the [shared physical L1D](cache/README.md), both also used by RV5Stage. It has
-physical permission checks and precise fetch faults, but no MMU, privileged
-subsystem, or SoC selection yet.
+shared CSR/trap and translation machinery, precise faults, and Mini/Simple SoC
+selection. See its [README](rv2wide/README.md) for the current ISA, memory,
+retirement, cosim, and tracing contracts.
 
 [`spike/spike.rhdl`](spike/spike.rhdl) is the standalone simulator-backed named
 core. It projects the shared architectural hart description, runs Spike through
 a typed DPI transaction boundary, keeps PMA classification in RTL, and exposes
 independent instruction, coherent-data, and uncached CHI ports.
-[`SingleCoreSpikeSoC`](../socs/configs/single-core-spike-soc.rhdl) composes that boundary
-with the shared coherent single-core platform. See
+The [single-core SoC](../socs/README.md) composes that boundary with the shared
+coherent platform through its explicit core selection. See
 [`spike/README.md`](spike/README.md) for the adapter, private-cache, and
 simulation contracts.

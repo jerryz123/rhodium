@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm") open
+  lib("cores/vector-layout.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   "../../simd-alu.rhdl" open
   lib("rhodium/std/bits.rhdl") open

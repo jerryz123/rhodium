@@ -2,7 +2,7 @@
 // Exposes certified beat scheduling, contended VRF writes, and shared SIMD alignment.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/vector-layout.rhm").VectorRegisterLayout
   "../vector/packed-load.rhdl" open
   "../vector/packed-bundles.rhdl" open
   "../vector/operand-fetch.rhdl" open

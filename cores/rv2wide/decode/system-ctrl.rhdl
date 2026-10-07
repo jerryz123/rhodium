@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open

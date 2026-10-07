@@ -30,8 +30,22 @@ search_production_sources() {
   fi
 }
 
+# Search reusable components regardless of whether they are root modules or component families.
+search_shared_sources() {
+  local pattern="$1"
+  if command -v rg >/dev/null 2>&1; then
+    rg -n "$pattern" cores --glob '*.rhm' --glob '*.rhdl' \
+      --glob '!**/tests/**' --glob '!cores/rv5stage/**' --glob '!cores/rv2wide/**' --glob '!cores/spike/**'
+  else
+    find cores -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
+      ! -path '*/tests/*' ! -path 'cores/rv5stage/*' \
+      ! -path 'cores/rv2wide/*' ! -path 'cores/spike/*' \
+      -exec grep -nHE "$pattern" {} +
+  fi
+}
+
 forbidden_imports="$(search_production_sources \
-  '^[[:space:]]+"[^"]*(rhodium/backend|sims/|tests/|examples/)' || true)"
+  '^[[:space:]]+(lib\()?"[^"]*(rhodium/backend|sims/|tests/|examples/)' || true)"
 if [[ -n "$forbidden_imports" ]]; then
   echo "processor sources must not import simulators, backends, tests, or examples" >&2
   echo "$forbidden_imports" >&2
@@ -39,7 +53,7 @@ if [[ -n "$forbidden_imports" ]]; then
 fi
 
 component_domain_imports="$(
-  search_sources '^[[:space:]]+"[^"]*(riscv/|rv5stage/)' \
+  search_sources '^[[:space:]]+(lib\()?"[^"]*(riscv/|rv5stage/|rv2wide/|spike/)' \
     cores/alu.rhdl cores/branch-resolver.rhdl cores/cache-prefetch.rhdl \
     cores/load-store.rhdl \
     cores/multiplier.rhdl cores/divider.rhdl cores/simd-alu.rhdl \
@@ -52,18 +66,11 @@ if [[ -n "$component_domain_imports" ]]; then
   exit 1
 fi
 
-riscv_mapping_named_core_imports="$(search_sources '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' cores/riscv || true)"
-if [[ -n "$riscv_mapping_named_core_imports" ]]; then
-  echo "reusable RISC-V component mappings must not import named cores" >&2
-  echo "$riscv_mapping_named_core_imports" >&2
-  exit 1
-fi
-
-shared_cache_named_core_imports="$(search_sources \
-  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' cores/cache || true)"
-if [[ -n "$shared_cache_named_core_imports" ]]; then
-  echo "shared caches must not import named-core implementation or completion policy" >&2
-  echo "$shared_cache_named_core_imports" >&2
+shared_named_core_imports="$(search_shared_sources \
+  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' || true)"
+if [[ -n "$shared_named_core_imports" ]]; then
+  echo "shared processor components must not import named-core implementation or pipeline policy" >&2
+  echo "$shared_named_core_imports" >&2
   exit 1
 fi
 
@@ -150,17 +157,6 @@ legacy_rv5stage_chi_sources="$(find cores/rv5stage -maxdepth 1 -type f \
 if [[ -n "$legacy_rv5stage_chi_sources" ]]; then
   echo "RV5Stage CHI configuration and transaction engines must live under cores/rv5stage/chi" >&2
   echo "$legacy_rv5stage_chi_sources" >&2
-  exit 1
-fi
-
-unexpected_root_sources="$(find cores -maxdepth 1 -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
-  ! -name 'alu.rhdl' ! -name 'branch-resolver.rhdl' \
-  ! -name 'cache-prefetch.rhdl' \
-  ! -name 'load-store.rhdl' ! -name 'multiplier.rhdl' \
-  ! -name 'divider.rhdl' ! -name 'simd-alu.rhdl' -print)"
-if [[ -n "$unexpected_root_sources" ]]; then
-  echo "only reusable processor components may live directly under cores/" >&2
-  echo "$unexpected_root_sources" >&2
   exit 1
 fi
 

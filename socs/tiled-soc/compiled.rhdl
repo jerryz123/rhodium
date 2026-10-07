@@ -21,7 +21,7 @@ import:
   lib("noc/std/topology/main.rhm") open
   lib("noc/std/routing/main.rhm") open
   lib("noc/rtl/router.rhdl") open
-  lib("cores/riscv/chi-hart.rhdl") open
+  lib("cores/chi-hart.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/boot/bootrom.rhdl").CHIBootROMParams
   lib("devices/interrupt/aclint.rhdl").AclintParams

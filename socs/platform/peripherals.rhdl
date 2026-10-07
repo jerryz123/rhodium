@@ -8,7 +8,7 @@ import:
   lib("chi/protocol/link.rhdl").CHIHomeRequesterParams
   lib("chi/protocol/fabric.rhdl") open
   lib("chi/home/home.rhdl").CHIHNIParams
-  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
+  lib("cores/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/boot/boot-address.rhdl") open
   lib("devices/interrupt/aclint.rhdl") open

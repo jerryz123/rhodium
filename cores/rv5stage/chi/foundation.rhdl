@@ -5,7 +5,7 @@
 import:
   "../../cache/chi/flits.rhdl" open
   "../../cache/chi/attachment.rhdl" open
-  "../../riscv/chi-hart.rhdl" open
+  "../../chi-hart.rhdl" open
 
 /* Preserves the RV5Stage constructor spelling over shared-cache endpoint descriptions. */
 fun RV5StageCHIParams(config :: RiscvHartCHIConfig, instruction_node_id :: Nat, data_node_id :: Nat, ~uncached_node_id: uncached_node_id :: Nat = 0) :: CacheCHIParams:

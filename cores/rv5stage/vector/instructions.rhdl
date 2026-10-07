@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../riscv/cosim-source.rhm".describe_cosim_signals
-  lib("cores/riscv/vector-layout.rhm") open
+  "../../cosim-source.rhm".describe_cosim_signals
+  lib("cores/vector-layout.rhm") open
   "bundles.rhdl" open
   "dependencies.rhdl" open
   "../../../riscv/isa/xlen.rhm" open

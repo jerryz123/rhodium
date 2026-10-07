@@ -12,7 +12,7 @@ import:
   lib("chi/protocol/fabric.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl") open
   lib("chi/protocol/messages.rhdl") open
-  "../../riscv/chi-hart.rhdl" open
+  "../../chi-hart.rhdl" open
 
 def SpikeAcquireResponses = response_profile("spike_acquire"):
   retryable

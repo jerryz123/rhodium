@@ -7,7 +7,7 @@ import:
   "vector.rhdl".rv5stage_cosim_vector
   "../events/transport.rhdl".capture_lane as lane
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
-  "../../../cores/riscv/misaligned-access.rhdl".RiscvSplitResult
+  "../../../cores/misaligned-access.rhdl".RiscvSplitResult
   "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
   "../../../cores/rv5stage/memory-context.rhdl" open
   "../../../cores/rv5stage/fp/bundles.rhdl" open

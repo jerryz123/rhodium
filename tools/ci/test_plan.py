@@ -46,6 +46,11 @@ class PlanTest(unittest.TestCase):
     def assert_checks(self, path, *expected):
         self.assertTrue(set(expected).issubset(check_keys(self.plan(path))), path)
 
+    def test_shared_core_ownership_audits_select_hygiene(self):
+        for path in ("cores/check-boundaries.sh", "cores/tests/check-boundaries.sh"):
+            with self.subTest(path=path):
+                self.assert_checks(path, "host-hygiene")
+
     def test_direct_verilog_routes_have_explicit_tool_requirements(self):
         plan = self.plan("rhodium/backend/verilog.rhm")
         entries = {entry["key"]: entry for entry in plan["checks_matrix"]["include"]}

@@ -5,17 +5,17 @@
 
 import:
   "../../cache/protocol.rhdl" open
-  "../../riscv/cosim-source.rhm".describe_cosim_signals
+  "../../cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
   "../fp/types.rhdl" open
   "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
-  lib("cores/riscv/mmu/protocol.rhdl") open
-  lib("cores/riscv/mmu/translation.rhdl") open
+  lib("cores/mmu/protocol.rhdl") open
+  lib("cores/mmu/translation.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  "../../riscv/misaligned-access.rhdl" open
-  lib("cores/riscv/mmu/tlb.rhdl") open
-  lib("cores/riscv/mmu/walker.rhdl") open
+  "../../misaligned-access.rhdl" open
+  lib("cores/mmu/tlb.rhdl") open
+  lib("cores/mmu/walker.rhdl") open
   "vector-window.rhdl" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../../cache/operation.rhdl" open

@@ -9,21 +9,21 @@ import:
   "load-response.rhdl" open
   "long-execution.rhdl" open
   "observation.rhdl".RV2WideObservationContract
-  "../riscv/cosim-source.rhm".describe_cosim_hart
+  "../cosim-source.rhm".describe_cosim_hart
   "decode/core-ctrl.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/long-ctrl.rhdl" open
   lib("cores/multiplier.rhdl").MultiplierRequest
   lib("cores/divider.rhdl").DividerRequest
-  lib("cores/riscv/csr/file.rhdl").RiscvCsrFile
-  lib("cores/riscv/csr/protocol.rhdl") open
+  lib("cores/csr/file.rhdl").RiscvCsrFile
+  lib("cores/csr/protocol.rhdl") open
   lib("cores/alu.rhdl") open
   lib("cores/branch-resolver.rhdl") open
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
   lib("cores/cache/protocol.rhdl").PhysicalMemoryReq
-  lib("cores/riscv/misaligned-access.rhdl") open
+  lib("cores/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/model/formats.rhm") as fields

@@ -6,7 +6,7 @@ import:
   "../divider.rhdl" open
   "integer-execution.rhdl" open
   "decode/divide-ctrl.rhdl" open
-  "../riscv/divide-decode.rhdl" open
+  "../divide-decode.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 

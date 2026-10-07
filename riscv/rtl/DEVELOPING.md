@@ -21,7 +21,7 @@ a matching host enum and an enum-to-integer function solely to initialize it.
 Keep pure host encodings when architectural models or tools consume them, such
 as CSR addresses, trap/interrupt masks, MISA bits, and vector configuration.
 Reusable mappings from instruction catalogs to shared processor components
-belong in `cores/riscv/`; complete instruction selection, register files,
+belong beside their components in `cores/`; complete instruction selection, register files,
 privilege-state storage, scheduling, execution composition, and retirement
 belong in a concrete core. [`../check-boundaries.sh`](../check-boundaries.sh)
 enforces this package direction.
@@ -86,7 +86,7 @@ from live CSR values after a request has been issued.
 `riscv-nested-walker` exercises the captured guest context and Sv39x4
 address helpers with the production standalone walker. Keep stage mode/root
 geometry and permission representations here, but saved frames, serialized
-memory ownership, and canceled-response draining in `cores/riscv/mmu/`.
+memory ownership, and canceled-response draining in `cores/mmu/`.
 
 For Svnapot and mapping geometry, run `riscv-svnapot` and
 `rv5stage-mmu-replay`. They cover compact 64 KiB mappings, reserved encodings,

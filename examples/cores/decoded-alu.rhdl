@@ -1,12 +1,13 @@
 #lang rhodium
-// Demonstrates RV64I instruction decoding connected directly to the reusable ALU.
+/* Demonstrates RV64I instruction decoding connected directly to the reusable ALU. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/alu.rhdl") open
-  lib("cores/riscv/alu-decode.rhdl") open
+  lib("cores/alu-decode.rhdl") open
   lib("riscv/isa/xlen.rhm") open
 
+/* Decodes an instruction into shared ALU controls and reports validity with its result. */
 circuit DecodedALU():
   input instruction: Bits(32)
   input(left, right): Bits(64)

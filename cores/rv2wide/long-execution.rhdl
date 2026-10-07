@@ -6,8 +6,8 @@ import:
   "bundles.rhdl" open
   lib("cores/multiplier.rhdl") open
   lib("cores/divider.rhdl") open
-  lib("cores/riscv/multiply-decode.rhdl").RiscvMultiplyControl
-  lib("cores/riscv/divide-decode.rhdl").RiscvDivideControl
+  lib("cores/multiply-decode.rhdl").RiscvMultiplyControl
+  lib("cores/divide-decode.rhdl").RiscvDivideControl
   lib("flow/main.rhdl") open
 
 /* Attaches architectural identity and projection controls to the EX multiply operands. */

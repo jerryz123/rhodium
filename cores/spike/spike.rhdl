@@ -9,7 +9,7 @@ import:
   "chi/instruction.rhdl" open
   "chi/data.rhdl" open
   "chi/uncached.rhdl" open
-  "../riscv/chi-hart.rhdl" open
+  "../chi-hart.rhdl" open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("chi/protocol/channels.rhdl") open

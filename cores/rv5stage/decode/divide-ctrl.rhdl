@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../riscv/divide-decode.rhdl" open
+  "../../divide-decode.rhdl" open
   "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open

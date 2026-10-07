@@ -7,7 +7,7 @@ import:
   lib("cores/rv2wide/hart.rhdl").RV2WideHart
   lib("cores/cache/config.rhm").CacheLineBytes
   lib("cores/cache/chi/attachment.rhdl").cache_chi_params
-  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIConfig
+  lib("cores/chi-hart.rhdl").RiscvHartCHIConfig
   "implementation.rhdl".RiscvHartImplementation
 
 /* Packages synthesizable RV2Wide specialization without introducing a new SoC or simulation harness. */

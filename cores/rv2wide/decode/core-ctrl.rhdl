@@ -8,8 +8,8 @@ import:
   "system-ctrl.rhdl" open
   "long-ctrl.rhdl" open
   lib("cores/alu.rhdl") open
-  lib("cores/riscv/alu-decode.rhdl") open
-  lib("cores/riscv/branch-decode.rhdl") open
+  lib("cores/alu-decode.rhdl") open
+  lib("cores/branch-decode.rhdl") open
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open

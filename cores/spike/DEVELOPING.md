@@ -10,7 +10,7 @@ source placement, the native/RTL boundary, and validation.
 
 Keep Spike runtime, DPI, private-cache, and transaction policy in this named-core
 package. Reuse pure architectural descriptions from `riscv/` and implementation-neutral attachment
-contracts from `cores/riscv/`; do not add Spike policy to either shared layer.
+contracts from `cores/`; do not add Spike policy to either shared layer.
 
 ## Implementation map
 

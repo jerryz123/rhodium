@@ -6,7 +6,7 @@ import:
   "bundles.rhdl" open
   "instruction-assembler.rhdl" open
   "../cache/l1i/protocol.rhdl" open
-  "../riscv/chi-hart.rhdl" open
+  "../chi-hart.rhdl" open
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/rtl/trap.rhdl") open
   lib("rhodium/std/bits.rhdl") open

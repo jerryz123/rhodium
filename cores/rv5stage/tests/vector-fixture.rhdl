@@ -4,7 +4,7 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/vector-layout.rhm").VectorRegisterLayout
   "../vector/register-file.rhdl" open
   "../vector/packing.rhdl" open
   "../../../riscv/isa/vector.rhm" open

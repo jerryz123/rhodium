@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/vector-layout.rhm").VectorRegisterLayout
   "../../../riscv/isa/vector-profile.rhm" open
   "../vector/bundles.rhdl" open
   "../vector/packed-bundles.rhdl" open

@@ -4,7 +4,7 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/riscv/vector-layout.rhm") open
+  lib("cores/vector-layout.rhm") open
   "../../../riscv/isa/vector.rhm" open
   "../../simd-alu.rhdl" open
   "register-file.rhdl" open
