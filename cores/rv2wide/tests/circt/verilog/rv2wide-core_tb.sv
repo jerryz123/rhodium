@@ -1,4 +1,4 @@
-// Checks dual-issue writes, paired load addresses/store data, recovery, and service ownership.
+// Checks dual-issue writes, paired load addresses/store data/branch operands, and precise recovery.
 // Checks RV2Wide architectural ordering, scheduled multiply returns, and retained memory ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
@@ -98,6 +98,8 @@ module rv2wide_core_tb;
   int address_pairs=0;
   bit response_management[16];
   int store_data_pairs=0;
+  int branch_pairs=0;
+  bit expected_branch_taken[logic [63:0]];
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_t;
   typedef struct packed { logic valid; prefetch_t bits; } prefetch_flow_t;
   prefetch_flow_t prefetch;
@@ -148,6 +150,11 @@ module rv2wide_core_tb;
   endfunction
   always @(posedge clock) if(!reset && branch_update.valid) begin
     branch_updates++;
+    if(expected_branch_taken.exists(branch_update.bits.pc)) begin
+      assert(branch_update.bits.taken==expected_branch_taken[branch_update.bits.pc])
+        else $fatal(1,"paired branch compared stale operands pc=%h",branch_update.bits.pc);
+      expected_branch_taken.delete(branch_update.bits.pc);
+    end
     assert(branch_update.bits.branch && ((retired[0].valid && retired[0].bits.fetched.pc==branch_update.bits.pc) || (retired[1].valid && retired[1].bits.fetched.pc==branch_update.bits.pc)))
       else $fatal(1,"predictor trained without successful WB retirement");
     assert(direction_update.valid==branch_update.bits.conditional) else $fatal(1,"nonconditional trained BHT or conditional lost metadata");
@@ -308,6 +315,21 @@ module rv2wide_core_tb;
           else $fatal(1,"dependent store crossed forbidden pairing boundary");
         store_data_pairs++;
       end
+      if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[11:7]!=0 &&
+         (memory_stage[0].bits.instruction[6:0] inside {7'h13,7'h1b,7'h33,7'h3b,7'h37,7'h17,7'h03,7'h6f,7'h67} || mop_encoding(memory_stage[0].bits.instruction)) &&
+         memory_stage[1].bits.instruction[6:0]==7'h63 &&
+         (memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[19:15] ||
+          memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[24:20])) begin
+        assert(!(memory_stage[0].bits.instruction[6:0] inside {7'h03,7'h6f,7'h67}) &&
+               !((memory_stage[0].bits.instruction[6:0] inside {7'h33,7'h3b}) && memory_stage[0].bits.instruction[31:25]==1))
+          else $fatal(1,"deferred/control-transfer producer paired with dependent branch");
+        branch_pairs++;
+      end
+      if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[11:7]!=0 &&
+         memory_stage[0].bits.instruction[6:0] inside {7'h13,7'h1b,7'h33,7'h3b,7'h37,7'h17} &&
+         memory_stage[1].bits.instruction[6:0]==7'h67)
+        assert(memory_stage[0].bits.instruction[11:7]!=memory_stage[1].bits.instruction[19:15])
+          else $fatal(1,"dependent JALR target paired without an EX base");
       if (cycles > 80000) $fatal(1, "watchdog: commits=%0d pending=%0d next_pc=%h conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b response=%b loads=%0d requests=%0d completions=%0d",commits,expected.size(),expected.size()!=0 ? expected[0].fetched.pc : 0,conditional_dual,mop_dual,split_requests,split_active,split_out.valid,split_in.response.valid,response_count,expected_requests.size(),expected_completions.size());
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
@@ -739,17 +761,23 @@ module rv2wide_core_tb;
   task automatic tick;
     @(posedge clock); #1;
   endtask
-  task automatic send(logic [63:0] pc, logic [31:0] first, logic [31:0] second, int count = 2, bit keep0 = 1, bit keep1 = 1, int fetch_fault_lane = -1);
+  task automatic send(logic [63:0] pc, logic [31:0] first, logic [31:0] second, int count = 2, bit keep0 = 1, bit keep1 = 1, int fetch_fault_lane = -1, prediction_t second_prediction = '0);
+    int expected_index=expected.size();
     if (keep0) expect_instruction(pc, first);
     if (count == 2 && keep1) expect_instruction(pc + 4, second);
     instructions.valid = 1;
     instructions.bits.count = 2'(count);
     instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0, default: '0};
-    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0, default: '0};
+    instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0, prediction: second_prediction, default: '0};
     for(int lane=0;lane<count;lane++) begin
-      instructions.bits.entries[lane].direction=direction_metadata(instructions.bits.entries[lane].pc,instructions.bits.entries[lane].instruction);
+      instructions.bits.entries[lane].direction=direction_metadata(instructions.bits.entries[lane].pc,instructions.bits.entries[lane].instruction,instructions.bits.entries[lane].prediction.valid);
       offered_direction[instructions.bits.entries[lane].pc]=instructions.bits.entries[lane].direction;
       corrected_history.delete(instructions.bits.entries[lane].pc);
+    end
+    if(count==2 && keep1) begin
+      expected_index+=keep0 ? 1 : 0;
+      expected[expected_index].fetched.prediction=second_prediction;
+      expected[expected_index].fetched.direction=instructions.bits.entries[1].direction;
     end
     if (fetch_fault_lane >= 0)
       instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
@@ -794,6 +822,7 @@ module rv2wide_core_tb;
     block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
     hold_split=0; split_fault=0; expected_split_locality=0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete(); multiply_authorized_cycle.delete();
+    expected_branch_taken.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
     for (int i = 0; i < 4096; i++) begin
       memory_bytes[i] = 8'(i ^ 'h98);
@@ -2439,7 +2468,152 @@ module rv2wide_core_tb;
         send(boundary,imm(13,0,13),0,1); drain();
       end
     end
-    $display("Paired load addresses: %0d; paired store data: %0d",address_pairs,store_data_pairs);
+    // Every conditional predicate uses the new value on rs1, rs2, or both,
+    // including signed/unsigned disagreement and both prediction directions.
+    for(int f3=0;f3<8;f3++) if(f3!=2 && f3!=3) begin
+      for(int dependency=0;dependency<3;dependency++) begin
+        for(int value_case=0;value_case<3;value_case++) begin
+          for(int predicted=0;predicted<2;predicted++) begin
+            logic [63:0] produced, left, right, pc;
+            bit taken;
+            int before_pairs;
+            prediction_t prediction;
+            reset_core();
+            produced=value_case==0 ? '1 : value_case==1 ? 1 : 0;
+            send('h12800,imm(1,0,int'(produced)-1),imm(2,0,1));
+            send('h12808,imm(3,0,42),0,1); drain();
+            left=dependency==1 ? 1 : produced;
+            right=dependency==0 ? 1 : produced;
+            case(f3)
+              0: taken=left==right;
+              1: taken=left!=right;
+              4: taken=$signed(left)<$signed(right);
+              5: taken=$signed(left)>=$signed(right);
+              6: taken=left<right;
+              7: taken=left>=right;
+            endcase
+            pc='h12810;
+            prediction='{1'(predicted),pc+4,pc+36,1'b0,2'd0};
+            if(taken!=bit'(predicted)) stop_at(pc+4,taken ? pc+36 : pc+8);
+            before_pairs=branch_pairs;
+            expected_branch_taken[pc+4]=taken;
+            send(pc,imm(3,1,1),branch(dependency==1 ? 2 : 3,dependency==0 ? 2 : 3,32,f3),2,1,1,-1,prediction);
+            if(taken!=bit'(predicted)) send(pc+8,imm(4,0,99),imm(5,0,99),2,0,0);
+            drain();
+            assert(branch_pairs==before_pairs+1 && !expected_branch_taken.exists(pc+4))
+              else $fatal(1,"dependent conditional branch did not pair/train f3=%0d operand=%0d value=%0d prediction=%0d",f3,dependency,value_case,predicted);
+            send(taken ? pc+36 : pc+8,imm(4,3,0),0,1); drain();
+          end
+        end
+      end
+    end
+    // Registered ALU result selection includes word sign extension, bit
+    // manipulation, and PC-based results, not simply an rs1 passthrough.
+    for(int producer=0;producer<3;producer++) begin
+      logic [31:0] word;
+      int before_pairs;
+      reset_core();
+      send('h12880,imm(1,0,-128),imm(2,0,1)); drain();
+      case(producer)
+        0: word=imm(3,1,31,1,'h1b);
+        1: word=b_insn(29,3,1,0);
+        2: word=32'h00000197; // AUIPC x3,0
+      endcase
+      before_pairs=branch_pairs; stop_at('h1288c,'h128ac);
+      send('h12888,word,branch(3,3,32)); drain();
+      assert(branch_pairs==before_pairs+1) else $fatal(1,"selected ALU producer branch pair split kind=%0d",producer);
+      send('h128ac,imm(4,3,0),0,1); drain();
+    end
+    // Sixteen dependent not-taken pairs sustain dual retirement.
+    begin
+      int before_pairs;
+      reset_core(); send('h12900,imm(2,0,100),0,1); drain();
+      before_pairs=branch_pairs; dual_run=0; longest_dual_run=0;
+      for(int i=0;i<16;i++) send('h12908+64'(8*i),imm(3,0,i),branch(3,2,32));
+      drain();
+      assert(branch_pairs==before_pairs+16 && longest_dual_run>=12)
+        else $fatal(1,"dependent branches lost sustained dual issue");
+    end
+    // The producer's RAW/WAW interlocks still hold both instructions, even
+    // when both comparison operands will be replaced after the old load returns.
+    for(int destination_wait=0;destination_wait<2;destination_wait++) begin
+      int before_pairs;
+      reset_core(); hold_responses=1;
+      send('h12a00,imm(5,0,'h300),0,1); drain();
+      send('h12a04,imm(destination_wait!=0 ? 3 : 1,5,0,3,'h03),0,1); repeat(8) tick();
+      before_pairs=branch_pairs; stop_at('h12a0c,'h12a2c);
+      expected_branch_taken['h12a0c]=1;
+      send('h12a08,imm(3,destination_wait!=0 ? 0 : 1,1),branch(3,3,32));
+      repeat(6) begin tick(); assert(issued==0) else $fatal(1,"branch bypass waived producer RAW/WAW"); end
+      hold_responses=0; drain();
+      // RAW can forward at completion arbitration, whose RF return reserves
+      // the younger slot; WAW waits until the write edge and then pairs.
+      assert(branch_pairs<=before_pairs+1 && (destination_wait==0 || branch_pairs==before_pairs+1) && !expected_branch_taken.exists('h12a0c))
+        else $fatal(1,"branch lost producer wait/return ordering kind=%0d",destination_wait);
+    end
+    // An unrelated pending comparison operand is never waived.
+    begin
+      int before_pairs;
+      reset_core(); hold_responses=1;
+      send('h12a40,imm(1,0,'h300),0,1); drain();
+      send('h12a44,imm(2,1,0,3,'h03),0,1); repeat(8) tick();
+      before_pairs=branch_pairs;
+      send('h12a48,imm(3,0,1),branch(3,2,32));
+      repeat(6) begin tick(); assert(issued==0) else $fatal(1,"branch bypass waived unrelated operand"); end
+      hold_responses=0; drain();
+      assert(branch_pairs==before_pairs) else $fatal(1,"unavailable nonreplaced operand paired");
+    end
+    // x0 never selects a producer result, even when the older instruction names it.
+    begin
+      int before_pairs;
+      reset_core(); send('h12ac0,imm(2,0,1),0,1); drain();
+      before_pairs=branch_pairs; stop_at('h12acc,'h12aec);
+      expected_branch_taken['h12acc]=1;
+      send('h12ac8,imm(0,0,99),branch(0,2,32,1)); drain();
+      assert(branch_pairs==before_pairs && !expected_branch_taken.exists('h12acc))
+        else $fatal(1,"x0 became a branch bypass producer");
+    end
+    // Deferred producers and a dependent JALR retain ordinary splitting.
+    for(int producer=0;producer<4;producer++) begin
+      logic [31:0] first, second;
+      int before_pairs;
+      reset_core(); lookup_mode=1;
+      send('h12b00,imm(1,0,'h300),imm(2,0,2)); drain();
+      case(producer)
+        0: first=imm(3,1,0,3,'h03);
+        1: first=m_insn(3,1,2,0);
+        2: first=m_insn(3,1,2,4);
+        3: first=imm(3,0,'h600);
+      endcase
+      second=producer==3 ? imm(4,3,0,0,'h67) : branch(3,3,32);
+      stop_at('h12b0c,producer==3 ? 'h600 : 'h12b2c);
+      before_pairs=branch_pairs;
+      send('h12b08,first,second); drain();
+      assert(branch_pairs==before_pairs) else $fatal(1,"ineligible branch producer paired kind=%0d",producer);
+      send('h12b30,imm(5,3,0),0,1); drain();
+    end
+    // Older MEM fault/replay suppresses even a dependent taken branch's
+    // redirect and training; younger rejection preserves the producer once.
+    for(int rejected_lane=0;rejected_lane<2;rejected_lane++) begin
+      for(int replay=0;replay<2;replay++) begin
+        int before_pairs, before_training, before_commits;
+        reset_core(); inject_enable=1; inject_pc='h12c00+64'(4*rejected_lane);
+        inject_result='{disposition:replay!=0 ? 2'd2 : 2'd1,cause:64'd5,value:64'hdead};
+        stop_at(inject_pc,inject_pc,replay!=0 ? 2 : 1,5,'hdead);
+        before_pairs=branch_pairs; before_training=branch_updates; before_commits=commits;
+        send('h12c00,imm(3,0,1),branch(3,3,32),2,rejected_lane==1,0); drain();
+        assert(branch_pairs==before_pairs+1 && branch_updates==before_training && commits==before_commits+rejected_lane)
+          else $fatal(1,"rejected branch pair lost age priority lane=%0d replay=%0d",rejected_lane,replay);
+        inject_enable=0;
+        send('h12c08,imm(4,3,0),0,1); drain();
+      end
+    end
+    // Coordinated reset cancels a pair captured into EX before MEM comparison.
+    reset_core();
+    send('h12c40,imm(3,0,1),branch(3,3,32),2,0,0); tick();
+    reset_core(); drain();
+    send('h12c48,imm(4,3,0),0,1); drain();
+    $display("Paired load addresses: %0d; paired store data: %0d; paired branch operands: %0d",address_pairs,store_data_pairs,branch_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     assert(branch_updates>0) else $fatal(1,"no retired branch training");

@@ -412,6 +412,15 @@ address must remain independent of the producer; positive, negative, and zero
 store offsets are supported. Deferred producers and FP stores retain their
 ordinary interlocks. Faults and replay preserve the successful older prefix
 without authorizing a rejected younger store.
+
+An older ordinary integer ALU producer can also pair with a younger conditional
+branch consuming its result as either or both comparison operands. EX calculates
+the target independently; MEM compares registered operands, substituting the
+older lane's registered result. There is no dependent ALU-to-comparator path
+in EX and no extra redirect cycle. Other comparison operands retain normal
+interlocks. Load, M, FP, CSR, and control-transfer producers, and dependent
+JALR targets, do not use this bypass. Older faults and replay suppress the
+younger branch's recovery, retirement, and predictor training.
 Other same-group RAW dependencies split the pair.
 
 Same-destination writes can pair when the older writer is guaranteed to use
@@ -508,7 +517,8 @@ The CSR bank publishes the A bit in MISA.
 
 ## Branch recovery
 
-Branches resolve in EX and correct mismatched successors or RAS actions from MEM.
+EX calculates branch targets; MEM compares operands and corrects mismatched
+successors or RAS actions in that same cycle.
 An older correction suppresses the younger slot; a younger correction preserves
 the older peer. A correct taken prediction keeps the target-stream younger slot. Both the
 branch and any older peer still retire at WB. MEM recovery clears younger EX,

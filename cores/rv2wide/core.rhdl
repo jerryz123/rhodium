@@ -312,9 +312,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_pair_address = rr_pair_alu & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Load) & (rr_rd[0] === rr_rs1[1]) & (rr_head.entries[1].instruction[20..32] === bits(0, 12))
   // Store data bypasses independently of address calculation and immediate offset.
   def rr_pair_store_data = rr_pair_alu & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Store) & (rr_rd[0] === rr_rs2[1])
-  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !rr_pair_address) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1]) & !rr_pair_store_data))
+  // Conditional comparison uses registered MEM operands; JALR still needs its base in EX.
+  def rr_pair_branch_compare = rr_pair_alu & rr_decodable[1] & rr_controls[1].branch.resolver.enable & !rr_controls[1].branch.resolver.unconditional
+  def rr_pair_branch_operands = vec(rr_pair_branch_compare & (rr_rd[0] === rr_rs1[1]), rr_pair_branch_compare & (rr_rd[0] === rr_rs2[1]))
+  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !(rr_pair_address ||| rr_pair_branch_operands[0])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1]) & !(rr_pair_store_data ||| rr_pair_branch_operands[1])))
   def rr_data_blocked = for List (lane in 0..2):
-    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_pair_address) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & rr_pair_store_data) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
+    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & (rr_pair_address ||| rr_pair_branch_operands[0])) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & (rr_pair_store_data ||| rr_pair_branch_operands[1])) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
   def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane]
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
@@ -387,24 +390,17 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       rs2: rr_right[lane].data
       address_from_older: Bool(lane == 1) & rr_pair_address
       store_data_from_older: Bool(lane == 1) & rr_pair_store_data
+      branch_operands_from_older: vec(for List (source in 0..2): Bool(lane == 1) & rr_pair_branch_operands[source])
       rd: rr_rd[lane]
       illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane] ||| rr_cbo_illegal[lane]
       fp_request: rr_fp_request
     ) |> ex_ingress
 
-  // EX: two common ALUs and one steered common branch resolver.
+  // EX: two common ALUs and independent branch target calculation.
   def ex_tokens :: Vec(2, RV2WideExecute()) = vec(for List (lane in 0..2): ex_pipe[lane].egress.bits)
-  def ex_branch_lane = mux(ex_older.egress.valid & !ex_tokens[0].illegal & !ex_tokens[0].fetched.fault.valid & ex_tokens[0].control.branch.resolver.enable, bits(0, 1), bits(1, 1))
-  def ex_branch :: RV2WideExecute() = ex_tokens[ex_branch_lane]
-  inst ex_resolver(BranchResolver(64))
   inst ex_alu_older(ALU(XLen.X64))
   inst ex_alu_younger(ALU(XLen.X64))
   def ex_alus = [ex_alu_older, ex_alu_younger]
-  ex_resolver.request.valid <== (ex_older.egress.valid ||| ex_younger.egress.valid) & !rr_squash
-  ex_resolver.request.bits <== BranchResolverRequest(64):
-    left: ex_branch.rs1
-    right: ex_branch.rs2
-    control: ex_branch.control.branch.resolver
   for (lane in 0..2):
     def ex :: RV2WideExecute() = ex_tokens[lane]
     def ex_input :: Endpoint = ex_paths[lane][0]
@@ -421,15 +417,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def ex_address = if lane == 1 | mux(ex.address_from_older, ex_alu_older.result, ex_alu.result) | ex_alu.result
     def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !bits(1, 64), ex_target_sum)
-    def ex_taken = ex_executable & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
     def ex_actual_action = mux(ex_executable & ex.control.branch.resolver.enable, riscv_ras_action(ex.fetched.instruction), RasAction.None)
-    def ex_next_pc = mux(ex_taken, ex_target, ex.fetched.sequential_pc)
-    def ex_predicted_pc = mux(ex.fetched.prediction.valid, ex.fetched.prediction.target, ex.fetched.sequential_pc)
     def ex_bad_pc = ex.fetched.pc[0].into(Bool)
-    def ex_bad_target = ex_taken & ex_target[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.enable
     def ex_bad_address = ex_memory & ex.control.memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic) & !ex.control.memory.width.is_aligned(ex_address)
-    def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
+    def ex_fault = ex.fetched.fault.valid ||| ex.illegal ||| ex_bad_pc ||| ex_bad_address
     ex_output.valid <== ex_input.valid & !rr_squash
     ex_output.bits <== RV2WideResult():
       fetched: ex.fetched
@@ -437,16 +429,18 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       write: ex_executable & ex.control.writeback.enable & ex.rd.or_reduce()
       data: mux(ex.control.writeback.link, ex.fetched.sequential_pc, ex_alu.result)
       result_ready: !(ex_memory & ex.control.memory.access.returns_result()) & !ex_system.serializing() & ((ex.control.muldiv.service === RV2WideLongOperation.None) ||| !ex.rd.or_reduce()) & !ex.control.fp.valid
-      taken: ex_taken
+      taken: Bool(#false)
       target: ex_target
-      mispredicted: (ex_next_pc =/= ex_predicted_pc) ||| (ex.fetched.direction.valid & (ex.fetched.direction.taken ^ ex_taken)) ||| (Bool(profile.ras_entries > 0) & (ex_actual_action =/= ex.fetched.speculated_ras_action))
+      mispredicted: Bool(#false)
+      branch_control: ex.control.branch.resolver
+      branch_operands_from_older: ex.branch_operands_from_older
       branch_update:
         BranchUpdate(XLen.X64):
           pc: ex.fetched.pc
           target: ex_target
           branch: ex_executable & ex.control.branch.resolver.enable
           conditional: ex.fetched.instruction[0..7] === bits(0x63, 7)
-          taken: ex_taken
+          taken: Bool(#false)
           compressed: ex.fetched.sequential_pc === (ex.fetched.pc + bits(2, 64))
           ras_action: ex_actual_action
           predicted_ras_action: ex.fetched.speculated_ras_action
@@ -468,8 +462,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       resolution:
         RV2WideResolution():
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
-          cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
-          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_address, ex.fetched.raw_instruction.zext(64)))))
+          cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
+          value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_address, ex_address, ex.fetched.raw_instruction.zext(64))))
     describe_interface_contract(ex_input, ex_output, "integer-execution-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     ex_results[lane] |> mem_pipe[lane].ingress
     mem_pipe[lane].flush <== rr_squash
@@ -530,6 +524,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   describe_interface_contract(Array(ex_paths[0][2], ex_paths[1][2]), pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
 
   // MEM: retain the earlier fault ahead of an externally supplied resolution.
+  def mem_branch_lane = mux(mem_older.egress.valid & mem_older.egress.bits.branch_update.branch, bits(0, 1), bits(1, 1))
+  def mem_branch_operand :: RV2WideResult() = mux(mem_branch_lane === bits(0, 1), mem_older.egress.bits, mem_younger.egress.bits)
+  inst mem_resolver(BranchResolver(64))
+  mem_resolver.request.valid <== (mem_older.egress.valid ||| mem_younger.egress.valid) & !wb_squash
+  mem_resolver.request.bits <== BranchResolverRequest(64):
+    left: mux(mem_branch_operand.branch_operands_from_older[0], mem_older.egress.bits.data, mem_branch_operand.left)
+    right: mux(mem_branch_operand.branch_operands_from_older[1], mem_older.egress.bits.data, mem_branch_operand.right)
+    control: mem_branch_operand.branch_control
   def mem_memory_lane = mux(mem_older.egress.valid & mem_older.egress.bits.memory.enable, bits(0, 1), bits(1, 1))
   def mem_memory :: RV2WideResult() = mux(mem_memory_lane === bits(0, 1), mem_older.egress.bits, mem_younger.egress.bits)
   inst mem_load(LoadGen(XLen.X64))
@@ -553,8 +555,19 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       disposition: mux(mem_fault, RV2WideDisposition.Fault, mux(mem_outcome === RV2WideCacheOutcome.Replay, RV2WideDisposition.Replay, RV2WideDisposition.Continue))
       cause: mux(mem_page_fault, mux(mem.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StorePageFault, 64), exception_cause_bits(ExceptionCause.LoadPageFault, 64)), mux(mem.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAccessFault, 64), exception_cause_bits(ExceptionCause.LoadAccessFault, 64)))
       value: mem.address
+    def mem_taken = mem.branch_update.branch & (mem_branch_lane === bits(lane, 1)) & mem_resolver.result.bits.taken
+    def mem_next_pc = mux(mem_taken, mem.target, mem.fetched.sequential_pc)
+    def mem_predicted_pc = mux(mem.fetched.prediction.valid, mem.fetched.prediction.target, mem.fetched.sequential_pc)
+    def mem_bad_target = mem_taken & mem.target[0].into(Bool)
+    def mem_target_resolution = RV2WideResolution():
+      disposition: RV2WideDisposition.Fault
+      cause: exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64)
+      value: mem.target
     mem_resolved[lane] <== mem.updated(
-      ~resolution: mux(mem.resolution.disposition =/= RV2WideDisposition.Continue, mem.resolution, mux(resolution[lane].valid, resolution[lane].bits, mux(mem_lookup, mem_lookup_resolution, mem.resolution))),
+      ~resolution: mux(mem.resolution.disposition =/= RV2WideDisposition.Continue, mem.resolution, mux(mem_bad_target, mem_target_resolution, mux(resolution[lane].valid, resolution[lane].bits, mux(mem_lookup, mem_lookup_resolution, mem.resolution)))),
+      ~taken: mem_taken,
+      ~mispredicted: (mem_next_pc =/= mem_predicted_pc) ||| (mem.fetched.direction.valid & (mem.fetched.direction.taken ^ mem_taken)) ||| (Bool(profile.ras_entries > 0) & (mem.branch_update.ras_action =/= mem.fetched.speculated_ras_action)),
+      ~branch_update: mem.branch_update.updated(~taken: mem_taken),
       ~data: mux(mem_hit, mem_load.value, mem.data),
       ~result_ready: mem.result_ready ||| mem_hit,
       ~cache_outcome: mem_outcome

@@ -281,6 +281,8 @@ load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
 pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`, and
 `load-response.rhdl` import the same Flow facade for stream contracts, owner
 storage, and atomic response/context joining.
+RV2Wide's bundles also import the shared `cores/branch-resolver.rhdl` control
+payload for registered MEM comparison; operand bypass and recovery remain core policy.
 RV2Wide's `decode/long-ctrl.rhdl` consumes the reusable RISC-V multiply/divide
 relations and pure M/Zmmul catalogs; the composed decoder retains unused-field
 care masks. `long-execution.rhdl` directly instantiates the shared pipelined

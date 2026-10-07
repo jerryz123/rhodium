@@ -174,6 +174,17 @@ Do not waive the store's rs1 dependency or restrict its immediate offset.
 Producer admission, WB store authorization, and oldest fault/replay priority
 remain unchanged; FP stores, atomics, and deferred producers do not use this path.
 
+For a younger conditional branch, RR may waive either comparison source's
+RAW/read interlock when the same eligible older ALU writer replaces it. Carry
+the two `branch_operands_from_older` selections through EX into MEM, alongside
+the original operands and shared `BranchResolverControl`. MEM selects slot
+zero's registered ALU result before the single shared comparator. Do not add
+an EX ALU-to-comparator path, waive an unrelated source, or extend the selection
+to deferred/FP/system/control-transfer producers or a dependent JALR base.
+EX still calculates the PC-relative or JALR target independently. MEM resolves
+direction, target alignment, effective successor, RAS mismatch, and gshare
+outcome before its existing oldest-stop qualification and WB transfer.
+
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their
@@ -275,7 +286,8 @@ The same path handles stale boundaries and direct-jump/RAS fallbacks.
 Speculative RAS actions occur only on instruction packet acceptance, with at
 most one action per packet; fetch replay and local repair preserve older actions.
 
-EX carries actual successor, branch update, and misprediction through MEM/WB.
+EX carries the target, comparison controls/operands, and update metadata into MEM.
+MEM resolves the actual successor and misprediction and retains them through WB.
 MEM correction preserves its own transfer and kills younger tokens. WB alone
 qualifies training and resolved RAS actions from the successful retirement
 prefix. MEM flush restores through current WB, and the surviving corrected
@@ -626,6 +638,10 @@ retirement, packet coalescing, age-ordered same-destination pairing, RAW/WAW and
 RV64/word ALU operations, seeded dependency-heavy arithmetic, signed/unsigned
 branches and jumps in either slot, JALR masking, misalignment/illegal faults,
 MEM qualification, replay/restart, older-fault priority, and reset cancellation.
+Same-pair ALU/conditional-branch scenarios cover every predicate, either/both
+replaced sources, signed/unsigned disagreement, both prediction directions,
+selected word/B/AUIPC results, sustained dual issue, producer RAW/WAW and unrelated
+source waits, x0, excluded producers/JALR, older/younger fault and replay, and reset.
 M scenarios exercise every RV64M encoding and result projection, signed/mixed/unsigned
 high products, zero-divisor and overflow rules, overlapping pipelined multiplies
 and loads, cross-service completion ownership, RAW/WAW interlocks, x0, and rejected

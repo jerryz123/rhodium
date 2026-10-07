@@ -12,6 +12,7 @@ import:
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("cores/cache-prefetch.rhdl").CachePrefetchOperation
   lib("cores/bpred/protocol.rhdl") open
+  lib("cores/branch-resolver.rhdl").BranchResolverControl
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
@@ -89,7 +90,7 @@ bundle RV2WideFpLoad():
   data: Bits(64)
 
 
-/* Holds RR operands, controls, and same-pair load-address/store-data selections for EX. */
+/* Holds RR operands, controls, and same-pair address, store-data, and branch selections. */
 bundle RV2WideExecute():
   fetched: RV2WideInstruction()
   control: RV2WideControl()
@@ -97,6 +98,7 @@ bundle RV2WideExecute():
   rs2: Bits(64)
   address_from_older: Bool
   store_data_from_older: Bool
+  branch_operands_from_older: Vec(2, Bool)
   rd: Bits(5)
   illegal: Bool
   fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
@@ -126,6 +128,8 @@ bundle RV2WideResult():
   taken: Bool
   target: Bits(64)
   branch_update: BranchUpdate(XLen.X64)
+  branch_control: BranchResolverControl()
+  branch_operands_from_older: Vec(2, Bool)
   mispredicted: Bool
   memory: RV2WideMemoryControl()
   prefetch: CachePrefetchOperation
