@@ -11,7 +11,7 @@ import:
   "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
   "../../../cores/rv5stage/memory-context.rhdl" open
   "../../../cores/rv5stage/fp/bundles.rhdl" open
-  "../../../cores/rv5stage/decode/fp-ctrl.rhdl".RV5StageFloatDestination
+  "../../../cores/fp/types.rhdl".FloatDestination
   "../../../riscv/isa/vector-profile.rhm".vector_profile_enabled
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
@@ -215,10 +215,10 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
       def completed :: RV5StageFpCompletion(xlen, fp_profile, Bits(width)) = taps["fp_completion"]
       rhodium_rv5stage_fp.call(
         cosim_instance, fp_issued.as_bits().zext(64), fp_completed.as_bits().zext(64),
-        (issue.control.registers.destination === RV5StageFloatDestination.FloatingPoint).as_bits().zext(64),
-        (issue.control.registers.destination === RV5StageFloatDestination.Integer).as_bits().zext(64), issue.frd.zext(64),
-        (completed.destination === RV5StageFloatDestination.FloatingPoint).as_bits().zext(64),
-        (completed.destination === RV5StageFloatDestination.Integer).as_bits().zext(64), completed.rd.zext(64),
+        (issue.control.registers.destination === FloatDestination.FloatingPoint).as_bits().zext(64),
+        (issue.control.registers.destination === FloatDestination.Integer).as_bits().zext(64), issue.frd.zext(64),
+        (completed.destination === FloatDestination.FloatingPoint).as_bits().zext(64),
+        (completed.destination === FloatDestination.Integer).as_bits().zext(64), completed.rd.zext(64),
         lane(completed.integer_value), lane(completed.fp_value), completed.exception_flags_valid.as_bits().zext(64),
         completed.exception_flags.zext(64), tap_lane("fp_load_valid"), tap_lane("fp_load_rd"), tap_lane("fp_load_data"), ~enable: active
       )

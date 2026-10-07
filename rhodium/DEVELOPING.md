@@ -127,6 +127,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../cores/cache/`](../cores/cache/README.md) | Shared physical L1I/L1D, cache protocols, geometry, and cache-side CHI engines | Public Rhodium/Flow, shared execution components, CHI, and RISC-V physical-operation/map vocabulary; no named core |
 | [`../cores/csr/`](../cores/csr/README.md) | Shared CSR/trap, privilege, counter, FP, vector, and optional guest state | Public Rhodium/Flow, architectural RISC-V descriptors/adapters, and passive core observation declarations; no named core |
 | [`../cores/mmu/`](../cores/mmu/README.md) | Shared host/guest translation contracts, TLB storage, and page-table walking | Public Rhodium/Flow and architectural RISC-V descriptors/adapters; no named core or cache arbitration |
+| [`../cores/fp/`](../cores/fp/README.md) | Shared FP controls/decode, opaque-tag operand execution, and register-file storage | Public Rhodium/Flow, architectural RISC-V descriptors/helpers, and HardFloat; no named core |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, RISC-V PMA descriptors, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; explicit compilation targets; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
@@ -501,8 +502,8 @@ adapter. `mmu/vector-window.rhdl` imports that MMU protocol, public RISC-V PMA
 descriptors, Sv39 mapping geometry, and Flow; it imports no vector implementation. The MMU protocol
 owns the range/probe interfaces, keeping dependency direction from vector to
 translation contracts rather than from translation into vector execution.
-`vector/fp.rhdl` imports those FP bundles and decode
-controls plus RISC-V FP boxing helpers and HardFloat types to adapt packed
+`vector/fp.rhdl` imports the shared `cores/fp/` operand bundles and control
+types plus RISC-V FP boxing helpers and HardFloat types to adapt packed
 elements, without adding a reverse dependency from FP to vector. Scalar
 pipeline bundles do not import the vector package or carry its packed data.
 The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
@@ -517,12 +518,22 @@ the core uses Flow arbitration and stable demultiplexing to share those services
 `vector/muldiv.rhdl` imports the integer contracts, pure ISA geometry/XLEN, and
 `std/bits.rhdl` for `Pow2Int`, without depending on sibling decode columns.
 
-`cores/rv5stage/fp/execute.rhdl` directly imports `flow/main.rhdl` for
+`cores/fp/execute.rhdl` directly imports `flow/main.rhdl` for
 operand routing, scheduled fixed-latency returns, standalone elastic completion
-buffering, and completion arbitration. The scalar `fp/pipeline.rhdl`
+buffering, and completion arbitration. Shared types and operand bundles import
+RISC-V/HardFloat representation contracts, not instruction catalogs or named-core
+configuration. `cores/fp/decode.rhdl` imports canonical FP catalogs, the public
+RISC-V decode adapter, and `std/decode.rhdl` for partial component relations.
+`cores/fp/load-store.rhdl` imports shared precision types and architectural
+boxing/HardFloat representation helpers without LSU policy. Named FP wrappers
+consume that value adapter rather than defining their own boxing/shaping.
+The shared `profile.rhm` owns current component capability checks; RV5Stage's
+profile delegates that check while retaining named-core policy. The scalar
+`cores/rv5stage/fp/pipeline.rhdl`
 imports that service, `flow/main.rhdl`, `std/bits.rhdl`, and
 `std/scoreboard.rhdl`; FPR state and architectural destinations stay in this
-wrapper. `fp/div-sqrt.rhdl` directly imports `std/ready-valid.rhdl` and Flow's
+wrapper, using shared `cores/fp/register-file.rhdl` storage.
+`cores/fp/div-sqrt.rhdl` directly imports `std/ready-valid.rhdl` and Flow's
 `rr-arbiter`, `demux`, and `gate` modules. No FP
 implementation depends on the vector package or on test/backend code.
 `cores/rv5stage/core.rhdl` directly imports the FP execution service and

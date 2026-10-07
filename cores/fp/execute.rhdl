@@ -4,17 +4,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".check_fp_profile
   "bundles.rhdl" open
   "datapath.rhdl" open
   "div-sqrt.rhdl" open
-  "../decode/fp-ctrl.rhdl" open
-  "../../../riscv/isa/fp-profile.rhm" open
-  "../../../riscv/isa/xlen.rhm" open
+  "types.rhdl" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
 /* Round-robins two persistent completions without payload storage and locks a blocked
    winner until transfer to preserve the irrevocable output. */
-sync_circuit RV5StageFpCompletionArbiter(T :: DataType):
+sync_circuit FpCompletionArbiter(T :: DataType):
   interface ingress[2](Irrevocable(T), ~role: consumer)
   interface egress(Irrevocable(T), ~role: producer)
 
@@ -42,7 +43,7 @@ sync_circuit RV5StageFpCompletionArbiter(T :: DataType):
 /* Dispatches fixed and variable arithmetic while preserving opaque execution tags.
    Scheduled fixed returns write two cycles after launch; standalone mode reserves
    completion storage and presents an irrevocable merged result. */
-sync_circuit RV5StageFpExecutionService(
+sync_circuit FpExecutionService(
   xlen :: XLen,
   profile :: FloatingPointProfile,
   Tag :: DataType,
@@ -50,30 +51,30 @@ sync_circuit RV5StageFpExecutionService(
   ~zfa: zfa_enabled :: Boolean = #false,
   ~scheduled_writeback: scheduled_writeback :: Boolean = #false
 ):
-  check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   unless floating_point_supports_f(profile)
-  | error(~who: #'RV5StageFpExecutionService, "FP execution requires RV32F or RV64D")
-  def ExecutionRequest = RV5StageFpExecutionRequest(xlen, profile, Tag)
-  def Result = RV5StageFpExecutionResult(xlen, profile, Tag)
+  | error(~who: #'FpExecutionService, "FP execution requires RV32F or RV64D")
+  def ExecutionRequest = FpExecutionRequest(xlen, profile, Tag)
+  def Result = FpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(ExecutionRequest), ~role: consumer)
   interface result(if scheduled_writeback | Decoupled(Result) | Irrevocable(Result), ~role: producer)
 
   def FixedModule = cond
   | !half_precision_supports_zfhmin(half_precision):
-      if profile == FloatingPointProfile.F | RV5StageFpFixedF(xlen, Tag, ~zfa: zfa_enabled) | RV5StageFpFixedD(xlen, Tag, ~zfa: zfa_enabled)
+      if profile == FloatingPointProfile.F | FpFixedF(xlen, Tag, ~zfa: zfa_enabled) | FpFixedD(xlen, Tag, ~zfa: zfa_enabled)
   | profile == FloatingPointProfile.F:
-      RV5StageFpFixedFHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
+      FpFixedFHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
   | ~else:
-      RV5StageFpFixedDHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
+      FpFixedDHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
   def DivSqrtModule = cond
   | !half_precision_supports_zfh(half_precision):
-      if profile == FloatingPointProfile.F | RV5StageFpDivSqrtF(xlen, Tag) | RV5StageFpDivSqrtD(xlen, Tag)
-  | profile == FloatingPointProfile.F: RV5StageFpDivSqrtFHalf(xlen, Tag)
-  | ~else: RV5StageFpDivSqrtDHalf(xlen, Tag)
+      if profile == FloatingPointProfile.F | FpDivSqrtF(xlen, Tag) | FpDivSqrtD(xlen, Tag)
+  | profile == FloatingPointProfile.F: FpDivSqrtFHalf(xlen, Tag)
+  | ~else: FpDivSqrtDHalf(xlen, Tag)
   inst fixed(FixedModule)
   inst div_sqrt(DivSqrtModule)
   def Array(fixed_request, division_request) = (
-    request |> demux_flow(2, issued => issued.control.execution.unit === RV5StageFloatUnit.DivideSquareRoot)
+    request |> demux_flow(2, issued => issued.control.execution.unit === FloatUnit.DivideSquareRoot)
   )
   if scheduled_writeback
   | block:
@@ -94,14 +95,14 @@ sync_circuit RV5StageFpExecutionService(
       inst fixed_responses(CompletionQueue(ExecutionRequest, Result, 4))
       fixed.request <== fixed_responses.issue.bits
       fixed_responses.issue |> map_valid(_request => fixed.completion) |> valid_pipe(2) |> fixed_responses.completion
-      inst completion_merge(RV5StageFpCompletionArbiter(Result))
+      inst completion_merge(FpCompletionArbiter(Result))
       fixed_responses.response |> completion_merge.ingress[0]
       div_sqrt.completion |> completion_merge.ingress[1]
       completion_merge.egress |> result
       fixed_request |> fixed_responses.request
   division_request |> div_sqrt.request
   when (request.valid):
-    assert(request.bits.control.execution.unit =/= RV5StageFloatUnit.Memory, "rv5stage_fp_execution_requires_compute")
+    assert(request.bits.control.execution.unit =/= FloatUnit.Memory, "fp_execution_requires_compute")
 
 export:
-  RV5StageFpExecutionService
+  FpExecutionService

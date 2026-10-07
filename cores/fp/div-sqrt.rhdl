@@ -4,10 +4,10 @@
 
 import:
   "bundles.rhdl" open
-  "../decode/fp-ctrl.rhdl" open
-  "../../../riscv/isa/fp-profile.rhm" open
-  "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/rtl/floating-point.rhdl" open
+  "types.rhdl" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/rr-arbiter.rhdl").RRArbiter
@@ -16,37 +16,37 @@ import:
 
 /* Retains one divide or square-root owner until its result transfers, NaN-boxing the output.
    HardFloat's terminal registers hold the data; this wrapper retains validity and tag. */
-sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Tag :: DataType):
+sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Tag :: DataType):
   def flen = floating_point_register_width(profile)
   unless flen >= format.ieee_width
-  | error(~who: #'RV5StageFpDivSqrtLane,
+  | error(~who: #'FpDivSqrtLane,
           "floating-point register width must cover the selected format")
 
-  interface request(Decoupled(RV5StageFpExecutionRequest(
+  interface request(Decoupled(FpExecutionRequest(
     xlen,
     profile,
     Tag
   )), ~role: consumer)
-  interface completion(Irrevocable(RV5StageFpExecutionResult(
+  interface completion(Irrevocable(FpExecutionResult(
     xlen,
     profile,
     Tag
   )), ~role: producer)
 
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
-  def Completion = RV5StageFpExecutionResult(xlen, profile, Tag)
+  def Request = FpExecutionRequest(xlen, profile, Tag)
+  def Completion = FpExecutionResult(xlen, profile, Tag)
   inst operation(DivSqrtRecFN(format))
   reg busy(~init: Bool(#false))
   reg done(~init: Bool(#false))
   request.ready <== !busy & operation.input_ready
   operation.input_valid <== request.fire()
-  operation.square_root <== request.bits.control.execution.divide_operation === RV5StageFloatDivideOperation.SquareRoot
+  operation.square_root <== request.bits.control.execution.divide_operation === FloatDivideOperation.SquareRoot
   operation.a <== riscv_unbox(format, flen, request.bits.left).to_recoded()
   operation.b <== riscv_unbox(format, flen, request.bits.right).to_recoded()
   operation.rounding_mode <== request.bits.rounding_mode
   operation.tininess_mode <== TininessMode.AfterRounding
   assert(!request.fire() ||| operation.input_ready,
-         "rv5stage_fp_div_sqrt_issue_available")
+         "fp_div_sqrt_issue_available")
 
   reg tag(Tag)
 
@@ -55,7 +55,7 @@ sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile
   // HardFloat's terminal arithmetic registers remain unchanged until the next
   // input. Retain only completion validity and ownership, never copy its data.
   completion.valid <== busy & (done ||| result_valid)
-  completion.bits <== RV5StageFpExecutionResult(xlen, profile, Tag):
+  completion.bits <== FpExecutionResult(xlen, profile, Tag):
     tag: tag
     integer_value: bits(0, xlen.width)
     fp_value: riscv_nan_box(format, result, flen)
@@ -75,19 +75,19 @@ sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile
   describe_interface_contract(request, completion, "arithmetic", ~trace_model: interface_trace_retained(~name: "arithmetic"))
 
 /* Connects the F profile to one single-precision variable arithmetic lane. */
-sync_circuit RV5StageFpDivSqrtF(xlen :: XLen, Tag :: DataType):
-  interface request(Decoupled(RV5StageFpExecutionRequest(
+sync_circuit FpDivSqrtF(xlen :: XLen, Tag :: DataType):
+  interface request(Decoupled(FpExecutionRequest(
     xlen,
     FloatingPointProfile.F,
     Tag
   )), ~role: consumer)
-  interface completion(Irrevocable(RV5StageFpExecutionResult(
+  interface completion(Irrevocable(FpExecutionResult(
     xlen,
     FloatingPointProfile.F,
     Tag
   )), ~role: producer)
 
-  inst lane(RV5StageFpDivSqrtLane(
+  inst lane(FpDivSqrtLane(
     xlen,
     FloatingPointProfile.F,
     FloatFormat.F32,
@@ -98,19 +98,19 @@ sync_circuit RV5StageFpDivSqrtF(xlen :: XLen, Tag :: DataType):
 
 /* Selects single or double arithmetic while permitting only one active request across both
    lanes. */
-sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Tag :: DataType):
-  def Request = RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
-  def Completion = RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Tag)
+sync_circuit FpDivSqrtD(xlen :: XLen, Tag :: DataType):
+  def Request = FpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
+  def Completion = FpExecutionResult(xlen, FloatingPointProfile.D, Tag)
   interface request(Decoupled(Request), ~role: consumer)
   interface completion(Irrevocable(Completion), ~role: producer)
 
-  inst single(RV5StageFpDivSqrtLane(
+  inst single(FpDivSqrtLane(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F32,
     Tag
   ))
-  inst double(RV5StageFpDivSqrtLane(
+  inst double(FpDivSqrtLane(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F64,
@@ -119,7 +119,7 @@ sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Tag :: DataType):
   reg active(~init: Bool(#false))
   def Array(double_request, single_request) = request |> gate_flow(!active) |> demux_flow(
     2,
-    issued => issued.control.execution.source_precision === RV5StageFloatPrecision.Single
+    issued => issued.control.execution.source_precision === FloatPrecision.Single
   )
   single_request |> single.request
   double_request |> double.request
@@ -138,19 +138,19 @@ sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Tag :: DataType):
     active <== Bool(#false)
 
 /* Adds half-precision arithmetic to the F path with one shared outstanding owner. */
-sync_circuit RV5StageFpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
+sync_circuit FpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.F
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
-  def Completion = RV5StageFpExecutionResult(xlen, profile, Tag)
+  def Request = FpExecutionRequest(xlen, profile, Tag)
+  def Completion = FpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(Request), ~role: consumer)
   interface completion(Irrevocable(Completion), ~role: producer)
 
-  inst half(RV5StageFpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
-  inst base(RV5StageFpDivSqrtF(xlen, Tag))
+  inst half(FpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
+  inst base(FpDivSqrtF(xlen, Tag))
   reg active(~init: Bool(#false))
   def Array(base_request, half_request) = request |> gate_flow(!active) |> demux_flow(
     2,
-    issued => issued.control.execution.source_precision === RV5StageFloatPrecision.Half
+    issued => issued.control.execution.source_precision === FloatPrecision.Half
   )
   half_request |> half.request
   base_request |> base.request
@@ -168,19 +168,19 @@ sync_circuit RV5StageFpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
     active <== Bool(#false)
 
 /* Adds half-precision arithmetic to the D path with one shared outstanding owner. */
-sync_circuit RV5StageFpDivSqrtDHalf(xlen :: XLen, Tag :: DataType):
+sync_circuit FpDivSqrtDHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.D
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
-  def Completion = RV5StageFpExecutionResult(xlen, profile, Tag)
+  def Request = FpExecutionRequest(xlen, profile, Tag)
+  def Completion = FpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(Request), ~role: consumer)
   interface completion(Irrevocable(Completion), ~role: producer)
 
-  inst half(RV5StageFpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
-  inst base(RV5StageFpDivSqrtD(xlen, Tag))
+  inst half(FpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
+  inst base(FpDivSqrtD(xlen, Tag))
   reg active(~init: Bool(#false))
   def Array(base_request, half_request) = request |> gate_flow(!active) |> demux_flow(
     2,
-    issued => issued.control.execution.source_precision === RV5StageFloatPrecision.Half
+    issued => issued.control.execution.source_precision === FloatPrecision.Half
   )
   half_request |> half.request
   base_request |> base.request
@@ -198,8 +198,8 @@ sync_circuit RV5StageFpDivSqrtDHalf(xlen :: XLen, Tag :: DataType):
     active <== Bool(#false)
 
 export:
-  RV5StageFpDivSqrtLane
-  RV5StageFpDivSqrtF
-  RV5StageFpDivSqrtD
-  RV5StageFpDivSqrtFHalf
-  RV5StageFpDivSqrtDHalf
+  FpDivSqrtLane
+  FpDivSqrtF
+  FpDivSqrtD
+  FpDivSqrtFHalf
+  FpDivSqrtDHalf

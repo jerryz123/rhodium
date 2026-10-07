@@ -10,46 +10,14 @@ core supports RV32F or RV64D, with optional Zfhmin, Zfh, and Zfa behavior.
 Contributors should read [DEVELOPING.md](DEVELOPING.md) for implementation
 ownership and validation.
 
-## Shared operand execution
+## Shared components
 
-[`RV5StageFpExecutionService`](execute.rhdl) accepts explicit FP operands,
-an integer operand, decoded controls, an immediate index, a resolved rounding
-mode, and a caller-selected `Tag` type. Its `Decoupled` request transfers
-authorize execution; its default `Irrevocable` result holds the unchanged tag, FP and
-integer result lanes, exception flags, and a flag-update enable until consumed.
-The selected operation determines which result lane is meaningful. Control
-register-use/destination fields select numeric conversion direction; they do
-not name, read, reserve, or write an architectural register.
-
-FP operands use the existing FLEN-wide NaN-boxed representation and carry an
-independent precision tag for each of the left, right, and third operands.
-Scalar requests normally give all three operands one source precision; widening
-vector arithmetic can mix exactly promoted narrow operands with a wide source
-or fused addend. Results retain
-the same boxing, canonical-NaN, resolved-rounding, and flag behavior as scalar
-execution. The packed vector caller boxes narrow elements on entry and
-extract the selected element width on return. The service does not resolve
-dynamic rounding modes, accumulate architectural flags, or interpret tags.
-
-Fixed execution has a two-cycle nonstallable result delay. This preserves the
-combinational datapath and does not claim a physically balanced two-stage
-arithmetic implementation. With `~scheduled_writeback: #true`, the caller must
-reserve the destination write cycle before request acceptance. Fixed results
-write immediately without a result queue and take priority over variable
-results. The scheduled output is `Decoupled`, allowing a fixed result to
-preempt an unaccepted variable offer. The service pauses new fixed launches for
-an aged variable waiter; integrated calendars likewise pause new reservations
-when a destination has a persistently blocked variable response. The default standalone mode instead
-reserves fixed-response storage and arbitrates fairly onto an `Irrevocable`
-output. Divide/sqrt retains one operation's terminal arithmetic state and tag
-until accepted, rather than copying results into a completion queue.
-Results may complete out of request order; callers route their retained tags.
-
-The service has no architectural cancellation input: accepted work survives
-younger redirects. Synchronous reset discards pending work and results.
-Memory operations remain outside its contract. Compose multiple authorized
-callers with ordinary Flow request arbitration and tag-based result routing;
-the service itself owns no client count or client-specific scheduling policy.
+Numeric execution, canonical instruction mappings, and register storage live
+in [`cores/fp/`](../../fp/README.md), independently of any named core.
+RV5Stage uses `FpExecutionService` in scheduled mode with reserved writeback
+cycles and scalar/vector owner tags. Its scalar wrapper retains architectural
+reservations and completion policy. The [shared service contract](../../fp/README.md#operand-execution)
+defines timing, reordering, backpressure, rounding, and reset behavior.
 
 ## Scalar architectural wrapper
 

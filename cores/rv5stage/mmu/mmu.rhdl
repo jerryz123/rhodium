@@ -7,7 +7,7 @@ import:
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
-  "../fp/types.rhdl" open
+  "../../fp/types.rhdl" open
   "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
   lib("cores/mmu/protocol.rhdl") open

@@ -1,0 +1,61 @@
+#lang rhodium
+/* Defines opaque-tag FP operand requests, results, and ownership-preserving retagging. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "types.rhdl" open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("hardfloat/main.rhdl").RoundingMode
+
+/* Carries explicit operand precisions and a caller-owned opaque tag into shared FP execution. */
+bundle FpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
+  tag: Tag
+  control: FloatingPointControl()
+  left: Bits(floating_point_register_width(profile))
+  left_precision: FloatPrecision
+  right: Bits(floating_point_register_width(profile))
+  right_precision: FloatPrecision
+  third: Bits(floating_point_register_width(profile))
+  third_precision: FloatPrecision
+  integer_operand: Bits(xlen.width)
+  immediate_index: Bits(5)
+  rounding_mode: RoundingMode
+
+/* Returns integer and FP values plus exception flags without interpreting the caller's tag. */
+bundle FpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
+  tag: Tag
+  integer_value: Bits(xlen.width)
+  fp_value: Bits(floating_point_register_width(profile))
+  exception_flags: Bits(5)
+  exception_flags_valid: Bool
+
+/* Replaces request ownership metadata without changing numerical controls or operands. */
+fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, request :: FpExecutionRequest(xlen, profile, From), tag :: Hardware.of(To)) :~ FpExecutionRequest(xlen, profile, To):
+  FpExecutionRequest(xlen, profile, To):
+    tag: tag
+    control: request.control
+    left: request.left
+    left_precision: request.left_precision
+    right: request.right
+    right_precision: request.right_precision
+    third: request.third
+    third_precision: request.third_precision
+    integer_operand: request.integer_operand
+    immediate_index: request.immediate_index
+    rounding_mode: request.rounding_mode
+
+/* Replaces result ownership metadata without changing values or exception flags. */
+fun fp_result_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, result :: FpExecutionResult(xlen, profile, From), tag :: Hardware.of(To)) :~ FpExecutionResult(xlen, profile, To):
+  FpExecutionResult(xlen, profile, To):
+    tag: tag
+    integer_value: result.integer_value
+    fp_value: result.fp_value
+    exception_flags: result.exception_flags
+    exception_flags_valid: result.exception_flags_valid
+
+export:
+  FpExecutionRequest
+  FpExecutionResult
+  fp_request_with_tag
+  fp_result_with_tag

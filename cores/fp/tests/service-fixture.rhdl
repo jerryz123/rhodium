@@ -3,17 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../fp/bundles.rhdl" open
-  "../fp/execute.rhdl" open
+  "../bundles.rhdl" open
+  "../execute.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageFpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boolean = #false):
+sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boolean = #false):
   def xlen = XLen.X64
   def profile = FloatingPointProfile.D
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Bits(8))
-  def Result = RV5StageFpExecutionResult(xlen, profile, Bits(8))
+  def Request = FpExecutionRequest(xlen, profile, Bits(8))
+  def Result = FpExecutionResult(xlen, profile, Bits(8))
   bundle Owner():
     client: Bool
     token: Bits(8)
@@ -24,7 +24,7 @@ sync_circuit RV5StageFpServiceFixture(~scheduled_writeback: scheduled_writeback 
 
   fun tagged_request(client :: Boolean):
     map_flow(issued):
-      RV5StageFpExecutionRequest(xlen, profile, Owner()):
+      FpExecutionRequest(xlen, profile, Owner()):
         tag:
           Owner():
             client: Bool(client)
@@ -41,14 +41,14 @@ sync_circuit RV5StageFpServiceFixture(~scheduled_writeback: scheduled_writeback 
         rounding_mode: issued.rounding_mode
   fun untagged_result():
     map_flow(~stable: #true, completed):
-      RV5StageFpExecutionResult(xlen, profile, Bits(8)):
+      FpExecutionResult(xlen, profile, Bits(8)):
         tag: completed.tag.token
         integer_value: completed.integer_value
         fp_value: completed.fp_value
         exception_flags: completed.exception_flags
         exception_flags_valid: completed.exception_flags_valid
 
-  inst execution(RV5StageFpExecutionService(xlen, profile, Owner(), ~scheduled_writeback: scheduled_writeback))
+  inst execution(FpExecutionService(xlen, profile, Owner(), ~scheduled_writeback: scheduled_writeback))
   Array(first |> tagged_request(#false), second |> tagged_request(#true))
     |> rr_arbiter()
     |> execution.request
@@ -59,4 +59,4 @@ sync_circuit RV5StageFpServiceFixture(~scheduled_writeback: scheduled_writeback 
   ) <=> Array(first_result, second_result)
 
 export:
-  RV5StageFpServiceFixture
+  FpServiceFixture

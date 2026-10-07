@@ -3,56 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../fp/profile.rhm".check_fp_profile
+  "../../fp/bundles.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "bundles.rhdl" open
-  "execute.rhdl" open
-  "register-file.rhdl" open
-  "../decode/fp-ctrl.rhdl" open
+  "../../fp/execute.rhdl" open
+  "../../fp/register-file.rhdl" open
+  "../../fp/types.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/rtl/floating-point.rhdl" open
-  lib("hardfloat/main.rhdl") open
+  "../../fp/load-store.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
-
-/* NaN-boxes half or single memory bits into the profile's architectural FP register width. */
-fun fp_load_value(profile :: FloatingPointProfile,
-                  precision :: RV5StageFloatPrecision,
-                  data :: Bits(64)) :~ Bits(floating_point_register_width(profile)):
-  def half = riscv_nan_box(
-    FloatFormat.F16,
-    data[0..16].into(IEEEFloat(FloatFormat.F16)),
-    floating_point_register_width(profile)
-  )
-  def single = riscv_nan_box(
-    FloatFormat.F32,
-    data[0..32].into(IEEEFloat(FloatFormat.F32)),
-    floating_point_register_width(profile)
-  )
-  if profile == FloatingPointProfile.F
-  | mux(precision === RV5StageFloatPrecision.Half, half, single)
-  | mux_lookup(
-      precision,
-      ~default: data,
-      [[RV5StageFloatPrecision.Half, half],
-       [RV5StageFloatPrecision.Single, single]]
-    )
-
-/* Extracts raw low-precision store bits and zero-extends the memory operand to 64 bits. */
-fun fp_store_value(profile :: FloatingPointProfile,
-                   precision :: RV5StageFloatPrecision,
-                   data :: Bits(floating_point_register_width(profile))) :~ Bits(64):
-  if profile == FloatingPointProfile.F
-  | mux(precision === RV5StageFloatPrecision.Half,
-        data[0..16].zext(64),
-        data.zext(64))
-  | mux_lookup(
-      precision,
-      ~default: data,
-      [[RV5StageFloatPrecision.Half, data[0..16].zext(64)],
-       [RV5StageFloatPrecision.Single, data[0..32].zext(64)]]
-    )
 
 /* Provides quiescent scalar FP ports for a profile without FP architectural state. */
 sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
@@ -99,7 +62,7 @@ sync_circuit RV5StageFpScalar(
   ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
   ~zfa: zfa_enabled :: Boolean = #false
 ):
-  check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   unless floating_point_supports_f(profile)
   | error(~who: #'RV5StageFpScalar, "the scalar FP adapter requires RV32F or RV64D")
   def register_count = 32
@@ -122,7 +85,7 @@ sync_circuit RV5StageFpScalar(
   output busy: Mask(register_count)
   output drained: Bool
 
-  inst registers(RV5StageFloatingPointRegisterFile(profile))
+  inst registers(FloatingPointRegisterFile(profile))
   def Array(load_write :: Endpoint, execution_write :: Endpoint) = registers.writes
   reg busy_state(~init: Mask(register_count)(0))
   reg outstanding(~init: bits(0, 4))
@@ -131,8 +94,8 @@ sync_circuit RV5StageFpScalar(
   fun register_bit(index :: Bits(5)) :~ Mask(register_count):
     one_hot(index).into(Mask(register_count))
 
-  interface execution_request(Decoupled(RV5StageFpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context))), ~role: producer)
-  interface execution_result(Decoupled(RV5StageFpExecutionResult(xlen, profile, RV5StageFpScalarTag(Context))), ~role: consumer)
+  interface execution_request(Decoupled(FpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context))), ~role: producer)
+  interface execution_result(Decoupled(FpExecutionResult(xlen, profile, RV5StageFpScalarTag(Context))), ~role: consumer)
   (
     execution_result |> map_flow(~stable: #true, completed):
       RV5StageFpCompletion(xlen, profile, Context):
@@ -147,7 +110,7 @@ sync_circuit RV5StageFpScalar(
 
   def execution_completion = completion.bits
   def execution_write_valid = completion.fire() & (
-    execution_completion.destination === RV5StageFloatDestination.FloatingPoint
+    execution_completion.destination === FloatDestination.FloatingPoint
   )
   def scalar_execution_write = FloatingPointRegisterWrite(profile):
     address: execution_completion.rd
@@ -171,8 +134,8 @@ sync_circuit RV5StageFpScalar(
         data: fp_load_value(profile, completed_load.precision, completed_load.data)
   ) |> load_write
   when (completed_loads.valid):
-    assert((completed_loads.bits.precision =/= RV5StageFloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_load_precision_supported")
-    assert((completed_loads.bits.precision =/= RV5StageFloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_load_supported")
+    assert((completed_loads.bits.precision =/= FloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_load_precision_supported")
+    assert((completed_loads.bits.precision =/= FloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_load_supported")
 
   def execution_clear = execution_write_valid
   def load_clear = load_completion.valid
@@ -207,13 +170,13 @@ sync_circuit RV5StageFpScalar(
   ) ||| (
     control.registers.uses_frs3 & register_busy(issue.bits.frs3)
   )
-  def fp_destination = control.registers.destination === RV5StageFloatDestination.FloatingPoint
+  def fp_destination = control.registers.destination === FloatDestination.FloatingPoint
   def destination_hazard = fp_destination & register_busy(issue.bits.frd)
   def issue_hazard = source_hazard ||| destination_hazard
-  def memory_request = control.execution.unit === RV5StageFloatUnit.Memory
+  def memory_request = control.execution.unit === FloatUnit.Memory
   (
     issue |> gate_flow(!issue_hazard & !memory_request & !vector_pending) |> map_flow(issued):
-      RV5StageFpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context)):
+      FpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context)):
         tag:
           RV5StageFpScalarTag(Context):
             context: issued.context
@@ -254,8 +217,8 @@ sync_circuit RV5StageFpScalar(
   )
   snapshot_read_data <== if flen == 64 | registers.read_data_1 | registers.read_data_1.zext(64)
   when (store_request.valid & store_request_safe):
-    assert((store_request.bits.precision =/= RV5StageFloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_store_precision_supported")
-    assert((store_request.bits.precision =/= RV5StageFloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_store_supported")
+    assert((store_request.bits.precision =/= FloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_store_precision_supported")
+    assert((store_request.bits.precision =/= FloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_store_supported")
 
   load_reserve.ready <== !vector_pending & !register_busy(load_reserve.bits.rd)
   def load_reserve_fire = load_reserve.fire()
@@ -316,7 +279,7 @@ sync_circuit RV5StageFpScalar(
   def completion_fire = completion.fire()
   def execution_flags_update = completion_fire & execution_completion.exception_flags_valid
   state_update.valid <== vector_write.valid ||| completed_loads.valid ||| execution_flags_update ||| (
-    completion_fire & (execution_completion.destination === RV5StageFloatDestination.FloatingPoint)
+    completion_fire & (execution_completion.destination === FloatDestination.FloatingPoint)
   )
   state_update.bits <== mux(
     execution_flags_update,
@@ -361,7 +324,7 @@ sync_circuit RV5StageFpPipeline(xlen :: XLen, profile :: FloatingPointProfile, C
   output drained: Bool
 
   inst scalar(RV5StageFpScalar(xlen, profile, Context, ~half_precision: half_precision, ~zfa: zfa_enabled))
-  inst execution(RV5StageFpExecutionService(xlen, profile, RV5StageFpScalarTag(Context), ~half_precision: half_precision, ~zfa: zfa_enabled))
+  inst execution(FpExecutionService(xlen, profile, RV5StageFpScalarTag(Context), ~half_precision: half_precision, ~zfa: zfa_enabled))
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result
   issue |> scalar.issue

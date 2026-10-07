@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage's host-side F/D control domains and operand metadata.
+// Checks Shared host-side F/D control domains and operand metadata.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,7 +15,7 @@ import:
   "../../../riscv/isa/zfh.rhm" as zfh
   "../../../riscv/isa/zfa.rhm" as zfa
   "../../../riscv/rtl/instruction-pattern.rhdl" open
-  "../decode/fp-ctrl.rhdl" as controls
+  "../decode.rhdl" as controls
   lib("rhodium/std/decode.rhdl") open
   lib("hardfloat/main.rhdl").MinMaxOperation
 
@@ -58,14 +58,14 @@ def base_min_execution = field_pattern(control_for(controls.RV64FDFloatingPointC
 def base_equal_execution = field_pattern(control_for(controls.RV64FDFloatingPointControlCases, f.FEQ_S), "execution")
 def base_less_execution = field_pattern(control_for(controls.RV64FDFloatingPointControlCases, f.FLT_S), "execution")
 def convert_execution = field_pattern(control_for(controls.RV64FDFloatingPointControlCases, d.FCVT_S_D), "execution")
-def zfhmin_cases = controls.rv5stage_floating_point_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.Zfhmin)
-def zfh_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh)
+def zfhmin_cases = controls.fp_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.Zfhmin)
+def zfh_cases = controls.fp_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh)
 def half_add_execution = field_pattern(control_for(zfh_cases, zfh.FADD_H), "execution")
 def half_load_execution = field_pattern(control_for(zfhmin_cases, zfhmin.FLH), "execution")
-def zfa_f_cases = controls.rv5stage_floating_point_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)
-def zfa_d_half_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)
-def zfa_d_zvfh_instructions = controls.rv5stage_floating_point_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zfa_half_immediate: #true)
-def zfa_d_zvfh_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zfa_half_immediate: #true)
+def zfa_f_cases = controls.fp_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)
+def zfa_d_half_cases = controls.fp_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)
+def zfa_d_zvfh_instructions = controls.fp_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zfa_half_immediate: #true)
+def zfa_d_zvfh_cases = controls.fp_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zfa_half_immediate: #true)
 def fli_registers = field_pattern(control_for(zfa_f_cases, zfa.FLI_S), "registers")
 def fli_execution = field_pattern(control_for(zfa_f_cases, zfa.FLI_S), "execution")
 def minm_execution = field_pattern(control_for(zfa_f_cases, zfa.FMINM_S), "execution")
@@ -88,49 +88,54 @@ check:
   controls.RV64FFloatingPointControlCases.length() ~is 30
   controls.RV32FDFloatingPointControlCases.length() ~is 52
   controls.RV64FDFloatingPointControlCases.length() ~is 62
-  has_domain(zfhmin_cases, controls.rv5stage_floating_point_instructions(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.Zfhmin)) ~is #true
-  has_domain(zfh_cases, controls.rv5stage_floating_point_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh)) ~is #true
+  has_domain(zfhmin_cases, controls.fp_instructions(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.Zfhmin)) ~is #true
+  has_domain(zfh_cases, controls.fp_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh)) ~is #true
   zfhmin_cases.length() ~is 32
   zfh_cases.length() ~is 96
   zfa_f_cases.length() ~is 33
   zfa_d_half_cases.length() ~is 118
-  has_domain(zfa_f_cases, controls.rv5stage_floating_point_instructions(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)) ~is #true
-  has_domain(zfa_d_half_cases, controls.rv5stage_floating_point_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)) ~is #true
+  has_domain(zfa_f_cases, controls.fp_instructions(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)) ~is #true
+  has_domain(zfa_d_half_cases, controls.fp_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)) ~is #true
   has_domain(zfa_d_zvfh_cases, zfa_d_zvfh_instructions) ~is #true
   zfa_d_zvfh_instructions.contains(zfa.FLI_H) ~is #true
   zfa_d_zvfh_instructions.contains(zfa.FMINM_H) ~is #false
-  field_pattern(half_load_execution, "destination_precision").matches(controls.RV5StageFloatPrecision.Half) ~is #true
-  field_pattern(half_add_execution, "unit").matches(controls.RV5StageFloatUnit.Add) ~is #true
-  field_pattern(half_add_execution, "source_precision").matches(controls.RV5StageFloatPrecision.Half) ~is #true
+  field_pattern(half_load_execution, "destination_precision").matches(controls.FloatPrecision.Half) ~is #true
+  field_pattern(half_add_execution, "unit").matches(controls.FloatUnit.Add) ~is #true
+  field_pattern(half_add_execution, "source_precision").matches(controls.FloatPrecision.Half) ~is #true
   field_pattern(fmadd_registers, "uses_integer_rs1").matches(bool.Bool(#false)) ~is #true
   field_pattern(fmadd_registers, "uses_frs1").matches(bool.Bool(#true)) ~is #true
   field_pattern(fmadd_registers, "uses_frs2").matches(bool.Bool(#true)) ~is #true
   field_pattern(fmadd_registers, "uses_frs3").matches(bool.Bool(#true)) ~is #true
-  field_pattern(fmadd_registers, "destination").matches(controls.RV5StageFloatDestination.FloatingPoint) ~is #true
-  field_pattern(fmadd_execution, "unit").matches(controls.RV5StageFloatUnit.FusedMultiplyAdd) ~is #true
+  field_pattern(fmadd_registers, "destination").matches(controls.FloatDestination.FloatingPoint) ~is #true
+  field_pattern(fmadd_execution, "unit").matches(controls.FloatUnit.FusedMultiplyAdd) ~is #true
   field_pattern(fmadd_execution, "uses_rounding_mode").matches(bool.Bool(#true)) ~is #true
   field_pattern(store_registers, "uses_integer_rs1").matches(bool.Bool(#true)) ~is #true
   field_pattern(store_registers, "uses_frs2").matches(bool.Bool(#true)) ~is #true
-  field_pattern(store_registers, "destination").matches(controls.RV5StageFloatDestination.None) ~is #true
-  field_pattern(compare_registers, "destination").matches(controls.RV5StageFloatDestination.Integer) ~is #true
+  field_pattern(store_registers, "destination").matches(controls.FloatDestination.None) ~is #true
+  field_pattern(compare_registers, "destination").matches(controls.FloatDestination.Integer) ~is #true
   field_pattern(base_min_execution, "minmax_operation").matches(MinMaxOperation.MinimumNumber) ~is #true
   field_pattern(base_equal_execution, "comparison_signaling").matches(bool.Bool(#false)) ~is #true
   field_pattern(base_less_execution, "comparison_signaling").matches(bool.Bool(#true)) ~is #true
-  field_pattern(convert_execution, "source_precision").matches(controls.RV5StageFloatPrecision.Double) ~is #true
-  field_pattern(convert_execution, "destination_precision").matches(controls.RV5StageFloatPrecision.Single) ~is #true
+  field_pattern(convert_execution, "source_precision").matches(controls.FloatPrecision.Double) ~is #true
+  field_pattern(convert_execution, "destination_precision").matches(controls.FloatPrecision.Single) ~is #true
   field_pattern(fli_registers, "uses_integer_rs1").matches(bool.Bool(#false)) ~is #true
   field_pattern(fli_registers, "uses_frs1").matches(bool.Bool(#false)) ~is #true
-  field_pattern(fli_registers, "destination").matches(controls.RV5StageFloatDestination.FloatingPoint) ~is #true
-  field_pattern(fli_execution, "unit").matches(controls.RV5StageFloatUnit.Immediate) ~is #true
+  field_pattern(fli_registers, "destination").matches(controls.FloatDestination.FloatingPoint) ~is #true
+  field_pattern(fli_execution, "unit").matches(controls.FloatUnit.Immediate) ~is #true
   field_pattern(minm_execution, "minmax_operation").matches(MinMaxOperation.Minimum) ~is #true
-  field_pattern(round_execution, "unit").matches(controls.RV5StageFloatUnit.RoundToIntegral) ~is #true
+  field_pattern(round_execution, "unit").matches(controls.FloatUnit.RoundToIntegral) ~is #true
   field_pattern(round_execution, "uses_rounding_mode").matches(bool.Bool(#true)) ~is #true
   field_pattern(round_execution, "round_raise_inexact").matches(bool.Bool(#true)) ~is #true
   field_pattern(quiet_execution, "comparison_signaling").matches(bool.Bool(#false)) ~is #true
-  field_pattern(modulo_registers, "destination").matches(controls.RV5StageFloatDestination.Integer) ~is #true
-  field_pattern(modulo_execution, "unit").matches(controls.RV5StageFloatUnit.IntegerModulo) ~is #true
-  controls.rv5stage_floating_point_profile_supported(XLen.X32, FloatingPointProfile.F) ~is #true
-  controls.rv5stage_floating_point_profile_supported(XLen.X64, FloatingPointProfile.D) ~is #true
-  controls.rv5stage_floating_point_profile_supported(XLen.X32, FloatingPointProfile.D) ~is #false
-  controls.rv5stage_floating_point_profile_supported(XLen.X64, FloatingPointProfile.F) ~is #false
-  controls.rv5stage_floating_point_profile_supported(XLen.X64, FloatingPointProfile.None, ~zfa: #true) ~is #false
+  field_pattern(modulo_registers, "destination").matches(controls.FloatDestination.Integer) ~is #true
+  field_pattern(modulo_execution, "unit").matches(controls.FloatUnit.IntegerModulo) ~is #true
+  controls.fp_profile_supported(XLen.X32, FloatingPointProfile.F) ~is #true
+  controls.fp_profile_supported(XLen.X64, FloatingPointProfile.D) ~is #true
+  controls.fp_profile_supported(XLen.X32, FloatingPointProfile.D) ~is #false
+  controls.fp_profile_supported(XLen.X64, FloatingPointProfile.F) ~is #false
+  controls.fp_profile_supported(XLen.X64, FloatingPointProfile.None, ~zfa: #true) ~is #false
+  controls.fp_profile_supported(XLen.X32, FloatingPointProfile.None) ~is #true
+  controls.fp_profile_supported(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true) ~is #true
+  controls.fp_profile_supported(XLen.X64, FloatingPointProfile.None, HalfPrecisionProfile.Zfhmin) ~is #false
+  controls.check_fp_profile(XLen.X32, FloatingPointProfile.D) ~throws ""
+  controls.check_fp_profile(XLen.X64, FloatingPointProfile.None, ~zfa: #true) ~throws ""

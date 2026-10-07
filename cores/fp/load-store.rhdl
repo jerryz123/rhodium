@@ -1,0 +1,52 @@
+#lang rhodium
+/* Shapes raw FP memory operands without owning an LSU, register bank, or retirement. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "types.rhdl".FloatPrecision
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/rtl/floating-point.rhdl").riscv_nan_box
+  lib("hardfloat/main.rhdl").FloatFormat
+  lib("hardfloat/main.rhdl").IEEEFloat
+
+/* NaN-boxes half or single memory bits into the profile's architectural FP register width. */
+fun fp_load_value(profile :: FloatingPointProfile,
+                  precision :: FloatPrecision,
+                  data :: Bits(64)) :~ Bits(floating_point_register_width(profile)):
+  def half = riscv_nan_box(
+    FloatFormat.F16,
+    data[0..16].into(IEEEFloat(FloatFormat.F16)),
+    floating_point_register_width(profile)
+  )
+  def single = riscv_nan_box(
+    FloatFormat.F32,
+    data[0..32].into(IEEEFloat(FloatFormat.F32)),
+    floating_point_register_width(profile)
+  )
+  if profile == FloatingPointProfile.F
+  | mux(precision === FloatPrecision.Half, half, single)
+  | mux_lookup(
+      precision,
+      ~default: data,
+      [[FloatPrecision.Half, half],
+       [FloatPrecision.Single, single]]
+    )
+
+/* Extracts raw low-precision store bits and zero-extends the memory operand to 64 bits. */
+fun fp_store_value(profile :: FloatingPointProfile,
+                   precision :: FloatPrecision,
+                   data :: Bits(floating_point_register_width(profile))) :~ Bits(64):
+  if profile == FloatingPointProfile.F
+  | mux(precision === FloatPrecision.Half,
+        data[0..16].zext(64),
+        data.zext(64))
+  | mux_lookup(
+      precision,
+      ~default: data,
+      [[FloatPrecision.Half, data[0..16].zext(64)],
+       [FloatPrecision.Single, data[0..32].zext(64)]]
+    )
+
+export:
+  fp_load_value
+  fp_store_value

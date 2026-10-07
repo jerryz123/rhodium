@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits CIRCT MLIR for the shared double-profile floating-point register file.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/fp-profile.rhm" open
+  "../../register-file.rhdl" as register_file
+
+def design = embedded.run_elaboration(fun (): register_file.FloatingPointRegisterFile(FloatingPointProfile.D))
+print(emit_circt(design))

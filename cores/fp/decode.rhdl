@@ -1,0 +1,948 @@
+#lang rhodium
+/* Maps canonical FP instruction catalogs to shared register-usage and execution controls. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm" open
+  "../../riscv/rtl/decode.rhdl" open
+  "types.rhdl" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/f.rhm" as f
+  "../../riscv/isa/d.rhm" as d
+  "../../riscv/isa/zfhmin.rhm" as zfhmin
+  "../../riscv/isa/zfh.rhm" as zfh
+  "../../riscv/isa/zfa.rhm" as zfa
+  "../../riscv/model/main.rhm" open
+  "../../riscv/rtl/floating-point.rhdl".FloatSignOperation
+  lib("hardfloat/main.rhdl").MulAddOperation
+  lib("hardfloat/main.rhdl").MinMaxOperation
+  lib("rhodium/std/decode.rhdl") open
+
+/* Derives source registers and destination bank from the canonical instruction description. */
+fun register_control(instruction :: InstructionSpec):
+  def source_names = instruction.operands.filter(~keep: fun (operand): operand.role == "source").map(fun (operand): operand.name)
+  def destination = instruction.operands.find(fun (operand): operand.role == "destination")
+  def destination_control:
+    cond
+    | destination == #false: FloatDestination.None
+    | destination.bank == RegisterBank.Integer: FloatDestination.Integer
+    | ~else: FloatDestination.FloatingPoint
+  pattern(FloatRegisterControl()):
+    uses_integer_rs1: Bool(source_names.contains("rs1"))
+    uses_frs1: Bool(source_names.contains("frs1"))
+    uses_frs2: Bool(source_names.contains("frs2"))
+    uses_frs3: Bool(source_names.contains("frs3"))
+    destination: destination_control
+
+def SingleExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [f.FLW]:
+    unit: FloatUnit.Memory
+    destination_precision: FloatPrecision.Single
+    memory_write: Bool(#false)
+
+  [f.FSW]:
+    unit: FloatUnit.Memory
+    source_precision: FloatPrecision.Single
+    memory_write: Bool(#true)
+
+  [f.FMADD_S]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.MultiplyAdd
+
+  [f.FMSUB_S]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.MultiplySubtract
+
+  [f.FNMSUB_S]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.NegatedMultiplyAdd
+
+  [f.FNMADD_S]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.NegatedMultiplySubtract
+
+  [f.FADD_S]:
+    unit: FloatUnit.Add
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    add_operation: FloatAddOperation.Add
+
+  [f.FSUB_S]:
+    unit: FloatUnit.Add
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    add_operation: FloatAddOperation.Subtract
+
+  [f.FMUL_S]:
+    unit: FloatUnit.Multiply
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+
+  [f.FDIV_S]:
+    unit: FloatUnit.DivideSquareRoot
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    divide_operation: FloatDivideOperation.Divide
+
+  [f.FSQRT_S]:
+    unit: FloatUnit.DivideSquareRoot
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    divide_operation: FloatDivideOperation.SquareRoot
+
+  [f.FSGNJ_S]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    sign_operation: FloatSignOperation.Copy
+
+  [f.FSGNJN_S]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    sign_operation: FloatSignOperation.Negate
+
+  [f.FSGNJX_S]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    sign_operation: FloatSignOperation.Xor
+
+  [f.FMIN_S]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    minmax_operation: MinMaxOperation.MinimumNumber
+
+  [f.FMAX_S]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    minmax_operation: MinMaxOperation.MaximumNumber
+
+  [f.FEQ_S]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Single
+    comparison: FloatComparison.Equal
+    comparison_signaling: Bool(#false)
+
+  [f.FLT_S]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Single
+    comparison: FloatComparison.Less
+    comparison_signaling: Bool(#true)
+
+  [f.FLE_S]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Single
+    comparison: FloatComparison.LessEqual
+    comparison_signaling: Bool(#true)
+
+  [f.FCLASS_S]:
+    unit: FloatUnit.Classify
+    source_precision: FloatPrecision.Single
+
+  [f.FMV_X_W]:
+    unit: FloatUnit.Move
+    source_precision: FloatPrecision.Single
+
+  [f.FMV_W_X]:
+    unit: FloatUnit.Move
+    destination_precision: FloatPrecision.Single
+
+  [f.FCVT_W_S]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#false)
+
+  [f.FCVT_WU_S]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#true)
+
+  [f.FCVT_S_W]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#false)
+
+  [f.FCVT_S_WU]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#true)
+
+def RV64SingleExecutionCases = SingleExecutionCases ++ decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [f.FCVT_L_S]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#false)
+
+  [f.FCVT_LU_S]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#true)
+
+  [f.FCVT_S_L]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#false)
+
+  [f.FCVT_S_LU]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#true)
+
+def DoubleExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [d.FLD]:
+    unit: FloatUnit.Memory
+    destination_precision: FloatPrecision.Double
+    memory_write: Bool(#false)
+
+  [d.FSD]:
+    unit: FloatUnit.Memory
+    source_precision: FloatPrecision.Double
+    memory_write: Bool(#true)
+
+  [d.FMADD_D]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.MultiplyAdd
+
+  [d.FMSUB_D]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.MultiplySubtract
+
+  [d.FNMSUB_D]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.NegatedMultiplyAdd
+
+  [d.FNMADD_D]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.NegatedMultiplySubtract
+
+  [d.FADD_D]:
+    unit: FloatUnit.Add
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    add_operation: FloatAddOperation.Add
+
+  [d.FSUB_D]:
+    unit: FloatUnit.Add
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    add_operation: FloatAddOperation.Subtract
+
+  [d.FMUL_D]:
+    unit: FloatUnit.Multiply
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+
+  [d.FDIV_D]:
+    unit: FloatUnit.DivideSquareRoot
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    divide_operation: FloatDivideOperation.Divide
+
+  [d.FSQRT_D]:
+    unit: FloatUnit.DivideSquareRoot
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    divide_operation: FloatDivideOperation.SquareRoot
+
+  [d.FSGNJ_D]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    sign_operation: FloatSignOperation.Copy
+
+  [d.FSGNJN_D]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    sign_operation: FloatSignOperation.Negate
+
+  [d.FSGNJX_D]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    sign_operation: FloatSignOperation.Xor
+
+  [d.FMIN_D]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    minmax_operation: MinMaxOperation.MinimumNumber
+
+  [d.FMAX_D]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    minmax_operation: MinMaxOperation.MaximumNumber
+
+  [d.FEQ_D]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Double
+    comparison: FloatComparison.Equal
+    comparison_signaling: Bool(#false)
+
+  [d.FLT_D]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Double
+    comparison: FloatComparison.Less
+    comparison_signaling: Bool(#true)
+
+  [d.FLE_D]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Double
+    comparison: FloatComparison.LessEqual
+    comparison_signaling: Bool(#true)
+
+  [d.FCLASS_D]:
+    unit: FloatUnit.Classify
+    source_precision: FloatPrecision.Double
+
+  [d.FCVT_S_D]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+
+  [d.FCVT_D_S]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+
+  [d.FCVT_W_D]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#false)
+
+  [d.FCVT_WU_D]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#true)
+
+  [d.FCVT_D_W]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#false)
+
+  [d.FCVT_D_WU]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#true)
+
+def RV64DoubleExecutionCases = DoubleExecutionCases ++ decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [d.FCVT_L_D]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#false)
+
+  [d.FCVT_LU_D]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#true)
+
+  [d.FCVT_D_L]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#false)
+
+  [d.FCVT_D_LU]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#true)
+
+  [d.FMV_X_D]:
+    unit: FloatUnit.Move
+    source_precision: FloatPrecision.Double
+
+  [d.FMV_D_X]:
+    unit: FloatUnit.Move
+    destination_precision: FloatPrecision.Double
+
+def HalfMinimalExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfhmin.FLH]:
+    unit: FloatUnit.Memory
+    destination_precision: FloatPrecision.Half
+    memory_write: Bool(#false)
+
+  [zfhmin.FSH]:
+    unit: FloatUnit.Memory
+    source_precision: FloatPrecision.Half
+    memory_write: Bool(#true)
+
+  [zfhmin.FMV_X_H]:
+    unit: FloatUnit.Move
+    source_precision: FloatPrecision.Half
+
+  [zfhmin.FMV_H_X]:
+    unit: FloatUnit.Move
+    destination_precision: FloatPrecision.Half
+
+  [zfhmin.FCVT_S_H]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+
+  [zfhmin.FCVT_H_S]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+
+def HalfDoubleExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfhmin.FCVT_D_H]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+
+  [zfhmin.FCVT_H_D]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+
+def HalfExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfh.FMADD_H]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.MultiplyAdd
+
+  [zfh.FMSUB_H]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.MultiplySubtract
+
+  [zfh.FNMSUB_H]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.NegatedMultiplyAdd
+
+  [zfh.FNMADD_H]:
+    unit: FloatUnit.FusedMultiplyAdd
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    fused_operation: MulAddOperation.NegatedMultiplySubtract
+
+  [zfh.FADD_H]:
+    unit: FloatUnit.Add
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+  [zfh.FSUB_H]:
+    unit: FloatUnit.Add
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    add_operation: FloatAddOperation.Subtract
+
+  [zfh.FMUL_H]:
+    unit: FloatUnit.Multiply
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+
+  [zfh.FDIV_H]:
+    unit: FloatUnit.DivideSquareRoot
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+  [zfh.FSQRT_H]:
+    unit: FloatUnit.DivideSquareRoot
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    divide_operation: FloatDivideOperation.SquareRoot
+
+  [zfh.FSGNJ_H]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+  [zfh.FSGNJN_H]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    sign_operation: FloatSignOperation.Negate
+  [zfh.FSGNJX_H]:
+    unit: FloatUnit.SignInject
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    sign_operation: FloatSignOperation.Xor
+
+  [zfh.FMIN_H]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    minmax_operation: MinMaxOperation.MinimumNumber
+  [zfh.FMAX_H]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    minmax_operation: MinMaxOperation.MaximumNumber
+
+  [zfh.FEQ_H]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Half
+    comparison: FloatComparison.Equal
+    comparison_signaling: Bool(#false)
+  [zfh.FLT_H]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Half
+    comparison: FloatComparison.Less
+    comparison_signaling: Bool(#true)
+  [zfh.FLE_H]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Half
+    comparison: FloatComparison.LessEqual
+    comparison_signaling: Bool(#true)
+
+  [zfh.FCLASS_H]:
+    unit: FloatUnit.Classify
+    source_precision: FloatPrecision.Half
+
+  [zfh.FCVT_W_H]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+  [zfh.FCVT_WU_H]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#true)
+
+  [zfh.FCVT_H_W]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+  [zfh.FCVT_H_WU]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#true)
+
+def RV64HalfExecutionCases = HalfExecutionCases ++ decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfh.FCVT_L_H]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+  [zfh.FCVT_LU_H]:
+    unit: FloatUnit.Convert
+    source_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#true)
+
+  [zfh.FCVT_H_L]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+  [zfh.FCVT_H_LU]:
+    unit: FloatUnit.Convert
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    integer_width: FloatIntegerWidth.Long
+    integer_unsigned: Bool(#true)
+
+def SingleZfaExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfa.FLI_S]:
+    unit: FloatUnit.Immediate
+    destination_precision: FloatPrecision.Single
+  [zfa.FMINM_S]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    minmax_operation: MinMaxOperation.Minimum
+  [zfa.FMAXM_S]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    minmax_operation: MinMaxOperation.Maximum
+  [zfa.FROUND_S]:
+    unit: FloatUnit.RoundToIntegral
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    round_raise_inexact: Bool(#false)
+  [zfa.FROUNDNX_S]:
+    unit: FloatUnit.RoundToIntegral
+    source_precision: FloatPrecision.Single
+    destination_precision: FloatPrecision.Single
+    uses_rounding_mode: Bool(#true)
+    round_raise_inexact: Bool(#true)
+  [zfa.FLEQ_S]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Single
+    comparison: FloatComparison.LessEqual
+    comparison_signaling: Bool(#false)
+  [zfa.FLTQ_S]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Single
+    comparison: FloatComparison.Less
+    comparison_signaling: Bool(#false)
+
+def DoubleZfaExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfa.FLI_D]:
+    unit: FloatUnit.Immediate
+    destination_precision: FloatPrecision.Double
+  [zfa.FMINM_D]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    minmax_operation: MinMaxOperation.Minimum
+  [zfa.FMAXM_D]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    minmax_operation: MinMaxOperation.Maximum
+  [zfa.FROUND_D]:
+    unit: FloatUnit.RoundToIntegral
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    round_raise_inexact: Bool(#false)
+  [zfa.FROUNDNX_D]:
+    unit: FloatUnit.RoundToIntegral
+    source_precision: FloatPrecision.Double
+    destination_precision: FloatPrecision.Double
+    uses_rounding_mode: Bool(#true)
+    round_raise_inexact: Bool(#true)
+  [zfa.FCVTMOD_W_D]:
+    unit: FloatUnit.IntegerModulo
+    source_precision: FloatPrecision.Double
+    integer_width: FloatIntegerWidth.Word
+    integer_unsigned: Bool(#false)
+  [zfa.FLEQ_D]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Double
+    comparison: FloatComparison.LessEqual
+    comparison_signaling: Bool(#false)
+  [zfa.FLTQ_D]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Double
+    comparison: FloatComparison.Less
+    comparison_signaling: Bool(#false)
+
+def HalfZfaExecutionCases = decode_groups(
+  FloatExecutionControl(),
+  ~input: instruction_pattern
+):
+  [zfa.FLI_H]:
+    unit: FloatUnit.Immediate
+    destination_precision: FloatPrecision.Half
+  [zfa.FMINM_H]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    minmax_operation: MinMaxOperation.Minimum
+  [zfa.FMAXM_H]:
+    unit: FloatUnit.MinMax
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    minmax_operation: MinMaxOperation.Maximum
+  [zfa.FROUND_H]:
+    unit: FloatUnit.RoundToIntegral
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    round_raise_inexact: Bool(#false)
+  [zfa.FROUNDNX_H]:
+    unit: FloatUnit.RoundToIntegral
+    source_precision: FloatPrecision.Half
+    destination_precision: FloatPrecision.Half
+    uses_rounding_mode: Bool(#true)
+    round_raise_inexact: Bool(#true)
+  [zfa.FLEQ_H]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Half
+    comparison: FloatComparison.LessEqual
+    comparison_signaling: Bool(#false)
+  [zfa.FLTQ_H]:
+    unit: FloatUnit.Compare
+    source_precision: FloatPrecision.Half
+    comparison: FloatComparison.Less
+    comparison_signaling: Bool(#false)
+
+/* Joins metadata-derived register controls with exact-one FP execution rows. */
+fun compose_floating_point_control_cases(instructions :: List.of(InstructionSpec), execution_cases :: List.of(DecodeCase)):
+  for List (instruction in instructions):
+    block:
+      def input = instruction_pattern(instruction)
+      DecodeCase(
+        input,
+        pattern(FloatingPointControl()):
+          registers: register_control(instruction)
+          execution: component_output(execution_cases, input)
+      )
+
+def RV32FFloatingPointInstructions = f.RV32FInstructions
+def RV64FFloatingPointInstructions = f.RV64FInstructions
+def RV32FDFloatingPointInstructions = f.RV32FInstructions ++ d.RV32DInstructions
+def RV64FDFloatingPointInstructions = f.RV64FInstructions ++ d.RV64DInstructions
+def RV32FFloatingPointControlCases = compose_floating_point_control_cases(RV32FFloatingPointInstructions, SingleExecutionCases)
+def RV64FFloatingPointControlCases = compose_floating_point_control_cases(RV64FFloatingPointInstructions, RV64SingleExecutionCases)
+def RV32FDFloatingPointControlCases = compose_floating_point_control_cases(RV32FDFloatingPointInstructions, SingleExecutionCases ++ DoubleExecutionCases)
+def RV64FDFloatingPointControlCases = compose_floating_point_control_cases(RV64FDFloatingPointInstructions, RV64SingleExecutionCases ++ RV64DoubleExecutionCases)
+def RV32FFloatingPointDecode = ValidDecodeGen(RV32FFloatingPointControlCases)
+def RV64FFloatingPointDecode = ValidDecodeGen(RV64FFloatingPointControlCases)
+def RV32FDFloatingPointDecode = ValidDecodeGen(RV32FDFloatingPointControlCases)
+def RV64FDFloatingPointDecode = ValidDecodeGen(RV64FDFloatingPointControlCases)
+
+/* Selects minimal/full half-precision catalogs, adding D conversions and XLEN-specific integer
+   forms. */
+fun fp_half_instructions(xlen :: XLen, profile :: FloatingPointProfile, half_precision :: HalfPrecisionProfile) :: List.of(InstructionSpec):
+  cond
+  | half_precision == HalfPrecisionProfile.None: []
+  | half_precision == HalfPrecisionProfile.Zfhmin:
+      zfhmin.ZfhminInstructions ++ if profile == FloatingPointProfile.D | zfhmin.ZfhminDInstructions | []
+  | ~else:
+      (if xlen == XLen.X32 | zfh.RV32ZfhInstructions | zfh.RV64ZfhInstructions) ++ (
+        if profile == FloatingPointProfile.D | zfhmin.ZfhminDInstructions | []
+      )
+
+/* Selects matching half-precision physical execution rows for the scalar profile. */
+fun fp_half_execution_cases(xlen :: XLen, profile :: FloatingPointProfile, half_precision :: HalfPrecisionProfile) :: List.of(DecodeCase):
+  cond
+  | half_precision == HalfPrecisionProfile.None: []
+  | half_precision == HalfPrecisionProfile.Zfhmin:
+      HalfMinimalExecutionCases ++ if profile == FloatingPointProfile.D | HalfDoubleExecutionCases | []
+  | ~else:
+      HalfMinimalExecutionCases ++ (
+        if xlen == XLen.X32 | HalfExecutionCases | RV64HalfExecutionCases
+      ) ++ if profile == FloatingPointProfile.D | HalfDoubleExecutionCases | []
+
+/* Selects Zfa catalogs by precision, optionally admitting FLI.H without full scalar Zfh. */
+fun fp_zfa_instructions(profile :: FloatingPointProfile,
+                        half_precision :: HalfPrecisionProfile,
+                        enabled :: Boolean,
+                        ~half_immediate: half_immediate_enabled :: Boolean = #false) :: List.of(InstructionSpec):
+  if !enabled
+  | []
+  | zfa.ZfaSingleInstructions ++ (
+      if profile == FloatingPointProfile.D | zfa.ZfaDoubleInstructions | []
+    ) ++ (
+      if half_precision == HalfPrecisionProfile.Zfh | zfa.ZfaHalfInstructions | (if half_immediate_enabled | [zfa.FLI_H] | [])
+    )
+
+/* Selects the Zfa execution relation matching the enabled precision/immediate catalog. */
+fun fp_zfa_execution_cases(profile :: FloatingPointProfile,
+                           half_precision :: HalfPrecisionProfile,
+                           enabled :: Boolean,
+                           ~half_immediate: half_immediate_enabled :: Boolean = #false) :: List.of(DecodeCase):
+  if !enabled
+  | []
+  | SingleZfaExecutionCases ++ (
+      if profile == FloatingPointProfile.D | DoubleZfaExecutionCases | []
+    ) ++ (
+      if half_precision == HalfPrecisionProfile.Zfh | HalfZfaExecutionCases | (if half_immediate_enabled | [HalfZfaExecutionCases[0]] | [])
+    )
+
+/* Combines base FP, half-precision, and Zfa instruction catalogs for the chosen specialization. */
+fun fp_instructions(xlen :: XLen,
+                    profile :: FloatingPointProfile,
+                    half_precision :: HalfPrecisionProfile,
+                    ~zfa: zfa_enabled :: Boolean = #false,
+                    ~zfa_half_immediate: zfa_half_immediate_enabled :: Boolean = #false) :: List.of(InstructionSpec):
+  def base = cond
+  | profile == FloatingPointProfile.None: []
+  | xlen == XLen.X32: RV32FFloatingPointInstructions
+  | ~else: RV64FDFloatingPointInstructions
+  base ++ fp_half_instructions(xlen, profile, half_precision) ++ fp_zfa_instructions(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
+
+/* Builds complete FP controls from selected catalogs and matching execution relations. */
+fun fp_control_cases(xlen :: XLen,
+                     profile :: FloatingPointProfile,
+                     half_precision :: HalfPrecisionProfile,
+                     ~zfa: zfa_enabled :: Boolean = #false,
+                     ~zfa_half_immediate: zfa_half_immediate_enabled :: Boolean = #false) :: List.of(DecodeCase):
+  def base_execution = cond
+  | profile == FloatingPointProfile.None: []
+  | xlen == XLen.X32: SingleExecutionCases
+  | ~else: RV64SingleExecutionCases ++ RV64DoubleExecutionCases
+  def execution = base_execution ++ fp_half_execution_cases(xlen, profile, half_precision) ++ fp_zfa_execution_cases(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
+  compose_floating_point_control_cases(
+    fp_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zfa_half_immediate_enabled),
+    execution
+  )
+
+/* Validates scalar FP selection and emits its combined register/execution decode; disabled FP
+   never matches. */
+circuit FloatingPointInstructionDecoder(
+  xlen :: XLen,
+  profile :: FloatingPointProfile,
+  half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+  ~zfa: zfa_enabled :: Boolean = #false,
+  ~zfa_half_immediate: zfa_half_immediate_enabled :: Boolean = #false
+):
+  check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  input instruction: Bits(32)
+  output valid: Bool
+  output control: FloatingPointControl()
+
+  def disabled = DecodeResult(FloatingPointControl()):
+    valid: Bool(#false)
+    value: dont_care(FloatingPointControl())
+  def decoded :: DecodeResult(FloatingPointControl()):
+    if profile == FloatingPointProfile.None
+    | disabled
+    | ValidDecodeGen(
+        fp_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zfa_half_immediate_enabled)
+      )(instruction)
+  valid <== decoded.valid
+  control <== decoded.value
+
+export:
+  fp_profile_supported
+  check_fp_profile
+  FloatPrecision
+  FloatUnit
+  FloatDestination
+  FloatAddOperation
+  FloatDivideOperation
+  FloatComparison
+  FloatIntegerWidth
+  FloatRegisterControl
+  FloatExecutionControl
+  FloatingPointControl
+  SingleExecutionCases
+  RV64SingleExecutionCases
+  DoubleExecutionCases
+  RV64DoubleExecutionCases
+  HalfMinimalExecutionCases
+  HalfDoubleExecutionCases
+  HalfExecutionCases
+  RV64HalfExecutionCases
+  SingleZfaExecutionCases
+  DoubleZfaExecutionCases
+  HalfZfaExecutionCases
+  compose_floating_point_control_cases
+  RV32FFloatingPointInstructions
+  RV64FFloatingPointInstructions
+  RV32FDFloatingPointInstructions
+  RV64FDFloatingPointInstructions
+  RV32FFloatingPointControlCases
+  RV64FFloatingPointControlCases
+  RV32FDFloatingPointControlCases
+  RV64FDFloatingPointControlCases
+  RV32FFloatingPointDecode
+  RV64FFloatingPointDecode
+  RV32FDFloatingPointDecode
+  RV64FDFloatingPointDecode
+  fp_half_instructions
+  fp_half_execution_cases
+  fp_zfa_instructions
+  fp_zfa_execution_cases
+  fp_instructions
+  fp_control_cases
+  FloatingPointInstructionDecoder

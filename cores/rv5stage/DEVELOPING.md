@@ -42,7 +42,7 @@ completion adaptation and instruction/uncached integration.
 | [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
 | [`data-port-arbiter.rhdl`](data-port-arbiter.rhdl) | Core-first physical core/PTW arbitration, paired L1D index selection, and origin-tagged response routing before PMA/uncached routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in XLEN-wide Zve/V WB-launched sequencer, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
-| [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
+| [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | Scalar FP payloads, FPR hazards, LSU bridges, and retirement adaptation over shared [`cores/fp/`](../fp/DEVELOPING.md) components |
 | [`csr.rhdl`](csr.rhdl) | Projects RV5Stage configuration and decode controls into the shared CSR/trap service; `core.rhdl` owns WB authorization and retirement |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |

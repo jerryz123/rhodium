@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../fp/bundles.rhdl" open
   lib("cores/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
@@ -12,12 +13,11 @@ import:
   "../integer-execution.rhdl" open
   "../../simd-alu.rhdl".SimdElementWidth
   "../../divider.rhdl" open
-  "../fp/bundles.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "register-file.rhdl" open
   "../decode/vector-ctrl.rhdl".VectorFloatResult
   "../register-file.rhdl".RegisterFileWrite
-  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../../fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
@@ -42,7 +42,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   interface replay(Pulse(), ~role: consumer)
   input(reserved_write, fixed_fp_return): Bool
   output compute_writeback: Bool
-  interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), RV5StageVectorMultiplyTag(vector_completion_slots))), ~role: consumer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), RV5StageVectorDivideTag(vector_completion_slots))), ~role: consumer)
   interface drained(Valid(RV5StageVectorDrained(xlen, vlen, vector_completion_slots)), ~role: producer)

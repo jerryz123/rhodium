@@ -30,7 +30,7 @@ import:
   "decode/system-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
   "decode/hint-ctrl.rhdl" open
-  "decode/fp-ctrl.rhdl" open
+  "../fp/types.rhdl" open
   "mmu/protocol.rhdl" open
   "vector/precheck.rhdl".RV5StageVectorFootprintGeometry
   "register-file.rhdl" open
@@ -123,7 +123,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   multiply_control: RiscvMultiplyControl()
   divide_control: RiscvDivideControl()
   floating_point_valid: Bool
-  floating_point_control: RV5StageFloatingPointControl()
+  floating_point_control: FloatingPointControl()
   floating_point_rounding_mode_valid: Bool
   floating_point_rounding_mode: RoundingMode
   writeback_enable: Bool

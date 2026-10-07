@@ -1,113 +1,72 @@
-<!-- Guides contributors through RV5Stage floating-point ownership and validation. -->
+<!-- Routes RV5Stage scalar FP ownership and shared-component integration checks. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing RV5Stage floating point
 
-Read the package [README](README.md) for supported profiles, flow contracts,
-destination ownership, and scalar-pipeline integration. This guide owns the FP
-implementation structure, dependency boundary, and focused validation.
+Read [README.md](README.md) for scalar ports, hazards, and retirement semantics.
+This guide owns the architectural wrapper, not the reusable numeric components;
+their contributor guide is [`cores/fp/DEVELOPING.md`](../../fp/DEVELOPING.md).
 
-## Architecture and dependency boundary
+## Architecture and ownership
 
-The package may depend on RV5Stage FP controls, the RISC-V FP model and
-RTL helpers, HardFloat, and public Rhodium libraries. It must not import
-`core.rhdl`, caches, the MMU, backends, examples, or tests. The decode package
-may import [`types.rhdl`](types.rhdl), but not FP execution modules.
+This package imports shared FP types, operand transactions, execution, and
+register storage from `cores/fp/`. It may also use RISC-V architectural helpers,
+public Rhodium libraries, Flow, and passive observation declarations. It must
+not import caches, MMU implementation, `core.rhdl`, backends, simulators, or
+tests. No shared FP component imports this wrapper. See the repository
+[package graph](../../../rhodium/DEVELOPING.md).
 
-Instruction selection remains in
-[`../decode/fp-ctrl.rhdl`](../decode/fp-ctrl.rhdl), while
-[`../core.rhdl`](../core.rhdl) owns dispatch, scalar-pipeline integration,
-memory requests, and integer-result completion. Cache, MMU, and uncached paths
-import `types.rhdl` only to preserve FP precision metadata.
-
-The scalar adapter declares passive post-boxing load-write taps through
-`cores/cosim-source.rhm`. The compilation-selected parent observer combines
-them with issue/completion ownership; neither the adapter nor its datapaths import
-simulator code or instantiate hooks during ordinary elaboration.
+`core.rhdl` owns WB authorization, issue arbitration, physical write calendars,
+memory requests, and integer-result retirement. The scalar wrapper owns FPR
+reservations/hazards, load boxing, operand snapshots, completion adaptation,
+and architectural-state update events. Canonical FP instruction mappings live
+in [`cores/fp/decode.rhdl`](../../fp/decode.rhdl); the named
+[`core-ctrl.rhdl`](../decode/core-ctrl.rhdl) joins them with scalar columns.
 
 ## Implementation map
 
-| File | Ownership |
+| File | Responsibility |
 |---|---|
-| [`types.rhdl`](types.rhdl) | Precision, operation, and execution-control types shared by scalar/vector decode and memory paths |
-| [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion/LSU payloads and opaque-tag operand requests/results |
-| [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write architectural FP register bank with same-cycle write forwarding |
-| [`datapath.rhdl`](datapath.rhdl) | Fixed-latency F, D, optional half-precision, and Zfa execution |
-| [`div-sqrt.rhdl`](div-sqrt.rhdl) | HardFloat division and square root retaining terminal arithmetic state until accepted |
-| [`execute.rhdl`](execute.rhdl) | Operand-only service with scheduled fixed returns or a standalone elastic adapter |
-| [`pipeline.rhdl`](pipeline.rhdl) | Scalar register state, scoreboard, service tag adaptation, LSU bridges, and architectural completion |
+| [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion, scalar execution owner, and LSU payloads |
+| [`pipeline.rhdl`](pipeline.rhdl) | FPR scoreboard, load/store bridges, vector FPR reservation/write, and completion/state updates |
+| [`../../fp/`](../../fp/DEVELOPING.md) | Shared types/decode, tagged arithmetic service, and 3R2W register file |
 
-Keep `types.rhdl` dependency-light because scalar/vector decode and memory paths import it.
-The payload definitions may depend on decode controls; datapaths and the
-register file feed the pipeline composition. Keep profile specialization at
-host elaboration so disabled formats and units do not become runtime hardware.
+`RV5StageFpScalar` exposes operand execution ports. `RV5StageFpPipeline`
+composes it with an elastic service for standalone use; the core instead
+shares a scheduled service with vector clients. Scalar context/destination/rd
+belong only to the wrapper's opaque execution tag.
 
 ## Change workflow
 
-1. Put shared precision and physical execution controls in `types.rhdl` and cross-boundary payloads in
-   `bundles.rhdl`. Preserve per-operand precision through retagging; the fixed
-   D lane owns exact narrow-operand promotion and its exception flags.
-2. Keep combinational format operations in `datapath.rhdl`; put retained or
-   variable-latency divide/square-root behavior in `div-sqrt.rhdl`.
-3. Keep lane composition in `execute.rhdl`. Carry caller-selected tags opaquely
-   through fixed and variable-latency paths; do not reintroduce scalar register
-   numbers into their request/result payloads. `pipeline.rhdl` alone adapts
-   scalar register state, scoreboarding, and architectural completion. Shared
-   clients arbitrate before the service and demultiplex returned ownership tags.
-4. Update the package README when supported profiles or observable flow,
-   ownership, timing, or failure contracts change.
-5. Preserve the common architectural enabled/disabled interface shape used by
-   `core.rhdl`. The first read port serves scalar issue or, when issue is idle,
-   the WB vector-scalar snapshot address; keep that snapshot read-only and
-   preserve the common enabled/disabled 64-bit output shape.
-   The vector reservation/write pair belongs to `pipeline.rhdl`: reserve an FPR
-   before vector launch, block scalar FP work while it is pending, and clear it
-   only with the authorized vector WB write. Do not route this raw-bit movement
-   through the operand execution service or create completion-to-reservation
-   combinational feedback.
-   Keep the standalone adapter-plus-service composition for independent users.
+1. Keep compute and deferred-load admission at authorized WB. Rejected work
+   must replay without retirement, scoreboard reservations, or arithmetic effects.
+2. Preserve the enabled/disabled interface shape. Read port 0 serves scalar
+   issue or the read-only WB vector-scalar snapshot while issue is idle.
+3. Keep vector FPR reservation/write separate from arithmetic. Reserve before
+   macro admission, exclude scalar FP work until completion, and clear only
+   on the authorized write. Never feed that write back into its own admission.
+4. Preserve load-hit/deferred-load write exclusion, NaN boxing, and FS/flag
+   updates. Speculative store probes are not accepted work and cannot hold
+   architectural trap/interrupt drain.
+5. Preserve passive post-boxing load-write taps through `cosim-source.rhm`.
+   The selected parent observer owns capture; functional RTL imports no simulator.
 
-The core selects `~scheduled_writeback: #true`: fixed operations return exactly
-two cycles after service acceptance and must write that cycle. The common
-result is Decoupled so an unaccepted variable result cannot lock out an arriving
-fixed result. The caller reserves the destination port before service launch.
-The service stops admitting fixed work after seven cycles of a blocked variable
-result, drains already-launched fixed work, and lets the variable result advance.
-The default standalone service retains fixed-response credits and an Irrevocable
-output for callers without a write schedule. Divide/square-root wrappers allow
-one active variable operation, hold its tag and terminal-valid state, and do not
-launch another operation until its arithmetic result is accepted.
+Keep shared arithmetic changes under its owner and update the public README
+when wrapper semantics change. Generated output remains untracked.
 
 ## Focused validation
 
-From the repository root, run the host owners through the persistent cache:
-
 ```sh
-tools/run-racket-tests.sh \
-  cores/rv5stage/tests/fp-ctrl-test.rhm \
-  cores/rv5stage/tests/fp-pipeline-test.rhm \
-  cores/rv5stage/tests/rv5stage-test.rhm
+tools/run-racket-tests.sh cores/fp/tests/decode-test.rhm \
+  cores/rv5stage/tests/fp-pipeline-test.rhm cores/rv5stage/tests/core-ctrl-test.rhm
+FIXTURES='rv5stage-fp-pipeline rv5stage-core-rv32f rv5stage-core-rv64d' \
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
-The host control-table test owns decoder specialization. Use the
-`rv5stage-fp-register-file` and `rv5stage-fp-pipeline` CIRCT fixtures for their
-cycle-visible boundaries. Include `rv5stage-core-rv32f` and
-`rv5stage-core-rv64d` when imports, payloads, profile specialization, or
-scalar-core integration change. Run `make check-boundaries` after moving
-modules or changing dependency direction. The backend fixture
-[`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) owns runner modes and
-artifact policy.
-
-For shared execution changes, select `rv5stage-fp-service` and
-`rv5stage-fp-scheduled` together with
-`rv5stage-fp-pipeline`, `rv5stage-core-rv32f`, and `rv5stage-core-rv64d`.
-The two-client fixture in `../tests/fp-service-fixture.rhdl` uses ordinary Flow
-arbitration and owner-tag routing around one service. Its independent SV
-scoreboard checks overlapping/reused client tags, fixed one-per-cycle issue,
-mixed fixed/divide/sqrt reordering, rounding and flags, held results,
-simultaneous issue/completion, bounded drain, and reset with pending work.
-The scalar fixtures retain F/D/Zfh/Zfa arithmetic, FPR hazards, LSU bridges,
-WB authorization, and flag retirement coverage.
-Include `rv5stage-vector-fp` when changing shared scalar/vector arbitration,
-retagging, flag-update composition, vector FPR reservation, or scalar/vector
-movement in the core.
+These preserve F/D/Zfh/Zfa arithmetic integration, FPR hazards, LSU bridges,
+WB authorization, and flag updates. Add `rv5stage-vector-fp` for shared service
+arbitration, retagging, vector reservation, or scalar/vector movement changes.
+Run the [shared FP fixtures](../../fp/DEVELOPING.md#validation) for arithmetic,
+service, or register-file changes. Moves/import changes require
+`make check-boundaries`; fixture moves also require `make ci-plan-test`.
+The [CIRCT guide](../../../tools/testing/circt/DEVELOPING.md) owns runner modes.

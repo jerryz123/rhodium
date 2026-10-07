@@ -35,7 +35,7 @@ execution and retirement behavior.
 | [`system-ctrl.rhdl`](system-ctrl.rhdl) | Zicsr operation, ECALL, EBREAK, WFI, MRET, SRET, and decode-only WRS.NTO/WRS.STO actions |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |
 | [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
-| [`fp-ctrl.rhdl`](fp-ctrl.rhdl) | FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
+| [`../../fp/decode.rhdl`](../../fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
 | [`vector-ctrl.rhdl`](vector-ctrl.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
 | [`../../../riscv/rtl/decode.rhdl`](../../../riscv/rtl/decode.rhdl) | Catalog-independent RISC-V case construction, exclusion, exact-pattern comparison, and component lookup helpers |
 | [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, scalar controls for FP rows, profile validation, and the integrated decoder circuit |
@@ -67,13 +67,13 @@ rebinding by name. Memory width is the shared
 | Need | Start here |
 |---|---|
 | Integrated bundle, selected core catalogs, and final decoder | [`core-ctrl.rhdl`](core-ctrl.rhdl) |
-| F/D/Zfhmin/Zfh catalogs and FP register/execution controls | [`fp-ctrl.rhdl`](fp-ctrl.rhdl) |
+| F/D/Zfhmin/Zfh/Zfa catalogs and shared FP controls | [`../../fp/decode.rhdl`](../../fp/decode.rhdl) |
 | Shared instruction-pattern conversion | [`../../../riscv/rtl/instruction-pattern.rhdl`](../../../riscv/rtl/instruction-pattern.rhdl) |
 | ISA catalogs and profile enums | [`../../../riscv/isa/`](../../../riscv/isa/) |
 | Pipeline use of decoded controls | [`../core.rhdl`](../core.rhdl) |
 | Integer domain, columns, masks, and bundle shape | [`../tests/core-ctrl-test.rhm`](../tests/core-ctrl-test.rhm) |
 | Zicbop override, controls, and core event boundary | [`../tests/zicbop-test.rhm`](../tests/zicbop-test.rhm) |
-| FP domains, metadata, profiles, and single-decode structure | [`../tests/fp-ctrl-test.rhm`](../tests/fp-ctrl-test.rhm) |
+| FP domains, metadata, and component profiles | [`../../fp/tests/decode-test.rhm`](../../fp/tests/decode-test.rhm) |
 
 ## Focused validation
 
@@ -108,13 +108,13 @@ wrapper:
 ```sh
 tools/run-racket-tests.sh \
   cores/rv5stage/tests/core-ctrl-test.rhm \
-  cores/rv5stage/tests/fp-ctrl-test.rhm
+  cores/fp/tests/decode-test.rhm
 ```
 
 The core-control test checks exact RV32/RV64 domains, representative columns,
 nested care masks, bundle shape, and design verification. The FP-control test
 checks F/D and optional Zfhmin/Zfh composition, metadata-derived register
-controls, representative execution controls, supported profiles, and the
-single-decoder invariant. Use the parent
+controls, representative execution controls, and supported component profiles.
+The core-control owner checks the single-decoder invariant. Use the parent
 [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) for pipeline and backend
 coverage.

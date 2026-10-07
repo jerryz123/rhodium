@@ -1,9 +1,9 @@
 #lang rhodium
-/* Implements RV5Stage's three-read, two-write floating-point register file. */
+/* Implements a shared three-read, two-write floating-point register file. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/fp-profile.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
 
 /* Names one architectural FPR and its full-width, already boxed write value. */
@@ -12,8 +12,8 @@ bundle FloatingPointRegisterWrite(profile :: FloatingPointProfile):
   data: Bits(floating_point_register_width(profile))
 
 /* Provides three combinational reads and two writes over 32 unreset architectural FPRs.
-   Completion scheduling must keep simultaneous destinations distinct. */
-sync_circuit RV5StageFloatingPointRegisterFile(profile :: FloatingPointProfile):
+   Port 1 wins colliding writes, both in storage and same-cycle forwarding. */
+sync_circuit FloatingPointRegisterFile(profile :: FloatingPointProfile):
   def width = floating_point_register_width(profile)
 
   input read_address_1: Bits(5)
@@ -51,4 +51,4 @@ sync_circuit RV5StageFloatingPointRegisterFile(profile :: FloatingPointProfile):
 
 export:
   FloatingPointRegisterWrite
-  RV5StageFloatingPointRegisterFile
+  FloatingPointRegisterFile

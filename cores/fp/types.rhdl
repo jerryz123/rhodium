@@ -1,22 +1,22 @@
 #lang rhodium
-/* Defines floating-point execution controls shared by RV5Stage scalar and vector decode. */
+/* Defines shared FP precision, register-usage, and numeric execution controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
+  "../../riscv/rtl/floating-point.rhdl".FloatSignOperation
   lib("hardfloat/main.rhdl").MulAddOperation
   lib("hardfloat/main.rhdl").MinMaxOperation
   lib("hardfloat/main.rhdl").Estimate7Operation
 
 /* Selects operand or result IEEE precision independently of architectural register width. */
-hardware_enum RV5StageFloatPrecision:
+hardware_enum FloatPrecision:
   Half
   Single
   Double
 
 /* Routes a decoded FP operation to memory, arithmetic, conversion, or bit-manipulation
    execution. */
-hardware_enum RV5StageFloatUnit:
+hardware_enum FloatUnit:
   Memory
   FusedMultiplyAdd
   Add
@@ -34,24 +34,24 @@ hardware_enum RV5StageFloatUnit:
   IntegerModulo
 
 /* Selects addition or subtraction in the shared format datapath. */
-hardware_enum RV5StageFloatAddOperation:
+hardware_enum FloatAddOperation:
   Add
   Subtract
 
 /* Selects division or square root in a variable-latency lane. */
-hardware_enum RV5StageFloatDivideOperation:
+hardware_enum FloatDivideOperation:
   Divide
   SquareRoot
 
 /* Selects the Boolean comparison result after HardFloat evaluates ordering. */
-hardware_enum RV5StageFloatComparison:
+hardware_enum FloatComparison:
   Equal
   NotEqual
   Less
   LessEqual
 
 /* Selects integer conversion width before XLEN normalization. */
-hardware_enum RV5StageFloatIntegerWidth:
+hardware_enum FloatIntegerWidth:
   Byte
   Half
   Word
@@ -59,29 +59,51 @@ hardware_enum RV5StageFloatIntegerWidth:
 
 /* Carries numerical operation controls independently of register hazards and destination
    ownership. */
-bundle RV5StageFloatExecutionControl():
-  unit: RV5StageFloatUnit
-  source_precision: RV5StageFloatPrecision
-  destination_precision: RV5StageFloatPrecision
+bundle FloatExecutionControl():
+  unit: FloatUnit
+  source_precision: FloatPrecision
+  destination_precision: FloatPrecision
   uses_rounding_mode: Bool
   memory_write: Bool
   fused_operation: MulAddOperation
-  add_operation: RV5StageFloatAddOperation
-  divide_operation: RV5StageFloatDivideOperation
+  add_operation: FloatAddOperation
+  divide_operation: FloatDivideOperation
   sign_operation: FloatSignOperation
   minmax_operation: MinMaxOperation
   estimate_operation: Estimate7Operation
-  comparison: RV5StageFloatComparison
+  comparison: FloatComparison
   comparison_signaling: Bool
   round_raise_inexact: Bool
-  integer_width: RV5StageFloatIntegerWidth
+  integer_width: FloatIntegerWidth
   integer_unsigned: Bool
 
+/* Identifies whether FP instruction results target no register, a GPR, or an FPR. */
+hardware_enum FloatDestination:
+  None
+  Integer
+  FloatingPoint
+
+/* Captures FP/GPR source-use and destination bank from instruction operand metadata. */
+bundle FloatRegisterControl():
+  uses_integer_rs1: Bool
+  uses_frs1: Bool
+  uses_frs2: Bool
+  uses_frs3: Bool
+  destination: FloatDestination
+
+/* Pairs architectural register usage with physical FP execution controls. */
+bundle FloatingPointControl():
+  registers: FloatRegisterControl()
+  execution: FloatExecutionControl()
+
 export:
-  RV5StageFloatPrecision
-  RV5StageFloatUnit
-  RV5StageFloatAddOperation
-  RV5StageFloatDivideOperation
-  RV5StageFloatComparison
-  RV5StageFloatIntegerWidth
-  RV5StageFloatExecutionControl
+  FloatDestination
+  FloatRegisterControl
+  FloatingPointControl
+  FloatPrecision
+  FloatUnit
+  FloatAddOperation
+  FloatDivideOperation
+  FloatComparison
+  FloatIntegerWidth
+  FloatExecutionControl

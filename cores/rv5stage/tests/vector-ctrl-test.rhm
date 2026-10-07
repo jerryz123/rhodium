@@ -10,7 +10,7 @@ import:
   "../decode/vector-ctrl.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl".RV5StageWritebackSelect
-  "../fp/types.rhdl" open
+  "../../fp/types.rhdl" open
   "../vector/bundles.rhdl" open
   "../../simd-alu.rhdl" open
   "../../../rhodium/core/main.rhm" open
@@ -363,28 +363,28 @@ check:
   value(control(VFSLIDE1DOWN_VF), "slide") ~is 1
 
 for (instruction in VectorFloatingPointAddSubtractInstructions):
-  check value(field(control(instruction), "fp_execution"), "unit") ~is RV5StageFloatUnit.Add.packed_value()
+  check value(field(control(instruction), "fp_execution"), "unit") ~is FloatUnit.Add.packed_value()
 for (instruction in VectorFloatingPointMultiplyDivideInstructions):
-  check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) || VectorWideningFloatingPointMultiplyInstructions.contains(instruction) | RV5StageFloatUnit.Multiply | RV5StageFloatUnit.DivideSquareRoot).packed_value()
+  check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) || VectorWideningFloatingPointMultiplyInstructions.contains(instruction) | FloatUnit.Multiply | FloatUnit.DivideSquareRoot).packed_value()
 for (instruction in VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions):
   check value(field(control(instruction), "fp_execution"), "uses_rounding_mode") ~is 1
 for (instruction in VectorFloatingPointReductionInstructions):
   def execution = field(control(instruction), "fp_execution")
   check:
     value(control(instruction), "reduction") ~is 1
-    value(execution, "unit") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | RV5StageFloatUnit.MinMax | RV5StageFloatUnit.Add).packed_value()
+    value(execution, "unit") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | FloatUnit.MinMax | FloatUnit.Add).packed_value()
     value(execution, "uses_rounding_mode") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | 0 | 1)
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 check:
-  value(field(control(VFSUB_VV), "fp_execution"), "add_operation") ~is RV5StageFloatAddOperation.Subtract.packed_value()
-  value(field(control(VFSQRT_V), "fp_execution"), "divide_operation") ~is RV5StageFloatDivideOperation.SquareRoot.packed_value()
-  value(field(control(VFRSQRT7_V), "fp_execution"), "unit") ~is RV5StageFloatUnit.Estimate.packed_value()
+  value(field(control(VFSUB_VV), "fp_execution"), "add_operation") ~is FloatAddOperation.Subtract.packed_value()
+  value(field(control(VFSQRT_V), "fp_execution"), "divide_operation") ~is FloatDivideOperation.SquareRoot.packed_value()
+  value(field(control(VFRSQRT7_V), "fp_execution"), "unit") ~is FloatUnit.Estimate.packed_value()
   value(field(control(VFRSQRT7_V), "fp_execution"), "estimate_operation") ~is Estimate7Operation.ReciprocalSquareRoot.packed_value()
-  value(field(control(VFREC7_V), "fp_execution"), "unit") ~is RV5StageFloatUnit.Estimate.packed_value()
+  value(field(control(VFREC7_V), "fp_execution"), "unit") ~is FloatUnit.Estimate.packed_value()
   value(field(control(VFREC7_V), "fp_execution"), "uses_rounding_mode") ~is 1
-  value(field(control(VFCLASS_V), "fp_execution"), "unit") ~is RV5StageFloatUnit.Classify.packed_value()
+  value(field(control(VFCLASS_V), "fp_execution"), "unit") ~is FloatUnit.Classify.packed_value()
   value(control(VFCLASS_V), "fp_result") ~is VectorFloatResult.Integer.packed_value()
-  value(field(control(VMFNE_VV), "fp_execution"), "comparison") ~is RV5StageFloatComparison.NotEqual.packed_value()
+  value(field(control(VMFNE_VV), "fp_execution"), "comparison") ~is FloatComparison.NotEqual.packed_value()
   value(field(control(VMFLT_VV), "fp_execution"), "comparison_signaling") ~is 1
   value(control(VFRSUB_VF), "swap_operands") ~is 1
   value(control(VFRDIV_VF), "swap_operands") ~is 1
@@ -404,14 +404,14 @@ for (instruction in VectorFloatingPointFusedMultiplyAddInstructions):
   | [VFNMSAC_VV, VFNMSUB_VV, VFNMSAC_VF, VFNMSUB_VF, VFWNMSAC_VV, VFWNMSAC_VF].contains(instruction): MulAddOperation.NegatedMultiplyAdd
   | ~else: MulAddOperation.MultiplyAdd
   check:
-    value(execution, "unit") ~is RV5StageFloatUnit.FusedMultiplyAdd.packed_value()
+    value(execution, "unit") ~is FloatUnit.FusedMultiplyAdd.packed_value()
     value(execution, "fused_operation") ~is operation.packed_value()
 for (instruction in VectorWideningFloatingPointAddSubtractInstructions ++ VectorWideningFloatingPointMultiplyInstructions ++ VectorWideningFloatingPointFusedMultiplyAddInstructions ++ VectorWideningFloatingPointReductionInstructions):
   check:
     value(control(instruction), "widening") ~is 1
     value(control(instruction), "wide_vs2") ~is (if [VFWADD_WV, VFWADD_WF, VFWSUB_WV, VFWSUB_WF].contains(instruction) | 1 | 0)
 for (instruction in [VFWSUB_VV, VFWSUB_VF, VFWSUB_WV, VFWSUB_WF]):
-  check value(field(control(instruction), "fp_execution"), "add_operation") ~is RV5StageFloatAddOperation.Subtract.packed_value()
+  check value(field(control(instruction), "fp_execution"), "add_operation") ~is FloatAddOperation.Subtract.packed_value()
 def VectorIntegerToFloatingConversions = [VFCVT_F_XU_V, VFCVT_F_X_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFNCVT_F_XU_W, VFNCVT_F_X_W]
 def VectorFloatingResultConversions = VectorIntegerToFloatingConversions ++ [VFWCVT_F_F_V, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W]
 def VectorRtzConversions = [VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
@@ -423,7 +423,7 @@ for (instruction in VectorFloatingPointConversionInstructions):
   def execution = field(decoded, "fp_execution")
   def fixed_rounding = VectorRtzConversions.contains(instruction) || instruction == VFNCVT_ROD_F_F_W
   check:
-    value(execution, "unit") ~is RV5StageFloatUnit.Convert.packed_value()
+    value(execution, "unit") ~is FloatUnit.Convert.packed_value()
     value(decoded, "fp_source") ~is (if VectorIntegerToFloatingConversions.contains(instruction) | VectorFloatSource.Integer | VectorFloatSource.Floating).packed_value()
     value(decoded, "fp_result") ~is (if VectorFloatingResultConversions.contains(instruction) | VectorFloatResult.Floating | VectorFloatResult.Integer).packed_value()
     value(decoded, "fp_rounding") ~is (if instruction == VFNCVT_ROD_F_F_W | VectorFloatRounding.RoundToOdd | (if VectorRtzConversions.contains(instruction) | VectorFloatRounding.TowardZero | VectorFloatRounding.Dynamic)).packed_value()

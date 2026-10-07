@@ -275,7 +275,7 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:hdmi-*|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-control-policy|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
+    cores-components:fp-*|cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-control-policy|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
     cores-execution-frontend:rv5stage-access-fault|cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-btb|cores-execution-frontend:rv5stage-ras|cores-execution-frontend:rv5stage-return-prediction|cores-execution-frontend:rv5stage-instruction-buffer|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput|cores-execution-frontend:rv5stage-branch-prediction|cores-execution-frontend:rv5stage-data-fault|cores-execution-frontend:rv5stage-zcb|cores-execution-frontend:rv5stage-mop)
@@ -927,10 +927,10 @@ direct_fixture_specs=(
   'riscv-hpm-rv64|riscv_hpm_rv64_tb'
   'riscv-floating-point|riscv_floating_point_tb'
   'riscv-compressed|riscv_compressed_tb'
-  'rv5stage-fp-register-file|rv5stage_fp_register_file_tb'
+  'fp-register-file|fp_register_file_tb'
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb'
-  'rv5stage-fp-service|rv5stage_fp_service_tb'
-  'rv5stage-fp-scheduled|rv5stage_fp_service_tb'
+  'fp-service|fp_service_tb'
+  'fp-scheduled|fp_service_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
   'riscv-csr|riscv_csr_tb'
   'riscv-hypervisor-csr|riscv_hypervisor_csr_tb'

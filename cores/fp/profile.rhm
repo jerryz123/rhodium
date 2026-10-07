@@ -1,0 +1,33 @@
+#lang rhombus
+/* Defines the scalar FP specialization combinations implemented by the shared components. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm") open
+
+/* Tests supported disabled, RV32F, and RV64D scalar FP/half-precision combinations. */
+fun fp_profile_supported(xlen :: XLen,
+                         profile :: FloatingPointProfile,
+                         half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+                         ~zfa: zfa_enabled :: Boolean = #false) :: Boolean:
+  ((profile == FloatingPointProfile.None) || (
+    (xlen == XLen.X32) && (profile == FloatingPointProfile.F)
+  ) || (
+    (xlen == XLen.X64) && (profile == FloatingPointProfile.D)
+  )) && !(profile == FloatingPointProfile.None && (
+    half_precision != HalfPrecisionProfile.None || zfa_enabled
+  ))
+
+/* Reports unsupported scalar FP combinations before datapath specialization. */
+fun check_fp_profile(xlen :: XLen,
+                     profile :: FloatingPointProfile,
+                     half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+                     ~zfa: zfa_enabled :: Boolean = #false):
+  unless fp_profile_supported(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  | error(~who: #'check_fp_profile,
+          "FP supports only disabled FP, RV32F, or RV64D, with optional Zfhmin, Zfh, or Zfa")
+
+export:
+  fp_profile_supported
+  check_fp_profile

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../fp/profile.rhm".check_fp_profile
   "../cache/config.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -162,31 +163,6 @@ class RV5StageCacheGeometry(instruction :: CacheConfig,
   reconstructor (instruction, data):
     RV5StageCacheGeometry(~instruction: instruction, ~data: data)
 
-/* Tests supported disabled, RV32F, and RV64D scalar FP/half-precision combinations. */
-fun rv5stage_floating_point_profile_supported(xlen :: XLen,
-                                              profile :: FloatingPointProfile,
-                                              half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                                              ~zfa: zfa_enabled :: Boolean = #false):
-  ((profile == FloatingPointProfile.None) || (
-    (xlen == XLen.X32) && (profile == FloatingPointProfile.F)
-  ) || (
-    (xlen == XLen.X64) && (profile == FloatingPointProfile.D)
-  )) && !(profile == FloatingPointProfile.None && (
-    half_precision != HalfPrecisionProfile.None || zfa_enabled
-  ))
-
-/* Reports unsupported scalar FP combinations before datapath specialization. */
-fun check_rv5stage_floating_point_profile(xlen :: XLen,
-                                          profile :: FloatingPointProfile,
-                                          half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                                          ~zfa: zfa_enabled :: Boolean = #false):
-  unless rv5stage_floating_point_profile_supported(xlen,
-                                                   profile,
-                                                   half_precision,
-                                                   ~zfa: zfa_enabled)
-  | error(~who: #'check_rv5stage_floating_point_profile,
-          "RV5Stage supports only disabled FP, RV32F, or RV64D, with optional Zfhmin, Zfh, or Zfa")
-
 /* Enforces vector ELEN, scalar FP, and half-precision dependencies for the selected XLEN. */
 fun check_rv5stage_vector_profile(xlen :: XLen,
                                   floating_point :: FloatingPointProfile,
@@ -235,7 +211,7 @@ class RV5StageConfig(xlen :: XLen,
                ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
                ~vector_length: vector_length :: VectorLength = 128,
                ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
-    check_rv5stage_floating_point_profile(
+    check_fp_profile(
       xlen,
       extensions.floating_point,
       extensions.half_precision,
@@ -316,7 +292,5 @@ export:
   RV5StageExtensions
   RV5StageCacheGeometry
   RV5StageConfig
-  rv5stage_floating_point_profile_supported
-  check_rv5stage_floating_point_profile
   check_rv5stage_vector_profile
   rv5stage_execution_half_precision

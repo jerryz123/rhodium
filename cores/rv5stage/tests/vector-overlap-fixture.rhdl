@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../fp/bundles.rhdl" open
   "../vector/pipeline.rhdl" open
   "../vector/bundles.rhdl" open
   "../decode/core-ctrl.rhdl" open
@@ -22,8 +23,8 @@ sync_circuit RV5StageVectorOverlap():
   input(vl, vtype, scalar, hit_data): Bits(64)
   input(request_valid, packed_memory, retry, slow, cancel, issue_ready): Bool
   interface response(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
-  interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
-  interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
+  interface fp_request(Decoupled(FpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
   interface attempt(Valid(RV5StageVectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))

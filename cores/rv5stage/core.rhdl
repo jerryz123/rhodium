@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../fp/bundles.rhdl" open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_hart
@@ -54,14 +55,14 @@ import:
   "../divider.rhdl" open
   "divide.rhdl" open
   "fp/pipeline.rhdl" open
-  "fp/register-file.rhdl".FloatingPointRegisterWrite
-  "fp/execute.rhdl" open
+  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../fp/execute.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
   "fp/bundles.rhdl" open
   "fetch/protocol.rhdl" open
   "fetch/packet.rhdl" open
   "fetch/instruction-buffer.rhdl" open
-  "decode/fp-ctrl.rhdl" open
+  "../fp/types.rhdl" open
   "register-file.rhdl" open
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/xlen.rhm" open
@@ -263,8 +264,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_gpr_calendar.probe_delay <== bits(PipelinedMultiplierStages + 1, 4)
   wire wb_fp_fixed_integer_return: Bool
   def wb_vector_fp_tag = Bits(index_width(vector_completion_slots))
-  def wb_vector_fp_request_link :: Handle = interface_link(Decoupled(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))
-  def wb_vector_fp_result_link :: Handle = interface_link(Decoupled(RV5StageFpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag)))
+  def wb_vector_fp_request_link :: Handle = interface_link(Decoupled(FpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))
+  def wb_vector_fp_result_link :: Handle = interface_link(Decoupled(FpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag)))
   def wb_vector_fp_update_link :: Handle = interface_link(Valid(Bits(5)))
   // Scalar and vector completions may both update flags on the same edge.
   wb_csrs.fp_update.valid <== wb_fp.state_update.valid ||| wb_vector_fp_update_link.right.valid
@@ -276,13 +277,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       tagged_union FpOwner():
         Scalar(wb_scalar_fp_tag)
         Vector(wb_vector_fp_tag)
-      inst wb_fp_execution(RV5StageFpExecutionService(xlen, effective_fp_profile, FpOwner(), ~half_precision: execution_half_precision, ~zfa: zfa_enabled, ~scheduled_writeback: #true))
+      inst wb_fp_execution(FpExecutionService(xlen, effective_fp_profile, FpOwner(), ~half_precision: execution_half_precision, ~zfa: zfa_enabled, ~scheduled_writeback: #true))
       def Array(fp_launch, fp_reservation) = Array(
         wb_fp.execution_request |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_scalar_fp_tag, FpOwner(), request, FpOwner().Scalar(request.tag))),
         wb_vector_fp_request_link.right |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_vector_fp_tag, FpOwner(), request, FpOwner().Vector(request.tag)))
       ) |> rr_arbiter() |> atomic_fork(2)
       fp_launch |> wb_fp_execution.request
-      fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Scalar).into(Bool) & (operation.control.registers.destination === RV5StageFloatDestination.Integer) & (operation.control.execution.unit =/= RV5StageFloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> wb_gpr_calendar.reserve[0]
+      fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Scalar).into(Bool) & (operation.control.registers.destination === FloatDestination.Integer) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> wb_gpr_calendar.reserve[0]
       reg integer_returns(~init: bits(0, 2))
       integer_returns <== wb_gpr_calendar.reserve[0].fire().as_bits() ++ integer_returns[1..2]
       wb_fp_fixed_integer_return <== integer_returns[0].into(Bool)
@@ -299,7 +300,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_fp_fixed_integer_return <== Bool(#false)
       wb_vector_fp_request_link.right.ready <== Bool(#false)
       wb_vector_fp_result_link.left.valid <== Bool(#false)
-      wb_vector_fp_result_link.left.bits <== dont_care(RV5StageFpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag))
+      wb_vector_fp_result_link.left.bits <== dont_care(FpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag))
 
   def wb_vector_multiply_tag = RV5StageVectorMultiplyTag(vector_completion_slots)
   def wb_vector_divide_tag = RV5StageVectorDivideTag(vector_completion_slots)
@@ -630,12 +631,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         wb_to_id_scoreboard_set_link.right.valid & (wb_to_id_scoreboard_set_link.right.bits === index)
       ) ||| (
         ex_input.valid & ex_input.bits.floating_point_valid & (
-          ex_input.bits.floating_point_control.registers.destination === RV5StageFloatDestination.Integer
+          ex_input.bits.floating_point_control.registers.destination === FloatDestination.Integer
         ) & (ex_input.bits.rd === index)
       ) ||| (
-        mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === RV5StageFloatDestination.Integer) & (mem_input.bits.rd === index)
+        mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === FloatDestination.Integer) & (mem_input.bits.rd === index)
       ) ||| (
-        wb.valid & wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === RV5StageFloatDestination.Integer) & (wb_offer_bits.rd === index)
+        wb.valid & wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === FloatDestination.Integer) & (wb_offer_bits.rd === index)
       )
     ) & !(
       wb_to_id_scoreboard_clear_link.right.valid & (wb_to_id_scoreboard_clear_link.right.bits === index)
@@ -652,7 +653,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       ) ||| (
         (id_control.writeback.enable ||| (
           id_control.floating_point_valid & (
-            id_control.floating_point.registers.destination === RV5StageFloatDestination.Integer
+            id_control.floating_point.registers.destination === FloatDestination.Integer
           )
         )) & (deferred_destination === id_rd)
       )
@@ -669,7 +670,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & id_control.vector.integer & id_control.vector.scalar_destination) ||| (
     id_control.floating_point_valid & (
-      id_control.floating_point.registers.destination === RV5StageFloatDestination.Integer
+      id_control.floating_point.registers.destination === FloatDestination.Integer
     )
   )
   def id_scoreboard_waw_hazard = id_integer_write & id_rd.or_reduce() & id_integer_register_busy(id_rd)
@@ -677,16 +678,16 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   fun id_fp_register_busy(index :: Bits(5)):
     id_vector_launch_matches(fun (control :: RV5StageVectorControl(), rd :: Bits(5)): control.floating_scalar_destination & (rd === index)) ||| scoreboard_busy(register_count, wb_fp.busy, index) ||| (
       ex_input.valid & ex_input.bits.floating_point_valid & (
-        ex_input.bits.floating_point_control.registers.destination === RV5StageFloatDestination.FloatingPoint
+        ex_input.bits.floating_point_control.registers.destination === FloatDestination.FloatingPoint
       ) & (ex_input.bits.rd === index)
     ) ||| (
       mem_input.valid & mem_input.bits.data_request_valid & (
         mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)
       ) & (mem_input.bits.data_request.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd === index)
     ) ||| (
-      mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === RV5StageFloatDestination.FloatingPoint) & (mem_input.bits.rd === index)
+      mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === FloatDestination.FloatingPoint) & (mem_input.bits.rd === index)
     ) ||| (
-      wb.valid & ((wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === RV5StageFloatDestination.FloatingPoint)) ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool))) & (wb_offer_bits.rd === index)
+      wb.valid & ((wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === FloatDestination.FloatingPoint)) ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool))) & (wb_offer_bits.rd === index)
     )
   def id_fp_source_hazard = id_control.floating_point_valid & (
     (id_control.floating_point.registers.uses_frs1 & id_fp_register_busy(id_rs1)) ||| (
@@ -697,9 +698,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   def id_vector_fp_source_hazard = id_control.vector.floating_point & (id_control.vector.operand === VectorOperandMode.FloatingScalar) & id_fp_register_busy(id_rs1)
   def id_fp_destination_hazard = id_control.floating_point_valid & (
-    id_control.floating_point.registers.destination === RV5StageFloatDestination.FloatingPoint
+    id_control.floating_point.registers.destination === FloatDestination.FloatingPoint
   ) & id_fp_register_busy(id_rd)
-  def id_ex_fp_reservation_pending = ex_input.valid & ex_input.bits.floating_point_valid & ((ex_input.bits.floating_point_control.execution.unit =/= RV5StageFloatUnit.Memory) ||| !ex_input.bits.floating_point_control.execution.memory_write)
+  def id_ex_fp_reservation_pending = ex_input.valid & ex_input.bits.floating_point_valid & ((ex_input.bits.floating_point_control.execution.unit =/= FloatUnit.Memory) ||| !ex_input.bits.floating_point_control.execution.memory_write)
   def id_mem_fp_reservation_pending = mem_input.valid & (mem_input.bits.fp_compute ||| (mem_input.bits.data_request_valid & mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
   def id_wb_fp_reservation_pending = wb.valid & (wb_offer_bits.fp_compute ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
   def id_older_fp_reservation_pending = id_ex_fp_reservation_pending ||| id_mem_fp_reservation_pending ||| id_wb_fp_reservation_pending
@@ -736,7 +737,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   def id_fp_execution_control = id_control.floating_point.execution
   def id_fp_memory = id_control.floating_point_valid & (
-    id_fp_execution_control.unit === RV5StageFloatUnit.Memory
+    id_fp_execution_control.unit === FloatUnit.Memory
   )
   def id_fp_store = id_fp_memory & id_fp_execution_control.memory_write
   def id_fp_store_resource_hazard = id_fp_store & !id_fault & wb.valid & wb_offer_bits.fp_compute
@@ -970,7 +971,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_divide_request_link.left.bits <== dont_care(RV5StageExecutionRequest(DividerRequest(width), wb_vector_divide_tag))
       wb_vector_divide_result_link.right.ready <== Bool(#true)
       wb_vector_fp_request_link.left.valid <== Bool(#false)
-      wb_vector_fp_request_link.left.bits <== dont_care(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag))
+      wb_vector_fp_request_link.left.bits <== dont_care(FpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag))
       wb_vector_fp_result_link.right.ready <== Bool(#true)
       wb_vector_fp_update_link.left.valid <== Bool(#false)
       wb_vector_fp_update_link.left.bits <== bits(0, 5)
@@ -1047,7 +1048,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def ex_is_memory = ex_memory_operation.is_memory()
   def ex_fp_execution_control = ex_input.bits.floating_point_control.execution
   def ex_is_fp = ex_input.bits.floating_point_valid & !ex_input.bits.vector_launch
-  def ex_fp_memory = ex_is_fp & (ex_fp_execution_control.unit === RV5StageFloatUnit.Memory)
+  def ex_fp_memory = ex_is_fp & (ex_fp_execution_control.unit === FloatUnit.Memory)
   def ex_fp_store = ex_fp_memory & ex_fp_execution_control.memory_write
   def ex_fp_load = ex_fp_memory & !ex_fp_execution_control.memory_write
   def ex_fp_compute = ex_is_fp & !ex_fp_memory
@@ -1576,7 +1577,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     assert(wb_divider.available, "rv5stage_divider_commit_reserved")
 
   wb_fp_integer_scoreboard.set.valid <== wb_fp.issue.fire() & (
-    wb_fp.issue.bits.control.registers.destination === RV5StageFloatDestination.Integer
+    wb_fp.issue.bits.control.registers.destination === FloatDestination.Integer
   ) & wb_fp.issue.bits.frd.or_reduce()
   wb_fp_integer_scoreboard.set.bits <== wb_fp.issue.bits.frd
 
@@ -1616,7 +1617,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   (
     wb_fp.completion
       |> filter_flow(completion => (
-          completion.destination === RV5StageFloatDestination.Integer
+          completion.destination === FloatDestination.Integer
         ) & completion.rd.or_reduce())
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd

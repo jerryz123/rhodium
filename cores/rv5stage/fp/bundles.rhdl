@@ -1,9 +1,9 @@
 #lang rhodium
-/* Defines scalar FP/LSU payloads and opaque-tag operand execution transactions. */
+/* Defines RV5Stage-owned scalar FP issue, completion, and LSU payloads. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../decode/fp-ctrl.rhdl" open
+  "../../fp/types.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("hardfloat/main.rhdl").RoundingMode
@@ -11,7 +11,7 @@ import:
 /* Carries scalar register indices and captured instruction context for authorized FP issue. */
 bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
-  control: RV5StageFloatingPointControl()
+  control: FloatingPointControl()
   frs1: Bits(5)
   frs2: Bits(5)
   frs3: Bits(5)
@@ -19,38 +19,16 @@ bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context ::
   integer_operand: Bits(xlen.width)
   rounding_mode: RoundingMode
 
-/* Carries explicit operand precisions and a caller-owned opaque tag into shared FP execution. */
-bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
-  tag: Tag
-  control: RV5StageFloatingPointControl()
-  left: Bits(floating_point_register_width(profile))
-  left_precision: RV5StageFloatPrecision
-  right: Bits(floating_point_register_width(profile))
-  right_precision: RV5StageFloatPrecision
-  third: Bits(floating_point_register_width(profile))
-  third_precision: RV5StageFloatPrecision
-  integer_operand: Bits(xlen.width)
-  immediate_index: Bits(5)
-  rounding_mode: RoundingMode
-
-/* Returns integer and FP values plus exception flags without interpreting the caller's tag. */
-bundle RV5StageFpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
-  tag: Tag
-  integer_value: Bits(xlen.width)
-  fp_value: Bits(floating_point_register_width(profile))
-  exception_flags: Bits(5)
-  exception_flags_valid: Bool
-
 /* Retains scalar instruction context and destination through operand-level execution. */
 bundle RV5StageFpScalarTag(Context :: DataType):
   context: Context
-  destination: RV5StageFloatDestination
+  destination: FloatDestination
   rd: Bits(5)
 
 /* Returns scalar destination metadata alongside values and optional accrued exception flags. */
 bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
-  destination: RV5StageFloatDestination
+  destination: FloatDestination
   rd: Bits(5)
   integer_value: Bits(xlen.width)
   fp_value: Bits(floating_point_register_width(profile))
@@ -60,20 +38,20 @@ bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Conte
 /* Reserves an FPR destination before an authorized deferred load. */
 bundle RV5StageFpLoadReservation(Context :: DataType):
   context: Context
-  precision: RV5StageFloatPrecision
+  precision: FloatPrecision
   rd: Bits(5)
 
 /* Identifies a load destination and precision for NaN-boxing its returned memory bits. */
 bundle RV5StageFpLoadCompletion(Context :: DataType):
   context: Context
-  precision: RV5StageFloatPrecision
+  precision: FloatPrecision
   rd: Bits(5)
   data: Bits(64)
 
 /* Requests a speculative FPR source snapshot for store preparation. */
 bundle RV5StageFpStoreRequest(Context :: DataType):
   context: Context
-  precision: RV5StageFloatPrecision
+  precision: FloatPrecision
   rs: Bits(5)
 
 /* Returns the store operand bits with the requesting instruction's context. */
@@ -81,36 +59,8 @@ bundle RV5StageFpStoreResponse(Context :: DataType):
   context: Context
   data: Bits(64)
 
-/* Replaces request ownership metadata without changing numerical controls or operands. */
-fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, request :: RV5StageFpExecutionRequest(xlen, profile, From), tag :: Hardware.of(To)) :~ RV5StageFpExecutionRequest(xlen, profile, To):
-  RV5StageFpExecutionRequest(xlen, profile, To):
-    tag: tag
-    control: request.control
-    left: request.left
-    left_precision: request.left_precision
-    right: request.right
-    right_precision: request.right_precision
-    third: request.third
-    third_precision: request.third_precision
-    integer_operand: request.integer_operand
-    immediate_index: request.immediate_index
-    rounding_mode: request.rounding_mode
-
-/* Replaces result ownership metadata without changing values or exception flags. */
-fun fp_result_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, result :: RV5StageFpExecutionResult(xlen, profile, From), tag :: Hardware.of(To)) :~ RV5StageFpExecutionResult(xlen, profile, To):
-  RV5StageFpExecutionResult(xlen, profile, To):
-    tag: tag
-    integer_value: result.integer_value
-    fp_value: result.fp_value
-    exception_flags: result.exception_flags
-    exception_flags_valid: result.exception_flags_valid
-
 export:
-  fp_request_with_tag
-  fp_result_with_tag
   RV5StageFpIssue
-  RV5StageFpExecutionRequest
-  RV5StageFpExecutionResult
   RV5StageFpCompletion
   RV5StageFpScalarTag
   RV5StageFpLoadReservation

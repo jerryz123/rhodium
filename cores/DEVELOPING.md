@@ -19,7 +19,8 @@ Before adding a component, decide who owns its policy:
   import instruction catalogs.
 - Put substantial shared component families in their own directories:
   [`csr/`](csr/DEVELOPING.md) owns CSR/trap state and
-  [`mmu/`](mmu/DEVELOPING.md) owns translation contracts, TLBs, and PTW state.
+  [`mmu/`](mmu/DEVELOPING.md) owns translation contracts, TLBs, and PTW state;
+  [`fp/`](fp/DEVELOPING.md) owns FP mappings, operand execution, and register storage.
   Organize by responsibility, not by a second ISA namespace. Shared does not
   mean ISA-independent: these families may depend on architectural `riscv/`
   definitions, but never a named core's configuration or pipeline payloads.
@@ -58,6 +59,10 @@ flowchart LR
   Named --> State["shared CSR and translation<br/>cores/csr/, cores/mmu/"]
   State --> Riscv
   State --> Rhodium
+  Named --> FP["shared floating point<br/>cores/fp/"]
+  FP --> Riscv
+  FP --> Rhodium
+  FP --> HardFloat["HardFloat numeric primitives"]
   Named --> Riscv["RISC-V ISA and RTL"]
   Named --> Protocols["shared protocol libraries"]
   Named --> Rhodium["Rhodium language, std, and flow"]
@@ -161,9 +166,9 @@ FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multipli
 
 Shared instruction mappings and row geometry use
 `cores/tests/{alu-decode,multiply-decode,divide-decode,vector-layout}-test.rhm`.
-CSR and translation checks are routed by their respective
+CSR, translation, and floating-point checks are routed by their respective
 [CSR](csr/DEVELOPING.md#change-workflow-and-validation) and
-[MMU](mmu/DEVELOPING.md#validation) guides. For shared split-engine changes,
+[MMU](mmu/DEVELOPING.md#validation) and [FP](fp/DEVELOPING.md#validation) guides. For shared split-engine changes,
 cover both callers with `rv2wide-mmu` and `rv5stage-hypervisor-core` fixtures.
 Changes to passive observation metadata need the cosim pass tests.
 

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../fp/bundles.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   lib("cores/vector-layout.rhm").vector_word_bytes
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -19,11 +20,10 @@ import:
   "muldiv.rhdl" open
   "../integer-execution.rhdl" open
   "../writeback-calendar.rhdl" open
-  "../decode/fp-ctrl.rhdl".RV5StageFloatUnit
+  "../../fp/types.rhdl".FloatUnit
   "../../load-store.rhdl" open
   "../../multiplier.rhdl" open
   "../../divider.rhdl" open
-  "../fp/bundles.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "sequencer.rhdl" open
   "execute.rhdl" open
@@ -32,7 +32,7 @@ import:
   "../decode/vector-ctrl.rhdl".VectorMemoryMode
   "../decode/vector-ctrl.rhdl".VectorOperandMode
   "../register-file.rhdl".RegisterFileWrite
-  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../../fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
@@ -65,8 +65,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     precertified: Bool
   def OwnedResult = RV5StageVectorOwnedResult(xlen, vlen, vector_completion_slots)
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def FpRequest = RV5StageFpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
-  def FpResult = RV5StageFpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
+  def FpRequest = FpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
+  def FpResult = FpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   interface fp_request(Decoupled(FpRequest), ~role: producer)
   interface fp_result(Decoupled(FpResult), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
@@ -392,7 +392,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
   def Array(fp_launch, fp_reservation) = fp_authorized.egress |> atomic_fork(2)
   fp_launch |> fp_request
-  fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= RV5StageFloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> writeback_calendar.reserve[1]
+  fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> writeback_calendar.reserve[1]
   reg fp_returns(~init: bits(0, 2))
   fp_returns <== writeback_calendar.reserve[1].fire().as_bits() ++ fp_returns[1..2]
   completions.fixed_fp_return <== fp_returns[0].into(Bool)

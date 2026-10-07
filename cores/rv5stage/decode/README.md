@@ -72,7 +72,7 @@ adds the XLEN-selected full Zfh catalog and those D conversions when the base
 profile is RV64D. Zfa adds the selected S and D format operations, plus H
 operations only for full Zfh; RV32D pair moves remain cataloged but unsupported
 because RV5Stage does not implement RV32D. These lists are assembled by
-`rv5stage_floating_point_instructions`; the matching execution cases are
+`fp_instructions`; the matching execution cases are
 assembled separately and then checked against the same selected instruction
 domain.
 
@@ -120,7 +120,7 @@ component relation with `component_output`, and nests those outputs into one
 `RV5StageControl` row. The row sets `floating_point_valid` false and leaves the
 entire FP sub-bundle unconstrained.
 
-For an FP instruction, [`fp-ctrl.rhdl`](fp-ctrl.rhdl) derives integer/FPR source
+For an FP instruction, [`cores/fp/decode.rhdl`](../../fp/decode.rhdl) derives integer/FPR source
 use and destination-bank selection from the instruction's operand metadata,
 then joins that register control to the selected execution control. The
 `floating_point_core_control_cases` adapter in
@@ -131,7 +131,7 @@ unrelated branch, scalar-writeback, system, and fence actions, and leaves the
 unused multiply/divide columns free. FP decode is therefore part of the core
 control relation, not an independent runtime decoder.
 
-`fp-ctrl.rhdl` also exports a standalone FP decoder for focused use, but
+The shared mapping also exports a standalone FP decoder for focused use, but
 `RV5StageInstructionDecoder` composes its case lists directly and does not
 instantiate that circuit beside the core decoder.
 

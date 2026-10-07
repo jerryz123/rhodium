@@ -1,13 +1,13 @@
 #lang rhodium
-/* Implements RV5Stage's combinational fixed-latency floating-point execution datapaths. */
+/* Implements shared combinational F/D/half-precision and Zfa execution datapaths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
-  "../decode/fp-ctrl.rhdl" open
-  "../../../riscv/isa/fp-profile.rhm" open
-  "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/rtl/floating-point.rhdl" open
+  "types.rhdl" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
@@ -47,23 +47,23 @@ fun fp_integer_word_result(xlen :: XLen,
 /* Normalizes byte, halfword, or word integer sources according to conversion signedness. */
 fun fp_integer_narrow_input(xlen :: XLen,
                             value :: Bits(xlen.width),
-                            integer_width :: RV5StageFloatIntegerWidth,
+                            integer_width :: FloatIntegerWidth,
                             unsigned :: Bool) :~ Bits(xlen.width):
   def byte = mux(unsigned, value[0..8].zext(xlen.width), value[0..8].into(SInt(8)).sext(xlen.width).as_bits())
   def half = mux(unsigned, value[0..16].zext(xlen.width), value[0..16].into(SInt(16)).sext(xlen.width).as_bits())
-  mux_lookup(integer_width, ~default: value, [[RV5StageFloatIntegerWidth.Byte, byte], [RV5StageFloatIntegerWidth.Half, half], [RV5StageFloatIntegerWidth.Word, fp_integer_word_input(xlen, value, unsigned)]])
+  mux_lookup(integer_width, ~default: value, [[FloatIntegerWidth.Byte, byte], [FloatIntegerWidth.Half, half], [FloatIntegerWidth.Word, fp_integer_word_input(xlen, value, unsigned)]])
 
 /* Extends byte or halfword conversion results according to destination signedness. */
 fun fp_integer_narrow_result(xlen :: XLen,
                              value :: Bits(16),
-                             integer_width :: RV5StageFloatIntegerWidth,
+                             integer_width :: FloatIntegerWidth,
                              unsigned :: Bool) :~ Bits(xlen.width):
   def byte = mux(unsigned, value[0..8].zext(xlen.width), value[0..8].into(SInt(8)).sext(xlen.width).as_bits())
   def half = mux(unsigned, value.zext(xlen.width), value.into(SInt(16)).sext(xlen.width).as_bits())
-  mux(integer_width === RV5StageFloatIntegerWidth.Byte, byte, half)
+  mux(integer_width === FloatIntegerWidth.Byte, byte, half)
 
 /* Supplies inactive Zfa outputs without instantiating rounding or modulo arithmetic. */
-circuit RV5StageDisabledZfaFormatDatapath(format :: FloatFormat):
+circuit DisabledZfaFormatDatapath(format :: FloatFormat):
   input value: RecFloat(format)
   input rounding_mode: RoundingMode
   input raise_inexact: Bool
@@ -81,7 +81,7 @@ circuit RV5StageDisabledZfaFormatDatapath(format :: FloatFormat):
   modulo_exception_flags <== bits(0, 5)
 
 /* Supplies zero modulo outputs when the format has no enabled modulo conversion. */
-circuit RV5StageDisabledZfaModulo(format :: FloatFormat):
+circuit DisabledZfaModulo(format :: FloatFormat):
   input value: RecFloat(format)
   output result: Bits(32)
   output exception_flags: Bits(5)
@@ -90,7 +90,7 @@ circuit RV5StageDisabledZfaModulo(format :: FloatFormat):
   exception_flags <== bits(0, 5)
 
 /* Implements signed 32-bit modulo conversion with round-toward-zero and RISC-V flags. */
-circuit RV5StageZfaModulo(format :: FloatFormat):
+circuit ZfaModulo(format :: FloatFormat):
   input value: RecFloat(format)
   output result: Bits(32)
   output exception_flags: Bits(5)
@@ -103,8 +103,8 @@ circuit RV5StageZfaModulo(format :: FloatFormat):
   exception_flags <== riscv_integer_exception_flags(convert.exception_flags)
 
 /* Combines Zfa immediates, rounding to integral, and optional modulo conversion for one format. */
-circuit RV5StageZfaFormatDatapath(format :: FloatFormat,
-                                  ~modulo: modulo_enabled :: Boolean = #false):
+circuit ZfaFormatDatapath(format :: FloatFormat,
+                          ~modulo: modulo_enabled :: Boolean = #false):
   input value: RecFloat(format)
   input rounding_mode: RoundingMode
   input raise_inexact: Bool
@@ -119,7 +119,7 @@ circuit RV5StageZfaFormatDatapath(format :: FloatFormat,
   round.value <== value
   round.rounding_mode <== rounding_mode
   round.raise_inexact <== raise_inexact
-  def ModuloModule = if modulo_enabled | RV5StageZfaModulo(format) | RV5StageDisabledZfaModulo(format)
+  def ModuloModule = if modulo_enabled | ZfaModulo(format) | DisabledZfaModulo(format)
   inst modulo_convert(ModuloModule)
   modulo_convert.value <== value
   immediate <== riscv_float_immediate(format, immediate_index)
@@ -131,7 +131,7 @@ circuit RV5StageZfaFormatDatapath(format :: FloatFormat,
 /* Computes one format's fixed-path operations combinationally using HardFloat.
    Unboxes numerical operands, canonicalizes arithmetic NaNs, boxes FP results,
    and selects integer values and exception flags from the decoded unit. */
-circuit RV5StageFpFormatDatapath(
+circuit FpFormatDatapath(
   xlen :: XLen,
   profile :: FloatingPointProfile,
   format :: FloatFormat,
@@ -142,11 +142,11 @@ circuit RV5StageFpFormatDatapath(
   def width = xlen.width
   def flen = floating_point_register_width(profile)
   unless flen >= format.ieee_width
-  | error(~who: #'RV5StageFpFormatDatapath,
+  | error(~who: #'FpFormatDatapath,
           "floating-point register width must cover the selected format")
 
-  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
-  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
+  input request: FpExecutionRequest(xlen, profile, Tag)
+  output completion: FpExecutionResult(xlen, profile, Tag)
 
   def control = request.control.execution
   def left = riscv_unbox(format, flen, request.left)
@@ -157,7 +157,7 @@ circuit RV5StageFpFormatDatapath(
   def third_recoded = third.to_recoded()
 
   inst add(AddRecFN(format))
-  add.subtract <== control.add_operation === RV5StageFloatAddOperation.Subtract
+  add.subtract <== control.add_operation === FloatAddOperation.Subtract
   add.a <== left_recoded
   add.b <== right_recoded
   add.rounding_mode <== request.rounding_mode
@@ -185,9 +185,9 @@ circuit RV5StageFpFormatDatapath(
     control.comparison,
     ~default: compare.eq,
     [
-      [RV5StageFloatComparison.NotEqual, !compare.eq],
-      [RV5StageFloatComparison.Less, compare.lt],
-      [RV5StageFloatComparison.LessEqual, compare.lt ||| compare.eq]
+      [FloatComparison.NotEqual, !compare.eq],
+      [FloatComparison.Less, compare.lt],
+      [FloatComparison.LessEqual, compare.lt ||| compare.eq]
     ]
   )
 
@@ -201,7 +201,7 @@ circuit RV5StageFpFormatDatapath(
   estimate.operation <== control.estimate_operation
   estimate.rounding_mode <== request.rounding_mode
 
-  def ZfaModule = if zfa_enabled | RV5StageZfaFormatDatapath(format, ~modulo: zfa_modulo_enabled) | RV5StageDisabledZfaFormatDatapath(format)
+  def ZfaModule = if zfa_enabled | ZfaFormatDatapath(format, ~modulo: zfa_modulo_enabled) | DisabledZfaFormatDatapath(format)
   inst zfa(ZfaModule)
   zfa.value <== left_recoded
   zfa.rounding_mode <== request.rounding_mode
@@ -231,35 +231,35 @@ circuit RV5StageFpFormatDatapath(
   fp_to_integer.value <== left_recoded
   fp_to_integer.rounding_mode <== request.rounding_mode
   fp_to_integer.signed_output <== !control.integer_unsigned
-  def converted_narrow = fp_integer_narrow_result(xlen, mux(control.integer_width === RV5StageFloatIntegerWidth.Byte, fp_to_byte.out.zext(16), fp_to_half.out), control.integer_width, control.integer_unsigned)
-  def converted_integer = mux_lookup(control.integer_width, ~default: fp_to_integer.out, [[RV5StageFloatIntegerWidth.Byte, converted_narrow], [RV5StageFloatIntegerWidth.Half, converted_narrow], [RV5StageFloatIntegerWidth.Word, fp_integer_word_result(xlen, fp_to_word.out)]])
-  def conversion_flags = mux_lookup(control.integer_width, ~default: riscv_integer_exception_flags(fp_to_integer.exception_flags), [[RV5StageFloatIntegerWidth.Byte, riscv_integer_exception_flags(fp_to_byte.exception_flags)], [RV5StageFloatIntegerWidth.Half, riscv_integer_exception_flags(fp_to_half.exception_flags)], [RV5StageFloatIntegerWidth.Word, riscv_integer_exception_flags(fp_to_word.exception_flags)]])
+  def converted_narrow = fp_integer_narrow_result(xlen, mux(control.integer_width === FloatIntegerWidth.Byte, fp_to_byte.out.zext(16), fp_to_half.out), control.integer_width, control.integer_unsigned)
+  def converted_integer = mux_lookup(control.integer_width, ~default: fp_to_integer.out, [[FloatIntegerWidth.Byte, converted_narrow], [FloatIntegerWidth.Half, converted_narrow], [FloatIntegerWidth.Word, fp_integer_word_result(xlen, fp_to_word.out)]])
+  def conversion_flags = mux_lookup(control.integer_width, ~default: riscv_integer_exception_flags(fp_to_integer.exception_flags), [[FloatIntegerWidth.Byte, riscv_integer_exception_flags(fp_to_byte.exception_flags)], [FloatIntegerWidth.Half, riscv_integer_exception_flags(fp_to_half.exception_flags)], [FloatIntegerWidth.Word, riscv_integer_exception_flags(fp_to_word.exception_flags)]])
 
   def sign_value = riscv_sign_inject(format, left, right, control.sign_operation)
   def move_source = request.left[0..format.ieee_width].into(IEEEFloat(format))
   def integer_move_value = fp_move_to_integer(xlen, format, move_source)
   def fp_move_value = integer_move_to_fp(xlen, format, request.integer_operand)
   def class_value = riscv_classify(format, left).zext(width)
-  def fp_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
+  def fp_destination = request.control.registers.destination === FloatDestination.FloatingPoint
   def converted_fp = riscv_canonicalize_nan(format, integer_to_fp.out.to_ieee())
   def arithmetic_fp = mux_lookup(
     control.unit,
     ~default: riscv_canonical_nan(format),
     [
-      [RV5StageFloatUnit.FusedMultiplyAdd,
+      [FloatUnit.FusedMultiplyAdd,
        riscv_canonicalize_nan(format, fused.out.to_ieee())],
-      [RV5StageFloatUnit.Add,
+      [FloatUnit.Add,
        riscv_canonicalize_nan(format, add.out.to_ieee())],
-      [RV5StageFloatUnit.Multiply,
+      [FloatUnit.Multiply,
        riscv_canonicalize_nan(format, multiply.out.to_ieee())],
-      [RV5StageFloatUnit.SignInject, sign_value],
-      [RV5StageFloatUnit.MinMax,
+      [FloatUnit.SignInject, sign_value],
+      [FloatUnit.MinMax,
        riscv_canonicalize_nan(format, minmax.out.to_ieee())],
-      [RV5StageFloatUnit.Estimate, estimate.out],
-      [RV5StageFloatUnit.Convert, converted_fp],
-      [RV5StageFloatUnit.Move, fp_move_value],
-      [RV5StageFloatUnit.Immediate, zfa.immediate],
-      [RV5StageFloatUnit.RoundToIntegral,
+      [FloatUnit.Estimate, estimate.out],
+      [FloatUnit.Convert, converted_fp],
+      [FloatUnit.Move, fp_move_value],
+      [FloatUnit.Immediate, zfa.immediate],
+      [FloatUnit.RoundToIntegral,
        riscv_canonicalize_nan(format, zfa.rounded.to_ieee())]
     ]
   )
@@ -267,50 +267,50 @@ circuit RV5StageFpFormatDatapath(
     control.unit,
     ~default: bits(0, width),
     [
-      [RV5StageFloatUnit.Compare, comparison_value.as_bits().zext(width)],
-      [RV5StageFloatUnit.Convert, converted_integer],
-      [RV5StageFloatUnit.IntegerModulo,
+      [FloatUnit.Compare, comparison_value.as_bits().zext(width)],
+      [FloatUnit.Convert, converted_integer],
+      [FloatUnit.IntegerModulo,
        fp_integer_word_result(xlen, zfa.modulo)],
-      [RV5StageFloatUnit.Move, integer_move_value],
-      [RV5StageFloatUnit.Classify, class_value]
+      [FloatUnit.Move, integer_move_value],
+      [FloatUnit.Classify, class_value]
     ]
   )
   def exception_flags = mux_lookup(
     control.unit,
     ~default: bits(0, 5),
     [
-      [RV5StageFloatUnit.FusedMultiplyAdd,
+      [FloatUnit.FusedMultiplyAdd,
        riscv_exception_flags(fused.exception_flags)],
-      [RV5StageFloatUnit.Add, riscv_exception_flags(add.exception_flags)],
-      [RV5StageFloatUnit.Multiply,
+      [FloatUnit.Add, riscv_exception_flags(add.exception_flags)],
+      [FloatUnit.Multiply,
        riscv_exception_flags(multiply.exception_flags)],
-      [RV5StageFloatUnit.MinMax,
+      [FloatUnit.MinMax,
        riscv_exception_flags(minmax.exception_flags)],
-      [RV5StageFloatUnit.Estimate,
+      [FloatUnit.Estimate,
        riscv_exception_flags(estimate.exception_flags)],
-      [RV5StageFloatUnit.Compare,
+      [FloatUnit.Compare,
        riscv_exception_flags(compare.exception_flags)],
-      [RV5StageFloatUnit.Convert,
+      [FloatUnit.Convert,
        mux(fp_destination,
            riscv_exception_flags(integer_to_fp.exception_flags),
            conversion_flags)],
-      [RV5StageFloatUnit.RoundToIntegral, zfa.round_exception_flags],
-      [RV5StageFloatUnit.IntegerModulo, zfa.modulo_exception_flags]
+      [FloatUnit.RoundToIntegral, zfa.round_exception_flags],
+      [FloatUnit.IntegerModulo, zfa.modulo_exception_flags]
     ]
   )
   def exception_flags_valid = control.unit.is_one_of(
-    RV5StageFloatUnit.FusedMultiplyAdd,
-    RV5StageFloatUnit.Add,
-    RV5StageFloatUnit.Multiply,
-    RV5StageFloatUnit.MinMax,
-    RV5StageFloatUnit.Estimate,
-    RV5StageFloatUnit.Compare,
-    RV5StageFloatUnit.Convert,
-    RV5StageFloatUnit.RoundToIntegral,
-    RV5StageFloatUnit.IntegerModulo
+    FloatUnit.FusedMultiplyAdd,
+    FloatUnit.Add,
+    FloatUnit.Multiply,
+    FloatUnit.MinMax,
+    FloatUnit.Estimate,
+    FloatUnit.Compare,
+    FloatUnit.Convert,
+    FloatUnit.RoundToIntegral,
+    FloatUnit.IntegerModulo
   )
 
-  completion <== RV5StageFpExecutionResult(xlen, profile, Tag):
+  completion <== FpExecutionResult(xlen, profile, Tag):
     tag: request.tag
     integer_value: integer_value
     fp_value: riscv_nan_box(format, arithmetic_fp, flen)
@@ -318,14 +318,14 @@ circuit RV5StageFpFormatDatapath(
     exception_flags_valid: exception_flags_valid
 
 /* Implements raw half-precision moves without arithmetic or accrued exception flags. */
-circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
+circuit FpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
   def flen = floating_point_register_width(profile)
-  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
-  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
+  input request: FpExecutionRequest(xlen, profile, Tag)
+  output completion: FpExecutionResult(xlen, profile, Tag)
 
   def format = FloatFormat.F16
   def source = request.left[0..format.ieee_width].into(IEEEFloat(format))
-  completion <== RV5StageFpExecutionResult(xlen, profile, Tag):
+  completion <== FpExecutionResult(xlen, profile, Tag):
     tag: request.tag
     integer_value: fp_move_to_integer(xlen, format, source)
     fp_value: riscv_nan_box(format,
@@ -335,13 +335,13 @@ circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProf
     exception_flags_valid: Bool(#false)
 
 /* Connects the F profile's combinational fixed path to a single-precision format datapath. */
-circuit RV5StageFpFixedF(xlen :: XLen,
-                         Tag :: DataType,
-                         ~zfa: zfa_enabled :: Boolean = #false):
-  input request: RV5StageFpExecutionRequest(xlen, FloatingPointProfile.F, Tag)
-  output completion: RV5StageFpExecutionResult(xlen, FloatingPointProfile.F, Tag)
+circuit FpFixedF(xlen :: XLen,
+                 Tag :: DataType,
+                 ~zfa: zfa_enabled :: Boolean = #false):
+  input request: FpExecutionRequest(xlen, FloatingPointProfile.F, Tag)
+  output completion: FpExecutionResult(xlen, FloatingPointProfile.F, Tag)
 
-  inst single(RV5StageFpFormatDatapath(
+  inst single(FpFormatDatapath(
     xlen,
     FloatingPointProfile.F,
     FloatFormat.F32,
@@ -352,7 +352,7 @@ circuit RV5StageFpFixedF(xlen :: XLen,
   completion <== single.completion
 
 /* Promotes an unboxed single operand to double and retains promotion exception flags. */
-circuit RV5StageFpWidenSingle():
+circuit FpWidenSingle():
   input value: Bits(64)
   output widened: Bits(64)
   output exception_flags: Bits(5)
@@ -365,7 +365,7 @@ circuit RV5StageFpWidenSingle():
   exception_flags <== riscv_exception_flags(convert.exception_flags)
 
 /* Promotes an unboxed half operand to single and retains promotion exception flags. */
-circuit RV5StageFpWidenHalf(flen :: PosInt):
+circuit FpWidenHalf(flen :: PosInt):
   input value: Bits(flen)
   output widened: Bits(flen)
   output exception_flags: Bits(5)
@@ -379,20 +379,20 @@ circuit RV5StageFpWidenHalf(flen :: PosInt):
 
 /* Selects single/double fixed execution and cross-precision conversions.
    Widening arithmetic promotes each narrow operand independently and merges its flags. */
-circuit RV5StageFpFixedD(xlen :: XLen,
-                         Tag :: DataType,
-                         ~zfa: zfa_enabled :: Boolean = #false):
-  input request: RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
-  output completion: RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Tag)
+circuit FpFixedD(xlen :: XLen,
+                 Tag :: DataType,
+                 ~zfa: zfa_enabled :: Boolean = #false):
+  input request: FpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
+  output completion: FpExecutionResult(xlen, FloatingPointProfile.D, Tag)
 
-  inst single(RV5StageFpFormatDatapath(
+  inst single(FpFormatDatapath(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F32,
     Tag,
     ~zfa: zfa_enabled
   ))
-  inst double(RV5StageFpFormatDatapath(
+  inst double(FpFormatDatapath(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F64,
@@ -401,28 +401,28 @@ circuit RV5StageFpFixedD(xlen :: XLen,
     ~zfa_modulo: #true
   ))
   def control = request.control.execution
-  def source_single = control.source_precision === RV5StageFloatPrecision.Single
-  def floating_point_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
-  def widening_arithmetic = floating_point_destination & (control.destination_precision === RV5StageFloatPrecision.Double) & control.unit.is_one_of(RV5StageFloatUnit.Add, RV5StageFloatUnit.Multiply, RV5StageFloatUnit.FusedMultiplyAdd) & (
-    (request.left_precision === RV5StageFloatPrecision.Single) ||| (request.right_precision === RV5StageFloatPrecision.Single) ||| ((control.unit === RV5StageFloatUnit.FusedMultiplyAdd) & (request.third_precision === RV5StageFloatPrecision.Single))
+  def source_single = control.source_precision === FloatPrecision.Single
+  def floating_point_destination = request.control.registers.destination === FloatDestination.FloatingPoint
+  def widening_arithmetic = floating_point_destination & (control.destination_precision === FloatPrecision.Double) & control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd) & (
+    (request.left_precision === FloatPrecision.Single) ||| (request.right_precision === FloatPrecision.Single) ||| ((control.unit === FloatUnit.FusedMultiplyAdd) & (request.third_precision === FloatPrecision.Single))
   )
-  inst widen_left(RV5StageFpWidenSingle())
-  inst widen_right(RV5StageFpWidenSingle())
-  inst widen_third(RV5StageFpWidenSingle())
+  inst widen_left(FpWidenSingle())
+  inst widen_right(FpWidenSingle())
+  inst widen_third(FpWidenSingle())
   widen_left.value <== request.left
   widen_right.value <== request.right
   widen_third.value <== request.third
   def widened_request = request.updated(
-    ~left: mux(request.left_precision === RV5StageFloatPrecision.Single, widen_left.widened, request.left),
-    ~right: mux(request.right_precision === RV5StageFloatPrecision.Single, widen_right.widened, request.right),
-    ~third: mux(request.third_precision === RV5StageFloatPrecision.Single, widen_third.widened, request.third)
+    ~left: mux(request.left_precision === FloatPrecision.Single, widen_left.widened, request.left),
+    ~right: mux(request.right_precision === FloatPrecision.Single, widen_right.widened, request.right),
+    ~third: mux(request.third_precision === FloatPrecision.Single, widen_third.widened, request.third)
   )
   single.request <== request
   double.request <== mux(widening_arithmetic, widened_request, request)
 
-  def ordinary_single = mux(floating_point_destination, control.destination_precision === RV5StageFloatPrecision.Single, source_single)
+  def ordinary_single = mux(floating_point_destination, control.destination_precision === FloatPrecision.Single, source_single)
   def cross_precision = floating_point_destination & request.control.registers.uses_frs1 & (
-    control.unit === RV5StageFloatUnit.Convert
+    control.unit === FloatUnit.Convert
   ) & (
     control.source_precision =/= control.destination_precision
   )
@@ -458,11 +458,11 @@ circuit RV5StageFpFixedD(xlen :: XLen,
     riscv_exception_flags(single_to_double.exception_flags),
     riscv_exception_flags(double_to_single.exception_flags)
   )
-  def left_widening_flags = mux(request.left_precision === RV5StageFloatPrecision.Single, widen_left.exception_flags, bits(0, 5))
-  def right_widening_flags = mux(request.right_precision === RV5StageFloatPrecision.Single, widen_right.exception_flags, bits(0, 5))
-  def third_widening_flags = mux(request.third_precision === RV5StageFloatPrecision.Single, widen_third.exception_flags, bits(0, 5))
+  def left_widening_flags = mux(request.left_precision === FloatPrecision.Single, widen_left.exception_flags, bits(0, 5))
+  def right_widening_flags = mux(request.right_precision === FloatPrecision.Single, widen_right.exception_flags, bits(0, 5))
+  def third_widening_flags = mux(request.third_precision === FloatPrecision.Single, widen_third.exception_flags, bits(0, 5))
   def widening_flags = mux(
-    control.unit === RV5StageFloatUnit.FusedMultiplyAdd,
+    control.unit === FloatUnit.FusedMultiplyAdd,
     left_widening_flags ||| right_widening_flags ||| third_widening_flags,
     left_widening_flags ||| right_widening_flags
   )
@@ -472,40 +472,40 @@ circuit RV5StageFpFixedD(xlen :: XLen,
   )
 
 /* Adds half moves or arithmetic and half/single conversion to the F fixed datapath. */
-circuit RV5StageFpFixedFHalf(xlen :: XLen,
-                             Tag :: DataType,
-                             ~arithmetic: arithmetic_enabled :: Boolean,
-                             ~zfa: zfa_enabled :: Boolean = #false):
+circuit FpFixedFHalf(xlen :: XLen,
+                     Tag :: DataType,
+                     ~arithmetic: arithmetic_enabled :: Boolean,
+                     ~zfa: zfa_enabled :: Boolean = #false):
   def profile = FloatingPointProfile.F
-  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
-  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
+  input request: FpExecutionRequest(xlen, profile, Tag)
+  output completion: FpExecutionResult(xlen, profile, Tag)
 
-  def HalfModule = if arithmetic_enabled | RV5StageFpFormatDatapath(xlen, profile, FloatFormat.F16, Tag, ~zfa: zfa_enabled) | RV5StageFpHalfMinimalDatapath(xlen, profile, Tag)
+  def HalfModule = if arithmetic_enabled | FpFormatDatapath(xlen, profile, FloatFormat.F16, Tag, ~zfa: zfa_enabled) | FpHalfMinimalDatapath(xlen, profile, Tag)
   inst half(HalfModule)
-  inst single(RV5StageFpFixedF(xlen, Tag, ~zfa: zfa_enabled))
+  inst single(FpFixedF(xlen, Tag, ~zfa: zfa_enabled))
   half.request <== request
 
   def control = request.control.execution
-  def fp_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
-  def widening_arithmetic = fp_destination & (control.destination_precision === RV5StageFloatPrecision.Single) & control.unit.is_one_of(RV5StageFloatUnit.Add, RV5StageFloatUnit.Multiply, RV5StageFloatUnit.FusedMultiplyAdd) & (
-    (request.left_precision === RV5StageFloatPrecision.Half) ||| (request.right_precision === RV5StageFloatPrecision.Half) ||| ((control.unit === RV5StageFloatUnit.FusedMultiplyAdd) & (request.third_precision === RV5StageFloatPrecision.Half))
+  def fp_destination = request.control.registers.destination === FloatDestination.FloatingPoint
+  def widening_arithmetic = fp_destination & (control.destination_precision === FloatPrecision.Single) & control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd) & (
+    (request.left_precision === FloatPrecision.Half) ||| (request.right_precision === FloatPrecision.Half) ||| ((control.unit === FloatUnit.FusedMultiplyAdd) & (request.third_precision === FloatPrecision.Half))
   )
-  inst widen_left(RV5StageFpWidenHalf(32))
-  inst widen_right(RV5StageFpWidenHalf(32))
-  inst widen_third(RV5StageFpWidenHalf(32))
+  inst widen_left(FpWidenHalf(32))
+  inst widen_right(FpWidenHalf(32))
+  inst widen_third(FpWidenHalf(32))
   widen_left.value <== request.left
   widen_right.value <== request.right
   widen_third.value <== request.third
   def widened_request = request.updated(
-    ~left: mux(request.left_precision === RV5StageFloatPrecision.Half, widen_left.widened, request.left),
-    ~right: mux(request.right_precision === RV5StageFloatPrecision.Half, widen_right.widened, request.right),
-    ~third: mux(request.third_precision === RV5StageFloatPrecision.Half, widen_third.widened, request.third)
+    ~left: mux(request.left_precision === FloatPrecision.Half, widen_left.widened, request.left),
+    ~right: mux(request.right_precision === FloatPrecision.Half, widen_right.widened, request.right),
+    ~third: mux(request.third_precision === FloatPrecision.Half, widen_third.widened, request.third)
   )
   single.request <== mux(widening_arithmetic, widened_request, request)
   def ordinary_half = mux(fp_destination,
-                          control.destination_precision === RV5StageFloatPrecision.Half,
-                          control.source_precision === RV5StageFloatPrecision.Half)
-  def cross_precision = fp_destination & request.control.registers.uses_frs1 & (control.unit === RV5StageFloatUnit.Convert) & (
+                          control.destination_precision === FloatPrecision.Half,
+                          control.source_precision === FloatPrecision.Half)
+  def cross_precision = fp_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & (
     control.source_precision =/= control.destination_precision
   )
   def half_source = riscv_unbox(FloatFormat.F16, 32, request.left)
@@ -520,7 +520,7 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
   single_to_half.tininess_mode <== TininessMode.AfterRounding
 
   def ordinary = mux(ordinary_half, half.completion, single.completion)
-  def source_half = control.source_precision === RV5StageFloatPrecision.Half
+  def source_half = control.source_precision === FloatPrecision.Half
   def converted_value = mux(
     source_half,
     riscv_nan_box(FloatFormat.F32, riscv_canonicalize_nan(FloatFormat.F32, half_to_single.out.to_ieee()), 32),
@@ -529,10 +529,10 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
   def converted_flags = mux(source_half,
                             riscv_exception_flags(half_to_single.exception_flags),
                             riscv_exception_flags(single_to_half.exception_flags))
-  def left_widening_flags = mux(request.left_precision === RV5StageFloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
-  def right_widening_flags = mux(request.right_precision === RV5StageFloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
-  def third_widening_flags = mux(request.third_precision === RV5StageFloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
-  def widening_flags = mux(control.unit === RV5StageFloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
+  def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
+  def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
+  def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
+  def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
     ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5))),
@@ -540,42 +540,42 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
   )
 
 /* Adds half moves or arithmetic and half/single/double conversion to the D fixed datapath. */
-circuit RV5StageFpFixedDHalf(xlen :: XLen,
-                             Tag :: DataType,
-                             ~arithmetic: arithmetic_enabled :: Boolean,
-                             ~zfa: zfa_enabled :: Boolean = #false):
+circuit FpFixedDHalf(xlen :: XLen,
+                     Tag :: DataType,
+                     ~arithmetic: arithmetic_enabled :: Boolean,
+                     ~zfa: zfa_enabled :: Boolean = #false):
   def profile = FloatingPointProfile.D
-  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
-  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
+  input request: FpExecutionRequest(xlen, profile, Tag)
+  output completion: FpExecutionResult(xlen, profile, Tag)
 
-  def HalfModule = if arithmetic_enabled | RV5StageFpFormatDatapath(xlen, profile, FloatFormat.F16, Tag, ~zfa: zfa_enabled) | RV5StageFpHalfMinimalDatapath(xlen, profile, Tag)
+  def HalfModule = if arithmetic_enabled | FpFormatDatapath(xlen, profile, FloatFormat.F16, Tag, ~zfa: zfa_enabled) | FpHalfMinimalDatapath(xlen, profile, Tag)
   inst half(HalfModule)
-  inst base(RV5StageFpFixedD(xlen, Tag, ~zfa: zfa_enabled))
+  inst base(FpFixedD(xlen, Tag, ~zfa: zfa_enabled))
   half.request <== request
 
   def control = request.control.execution
-  def fp_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
-  def widening_arithmetic = fp_destination & (control.destination_precision === RV5StageFloatPrecision.Single) & control.unit.is_one_of(RV5StageFloatUnit.Add, RV5StageFloatUnit.Multiply, RV5StageFloatUnit.FusedMultiplyAdd) & (
-    (request.left_precision === RV5StageFloatPrecision.Half) ||| (request.right_precision === RV5StageFloatPrecision.Half) ||| ((control.unit === RV5StageFloatUnit.FusedMultiplyAdd) & (request.third_precision === RV5StageFloatPrecision.Half))
+  def fp_destination = request.control.registers.destination === FloatDestination.FloatingPoint
+  def widening_arithmetic = fp_destination & (control.destination_precision === FloatPrecision.Single) & control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd) & (
+    (request.left_precision === FloatPrecision.Half) ||| (request.right_precision === FloatPrecision.Half) ||| ((control.unit === FloatUnit.FusedMultiplyAdd) & (request.third_precision === FloatPrecision.Half))
   )
-  inst widen_left(RV5StageFpWidenHalf(64))
-  inst widen_right(RV5StageFpWidenHalf(64))
-  inst widen_third(RV5StageFpWidenHalf(64))
+  inst widen_left(FpWidenHalf(64))
+  inst widen_right(FpWidenHalf(64))
+  inst widen_third(FpWidenHalf(64))
   widen_left.value <== request.left
   widen_right.value <== request.right
   widen_third.value <== request.third
   def widened_request = request.updated(
-    ~left: mux(request.left_precision === RV5StageFloatPrecision.Half, widen_left.widened, request.left),
-    ~right: mux(request.right_precision === RV5StageFloatPrecision.Half, widen_right.widened, request.right),
-    ~third: mux(request.third_precision === RV5StageFloatPrecision.Half, widen_third.widened, request.third)
+    ~left: mux(request.left_precision === FloatPrecision.Half, widen_left.widened, request.left),
+    ~right: mux(request.right_precision === FloatPrecision.Half, widen_right.widened, request.right),
+    ~third: mux(request.third_precision === FloatPrecision.Half, widen_third.widened, request.third)
   )
   base.request <== mux(widening_arithmetic, widened_request, request)
   def ordinary_half = mux(fp_destination,
-                          control.destination_precision === RV5StageFloatPrecision.Half,
-                          control.source_precision === RV5StageFloatPrecision.Half)
-  def half_cross = fp_destination & request.control.registers.uses_frs1 & (control.unit === RV5StageFloatUnit.Convert) & (
-    (control.source_precision === RV5StageFloatPrecision.Half) ||| (
-      control.destination_precision === RV5StageFloatPrecision.Half
+                          control.destination_precision === FloatPrecision.Half,
+                          control.source_precision === FloatPrecision.Half)
+  def half_cross = fp_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & (
+    (control.source_precision === FloatPrecision.Half) ||| (
+      control.destination_precision === FloatPrecision.Half
     )
   )
   def half_source = riscv_unbox(FloatFormat.F16, 64, request.left)
@@ -599,10 +599,10 @@ circuit RV5StageFpFixedDHalf(xlen :: XLen,
   double_to_half.tininess_mode <== TininessMode.AfterRounding
 
   def ordinary = mux(ordinary_half, half.completion, base.completion)
-  def source_half = control.source_precision === RV5StageFloatPrecision.Half
+  def source_half = control.source_precision === FloatPrecision.Half
   def other_single = mux(source_half,
-                         control.destination_precision === RV5StageFloatPrecision.Single,
-                         control.source_precision === RV5StageFloatPrecision.Single)
+                         control.destination_precision === FloatPrecision.Single,
+                         control.source_precision === FloatPrecision.Single)
   def converted_value = mux(
     source_half,
     mux(other_single,
@@ -621,10 +621,10 @@ circuit RV5StageFpFixedDHalf(xlen :: XLen,
         riscv_exception_flags(single_to_half.exception_flags),
         riscv_exception_flags(double_to_half.exception_flags))
   )
-  def left_widening_flags = mux(request.left_precision === RV5StageFloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
-  def right_widening_flags = mux(request.right_precision === RV5StageFloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
-  def third_widening_flags = mux(request.third_precision === RV5StageFloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
-  def widening_flags = mux(control.unit === RV5StageFloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
+  def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
+  def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
+  def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
+  def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(half_cross, converted_value, ordinary.fp_value),
     ~exception_flags: mux(half_cross, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5))),
@@ -632,13 +632,13 @@ circuit RV5StageFpFixedDHalf(xlen :: XLen,
   )
 
 export:
-  RV5StageDisabledZfaFormatDatapath
-  RV5StageDisabledZfaModulo
-  RV5StageZfaModulo
-  RV5StageZfaFormatDatapath
-  RV5StageFpFormatDatapath
-  RV5StageFpHalfMinimalDatapath
-  RV5StageFpFixedF
-  RV5StageFpFixedD
-  RV5StageFpFixedFHalf
-  RV5StageFpFixedDHalf
+  DisabledZfaFormatDatapath
+  DisabledZfaModulo
+  ZfaModulo
+  ZfaFormatDatapath
+  FpFormatDatapath
+  FpHalfMinimalDatapath
+  FpFixedF
+  FpFixedD
+  FpFixedFHalf
+  FpFixedDHalf

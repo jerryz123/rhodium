@@ -506,7 +506,7 @@ decode rows, and reuses the packed integer controls. Keep those legality classes
 explicit in decode and never merge extension instructions into base V.
 
 `fp.rhdl` adapts singleton operands and the shared physical execution control to the
-shared FP request. It imports the named FP contracts, RISC-V
+shared FP request. It imports the common [`cores/fp/`](../../fp/README.md) contracts, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
 FP. Dynamic FP rounding is part of each admitted descriptor and issued beat;

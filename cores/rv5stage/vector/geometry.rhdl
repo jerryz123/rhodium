@@ -7,7 +7,7 @@ import:
   lib("cores/vector-layout.rhm") open
   "bundles.rhdl".RV5StageVectorDescriptor
   "../decode/vector-ctrl.rhdl" open
-  "../fp/types.rhdl".RV5StageFloatUnit
+  "../../fp/types.rhdl".FloatUnit
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
@@ -39,7 +39,7 @@ fun vector_single_element(control :: RV5StageVectorControl()) :~ Bool:
 
 /* Identifies multiply-accumulate and fused FP operations that consume old vd. */
 fun vector_reads_destination(control :: RV5StageVectorControl()) :~ Bool:
-  (control.multiply_divide & control.multiply_accumulate) ||| (control.fp_service & (control.fp_execution.unit === RV5StageFloatUnit.FusedMultiplyAdd))
+  (control.multiply_divide & control.multiply_accumulate) ||| (control.fp_service & (control.fp_execution.unit === FloatUnit.FusedMultiplyAdd))
 
 /* Identifies schedules needing the second general VRF operand read. */
 fun vector_reads_second(control :: RV5StageVectorControl()) :~ Bool:

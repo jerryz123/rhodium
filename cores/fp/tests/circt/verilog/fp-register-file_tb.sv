@@ -1,6 +1,6 @@
 // Verifies two-write forwarding, retention, all three reads, and writable f0.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_fp_register_file_tb;
+module fp_register_file_tb;
   typedef struct packed {
     logic [4:0] address;
     logic [63:0] data;
@@ -21,7 +21,7 @@ module rv5stage_fp_register_file_tb;
   logic [63:0] read_data_2;
   logic [63:0] read_data_3;
 
-  RV5StageFloatingPointRegisterFile dut (
+  FloatingPointRegisterFile dut (
     .clock(clock),
     .reset(reset),
     .read_address_1(read_address_1),
@@ -71,7 +71,27 @@ module rv5stage_fp_register_file_tb;
     first_write.valid = 1'b0;
     assert (read_data_2 == 64'h1111222233334444);
 
-    $display("RV5Stage floating-point register file passed");
+    // A shared bank defines colliding writes identically for forwarding and storage.
+    read_address_1 = 5'd5;
+    read_address_3 = 5'd5;
+    first_write.valid = 1'b1;
+    first_write.bits.data = 64'h5555666677778888;
+    second_write.valid = 1'b1;
+    second_write.bits.address = 5'd5;
+    second_write.bits.data = 64'h9999aaaabbbbcccc;
+    #1;
+    assert (read_data_1 == second_write.bits.data);
+    assert (read_data_2 == second_write.bits.data);
+    assert (read_data_3 == second_write.bits.data);
+    @(posedge clock);
+    #1;
+    first_write.valid = 1'b0;
+    second_write.valid = 1'b0;
+    assert (read_data_1 == 64'h9999aaaabbbbcccc);
+    assert (read_data_2 == 64'h9999aaaabbbbcccc);
+    assert (read_data_3 == 64'h9999aaaabbbbcccc);
+
+    $display("Shared floating-point register file passed");
     $finish;
   end
 endmodule

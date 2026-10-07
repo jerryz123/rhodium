@@ -1,12 +1,12 @@
 // Checks two-client FP service throughput, arithmetic, opaque tags, stalls, fairness, and reset.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_fp_service_tb;
+module fp_service_tb;
 `ifdef RHODIUM_FP_SCHEDULED
   localparam bit scheduled = 1;
 `else
   localparam bit scheduled = 0;
 `endif
-  typedef RV5StageFpExecutionRequest request_t;
+  typedef FpExecutionRequest request_t;
   // Describe the public client result, independently of internal tag specializations.
   typedef struct packed {
     logic [7:0] tag;
@@ -21,7 +21,7 @@ module rv5stage_fp_service_tb;
   struct packed {logic ready;} first_out, second_out;
   struct packed {logic ready;} first_result_in, second_result_in;
   result_port_t first_result_out, second_result_out;
-  RV5StageFpServiceFixture dut(.*);
+  FpServiceFixture dut(.*);
   always #5 clock = ~clock;
 
   bit pending[2][256];

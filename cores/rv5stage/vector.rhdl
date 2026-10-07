@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../fp/bundles.rhdl" open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
@@ -17,8 +18,7 @@ import:
   "integer-execution.rhdl" open
   "../multiplier.rhdl" open
   "../divider.rhdl" open
-  "fp/bundles.rhdl" open
-  "fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../fp/register-file.rhdl".FloatingPointRegisterWrite
   "register-file.rhdl".RegisterFileWrite
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/vector.rhm" open
@@ -43,8 +43,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface precheck(RV5StageVectorPrecheck(), ~role: requester)
-  interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
+  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
   interface multiply_request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
   interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)

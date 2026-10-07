@@ -48,6 +48,10 @@ Shared `riscv-guest-translation`, `riscv-nested-walker`, `riscv-svnapot`,
 and live under `cores/mmu/tests/`. Production RV5Stage MMU replay and
 physical-port arbitration remain in `cores-memory`.
 
+Shared `fp-register-file`, `fp-service`, and `fp-scheduled` fixtures live under
+`cores/fp/tests/` and belong to `cores-components`. RV5Stage's scalar wrapper,
+core writeback, and vector integration remain with their named-core owners.
+
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or
 `cores-vector-functional-2` for the default functional configurations, or
 `cores-vector-configurations` for alternate XLEN, VLEN, queue depth, and slot

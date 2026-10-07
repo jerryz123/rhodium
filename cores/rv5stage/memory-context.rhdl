@@ -4,12 +4,12 @@
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
-  "fp/types.rhdl" open
+  "../fp/types.rhdl" open
 
 /* Retains the FPR destination and precision needed to box a completed FP load. */
 bundle RV5StageFpMemoryWriteback():
   rd: Bits(5)
-  precision: RV5StageFloatPrecision
+  precision: FloatPrecision
 
 /* Selects acknowledgement-only, GPR, FPR, or vector-slot completion ownership. */
 tagged_union RV5StageMemoryWriteback(vector_completion_slots :: Pow2Int):
