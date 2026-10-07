@@ -44,8 +44,9 @@ For the fetching core with both shared caches, import
 `cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
 `RV2Wide(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
-`RV2WideConfig(~btb_entries: 32, ~ras_entries: 6)` selects predictor capacities;
-setting both to zero selects the sequential-fetch baseline.
+`RV2WideConfig(~btb_entries: 32, ~ras_entries: 6, ~bht: #true)` selects predictor
+capacities and enables the 4,096-counter direction table. Set both capacities
+to zero and `~bht: #false` for the sequential-fetch baseline.
 Connect separate `instruction_chi` RN-I, `data_chi` RN-F, and `uncached_chi` RN-I
 endpoints with distinct `instruction_node_id`, `data_node_id`, and
 `uncached_node_id` inputs. Pulse
@@ -70,7 +71,9 @@ Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
 bits are ignored for fetch faults.
 Each entry also supplies `prediction: BranchPrediction(XLen.X64)` and
 `speculated_ras_action: RasAction`. A nonpredicting packet source clears
-`prediction.valid` and uses `RasAction.None`. Prediction metadata belongs to
+`prediction.valid`, uses `RasAction.None`, and zeroes `direction: BhtPrediction(10)`.
+Predicting sources retain the saved direction index and pre-instruction history
+even for not-taken conditional branches. Prediction metadata belongs to
 the instruction, not its packet position, and remains attached after compaction.
 The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.
@@ -275,17 +278,34 @@ misaligned faults.
 
 ## Branch prediction
 
-The frontend uses the shared 32-entry BTB with eight-byte lookup and a six-entry
-RAS. S1 looks up its registered PC and selects the earliest predicted-taken
+The frontend uses the shared 32-entry BTB, a six-entry RAS, and a banked gshare
+direction table. S1 looks up its registered PC and selects the earliest predicted-taken
 instruction at or after the cursor. Its combinational result selects the next
 S0 cache request in that same cycle, without an intervening PC register. A 32-bit
 instruction at byte six requests its continuation block before the target.
 
+S1 hashes `PC[12:3] XOR history[9:0]` and registers that row with the lookup.
+Fresh S2 cache data is predecoded at real instruction boundaries, independently
+of assembly backpressure. The branch PC's bits 2:1 select one of four counters
+in that row; the high counter bit predicts direction. All branches in a block
+share the saved S1 hash, a block-based gshare approximation. S2 appends their
+predicted outcomes in address order, stopping at the first predicted-taken
+control transfer. Only conditional branches enter global history.
+
+S2 conditional directions override provisional BTB decisions, including
+not-taken corrections and taken predictions on BTB misses. Targets come from
+instruction immediates. Corrections select a replacement S0 cursor in that
+cycle and cancel younger lookups while preserving the current block. The
+replacement issues immediately when block credits and cache admission permit;
+otherwise its cursor is retained until capacity returns. A byte-six branch waits for its upper parcel
+but keeps its original row; fetch replay preserves that prefix. Direction-only
+overrides do not invalidate an otherwise valid BTB target.
+
 Assembly checks actual boundaries, instruction length, and control-flow encoding.
 It emits the prefix through the predicted branch and discards only its fall-through
 suffix. At S2 assembly, JAL/C.J uses its encoded immediate target even without a
-BTB entry; a predicted-taken conditional branch also uses its encoded target,
-without changing the BTB's direction decision. A missing direct-jump prediction
+BTB entry. With the BHT disabled, predicted-taken conditional branches retain
+the BTB's direction and use their encoded targets. A missing direct-jump prediction
 or stale immediate target redirects on packet acceptance, selecting the corrected
 target for the S0 request in that same cycle, ahead of the S1 prediction.
 Cache backpressure can delay the actual lookup; the selected cursor is retained.
@@ -302,11 +322,23 @@ target-stream work, including a target instruction paired in the younger lane.
 Wrong direction, wrong target, or unmatched RAS action recovers once at MEM;
 older WB recovery has priority. Resolved BTB training and resolved RAS updates
 come only from successfully retiring branches, separately from assembly discovery.
+BHT training also occurs only at successful WB, using the instruction's saved
+index and the current counter. Each instruction carries its pre-instruction
+history checkpoint. MEM restores the correcting branch's checkpoint plus its
+actual conditional outcome; older WB rejection restores before the rejected
+instruction. Local assembly repairs retain only the accepted prefix's history.
+Standalone integrations connect the core's `direction_update: Valid(BhtUpdate(10))`
+and `history_restore: Valid(Bits(10))` to the frontend alongside the existing
+BTB/RAS event interfaces. `prediction.valid` still means predicted-taken;
+`direction.valid` means a conditional lookup exists, including predicted-not-taken.
+Direction mismatches reconcile history even when target and fallthrough coincide.
 The speculative stack changes once per accepted complete
 call/return; two actions are emitted in separate packets. Recovery restores the
 resolved stack and reconciles through the surviving branch's WB retirement.
 Instruction invalidation and translation/context invalidation clear predictors.
-The BTB has local two-bit direction counters, not global history or ASID tags.
+The BTB retains its local counters for provisional S1 predictions. The BHT has
+ten-bit speculative history and no ASID tags. Its asynchronous table is an
+initial implementation, not a physical SRAM guarantee.
 
 ## Execution and ordering
 

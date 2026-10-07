@@ -61,6 +61,8 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   core.branch_update |> frontend.branch_update
   core.predictor_restore |> frontend.predictor_restore
   core.predictor_clear |> frontend.predictor_clear
+  core.direction_update |> frontend.direction_update
+  core.history_restore |> frontend.history_restore
   frontend.memory <=> instruction.core
   frontend.virtual_lookup |> instruction.virtual_lookup
   core.prefetch |> mmu.prefetch

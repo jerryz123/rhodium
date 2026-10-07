@@ -128,7 +128,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../cores/csr/`](../cores/csr/README.md) | Shared CSR/trap, privilege, counter, FP, vector, and optional guest state | Public Rhodium/Flow, architectural RISC-V descriptors/adapters, and passive core observation declarations; no named core |
 | [`../cores/mmu/`](../cores/mmu/README.md) | Shared host/guest translation contracts, TLB storage, and page-table walking | Public Rhodium/Flow and architectural RISC-V descriptors/adapters; no named core or cache arbitration |
 | [`../cores/fp/`](../cores/fp/README.md) | Shared FP controls/decode, opaque-tag operand execution, and register-file storage | Public Rhodium/Flow, architectural RISC-V descriptors/helpers, and HardFloat; no named core |
-| [`../cores/bpred/`](../cores/bpred/README.md) | Shared branch-target and return-address prediction state and payloads | Public Rhodium/Flow, XLEN and RISC-V instruction-field helpers; no named core or fetch consumer |
+| [`../cores/bpred/`](../cores/bpred/README.md) | Shared branch-target, direction-table, and return-address prediction state and payloads | Public Rhodium/Flow, XLEN and RISC-V instruction-field helpers; no named core or fetch consumer |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, RISC-V PMA descriptors, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; explicit compilation targets; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
@@ -571,6 +571,8 @@ service, scalar FP wrapper, core, and vector composition/pipeline import it to
 share fixed return delays without introducing a named-core dependency into FP.
 
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN only.
+`bht.rhdl` consumes that protocol and `flow/main.rhdl` for banked counter
+training and clear inputs; PC/history hashing stays with its caller.
 `btb.rhdl` and `ras.rhdl` consume that protocol, XLEN, `std/bits.rhdl`, and
 `flow/main.rhdl`; RAS hint classification also imports pure RISC-V formats and
 the public instruction-field adapter. RV5Stage's fetch and execution consume
@@ -578,9 +580,12 @@ the shared protocols and RAS classifiers; `fetch/source.rhdl` instantiates the
 shared BTB/RAS. Fetch sequencing and architectural recovery remain named-core
 policy, with no dependency back from predictors to their consumers.
 RV2Wide's bundles and execution consume the same protocol, its assembler and
-core use the RAS classifier, and its frontend instantiates eight-byte BTB lookup
-and the shared RAS. The assembler additionally uses the public RISC-V immediate
-adapter; no RV5Stage fetch module is imported.
+core use the shared prediction payloads, and its frontend instantiates eight-byte
+BTB lookup, BHT, and RAS. Its shared `predecode.rhdl` consumes the named decode
+catalog, compressed expander, RAS classifier, pure formats/XLEN, and public
+immediate adapter. The assembler and fresh-S2 `direction.rhdl` consume that
+predecode; direction also uses Bits alignment helpers. No RV5Stage fetch module
+is imported. Frontend history and core recovery remain RV2Wide-owned.
 
 ### Standard-library dependencies
 

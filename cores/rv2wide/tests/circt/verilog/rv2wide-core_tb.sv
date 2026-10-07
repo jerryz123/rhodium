@@ -7,7 +7,8 @@ module rv2wide_core_tb;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; logic [1:0] ras_action, predicted_ras_action; logic [63:0] return_address; } branch_update_t;
   typedef struct packed { logic valid; branch_update_t bits; } branch_update_flow_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
+  typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -121,6 +122,7 @@ module rv2wide_core_tb;
     .prefetch_out(prefetch),
     .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
     .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(),
+    .direction_update_out(direction_update), .history_restore_out(history_restore),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
@@ -131,10 +133,42 @@ module rv2wide_core_tb;
     .memory_out(memory_out), .split_in(split_in), .split_out(split_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
+  typedef struct packed { logic valid; logic [11:0] index; logic taken; } direction_update_t;
+  typedef struct packed { logic valid; logic [9:0] bits; } history_restore_t;
+  direction_update_t direction_update;
+  history_restore_t history_restore;
+  direction_t offered_direction[logic [63:0]];
+  logic [9:0] corrected_history[logic [63:0]];
+  int direction_updates=0, history_recoveries=0;
+  function automatic direction_t direction_metadata(logic [63:0] pc, logic [31:0] word, bit taken=0);
+    return '{word[6:0]==7'h63,12'((pc>>1)^'h2d5),10'((pc>>1)^'h155),taken};
+  endfunction
   always @(posedge clock) if(!reset && branch_update.valid) begin
     branch_updates++;
     assert(branch_update.bits.branch && ((retired[0].valid && retired[0].bits.fetched.pc==branch_update.bits.pc) || (retired[1].valid && retired[1].bits.fetched.pc==branch_update.bits.pc)))
       else $fatal(1,"predictor trained without successful WB retirement");
+    assert(direction_update.valid==branch_update.bits.conditional) else $fatal(1,"nonconditional trained BHT or conditional lost metadata");
+    if(direction_update.valid) begin
+      direction_updates++;
+      assert(direction_update.index==offered_direction[branch_update.bits.pc].index && direction_update.taken==branch_update.bits.taken)
+        else $fatal(1,"BHT training did not use saved lookup index/outcome");
+      if(corrected_history.exists(branch_update.bits.pc)) begin
+        assert(corrected_history[branch_update.bits.pc]=={offered_direction[branch_update.bits.pc].history[8:0],branch_update.bits.taken})
+          else $fatal(1,"MEM recovery omitted the actual conditional outcome");
+        corrected_history.delete(branch_update.bits.pc);
+      end
+    end
+  end
+  always @(posedge clock) if(!reset && redirect.valid && redirect.bits.resolution.disposition inside {0,2}) begin
+    direction_t checkpoint;
+    logic [9:0] want;
+    checkpoint=offered_direction[redirect.bits.pc];
+    want=checkpoint.history;
+    assert(history_restore.valid) else $fatal(1,"recovery omitted history checkpoint");
+    if(redirect.bits.resolution.disposition==0 && checkpoint.valid)
+      corrected_history[redirect.bits.pc]=history_restore.bits;
+    else assert(history_restore.bits==want) else $fatal(1,"recovery history mismatch pc=%h got=%h want=%h",redirect.bits.pc,history_restore.bits,want);
+    history_recoveries++;
   end
   always @(posedge clock) if(!reset && instruction_invalidate) begin
     invalidations++;
@@ -624,6 +658,7 @@ module rv2wide_core_tb;
     end
     item = '0;
     item.fetched.pc = pc; item.fetched.instruction = word; item.fetched.raw_instruction = word; item.fetched.sequential_pc = pc + 4;
+    item.fetched.direction=direction_metadata(pc,word);
     item.rd = word[11:7]; item.write = writes && word[11:7] != 0; item.data = value;
     if (item.write) model[item.rd] = value;
     expected.push_back(item);
@@ -707,6 +742,11 @@ module rv2wide_core_tb;
     instructions.bits.count = 2'(count);
     instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0, default: '0};
     instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0, default: '0};
+    for(int lane=0;lane<count;lane++) begin
+      instructions.bits.entries[lane].direction=direction_metadata(instructions.bits.entries[lane].pc,instructions.bits.entries[lane].instruction);
+      offered_direction[instructions.bits.entries[lane].pc]=instructions.bits.entries[lane].direction;
+      corrected_history.delete(instructions.bits.entries[lane].pc);
+    end
     if (fetch_fault_lane >= 0)
       instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
     #1;
@@ -726,10 +766,14 @@ module rv2wide_core_tb;
     expect_instruction(pc,first);
     expected[index].fetched.prediction='{1'b1,pc,predicted_target,1'b0,action};
     expected[index].fetched.speculated_ras_action=action;
+    expected[index].fetched.direction=direction_metadata(pc,first,1);
     first_token=expected[index].fetched;
     second_token='0;
     second_token.pc=successor_pc; second_token.instruction=imm(12,0,42);
     second_token.raw_instruction=second_token.instruction; second_token.sequential_pc=successor_pc+4;
+    second_token.direction=direction_metadata(successor_pc,second_token.instruction);
+    offered_direction[pc]=first_token.direction;
+    offered_direction[successor_pc]=second_token.direction;
     if(keep_successor) expect_instruction(successor_pc,second_token.instruction);
     instructions='{1'b1,'{2'd2,'{second_token,first_token}}};
     #1; while(!ready) tick(); tick(); instructions.valid=0;
@@ -761,6 +805,7 @@ module rv2wide_core_tb;
   task automatic expect_system(logic [63:0] pc, logic [31:0] word, logic [63:0] value=0);
     retirement_t item;
     item='0; item.fetched.pc=pc; item.fetched.instruction=word; item.fetched.raw_instruction=word; item.fetched.sequential_pc=pc+4;
+    item.fetched.direction=direction_metadata(pc,word);
     item.rd=word[11:7]; item.write=word[14:12]!=0 && item.rd!=0; item.data=value;
     if(item.write) model[item.rd]=value;
     expected.push_back(item);
@@ -868,6 +913,10 @@ module rv2wide_core_tb;
     send_predicted('h2680,jump(0,32),'h26c0,'h26c0,0); drain();
     stop_at('h26e0,'h26e4);
     send_predicted('h26e0,branch(1,2,32),'h2700,'h2700,0); drain();
+    // Next-PC accuracy alone cannot detect this direction mismatch: the taken
+    // target equals fallthrough, but history must still append the actual one.
+    stop_at('h2720,'h2724);
+    send('h2720,branch(0,0,4),imm(3,0,99),2,1,0); drain();
     // JALR clears bit zero, and link data is available to the restarted stream.
     send('h2400, imm(5, 0, 'h601), imm(6, 0, 9));
     drain();
@@ -938,7 +987,7 @@ module rv2wide_core_tb;
     drain();
     send('h3000, imm(22, 20, 0), imm(23, 21, 0));
     drain();
-    assert (single_issues > 10 && stops == 22) else $fatal(1, "insufficient hazard/stop coverage: single=%0d stops=%0d", single_issues, stops);
+    assert (single_issues > 10 && stops == 23) else $fatal(1, "insufficient hazard/stop coverage: single=%0d stops=%0d", single_issues, stops);
 
     // Warm loads use the normal MEM/WB path and sustain one LSU plus one ALU each cycle.
     reset_core(); lookup_mode = 1;
@@ -2231,6 +2280,7 @@ module rv2wide_core_tb;
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     assert(branch_updates>0) else $fatal(1,"no retired branch training");
+    assert(direction_updates>0 && history_recoveries>0) else $fatal(1,"gshare training/recovery not exercised");
     $display("Zicond/Zimop: %0d conditional pairs, %0d MOP pairs",conditional_dual,mop_dual);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops in %0d cycles", commits, dual_commits, stops, cycles);
     $finish;

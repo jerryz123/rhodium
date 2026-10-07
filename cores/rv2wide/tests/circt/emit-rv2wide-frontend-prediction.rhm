@@ -5,5 +5,6 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../frontend.rhdl".RV2WideFrontend
   "../cache-fixture.rhdl".test_chi
-def program = elaborate(RV2WideFrontend(test_chi))
+  "../../profile.rhm".RV2WideConfig
+def program = elaborate(RV2WideFrontend(test_chi, RV2WideConfig(~bht: #false)))
 export program

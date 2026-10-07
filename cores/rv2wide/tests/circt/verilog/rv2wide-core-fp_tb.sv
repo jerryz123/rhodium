@@ -4,7 +4,8 @@ module rv2wide_core_fp_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
   typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
+  typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -67,6 +68,7 @@ module rv2wide_core_fp_tb;
     .memory_in(memory_in),.memory_out(memory_out),.pipeline_in(pipeline_in),.pipeline_out(pipeline_out),
     .split_in(split_in),.split_out(split_out),
     .branch_update_out(),.predictor_restore_out(),.predictor_clear_out(),
+    .direction_update_out(),.history_restore_out(),
     .translation_state(),.translation_flush(),.instruction_invalidate_out(),.fetch_flush_out(),.instruction_capacity(),.sleeping(),.prefetch_out()
   );
   always_comb begin

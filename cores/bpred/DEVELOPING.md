@@ -29,11 +29,12 @@ contract without allocating predictor state.
 
 | File | Responsibility |
 |---|---|
-| `protocol.rhdl` | Prediction, branch training, and RAS event payloads |
+| `protocol.rhdl` | Target/direction predictions, saved-index training, and RAS event payloads |
 | `btb.rhdl` | Associative low-address entries, shared upper tags, local counters, discovery, and replacement |
+| `bht.rhdl` | Banked asynchronous direction counters, saved-index saturation, and lazy row initialization |
 | `ras.rhdl` | Canonical/compressed RISC-V hints and speculative/resolved bounded stacks |
 | `tests/ras-fixture.rhdl` | Direct stack and classification test boundary |
-| `tests/circt/` | Shared BTB/RAS emitters and cycle-visible Verilator oracles |
+| `tests/circt/` | Shared BTB/BHT/RAS emitters and cycle-visible Verilator oracles |
 
 ## Change workflow
 
@@ -53,7 +54,7 @@ Do not add compatibility forwarding modules under the old named-core paths.
 Run the direct behavioral fixtures through the managed Racket/CIRCT runner:
 
 ```sh
-FIXTURES='bpred-btb bpred-btb-wide bpred-ras' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='bpred-btb bpred-btb-wide bpred-bht bpred-ras' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 They cover counter saturation, address ordering and halfword cursors, entry and

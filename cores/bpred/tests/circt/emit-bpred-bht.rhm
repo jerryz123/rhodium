@@ -1,0 +1,8 @@
+#lang rhombus
+/* Elaborates a small direction table for independent row/bank and saturation oracles. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../bht.rhdl".Bht
+def program = elaborate(Bht(3))
+export program

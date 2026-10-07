@@ -3,7 +3,8 @@
 module rv2wide_frontend_prediction_tb;
   typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
+  typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -31,6 +32,8 @@ module rv2wide_frontend_prediction_tb;
   translation_request_t translation_out;
   translation_result_t translation_in;
   update_flow_t branch_update_in='0;
+  logic [13:0] direction_update_in='0;
+  logic [10:0] history_restore_in='0;
   logic response_valid=0, response_error=0, response_replay=0;
   logic [63:0] response_data=0, array_address=0;
   logic array_valid=0;

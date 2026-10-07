@@ -1,0 +1,34 @@
+#lang rhodium
+/* Shares length, legality, control-flow classification, and immediate expansion across fetch consumers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm".RV2WideConfig
+  "decode/core-ctrl.rhdl".rv2wide_instructions
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/bpred/ras.rhdl").riscv_ras_action
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/compressed.rhdl") open
+  lib("riscv/model/formats.rhm") as fields
+  lib("riscv/rtl/instruction-fields.rhdl").instruction_immediate
+
+/* Expands one candidate encoding without asserting that it lies at an instruction boundary. */
+circuit RV2WidePredecode(profile :: RV2WideConfig):
+  input raw: Bits(32)
+  output canonical: Bits(32)
+  output(compressed, legal, control_flow, conditional, immediate): Bool
+  output offset: Bits(64)
+  output action: RasAction
+  inst expander(RiscvCompressedExpander(XLen.X64, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause).map(fun (instruction): instruction.name)))
+  expander.compressed <== raw[0..16]
+  compressed <== raw[0..2] =/= bits(3, 2)
+  canonical <== mux(compressed, expander.expansion.instruction, raw)
+  legal <== !compressed ||| expander.expansion.valid
+  conditional <== legal & (canonical[0..7] === bits(0x63, 7)) & !canonical[12..15].is_one_of(bits(2, 3), bits(3, 3))
+  def direct = legal & (canonical[0..7] === bits(0x6f, 7))
+  immediate <== direct ||| conditional
+  control_flow <== immediate ||| (legal & (canonical[0..7] === bits(0x67, 7)) & (canonical[12..15] === bits(0, 3)))
+  offset <== mux(direct, instruction_immediate(fields.JImmediate, canonical, 64), instruction_immediate(fields.BImmediate, canonical, 64))
+  action <== mux(control_flow, riscv_ras_action(canonical), RasAction.None)
+
+export RV2WidePredecode

@@ -6,6 +6,6 @@ import:
   "../../rv2wide.rhdl".RV2Wide
   "../../profile.rhm".RV2WideConfig
   "../cache-fixture.rhdl" open
-def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~btb_entries: 0, ~ras_entries: 0)
+def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false)
 def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
 export program

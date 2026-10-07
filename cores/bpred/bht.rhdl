@@ -1,0 +1,47 @@
+#lang rhodium
+/* Stores banked two-bit direction counters with caller-owned indices and lazy initialization. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Reads four halfword banks plus a retained byte-six prefix; training uses the current counter. */
+sync_circuit Bht(row_bits :: PosInt = 10):
+  input(row, prefix_row): Bits(row_bits)
+  interface clear(Pulse(), ~role: consumer)
+  interface update(Valid(BhtUpdate(row_bits)), ~role: consumer)
+  output counters: Vec(4, Bits(2))
+  output prefix_counter: Bits(2)
+  def rows = 1 << row_bits
+  def cold = vec(for List (_ in 0..4): bits(1, 2))
+  mem storage(rows, Vec(4, Bits(2)))
+  reg valid_rows(~init: bits(0, rows))
+  counters <== mux((valid_rows >> row)[0].into(Bool) & !clear.valid, storage[row], cold)
+  prefix_counter <== mux((valid_rows >> prefix_row)[0].into(Bool) & !clear.valid, storage[prefix_row][3], bits(1, 2))
+  def write_row = update.bits.index[2..row_bits + 2]
+  def bank = update.bits.index[0..2]
+  def previous = mux((valid_rows >> write_row)[0].into(Bool), storage[write_row], cold)
+  def counter = previous[bank]
+  def incremented = mux(counter === bits(3, 2), counter, counter + bits(1, 2))
+  def decremented = mux(counter === bits(0, 2), counter, counter - bits(1, 2))
+  def written = vec(for List (lane in 0..4): mux(bank === bits(lane, 2), mux(update.bits.taken, incremented, decremented), previous[lane]))
+  when (clear.valid):
+    valid_rows <== bits(0, rows)
+  elsewhen (update.valid):
+    storage.write(write_row, written)
+    valid_rows <== valid_rows ||| (bits(1, rows) << write_row)
+
+/* Retains the BHT port shape without allocating counter state. */
+sync_circuit DisabledBht(row_bits :: PosInt = 10):
+  input(row, prefix_row): Bits(row_bits)
+  interface clear(Pulse(), ~role: consumer)
+  interface update(Valid(BhtUpdate(row_bits)), ~role: consumer)
+  output counters: Vec(4, Bits(2))
+  output prefix_counter: Bits(2)
+  counters <== vec(for List (_ in 0..4): bits(1, 2))
+  prefix_counter <== bits(1, 2)
+
+export:
+  Bht
+  DisabledBht

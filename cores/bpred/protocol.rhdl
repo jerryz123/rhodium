@@ -5,6 +5,18 @@
 import:
   "../../riscv/isa/xlen.rhm" open
 
+/* Trains a saved direction-table address independently of the caller's current history. */
+bundle BhtUpdate(row_bits :: PosInt):
+  index: Bits(row_bits + 2)
+  taken: Bool
+
+/* Retains an instruction's conditional lookup and pre-instruction recovery checkpoint. */
+bundle BhtPrediction(row_bits :: PosInt):
+  valid: Bool
+  index: Bits(row_bits + 2)
+  history: Bits(row_bits)
+  taken: Bool
+
 /* Encodes the x1/x5 implicit call/return hints, including coroutine pop-then-push. */
 hardware_enum RasAction:
   None
@@ -43,6 +55,8 @@ bundle BranchUpdate(xlen :: XLen):
   return_address: Bits(xlen.width)
 
 export:
+  BhtUpdate
+  BhtPrediction
   RasAction
   RasUpdate
   RasResolution

@@ -211,8 +211,33 @@ suppress the younger branch's retirement and predictor training.
 
 ### Predictor ownership and recovery
 
-The frontend instantiates shared `Btb` with `fetch_bytes = 8` and shared `Ras`.
-S0 admits a PC into the registered S1 lookup. S1's combinational BTB/RAS result
+`predecode.rhdl` centralizes compressed expansion, control-flow legality, RAS
+hints, and immediate offsets for both S2 and assembly. `direction.rhdl` walks
+fresh S2 parcel boundaries, carrying a byte-six prefix independently of the
+assembler. The shared BHT owns only counters; the frontend owns speculative
+and committed ten-bit history. S1 registers the PC/history hash, forwarding an
+older same-cycle S2 history update. A replayed attempt reuses its saved row.
+Rows are block-based; intra-block checkpoints still append outcomes in order.
+
+Direction corrections preserve the fresh S2 block and cancel only younger
+lookup contexts. Do not gate current block publication with its own correction.
+Metadata for each halfword start travels through block storage; the assembler
+selects it by instruction PC and uses the continuation's prefix metadata for a
+straddle. Assembly repair restores its accepted prefix, while fetch replay
+preserves predecode prefix state. MEM emits checkpoint recovery plus actual
+conditional outcome; WB rejection takes priority. WB emits separately qualified
+saved-index training. Repeated RAS restoration must not reset gshare history.
+Context/code invalidation clears both counter validity and history.
+
+Run `bpred-bht`, `rv2wide-bht`, the existing assembly/frontend baseline fixtures,
+and the production core/fetch fixtures for changes across this path. The BHT
+fixture checks public replacement timing under blocked assembly, direction
+overrides, compressed/straddled branches, replay, and history metadata. The core
+bench checks saved-index training and recovery checkpoints against offered
+instruction metadata.
+
+The frontend instantiates shared `Btb` with `fetch_bytes = 8`, shared `Ras`, and
+independently disableable `Bht`. S0 admits a PC into the registered S1 lookup. S1's combinational BTB/RAS result
 selects the next S0 request directly and travels with its original lookup into S2.
 Byte-six continuations retain their prefix prediction instead of looking up a
 new branch. Replay retains that continuation context; the assembler also retains
@@ -226,10 +251,16 @@ instructions. J/B immediate targets override matching taken BTB targets; target
 mismatches invalidate the stale entry. Only JAL/C.J and RAS returns discover
 fallbacks; never discover a conditional branch through the BTB's unconditional
 discovery port or infer an unknown direction from its immediate.
-Architectural restart/redirect, accepted assembly repair, and S2 replay take
+Architectural restart/redirect, accepted assembly repair, fresh S2 direction correction, and S2 replay take
 priority over S1 prediction and the saved cursor in the S0 request mux.
-These replacements reuse canceled reservations rather than waiting a cycle for
-registered credits to clear. On accepted assembly repair, clear old S1/S2
+Architectural and assembly replacements may reuse storage that their clear
+discards. Direction corrections preserve buffered blocks and their current S2
+response: cancel younger reservations, but admit the replacement only when
+registered free slots exceed that retained response's reservation. Replay
+publishes no current response but still requires a free buffered-block slot.
+Save a credit-blocked target in the cursor and issue it when capacity returns;
+do not defer cancellation or history correction with target admission.
+On accepted assembly repair, clear old S1/S2
 validity at that edge, but retain a replacement S0 request accepted into S1.
 Kill the younger cache S1 resolution, but do not suppress the current cache S2
 response or gate the assembler's block/input offer with its own repair. This
@@ -650,7 +681,7 @@ and wrong-path store suppression. Both variants check original 16-bit trap
 values after older load drain: reserved neighbors with the subsets selected,
 and unselected optional encodings with C only. Profile tests check independent
 selection, shared CSR configuration, publication, and invalid combinations.
-The enabled instance additionally requires warm conditional BTB predictions,
+The enabled instance additionally requires warm conditional direction predictions,
 including a 32-bit branch crossing an eight-byte fetch boundary. It also runs
 compiler event instrumentation so accepted-prefix/local-repair ordering and
 instruction ancestry are checked by RTL assertions. The

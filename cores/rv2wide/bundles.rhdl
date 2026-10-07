@@ -52,6 +52,7 @@ bundle RV2WideInstruction():
   fault: RV2WideFetchFault()
   prediction: BranchPrediction(XLen.X64)
   speculated_ras_action: RasAction
+  direction: BhtPrediction(10)
 
 /* Offers a nonempty prefix of up to two instructions to the issue window. */
 bundle RV2WidePacket():
@@ -145,6 +146,11 @@ bundle RV2WideFetchRepair():
   target: Bits(64)
   invalidate: Bool
   entry: Bits(64)
+  history: Bits(10)
+
+/* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
+fun rv2wide_history_after(prediction :: BhtPrediction(10), taken :: Bool) :~ Bits(10):
+  mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
 
 /* Carries exact byte address/width, positioned ordinary stores, and unshifted atomic operands. */
 bundle RV2WideMemoryReq():
@@ -233,3 +239,4 @@ export:
   RV2WideRedirect
   RV2WideFetchRepair
   RV2WideOperand
+  rv2wide_history_after

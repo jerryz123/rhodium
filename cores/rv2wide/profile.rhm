@@ -19,14 +19,15 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
 )
 
 /* Selects caches, predictors, FP, compressed additions, CMOs, waits, and hints while retaining RV64, C, and Sv39. */
-class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean):
+class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean):
   implements StableCircuitParam
 
-  /* Defaults to four-way 64-set caches, a 32-entry BTB, and a six-entry RAS. */
+  /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and a 4K-counter BHT. */
   constructor (~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
                ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4),
                ~btb_entries: btb_entries :: Nat = 32,
                ~ras_entries: ras_entries :: Nat = 6,
+               ~bht: bht :: Boolean = #true,
                ~floating_point: floating_point :: FloatingPointProfile = FloatingPointProfile.None,
                ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None,
                ~zfa: zfa :: Boolean = #false,
@@ -43,7 +44,7 @@ class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig,
     check_half_precision_profile(floating_point, half_precision)
     unless compressed_extensions_report_misa_c(XLen.X64, floating_point, compressed) && compressed.contains(CompressedExtension.C)
     | error(~who: #'RV2WideConfig, "RV2Wide requires C as its compressed base")
-    super(instruction_cache, data_cache, btb_entries, ras_entries, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause)
+    super(instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause)
 
   property isa_profile :: RiscvIsaProfile:
     def half_extensions = match half_precision

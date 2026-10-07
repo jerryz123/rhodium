@@ -89,6 +89,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   interface branch_update(Valid(BranchUpdate(XLen.X64)), ~role: producer)
   interface predictor_restore(Pulse(), ~role: producer)
   interface predictor_clear(Pulse(), ~role: producer)
+  interface direction_update(Valid(BhtUpdate(10)), ~role: producer)
+  interface history_restore(Valid(Bits(10)), ~role: producer)
   interface memory(RV2WideMemory(), ~role: requester)
   interface split(RiscvSplitAccess(XLen.X64, Bool), ~role: requester)
   interface pipeline(RV2WidePipelineAccess(), ~role: requester)
@@ -436,7 +438,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       result_ready: !(ex_memory & ex.control.memory.access.returns_result()) & !ex_system.serializing() & ((ex.control.muldiv.service === RV2WideLongOperation.None) ||| !ex.rd.or_reduce()) & !ex.control.fp.valid
       taken: ex_taken
       target: ex_target
-      mispredicted: (ex_next_pc =/= ex_predicted_pc) ||| (Bool(profile.ras_entries > 0) & (ex_actual_action =/= ex.fetched.speculated_ras_action))
+      mispredicted: (ex_next_pc =/= ex_predicted_pc) ||| (ex.fetched.direction.valid & (ex.fetched.direction.taken ^ ex_taken)) ||| (Bool(profile.ras_entries > 0) & (ex_actual_action =/= ex.fetched.speculated_ras_action))
       branch_update:
         BranchUpdate(XLen.X64):
           pc: ex.fetched.pc
@@ -872,6 +874,17 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_branch_lane = mux(wb_train[0], bits(0, 1), bits(1, 1))
   branch_update.valid <== wb_train.or_reduce()
   branch_update.bits <== wb_tokens[wb_branch_lane].branch_update
+  direction_update.valid <== branch_update.valid & branch_update.bits.conditional & wb_tokens[wb_branch_lane].fetched.direction.valid
+  direction_update.bits <== BhtUpdate(10):
+    index: wb_tokens[wb_branch_lane].fetched.direction.index
+    taken: branch_update.bits.taken
+  // A MEM correction keeps its branch. WB rejection is older and instead
+  // restores the checkpoint before the oldest instruction being discarded.
+  history_restore.valid <== mem_branch_redirect ||| wb_stop_valid ||| wb_retained_capture ||| wb_system
+  history_restore.bits <== priority_mux(~default: rv2wide_history_after(mem_branch.fetched.direction, mem_branch.taken)):
+    wb_stop_valid: wb_selected.fetched.direction.history
+    wb_retained_capture: wb_memory.fetched.direction.history
+    wb_system: wb_group[0].fetched.direction.history
   predictor_restore.valid <== wb_squash ||| wb_recover_ras.or_reduce()
   assert(!(wb_train[0] & wb_train[1]), "rv2wide_one_branch_update_per_group")
   // FP cannot be a serializing CSR command; qualify the same successful prefix without CSR feedback.

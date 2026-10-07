@@ -1,4 +1,5 @@
 #lang rhombus
+// Checks RV2Wide configuration selection, ISA publication, and invalid subset combinations.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,6 +28,9 @@ check:
   pause.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   wait.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zawrs"]
   wait.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
+  integer.bht ~is #true
+  RV2WideConfig(~bht: #false).bht ~is #false
+  RV2WideConfig(~bht: #false).isa_profile ~is integer.isa_profile
   prefetch.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicbop"]
   prefetch.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   management.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicbom"]

@@ -1,10 +1,10 @@
-<!-- Documents reusable branch-target and return-address prediction contracts. -->
+<!-- Documents reusable branch-target, direction-table, and return-address prediction contracts. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Branch prediction
 
-`bpred/` provides the shared `Btb` and `Ras` components used by RV5Stage and RV2Wide.
-They own predictor state, not fetch sequencing, instruction assembly, redirect
+`bpred/` provides shared `Btb`, `Bht`, and `Ras` components. RV5Stage uses BTB/RAS;
+RV2Wide additionally uses the direction table. They own predictor state, not fetch sequencing, instruction assembly, redirect
 priority, or retirement. See [DEVELOPING.md](DEVELOPING.md) for maintenance and
 [the core catalog](../README.md) for consumers.
 
@@ -66,8 +66,27 @@ payload fields must not be observed.
 
 `entry_count` is positive. Select `DisabledBtb(xlen)` instead to disable prediction
 with the same ports and no predictor state. `match_bits` must include the fetch offset and
-less than XLEN; `page_count` must be at least two. There is no global-history
-predictor, separate direction table, or address-space tag.
+less than XLEN; `page_count` must be at least two. BTB matching has no address-space tag.
+
+## Direction table
+
+`Bht(row_bits = 10)` stores four two-bit saturating counters per row. Its
+default 1,024 rows provide 4,096 counters (1 KiB of counter data), plus row-valid
+bits. `row` selects four halfword banks combinationally; `prefix_row` independently
+reads bank three for an unfinished byte-six instruction. Cold counters are
+weakly not-taken. Asynchronous reads do not guarantee SRAM mapping.
+
+`update: Valid(BhtUpdate(row_bits))` supplies a saved index and actual `taken`
+outcome. Index bits 1:0 select the bank; upper bits select the row. Training
+saturates the current counter, so consecutive aliased updates are not lost.
+Reset and `clear: Pulse()` invalidate rows; the next write initializes the
+remaining banks in that row. Clear overrides training and exposes cold lookup
+values immediately. `DisabledBht` retains these ports without table state.
+
+Callers own PC/history hashing, speculative history, instruction boundaries,
+training authorization, and recovery. `BhtPrediction(row_bits)` carries a
+conditional-valid bit, saved index, pre-instruction history, and predicted
+outcome; a not-taken prediction is still valid metadata.
 
 ## Return-address stack
 

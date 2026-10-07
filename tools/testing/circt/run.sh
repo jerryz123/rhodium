@@ -254,7 +254,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-core-fp|cores-execution-datapath:rv2wide-core-fp-late|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch|cores-execution-datapath:rv2wide-fetch-disabled|cores-execution-datapath:rv2wide-assembly-prediction|cores-execution-datapath:rv2wide-frontend-prediction|cores-execution-datapath:rv2wide-mmu)
+    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-core-fp|cores-execution-datapath:rv2wide-core-fp-late|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch|cores-execution-datapath:rv2wide-fetch-disabled|cores-execution-datapath:rv2wide-assembly-prediction|cores-execution-datapath:rv2wide-frontend-prediction|cores-execution-datapath:rv2wide-bht|cores-execution-datapath:rv2wide-mmu)
       return 0
       ;;
     cores-execution-datapath:rv5stage-cosim*)
@@ -943,6 +943,7 @@ direct_fixture_specs=(
   'rv5stage-fetch|rv5stage_fetch_tb||program'
   'bpred-btb|bpred_btb_tb||program'
   'bpred-btb-wide|bpred_btb_wide_tb||program'
+  'bpred-bht|bpred_bht_tb||program'
   'bpred-ras|bpred_ras_tb||program'
   'rv5stage-return-prediction|rv5stage_return_prediction_tb||program'
   'rv5stage-instruction-buffer|rv5stage_instruction_buffer_tb||program'
@@ -961,6 +962,7 @@ direct_fixture_specs=(
   'rv2wide-fetch-disabled|rv2wide_fetch_tb||program'
   'rv2wide-assembly-prediction|rv2wide_assembly_prediction_tb||program'
   'rv2wide-frontend-prediction|rv2wide_frontend_prediction_tb||program'
+  'rv2wide-bht|rv2wide_bht_tb||program'
   'rv2wide-mmu|rv2wide_mmu_tb||program'
   'rv5stage-zcb|rv5stage_zcb_tb||program'
   'rv5stage-mop|rv5stage_mop_tb||program'

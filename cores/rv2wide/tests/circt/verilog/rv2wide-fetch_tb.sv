@@ -13,7 +13,8 @@ module rv2wide_fetch_tb;
   typedef struct packed { logic [63:0] cause, value; } fault_t;
   typedef struct packed { logic valid; fault_t bits; } fault_flow_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
+  typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; logic deferred; } retirement_t;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
@@ -534,7 +535,8 @@ module rv2wide_fetch_tb;
     for(int b=2048;b<4092;b++) backing[b]=8'(b);
     for(int b=0;b<4096;b++) model_bytes[b]=backing[b];
     for(int r=0;r<32;r++) registers[r]=0;
-    insn(0,addi(31,0,3)); insn(4,addi(1,0,2047)); insn(8,addi(1,1,1)); insn(12,jal(0,52));
+    // Run long enough to warm the ten-bit history as well as the BTB.
+    insn(0,addi(31,0,20)); insn(4,addi(1,0,2047)); insn(8,addi(1,1,1)); insn(12,jal(0,52));
     for(int p=64;p<120;p+=4) insn(p,addi(2+(p-64)/4,0,p));
     insn(120,addi(31,31,-1)); insn(124,bne(31,0,-60));
     insn(128,{12'd0,5'd1,3'b011,5'd16,7'h03}); // delayed LD
@@ -556,7 +558,7 @@ module rv2wide_fetch_tb;
     assert(longest_dual>=5 && dreads>0 && completions_seen>0 && branch_count>=3)
       else $fatal(1,"missing throughput/memory coverage dual=%0d dreads=%0d complete=%0d branches=%0d",longest_dual,dreads,completions_seen,branch_count);
 `ifndef BPRED_DISABLED
-    assert(predicted_conditional>0) else $fatal(1,"warm conditional branch never used the BTB");
+    assert(predicted_conditional>0) else $fatal(1,"warm conditional branch never predicted taken");
 `else
     assert(predicted_branches==0) else $fatal(1,"disabled predictor emitted a prediction");
 `endif
@@ -722,7 +724,7 @@ module rv2wide_fetch_tb;
     @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
     for(int r=0;r<32;r++) registers[r]=0;
     for(int b=2048;b<2064;b++) begin backing[b]=8'(b); model_bytes[b]=8'(b); end
-    insn('h600,addi(31,0,3)); parcel('h604,c_imm(2,8,7)); parcel('h606,c_imm(2,9,9));
+    insn('h600,addi(31,0,20)); parcel('h604,c_imm(2,8,7)); parcel('h606,c_imm(2,9,9));
     for(int p='h608;p<'h638;p+=2) parcel(p,c_imm(2,10+((p/2)&1),(p/2)&31));
     parcel('h638,c_imm(0,31,-1)); insn('h63a,addi(0,0,0));
     insn('h63e,bne(31,0,'h608-'h63e)); // warm predicted branch crosses the eight-byte boundary

@@ -3,12 +3,13 @@
 module rv2wide_assembly_prediction_tb;
   typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
-  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; } instruction_t;
+  typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
+  typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
-  typedef struct packed { logic [63:0] pc, data; fault_t fault; prediction_t prediction; } block_t;
+  typedef struct packed { logic [63:0] pc, data; fault_t fault; prediction_t prediction; direction_t [3:0] directions; direction_t prefix_direction; } block_t;
   typedef struct packed { logic valid; block_t bits; } block_flow_t;
-  typedef struct packed { logic [63:0] target; logic invalidate; logic [63:0] entry; } repair_t;
+  typedef struct packed { logic [63:0] target; logic invalidate; logic [63:0] entry; logic [9:0] history; } repair_t;
   typedef struct packed { logic valid; repair_t bits; } repair_flow_t;
   typedef struct packed { logic [1:0] action; logic [63:0] return_address; } ras_update_t;
   typedef struct packed { logic valid; ras_update_t bits; } ras_flow_t;
@@ -73,7 +74,7 @@ module rv2wide_assembly_prediction_tb;
   end
   task automatic offer(logic [63:0] pc,data,pred_pc=0,pred_target=0,bit compressed=0,fault=0);
     @(negedge clock);
-    blocks_in='{1'b1,'{pc,data,'{fault,64'd1,pc},'{pred_pc!=0,pred_pc,pred_target,compressed,2'd0}}};
+    blocks_in='{1'b1,'{pc,data,'{fault,64'd1,pc},'{pred_pc!=0,pred_pc,pred_target,compressed,2'd0},'0,'0}};
     do @(posedge clock); while(!blocks_out);
     @(negedge clock); blocks_in='0;
   endtask

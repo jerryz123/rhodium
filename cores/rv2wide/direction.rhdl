@@ -1,0 +1,121 @@
+#lang rhodium
+/* Predicts conditional directions at fresh S2 parcel boundaries and retains unfinished instruction ownership. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "predecode.rhdl".RV2WidePredecode
+  "profile.rhm".RV2WideConfig
+  "bundles.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/bits.rhdl") open
+
+/* Walks a fresh block once, independently of downstream assembly readiness. */
+sync_circuit RV2WideDirection(profile :: RV2WideConfig):
+  input(valid, clear, fault): Bool
+  input(pc, data): Bits(64)
+  input prediction: BranchPrediction(XLen.X64)
+  input(row, history): Bits(10)
+  input counters: Vec(4, Bits(2))
+  input prefix_counter: Bits(2)
+  output prefix_row: Bits(10)
+  output directions: Vec(4, BhtPrediction(10))
+  output prefix_direction: BhtPrediction(10)
+  output corrected: BranchPrediction(XLen.X64)
+  output history_after: Bits(10)
+  output next_pc: Bits(64)
+  output invalidate: Bool
+
+  reg partial_valid(~init: Bool(#false))
+  reg partial_pc(Bits(64))
+  reg partial_word(Bits(16))
+  reg partial_row(Bits(10))
+  reg partial_prediction(BranchPrediction(XLen.X64))
+  prefix_row <== partial_row
+  def prefix = partial_valid & (pc === (partial_pc + bits(2, 64)))
+  def mutable checkpoint = history
+  def mutable cut = Bool(#false)
+  def mutable effective :: BranchPrediction(XLen.X64) = literal(BranchPrediction(XLen.X64), 0)
+  def mutable matched = Bool(#false)
+  def mutable stale_target = Bool(#false)
+  def mutable boundary = mux(prefix, bits(1, 3), pc[1..3].zext(3))
+  def mutable pending = Bool(#false)
+  // The retained prefix is inspected first; the four ordinary candidates then
+  // advance only at real instruction boundaries, including compressed parcels.
+  for (slot in 0..5):
+    def parcel = if slot == 0 | 3 | slot - 1
+    def raw = if slot == 0 | data[0..16] ++ partial_word | (data >> (parcel * 16))[0..32]
+    def address = if slot == 0 | partial_pc | pc.align_down(8) + bits(parcel * 2, 64)
+    inst decoded(RV2WidePredecode(profile))
+    decoded.raw <== raw
+    def at_boundary = if slot == 0 | prefix | boundary === bits(parcel, 3)
+    def complete = if slot == 0 | Bool(#true) | decoded.compressed ||| Bool(parcel < 3)
+    def live = at_boundary & !cut & !fault
+    def candidate :: BranchPrediction(XLen.X64) = if slot == 0 | partial_prediction | prediction
+    def known = live & complete & decoded.control_flow & candidate.valid & (candidate.pc === address) & (candidate.compressed === decoded.compressed)
+    def taken = mux(decoded.conditional, (if slot == 0 | prefix_counter | counters[parcel])[1].into(Bool), known)
+    def metadata = BhtPrediction(10):
+      valid: live & complete & decoded.conditional
+      index: (if slot == 0 | partial_row | row) ++ bits(parcel, 2)
+      history: checkpoint
+      taken: taken
+    if slot == 0
+    | prefix_direction <== metadata
+    | directions[parcel] <== metadata
+    def selected = BranchPrediction(XLen.X64):
+      valid: Bool(#true)
+      pc: address
+      target: mux(decoded.immediate, address + decoded.offset, candidate.target)
+      compressed: decoded.compressed
+      ras_action: decoded.action
+    effective := mux(live & complete & decoded.control_flow & taken, selected, effective)
+    checkpoint := mux(live & complete, rv2wide_history_after(metadata, taken), checkpoint)
+    matched := matched ||| known ||| (live & !complete & candidate.valid & (candidate.pc === address) & !candidate.compressed)
+    stale_target := stale_target ||| (known & decoded.immediate & (candidate.target =/= (address + decoded.offset)))
+    cut := cut ||| (live & complete & decoded.control_flow & taken)
+    pending := pending ||| (live & !complete)
+    if slot > 0
+    | boundary := mux(live, bits(parcel, 3) + mux(decoded.compressed, bits(1, 3), bits(2, 3)), boundary)
+    | #void
+  // An incomplete byte-six branch is still provisional until its upper parcel
+  // arrives. Its original row and BTB metadata remain attached to that prefix.
+  corrected <== mux(pending & prediction.valid & !prediction.compressed & (prediction.pc === (pc.align_down(8) + bits(6, 64))), prediction, effective)
+  next_pc <== mux(effective.valid, effective.target, pc.align_down(8) + bits(8, 64))
+  history_after <== checkpoint
+  invalidate <== !fault & ((prediction.valid & !matched & !prefix) ||| stale_target)
+  when clear:
+    partial_valid <== Bool(#false)
+  elsewhen valid:
+    partial_valid <== pending
+    when pending:
+      partial_pc <== pc.align_down(8) + bits(6, 64)
+      partial_word <== data[48..64]
+      partial_row <== row
+      partial_prediction <== prediction
+
+/* Passes provisional BTB metadata without allocating predecode or history-prefix state. */
+sync_circuit DisabledRV2WideDirection(profile :: RV2WideConfig):
+  input(valid, clear, fault): Bool
+  input(pc, data): Bits(64)
+  input prediction: BranchPrediction(XLen.X64)
+  input(row, history): Bits(10)
+  input counters: Vec(4, Bits(2))
+  input prefix_counter: Bits(2)
+  output prefix_row: Bits(10)
+  output directions: Vec(4, BhtPrediction(10))
+  output prefix_direction: BhtPrediction(10)
+  output corrected: BranchPrediction(XLen.X64)
+  output history_after: Bits(10)
+  output next_pc: Bits(64)
+  output invalidate: Bool
+  prefix_row <== row
+  directions <== literal(Vec(4, BhtPrediction(10)), 0)
+  prefix_direction <== literal(BhtPrediction(10), 0)
+  corrected <== prediction
+  history_after <== history
+  next_pc <== pc.align_down(8) + bits(8, 64)
+  invalidate <== Bool(#false)
+
+export:
+  RV2WideDirection
+  DisabledRV2WideDirection
