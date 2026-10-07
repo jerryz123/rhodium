@@ -5,12 +5,16 @@ import:
   "../profile.rhm" open
   "../udb.rhm" open
   lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/c.rhm") open
 
 def integer = RV2WideConfig()
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
 def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
 def half = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh, ~zfa: #true)
+def zcb = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb))
+def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcmop))
+def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
   integer.zfa ~is #false
@@ -28,8 +32,21 @@ check:
   half.hart_description.isa_profile ~is half.isa_profile
   RV2WideConfig(~half_precision: HalfPrecisionProfile.Zfhmin) ~throws "require a base F or D"
   RV2WideConfig(~half_precision: HalfPrecisionProfile.Zfh) ~throws "require a base F or D"
+  integer.compressed ~is CCompressedExtensions
+  zcb.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zcb"]
+  zcmop.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zcmop"]
+  compressed_fp.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["zcb", "zcmop"]
+  zcb.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
+  compressed_fp.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
+  compressed_fp.csr_config.compressed ~is compressed_fp.compressed
+  compressed_fp.hart_description.isa_profile ~is compressed_fp.isa_profile
+  RV2WideConfig(~compressed: []) ~throws "requires C"
+  RV2WideConfig(~compressed: [CompressedExtension.Zca, CompressedExtension.Zcb]) ~throws "requires C"
+  RV2WideConfig(~compressed: [CompressedExtension.Zcb]) ~throws "requires Zca or C"
+  RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
+  RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, double, zfa, half_min, half]):
+for (profile in [integer, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
@@ -38,5 +55,9 @@ for (profile in [integer, double, zfa, half_min, half]):
     extensions.contains("D") ~is (profile.floating_point == FloatingPointProfile.D)
     extensions.contains("Zfhmin") ~is half_precision_supports_zfhmin(profile.half_precision)
     extensions.contains("Zfh") ~is half_precision_supports_zfh(profile.half_precision)
+    extensions.contains("Zcb") ~is profile.compressed.contains(CompressedExtension.Zcb)
+    extensions.contains("Zcmop") ~is profile.compressed.contains(CompressedExtension.Zcmop)
+    extensions.contains("C") ~is #true
+    extensions.contains("Zcd") ~is (profile.floating_point == FloatingPointProfile.D)
   check:
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Zfa").map(fun (extension): extension.version) ~is (if profile.zfa | ["1.0.0"] | [])

@@ -1,4 +1,4 @@
-// Checks stale prediction repairs, packet cuts, straddle ownership, and single-shot RAS actions.
+// Checks prediction repairs, packet cuts, straddle ownership, RAS actions, and selected compressed FP expansion.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_assembly_prediction_tb;
   typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
@@ -33,6 +33,19 @@ module rv2wide_assembly_prediction_tb;
       if(want=='h706) assert(instructions_out.bits.entries[lane].fault.valid && instructions_out.bits.entries[lane].fault.value=='h708) else $fatal(1,"continuation fault owner");
       if(want=='h406) assert(instructions_out.bits.entries[lane].prediction.valid && instructions_out.bits.entries[lane].prediction.target=='h500 && instructions_out.bits.count==1) else $fatal(1,"straddle prediction/cut");
       if(want=='h806) assert(instructions_out.bits.entries[lane].instruction==32'h0fa0006f && instructions_out.bits.entries[lane].prediction.valid && instructions_out.bits.entries[lane].prediction.target=='h900 && instructions_out.bits.count==1) else $fatal(1,"upper-only predicted prefix was discarded");
+      if(want>='ha00 && want<'ha08) begin
+        logic [31:0] canonical;
+        logic [15:0] raw;
+        case(want)
+          'ha00: begin raw=16'h2000; canonical=32'h00043407; end // C.FLD f8,0(x8)
+          'ha02: begin raw=16'ha004; canonical=32'h00943027; end // C.FSD f9,0(x8)
+          'ha04: begin raw=16'h2002; canonical=32'h00013007; end // C.FLDSP f0,0(sp)
+          default: begin raw=16'ha006; canonical=32'h00113027; end // C.FSDSP f1,0(sp)
+        endcase
+        assert(!instructions_out.bits.entries[lane].compressed_illegal && instructions_out.bits.entries[lane].instruction==canonical &&
+               instructions_out.bits.entries[lane].raw_instruction==32'(raw) && instructions_out.bits.entries[lane].sequential_pc==want+2)
+          else $fatal(1,"configured D compressed expansion pc=%h",want);
+      end
       retired++;
     end
     if(repair_out.valid) begin
@@ -90,6 +103,9 @@ module rv2wide_assembly_prediction_tb;
     expected_pc.push_back('h706);
     offer('h706,64'h0613000000000000);
     offer('h708,0,0,0,0,1); drain();
+    clear();
+    for(int p='ha00;p<'ha08;p+=2) expected_pc.push_back(64'(p));
+    offer('ha00,{16'ha006,16'h2002,16'ha004,16'h2000}); drain();
     $display("RV2Wide assembly prediction repair/cut/straddle/RAS tests passed (%0d instructions)",retired); $finish;
   end
   initial begin #10000; $fatal(1,"assembly timeout"); end

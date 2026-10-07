@@ -247,8 +247,10 @@ physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
 pipes and forks; it imports no other named-core implementation.
 Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
 the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
-Bits helpers. Canonical decode remains RV2Wide-owned; `core.rhdl` additionally
-imports the pure C descriptor to configure the shared CSR bank's IALIGN.
+Bits helpers. Canonical decode remains RV2Wide-owned. Its profile and UDB
+projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
+the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
+shared CSR bank, preserving IALIGN and architectural publication consistency.
 `cores/rv2wide/mmu.rhdl` imports the shared `cores/mmu/` TLB/walker,
 shared cache protocol/operation and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. It owns EX/MEM translation alignment and

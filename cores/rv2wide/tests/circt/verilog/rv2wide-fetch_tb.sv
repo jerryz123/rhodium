@@ -1,4 +1,4 @@
-// Checks production fetch, prediction, mixed-width execution, and precise memory/fault recovery.
+// Checks production fetch, selected compressed subsets, prediction, and precise memory/fault recovery.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_fetch_tb;
 `ifndef BPRED_DISABLED
@@ -56,6 +56,7 @@ module rv2wide_fetch_tb;
   int reset_canceled_refills=0;
   int predicted_branches=0, predicted_conditional=0, predicted_straddles=0;
   int compressed_retired=0, straddled_retired=0, compressed_dual_run=0;
+  int zc_pairs=0;
   bit iactive=0, dactive=0, wactive=0;
   CHIReqFlit irequest, drequest, wrequest;
   int idue, ipacket, ddue, dpacket;
@@ -94,12 +95,38 @@ module rv2wide_fetch_tb;
   function automatic logic [15:0] c_imm(int funct3, rd, value);
     return {3'(funct3),1'(value>>5),5'(rd),5'(value),2'b01};
   endfunction
+  function automatic logic [15:0] c_zcb_unary(int rd, operation);
+    return {6'h27,3'(rd-8),5'(operation),2'b01};
+  endfunction
+  function automatic logic [15:0] c_zcb_memory(int operation, rd, base, offset, bit signed_half=0);
+    return {6'(operation),3'(base-8),1'(operation=='h20 || operation=='h22 ? offset : int'(signed_half)),1'(offset>>1),3'(rd-8),2'b00};
+  endfunction
   // Independent expansion only for encodings authored by this fixture. The
   // shared expander's catalog fixtures cover the remaining C instruction forms.
   function automatic logic [31:0] expand(logic [15:0] c);
     int rd, rs, value;
     rd=int'(c[11:7]); rs=8+int'(c[9:7]);
     value=int'($signed({c[12],c[6:2]}));
+    if(c[1:0]==0) case(c[15:10])
+      'h20: return load(8+int'(c[4:2]),rs,int'({c[5],c[6]}),4);
+      'h21: return load(8+int'(c[4:2]),rs,int'({c[5],1'b0}),c[6] ? 1 : 5);
+      'h22: return store(8+int'(c[4:2]),rs,int'({c[5],c[6]}),0);
+      'h23: return store(8+int'(c[4:2]),rs,int'({c[5],1'b0}),1);
+      default: begin end
+    endcase
+    if(c[1:0]==1 && c[15:10]=='h27) begin
+      if(c[6:5]==2) return {7'd1,5'(8+int'(c[4:2])),5'(rs),3'd0,5'(rs),7'h33};
+      case(c[6:2])
+        'h18: return {12'h0ff,5'(rs),3'd7,5'(rs),7'h13};
+        'h19: return {12'h604,5'(rs),3'd1,5'(rs),7'h13};
+        'h1a: return {12'h080,5'(rs),3'd4,5'(rs),7'h3b};
+        'h1b: return {12'h605,5'(rs),3'd1,5'(rs),7'h13};
+        'h1c: return {7'h04,5'd0,5'(rs),3'd0,5'(rs),7'h3b};
+        'h1d: return {12'hfff,5'(rs),3'd4,5'(rs),7'h13};
+        default: begin end
+      endcase
+    end
+    if((c&16'hf87f)==16'h6001 && c[11:7]<16 && c[7]) return addi(0,0,0);
     case({c[15:13],c[1:0]})
       5'b00001: return addi(rd,rd,value);
       5'b01001: return addi(rd,0,value);
@@ -227,7 +254,14 @@ module rv2wide_fetch_tb;
         if(word[31:26]=='h0a && word[14:12]==1) value=registers[rs1]|(64'd1<<word[25:20]);
         else if(word[31:20]=='h6b8 && word[14:12]==5)
           for(int b=0;b<8;b++) value[b*8+:8]=registers[rs1][(7-b)*8+:8];
-        else value=word[14:12]==1 ? registers[rs1]<<word[25:20] : registers[rs1]+64'($signed(word[31:20]));
+        else if(word[31:20]=='h604 && word[14:12]==1) value=64'($signed(registers[rs1][7:0]));
+        else if(word[31:20]=='h605 && word[14:12]==1) value=64'($signed(registers[rs1][15:0]));
+        else case(word[14:12])
+          1: value=registers[rs1]<<word[25:20];
+          4: value=registers[rs1]^64'($signed(word[31:20]));
+          7: value=registers[rs1]&64'($signed(word[31:20]));
+          default: value=registers[rs1]+64'($signed(word[31:20]));
+        endcase
         write_rd=rd!=0;
       end
       7'h37: begin value=64'($signed({word[31:12],12'b0})); write_rd=rd!=0; end
@@ -240,7 +274,9 @@ module rv2wide_fetch_tb;
         endcase
         else if(word[31:25]=='h10 && word[14:12]==4) value=(registers[rs1]<<2)+registers[rs2];
         else value=registers[rs1]+registers[rs2];
-        if(word[6:0]==7'h3b) value={{32{value[31]}},value[31:0]};
+        if(word[31:25]=='h04 && word[6:0]==7'h3b)
+          value=word[14:12]==4 ? {48'd0,registers[rs1][15:0]} : {32'd0,registers[rs1][31:0]}+registers[rs2];
+        else if(word[6:0]==7'h3b) value={{32{value[31]}},value[31:0]};
         write_rd=rd!=0;
       end
       7'h67: begin
@@ -334,6 +370,7 @@ module rv2wide_fetch_tb;
     if(retired[0].valid && retired[1].valid) begin
       dual_run++; if(dual_run>longest_dual) longest_dual=dual_run;
       if(phase==14 && dual_run>compressed_dual_run) compressed_dual_run=dual_run;
+      if(phase==26) zc_pairs++;
     end
     else dual_run=0;
     for(int lane=0;lane<2;lane++) if(retired[lane].valid) begin
@@ -843,6 +880,89 @@ module rv2wide_fetch_tb;
           else $fatal(1,"second-page trap provenance, younger squash, or partial store prefix");
       end
       assert(completions.size()==0) else $fatal(1,"split allocated a deferred RF owner");
+    end
+`ifndef BPRED_DISABLED
+    // All Zcb forms execute through the normal decoder, including every compact
+    // register, dependent M/B results, cold narrow loads, and masked stores.
+    begin
+      int pc;
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      for(int b='he00;b<'he20;b++) begin backing[b]=8'('h80+b); model_bytes[b]=backing[b]; end
+      pc='h600;
+      for(int rd=8;rd<16;rd++) for(int op='h18;op<='h1d;op++) begin
+        insn(pc,addi(rd,0,-129)); pc+=4;
+        parcel(pc,c_zcb_unary(rd,op)); pc+=2;
+        insn(pc,addi(17,rd,1)); pc+=4;
+      end
+      for(int rd=8;rd<16;rd++) begin
+        int rs;
+        rs=8+((rd+1)&7);
+        insn(pc,addi(rd,0,-7)); pc+=4;
+        insn(pc,addi(rs,0,3)); pc+=4;
+        parcel(pc,{6'h27,3'(rd-8),2'b10,3'(rs-8),2'b01}); pc+=2;
+        insn(pc,addi(17,rd,1)); pc+=4;
+      end
+      insn(pc,{20'd1,5'd8,7'h37}); pc+=4;
+      insn(pc,addi(8,8,-512)); pc+=4;
+      for(int offset=0;offset<4;offset++) begin
+        parcel(pc,c_zcb_memory('h20,9+offset,8,offset)); pc+=2;
+        insn(pc,addi(9+offset,9+offset,1)); pc+=4;
+        parcel(pc,c_zcb_memory('h22,9+offset,8,offset)); pc+=2;
+        parcel(pc,c_zcb_memory('h20,13,8,offset)); pc+=2;
+      end
+      for(int offset=0;offset<4;offset+=2) begin
+        parcel(pc,c_zcb_memory('h21,10,8,offset)); pc+=2; // LHU
+        parcel(pc,c_zcb_memory('h21,11,8,offset,1)); pc+=2; // LH
+        parcel(pc,c_zcb_memory('h23,11,8,offset)); pc+=2; // SH
+        parcel(pc,c_zcb_memory('h21,12,8,offset)); pc+=2;
+      end
+      // C.MOP preserves its encoded register, including x1, and has no operands.
+      for(int index=1;index<16;index+=2) begin
+        insn(pc,addi(index,0,50+index)); pc+=4;
+        parcel(pc,{3'b011,1'b0,5'(index),5'd0,2'b01}); pc+=2;
+        insn(pc,addi(16,index,0)); pc+=4;
+      end
+      insn(pc,jal(0,6)); pc+=4;
+      parcel(pc,c_zcb_memory('h22,9,8,0)); pc+=2; // wrong-path mutation
+      parcel(pc,c_zcb_memory('h20,15,8,0)); pc+=2;
+      insn(pc,32'h10500073); pc+=4;
+      phase=26; reference_pc='h600;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h600};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(reference_pc==pc && zc_pairs>0 && registers[16]==65 && registers[15]=='h81 && completions.size()==0)
+        else $fatal(1,"Zcb/Zcmop execution, pairing, dependencies, or drain");
+    end
+`endif
+    // Selected-subset legality must preserve raw 16-bit trap values and drain
+    // an older accepted load. The C-only variant rejects these optional forms;
+    // the extended variant rejects adjacent reserved encodings instead.
+    for(int scenario=0;scenario<2;scenario++) begin
+      logic [15:0] invalid;
+`ifdef BPRED_DISABLED
+      invalid=scenario==0 ? 16'h9c75 : 16'h6081; // C.NOT / C.MOP.1 disabled
+`else
+      invalid=scenario==0 ? 16'h9c79 : 16'h6101; // reserved unary / zero C.ADDI16SP
+`endif
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      for(int b=0;b<8;b++) begin backing['h800+b]=8'('ha0+b); model_bytes['h800+b]=backing['h800+b]; end
+      insn('h380,{12'h342,5'd0,3'b010,5'd10,7'h73});
+      insn('h384,{12'h343,5'd0,3'b010,5'd11,7'h73});
+      insn('h388,{12'h341,5'd0,3'b010,5'd13,7'h73}); insn('h38c,32'h10500073);
+      insn('h400,addi(1,0,'h380)); insn('h404,{12'h305,5'd1,3'b001,5'd0,7'h73});
+      insn('h408,addi(8,0,2047)); insn('h40c,addi(8,8,1));
+      parcel('h410,16'h6004); parcel('h412,invalid); parcel('h414,c_imm(2,12,9));
+      expected_fault_pc='h412; expected_fault_cause=2; expected_fault_value=64'(invalid);
+      phase=27; reference_pc='h400;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h400};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(registers[9]==64'ha7a6a5a4a3a2a1a0 && registers[11]==64'(invalid) && registers[13]=='h412 && registers[12]==0)
+        else $fatal(1,"compressed subset legality/trap provenance/drain");
     end
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
 `ifndef BPRED_DISABLED

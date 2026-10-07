@@ -135,6 +135,22 @@ exception flags update the shared FS/fflags/frm state, never speculative launch.
 
 ## Instruction fetch
 
+RV2Wide requires C and optionally adds Zcb and Zcmop using the shared compressed
+instruction catalog:
+
+```rhdl
+RV2WideConfig(~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
+```
+
+Import `compressed_extensions` and `CompressedExtension` from `riscv/isa/c.rhm`.
+The default remains C only. Zcb supplies compact byte/halfword memory operations,
+integer extensions/inversion, and multiplication using the existing scalar
+execution paths. Zcmop's eight C.MOP encodings retire as operand-free no-ops,
+without modifying their encoded register. Unselected encodings trap as illegal
+instructions with the original 16-bit encoding. ISA/UDB and CSR configuration
+use the same selection as the frontend. With D enabled, C also includes its
+compressed double-precision loads/stores. The lean SoC presets are unchanged.
+
 The current frontend/caches implement this pipeline:
 
 ```text

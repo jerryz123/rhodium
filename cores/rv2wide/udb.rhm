@@ -1,5 +1,5 @@
 #lang rhombus
-/* Projects RV2Wide's fixed scalar architecture and shared CSR/MMU behavior into UDB. */
+/* Projects RV2Wide's selected scalar architecture and shared CSR/MMU behavior into UDB. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("support/annotations.rhm").NonemptyString
   lib("riscv/isa/zkt.rhm").ZktVersion
   lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/c.rhm").CompressedExtension
 
 /* Encodes an implemented Boolean architectural choice. */
 fun boolean_parameter(name :: NonemptyString, value :: Boolean) :: UdbParameter: UdbParameter(name, UdbBooleanValue(value))
@@ -35,7 +36,8 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
   ]
   def fp = profile.floating_point == FloatingPointProfile.D
   def half_versions = (if half_precision_supports_zfhmin(profile.half_precision) | [["Zfhmin", "1.0.0"]] | []) ++ (if half_precision_supports_zfh(profile.half_precision) | [["Zfh", "1.0.0"]] | [])
-  def selected_versions = versions ++ (if fp | [["F", "2.2.0"], ["D", "2.2.0"], ["Zcd", "1.0.0"]] | []) ++ (if profile.zfa | [["Zfa", "1.0.0"]] | []) ++ half_versions
+  def compressed_versions = (if profile.compressed.contains(CompressedExtension.Zcb) | [["Zcb", "1.0.0"]] | []) ++ (if profile.compressed.contains(CompressedExtension.Zcmop) | [["Zcmop", "1.0.0"]] | [])
+  def selected_versions = versions ++ (if fp | [["F", "2.2.0"], ["D", "2.2.0"], ["Zcd", "1.0.0"]] | []) ++ (if profile.zfa | [["Zfa", "1.0.0"]] | []) ++ half_versions ++ compressed_versions
   def extensions = selected_versions.map(fun (entry): UdbExtension(entry[0], entry[1]))
   def xlen = profile.xlen.width
   def pma_granularity_log2 = 3

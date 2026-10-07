@@ -243,6 +243,12 @@ Keep canonical decode bits separate from raw encoding and sequential PC. Link an
 system recovery use the sequential PC; illegal trap values use the raw encoding.
 A faulting continuation uses the retained prefix's instruction PC and the next
 block's fault address. The CSR bank's C configuration must agree with this IALIGN.
+`RV2WideConfig.compressed` retains C as the mandatory base and accepts optional
+Zcb/Zcmop additions, validated through the shared architectural catalog. Pass
+both that list and the FP profile into the shared expander; C includes Zcd when
+D is selected. CSR specialization and ISA/UDB metadata consume the same list.
+Zcb expands to existing scalar controls, and C.MOP expands to an operand-free
+ADDI x0,x0,0; neither needs another execution decoder or scheduling policy.
 The core's immediate `fetch_flush` pulse also stops fetch during a retained WB
 fault, before its drained public redirect. A simultaneous redirect supplies the
 new cursor; otherwise fetch remains stopped. Buffer credits alone cannot express
@@ -504,6 +510,12 @@ success, and faults. Cross-page access/page faults check both mepc and mtval thr
 the real handler. Packet-level fixtures supply raw encoding and sequential PC
 explicitly rather than relying on defaults in the core.
 The predictor-enabled and disabled fetch instances reuse that entire oracle.
+The enabled fixture additionally selects Zcb/Zcmop and executes every form,
+all compact integer registers, dependent consumers, byte/halfword memory lanes,
+and wrong-path store suppression. Both variants check original 16-bit trap
+values after older load drain: reserved neighbors with the subsets selected,
+and unselected optional encodings with C only. Profile tests check independent
+selection, shared CSR configuration, publication, and invalid combinations.
 The enabled instance additionally requires warm conditional BTB predictions,
 including a 32-bit branch crossing an eight-byte fetch boundary. It also runs
 compiler event instrumentation so accepted-prefix/local-repair ordering and
@@ -513,7 +525,8 @@ pairing and wrong-direction/target recovery; shared eight-byte cursor ordering
 is covered by `bpred-btb-wide`.
 `rv2wide-assembly-prediction` isolates stale entry boundary/length repairs,
 fallthrough suffix cuts, predicted straddles and continuation faults, and
-single-shot RAS actions under packet backpressure.
+single-shot RAS actions under packet backpressure. Its D-enabled configuration
+also checks all four compressed FP load/store expansions and raw encodings.
 Local repair clears block and prefix ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.
 

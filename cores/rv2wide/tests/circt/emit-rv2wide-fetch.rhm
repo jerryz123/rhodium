@@ -7,10 +7,13 @@ import:
   lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
   lib("rhodium/backend/circt-target.rhm").circt_target
   lib("rhodium/event/main.rhm") open
+  lib("riscv/isa/c.rhm") open
   "../../rv2wide.rhdl" open
+  "../../profile.rhm".RV2WideConfig
   "../cache-fixture.rhdl" open
 
-def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi))
+def profile = RV2WideConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
+def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
 def compiled = compile_program(program, rtl_pipeline_target(circt_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
 def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content
 export event_manifest_cpp
