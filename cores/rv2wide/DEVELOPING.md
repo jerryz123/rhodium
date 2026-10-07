@@ -137,6 +137,15 @@ return-pipeline stage through its RF write edge. Keep source readiness separate
 from destination readiness: a returned value permits RAW consumers immediately,
 but its scoreboard reservation blocks WAW until the actual RF update.
 
+Same-group WAW only splits when the older writer may complete through a deferred
+service: memory and M writers remain interlocked, including speculative load hits.
+Normal-WB older writes may pair with normal-WB or deferred younger
+writes. Keep both architectural retirement records and per-instruction values;
+coalesce RF writes only when both normal-WB write enables are qualified and the
+destinations match. A faulting, replaying, split, or deferred younger instruction
+must not suppress the older write. The second port can carry an older completion,
+so never infer younger-write priority from the port number.
+
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their
@@ -345,7 +354,7 @@ make check-boundaries
 ```
 
 The fixture belongs to `cores-execution-datapath`. It checks sustained dual
-retirement, packet coalescing, RAW/WAW and x0, youngest-producer forwarding,
+retirement, packet coalescing, age-ordered same-destination pairing, RAW/WAW and x0, youngest-producer forwarding,
 RV64/word ALU operations, seeded dependency-heavy arithmetic, signed/unsigned
 branches and jumps in either slot, JALR masking, misalignment/illegal faults,
 MEM qualification, replay/restart, older-fault priority, and reset cancellation.

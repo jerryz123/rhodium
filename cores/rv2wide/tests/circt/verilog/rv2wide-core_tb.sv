@@ -1,4 +1,4 @@
-// Checks dual-issue retirement, prediction recovery, dependencies, and precise service ownership.
+// Checks dual-issue retirement, age-ordered same-destination writes, recovery, and service ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
   typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
@@ -85,6 +85,7 @@ module rv2wide_core_tb;
   int invalidations=0;
   int multiply_mem_cycle=-1, dependent_mem_cycle=-1;
   int conditional_dual=0, mop_dual=0;
+  int waw_dual=0, waw_deferred=0;
 
   function automatic bit mop_encoding(logic [31:0] word);
     return (word & 32'hb3c0707f)==32'h81c04073 || (word & 32'hb200707f)==32'h82004073;
@@ -223,8 +224,11 @@ module rv2wide_core_tb;
         assert(!memory_stage[1].valid) else $fatal(1,"system instruction did not issue alone");
       if(memory_stage[1].valid)
         assert(!serializing_encoding(memory_stage[1].bits.instruction)) else $fatal(1,"system instruction in younger slot");
-      if (retired[0].valid && retired[1].valid && retired[0].bits.write && retired[1].bits.write)
-        assert (retired[0].bits.rd != retired[1].bits.rd) else $fatal(1, "same-group WAW was not split");
+      if (retired[0].valid && retired[1].valid && retired[0].bits.write && retired[1].bits.write && retired[0].bits.rd == retired[1].bits.rd) begin
+        assert (!retired[0].bits.deferred) else $fatal(1, "deferred older writer paired with same destination");
+        if (retired[1].bits.deferred) waw_deferred++;
+        else waw_dual++;
+      end
       assert (int'(retired_count) == int'(retired[0].valid) + int'(retired[1].valid)) else $fatal(1, "retirement count mismatch");
       if (issued == 1) single_issues++;
       if (response_count > 0 && retired_count != 0) overlap_retirements++;
@@ -696,7 +700,16 @@ module rv2wide_core_tb;
     drain();
     assert (saw_repacked) else $fatal(1, "partial packet did not coalesce with next packet");
 
-    // Same-group WAW splits; youngest of several older writers wins subsequent RAW.
+    // Same-group WAW pairs; youngest of several older writers wins subsequent RAW.
+    begin
+      int before_waw;
+      before_waw=waw_dual;
+      send('h2f0,imm(15,0,1),imm(15,0,2));
+      send('h2f8,imm(16,15,0),imm(17,15,1)); drain();
+      assert(waw_dual==before_waw+1) else $fatal(1,"normal WB WAW pair was split");
+      // Read again after all forwarding candidates have drained: younger won RF.
+      send('h2fc,imm(16,15,0),imm(17,15,1)); drain();
+    end
     send('h300, imm(15, 0, 1), imm(15, 0, 2));
     send('h308, imm(15, 0, 3), imm(16, 15, 1));
     send('h310, imm(0, 15, 9), imm(17, 0, 4));
@@ -1497,6 +1510,98 @@ module rv2wide_core_tb;
       send('hf408,regop(6,1,0,7,7),mop_insn(0,0,7,1),2,0,0); drain();
       send('hf440,imm(8,5,1),imm(9,6,1)); drain();
     end
+    // A same-destination younger load can hit at WB or reserve a deferred write.
+    for(int slow=0;slow<2;slow++) begin
+      int before_waw;
+      reset_core(); lookup_mode=slow==0 ? 1 : 0; hold_responses=slow!=0;
+      send('h10000,imm(1,0,'h300),imm(2,0,3)); drain();
+      before_waw=slow==0 ? waw_dual : waw_deferred;
+      send('h10008,imm(10,0,91),imm(10,1,0,3,'h03));
+      if(slow!=0) begin
+        repeat(8) tick();
+        assert(expected.size()==0 && response_count==1 && waw_deferred==before_waw+1) else $fatal(1,"younger slow-load WAW pair did not retire/reserve");
+      end
+      send('h10010,imm(11,10,1),imm(12,0,12));
+      if(slow!=0) begin
+        repeat(6) begin tick(); assert(issued==0) else $fatal(1,"consumer exposed older value behind younger deferred WAW"); end
+        hold_responses=0;
+      end
+      drain();
+      assert((slow==0 ? waw_dual : waw_deferred)==before_waw+1) else $fatal(1,"younger load WAW pair was split");
+      send('h10018,imm(13,10,0),0,1); drain();
+    end
+
+    // Younger multiply/divide writes also follow the older normal-WB write.
+    for(int operation=0;operation<2;operation++) begin
+      int before_waw;
+      reset_core(); send('h10100,imm(1,0,21),imm(2,0,3)); drain();
+      before_waw=waw_deferred;
+      send('h10108,imm(10,0,91),m_insn(10,1,2,operation==0 ? 0 : 4));
+      send('h10110,imm(11,10,1),imm(12,0,12)); drain();
+      assert(waw_deferred==before_waw+1) else $fatal(1,"younger M WAW pair was split");
+      send('h10118,imm(13,10,0),0,1); drain();
+    end
+
+    // A deferred older writer must finish before a same-destination overwrite.
+    for(int service=0;service<3;service++) begin
+      int before_waw;
+      reset_core(); send('h10140,imm(1,0,'h300),imm(2,0,3)); drain();
+      before_waw=waw_dual+waw_deferred;
+      hold_responses=service==0;
+      send('h10148,service==0 ? imm(10,1,0,3,'h03) : m_insn(10,1,2,service==1 ? 0 : 4),imm(10,0,91));
+      if(service==0) begin
+        repeat(8) tick();
+        assert(expected.size()==1 && response_count==1) else $fatal(1,"older deferred WAW did not retain younger overwrite");
+        hold_responses=0;
+      end
+      drain();
+      assert(waw_dual+waw_deferred==before_waw) else $fatal(1,"older deferred WAW pair was not split");
+      send('h10150,imm(11,10,0),0,1); drain();
+    end
+
+    // A retained misaligned younger load preserves the older write on a fault.
+    for(int fault=0;fault<2;fault++) begin
+      reset_core(); send('h10180,imm(1,0,'h301),0,1); drain();
+      split_fault=fault!=0;
+      stop_at('h1018c,'h10190,fault!=0 ? 1 : 3,13,'h304);
+      send('h10188,imm(10,0,91),imm(10,1,0,3,'h03),2,1,fault==0); drain();
+      split_fault=0;
+      send('h10190,imm(11,10,0),0,1); drain();
+    end
+
+    // Younger lookup/admission faults and replay preserve the older RF value.
+    for(int scenario=0;scenario<5;scenario++) begin
+      logic [63:0] pc;
+      int disposition, cause, before_commits, before_waw;
+      reset_core(); send('h10200,imm(1,0,'h300),imm(2,0,3)); drain();
+      pc=64'('h10210+scenario*32);
+      lookup_mode=scenario<3 ? scenario+3 : 0;
+      inject_memory_fault=scenario==3; fault_address='h300;
+      block_requests=scenario==4;
+      disposition=scenario==0 || scenario==4 ? 2 : 1;
+      cause=scenario==1 ? 13 : 5;
+      stop_at(pc+4,pc+4,disposition,64'(cause),'h300);
+      before_commits=commits;
+      send(pc,imm(10,0,91),imm(10,1,0,3,'h03),2,1,0); drain();
+      assert(commits==before_commits+1) else $fatal(1,"younger WAW rejection suppressed older retirement");
+      inject_memory_fault=0; block_requests=0;
+      send(pc+8,imm(11,10,0),0,1); drain();
+      if(disposition==2) begin
+        lookup_mode=1;
+        send(pc+4,imm(10,1,0,3,'h03),0,1); drain();
+        send(pc+12,imm(12,10,0),0,1); drain();
+      end
+      // An older fault cancels a same-destination younger write as well.
+      inject_enable=1; inject_pc=pc+16;
+      inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+      stop_at(pc+16,pc+16,1,5,'hdead);
+      before_waw=waw_dual;
+      send(pc+16,imm(10,0,1),imm(10,0,2),2,0,0); drain();
+      assert(waw_dual==before_waw) else $fatal(1,"older fault allowed younger WAW retirement");
+      inject_enable=0;
+      send(pc+24,imm(13,10,0),0,1); drain();
+    end
+    $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     assert(branch_updates>0) else $fatal(1,"no retired branch training");
     $display("Zicond/Zimop: %0d conditional pairs, %0d MOP pairs",conditional_dual,mop_dual);

@@ -167,8 +167,12 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
 ```
 
 RR consumes zero, one, or two instructions. Independent ALU operations can
-issue and retire two per cycle. Same-group RAW/WAW conflicts split the pair;
-the younger instruction stays at the head for the next cycle. One branch
+issue and retire two per cycle. Same-group RAW dependencies split the pair;
+same-destination writes can pair when the older writer is guaranteed to use
+normal WB, even if the younger writer completes later. An older memory or M
+writer can defer its result and still splits a
+same-destination pair. An instruction that cannot pair stays at the head for the
+next cycle. One branch
 resolver serves either age slot, and two branches cannot issue together.
 The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
@@ -191,7 +195,11 @@ both older pipeline lanes and outstanding destinations. Returned values forward
 from completion arbitration through the reserved write edge. Independent work
 continues while results are outstanding.
 Register state resets to zero; x0 ignores writes but does not suppress memory
-accesses or their faults. Same-cycle writes have distinct nonzero destinations.
+accesses or their faults. Successful same-group writes to one register preserve
+both retirement records, but only the younger value updates the register file.
+If the younger instruction faults, replays, or defers its write, the older write
+still updates the register file. Outstanding older deferred writes remain WAW
+interlocked until their RF write edge.
 
 `retired[2]: Valid(RV2WideRetirement())` reports the successful ordered prefix
 at WB, including PC, encoding, destination, write enable, and value. `issued`

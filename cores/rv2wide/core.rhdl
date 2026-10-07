@@ -208,10 +208,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     rr_decodable[lane] & ((rr_controls[lane].operand.uses_rs1 & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))) ||| ((rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].or_reduce() & !ex_multiply.available))
   def rr_older_write = rr_decodable[0] & rr_controls[0].writeback.enable & rr_rd[0].or_reduce()
   def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
-  def rr_pair_waw = rr_older_write & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
+  def rr_long = for List (lane in 0..2): rr_controls[lane].muldiv.service =/= RV2WideLongOperation.None
+  // Normal WB writes precede every younger write; a deferred older writer may return later.
+  def rr_older_deferred = rr_controls[0].memory.enable ||| rr_long[0]
+  def rr_pair_waw = rr_older_write & rr_older_deferred & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
   def rr_pair_branch = rr_controls[0].branch.resolver.enable & rr_controls[1].branch.resolver.enable
   def rr_pair_memory = rr_controls[0].memory.enable & rr_controls[1].memory.enable
-  def rr_long = for List (lane in 0..2): rr_controls[lane].muldiv.service =/= RV2WideLongOperation.None
   def rr_pair_deferred = (rr_long[0] & (rr_long[1] ||| rr_controls[1].memory.enable)) ||| (rr_long[1] & rr_controls[0].memory.enable)
   def rr_system = for List (lane in 0..2):
     def system :: RV2WideSystemControl() = rr_controls[lane].system
@@ -671,9 +673,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   def wb_second_address = mux(wb_completion_write, wb_completion.bits.rd, wb_tokens[1].rd)
   def wb_second_data = mux(wb_completion_write, wb_completion.bits.data, wb_tokens[1].data)
   def wb_second_write = wb_completion_write ||| wb_writes[1]
+  // Coalesce successful same-group writes, not retirement. A fault/replay/deferred
+  // younger instruction must leave the older write intact; completion is not younger.
+  def wb_first_write = wb_writes[0] & !(wb_writes[1] & (wb_tokens[0].rd === wb_tokens[1].rd))
   assert(!(wb_completion_write & wb_younger.egress.valid), "rv2wide_completion_reserved_younger_slot")
-  assert(!(wb_writes[0] & wb_second_write & (wb_tokens[0].rd === wb_second_address)), "rv2wide_two_write_ports_distinct")
-  when (wb_writes[0]):
+  assert(!(wb_first_write & wb_second_write & (wb_tokens[0].rd === wb_second_address)), "rv2wide_two_write_ports_distinct")
+  when (wb_first_write):
     rr_registers[wb_tokens[0].rd] <== retired[0].bits.data
   when wb_second_write:
     rr_registers[wb_second_address] <== wb_second_data
