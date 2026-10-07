@@ -101,6 +101,16 @@ selected. It reuses the existing FP execution and writeback paths for single-
 and double-precision immediates, rounding, min/max, quiet comparisons, and
 double-to-word modulo conversion.
 
+Select `~half_precision: HalfPrecisionProfile.Zfhmin` or
+`HalfPrecisionProfile.Zfh` on the same D-enabled configuration to add half
+precision; the default is `None`. Zfhmin provides FLH/FSH, bit moves, and
+single/double conversions. Zfh additionally provides half arithmetic, fused
+operations, comparisons, classification, and integer conversions. With Zfa,
+full Zfh also enables its half-precision operations. Half values are NaN-boxed
+in the existing 64-bit FPRs; loads/stores retain their natural two-byte width,
+including through split accesses. ISA and UDB declarations follow the selected
+subset. These options do not change the lean SoC presets.
+
 One FP instruction can issue from either age slot alongside an independent
 integer instruction. RR snapshots all three FPR operands and checks separate
 GPR/FPR dependencies. Fixed operations launch in EX; WB authorizes their
@@ -558,7 +568,7 @@ invent ancestry from equal PCs or reused transaction IDs.
 
 ## Deliberate limits
 
-There is no guest translation. Optional FP supports F/D and Zfa, not half precision.
+There is no guest translation. Optional FP supports F/D, Zfhmin/Zfh, and Zfa.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
 The SoC bindings publish lean RV64IMACB or RV64IMAFDCB presets, not RVA23. Mini/Simple
 bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)

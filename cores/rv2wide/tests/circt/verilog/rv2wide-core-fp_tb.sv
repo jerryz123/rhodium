@@ -50,6 +50,8 @@ module rv2wide_core_fp_tb;
   int expected_traps=0, traps=0, fp_pairs=0;
   logic [63:0] load_data=64'h4008000000000000;
   logic [63:0] stored_data=0;
+  logic [7:0] stored_mask=0;
+  logic [1:0] stored_width=0;
   int stores=0, response_due=0;
   bit slow_load=0, pending_load=0, inject_fault=0, pending_split=0;
   int split_due=0, split_count=0;
@@ -82,11 +84,15 @@ module rv2wide_core_fp_tb;
   end
   always @(negedge clock) if(!reset) cycles++;
   always @(posedge clock) if(!reset) begin
-    if(cycles>10000) $fatal(1,"FP core timeout");
+    if(cycles>20000) $fatal(1,"FP core timeout");
     pipeline_in.response.valid <= pipeline_out.request.valid;
     pipeline_in.response.bits.outcome <= slow_load ? 3'd0 : pipeline_out.request.bits.access==1 ? 3'd1 : 3'd2;
     pipeline_in.response.bits.data <= load_data;
-    if(pipeline_out.request.valid && pipeline_out.request.bits.access==2) stored_data= pipeline_out.request.bits.data;
+    if(pipeline_out.request.valid && pipeline_out.request.bits.access==2) begin
+      stored_data=pipeline_out.request.bits.data;
+      stored_mask=pipeline_out.request.bits.mask;
+      stored_width=pipeline_out.request.bits.width;
+    end
     if(pipeline_out.commit) stores++;
     if(split_out.valid && split_in.request_ready) begin
       pending_split<=1; split_due=cycles+4; split_count++;
@@ -126,6 +132,9 @@ module rv2wide_core_fp_tb;
   endtask
   task automatic expect_gpr(int rd,logic [63:0] value);
     assert(gprs[rd]===value) else $fatal(1,"x%0d got %h expected %h",rd,gprs[rd],value);
+  endtask
+  task automatic expect_fpr(int rd,logic [63:0] value);
+    send(fp('h71,30,rd,0)); settle(); expect_gpr(30,value);
   endtask
   initial begin
     for(int i=0;i<32;i++) gprs[i]=0;
@@ -310,7 +319,143 @@ module rv2wide_core_fp_tb;
     expected_traps++;
     send(fp('h79,20,16,1)); settle();
     assert(traps==expected_traps) else $fatal(1,"Zfa FS-off did not trap");
-    $display("RV2Wide F/D/Zfa mixed-latency, pairing, load/store, CSR and legality checks passed");
+    // Both fixtures support Zfhmin; only the ordinary-latency fixture enables full Zfh.
+    send(32'h000020b7); send(32'h30009073); settle(); // enable FS
+    send(32'h00301073); settle(); // reset rounding/flags
+    send(32'h0000c537); // x10=0xc000 (-2.0 half image)
+    send(fp('h7a,0,10,0)); // fmv.h.x f0,x10: box into 64-bit FPR
+    send(fp('h72,11,0,0));
+    settle(); expect_gpr(11,64'hffffffffffffc000);
+    expect_fpr(0,64'hffffffffffffc000);
+    send(fp('h20,1,0,2)); // fcvt.s.h
+    send(fp('h21,2,0,2)); // fcvt.d.h
+    expect_fpr(1,64'hffffffffc0000000);
+    expect_fpr(2,64'hc000000000000000);
+    send(fp('h22,3,1,0)); // fcvt.h.s
+    send(fp('h22,4,2,1)); // fcvt.h.d
+    expect_fpr(3,64'hffffffffffffc000);
+    expect_fpr(4,64'hffffffffffffc000);
+
+    // Raw halfwords use every aligned byte lane; masked stores preserve their lane.
+    for(int lane=0;lane<8;lane+=2) begin
+      load_data=64'h3c00<<(8*lane);
+      send((32'(256+lane)<<20)|(32'd1<<12)|(32'd5<<7)|32'h07); // flh f5
+      expect_fpr(5,64'hffffffffffff3c00);
+      send((32'd8<<25)|(32'd5<<20)|(32'd1<<12)|(32'(8+lane)<<7)|32'h27); // fsh f5,264+lane
+      settle();
+      assert(stored_width==1 && stored_mask==(8'h03<<lane) &&
+             (stored_data & (64'hffff<<(8*lane)))==(64'h3c00<<(8*lane)))
+        else $fatal(1,"FSH lost width/mask/data at lane %0d",lane);
+    end
+    slow_load=1; load_data=64'hbc00000000000000;
+    send(32'h10601307); // flh f6,262(x0), delayed return
+    send(fp('h20,7,6,2)); // dependent conversion waits for the load
+    expect_fpr(7,64'hffffffffbf800000);
+    slow_load=0;
+    load_data=64'h3e00;
+    send(32'h10701407); // misaligned flh f8,263(x0)
+    settle(); expect_fpr(8,64'hffffffffffff3e00);
+    send((32'd8<<25)|(32'd8<<20)|(32'd1<<12)|(32'd15<<7)|32'h27); // fsh f8,271(x0)
+    settle();
+    assert(split_count==4 && stored_data[15:0]==16'h3e00) else $fatal(1,"split half access lost data");
+
+    // Narrowing observes frm, reports NX, and boxes the result; widening rejects bad boxes.
+    send(fp('h79,1,17,1)); // fli.d 1.25
+    send(fp('h22,2,1,1));
+    expect_fpr(2,64'hffffffffffff3d00);
+    load_data=64'h3ff0020000000000; // halfway between half 1.0 and its successor
+    send(32'h10003087);
+    send(32'h0021d073); settle(); // frm=RUP
+    send(fp('h22,2,1,1,7));
+    expect_fpr(2,64'hffffffffffff3c01);
+    send(32'h00102673); settle(); expect_gpr(12,1);
+    send(32'h00301073); settle();
+    load_data=64'h0000000000003c00;
+    send(32'h10003087);
+    send(fp('h21,2,1,2));
+    expect_fpr(2,64'h7ff8000000000000);
+
+`ifdef RV2WIDE_ZFHMIN
+    expected_traps++;
+    send(fp('h02,2,0,0)); settle(); // arithmetic requires full Zfh
+    assert(traps==expected_traps) else $fatal(1,"Zfhmin admitted half arithmetic");
+    expected_traps++;
+    send(fp('h7a,2,16,1)); settle(); // Zfa+Zfhmin does not enable FLI.H
+    assert(traps==expected_traps) else $fatal(1,"Zfhmin admitted FLI.H");
+`else
+    send(fp('h7a,1,20,1)); // fli.h 2
+    send(fp('h7a,2,22,1)); // fli.h 3
+    send(fp('h7a,3,16,1)); // fli.h 1
+    send(fp('h02,4,1,2),32'h00900593,1); // fadd.h 5 with integer peer
+    expect_fpr(4,64'hffffffffffff4500); expect_gpr(11,9);
+    send(32'h00a00593,fp('h06,4,1,2),1); // fsub.h -1 in younger slot
+    expect_fpr(4,64'hffffffffffffbc00); expect_gpr(11,10);
+    send(fp('h0a,4,1,2)); // fmul.h 6
+    expect_fpr(4,64'hffffffffffff4600);
+    send(fp('h0e,5,4,1)); // fdiv.h 3 (WB launch)
+    expect_fpr(5,64'hffffffffffff4200);
+    send(fp('h7a,6,23,1)); // 4
+    send(fp('h2e,6,6,0)); // fsqrt.h 2 (WB launch)
+    expect_fpr(6,64'hffffffffffff4000);
+    for(int op=0;op<4;op++) begin
+      send((32'd3<<27)|(32'd2<<25)|(32'd2<<20)|(32'd1<<15)|(32'd7<<7)|32'('h43+op*4));
+      expect_fpr(7,op==0 ? 64'hffffffffffff4700 : op==1 ? 64'hffffffffffff4500 : op==2 ? 64'hffffffffffffc500 : 64'hffffffffffffc700);
+    end
+    send(fp('h12,4,1,2,0)); expect_fpr(4,64'hffffffffffff4000);
+    send(fp('h12,4,1,2,1)); expect_fpr(4,64'hffffffffffffc000);
+    send(fp('h12,4,1,4,2)); expect_fpr(4,64'hffffffffffffc000);
+    send(fp('h16,4,1,2,0)); expect_fpr(4,64'hffffffffffff4000);
+    send(fp('h16,4,1,2,1)); expect_fpr(4,64'hffffffffffff4200);
+    for(int relation=0;relation<3;relation++) begin
+      send(fp('h52,12,1,relation==2 ? 1 : 2,relation));
+      settle(); expect_gpr(12,1);
+    end
+    send(fp('h72,12,1,0,1)); settle(); expect_gpr(12,64);
+    send(32'h00900513); // integer 9
+    for(int kind=0;kind<4;kind++) begin
+      send(fp('h6a,8,10,kind)); // W/WU/L/LU -> half
+      send(fp('h62,12,8,kind)); // half -> W/WU/L/LU
+      settle(); expect_gpr(12,9);
+      expect_fpr(8,64'hffffffffffff4880);
+    end
+
+    // Half Zfa shares the same decode/schedule, including NX and quiet comparisons.
+    send(fp('h7a,1,18,1)); // 1.5
+    send(fp('h7a,2,20,1)); // 2
+    send(fp('h16,3,1,2,2)); expect_fpr(3,64'hffffffffffff3e00);
+    send(fp('h16,3,1,2,3)); expect_fpr(3,64'hffffffffffff4000);
+    send(fp('h22,3,1,4,1)); expect_fpr(3,64'hffffffffffff3c00); // fround.h RTZ
+    send(32'h00102673); settle(); expect_gpr(12,0);
+    send(fp('h22,3,1,5,0)); expect_fpr(3,64'hffffffffffff4000); // froundnx.h RNE
+    send(32'h00102673); settle(); expect_gpr(12,1);
+    send(32'h00101073); settle();
+    send(fp('h7a,2,31,1)); // qNaN
+    send(fp('h52,12,1,2,4)); settle(); expect_gpr(12,0);
+    send(fp('h52,12,1,2,5)); settle(); expect_gpr(12,0);
+    send(32'h00102673); settle(); expect_gpr(12,0);
+    send(fp('h16,3,1,2,2)); expect_fpr(3,64'hffffffffffff7e00);
+
+    // A faulting older peer must kill an EX half result and prevent a WB divide launch.
+    send(fp('h7a,20,16,1)); // preserve 1
+    send(32'h000040b7); send(32'h30009073); settle(); // FS=Clean
+    inject_fault=1; inject_pc=next_pc; expected_traps++;
+    send(32'h00100893,fp('h22,20,1,5),1); settle(); // killed NX result
+    inject_pc=next_pc; expected_traps++;
+    send(32'h00100893,fp('h0e,20,1,1),1); settle(); // killed divide
+    inject_fault=0;
+    send(32'h300026f3); settle();
+    assert((gprs[13]&64'h6000)==64'h4000) else $fatal(1,"killed half operation dirtied FS");
+    send(32'h00102673); settle(); expect_gpr(12,0);
+    expect_fpr(20,64'hffffffffffff3c00);
+`endif
+    expected_traps++;
+    send(fp('h22,4,1,1,5)); settle(); // reserved conversion rm
+    assert(traps==expected_traps) else $fatal(1,"half reserved rounding mode did not trap");
+    send(32'h30001073); settle(); // FS off rejects even half loads
+    expected_traps++;
+    send(32'h10001087); settle();
+    assert(traps==expected_traps) else $fatal(1,"half FS-off did not trap");
+    $display("RV2Wide F/D/half/Zfa mixed-latency, pairing, load/store, CSR and legality checks passed");
     $finish;
   end
 endmodule

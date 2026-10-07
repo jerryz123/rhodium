@@ -9,6 +9,8 @@ import:
 def integer = RV2WideConfig()
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
+def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
+def half = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh, ~zfa: #true)
 
 check:
   integer.zfa ~is #false
@@ -19,13 +21,22 @@ check:
   zfa.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
   zfa.hart_description.isa_profile ~is zfa.isa_profile
   RV2WideConfig(~zfa: #true) ~throws "Zfa requires floating-point support"
+  double.half_precision ~is HalfPrecisionProfile.None
+  half_min.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["zfhmin"]
+  half.isa_profile.isa_extensions ~is zfa.isa_profile.isa_extensions ++ ["zfh"]
+  half.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
+  half.hart_description.isa_profile ~is half.isa_profile
+  RV2WideConfig(~half_precision: HalfPrecisionProfile.Zfhmin) ~throws "require a base F or D"
+  RV2WideConfig(~half_precision: HalfPrecisionProfile.Zfh) ~throws "require a base F or D"
 
-for (profile in [integer, double, zfa]):
+for (profile in [integer, double, zfa, half_min, half]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
     extensions.contains("Zfa") ~is profile.zfa
     extensions.contains("F") ~is (profile.floating_point == FloatingPointProfile.D)
     extensions.contains("D") ~is (profile.floating_point == FloatingPointProfile.D)
+    extensions.contains("Zfhmin") ~is half_precision_supports_zfhmin(profile.half_precision)
+    extensions.contains("Zfh") ~is half_precision_supports_zfh(profile.half_precision)
   check:
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Zfa").map(fun (extension): extension.version) ~is (if profile.zfa | ["1.0.0"] | [])

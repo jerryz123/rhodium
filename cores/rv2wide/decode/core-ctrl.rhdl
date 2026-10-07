@@ -89,19 +89,19 @@ def RV2WideControlCases = compose_control_cases(RV2WideInstructions)
 def RV2WideDecode = ValidDecodeGen(RV2WideControlCases)
 
 /* Selects the exact scalar domain used by decode and compressed expansion. */
-fun rv2wide_instructions(profile :: FloatingPointProfile, ~zfa: zfa :: Boolean = #false) :: List.of(InstructionSpec):
-  RV2WideInstructions ++ fp_instructions(XLen.X64, profile, HalfPrecisionProfile.None, ~zfa: zfa)
+fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false) :: List.of(InstructionSpec):
+  RV2WideInstructions ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
 
-/* Adds selected shared F/D/Zfa physical controls to the composed integer decoder. */
-fun rv2wide_control_cases(profile :: FloatingPointProfile, ~zfa: zfa :: Boolean = #false) :: List.of(DecodeCase):
-  def instructions = fp_instructions(XLen.X64, profile, HalfPrecisionProfile.None, ~zfa: zfa)
-  def controls = fp_control_cases(XLen.X64, profile, HalfPrecisionProfile.None, ~zfa: zfa)
+/* Adds selected shared F/D/half/Zfa controls and natural FP memory widths to the integer decoder. */
+fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false) :: List.of(DecodeCase):
+  def instructions = fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
+  def controls = fp_control_cases(XLen.X64, profile, half_precision, ~zfa: zfa)
   def fp_branches = branch_cases(instructions)
   def fp_long = long_cases(instructions)
   RV2WideControlCases ++ for List (instruction in instructions):
     def input = instruction_pattern(instruction)
-    def load = instruction.name in ["FLW", "FLD"]
-    def store = instruction.name in ["FSW", "FSD"]
+    def load = instruction.name in ["FLH", "FLW", "FLD"]
+    def store = instruction.name in ["FSH", "FSW", "FSD"]
     def memory = load || store
     def integer_source = instruction.operands.filter(~keep: fun (operand): operand.name == "rs1" && operand.role == "source" && operand.bank == RegisterBank.Integer).length() > 0
     def integer_destination = instruction.operands.filter(~keep: fun (operand): operand.role == "destination" && operand.bank == RegisterBank.Integer).length() > 0
@@ -117,7 +117,11 @@ fun rv2wide_control_cases(profile :: FloatingPointProfile, ~zfa: zfa :: Boolean 
     def memory_control = partial_pattern(RV2WideMemoryControl()):
       enable: Bool(#true)
       access: if load | CacheOperation.Load | CacheOperation.Store
-      width: if instruction.name in ["FLW", "FSW"] | MemoryWidth.Word | MemoryWidth.Double
+      width:
+        cond
+        | instruction.name in ["FLH", "FSH"]: MemoryWidth.Half
+        | instruction.name in ["FLW", "FSW"]: MemoryWidth.Word
+        | ~else: MemoryWidth.Double
       unsigned: Bool(#true)
     def output = pattern(RV2WideControl()):
       alu: if memory | component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)) | unused_alu

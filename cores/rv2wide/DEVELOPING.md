@@ -331,11 +331,15 @@ back through same-cycle recovery. WB authorizes the resolved oldest successful
 prefix independently of CSR command-success feedback. Authorization travels
 for `latency - 2` cycles and qualifies the corresponding fixed numerical return.
 
-The optional `RV2WideConfig.zfa` selects shared `fp_instructions` and
-`fp_control_cases` and the execution service's matching Zfa datapath. Keep the
+The optional `RV2WideConfig.half_precision` and `zfa` select shared `fp_instructions`,
+`fp_control_cases`, and the execution service's matching datapaths. Keep the
 decoder, compressed-expansion domain, ISA description, and UDB projection on
-that same selection. Zfa adds no separate decoder, numeric unit owned by this
+those same selections. These subsets add no separate decoder, numeric unit owned by this
 core, or writeback policy; immediate indices must not become register hazards.
+FLH/FSH use `MemoryWidth.Half` in the composed memory controls. Reuse shared
+load boxing, store shaping, and split access rather than widening the request
+or introducing a half-specific memory path. Zfhmin selects conversion/move
+support without half arithmetic or half Zfa operations.
 
 The core books late FP-to-GPR writes against the younger GPR slot. At RR,
 calendar bit three suppresses younger issue and unpredictable-completion
@@ -348,12 +352,17 @@ integer instructions without introducing younger side effects before acceptance.
 
 `rv2wide-core-fp` exercises 3/5/2-cycle execution; `rv2wide-core-fp-late`
 uses 3/5/4 cycles to move integer-returning FP operations beyond their own WB.
-They enable Zfa and share a public-interface bench covering both age slots, FPR dependencies,
+Both enable Zfa; the first selects Zfh and the late fixture selects Zfhmin.
+They share a public-interface bench covering both age slots, FPR dependencies,
 loads/stores, killed EX arithmetic, divide, flags, and illegal FS/rm. Zfa cases
 cover both precisions, static/dynamic rounding, NaNs, modulo conversion,
 dependent GPR returns, and suppression of killed destination/flag/FS updates.
+Half cases cover boxing, conversions, every aligned halfword lane, delayed and
+split memory completion, dynamic rounding, and FS/rm legality. The full subset
+also exercises arithmetic, fused operations, comparisons, integer conversions,
+half Zfa, and killed EX/WB work; the minimal subset checks its arithmetic boundary.
 `tests/profile-test.rhm` checks conditional ISA/UDB publication and invalid
-Zfa-without-FP selection. Native
+half/Zfa-without-FP selections. Native
 adapter tests shuffle callbacks while closing out-of-order fixed FP, variable
 FP, and concurrent load/arithmetic owners. Keep wider software coverage in the
 existing ISA-smoke lanes, not a separate FP qualification matrix.
