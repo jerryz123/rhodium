@@ -47,6 +47,8 @@ sync_circuit IterativeDivider(width :: PosInt):
 
   def request_fire = request.fire()
   def response_fire = response.fire()
+  describe_interface_retained_storage(request_fire, response_fire, active ||| finalizing ||| response_valid)
+  describe_interface_contract(request, response, "division-owner", ~trace_model: interface_trace_retained())
   def dividend_negative = request.bits.signed_mode & request.bits.dividend[width - 1].into(Bool)
   def divisor_negative = request.bits.signed_mode & request.bits.divisor[width - 1].into(Bool)
   def dividend_magnitude = mux(dividend_negative, -request.bits.dividend, request.bits.dividend)

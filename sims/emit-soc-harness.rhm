@@ -38,8 +38,8 @@ def selectors = if instrumented | remaining.drop(2) | remaining
 def resolved = if selectors.length() == 1
 | #false
 | resolve_soc_config(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
-when tracing && (resolved.selection.core != CoreKind.RV5Stage || ![SoCShape.Simple, SoCShape.Tiled].contains(resolved.selection.shape))
-| error(~who: #'emit_soc_harness, "tracing supports simple or tiled RV5Stage only")
+when tracing && !((resolved.selection.core == CoreKind.RV5Stage && [SoCShape.Simple, SoCShape.Tiled].contains(resolved.selection.shape)) || (resolved.selection.core == CoreKind.RV2Wide && [SoCShape.Mini, SoCShape.Simple].contains(resolved.selection.shape)))
+| error(~who: #'emit_soc_harness, "tracing supports Simple/Tiled RV5Stage or Mini/Simple RV2Wide only")
 when cosim && (![CoreKind.RV5Stage, CoreKind.RV2Wide].contains(resolved.selection.core) || ![SoCShape.Mini, SoCShape.Simple].contains(resolved.selection.shape))
 | error(~who: #'emit_soc_harness, "cosimulation supports Mini/Simple RV5Stage and RV2Wide only")
 

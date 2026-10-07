@@ -277,6 +277,10 @@ No routing-policy or CHI-opcode knowledge belongs in either analysis.
   complete just like selected resident entries. A potentially enabled live
   contribution remains a same-cycle dependency in feedback validation; only
   an absent or provably disabled live input permits a registered cut.
+  An optional append count replicates the one accepted input owner into that
+  many consecutive slots after prefix release. Validate a positive bounded count
+  and remaining capacity without overflow; it does not multiply the capacity of
+  an individual slot. Preserve this control through copying and observation.
 
 Unknown boundaries lower to valid transactions with invalid parent slots and
 the unknown bit set. Ordinary unannotated inputs beside annotated ancestry are
@@ -432,7 +436,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 |---|---|
 | `event-runtime` | Same-cycle edges, repeated hierarchy, hidden ports, shared functional children, map/filter/gate, ready-valid and Valid transfers, 38 selected bits from a 65-bit input, callback permutations, reset and deduplication |
 | `event-pipeline` | One/two-stage and composed hierarchical fixed delays, filters, explicit flush with simultaneous input/output, consecutive flushes, and preserved graph history |
-| `event-window` | Repeated and two-parent selections, zero/one/two/three prefix releases, full replacement, flush, and multi-parent ancestry through downstream elastic storage |
+| `event-window` | Repeated and two-parent selections, one/two-entry batched append, zero/one/two/three prefix releases, full replacement, flush, and multi-parent ancestry through downstream elastic storage |
 | `event-frontend` | Actual frontend stages and compressed assembly, shared word parents, straddles, continuation faults, bounded runahead, stalls, and restart cancellation |
 | `event-elastic` | Independently stalled repeated instances, simultaneous transfers, full reset, exact ready/valid/payload equivalence |
 | `event-queue` | All flow/pipe modes at depths one/three, depth-five hierarchical composition, empty bypass, full replacement, pointer wraparound |

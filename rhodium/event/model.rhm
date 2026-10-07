@@ -77,9 +77,10 @@ interface EventTracePlan
 /* Describes retained prefix-release storage with per-slot selection and an optional independently selected live contribution. */
 class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
                        enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
-                       selected :: NonemptyList.of(Value), live :: maybe(Value) = #false):
+                       selected :: NonemptyList.of(Value), live :: maybe(Value) = #false,
+                       append_count :: maybe(Value) = #false):
   /* Collects occupancy/update controls and resident/live selection predicates for passive observation. */
-  method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
+  method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | []) ++ (if append_count | [append_count] | [])
 
 /* Describes one transaction owner captured, repeatedly observed while active, and released by functional controls. */
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):

@@ -66,11 +66,8 @@ ifeq ($(TRACE),1)
 ifneq ($(RTL_BACKEND),circt)
 $(error TRACE=1 currently requires RTL_BACKEND=circt)
 endif
-ifneq ($(filter $(word 1,$(HARNESS_SELECTOR)),simple tiled),$(word 1,$(HARNESS_SELECTOR)))
-$(error TRACE=1 supports single or tiled RV5Stage SoCs only)
-endif
-ifneq ($(word 2,$(HARNESS_SELECTOR)),rv5stage)
-$(error TRACE=1 supports single or tiled RV5Stage SoCs only)
+ifeq ($(filter $(word 1,$(HARNESS_SELECTOR))-$(word 2,$(HARNESS_SELECTOR)),simple-rv5stage tiled-rv5stage mini-rv2wide simple-rv2wide),)
+$(error TRACE=1 supports Simple/Tiled RV5Stage or Mini/Simple RV2Wide SoCs only)
 endif
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-trace
 TRACE_HEADER = $(SOC_BUILD_DIR)/soc_events.h
@@ -207,10 +204,16 @@ lrsc-run: $(LRSC_BINARIES) simulator
 trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
 	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required" >&2; exit 2)
+ifeq ($(SOC_CORE),rv2wide)
+	$(MAKE) "$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf" SOC=$(SOC_ID) TRACE=1
+	$(MAKE) run SOC=$(SOC_ID) TRACE=1 BINARY="$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf"
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-rv2wide-trace.sh "$(TRACE_FILE)"
+else
 	@test "$(SOC_ID)" = simple-rv5stage-rva23
 	$(MAKE) smoke SOC=$(SOC_ID) TRACE=1
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-trace.sh "$(TRACE_FILE)"
-	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/$(SOC_ID)-trace/obj/VTestDriver" "$(BUILD_ROOT)/$(SOC_ID)-trace/smoke.elf"
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/obj/VTestDriver" "$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/smoke.elf"
+endif
 
 boot-test: $(BOOT_BINARIES) simulator
 	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) $(HTIF_ARGS) "$$binary"; done

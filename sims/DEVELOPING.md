@@ -22,7 +22,7 @@ SoC shape's coherent fabric and platform contract.
 RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
 `rv64imacb`. Its two enrolled configs run only capability-filtered ISA smoke,
 with ordinary BootROM/FESVR loading and target-selected Sail cosimulation.
-They have no event-tracing adapter. The SoC resolver owns
+Their optional flow tracing uses the same event pass and RHEG exporter. The SoC resolver owns
 their fixed ISA and cache resources, not this harness.
 
 Import the CHI owners used by each simulator component directly. FESVR consumes
@@ -223,6 +223,13 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 ## Focused validation
 
 ### Event export integration
+
+Mini/Simple RV2Wide use the same event target, including composition with cosim.
+`trace-smoke` reuses the scalar cosim payload and `check-rv2wide-events.sql` checks
+fetch/packet-to-issue ownership, dual-slot issue, PC/instruction preservation,
+fixed EX/MEM timing, successful WB, retained services, and the three-stage return
+path. The existing RV5Stage trace checks remain separate because its stage and
+prediction contracts differ. Keep trace selection out of SoC/ISA/CI inventories.
 
 `FesvrRequester` leaves the injected DPI command boundary unannotated; production
 host traffic adds no visible checkpoints. `FesvrCHIAccess` declares one retained command

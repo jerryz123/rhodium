@@ -574,6 +574,15 @@ class ConfigSelectionTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(f'/{shape}-rv5stage-rva23-trace/obj/program-target.json', result.stdout)
 
+    def test_rv2wide_tracing_and_cosim_share_the_existing_config(self):
+        for shape in ('mini', 'simple'):
+            for cosim in (0, 1):
+                config = f'{shape}-rv2wide-rv64imacb'
+                result = self.dry_run(f'SOC={config}', 'TRACE=1', f'COSIM={cosim}')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                variant = 'trace-cosim' if cosim else 'trace'
+                self.assertIn(f'/{config}-{variant}/obj/program-target.json', result.stdout)
+
     def test_simple_ntl_architectural_test_accepts_both_cores(self):
         for core in ('rv5stage', 'spike'):
             result = self.dry_run(f'SOC=simple-{core}-rva23', target='zihintntl-test')

@@ -425,14 +425,41 @@ work, completion ownership, scoreboards, and architectural registers. It is a
 coordinated epoch boundary: the memory service must reset with the core and
 must not return pre-reset responses afterward.
 
+## Pipeline event tracing
+
+Mini/Simple bindings support the existing event-trace compile pass with `TRACE=1`.
+It is independent of `COSIM=1`; both can be enabled on the same simulator.
+See the [simulator commands](../../sims/README.md#export-soc-events-to-perfetto).
+
+Each age slot has separate `core/rr.slotN`, `core/ex.slotN`, `core/mem.slotN`,
+and `core/wb.slotN` tracks with raw instruction and PC captures. RR records
+actual issue and blocked offers. WB records successful retirement only, including
+the later retirement of a retained split access; traps, replay, and speculative
+multiply launch are not retirement.
+
+```text
+fetch S0 → S1 → S2 → assembly packets → issue window → RR[0/1] → EX[0/1] → MEM[0/1] → WB[0/1]
+                                                         EX multiply ──authorization──→ multiply return
+                                                                              WB ──→ load/divide return
+                                                       service return → three-stage return pipe → deferred RF write
+```
+
+This illustrates the current implementation. Packet ownership survives compacting,
+one/two-slot consumption, compressed assembly, and flush. Load owners survive in
+their queue, multiply owners traverse the feed-forward authorization path, and
+divide owners remain with the shared divider until accepted completion. Return
+tracks distinguish service completion from the actual delayed register write.
+Shared cache/CHI events retain their existing annotations. Partial tracing still
+reports unmodeled fetch-cursor and external response provenance; it does not
+invent ancestry from equal PCs or reused transaction IDs.
+
 ## Deliberate limits
 
 There is no floating-point execution or guest translation.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
 The SoC bindings publish the lean RV64IMACB preset, not RVA23. Mini/Simple
 bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)
-with `COSIM=1`; CI enables it on their existing ISA-smoke rows. Event tracing
-does not yet have an RV2Wide adapter. Shared ISA
+with `COSIM=1`; CI enables it on their existing ISA-smoke rows. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
 
 The MMU checks the CHI physical map before physical tag resolution; the data-cache

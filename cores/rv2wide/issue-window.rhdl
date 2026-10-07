@@ -11,6 +11,7 @@ sync_circuit RV2WideIssueWindow():
   interface ingress(Decoupled(RV2WidePacket()), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   output head: RV2WidePacket()
+  interface candidates[2](Valid(RV2WideInstruction()), ~role: producer)
   output available: Bits(4)
   input consume: Bits(2)
 
@@ -22,6 +23,18 @@ sync_circuit RV2WideIssueWindow():
   head.count <== mux(count >= bits(2, 4), bits(2, 2), count[0..2])
   head.entries <== vec([entries[0], entries[1]])
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), bits(0, 4))
+  // Observe accepted packets without changing their independent ingress readiness.
+  def accepted :: Handle = interface_link(Valid(RV2WidePacket()))
+  accepted.left.valid <== ingress.fire()
+  accepted.left.bits <== ingress.bits
+  describe_interface_contract(ingress, accepted.left, "packet-acceptance", ~trace_model: interface_trace_combinational())
+  def parents = accepted.right |> fork_valid(2)
+  for (lane in 0..2):
+    candidates[lane].valid <== (count > bits(lane, 4)) & !clear.valid
+    candidates[lane].bits <== entries[lane]
+    def name = "head" ++ to_string(lane)
+    describe_interface_window_storage(8, ingress.fire(), consume.zext(4), count, clear.valid, for List (index in 0..2): Bool(index == lane), ~name: name, ~append_count: ingress.bits.count.zext(4))
+    describe_interface_contract(parents[lane], candidates[lane], "instruction-window-" ++ name, ~trace_model: interface_trace_window(~name: name))
   when (clear.valid):
     count <== bits(0, 4)
   otherwise:

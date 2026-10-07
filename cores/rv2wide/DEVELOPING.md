@@ -33,6 +33,18 @@ Zimop uses the existing addition controls with both operands selected as zero;
 no source-use bits are set. Its SYSTEM opcode does not imply CSR action or
 serialization. Both extensions retain the normal writeback/destination policy.
 
+Event annotations live on functional Flow boundaries, independently of the cosim
+source contract. The issue window exposes Valid candidates; each lane's named
+window contract observes the actual compacting count and prefix consumption,
+replicating a packet owner for its one/two appended instructions. The assembler
+retains a trailing block owner and joins it with the live block for straddles.
+EX/MEM mapping and lane grants certify manually authored combinational regions.
+Split ownership uses its actual capture/release/pending controls. Successful WB
+parents accepted load/divide requests; EX parents the multiply's existing owner
+path, whose WB authorization filter discards killed products. Do not add a whole
+module trace contract across already contracted Flow children. The shared divider
+owns its intrinsic retained request-to-response contract.
+
 ## Implementation map
 
 | Owner | Responsibility |
@@ -261,6 +273,18 @@ shared counters; completion is not retirement. Architectural CSR descriptors and
 trap selection are reused, not copied into named-core control logic.
 
 ## Validation
+
+For tracing changes run the batched `event-window` behavioral fixture and the
+Mini/Simple trace smoke with the native Perfetto importer. Use `COSIM=1` on one
+shape to check pass composition; ordinary core behavior is covered by the existing
+`rv2wide-core` fixture. The trace smoke reuses the existing scalar cosim payload,
+without adding software or CI config rows:
+
+```sh
+FIXTURE=event-window bash tools/testing/circt/run.sh --simulate-only
+make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2wide-mini.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
+make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
+```
 
 `observation.rhdl` names the passive `rv2wide.v1` contract. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through

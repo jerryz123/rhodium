@@ -29,6 +29,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   input(instruction_node_id, data_node_id, uncached_node_id): Bits(config.flit.node_id_width)
   input interrupts: RiscvInterrupts()
   input(hart_id, time_counter): Bits(64)
+  trace_instance("hart", hart_id)
   interface start(Valid(Bits(64)), ~role: consumer)
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
   interface completed(Valid(RV2WideRetirement()), ~role: producer)

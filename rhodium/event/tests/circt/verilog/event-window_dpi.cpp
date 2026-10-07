@@ -18,6 +18,7 @@ std::array<std::uint64_t, 2> sequences{};
 std::uint64_t cycle = 0;
 unsigned pairs = 0, repeated = 0, canceled = 0, replacements = 0, stalls = 0;
 unsigned triples = 0, live_only = 0, live_without_capture = 0;
+unsigned batches = 0;
 std::array<unsigned, 4> releases{};
 std::set<rheg::Ref> used;
 [[noreturn]] void fail(const char* message) { std::fprintf(stderr, "%s\n", message); std::abort(); }
@@ -30,7 +31,7 @@ rheg::Ref node(unsigned site, unsigned bits, const std::vector<rheg::Ref>& paren
 }
 }
 extern "C" void event_window_sample(unsigned reset, unsigned flush, unsigned emit,
-    unsigned release, unsigned selected, unsigned live, unsigned capture, unsigned valid, unsigned payload, unsigned ready,
+    unsigned release, unsigned selected, unsigned live, unsigned capture, unsigned appended, unsigned valid, unsigned payload, unsigned ready,
     unsigned out_valid, unsigned out_payload, unsigned count) {
   if (reset) {
     expected.clear(); words.clear(); sequences.fill(0); holding = false; cycle = 0; used.clear(); return;
@@ -70,7 +71,11 @@ extern "C" void event_window_sample(unsigned reset, unsigned flush, unsigned emi
     if (release > words.size()) fail("invalid test release");
     ++releases[release];
     while (release--) words.pop_front();
-    if (valid && capture) { replacements += full; words.push_back({payload, {incoming}}); }
+    if (valid && capture) {
+      replacements += full;
+      batches += appended > 1;
+      while (appended--) words.push_back({payload, {incoming}});
+    }
   }
   ++cycle;
 }
@@ -78,6 +83,6 @@ extern "C" void event_window_check() {
   if (rheg::graph().json() != expected.json()) fail("window graph differs from public-transfer model");
 }
 extern "C" void event_window_finish() {
-  if (!pairs || !triples || !live_only || !live_without_capture || !repeated || !canceled || !replacements || !stalls || !releases[0] || !releases[1] || !releases[2] || !releases[3])
+  if (!batches || !pairs || !triples || !live_only || !live_without_capture || !repeated || !canceled || !replacements || !stalls || !releases[0] || !releases[1] || !releases[2] || !releases[3])
     fail("window test missed required coverage");
 }

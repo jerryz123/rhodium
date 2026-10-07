@@ -83,6 +83,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   output translation_state: RV2WideTranslationState()
   output translation_flush: Bool
 
+  def trace_letters = ["i", "m", "a", "c", "b"]
+  def trace_isa = "rv64" ++ String.join(trace_letters, "") ++ "_" ++ String.join(profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
+
   inst rr_window(RV2WideIssueWindow())
   inst ex_older(ValidPipe(RV2WideExecute(), 1, ~flushable: #true))
   inst ex_younger(ValidPipe(RV2WideExecute(), 1, ~flushable: #true))
@@ -93,14 +96,20 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   def ex_pipe = [ex_older, ex_younger]
   def mem_pipe = [mem_older, mem_younger]
   def wb_pipe = [wb_older, wb_younger]
+  wire wb_squash: Bool
+  wire rr_squash: Bool
+  def ex_paths = for List (lane in 0..2):
+    def observed = ex_pipe[lane].egress |> filter_valid(_token => !rr_squash) |> trace_valid_event("core/ex.slot" ++ to_string(lane), ~fields: token):
+      pc: token.fetched.pc
+      instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
+    observed |> fork_valid(3)
+  def wb_paths = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(2)
   def ex_links = for List (_ in 0..2): interface_link(Valid(RV2WideResult()))
   def mem_links = for List (_ in 0..2): interface_link(Valid(RV2WideResult()))
   def ex_results = for List (link in ex_links): link.right
   def mem_results = for List (link in mem_links): link.right
   def wb_redirect_link :: Handle = interface_link(Valid(RV2WideRedirect()))
   def wb_redirect :: Endpoint = wb_redirect_link.right
-  wire wb_squash: Bool
-  wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
   inst wb_csrs(RiscvCsrFile(profile.csr_config))
@@ -134,9 +143,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   memory.response |> wb_load_response.response
   // A deferred result reserves the younger issue slot and travels alongside RR
   // work to its WB write port. Committed responses never take speculative flush.
-  wb_load_response.completed |> rr_completions.ingress[0]
-  ex_multiply.completed |> rr_completions.ingress[1]
-  wb_divide.completed |> rr_completions.ingress[2]
+  for (source in [wb_load_response.completed, ex_multiply.completed, wb_divide.completed], service in ["load", "multiply", "divide"], index in 0..3):
+    (source |> trace_event("core/return." ++ service, ~stalls: #true, ~fields: result):
+      pc: result.fetched.pc
+      instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
+      rd: result.rd
+    ) |> rr_completions.ingress[index]
   def rr_completion :: Endpoint = rr_completions.egress |> to_valid()
   inst ex_completion_pipe(ValidPipe(RV2WideRetirement(), 1))
   inst mem_completion_pipe(ValidPipe(RV2WideRetirement(), 1))
@@ -149,7 +161,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   reg wb_completion_count(~init: bits(0, 2))
   when (rr_completion.valid ^ wb_completion.valid):
     wb_completion_count <== mux(rr_completion.valid, wb_completion_count + bits(1, 2), wb_completion_count - bits(1, 2))
-  wb_completion |> completed
+  (wb_completion |> trace_valid_event("core/writeback.deferred", ~fields: result):
+    pc: result.fetched.pc
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
+    rd: result.rd
+  ) |> completed
   wb_scoreboard.clear.valid <== wb_completion.valid & wb_completion.bits.write
   wb_scoreboard.clear.bits <== wb_completion.bits.rd
   reg rr_registers(~init: vec(for List (_ in 0..32): bits(0, 64)))
@@ -212,14 +228,22 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   for (lane in 0..2):
     def ex_ingress :: Endpoint = ex_pipe[lane].ingress
     ex_pipe[lane].flush <== rr_squash
-    ex_ingress.valid <== if lane == 0 | rr_first | rr_second
-    ex_ingress.bits <== RV2WideExecute():
-      fetched: rr_head.entries[lane]
+    def offer :: Handle = interface_link(Decoupled(RV2WideInstruction()))
+    offer.left.valid <== rr_window.candidates[lane].valid
+    offer.left.bits <== rr_window.candidates[lane].bits
+    describe_interface_contract(rr_window.candidates[lane], offer.left, "issue-offer-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
+    def rr_observed = offer.right |> trace_event("core/rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
+      pc: fetched.pc
+      instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): fetched.raw_instruction
+      blocked: rr_blocked[lane]
+    (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => RV2WideExecute()):
+      fetched: fetched
       control: rr_controls[lane]
       rs1: rr_left[lane].data
       rs2: rr_right[lane].data
       rd: rr_rd[lane]
-      illegal: !rr_decoded[lane].valid ||| rr_head.entries[lane].compressed_illegal
+      illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal
+    ) |> ex_ingress
 
   // EX: two common ALUs and one steered common branch resolver.
   def ex_tokens :: Vec(2, RV2WideExecute()) = vec(for List (lane in 0..2): ex_pipe[lane].egress.bits)
@@ -236,7 +260,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     control: ex_branch.control.branch.resolver
   for (lane in 0..2):
     def ex :: RV2WideExecute() = ex_tokens[lane]
-    def ex_input :: Endpoint = ex_pipe[lane].egress
+    def ex_input :: Endpoint = ex_paths[lane][0]
     def ex_output :: Endpoint = ex_links[lane].left
     def ex_alu = ex_alus[lane]
     def ex_executable = !ex.illegal & !ex.fetched.fault.valid
@@ -278,6 +302,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
           cause: mux(ex.fetched.fault.valid, ex.fetched.fault.cause, mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))))
           value: mux(ex.fetched.fault.valid, ex.fetched.fault.value, mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.raw_instruction.zext(64)))))
+    describe_interface_contract(ex_input, ex_output, "integer-execution-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     ex_results[lane] |> mem_pipe[lane].ingress
     mem_pipe[lane].flush <== rr_squash
 
@@ -292,6 +317,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   def ex_multiply_link :: Handle = interface_link(Valid(RV2WideExecute()))
   ex_multiply_link.left.valid <== mux(ex_multiply_lane === bits(0, 1), ex_older.egress.valid, ex_younger.egress.valid)
   ex_multiply_link.left.bits <== ex_tokens[ex_multiply_lane]
+  describe_interface_selection([ex_multiply_lane === bits(0, 1), ex_multiply_lane === bits(1, 1)], ~name: "multiply")
+  describe_interface_contract(Array(ex_paths[0][1], ex_paths[1][1]), ex_multiply_link.left, "multiply-lane", ~trace_model: interface_trace_selection(~name: "multiply"))
   (ex_multiply_link.right |> filter_valid(operation => !rr_squash & !operation.illegal & !operation.fetched.fault.valid & !operation.fetched.pc[0].into(Bool) & operation.rd.or_reduce() & (operation.control.muldiv.service === RV2WideLongOperation.Multiply))
     |> map_valid(operation):
       def request = MultiplierRequest(64):
@@ -321,6 +348,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     width: ex_lookup.memory.width
     data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.store_data)
     mask: ex_store.mask.as_bits()
+  describe_interface_selection([ex_memory_lane === bits(0, 1), ex_memory_lane === bits(1, 1)], ~name: "lookup")
+  describe_interface_contract(Array(ex_paths[0][2], ex_paths[1][2]), pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
 
   // MEM: retain the earlier fault ahead of an externally supplied resolution.
   def mem_memory_lane = mux(mem_older.egress.valid & mem_older.egress.bits.memory.enable, bits(0, 1), bits(1, 1))
@@ -332,10 +361,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   mem_load.data <== pipeline.response.bits.data
   wire mem_resolved: Vec(2, RV2WideResult())
   for (lane in 0..2):
-    def mem_input :: Endpoint = mem_pipe[lane].egress
+    def Array(mem_input, mem_context) = mem_pipe[lane].egress |> fork_valid(2)
     def mem_output :: Endpoint = mem_links[lane].left
     def mem :: RV2WideResult() = mem_pipe[lane].egress.bits
-    (mem_pipe[lane].egress |> map_valid(token): token.into(RV2WideResult()).fetched) |> memory_stage[lane]
+    (mem_context |> map_valid(token): token.into(RV2WideResult()).fetched) |> memory_stage[lane]
     def mem_lookup = mem.memory.enable & (mem.resolution.disposition === RV2WideDisposition.Continue)
     def mem_misaligned = mem.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.memory.width.is_aligned(mem.address)
     def mem_outcome = mux(mem_misaligned, RV2WideCacheOutcome.Slow, mux(pipeline.response.valid, pipeline.response.bits.outcome, RV2WideCacheOutcome.Replay))
@@ -354,7 +383,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     )
     mem_output.valid <== mem_input.valid & !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].taken & mem_older.egress.valid))
     mem_output.bits <== mem_resolved[lane]
-    mem_results[lane] |> wb_pipe[lane].ingress
+    describe_interface_contract(mem_input, mem_output, "memory-resolution-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
+    (mem_results[lane] |> trace_valid_event("core/mem.slot" ++ to_string(lane), ~fields: token):
+      pc: token.fetched.pc
+      instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
+      outcome: token.cache_outcome
+      disposition: token.resolution.disposition
+    ) |> wb_pipe[lane].ingress
     wb_pipe[lane].flush <== wb_squash
 
   // Sequential fetch needs recovery only for taken branches. MEM preserves
@@ -400,6 +435,21 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   def wb_memory :: RV2WideResult() = wb_group[wb_memory_lane]
   def wb_memory_active = wb_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_split_pending & !wb_fault_pending & !wb_interrupt_stop
   def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
+  def wb_split_input :: Handle = interface_link(Valid(RV2WideResult()))
+  def wb_split_output :: Handle = interface_link(Valid(RV2WideResult()))
+  wb_split_input.left.valid <== wb_split_capture
+  wb_split_input.left.bits <== wb_memory
+  wb_split_output.left.valid <== wb_split_pending & split.response.valid
+  wb_split_output.left.bits <== wb_split_result
+  describe_interface_selection([wb_memory_lane === bits(0, 1), wb_memory_lane === bits(1, 1)], ~name: "split-lane")
+  describe_interface_contract(Array(wb_paths[0][1], wb_paths[1][1]), wb_split_input.left, "split-lane", ~trace_model: interface_trace_selection(~name: "split-lane"))
+  describe_interface_retained_storage(wb_split_capture, split.response.valid, wb_split_pending, ~name: "split")
+  describe_interface_contract(wb_split_input.right, wb_split_output.left, "split-owner", ~trace_model: interface_trace_retained(~name: "split"))
+  def wb_owners :: Handle = interface_link(Valid(RV2WideResult()))
+  wb_owners.left.valid <== wb_valid[0]
+  wb_owners.left.bits <== wb_group[0]
+  describe_interface_selection([!wb_split_pending, wb_split_pending], ~name: "wb-owner")
+  describe_interface_contract(Array(wb_paths[0][0], wb_split_output.right), wb_owners.left, "wb-owner", ~trace_model: interface_trace_selection(~name: "wb-owner"))
   def wb_slow = wb_memory_active & !wb_split_capture & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
   def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
   def wb_memory_blocked = memory.ordered_busy ||| wb_atomic_pending
@@ -555,19 +605,38 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   redirect.valid <== wb_redirect.valid ||| mem_branch_redirect
   redirect.bits <== mux(wb_redirect.valid, wb_redirect.bits, mem_redirect_bits)
   wire wb_writes: Vec(2, Bool)
+  def wb_retirement_links = for List (_ in 0..2): interface_link(Valid(RV2WideRetirement()))
+  def wb_retirement_paths = for List (lane in 0..2):
+    def observed = wb_retirement_links[lane].right |> trace_valid_event("core/wb.slot" ++ to_string(lane), ~fields: result):
+      pc: result.fetched.pc
+      instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
+      deferred: result.deferred
+      rd: result.rd
+    observed |> fork_valid(2)
   for (lane in 0..2):
     def wb :: RV2WideResult() = wb_tokens[lane]
     def wb_split_suppressed = wb_split_capture & (if lane == 0 | wb_memory_lane === bits(0, 1) | Bool(#true))
     def wb_eligible = !wb_split_suppressed & !wb_fault_pending & !wb_interrupt_stop & wb_valid[lane] & (wb.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | !wb_system ||| wb_csrs.command_success | !wb_stop[0] & !wb_system)
     def wb_deferred = (wb_accepted & (wb_memory_lane === bits(lane, 1))) ||| (wb_long_accepted & (wb_long_lane === bits(lane, 1)))
-    retired[lane].valid <== wb_eligible
-    retired[lane].bits <== RV2WideRetirement():
+    def retirement :: Endpoint = wb_retirement_links[lane].left
+    retirement.valid <== wb_eligible
+    retirement.bits <== RV2WideRetirement():
       fetched: wb.fetched
       rd: wb.rd
       write: wb.write
       data: mux(wb_system, wb_csrs.writeback_value, wb.data)
       deferred: wb_deferred
+    describe_interface_contract(if lane == 0 | wb_owners.right | wb_paths[1][0], retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
+    wb_retirement_paths[lane][0] |> retired[lane]
     wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_system ||| wb_csrs.writeback_valid)
+  // Accepted services inherit successful WB, never a live lane's later payload.
+  def wb_service :: Handle = interface_link(Valid(RV2WideRetirement()))
+  def wb_service_lane = mux(wb_accepted, wb_memory_lane, wb_long_lane)
+  wb_service.left.valid <== wb_accepted ||| wb_divide_accepted
+  wb_service.left.bits <== mux(wb_service_lane === bits(0, 1), retired[0].bits, retired[1].bits)
+  describe_interface_selection([wb_service_lane === bits(0, 1), wb_service_lane === bits(1, 1)], ~name: "service-lane")
+  describe_interface_contract(Array(wb_retirement_paths[0][1], wb_retirement_paths[1][1]), wb_service.left, "service-lane", ~trace_model: interface_trace_selection(~name: "service-lane"))
+  describe_interface_contract(wb_service.right, Array(wb_load_response.allocate, wb_divide_link.left), "committed-service", ~trace_model: interface_trace_routing([wb_accepted, wb_divide_accepted]))
   def wb_completion_write = wb_completion.valid & wb_completion.bits.write
   def wb_second_address = mux(wb_completion_write, wb_completion.bits.rd, wb_tokens[1].rd)
   def wb_second_data = mux(wb_completion_write, wb_completion.bits.data, wb_tokens[1].data)

@@ -39,6 +39,13 @@ check:
   fixture.bad_window("selection") ~throws "selection exceeds storage depth"
   fixture.bad_window("selection-width") ~throws "required width"
   fixture.bad_window("live-width") ~throws "required width"
+  fixture.bad_window("append-width") ~throws "required width"
   fixture.bad_window("live-foreign") ~throws "must be local"
   fixture.bad_window("foreign") ~throws "must be local"
   fixture.bad_window("duplicate") ~throws "already declared"
+
+for (intrinsic in [#true, #false]):
+  def traced = instrument_events(fixture.window(intrinsic, #true, #true))
+  def stages = event_trace_nodes(traced.manifest.trace_plans[traced.manifest.sites.find(fun (site): site.label == "instruction").id]).filter(~keep: fun (node): node is_a EventTracePipeline)
+  check:
+    stages.find(fun (node): node.stages.find(fun (stage): stage is_a EventTraceWindow && stage.append_count != #false) != #false) != #false ~is #true

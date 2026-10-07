@@ -540,16 +540,20 @@ fun instrument_events(logical :: DesignElaboration,
                 def enabled = builder.bit_not(module_def, flush)
                 def enqueue = builder.bit_and(module_def, enabled, observe(stage.enqueue))
                 def remaining = builder.sub(module_def, count, release)
+                def appended = if stage.append_count | observe(stage.append_count) | builder.constant(module_def, count.type, 1)
                 def depth = builder.constant(module_def, count.type, stage.depth)
                 builder.assert(module_def, builder.bit_not(module_def, builder.ult(module_def, depth, count)), clock, reset, yes, name ++ "_count")
                 builder.assert(module_def, builder.bit_not(module_def, builder.ult(module_def, count, release)), clock, reset, enabled, name ++ "_release")
-                builder.assert(module_def, builder.ult(module_def, remaining, depth), clock, reset, enqueue, name ++ "_space")
+                builder.assert(module_def, builder.ult(module_def, builder.constant(module_def, count.type, 0), appended), clock, reset, enqueue, name ++ "_append_nonzero")
+                builder.assert(module_def, builder.bit_not(module_def, builder.ult(module_def, depth, appended)), clock, reset, enqueue, name ++ "_append_bound")
+                builder.assert(module_def, builder.bit_not(module_def, builder.ult(module_def, builder.sub(module_def, depth, remaining), appended)), clock, reset, enqueue, name ++ "_space")
                 builder.assert(module_def, builder.record_get(module_def, reference, "valid"), clock, reset, enqueue, name ++ "_capture_present")
                 def slots = for List (index in 0..stage.depth):
                   builder.register(module_def, name ++ "_slot_" ++ to_string(index), reference.type, clock, reset, empty)
                 for (slot in slots, index in 0..stage.depth):
                   def shifted = builder.mux_lookup(module_def, release, empty, for List (offset in 0..(stage.depth - index)): [offset, slots[index + offset].current])
-                  def append = builder.bit_and(module_def, enqueue, builder.eq(module_def, remaining, builder.constant(module_def, count.type, index)))
+                  def position = builder.constant(module_def, count.type, index)
+                  def append = builder.bit_and(module_def, enqueue, builder.bit_and(module_def, builder.bit_not(module_def, builder.ult(module_def, position, remaining)), builder.ult(module_def, builder.sub(module_def, position, remaining), appended)))
                   def next = builder.mux_lookup(module_def, append, shifted, [[1, reference]])
                   builder.drive(slot.next, builder.mux_lookup(module_def, flush, next, [[1, empty]]))
                 def mutable complete = enabled

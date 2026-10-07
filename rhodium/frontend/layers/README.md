@@ -1426,6 +1426,13 @@ selection, and release policy remain functional controls, not trace state.
 Declare this contract at the boundary that owns both storage control and
 assembly selection; it need not change the payload or expose trace ports.
 
+An optional `~append_count: count` uses the same width as occupancy and appends
+that many copies of the accepted input's lineage. This models expansion of one
+packet into several ordered entries, not independent input transactions. When
+enqueue is enabled the count must be positive and fit the remaining space.
+Omitting it retains the single-entry append. Release and output selection still
+operate on individual entries, and simultaneous output observes old ownership.
+
 The optional `~live: predicate` adds the current input as an independently
 selected contributor. The predicate must be local one-bit data. An output may
 select retained entries, the live input, or both; live selection does not imply

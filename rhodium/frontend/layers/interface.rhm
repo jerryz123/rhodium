@@ -585,13 +585,14 @@ class InterfaceTraceQueue(instance :: maybe(Instance), storage :: InterfaceQueue
 /* Ordered retained entries support repeated reads and multi-entry contributions. */
 class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
                              enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
-                             selected :: NonemptyList.of(Value), name :: String, live :: maybe(Value) = #false):
+                             selected :: NonemptyList.of(Value), name :: String, live :: maybe(Value) = #false,
+                             append_count :: maybe(Value) = #false):
   implements ModuleMetadataPayload
-  /* Rebind window controls, count, selection, and live-entry evidence; retain depth and name. */
+  /* Rebind window controls, selection, live-entry and batched-append evidence; retain depth and name. */
   override method remap_ir(remap :: Function.of_arity(1)):
-    InterfaceWindowStorage(remap(module_def), depth, remap(enqueue), remap(release_count), remap(count), remap(flush), remap(selected), name, remap(live))
-  /* Returns update/count/flush and slot/live-selection controls in observation order. */
-  method controls(): [enqueue, release_count, count, flush] ++ selected ++ ((live ?> List) || [])
+    InterfaceWindowStorage(remap(module_def), depth, remap(enqueue), remap(release_count), remap(count), remap(flush), remap(selected), name, remap(live), remap(append_count))
+  /* Returns update/count/flush, slot/live selection, and optional append-count controls in observation order. */
+  method controls(): [enqueue, release_count, count, flush] ++ selected ++ ((live ?> List) || []) ++ ((append_count ?> List) || [])
 /* Associates a retained-entry window with its implementation instance. */
 class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage):
   implements IRRemappable
@@ -2331,11 +2332,13 @@ fun interface_trace_queue(instance :: maybe(Instance) = #false, ~name: name :: S
 /*
  * Release a prefix, then append at the remaining occupancy. Selection observes
  * pre-edge entries without consuming them; flush cancels release and append.
+ * An explicit append count replicates one accepted input's lineage into a prefix of new entries.
  */
 fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity,
                                       release_count :: HardwareEntity, count :: HardwareEntity, flush :: HardwareEntity,
                                       selected :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data",
-                                      ~live: live :: maybe(HardwareEntity) = #false):
+                                      ~live: live :: maybe(HardwareEntity) = #false,
+                                      ~append_count: append_count :: maybe(HardwareEntity) = #false):
   def module_def = kernel.active_module()
   unless name != "" && !module_def.metadata_for(interface_window_storage_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_window_storage, "window storage controls already declared")
@@ -2351,7 +2354,7 @@ fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity
   module_def.add_metadata(interface_window_storage_namespace,
                           InterfaceWindowStorage(module_def, depth, signal(enqueue, 1), signal(release_count, width),
                                                  signal(count, width), signal(flush, 1), selected.map(fun (value): signal(value, 1)), name,
-                                                 live ?> signal(_, 1)))
+                                                 live ?> signal(_, 1), append_count ?> signal(_, width)))
 
 /* Resolves named local or immediate-child retained-window evidence for a one-to-one trace model. */
 fun interface_trace_window(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
@@ -2582,7 +2585,7 @@ fun describe_interface_transform(handle :: Handle,
     | trace_model.window_storage():
         def storage = trace_model.window_storage()
         controls := storage.controls()
-        widths := [1, memory_address_width(storage.depth + 1), memory_address_width(storage.depth + 1), 1] ++ storage.selected.map(fun (_): 1) ++ (if storage.live | [1] | [])
+        widths := [1, memory_address_width(storage.depth + 1), memory_address_width(storage.depth + 1), 1] ++ storage.selected.map(fun (_): 1) ++ (if storage.live | [1] | []) ++ (if storage.append_count | [memory_address_width(storage.depth + 1)] | [])
     | trace_model.selection_grants():
         controls := trace_model.selection_grants()
         widths := controls.map(fun (_): 1)

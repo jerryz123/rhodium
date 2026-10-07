@@ -55,8 +55,8 @@ make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
 
 These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
 both with only ISA smoke and Sail cosimulation enabled. Set `COSIM=1` for local
-checked builds; see [cosim setup](cosim/README.md). Event tracing remains
-unsupported for RV2Wide.
+checked builds; see [cosim setup](cosim/README.md). Both also support optional
+[flow event tracing](#export-soc-events-to-perfetto), independently or alongside cosim.
 
 `rv64max` retains RVA23's scalar FP, V with VLEN=128/ELEN=64, and supervisor
 capabilities including Sv39, but omits H and Sha/Sh* guarantees. It is not an RVA23 profile.
@@ -342,7 +342,9 @@ make -C sims uart-pty-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims uart-pty-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-## Export RV5Stage SoC events to Perfetto
+<a id="export-rv5stage-soc-events-to-perfetto"></a>
+
+## Export SoC events to Perfetto
 
 Expanded end-to-end ancestry is still under integration. See the current
 [SingleCoreRV5StageSoC tracing limit](../chi/home/README.md#inclusive-home-event-tracing)
@@ -354,8 +356,8 @@ Affected occurrences carry `ancestry_unknown` in Perfetto; they are not silently
 treated as independent roots. Invalid contracts and unsafe lineage structures
 still reject the build.
 
-Tracing is opt-in on the normal simulator and run targets. It supports
-`SOC=simple CORE=rv5stage ISA=rva23` and `SOC=tiled CORE=rv5stage ISA=rva23`:
+Tracing is opt-in on the normal simulator and run targets. It supports Simple/Tiled
+RV5Stage and Mini/Simple RV2Wide, with an explicit supported ISA selection:
 
 ```sh
 make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
@@ -364,14 +366,23 @@ make -C sims run SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/prog
 make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
   BINARY=/absolute/path/to/multihart.elf \
   HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
+make -C sims run SOC=mini-rv2wide-rv64imacb TRACE=1 TRACE_FILE=/tmp/rv2wide.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-smoke.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
 Choose a fresh trace path: the exporter overwrites the selected output file.
 Open the resulting `.pftrace` in Perfetto. Traced builds live in
-`/tmp/rhodium-sims/<soc>-rv5stage-<isa>-trace/`, separate from ordinary builds. The
+`/tmp/rhodium-sims/<soc>-<core>-<isa>-trace/`, separate from ordinary builds. Add
+`COSIM=1` to compose both passes; the directory then ends in `-trace-cosim`. The
 trace flag selects an event compilation pass on the same SoC elaboration used by `TRACE=0`;
 it does not select a different hardware configuration. `TRACE=0`
 (the default) neither instruments RTL nor links the optional exporter.
+
+RV2Wide's [pipeline tracing contract](../cores/rv2wide/README.md#pipeline-event-tracing)
+includes separate age-slot tracks and delayed load/multiply/divide completion.
+Its trace smoke uses the existing scalar cosim ELF even when `COSIM=0`; no Sail
+installation is required for tracing alone. It checks both lane identities,
+packet ancestry, stage timing, and service-to-register-write ancestry.
 
 For host emission, `emit-soc-harness.rhm --trace OUTPUT_DIRECTORY shape core ISA`
 prints MLIR and writes `soc_events.json` and `soc_events.h` into an existing

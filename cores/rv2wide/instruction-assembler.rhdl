@@ -68,6 +68,10 @@ sync_circuit RV2WideInstructionAssembler():
 
   def advance = !clear.valid & (instructions.fire() ||| (head.valid & !first_valid))
   head.ready <== advance & ((remaining === bits(0, 3)) ||| capture_partial ||| head.bits.fault.valid)
+  // Every packet uses the current block; a straddling first instruction also
+  // retains the preceding block's prefix until this assembly attempt advances.
+  describe_interface_window_storage(1, head.fire() & capture_partial, (partial_valid & advance).as_bits(), partial_valid.as_bits(), clear.valid, [partial_valid], ~live: Bool(#true))
+  describe_interface_contract(head, instructions, "instruction-assembly", ~trace_model: interface_trace_window())
   when (clear.valid):
     consumed <== bits(0, 3)
     partial_valid <== Bool(#false)
