@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/main.rhm" open
-  "../../lowering/program.rhm".ElaboratedProgram
   "../../compile/rtl.rhm".prepare_rtl
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
@@ -59,7 +58,7 @@ b.drive(b.output(top, "word", Bits(8)), word)
 b.drive(b.output(top, "sync_word", Bits(8)), port.read_data)
 b.assert(top, b.eq(top, reg.current, data), clock, reset, enable, "sampled")
 b.finish(top)
-def prepared = prepare_rtl(ElaboratedProgram(design, top))
+def prepared = prepare_rtl(DesignElaboration(design, top))
 def schedule = build_schedule(prepared.rtl)
 def evaluation = build_evaluation_plan(schedule)
 
@@ -282,7 +281,7 @@ fun copy_regions(type :: HardwareType):
   def input = builder.input(module, "value", type)
   builder.drive(builder.output(module, "result", type), input)
   builder.finish(module)
-  def schedule = build_schedule(prepare_rtl(ElaboratedProgram(d, module)).rtl)
+  def schedule = build_schedule(prepare_rtl(DesignElaboration(d, module)).rtl)
   def evaluation = build_evaluation_plan(schedule)
   build_regions(schedule, evaluation, evaluation.outputs, ~budget: 8)
 
@@ -350,7 +349,7 @@ borrow_builder.drive(borrow_builder.output(borrow_top, "result", borrow_type), b
 // A second consumer keeps the constructor eager, exercising ordinary borrowing.
 borrow_builder.drive(borrow_builder.output(borrow_top, "constructed", borrow_type), borrow_local)
 borrow_builder.finish(borrow_top)
-def borrow_schedule = build_schedule(prepare_rtl(ElaboratedProgram(borrow_design, borrow_top)).rtl)
+def borrow_schedule = build_schedule(prepare_rtl(DesignElaboration(borrow_design, borrow_top)).rtl)
 def borrow_evaluation = build_evaluation_plan(borrow_schedule)
 def local_regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: 22)
 for (budget in [1, 22]):
@@ -421,7 +420,7 @@ def kernel_values = for List (index in 0..4):
 def kernel_type = VectorType(4, borrow_type)
 kernel_builder.drive(kernel_builder.output(kernel_top, "gather", kernel_type), kernel_builder.vector_create(kernel_top, kernel_type, kernel_values))
 kernel_builder.finish(kernel_top)
-def kernel_schedule = build_schedule(prepare_rtl(ElaboratedProgram(kernel_design, kernel_top)).rtl)
+def kernel_schedule = build_schedule(prepare_rtl(DesignElaboration(kernel_design, kernel_top)).rtl)
 check:
   (for any (line in emit_rsim(kernel_schedule, ~region_budget: 1)[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = *scratch.")) ~is #true
 
@@ -461,7 +460,7 @@ def root_reg = root_builder.register(root_top, "value", borrow_type, root_clock)
 root_builder.drive(root_reg.next, root_reg.current)
 root_builder.drive(root_builder.output(root_top, "result", borrow_type), root_reg.current)
 root_builder.finish(root_top)
-def root_schedule = build_schedule(prepare_rtl(ElaboratedProgram(root_design, root_top)).rtl)
+def root_schedule = build_schedule(prepare_rtl(DesignElaboration(root_design, root_top)).rtl)
 def root_emission = emit_rsim(root_schedule, ~region_budget: 1)
 check:
   root_emission[0].contains("struct preScratch {\n\n  };") ~is #true
@@ -492,7 +491,7 @@ fun projection_program(mode :: String):
   def entries = builder.record_get(module, parent, "entries")
   builder.drive(builder.output(module, "result", element), builder.vector_get(module, entries, 1))
   builder.finish(module)
-  ElaboratedProgram(d, module)
+  DesignElaboration(d, module)
 
 for (mode in ["constant", "state", "input", "decode"]):
   def planned = build_schedule(prepare_rtl(projection_program(mode)).rtl)

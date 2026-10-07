@@ -7,7 +7,6 @@ import:
   "verilog/fixtures.rhm".make_hierarchy_program
   "../../core/main.rhm" open
   "../../core/printer.rhm".dump_ir
-  "../../lowering/program.rhm".ElaboratedProgram
   "../../compile/program.rhm".compile_program
   "../../compile/contracts.rhm" open
   "../../compile/rtl.rhm".prepare_rtl
@@ -47,7 +46,7 @@ for (port in child_program.top.outputs):
   b.drive(state.next, child.output(port.name))
   b.drive(b.output(top, port.name, port.type), state.current)
 b.finish(top)
-def program = ElaboratedProgram(child_program.design, top)
+def program = DesignElaboration(child_program.design, top)
 def result = compile_program(program, rsim_sv_target)
 check:
   result.manifest.signature ~is module_signature(top)
@@ -96,7 +95,7 @@ fun boundary(kind :: String):
   | def call = b.dpi_import("rhodium_rsim_pBoundary_create", ["value"], [Bits(5)])
     b.dpi_call(top, call, [input], clock, b.constant(top, Bits(1), 1))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 check:
   compile_program(boundary("no_clock"), rsim_sv_target) ~throws "exactly one root Clock"
   compile_program(boundary("two_clocks"), rsim_sv_target) ~throws "at most one root clock"

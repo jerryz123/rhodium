@@ -16,7 +16,6 @@ import:
   lib("rhodium/backend/verilog-target.rhm").verilog_target
   lib("rhodium/event/trace-pass.rhm").event_trace_pass
   lib("rhodium/frontend/foundation.rhm").elaborate
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   lib("cores/rv2wide/core.rhdl").RV2WideCore
   lib("cores/rv2wide/profile.rhm").RV2WideConfig
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile

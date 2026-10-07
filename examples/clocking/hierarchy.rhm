@@ -6,7 +6,6 @@ import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
   lib("rhodium/compile/program.rhm").compile_program
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
 
 /* Select next-state timing by instance path and register name, distinguishing shared bodies. */
 fun nested_next_classification(summary :: DesignTemporalSummary,
@@ -49,7 +48,7 @@ fun environment(prepared_top :: Module):
     [TopInputContract(data, [], SynchronousInputTiming(clock_a))],
     [AsynchronousClockRelationship(clock_a, clock_b)]
   )
-def compiled = compile_program(ElaboratedProgram(system, top), clocking_target(~environment: environment))
+def compiled = compile_program(DesignElaboration(system, top), clocking_target(~environment: environment))
 def summary = compiled.report.summary
 def report = compiled.artifacts[0].content
 

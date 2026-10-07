@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_selection
 
 fun make_selection(width :: PosInt):
@@ -82,4 +81,4 @@ fun make_selection(width :: PosInt):
     b.drive(reg.next, value)
     b.drive(b.output(top, "sample_" ++ entry[0], value.type), reg.current)
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

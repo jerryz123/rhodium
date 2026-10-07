@@ -7,7 +7,7 @@ import:
   rhombus/private/dynamic_require open
   lib("racket/file.rkt").#{display-to-file} as write_file
   lib("racket/base.rkt").#{build-path} as build_path
-  "../rhodium/lowering/program.rhm".ElaboratedProgram
+  "../rhodium/core/ir.rhm".DesignElaboration
   "../rhodium/compile/program.rhm".compile_program
   "../rhodium/compile/pipeline.rhm".rtl_pipeline_target
   "../rhodium/frontend/foundation.rhm".elaborate
@@ -61,7 +61,7 @@ fun selected_program(resolved :: ResolvedSoCConfig):
       def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
       elaborate(harness(config))
 
-def program :: ElaboratedProgram = if resolved
+def program :: DesignElaboration = if resolved
 | selected_program(resolved)
 | dynamic_require(selectors[0], #'program)
 // Load only the selected backend. All receive the same explicit top and

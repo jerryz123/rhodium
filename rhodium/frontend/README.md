@@ -75,7 +75,7 @@ hardware:
 1. A circuit call selects a module specialization from host parameters.
 2. The circuit body constructs ports, operations, state, instances, and drives.
 3. Stable equivalent calls reuse the same module definition.
-4. `elaborate` returns an `ElaboratedProgram` with a completed design
+4. `elaborate` returns a `DesignElaboration` with a completed design
    and explicit top. Pass it to `compile_program` with the desired target.
 5. The selected target verifies and prepares the representation it consumes;
    elaboration does not invoke a backend.

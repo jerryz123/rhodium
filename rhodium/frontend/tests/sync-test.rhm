@@ -7,7 +7,6 @@ import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/analysis/clocking.rhm" open
   "../../../rhodium/compile/program.rhm".compile_program
-  "../../../rhodium/lowering/program.rhm".ElaboratedProgram
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/rtl/sync-counter.rhdl" as implicit_fixture
   "../../../examples/lop/counter-composed.rhdl" as composed_example
@@ -44,7 +43,7 @@ def override_instance = override_top.operations.find(
 
 def local_reset_design = compile_program(elaborate(composed_fixture.LocalResetCounter()), rtl_target).report.design
 def local_reset_module = local_reset_design.modules[0]
-def local_reset_summary = compile_program(ElaboratedProgram(local_reset_design, local_reset_module), clocking_target()).report.clocks[0]
+def local_reset_summary = compile_program(DesignElaboration(local_reset_design, local_reset_module), clocking_target()).report.clocks[0]
 def local_reset_register = local_reset_module.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   "../../../rhodium/core/main.rhm" open
 
 export:
@@ -289,7 +288,7 @@ fun build_differential_program():
                 onehot_selected(builder, top, onehot_selector,
                                 [onehot_a, onehot_b, onehot_c], "defect"))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 def shift_reference = build_shift_module("FormalShiftReference", "reference")
 def shift_candidate = build_shift_module("FormalShiftCandidate", "candidate")

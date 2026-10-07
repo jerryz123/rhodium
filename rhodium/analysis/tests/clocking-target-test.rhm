@@ -19,7 +19,7 @@ def environment = TemporalEnvironment([TopInputContract(data, [], SynchronousInp
                                       [AsynchronousClockRelationship(source_clock, destination_clock)])
 declare_clocking_environment(top, environment)
 builder.finish(top)
-def program = ElaboratedProgram(design, top)
+def program = DesignElaboration(design, top)
 def before = dump_ir(design)
 def target = clocking_target()
 def first = compile_program(program, target)
@@ -75,7 +75,7 @@ def clean_data = clean_builder.input(clean_top, "data", Bits(8))
 def clean_state = clean_builder.register(clean_top, "sample", Bits(8), clean_clock)
 clean_builder.drive(clean_state.next, clean_data)
 clean_builder.finish(clean_top)
-def clean = ElaboratedProgram(clean_design, clean_top)
+def clean = DesignElaboration(clean_design, clean_top)
 def mutable environment_calls = 0
 fun clean_environment(prepared_top :: Module):
   environment_calls := environment_calls + 1
@@ -111,7 +111,7 @@ block:
     builder.drive(instance.input("data"), top_data)
   declare_clocking_environment(top, TemporalEnvironment([TopInputContract(top_data, [], AsynchronousInputTiming())]))
   builder.finish(top)
-  def program = ElaboratedProgram(design, top)
+  def program = DesignElaboration(design, top)
   def before = dump_ir(design)
   def result = compile_program(program, clocking_target())
   check:
@@ -146,7 +146,7 @@ for (raw_sample in [#false, #true]):
     builder.drive(raw.next, level)
   declare_clocking_environment(top, TemporalEnvironment([TopInputContract(level, [], AsynchronousInputTiming())]))
   builder.finish(top)
-  def result = compile_program(ElaboratedProgram(design, top), clocking_target())
+  def result = compile_program(DesignElaboration(design, top), clocking_target())
   check:
     result.has_errors ~is raw_sample
     result.diagnostics.map(fun (diagnostic): diagnostic.severity) ~is (if raw_sample | ["error", "warning"] | ["warning"])

@@ -6,7 +6,6 @@ import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
   lib("rhodium/compile/program.rhm").compile_program
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
 
 /* Find the next-state timing classification for the named top-level register sink. */
 fun next_classification(summary :: DesignTemporalSummary, name :: String):
@@ -65,7 +64,7 @@ fun environment(prepared_top :: Module):
                               "source clock is frequency-related"),
      AsynchronousClockRelationship(destination_clock, asynchronous_clock)]
   )
-def compiled = compile_program(ElaboratedProgram(system, top), clocking_target(~environment: environment))
+def compiled = compile_program(DesignElaboration(system, top), clocking_target(~environment: environment))
 def summary = compiled.report.summary
 def report = compiled.artifacts[0].content
 

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export:
   make_foreign
   Signed
@@ -124,4 +123,4 @@ fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_w
   def fail_guard = b.input(top, "fail_guard", Bits(1))
   b.assert(top, b.constant(top, Bits(1), 0), tc, top_reset, fail_guard, "before_foreign")
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

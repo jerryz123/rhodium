@@ -68,7 +68,7 @@ fun make_program(width :: PosInt, consumed_ids :: Nat = 0):
     def value :: Value = entry[1]
     builder.drive(builder.output(top, entry[0], value.type), value)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_keyword_program():
   def design = Design()
@@ -83,7 +83,7 @@ fun make_keyword_program():
   builder.drive(child.input("begin"), source)
   builder.drive(builder.output(top, "output", Bits(5)), child.output("end"))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // All input/output ordering is deliberately nonalphabetical. Repeated children
 // receive different data, so port swaps and shared bindings change behavior.
@@ -139,7 +139,7 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0):
   builder.finish(top)
   // This valid independent root must never enter the selected artifact.
   arithmetic_body(builder, "Unreachable" ++ suffix)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Mix record MSB order with vector LSB order, including recursive projections.
 fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):
@@ -222,7 +222,7 @@ fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):
     builder.drive(builder.output(top, entry[0], value.type), value)
   scatter(builder.output(top, "projected", packet_type), packet)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Repeated stateful children use independent controls. Pipeline state has no
 // initialization; the simulation oracle starts checking each stage only after
@@ -273,7 +273,7 @@ fun make_sequential_program(width :: PosInt, consumed_ids :: Nat = 0):
     for (port in child.outputs):
       builder.drive(builder.output(top, prefix ++ "_" ++ port.name, port.type), instance.output(port.name))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Exercise shared structural aliases independently of preferred names, keyword
 // fields, package/instance/port name collisions, and two packed array dimensions.
@@ -308,7 +308,7 @@ fun make_type_program(consumed_ids :: Nat = 0, result_port :: String = "Packet")
   def last = builder.vector_get(top, builder.vector_get(top, matrix, 0), 2)
   builder.drive(builder.output(top, "last", Bits(3)), last)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Keep all count bits and expose narrow results both directly and through wider
 // consumers. Anonymous aggregate outputs also retain their structure and layout.
@@ -351,7 +351,7 @@ fun make_arithmetic_program(width :: PosInt, consumed_ids :: Nat = 0):
       def value :: Value = shift[1]
       builder.drive(builder.output(top, shift[0] ++ "_" ++ entry[0], value.type), value)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Dynamic reads/replacements cover scalar and nested aggregate elements. State
 // accumulates enabled writes, so unchanged elements and pre-edge values matter.
@@ -387,7 +387,7 @@ fun make_dynamic_program(width :: PosInt, consumed_ids :: Nat = 0):
         def value :: Value = output[1]
         builder.drive(builder.output(top, prefix ++ "_" ++ output[0], value.type), value)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Reversing every port vector must preserve valid write-set results, including
 // state accumulated through repeated updates. Ports may outnumber elements.
@@ -428,7 +428,7 @@ fun make_write_set_program(width :: PosInt, consumed_ids :: Nat = 0):
       for (output in [["updated", updated], ["permuted", permuted], ["state", state.current], ["permuted_state", permuted_state.current]]):
         builder.drive(builder.output(top, prefix ++ "_" ++ output[0], vector_type), output[1])
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Partial selection keeps aggregate shapes and care masks intact. Noncanonical
 // cube values test Builder normalization; reversed rows test unordered decode.
@@ -475,7 +475,7 @@ fun make_partial_program(width :: PosInt, consumed_ids :: Nat = 0):
     def value :: Value = entry[1]
     builder.drive(builder.output(top, entry[0], value.type), value)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Two occurrences have independent clocks and storage. Register reset must not
 // clear memory or suppress its writes; sampled reads observe pre-edge contents.
@@ -519,7 +519,7 @@ fun make_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Independent child checks exercise guard/reset suppression and pre-update
 // state sampling; intentional failure runs select one check at a time.
@@ -550,7 +550,7 @@ fun make_assertion_program(consumed_ids :: Nat = 0):
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Direct-emitter names must handle duplicate labels, keywords, ports, package
 // identity, and generated nets without losing the original diagnostic text.
@@ -565,7 +565,7 @@ fun make_assertion_names_program(consumed_ids :: Nat = 0):
   for (label in ["check", "check", "check_assert_1", "assert", "_sv_0", "AssertionNames_types", #false]):
     builder.assert(top, yes, clock, reset, yes, label)
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Stable-level evidence adds attributes to explicit resetless chains. Ordinary
 // state alongside the chains must remain unmarked, and each child owns its state.
@@ -597,7 +597,7 @@ fun make_cdc_program(consumed_ids :: Nat = 0, marked :: Boolean = #true):
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Builder permits creating the evidence before whole-graph verification. These
 // malformed chains must fail before a target can apply synthesis attributes.
@@ -619,7 +619,7 @@ fun make_invalid_cdc_program(kind :: String):
   builder.drive(builder.output(top, "result", Bits(1)), stage1.current)
   builder.sync_level_crossing(top, source, clock, [stage0, stage1])
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // Calls consume pre-edge input registers; later registers capture pre-edge DPI
 // results. Two occurrences exercise independent enables/clocks and context scope.
@@ -666,7 +666,7 @@ fun make_dpi_program(consumed_ids :: Nat = 0):
   builder.finish(top)
   // Unused declarations are not part of a selected program's ABI.
   builder.dpi_import("unused_dpi", ["value"], [Bits(129)], "result", Bits(129))
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 /* Exercise fixed memory ports with scalar, record, and vector storage. Masks
    cross record fields; two child occurrences must keep their own arrays. */
@@ -736,4 +736,4 @@ fun make_sync_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
   builder.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

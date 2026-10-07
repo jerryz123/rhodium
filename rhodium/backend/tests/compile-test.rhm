@@ -17,7 +17,7 @@ fun make_body(builder :: Builder):
   builder.finish(body)
   body
 def source_design = Design()
-def source_program = ElaboratedProgram(source_design, make_body(Builder(source_design)))
+def source_program = DesignElaboration(source_design, make_body(Builder(source_design)))
 def source_before = dump_ir(source_program.design)
 def result = compile_program(source_program, circt_target)
 def again = compile_program(source_program, circt_target)
@@ -52,7 +52,7 @@ for (name in ["first", "second"]):
 mixed_builder.finish(mixed_top)
 def unused = mixed_builder.module("Unused")
 mixed_builder.finish(unused)
-def mixed = ElaboratedProgram(mixed_design, mixed_top)
+def mixed = DesignElaboration(mixed_design, mixed_top)
 def mixed_before = dump_ir(mixed_design)
 def compiled = compile_program(mixed, circt_target)
 check:
@@ -64,7 +64,7 @@ check:
 // Ordinary Builder programs compile without frontend dependencies.
 def concrete_design = Design()
 def concrete_top = make_body(Builder(concrete_design))
-def concrete = ElaboratedProgram(concrete_design, concrete_top)
+def concrete = DesignElaboration(concrete_design, concrete_top)
 def concrete_before = dump_ir(concrete_design)
 def concrete_result = compile_program(concrete, circt_target)
 def concrete_again = compile_program(concrete, circt_target)

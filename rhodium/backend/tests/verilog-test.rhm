@@ -8,7 +8,6 @@ import:
   "../circt-target.rhm".circt_target
   "../../compile/program.rhm".compile_program
   "../../core/main.rhm" open
-  "../../lowering/program.rhm".ElaboratedProgram
 
 for (width in [1, 5, 65]):
   def program = make_program(width)
@@ -53,7 +52,7 @@ def invalid_top = invalid_builder.module("Undriven")
 invalid_builder.output(invalid_top, "result", Bits(5))
 invalid_builder.finish(invalid_top)
 check:
-  compile_program(ElaboratedProgram(invalid_design, invalid_top), verilog_target) ~throws "undriven"
+  compile_program(DesignElaboration(invalid_design, invalid_top), verilog_target) ~throws "undriven"
 
 // Shared definitions are emitted once. Preparing either backend preserves the
 // original graph while retaining both instance paths.
@@ -95,7 +94,7 @@ def parent = hierarchy_builder.module("Parent")
 hierarchy_builder.instance(parent, child, "undriven_child")
 hierarchy_builder.finish(parent)
 check:
-  compile_program(ElaboratedProgram(hierarchy_design, parent), verilog_target) ~throws "undriven"
+  compile_program(DesignElaboration(hierarchy_design, parent), verilog_target) ~throws "undriven"
 
 // Aggregate physical widths never replace the logical signature in the manifest.
 for (width in [1, 5, 65]):
@@ -154,7 +153,7 @@ def state = state_builder.register(state_top, "state", Bits(5), state_clock)
 state_builder.drive(state_builder.output(state_top, "result", Bits(5)), state.current)
 state_builder.finish(state_top)
 check:
-  compile_program(ElaboratedProgram(state_design, state_top), verilog_target) ~throws "undriven"
+  compile_program(DesignElaboration(state_design, state_top), verilog_target) ~throws "undriven"
 
 
 // The target representation preserves named structure while sharing physical
@@ -423,7 +422,7 @@ for (width in [33, 65, 129]):
   builder.drive(builder.output(top, "result", Bits(width)), result)
   builder.finish(top)
   check:
-    compile_program(ElaboratedProgram(design, top), verilog_target) ~throws "unsupported DPI return width"
+    compile_program(DesignElaboration(design, top), verilog_target) ~throws "unsupported DPI return width"
 
 // Invalid uses of the supported foreign-call contract fail before emission.
 def bad_dpi_design = Design()
@@ -473,4 +472,4 @@ block:
     builder.drive(port.mask, builder.constant(top, Bits(3), 0)) ~throws "type"
   builder.finish(top)
   check:
-    compile_program(ElaboratedProgram(design, top), verilog_target) ~throws "storage.write.mask is undriven"
+    compile_program(DesignElaboration(design, top), verilog_target) ~throws "storage.write.mask is undriven"

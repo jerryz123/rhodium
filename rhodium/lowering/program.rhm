@@ -9,7 +9,6 @@ import:
   "copy.rhm" open
 
 export:
-  ElaboratedProgram
   check_materialized_design
   materialize_reachable_rtl
   MaterializationCheck
@@ -27,18 +26,10 @@ fun check_materialized_design(design :: Design):
       when entry.payload is_a MaterializationCheck
       | entry.payload.check_materialized(module_def)
 
-/* A completed source inventory and an explicit, finished top owned by that design.
-   Construction checks ownership; targets verify without sealing the source. */
-class ElaboratedProgram(design :: Design, top :: Module):
-  /* Validate the selected boundary without copying or running whole-design checks. */
-  constructor (design :: Design, top :: Module):
-    DesignElaboration(design, top)
-    super(design, top)
-
 /* Validate all source modules, then copy only the selected top's reachable closure.
    Allocate all bodies before remapping metadata so cross-module references work.
    Each call owns fresh IR and leaves the source graph unsealed and unchanged. */
-fun materialize_reachable_rtl(program :: ElaboratedProgram) :: DesignElaboration:
+fun materialize_reachable_rtl(program :: DesignElaboration) :: DesignElaboration:
   verify_design_structure(program.design)
   verify_design_combinational(program.design)
   def builder = Builder(Design())

@@ -14,14 +14,14 @@ def result = builder.output(top, "result", Bits(8))
 builder.drive(result, source)
 
 check:
-  ElaboratedProgram(design, top) ~throws "finished module"
+  DesignElaboration(design, top) ~throws "finished module"
 
 builder.finish(top)
-def program = ElaboratedProgram(design, top)
+def program = DesignElaboration(design, top)
 def before = dump_ir(design)
 check:
   design.sealed ~is #false
-  ElaboratedProgram(Design(), top) ~throws "owned by the elaborated design"
+  DesignElaboration(Design(), top) ~throws "owned by the elaborated design"
 
 def rtl = materialize_reachable_rtl(program)
 def again = materialize_reachable_rtl(program)
@@ -42,7 +42,7 @@ def invalid_builder = Builder(invalid_design)
 def valid_top = invalid_builder.module("ValidTop")
 invalid_builder.finish(valid_top)
 def unfinished = invalid_builder.module("Unfinished")
-def invalid_program = ElaboratedProgram(invalid_design, valid_top)
+def invalid_program = DesignElaboration(invalid_design, valid_top)
 check:
   materialize_reachable_rtl(invalid_program) ~throws "has not been finished"
   invalid_design.sealed ~is #false
@@ -59,7 +59,7 @@ def checked_builder = Builder(checked_design)
 def checked_top = checked_builder.module("Checked")
 checked_top.add_metadata("check", RejectCopy())
 checked_builder.finish(checked_top)
-def checked_program = ElaboratedProgram(checked_design, checked_top)
+def checked_program = DesignElaboration(checked_design, checked_top)
 def mutable published = #false
 fun publish(): published := materialize_reachable_rtl(checked_program)
 check:

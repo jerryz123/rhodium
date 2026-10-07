@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 
 export make_cache_borrows
 
@@ -36,4 +35,4 @@ fun make_cache_borrows():
        value in [state.current, b.vector_get(top, state.current, 0), decoded, projected, chain, borrowed, sampled.current]):
     b.drive(b.output(top, name, value.type), value)
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

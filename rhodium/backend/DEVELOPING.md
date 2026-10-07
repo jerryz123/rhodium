@@ -11,13 +11,12 @@ and generated-artifact policy.
 
 ## Architecture and ownership
 
-`compile_program` selects a target. CIRCT and direct SV use `RTLTarget` with
-fresh verified RTL preparation. `RsimTarget` owns rsim program preparation;
-it currently uses that same preparation before scheduling. It captures the selected
-partition strategy in `RsimPlan` through both program and prepared-RTL entry
-points; option validation and target identity belong in this adapter. All implement
-`PreparedRTLConsumer`: `.plan(prepared)` accepts an existing `PreparedRTL`
-without preparing again, including concrete instrumentation results. Both
+`compile_program` selects a target. CIRCT, direct SV, and rsim share `RTLTarget`
+for fresh verified RTL preparation. `.plan(prepared)` accepts an existing
+`PreparedRTL` without preparing again, including instrumentation results.
+`RsimTarget` configures that shared lifecycle: its plan factory captures the
+selected partition strategy and optional SV binding. Option validation and
+target identity remain in the backend adapter. Both
 paths return the backend's artifact set: one RTL artifact, the rsim C++ model (with optional support header), or
 that model with an SV/DPI binding.
 Compilation owns requests/results; lowering owns copying and metadata remapping; each backend owns its representation. Frontend and Flow libraries
@@ -42,7 +41,7 @@ a shared semantic responsibility actually belongs in core.
 | `circt-target.rhm`, `verilog-target.rhm` | RTL targets with shared ordinary/prepared plan construction |
 | `circt.rhm` | CIRCT types, aliases, operation lowering, and textual MLIR |
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
-| `rsim-target.rhm` | Rsim-owned program preparation and prepared-RTL consumption, with optional SV binding |
+| `rsim-target.rhm` | Rsim configuration and scheduling over shared RTL preparation, with optional SV binding |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
 | `rsim/array-updates.rhm` | Exact array-update recovery, read forwarding, and unused-value pruning |
 | `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
@@ -833,8 +832,9 @@ python3 rhodium/backend/tests/rsim/uart.py --differential
 Omit `--differential` to run without HDL tools. Changes to the production UART,
 its PTY model, or shared test helpers must also select the host/backend CI lane.
 
-Both rsim targets share `prepare_rsim` for ordinary compilation and `plan_rtl`
-for prepared-RTL consumption. `RsimPlan` stores only the manifest and schedule.
+Both rsim targets inherit ordinary preparation and prepared-RTL consumption
+from `RTLTarget`, using the same `plan_rtl` factory for scheduling. `RsimPlan`
+stores the manifest, schedule, and selected partition strategy.
 SV binding validates the detached manifest signature and scheduled dependencies,
 then wraps that model plan without another graph preparation or schedule.
 Concrete instrumentation passes their final verified graph to `.plan`.

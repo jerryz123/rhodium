@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_dynamic
 
 fun make_dynamic(length :: PosInt, aggregate :: Boolean):
@@ -124,4 +123,4 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   def last_leaf = if aggregate | b.vector_get(top, b.record_get(top, last_row, "lanes"), 1) | last_row
   b.drive(b.output(top, "forwardleaf", Bits(64)), last_leaf)
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

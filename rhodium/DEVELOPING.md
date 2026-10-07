@@ -105,7 +105,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 |---|---|---|
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
 | [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
-| [`lowering/`](lowering/README.md) | Program envelope, reachable graph copying, and extension certification after verification | Core IR, Builder, verifier; local graph copier |
+| [`lowering/`](lowering/README.md) | Reachable graph copying and extension certification after verification | Core IR, Builder, verifier; local graph copier |
 | [`compile/`](compile/README.md) | Explicit target orchestration, concrete RTL inspection target, in-memory artifacts, and physical boundary manifests | Core IR/signatures and verifier; graph materialization; neutral local contracts |
 | [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
 | [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, Builder; `lowering/program.rhm` |
@@ -135,7 +135,9 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../hardfloat/`](../hardfloat/README.md) | Rhodium port of Berkeley HardFloat representations and floating-point units | Public `#lang rhodium` authoring surface only |
 | [`../vlsi/`](../vlsi/README.md) | Physical-design integration, design/technology policy, and mapped simulation | Public authoring/compilation surfaces; `sram/`; `sims/`; external VLSI tools and harnesses |
 
-The `backend/rsim-target.rhm` adapter imports compile contracts, RTL preparation,
+`compile/program.rhm` imports compile contracts and core `DesignElaboration`;
+`compile/rtl.rhm` alone adds the graph materializer to ordinary RTL preparation.
+The `backend/rsim-target.rhm` adapter imports compile contracts and shared `RTLTarget` preparation,
 and its local scheduler, scalar CSE and array-update passes, and emitter.
 `backend/rsim/plan.rhm` imports core IR/types and dependency identity lookup. `backend/rsim/cse.rhm`
 imports core types and local schedule descriptors for exact expression sharing

@@ -5,7 +5,6 @@ import:
   lib("racket/file.rkt") as file
   "../../../core/main.rhm" open
   "sv-binding-fixtures.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
   "../../../compile/program.rhm".compile_program
   "../../rsim-target.rhm".rsim_sv_target
   "../../verilog-target.rhm".verilog_target
@@ -26,7 +25,7 @@ b.assert(top, b.bit_not(top, fault), clock, reset, b.constant(top, Bits(1), 1), 
 def observe = b.dpi_import("rsim_bridge_observe", ["reset", "step", "count"], [Bits(1), Bits(8), Bits(8)])
 b.dpi_call(top, observe, [b.cast(top, reset, Bits(1)), step, count.current], clock, b.constant(top, Bits(1), 1))
 b.finish(top)
-def program = ElaboratedProgram(design, top)
+def program = DesignElaboration(design, top)
 def arguments = rkt.#{current-command-line-arguments}()
 unless rkt.#{vector-length}(arguments) == 1 | error("expected OUTPUT_DIRECTORY")
 for (fixture in [program, make_bridge_ports(), make_wide_bridge_ports()]):

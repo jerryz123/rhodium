@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_aggregate
 
 fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
@@ -173,4 +172,4 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   def first_b = b.vector_get(top, b.record_get(top, tb, "payload"), 0)
   b.drive(b.output(top, "projected_product", Bits(width)), b.mul(top, b.record_get(top, first_input, "class"), b.record_get(top, first_b, "class")))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

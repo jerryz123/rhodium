@@ -84,7 +84,7 @@ class RTLPipelinePlan(backend_plan :: TargetPlan, passes :: List.of(RTLPass),
 /* Prepare once, apply instrumentation in caller order, and make one backend plan.
    This concrete-RTL helper does not replace representation-independent targets.
    Passes preserve behavior, existing observers, and other owners' metadata. */
-fun rtl_pipeline_target(backend :: CompilationTarget && PreparedRTLConsumer, passes :: List.of(RTLPass)):
+fun rtl_pipeline_target(backend :: RTLTarget, passes :: List.of(RTLPass)):
   def names = passes.map(fun (pass): pass.name)
   def seen = MutableSet{}
   for (pass in passes):
@@ -92,7 +92,7 @@ fun rtl_pipeline_target(backend :: CompilationTarget && PreparedRTLConsumer, pas
     | error(~who: #'rtl_pipeline_target, "duplicate pass: " ++ pass.name)
     seen.add(pass.name)
   /* Prepare once, verify each transformation, and construct one final backend plan. */
-  fun prepare(program :: ElaboratedProgram):
+  fun prepare(program :: DesignElaboration):
     def initial = prepare_rtl(program)
     def mutable current = initial
     def mutable modules = rtl_occurrences(initial.rtl)

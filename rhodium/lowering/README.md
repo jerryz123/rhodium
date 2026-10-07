@@ -3,23 +3,23 @@
 
 # Program materialization
 
-[`program.rhm`](program.rhm) separates a completed hardware program from the
-verified concrete RTL consumed by backends and analyses. It depends only on
-the public core; direct Builder clients need no frontend or source text.
+[`program.rhm`](program.rhm) prepares an isolated, verified copy of an elaborated
+RTL graph for backends and analyses. Both source and prepared graphs use core
+`DesignElaboration`; direct Builder clients need no frontend or source text.
 Contributors should read [DEVELOPING.md](DEVELOPING.md).
 
 ```rhombus
 import:
-  lib("rhodium/lowering/program.rhm") open
+  lib("rhodium/core/ir.rhm").DesignElaboration
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/backend/circt-target.rhm").circt_target
 
 // design and top were constructed and finished through the core Builder.
-def program = ElaboratedProgram(design, top)
+def program = DesignElaboration(design, top)
 def result = compile_program(program, circt_target)
 ```
 
-`ElaboratedProgram(design, top)` records an explicit, finished top belonging to
+`DesignElaboration(design, top)` records an explicit, finished top belonging to
 the supplied design. Construction checks that boundary but does not certify
 the whole design. Whole-design errors, including hierarchy cycles and
 unfinished sibling modules, are rejected during compile-target preparation.

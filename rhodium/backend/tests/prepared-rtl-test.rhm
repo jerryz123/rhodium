@@ -1,9 +1,10 @@
 #lang rhombus
-// Checks prepared graph reuse, occurrence provenance, and unchanged output in both real RTL targets.
+// Checks prepared graph reuse, occurrence provenance, and unchanged output in RTL targets, including configured native simulation.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../circt-target.rhm".circt_target
   "../verilog-target.rhm".verilog_target
+  "../rsim-target.rhm" open
   "../circt.rhm".emit_circt
   "../verilog.rhm".emit_verilog
   "../../compile/contracts.rhm" open
@@ -34,7 +35,7 @@ fun make_body(builder :: Builder):
   body
 
 def concrete_design = Design()
-def concrete = ElaboratedProgram(concrete_design, make_body(Builder(concrete_design)))
+def concrete = DesignElaboration(concrete_design, make_body(Builder(concrete_design)))
 def design = Design()
 def builder = Builder(design)
 def shared_child = make_body(builder)
@@ -45,7 +46,7 @@ for (name in ["left", "right"]):
   builder.drive(child.input("input"), input)
   builder.drive(builder.output(top, name, Bits(8)), child.output("output"))
 builder.finish(top)
-def shared = ElaboratedProgram(design, top)
+def shared = DesignElaboration(design, top)
 
 for (program in [concrete, shared]):
   def before = dump_ir(program.design)
@@ -74,7 +75,7 @@ for (program in [concrete, shared]):
       dump_ir(prepared.rtl.design) ~is prepared_before
       dump_ir(program.design) ~is before
       program.design.sealed ~is #false
-  for (target in [circt_target, verilog_target]):
+  for (target in [circt_target, verilog_target, rsim_target, RsimTarget(~partitioning: "module")]):
     def before_copies = remappings
     def before_checks = certifications
     def ordinary = compile_program(program, target)

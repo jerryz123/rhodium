@@ -4,7 +4,6 @@ import:
   lib("racket/base.rkt") as rkt
   lib("racket/file.rkt") as file
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
   "../../../compile/program.rhm".compile_program
   "region-target.rhm".rsim_target
   "cache-fixtures.rhm".make_cache_borrows
@@ -32,7 +31,7 @@ for (value in [x, y], name in ["x", "y"]):
   b.drive(b.output(top, "saved_" ++ name, Bits(32)), state.current)
 b.finish(top)
 def dir = rkt.#{vector-ref}(rkt.#{current-command-line-arguments}(), 0)
-for (artifact in compile_program(ElaboratedProgram(d, top), rsim_target).artifacts):
+for (artifact in compile_program(DesignElaboration(d, top), rsim_target).artifacts):
   file.#{display-to-file}(artifact.content, rkt.#{build-path}(dir, artifact.name), ~exists: #'replace)
 
 for (artifact in compile_program(make_cache_borrows(), rsim_target).artifacts):

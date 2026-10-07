@@ -4,7 +4,9 @@
 # Developing program materialization
 
 Read [`README.md`](README.md) for the public program and source-lifetime contracts.
-[`program.rhm`](program.rhm) owns `ElaboratedProgram` and internal `materialize_reachable_rtl`.
+[`program.rhm`](program.rhm) owns internal `materialize_reachable_rtl` and
+post-copy certification. Core owns the shared `DesignElaboration(design, top)`
+value used both before and after preparation.
 It imports core IR, Builder, verification, and the local `copy.rhm` implementation.
 The copier imports core IR and Builder.
 The [package dependency contract](../DEVELOPING.md) keeps this package below

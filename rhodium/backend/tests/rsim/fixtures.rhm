@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_scalar make_swap make_arithmetic
 
 class Signed(width :: PosInt):
@@ -50,7 +49,7 @@ fun make_arithmetic(width :: PosInt):
      ["constant_signed", b.shrs(top, signed_a, huge)]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_scalar(width :: PosInt, consumed_ids :: Nat = 0):
   def design = Design()
@@ -86,7 +85,7 @@ fun make_scalar(width :: PosInt, consumed_ids :: Nat = 0):
                  ["class", a], ["__class__", z]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_swap(width :: PosInt):
   def design = Design()
@@ -129,4 +128,4 @@ fun make_swap(width :: PosInt):
   b.drive(sample.next, ta)
   b.drive(b.output(top, "sample", Bits(width)), sample.current)
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

@@ -36,10 +36,10 @@ its SystemVerilog generation. Direct emission uses no CIRCT import or executable
 import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/backend/circt-target.rhm").circt_target
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
+  lib("rhodium/core/ir.rhm").DesignElaboration
 
 // design and top are finished Builder-created hardware.
-def result = compile_program(ElaboratedProgram(design, top), circt_target)
+def result = compile_program(DesignElaboration(design, top), circt_target)
 def mlir = result.artifacts[0].content
 ```
 
@@ -51,9 +51,9 @@ See the [compiler contract](../compile/README.md) for results and failures.
 The selected top defines compilation scope. To compile independent roots, make
 one explicit request for each root. There is no whole-inventory program mode.
 
-All emission targets implement `PreparedRTLConsumer`. CIRCT and direct SV use
-`RTLTarget`; rsim owns its preparation and currently uses the same RTL
-preparation. A composing compilation target can call
+All emission targets use `RTLTarget` for shared RTL preparation. Rsim configures
+its own scheduling, partitioning, and optional SV binding within that lifecycle.
+A composing compilation target can call
 `circt_target.plan(prepared)`, `verilog_target.plan(prepared)`, or
 `rsim_target.plan(prepared)` or `rsim_sv_target.plan(prepared)` with verified
 `PreparedRTL` to reuse its graph and manifest without another preparation pass.
@@ -379,9 +379,9 @@ wrapper scope.
 import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/backend/verilog-target.rhm").verilog_target
-  lib("rhodium/lowering/program.rhm").ElaboratedProgram
+  lib("rhodium/core/ir.rhm").DesignElaboration
 
-def result = compile_program(ElaboratedProgram(design, top), verilog_target)
+def result = compile_program(DesignElaboration(design, top), verilog_target)
 def sv = result.artifacts[0].content
 ```
 

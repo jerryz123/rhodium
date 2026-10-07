@@ -22,11 +22,11 @@ class CopyReport(rtl :: DesignElaboration):
 
 // A separate graph-rewriting stage must preserve existing observers and their sidecars.
 fun copy_stage(prepared :: PreparedRTL):
-  def result = materialize_reachable_rtl(ElaboratedProgram(prepared.rtl.design, prepared.rtl.top))
+  def result = materialize_reachable_rtl(prepared.rtl)
   RTLPassResult(result, [Artifact("copy.txt", "text/plain", "copied")], CopyReport(result))
 def copier = RTLPass("copy", copy_stage)
 def logical = make_fixture()
-def program = ElaboratedProgram(logical.design, logical.top)
+def program = logical
 def before = dump_ir(logical.design)
 def source_owner = logical.top.metadata_for("other-observer")[0] :: Observer
 
@@ -70,7 +70,7 @@ for (backend in [circt_target, verilog_target]):
 
 // Partial configuration remains owner policy and retains its public gap descriptor.
 def opaque = fixture.opaque_boundary()
-def opaque_program = ElaboratedProgram(opaque.design, opaque.top)
+def opaque_program = opaque
 check:
   compile_program(opaque_program, rtl_pipeline_target(verilog_target, [event_trace_pass()])) ~throws "opaque or disconnected boundary"
 def partial = compile_program(opaque_program, rtl_pipeline_target(verilog_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
@@ -83,7 +83,7 @@ check:
 
 // Root identity scopes consume activity internally without changing physical top ports.
 def instances = instance_fixture_instances_rtl
-def instance_program = ElaboratedProgram(instances.design, instances.top)
+def instance_program = instances
 for (backend in [circt_target, verilog_target]):
   def ordinary = compile_program(instance_program, backend)
   def traced = compile_program(instance_program, rtl_pipeline_target(backend, [event_trace_pass()]))

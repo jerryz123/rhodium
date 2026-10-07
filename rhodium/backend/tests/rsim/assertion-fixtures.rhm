@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_assertions
 
 fun make_assertions():
@@ -84,4 +83,4 @@ fun make_assertions():
   b.assert(top, b.constant(top, Bits(1), 0), tc, b.cast(top, b.constant(top, Bits(1), 0), Reset), b.input(top, "top_guard", Bits(1)),
            #false, Location("top.rhdl", 70, 3))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

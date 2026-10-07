@@ -12,7 +12,7 @@ export circt_target
    Emission reuses this graph without preparing it a second time. */
 class CirctPlan(prepared :: PreparedRTL):
   implements TargetPlan
-  /* Return the physical boundary and occurrence decisions recorded during preparation. */
+  /* Return the detached physical boundary and emitted module inventory. */
   override method manifest(): prepared.manifest
   /* Emit the prepared closure as one named MLIR artifact through the internal emitter. */
   override method emit():

@@ -5,10 +5,10 @@
 import:
   "../circt-target.rhm".circt_target
   "../../compile/program.rhm".compile_program
-  "../../lowering/program.rhm".ElaboratedProgram
+  "../../core/ir.rhm".DesignElaboration
   "../../frontend/tests/program-fixture.rhdl" as fixture
 
 for (program in fixture.programs, eager in fixture.reference_designs):
-  def expected = ElaboratedProgram(eager, eager.find_module_named(program.top.name))
+  def expected = DesignElaboration(eager, eager.find_module_named(program.top.name))
   check:
     compile_program(program, circt_target).artifacts[0].content ~is compile_program(expected, circt_target).artifacts[0].content

@@ -1,5 +1,5 @@
 #lang rhombus
-/* Owns rsim program preparation and prepared-RTL consumption for native and SV-bound models. */
+/* Configures rsim scheduling and native or SV-bound emission over shared RTL preparation. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../compile/contracts.rhm" open
@@ -33,10 +33,6 @@ class RsimPlan(compiled_manifest :: CompileManifest, schedule :: RsimSchedule, p
 fun plan_rtl(prepared :: PreparedRTL, partitioning :: String) :: RsimPlan:
   RsimPlan(prepared.manifest, compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl))), partitioning)
 
-/* Prepare a fresh verified RTL graph before building the executable schedule. */
-fun prepare_rsim(program :: ElaboratedProgram, partitioning :: String) :: RsimPlan:
-  plan_rtl(prepare_rtl(program), partitioning)
-
 /* Add simulator-host bindings to the same model plan without preparing or
    scheduling the circuit a second time. The manifest remains the logical RTL boundary. */
 class RsimSVPlan(model :: RsimPlan, clock :: String):
@@ -56,22 +52,17 @@ fun finish_plan(model :: RsimPlan, bind_sv :: Boolean) :: TargetPlan:
   | RsimSVPlan(model, validate_sv_binding(model.schedule, model.manifest().signature))
   | model
 
-/* Own program preparation while also accepting concrete instrumentation results.
-   Artifact binding and partitioning are independent target choices. Each target
-   captures its policy before compilation; the shared RTL boundary stays unchanged. */
+/* Configure one plan factory for ordinary compilation and instrumented RTL.
+   RTLTarget owns preparation; this adapter owns binding and partition policy. */
 class RsimTarget(bind_sv :: Boolean, partitioning :: String):
-  extends CompilationTarget
-  implements PreparedRTLConsumer
+  extends RTLTarget
   /* Validate the strategy before preparing any RTL. Cost preserves the default
      identity; module cuts use a distinct result identity, including in pipelines. */
   constructor (~bind_sv: bind_sv :: Boolean = #false, ~partitioning: partitioning :: String = "cost"):
     unless partitioning in ["cost", "module"]
     | error(~who: #'RsimTarget, "partitioning must be cost or module")
     def name = (if bind_sv | "rsim-sv" | "rsim") ++ (if partitioning == "module" | "-module" | "")
-    super(name, fun (program): finish_plan(prepare_rsim(program, partitioning), bind_sv))(bind_sv, partitioning)
-  /* Reuse an instrumented graph with this target's policy, without preparing again. */
-  override method plan(prepared :: PreparedRTL) :: TargetPlan:
-    finish_plan(plan_rtl(prepared, partitioning), bind_sv)
+    super(name, fun (prepared): finish_plan(plan_rtl(prepared, partitioning), bind_sv))(bind_sv, partitioning)
 
 def rsim_target = RsimTarget()
 def rsim_sv_target = RsimTarget(~bind_sv: #true)

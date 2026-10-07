@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_memory
 
 fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
@@ -67,4 +66,4 @@ fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
       b.drive(child.input("data" ++ to_string(port)), packets[(side + port) mod 2])
     for (port in leaf.outputs): b.drive(b.output(top, "side" ++ to_string(side) ++ "_" ++ port.name, port.type), child.output(port.name))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

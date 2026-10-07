@@ -7,7 +7,7 @@ import:
   "../core/ir.rhm" open
   "../core/signature.rhm" open
   "../core/builder.rhm" open
-  "../lowering/program.rhm" open
+  "../lowering/program.rhm".MaterializationCheck
 
 export:
   StableCircuitParam
@@ -25,7 +25,7 @@ export:
   circuit_reference
   circuit_signature
   materialize_circuit
-  ElaboratedProgram
+  DesignElaboration
   FrontendContext
   new_circuit_identity
   run_elaboration
@@ -2009,8 +2009,8 @@ fun run_program_body(program :: Function.of_arity(0), context :: FrontendContext
       context.active := #false
 
 /* Build a completed source inventory with an explicit top; targets verify and copy it. */
-fun run_elaboration(program :: Function.of_arity(0)) :: ElaboratedProgram:
+fun run_elaboration(program :: Function.of_arity(0)) :: DesignElaboration:
   def design = Design()
   def context = FrontendContext(design, Builder(design))
   def top = run_program_body(program, context)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

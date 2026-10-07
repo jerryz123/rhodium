@@ -105,7 +105,7 @@ A Rhodium source file contains two kinds of computation:
   host conditionals.
 
 Calling `elaborate` runs the host program and returns the selected hardware as
-an `ElaboratedProgram` containing the completed RTL design and explicit top.
+a `DesignElaboration` containing the completed RTL design and explicit top.
 Pass that program to `compile_program(program, target)`;
 the selected target owns verification, lowering, and emission. Macro expansion
 and frontend layers share the same public core IR.

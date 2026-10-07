@@ -61,7 +61,7 @@ following lifecycle:
 5. Instantiation and top selection normalize through `circuit_reference`.
    Ordinary references use `materialize_circuit` in the active context.
 6. The context is deactivated on success or failure. Successful
-   `run_elaboration` returns an `ElaboratedProgram` with the completed
+   `run_elaboration` returns a `DesignElaboration` with the completed
    design and selected top.
 7. `elaborate` returns that program without sealing its source graph. Compile targets own verification and preparation;
    concrete graph consumers select `rtl_target` through `compile_program`.

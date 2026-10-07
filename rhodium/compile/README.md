@@ -30,8 +30,8 @@ target representation. Reuse the same
 program with another target; ordinary callers do not invoke `prepare_rtl` or
 backend emitters themselves.
 
-Direct Builder clients pass an
-[`ElaboratedProgram(design, top)`](../lowering/README.md) without using the frontend.
+Direct Builder clients pass a
+[`DesignElaboration(design, top)`](../core/README.md) without using the frontend.
 Targets are explicit objects, not names resolved through a global registry.
 Importing the compiler does not load any backend.
 
@@ -39,7 +39,7 @@ The public compilation contract is:
 
 ```mermaid
 flowchart LR
-    Program["ElaboratedProgram<br/>source inventory and explicit top"] --> Compile["compile_program"]
+    Program["DesignElaboration<br/>source inventory and explicit top"] --> Compile["compile_program"]
     Target["Explicit CompilationTarget"] --> Compile
     Compile --> Prepare["Target preparation"]
     Prepare --> Plan["TargetPlan<br/>target-owned representation"]
@@ -129,17 +129,15 @@ Emission callers pass the original program directly to their emission target. `r
 `rtl_pipeline_target`; its graph report then appears in the pipeline report's
 `.backend`, alongside the stage reports and any instrumentation artifacts.
 
-For target implementations, [`rtl.rhm`](rtl.rhm) supplies `prepare_rtl(program)`
-and re-exports `ElaboratedProgram` for input annotations. Preparation returns
-`PreparedRTL(rtl, manifest)` with a fresh verified `DesignElaboration` and its
-matching physical boundary manifest.
+For target implementations, [`rtl.rhm`](rtl.rhm) supplies `prepare_rtl(program)`.
+Preparation returns `PreparedRTL(rtl, manifest)` with a fresh verified core
+`DesignElaboration` and its matching physical boundary manifest.
 
-`PreparedRTLConsumer` provides `.plan(prepared)` to reuse a verified graph.
-Pipeline backends implement both this interface and `CompilationTarget`.
-`RTLTarget(name, build_plan)` implements ordinary preparation by calling
-`prepare_rtl` once, then the same plan factory used by `.plan(prepared)`.
-CIRCT and direct SystemVerilog use this class. `RsimTarget` owns its preparation
-and implements the same prepared-graph interface.
+`RTLTarget(name, build_plan)` provides both ordinary compilation and
+`.plan(prepared)` for graph reuse. Ordinary compilation calls `prepare_rtl` once
+and then the same plan factory. CIRCT, direct SystemVerilog, and `RsimTarget`
+all use this shared path. Rsim adds partitioning and optional SV binding in its
+plan factory; it does not define another preparation lifecycle.
 
 ```rhombus
 // Inside a target implementation or composition helper:
@@ -166,8 +164,7 @@ def target = rtl_pipeline_target(verilog_target, [observation_pass, checking_pas
 def result = compile_program(program, target)
 ```
 
-The pipeline accepts any compilation target implementing `PreparedRTLConsumer`,
-including both rsim targets. It prepares the source as concrete RTL once, applies
+The pipeline accepts an `RTLTarget`, including both rsim targets. It prepares the source as concrete RTL once, applies
 passes in list order, and calls `backend.plan(final_prepared)` once. It returns the backend artifact followed by
 each pass's sidecars in order. An empty pass list returns the original backend.
 The composed target name is the backend name followed by `+<pass-name>` for each

@@ -174,7 +174,7 @@ tools/run-racket.sh -S "$PWD" sims/program-test/write-target.rhm simple rv5stage
 
 Run this command from the repository root. The same three selectors are
 accepted by `emit-soc-harness.rhm`; it emits MLIR to standard output. A custom
-fixture path instead exports `program`, an `ElaboratedProgram` whose explicit
+fixture path instead exports `program`, a `DesignElaboration` whose explicit
 top is `SoCHarness`. It is passed directly to the selected compilation target.
 Both use the [shared config resolver](../socs/README.md#typed-config-selection).
 The [paired-config inventory](test-configs.rhm) describes the twenty test

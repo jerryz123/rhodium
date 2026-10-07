@@ -6,7 +6,6 @@ import:
   rhombus/private/dynamic_require open
   "../../../core/main.rhm" open
   "../../../core/signature.rhm".module_signature
-  "../../../lowering/program.rhm".ElaboratedProgram
   "../../../compile/program.rhm".compile_program
   "../../../compile/pipeline.rhm".rtl_pipeline_target
   "../../../event/trace-pass.rhm".event_trace_pass
@@ -22,7 +21,7 @@ def fixture = match arguments[1]
 | "event-elastic": ["rhodium/event/tests/event-elastic-fixture.rhdl", #'elastic]
 | ~else: error("unknown integration fixture")
 def tracing = arguments[1].starts_with("event-")
-def program :: ElaboratedProgram = dynamic_require(fixture[0], fixture[1])
+def program :: DesignElaboration = dynamic_require(fixture[0], fixture[1])
 def design = program.design
 def top = program.top
 def before = dump_ir(design)

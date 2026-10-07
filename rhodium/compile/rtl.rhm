@@ -10,9 +10,7 @@ import:
 export:
   rtl_target
   RTLReport
-  ElaboratedProgram
   PreparedRTL
-  PreparedRTLConsumer
   RTLTarget
   prepare_rtl
 
@@ -36,19 +34,12 @@ class RTLGraphPlan(prepared :: PreparedRTL):
   /* RTL inspection has no textual artifacts to publish. */
   override method emit(): []
 
-/* Accept verified RTL independently of how ordinary compilation prepares a
-   program. Instrumentation uses this boundary without imposing RTL preparation
-   on the target's ordinary entry point. */
-interface PreparedRTLConsumer:
-  /* Build a plan from the supplied graph and manifest without preparing again. */
-  method plan(prepared :: PreparedRTL) :: TargetPlan
-
 /* Adds prepared-RTL plan construction without imposing RTL on other targets.
    Ordinary compilation prepares once; composition calls plan with its existing
    verified graph and matching manifest, preserving the selected boundary. */
 class RTLTarget(build_plan :: Function.of_arity(1)):
   extends CompilationTarget
-  implements PreparedRTLConsumer
+  nonfinal
   /* Share one checked plan factory between ordinary preparation and composition.
      Plan construction must not clone the graph, rerun certification, or emit text. */
   constructor (name :: String, build_plan :: Function.of_arity(1)):
@@ -57,13 +48,13 @@ class RTLTarget(build_plan :: Function.of_arity(1)):
       build_plan(prepared)
     super(name, fun (program): make_plan(prepare_rtl(program)))(make_plan)
   /* Reuse the checked plan factory without copying the supplied graph. */
-  override method plan(prepared :: PreparedRTL) :: TargetPlan:
+  method plan(prepared :: PreparedRTL) :: TargetPlan:
     build_plan(prepared)
 
 def rtl_target = RTLTarget("rtl", fun (prepared): RTLGraphPlan(prepared))
 
 /* Copy and certify the selected closure, then describe that same physical boundary. */
-fun prepare_rtl(program :: ElaboratedProgram) :: PreparedRTL:
+fun prepare_rtl(program :: DesignElaboration) :: PreparedRTL:
   def rtl = materialize_reachable_rtl(program)
   def manifest = CompileManifest(rtl.top.name, module_signature(rtl.top), rtl.design.modules.map(fun (module_def): module_def.name))
   PreparedRTL(rtl, manifest)

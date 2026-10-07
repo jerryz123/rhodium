@@ -10,7 +10,8 @@ source elaboration or any target's textual emitter.
 ## Architecture and ownership
 
 Follow the [package dependency contract](../DEVELOPING.md). Compilation imports
-core and graph materialization only. Backends opt in by importing these neutral
+core and graph materialization only. `compile_program` accepts the core
+`DesignElaboration` directly; only RTL preparation imports the materializer. Backends opt in by importing these neutral
 interfaces; the compiler never imports a target registry. The clock-analysis
 target also imports compilation; internal analysis algorithms, core, lowering,
 and frontend remain independent of it.
@@ -27,8 +28,8 @@ it must not grow a second implementation of verification or metadata copying.
   after emission and artifact-set validation.
 - `rtl.rhm`: prepares a fresh verified reachable graph and matching manifest.
   `rtl_target` exposes that graph through `RTLReport` without text artifacts.
-  `PreparedRTLConsumer` separates graph consumption from ordinary preparation;
-  `RTLTarget` shares one checked plan factory across both entry points.
+  `RTLTarget` shares one checked plan factory across ordinary preparation and
+  `.plan(prepared)` graph reuse, including both rsim configurations.
 - `pipeline.rhm`: ordered concrete instrumentation, instance-path preservation,
   physical manifests with source attribution, and stage-scoped
   findings. Imports core verification directly; it imports no instrumentation owner.
@@ -43,8 +44,8 @@ Add new target behavior to its owner. Keep new selection mechanisms tied to a
 real supported backend rather than introducing placeholder emitters. Keep preparation fresh and scoped to the selected top. Keep generated
 artifacts out of version control.
 
-Concrete composition uses `PreparedRTLConsumer.plan(prepared)` after preparation. Do not
-wrap an existing prepared graph in another `ElaboratedProgram` and recompile it:
+Concrete composition uses `RTLTarget.plan(prepared)` after preparation. Do not
+pass an already prepared graph back through `compile_program`:
 that repeats copying and certification. Plan factories retain the supplied graph
 and manifest without cloning or emitting.
 Use `rtl_pipeline_target` for multiple concrete instrumentation passes rather

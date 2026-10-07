@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 export make_sync_memory
 
 fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe(PosInt) = #false, width :: PosInt = 64):
@@ -90,4 +89,4 @@ fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe
     for ((name, value) in top_controls): b.drive(child.input(name), b.extract(top, value, side, side))
     for (port in leaf.outputs): b.drive(b.output(top, "side" ++ to_string(side) ++ "_" ++ port.name, port.type), child.output(port.name))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

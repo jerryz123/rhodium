@@ -383,7 +383,7 @@ def target = rtl_pipeline_target(verilog_target, [
 def compiled = compile_program(program, target)
 ```
 
-`program` is the same `ElaboratedProgram` used for ordinary compilation. Use
+`program` is the same `DesignElaboration` used for ordinary compilation. Use
 `circt_target` in place of `verilog_target` for CIRCT. Compilation returns the
 backend artifact plus `events.json` (`application/json`) and `events.h`
 (`text/x-c++hdr`), generated from one instrumentation result. Compilation does

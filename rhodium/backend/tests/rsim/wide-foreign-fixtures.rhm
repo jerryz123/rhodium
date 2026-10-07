@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
   "foreign-fixtures.rhm".Signed
 export:
   make_wide_foreign
@@ -25,7 +24,7 @@ fun make_unused_wide_foreign():
   def child = b.instance(top, leaf, "monitor")
   for (port in leaf.inputs): b.drive(child.input(port.name), b.input(top, port.name, port.type))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_wide_foreign():
   def design = Design()
@@ -72,4 +71,4 @@ fun make_wide_foreign():
   b.drive(instance.input("enable"), b.input(top, "monitor_enable", Bits(1)))
   b.assert(top, b.constant(top, Bits(1), 0), clock_top, reset_top, b.input(top, "fail_guard", Bits(1)), "wide_before_foreign")
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

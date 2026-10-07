@@ -95,9 +95,10 @@ dependencies, then seals it against semantic mutation. Repeated
 `DesignElaboration` pairs the design with an explicit, finished top module for
 downstream consumers. Its constructor validates top ownership and completion;
 whole-design certification comes from `verify_design`, not from the result
-wrapper. These APIs accept concrete RTL. The separate
-[`ElaboratedProgram`](../lowering/README.md) envelope crosses that verification
-boundary through a concrete compile target.
+wrapper. Frontend `elaborate(...)` returns this same core value, and direct
+Builder clients construct it themselves. [`compile_program`](../compile/README.md)
+accepts it as the source program; RTL preparation creates a separate verified
+copy with the same representation. The type itself does not imply certification.
 
 ### Values, places, and binding
 

@@ -29,7 +29,7 @@ for (name in ["left", "right"]):
 builder.finish(top)
 def unused = builder.module("Unused")
 builder.finish(unused)
-def program = ElaboratedProgram(design, top)
+def program = DesignElaboration(design, top)
 def before = dump_ir(design)
 def first = prepare_rtl(program)
 def second = prepare_rtl(program)
@@ -49,7 +49,7 @@ def concrete_builder = Builder(concrete_design)
 def concrete_top = concrete_builder.module("Concrete")
 concrete_builder.finish(concrete_top)
 def unused_dpi = concrete_builder.dpi_import("unused_observer", ["data"], [Bits(8)])
-def concrete_program = ElaboratedProgram(concrete_design, concrete_top)
+def concrete_program = DesignElaboration(concrete_design, concrete_top)
 def concrete = prepare_rtl(concrete_program)
 check:
   concrete.rtl.design === concrete_design ~is #false
@@ -65,7 +65,7 @@ def good = bad_builder.module("Good")
 bad_builder.finish(good)
 def unfinished = bad_builder.module("Unfinished")
 check:
-  prepare_rtl(ElaboratedProgram(bad_design, good)) ~throws "has not been finished"
+  prepare_rtl(DesignElaboration(bad_design, good)) ~throws "has not been finished"
 
 // Closure preparation must not silently lose external live-IR metadata.
 class ExternalReference(module_def :: Module):
@@ -79,7 +79,7 @@ metadata_builder.finish(external)
 metadata_top.add_metadata("external", ExternalReference(external))
 metadata_builder.finish(metadata_top)
 check:
-  prepare_rtl(ElaboratedProgram(metadata_design, metadata_top)) ~throws "unmapped IR reference"
+  prepare_rtl(DesignElaboration(metadata_design, metadata_top)) ~throws "unmapped IR reference"
   metadata_design.sealed ~is #false
 
 // Graph inspection uses ordinary target compilation without serializing the IR.
@@ -98,7 +98,7 @@ check:
   inspected.report.top === inspected_again.report.top ~is #false
   dump_ir(design) ~is before
   design.sealed ~is #false
-  compile_program(ElaboratedProgram(bad_design, good), rtl_target) ~throws "has not been finished"
+  compile_program(DesignElaboration(bad_design, good), rtl_target) ~throws "has not been finished"
 
 // A prepared-graph consumer shares the supplied graph instead of preparing again.
 def reused = rtl_target.plan(first).report()

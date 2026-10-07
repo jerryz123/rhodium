@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "contracts.rhm" open
-  "../lowering/program.rhm".ElaboratedProgram
+  "../core/ir.rhm".DesignElaboration
 
 export compile_program
 
@@ -11,7 +11,7 @@ export compile_program
    Reject an invalid plan, missing output, or duplicate artifact names before returning.
    Error diagnostics remain available alongside complete artifacts. Preparation and
    emitter failures propagate; this orchestration publishes no files. */
-fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget) :: CompilationResult:
+fun compile_program(program :: DesignElaboration, target :: CompilationTarget) :: CompilationResult:
   def plan = target.prepare(program)
   unless plan is_a TargetPlan
   | error(~who: #'compile_program, "target preparation must return a TargetPlan")

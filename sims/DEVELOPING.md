@@ -96,7 +96,7 @@ artifact uploads and cache identities, never as checked-in generated catalogs.
 `RTL_BACKEND` selects `circt`, `verilog`, or experimental `rsim`, with CIRCT
 remaining the default.
 The harness emitter loads only the selected compile target and gives it the
-same `ElaboratedProgram` and explicit top. Direct builds emit `SoCHarness.sv`
+same `DesignElaboration` and explicit top. Direct builds emit `SoCHarness.sv`
 without an intermediate MLIR target; `SOC_EMITTED` routes the actual source
 artifact to attestation. Keep compiler/backend imports in the host emitter,
 never in circuit definitions. CI uses `simulator_id` for artifact identity and base build paths (instrumentation may add a local suffix),

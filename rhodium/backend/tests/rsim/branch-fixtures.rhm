@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
 
 export make_branches make_conditionals
 
@@ -48,7 +47,7 @@ fun make_branches():
   b.drive(b.output(top, "y", Bits(17)), b.record_get(top, packet.current, "y"))
   b.assert(top, allow, clock, reset, b.constant(top, Bits(1), 1), "branch_retry")
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_conditionals():
   def design = Design()
@@ -97,4 +96,4 @@ fun make_conditionals():
   b.drive(b.output(top, "call_result", Bits(32)), result)
   b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_check")
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

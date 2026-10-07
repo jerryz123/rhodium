@@ -15,7 +15,7 @@ def kernel_adder_design = compile_program(kernel_adder.program, rtl_target).repo
 def composed_adder_design = compile_program(composed_adder.program, rtl_target).report.design
 def standard_adder_design = compile_program(standard_adder.program, rtl_target).report.design
 
-def core_program = ElaboratedProgram(core_adder.design, core_adder.design.find_module_named("Adder"))
+def core_program = DesignElaboration(core_adder.design, core_adder.design.find_module_named("Adder"))
 def kernel_program = kernel.run_elaboration(fun (): kernel_adder.Adder(8))
 def composed_program = elaborate(composed_adder.Adder(8))
 def standard_program = elaborate(standard_adder.Adder(8))

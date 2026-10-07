@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
-  "../../../lowering/program.rhm".ElaboratedProgram
   "memory-fixtures.rhm".make_memory
   "sync-memory-fixtures.rhm".make_sync_memory
 export make_wide make_wide_aggregate make_relayout make_wide_memories make_constant_rom
@@ -43,7 +42,7 @@ fun make_constant_rom(width :: PosInt):
     for (port in leaf.outputs):
       b.drive(b.output(top, name ++ "_" ++ port.name, port.type), child.output(port.name))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_wide_memories():
   def programs = MutableList[]
@@ -157,7 +156,7 @@ fun make_wide(width :: PosInt):
     for (output in ["q", "delayed"]):
       b.drive(b.output(top, name ++ "_" ++ output, Bits(width)), child.output(output))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 fun make_wide_aggregate(width :: PosInt):
   def design = Design()
@@ -228,7 +227,7 @@ fun make_wide_aggregate(width :: PosInt):
                  ["decoded", b.decode(top, value, packet, packet, [[0, care, full, full], [1, care, initial, full]], 2 ** (total - 1) + 7, full)]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)
 
 // No wide stored leaf or scalar IR temporary: the cast alone needs support.
 fun make_relayout():
@@ -240,4 +239,4 @@ fun make_relayout():
   def value = b.input(top, "value", source)
   b.drive(b.output(top, "result", target), b.cast(top, value, target))
   b.finish(top)
-  ElaboratedProgram(design, top)
+  DesignElaboration(design, top)

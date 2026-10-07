@@ -11,7 +11,7 @@ export verilog_target
 /* Retain one prepared graph for both the manifest and atomic in-memory emission. */
 class VerilogPlan(prepared :: PreparedRTL):
   implements TargetPlan
-  /* Preserve authored port names and the preparation's portable-expansion report. */
+  /* Preserve authored port names and the prepared module inventory. */
   override method manifest(): prepared.manifest
   /* Return SystemVerilog only after all live operations pass backend checks. */
   override method emit():

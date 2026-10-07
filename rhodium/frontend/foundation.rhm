@@ -14,7 +14,7 @@ import:
   "kernel.rhm".ModuleSignature
   "kernel.rhm".circuit_reference
   "kernel.rhm".circuit_signature
-  "kernel.rhm".ElaboratedProgram
+  "kernel.rhm".DesignElaboration
   "kernel.rhm".input as kernel_input
   "kernel.rhm".output as kernel_output
   "kernel.rhm".build_circuit as kernel_build_circuit
@@ -54,7 +54,7 @@ export:
   ModuleSignature
   circuit_reference
   circuit_signature
-  ElaboratedProgram
+  DesignElaboration
   HardwareType
   DataType
   ScalarDataType
