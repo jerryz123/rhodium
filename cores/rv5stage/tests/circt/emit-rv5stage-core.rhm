@@ -12,7 +12,7 @@ import:
 
 def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100000000, ~split_memory: #true))
 
-// This timing contract stops at the three always-captured pipeline payloads.
+// This timing contract stops at the core payloads and parallel LSU response capture.
 // In particular, retirement arbitration must not become an EX operand source.
 def top = design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
 def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "ex_alu")
@@ -31,11 +31,11 @@ for (operand_name in ["left", "right"]):
       cond
       | operation && operation.opcode == "rtl.instance":
           def name = operation.attribute("name")
-          unless name in ["id_ex_pipe", "ex_mem_pipe", "mem_wb_pipe"]
+          unless name in ["id_ex_pipe", "ex_mem_pipe", "mem_wb_pipe", "memory_response"]
           | error(~who: #'ex_forwarding, "non-pipeline instance reaches ALU operand: " ++ name)
           def output_index = identity_index(operation.results, value)
           def output = operation.attribute("module").outputs[output_index]
-          unless output.name == "egress_out" && path.length() > 0 && path[0] == "bits"
+          unless output.name == (if name == "memory_response" | "captured_out" | "egress_out") && path.length() > 0 && path[0] == "bits"
           | error(~who: #'ex_forwarding, "pipeline control reaches ALU operand")
           sources.add([name, path])
       | operation && operation.opcode in ["rtl.register", "rtl.register_reset"]:
@@ -57,6 +57,9 @@ for (operand_name in ["left", "right"]):
   visit(driver.value, driver.path)
   unless ["mem_wb_pipe", ["bits", "value"]] in sources
   | error(~who: #'ex_forwarding, "ALU operand no longer reads the normal WB value")
+  for (field in ["outcome", "data"]):
+    unless ["memory_response", ["bits", field]] in sources
+    | error(~who: #'ex_forwarding, "WB load forwarding no longer reads its captured LSU " ++ field)
   def operand_field = if operand_name == "left" | "operand_rs1" | "operand_rs2"
   unless ["id_ex_pipe", ["bits", operand_field, "stage_sel"]] in sources
   | error(~who: #'ex_forwarding, "ALU operand no longer reads its registered stage selector")

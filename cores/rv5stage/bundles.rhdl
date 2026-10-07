@@ -225,6 +225,10 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
+/* Stores instruction/control and the ALU value while LSU outcome/data capture runs in parallel. */
+fun MemoryWritebackContext(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean) :: RecordType:
+  RecordType(MemoryWriteback(xlen, vector_completion_slots, hypervisor).fields.filter(~keep: fun (field): !(field.name in ["load_hit", "cache_outcome"])))
+
 export:
   RV5StageBypassStage
   RV5StageCompletionSource
@@ -237,3 +241,4 @@ export:
   RV5StageException
   ExecuteMemory
   MemoryWriteback
+  MemoryWritebackContext

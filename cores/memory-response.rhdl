@@ -1,0 +1,34 @@
+#lang rhodium
+/* Pairs optional same-cycle LSU responses with caller contexts and captures only response state. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+
+/* Retains the response for one cycle while returning its paired context without storage.
+   The caller captures that context in parallel; absent responses use its local decision.
+   Context and Result remain opaque, including translation and architectural metadata. */
+sync_circuit MemoryResponseCapture(Context :: DataType, Result :: DataType):
+  interface context(Valid(Context), ~role: consumer)
+  interface response(Valid(Result), ~role: consumer)
+  input fallback: Result
+  interface live_context(Valid(Context), ~role: producer)
+  interface captured(Valid(Result), ~role: producer)
+  bundle Paired():
+    context: Context
+    response: Result
+  def Array(owner, missing) = context |> fork_valid(2)
+  def returned = response |> filter_valid(_result => context.valid)
+  def absent = missing |> filter_valid(_context => !response.valid) |> map_valid(_context => fallback)
+  def result = Array(returned, absent) |> valid_arbiter()
+  def paired_flow = Array(owner |> to_decoupled(), result |> to_decoupled()) |> zip_flow(context, response):
+    Paired():
+      context: context
+      response: response
+  def paired = paired_flow |> to_valid()
+  def Array(context_path, response_path) = paired |> fork_valid(2)
+  context_path |> map_valid(pair => pair.context) |> live_context
+  response_path |> map_valid(pair => pair.response) |> valid_pipe_always_capture(1) |> captured
+
+export:
+  MemoryResponseCapture

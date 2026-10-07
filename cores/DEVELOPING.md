@@ -83,6 +83,7 @@ of `cores/`.
 Small shared integration modules remain at the root:
 `chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
+`memory-response.rhdl` owns optional-response pairing and one-cycle LSU result capture;
 `vector-layout.rhm` owns pure physical row geometry; `cosim-source.rhm` owns
 passive observation declarations. None selects a named core's profile or
 implements its retirement policy. Architectural encodings and stateless
@@ -92,6 +93,14 @@ Keep accepted split-access fragments irrevocable and retain their owner until
 the response. Translation/PMA checks, interrupt/drain policy, and retirement
 belong to the caller. Keep vector row geometry pure host code with an explicit
 row width; it must not imply ports, SRAM, or scheduling.
+
+`MemoryResponseCapture` joins a live caller context with its same-cycle response
+or fallback. Its context output is combinational; only the result is registered.
+Capture the caller's instruction/control state in parallel and rejoin at the
+next stage without extra storage. Keep early fault/replay decisions and commit
+authorization in the caller, and keep the physical cache response combinational.
+For its RV5Stage integration, run the EX/MEM/WB load-path fixtures listed in
+[`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md#focused-validation).
 
 `cosim-source.rhm` bridges public core metadata and frontend read/domain APIs.
 Its versioned contracts, local taps, explicit child views, and sibling contexts

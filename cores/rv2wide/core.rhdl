@@ -99,7 +99,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   wire wb_squash: Bool
   wire rr_squash: Bool
   def ex_paths = for List (lane in 0..2):
-    def observed = ex_pipe[lane].egress |> filter_valid(_token => !rr_squash) |> trace_valid_event("core/ex.slot" ++ to_string(lane), ~fields: token):
+    def observed = ex_pipe[lane].egress |> filter_valid(_token => !rr_squash) |> trace_valid_event("core/s2.ex.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
     observed |> fork_valid(3)
@@ -143,12 +143,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   memory.response |> wb_load_response.response
   // A deferred result reserves the younger issue slot and travels alongside RR
   // work to its WB write port. Committed responses never take speculative flush.
-  for (source in [wb_load_response.completed, ex_multiply.completed, wb_divide.completed], service in ["load", "multiply", "divide"], index in 0..3):
-    (source |> trace_event("core/return." ++ service, ~stalls: #true, ~fields: result):
-      pc: result.fetched.pc
-      instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
-      rd: result.rd
-    ) |> rr_completions.ingress[index]
+  for (source in [wb_load_response.completed, ex_multiply.completed, wb_divide.completed], index in 0..3):
+    source |> rr_completions.ingress[index]
   def rr_completion :: Endpoint = rr_completions.egress |> to_valid()
   inst ex_completion_pipe(ValidPipe(RV2WideRetirement(), 1))
   inst mem_completion_pipe(ValidPipe(RV2WideRetirement(), 1))
@@ -161,7 +157,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   reg wb_completion_count(~init: bits(0, 2))
   when (rr_completion.valid ^ wb_completion.valid):
     wb_completion_count <== mux(rr_completion.valid, wb_completion_count + bits(1, 2), wb_completion_count - bits(1, 2))
-  (wb_completion |> trace_valid_event("core/writeback.deferred", ~fields: result):
+  (wb_completion |> trace_valid_event("core/s4.wb.deferred", ~fields: result):
     pc: result.fetched.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
     rd: result.rd
@@ -232,7 +228,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     offer.left.valid <== rr_window.candidates[lane].valid
     offer.left.bits <== rr_window.candidates[lane].bits
     describe_interface_contract(rr_window.candidates[lane], offer.left, "issue-offer-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
-    def rr_observed = offer.right |> trace_event("core/rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
+    def rr_observed = offer.right |> trace_event("core/s1.rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
       pc: fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): fetched.raw_instruction
       blocked: rr_blocked[lane]
@@ -384,7 +380,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
     mem_output.valid <== mem_input.valid & !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].taken & mem_older.egress.valid))
     mem_output.bits <== mem_resolved[lane]
     describe_interface_contract(mem_input, mem_output, "memory-resolution-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
-    (mem_results[lane] |> trace_valid_event("core/mem.slot" ++ to_string(lane), ~fields: token):
+    (mem_results[lane] |> trace_valid_event("core/s3.mem.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
       outcome: token.cache_outcome
@@ -607,7 +603,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig()):
   wire wb_writes: Vec(2, Bool)
   def wb_retirement_links = for List (_ in 0..2): interface_link(Valid(RV2WideRetirement()))
   def wb_retirement_paths = for List (lane in 0..2):
-    def observed = wb_retirement_links[lane].right |> trace_valid_event("core/wb.slot" ++ to_string(lane), ~fields: result):
+    def observed = wb_retirement_links[lane].right |> trace_valid_event("core/s4.wb.slot" ++ to_string(lane), ~fields: result):
       pc: result.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
       deferred: result.deferred

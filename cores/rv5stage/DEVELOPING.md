@@ -33,6 +33,7 @@ completion adaptation and instruction/uncached integration.
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`observation.rhdl`](observation.rhdl) | Versioned passive observation contract identity |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
+| [`../memory-response.rhdl`](../memory-response.rhdl) | Shared optional-response pairing and LSU result capture; core instruction/control state crosses MEM/WB in parallel |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
@@ -136,6 +137,13 @@ from a DPI-result register in the observed design.
    classification must cross MEM/WB together. FP hits use `load_hit` at WB
    without allocating a deferred reservation; older data transactions must be
    drained before admitting that path so the FPR load-write port cannot collide.
+   `mem_wb_pipe` stores `MemoryWritebackContext`, the instruction/control projection
+   of `MemoryWriteback`, including the ordinary ALU value but not `load_hit` or
+   `cache_outcome`. `memory_response` stores the selected LSU outcome and data
+   independently on the same edge. A combinational join reconstructs the flat
+   WB payload and selects load-hit data. Both payload captures remain
+   unconditional: a squash cancels validity, not forwarding payload capture.
+   Never replace the registered load-data source with a live MEM response.
 5. Test cycle-visible behavior in the narrowest CIRCT/Verilator fixture, then
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
@@ -441,13 +449,15 @@ At scalar MEM and vector decision capture, pair context with the optional
 same-cycle response using a combinational Flow join. A context-derived fallback
 supplies the absent response, so the join cannot wait, drop a context, or add
 storage. Filter responses for killed contexts before the checked conversion.
-WB inherits MEM and available cache ancestry through the existing register;
+WB inherits MEM and available cache ancestry through the parallel core and LSU captures;
 do not override its parents to discard either contribution.
 `dcache/s2.resp` observes the scalar response at WB before slow-request gating.
 It retains those same parents independently of retirement; replay/fault responses
 must not depend on a non-fired WB checkpoint.
-Its annotation stays at the existing caller-owned capture in `core.rhdl`,
-but its display group is `dcache`; do not add a duplicate core result event.
+Its observer runs after the two captures rejoin, where architectural fault,
+replay, and admission policy is available; the response storage belongs to
+`MemoryResponseCapture`, not the core instruction register. Its display group
+is `dcache`; do not add a duplicate core result event.
 `vector/memory.result` observes the adapter's registered decision. Gate
 memory observations without filtering functional tokens. Hits, faults, and
 replays remain visible even without cache access. Record nonfaulting admission

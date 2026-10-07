@@ -4,6 +4,7 @@
 
 import:
   "../fp/bundles.rhdl" open
+  "../memory-response.rhdl" open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_hart
@@ -217,7 +218,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst id_instructions(RV5StageInstructionBuffer(core_profile))
   inst id_ex_pipe(ValidPipeAlwaysCapture(DecodeExecute(xlen, vector_completion_slots, hypervisor), 1))
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen, vector_completion_slots, hypervisor), 1))
-  inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen, vector_completion_slots, hypervisor), 1))
+  inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWritebackContext(xlen, vector_completion_slots, hypervisor), 1))
+  inst memory_response(MemoryResponseCapture(ExecuteMemory(xlen, vector_completion_slots, hypervisor), CachePipelineResult(xlen)))
 
   inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~svinval: core_profile.extensions.svinval, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector, ~vector_extensions: vector_extensions, ~hypervisor: hypervisor))
   inst id_registers(RV5StageRegisterFile(xlen))
@@ -379,7 +381,48 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_memory_pending = wb_memory_retirement.egress.valid
   wire wb_retained_memory_accepted: Bool
   wire wb_split_accepted: Bool
-  def wb_input = mem_wb_pipe.egress
+  // The two parallel captures rejoin without storage or a live-control bypass.
+  def wb_captured = Array(mem_wb_pipe.egress |> to_decoupled(), memory_response.captured |> to_decoupled()) |> zip_flow(context, response):
+    wire wb_payload: MemoryWriteback(xlen, vector_completion_slots, hypervisor)
+    if hypervisor
+    | block:
+        wb_payload.guest <== context.guest
+        wb_payload.guest_access <== context.guest_access
+    | #void
+    wb_payload.vector_launch <== context.vector_launch
+    wb_payload.vector_context <== context.vector_context
+    wb_payload.vector_fast_valid <== context.vector_fast_valid
+    wb_payload.vector_fast <== context.vector_fast
+    wb_payload.pc <== context.pc
+    wb_payload.resume_pc <== context.resume_pc
+    wb_payload.branch_prediction <== context.branch_prediction
+    wb_payload.ras_mismatch <== context.ras_mismatch
+    wb_payload.raw_instruction <== context.raw_instruction
+    wb_payload.replay <== context.replay
+    wb_payload.data_request_valid <== context.data_request_valid
+    wb_payload.data_request <== context.data_request
+    wb_payload.fp_compute <== context.fp_compute
+    wb_payload.fp_issue <== context.fp_issue
+    wb_payload.prefetch <== context.prefetch
+    wb_payload.writeback_source <== context.writeback_source
+    wb_payload.write_enable <== context.write_enable
+    wb_payload.rd <== context.rd
+    wb_payload.multiply_issue <== context.multiply_issue
+    wb_payload.divide_issue <== context.divide_issue
+    wb_payload.system <== context.system
+    wb_payload.fence <== context.fence
+    wb_payload.hint <== context.hint
+    wb_payload.csr_address <== context.csr_address
+    wb_payload.csr_source <== context.csr_source
+    wb_payload.vector_config <== context.vector_config
+    wb_payload.exception_valid <== context.exception_valid
+    wb_payload.exception_cause <== context.exception_cause
+    wb_payload.exception_value <== context.exception_value
+    wb_payload.load_hit <== response.outcome === CachePipelineOutcome.LoadHit
+    wb_payload.cache_outcome <== response.outcome
+    wb_payload.value <== mux(wb_payload.load_hit, response.data, context.value)
+    wb_payload
+  def wb_input = wb_captured |> to_valid()
   def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
   def Array(wb_live_path, wb_memory_retention_path, wb_wait_path, wb_vector_retention_path) = wb_retirement_path |> fork_valid(4)
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
@@ -1295,15 +1338,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     last: (mem_vector_first[12..64] ++ mem_vector_last_offset[0..12]) ||| bits(width / 8 - 1, 64)
     store: mem_input.bits.vector_context.control.store
   def Array(mem_context_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_prediction_path) = mem_live |> fork_valid(4)
-  def Array(mem_capture, missing_response) = mem_context_path |> fork_valid(2)
-  def returned = scalar_pipeline.response |> filter_valid(_result => mem_stage_valid)
-  def absent = missing_response |> filter_valid(_operation => !scalar_pipeline.response.valid)
-    |> map_valid(_operation => scalar_pipeline.response.bits)
-  def memory_result = Array(returned, absent) |> valid_arbiter()
-  // Pair the current instruction and its optional same-cycle LSU result before
-  // the existing MEM/WB register. Non-memory instructions use the local fallback.
-  def mem_with_result = Array(mem_capture |> to_decoupled(), memory_result |> to_decoupled()) |> zip_flow(operation, response):
-    operation.updated(~result: mux(mem_load_hit, response.data, operation.result))
+  mem_context_path |> memory_response.context
+  scalar_pipeline.response |> map_valid(response => response.updated(~outcome: mem_cache_outcome)) |> memory_response.response
+  memory_response.fallback <== scalar_pipeline.response.bits.updated(~outcome: mem_cache_outcome)
   mem_to_if_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> mem_to_if_exception_link.left
   mem_to_if_replay_path |> filter_valid(operation => operation.replay ||| mem_cache_replay)
@@ -1314,8 +1351,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     |> map_valid(operation => operation.resume_pc) |> mem_to_if_redirect_link.left
   // Nonbranches also train: they remove a stale prediction at this PC.
   mem_training_path |> filter_valid(operation => !operation.vector_launch) |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
-  def mem_to_wb = mem_with_result |> to_valid() |> map_valid(operation):
-    wire result: MemoryWriteback(xlen, vector_completion_slots, hypervisor)
+  def mem_to_wb = memory_response.live_context |> map_valid(operation):
+    wire result: MemoryWritebackContext(xlen, vector_completion_slots, hypervisor)
     result.vector_launch <== operation.vector_launch
     result.vector_context <== operation.vector_context
     result.vector_fast_valid <== vector_fast.response.valid
@@ -1326,8 +1363,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     result.ras_mismatch <== operation.branch_update.ras_action =/= operation.branch_update.predicted_ras_action
     result.raw_instruction <== operation.raw_instruction
     result.replay <== operation.replay ||| mem_cache_replay
-    result.load_hit <== mem_load_hit
-    result.cache_outcome <== mem_cache_outcome
     result.data_request_valid <== operation.data_request_valid & (mem_cache_outcome === CachePipelineOutcome.Slow)
     result.data_request <== operation.data_request
     result.fp_compute <== operation.fp_compute
@@ -1387,7 +1422,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire wb_data_fault: Bool
   wire wb_memory_replay: Bool
   wire wb_memory_response_replay: Bool
-  // Observe the scalar cache response at its existing MEM/WB capture.
+  // Observe the captured LSU response after it rejoins the WB instruction context.
   // Admission gates continuation, not whether the S2 response is recorded.
   def wb_memory_response = wb_memory_path
     |> trace_valid_event("dcache/s2.resp", ~when: wb_memory_path.bits.data_request.access.into(CacheOperation).is_memory(), ~fields: operation):

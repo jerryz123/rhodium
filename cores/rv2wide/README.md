@@ -431,24 +431,30 @@ Mini/Simple bindings support the existing event-trace compile pass with `TRACE=1
 It is independent of `COSIM=1`; both can be enabled on the same simulator.
 See the [simulator commands](../../sims/README.md#export-soc-events-to-perfetto).
 
-Each age slot has separate `core/rr.slotN`, `core/ex.slotN`, `core/mem.slotN`,
-and `core/wb.slotN` tracks with raw instruction and PC captures. RR records
+Each age slot has separate `core/s1.rr.slotN`, `core/s2.ex.slotN`,
+`core/s3.mem.slotN`, and `core/s4.wb.slotN` tracks with raw instruction and PC
+captures. The stage prefixes order the execution pipeline in Perfetto. RR records
 actual issue and blocked offers. WB records successful retirement only, including
 the later retirement of a retained split access; traps, replay, and speculative
 multiply launch are not retirement.
 
 ```text
 fetch S0 → S1 → S2 → assembly packets → issue window → RR[0/1] → EX[0/1] → MEM[0/1] → WB[0/1]
-                                                         EX multiply ──authorization──→ multiply return
-                                                                              WB ──→ load/divide return
-                                                       service return → three-stage return pipe → deferred RF write
+                                                         EX multiply ──authorization──→ completion arbitration
+                                                                      WB load/divide ──→ completion arbitration
+                                               completion arbitration → three-stage completion pipe → deferred RF write
 ```
 
 This illustrates the current implementation. Packet ownership survives compacting,
 one/two-slot consumption, compressed assembly, and flush. Load owners survive in
 their queue, multiply owners traverse the feed-forward authorization path, and
-divide owners remain with the shared divider until accepted completion. Return
-tracks distinguish service completion from the actual delayed register write.
+divide owners remain with the shared divider until accepted completion.
+`core/s4.wb.deferred` marks a deferred service completion reaching WB. Its ancestry
+follows the retained service and completion pipeline directly from the instruction's
+EX multiply launch or WB load/divide acceptance, without intermediate service events.
+RR stall observations share their corresponding `core/s1.rr.slotN` track and
+remain named `stall`. Frontend stage numbering is local to fetch; buffered
+`frontend/packet` assembly has no fixed execution-stage number.
 Shared cache/CHI events retain their existing annotations. Partial tracing still
 reports unmodeled fetch-cursor and external response provenance; it does not
 invent ancestry from equal PCs or reused transaction IDs.

@@ -516,14 +516,14 @@ port request. The slash selects the `dcache` display group; tracks retain the
 dotted leaf names such as `s1.tags`. See the [display contract](../../rheg/README.md#perfetto-display-and-queries)
 for hierarchy, slice naming, and querying full labels.
 
-S1 returns a combinational result in the MEM cycle; there is no cache-owned
+S1 returns a combinational result in the MEM cycle; physical L1D does not add a
 load-response register. Its ancestry follows
 the selected scalar EX or vector issue through arbitration and translation.
-The caller pairs the response with its instruction/beat context before its
-existing result register. Scalar WB therefore retains MEM ancestry and, when
+The scalar LSU captures the response alongside the core's instruction/control
+register, then combines them at WB without adding latency. Scalar WB therefore retains MEM ancestry and, when
 present, the shared cache occurrence (or EX ownership of a local LSU outcome);
-`dcache/s2.resp` follows WB in that same cycle, observing the existing scalar
-capture rather than adding a cache register or a separate core result event.
+`dcache/s2.resp` follows WB in that same cycle, observing the LSU capture rather
+than adding another cache stage or a separate core result event.
 Vector result capture similarly retains issue and cache ancestry.
 Masked vector beats produce no memory-result event. Arbitration losses,
 translation faults, and uncached accesses can produce caller results without
@@ -647,7 +647,8 @@ flowchart LR
         EX["Execute (EX)<br/>forwarding, branch, AGU"]
         EXMEM["EX/MEM<br/>ValidPipeAlwaysCapture"]
         MEM["Memory (MEM)<br/>DTLB + tags/data, redirect, bypass"]
-        MEMWB["MEM/WB<br/>ValidPipeAlwaysCapture"]
+        MEMWB["MEM/WB instruction/control<br/>ValidPipeAlwaysCapture"]
+        RESPONSE["LSU response capture<br/>one cycle"]
         WB["Writeback (WB)<br/>ordered commit"]
 
         IF --> FQ --> IFID --> ID --> IDEX --> EX --> EXMEM --> MEM --> MEMWB --> WB
@@ -655,6 +656,7 @@ flowchart LR
 
     EX -->|"virtual load index"| HIT["Parallel DTLB + L1D lookup"]
     HIT -->|"permitted hit data"| MEM
+    MEM --> RESPONSE --> WB
     WB -->|"miss / device / mutation"| LSU["Authorized DTLB + PMA<br/>L1D or uncached transaction"]
     LSU -->|"integer load / AMO result"| COMPLETE["Deferred GPR<br/>completion arbiter"]
 
@@ -705,7 +707,7 @@ flowchart LR
 | Fetch | Five flow-through raw packets and a core residual halfword | Yes | Frontend-owned attempts, replay, prediction, and redirect flushing |
 | Decode | ID/EX `ValidPipeAlwaysCapture` | No | Structured decode, operand capture and bypass selection, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
 | Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, speculative pipelined multiply launch, FP operand preparation, and structural replay |
-| Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Parallel DTLB/cache lookup, hit-result capture, branch recovery, early fault/replay squash, and bypass |
+| Memory | Parallel MEM/WB instruction/control and LSU response captures | No | Parallel DTLB/cache lookup, hit-result capture, branch recovery, early fault/replay squash, and bypass |
 | Writeback | Ordered commit | At defined architectural waits | Load-hit writeback, authorized memory/FP dispatch, faults, replay, register/CSR effects, traps, fences, and deferred reservations |
 
 Within the pipeline, the nonbackpressured pipeline token uses `Valid` flow transforms
