@@ -2390,7 +2390,8 @@ module rv2wide_core_tb;
     // M-mode always owns stimecmp; S-mode requires both STCE and TM, and
     // U-mode cannot access the supervisor CSR even with both gates open.
     for(int scenario=0;scenario<4;scenario++) begin
-      logic [63:0] pc='h14100;
+      logic [63:0] pc;
+      pc='h14100;
       reset_core();
       send(pc,imm(1,0,1000),0,1); pc+=4; drain();
       csr_access(pc,1,0,1,'h14d,0); pc+=4;
@@ -2416,7 +2417,8 @@ module rv2wide_core_tb;
     // A 64-bit comparison, read-only STIP, reprogramming, and locally enabled
     // WFI wake with global SIE clear. No external interrupt pin is asserted.
     begin
-      logic [63:0] pc='h510;
+      logic [63:0] pc;
+      pc='h510;
       reset_core(); supervisor_timer(0);
       csr_access('h500,2,6,0,'h144,0);
       time_counter=timer_compare;
@@ -2460,7 +2462,8 @@ module rv2wide_core_tb;
       csr_access('h708,2,12,0,'h143,0);
       assert(!sleeping && interrupts==0) else $fatal(1,"Sstc wake or interrupt source");
       if(scenario==3) begin
-        logic [63:0] pc='h70c;
+        logic [63:0] pc;
+        pc='h70c;
         constant64(pc,1,timer_compare+10); drain();
         csr_access(pc,1,0,1,'h14d,timer_compare); pc+=4;
         expect_system(pc,32'h10200073); stop_at(pc,boundary,3);

@@ -265,8 +265,16 @@ module rv2wide_cache_tb;
       instructions.valid = 1;
       instructions.bits.count = send_pc/4+1 < program_size ? 2 : 1;
       if(send_pc+4==probe_sc_pc && !probe_complete) instructions.bits.count=1;
-      instructions.bits.entries[0] = '{64'(send_pc), program_words[send_pc/4], program_words[send_pc/4], 64'(send_pc+4), 1'b0, '0, '0, 2'd0};
-      instructions.bits.entries[1] = '{64'(send_pc+4), program_words[send_pc/4+1], program_words[send_pc/4+1], 64'(send_pc+8), 1'b0, '0, '0, 2'd0};
+      instructions.bits.entries[0] = '{
+        pc:64'(send_pc), instruction:program_words[send_pc/4], raw_instruction:program_words[send_pc/4],
+        sequential_pc:64'(send_pc+4), compressed_illegal:1'b0, fault:'0,
+        prediction:'0, speculated_ras_action:2'd0, direction:'0
+      };
+      instructions.bits.entries[1] = '{
+        pc:64'(send_pc+4), instruction:program_words[send_pc/4+1], raw_instruction:program_words[send_pc/4+1],
+        sequential_pc:64'(send_pc+8), compressed_illegal:1'b0, fault:'0,
+        prediction:'0, speculated_ras_action:2'd0, direction:'0
+      };
     end
   end
   always @(posedge clock) if (!reset) begin
