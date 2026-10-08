@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../memory-decode.rhdl" open
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
   lib("riscv/rtl/atomic.rhdl") open
@@ -21,107 +22,26 @@ bundle RV2WideMemoryControl():
   width: MemoryWidth
   unsigned: Bool
 
-def zero_control = partial_pattern(RV2WideMemoryControl()):
-  enable: Bool(#true)
-  access: CacheOperation.CacheBlockZero
-  width: MemoryWidth.Double
-def RV2WideZeroCases = instruction_cases(ZicbozInstructions, zero_control)
-def RV2WideManagementCases = for List (entry in [[CBO_INVAL, CacheOperation.CacheBlockInvalidate], [CBO_CLEAN, CacheOperation.CacheBlockClean], [CBO_FLUSH, CacheOperation.CacheBlockFlush]]):
-  def control = partial_pattern(RV2WideMemoryControl()):
-    enable: Bool(#true)
-    access: entry[1]
-    width: MemoryWidth.Double
-  DecodeCase(instruction_pattern(entry[0]), control)
+/* Adds the caller's validity bit without constraining inactive physical controls. */
+fun enabled_cases(cases :: List.of(DecodeCase)) :: List.of(DecodeCase):
+  for List (entry in cases):
+    DecodeCase(entry.input, entry.output.intersection(partial_pattern(RV2WideMemoryControl()): enable: Bool(#true)).terms[0])
 
-def RV2WideLoads = [LB, LH, LW, LD, LBU, LHU, LWU]
-def RV2WideStores = [SB, SH, SW, SD]
-def RV2WideMemoryCases = decode_groups(RV2WideMemoryControl(), ~input: instruction_pattern):
-  group excluding_instructions(RV64IInstructions, RV2WideLoads ++ RV2WideStores):
-    enable: Bool(#false)
-  [LB]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#false)
-    width: MemoryWidth.Byte
-  [LH]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#false)
-    width: MemoryWidth.Half
-  [LW]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#false)
-    width: MemoryWidth.Word
-  [LD]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#false)
-    width: MemoryWidth.Double
-  [LBU]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#true)
-    width: MemoryWidth.Byte
-  [LHU]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#true)
-    width: MemoryWidth.Half
-  [LWU]:
-    enable: Bool(#true)
-    access: CacheOperation.Load
-    unsigned: Bool(#true)
-    width: MemoryWidth.Word
-  [SB]:
-    enable: Bool(#true)
-    access: CacheOperation.Store
-    width: MemoryWidth.Byte
-  [SH]:
-    enable: Bool(#true)
-    access: CacheOperation.Store
-    width: MemoryWidth.Half
-  [SW]:
-    enable: Bool(#true)
-    access: CacheOperation.Store
-    width: MemoryWidth.Word
-  [SD]:
-    enable: Bool(#true)
-    access: CacheOperation.Store
-    width: MemoryWidth.Double
-
-/* Supplies the same operation columns for W and D while leaving unused AMO controls uncared. */
-fun atomic_cases(width :: MemoryWidth, lr :: InstructionSpec, sc :: InstructionSpec, operations :: List):
-  def reserved = partial_pattern(RV2WideMemoryControl()):
-    enable: Bool(#true)
-    access: CacheOperation.LoadReserved
-    width: width
-    unsigned: Bool(#false)
-  def conditional = partial_pattern(RV2WideMemoryControl()):
-    enable: Bool(#true)
-    access: CacheOperation.StoreConditional
-    width: width
-  def modify = for List (pair in operations):
-    def output = partial_pattern(RV2WideMemoryControl()):
-      enable: Bool(#true)
-      access: CacheOperation.Atomic
-      atomic: pair[1]
-      width: width
-      unsigned: Bool(#false)
-    DecodeCase(instruction_pattern(pair[0]), output)
-  instruction_cases([lr], reserved) ++ instruction_cases([sc], conditional) ++ modify
-
-def RV2WideAtomicCases = atomic_cases(MemoryWidth.Word, LR_W, SC_W, [
-  [AMOSWAP_W, RiscvAtomicOperation.Swap], [AMOADD_W, RiscvAtomicOperation.Add],
-  [AMOXOR_W, RiscvAtomicOperation.Xor], [AMOAND_W, RiscvAtomicOperation.And], [AMOOR_W, RiscvAtomicOperation.Or],
-  [AMOMIN_W, RiscvAtomicOperation.Min], [AMOMAX_W, RiscvAtomicOperation.Max],
-  [AMOMINU_W, RiscvAtomicOperation.MinUnsigned], [AMOMAXU_W, RiscvAtomicOperation.MaxUnsigned]
-]) ++ atomic_cases(MemoryWidth.Double, LR_D, SC_D, [
-  [AMOSWAP_D, RiscvAtomicOperation.Swap], [AMOADD_D, RiscvAtomicOperation.Add],
-  [AMOXOR_D, RiscvAtomicOperation.Xor], [AMOAND_D, RiscvAtomicOperation.And], [AMOOR_D, RiscvAtomicOperation.Or],
-  [AMOMIN_D, RiscvAtomicOperation.Min], [AMOMAX_D, RiscvAtomicOperation.Max],
-  [AMOMINU_D, RiscvAtomicOperation.MinUnsigned], [AMOMAXU_D, RiscvAtomicOperation.MaxUnsigned]
-])
+def block_cases = cache_block_memory_cases(RV2WideMemoryControl())
+/* Keeps the two-wide whole-line token's width while reusing operation mappings. */
+fun block_cases_for(instructions :: List.of(InstructionSpec)) :: List.of(DecodeCase):
+  def cases = for List (instruction in instructions):
+    DecodeCase(instruction_pattern(instruction), component_output(block_cases, instruction_pattern(instruction)).intersection(partial_pattern(RV2WideMemoryControl()): width: MemoryWidth.Double).terms[0])
+  enabled_cases(cases)
+def RV2WideZeroCases = block_cases_for(ZicbozInstructions)
+def RV2WideManagementCases = block_cases_for(ZicbomInstructions)
+def RV2WideLoads = RiscvWordLoads ++ RiscvDoubleLoads
+def RV2WideStores = RiscvWordStores ++ RiscvDoubleStores
+def RV2WideMemoryCases = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~double: #true)) ++ instruction_cases(
+  excluding_instructions(RV64IInstructions, RV2WideLoads ++ RV2WideStores),
+  partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+)
+def RV2WideAtomicCases = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~double: #true))
 
 export:
   RV2WideMemoryControl

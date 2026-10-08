@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/memory-decode.rhdl").RiscvGuestMemoryInstructions
   "operand-ctrl.rhdl" open
   "mem-ctrl.rhdl" open
   "system-ctrl.rhdl" open
@@ -301,12 +302,7 @@ fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half
 
 /* Reuses ordinary LSU controls for explicit guest accesses and serialized CSR actions for fences. */
 fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
-  def memory_cases = for List (entry in [
-    [HLV_B, LB, #false], [HLV_BU, LBU, #false], [HLV_H, LH, #false], [HLV_HU, LHU, #false],
-    [HLV_W, LW, #false], [HLV_WU, LWU, #false], [HLV_D, LD, #false],
-    [HLVX_HU, LHU, #true], [HLVX_WU, LWU, #true],
-    [HSV_B, SB, #false], [HSV_H, SH, #false], [HSV_W, SW, #false], [HSV_D, SD, #false]
-  ]):
+  def memory_cases = for List (entry in RiscvGuestMemoryInstructions):
     def store = entry[1] in RV2WideStores
     def input = instruction_pattern(entry[1])
     def output = pattern(RV2WideControl()):

@@ -49,7 +49,8 @@ architectural state, and retirement in concrete cores. The package-local
 | Zvbb vector basic bit-manipulation catalog | [`isa/zvbb.rhm`](isa/zvbb.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
 | Zvkt vector data-independent timing scope | [`isa/zvkt.rhm`](isa/zvkt.rhm), tested by [`tests/zvkt-test.rhm`](tests/zvkt-test.rhm) |
 | GNU compiler target projection | [`gnu-toolchain.rhm`](gnu-toolchain.rhm) |
-| Typed UDB document values and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
+| Typed UDB values, parameter constructors, and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
+| Shared hart-to-UDB version catalog and architectural subset implications | [`udb-profile.rhm`](udb-profile.rhm) |
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |
 | Model, catalog, and adapter tests | [`tests/`](tests/) |
 | Shared patched-submodule materialization and identity | [`patched_submodule.py`](patched_submodule.py), tested by [`tests/test_patched_submodule.py`](tests/test_patched_submodule.py) |

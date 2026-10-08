@@ -215,9 +215,14 @@ rejected rather than silently omitted.
 
 [`udb.rhm`](udb.rhm) defines typed extension, parameter-value, parameter, and
 fully configured architecture values with deterministic YAML serialization.
-It owns the UDB document shape only. A concrete processor owns the exact
-extension versions and architectural parameter values that it claims; for
-RV5Stage, that projection is documented in the
+`udb-profile.rhm` adds `riscv_udb_extensions(hart, ~additional: extensions)`,
+a shared catalog of supported exact extension versions and architectural subset
+implications. It projects the supplied hart description, not a named core.
+Implementation guarantees such as Svade must be supplied explicitly through
+`~additional`; translation mode alone does not imply an A/D update policy.
+A concrete processor still owns its implemented feature selection and behavioral
+parameters, with component-owned CSR facts supplied by `cores/csr/udb.rhm`.
+For RV5Stage, that projection is documented in the
 [`RV5Stage generator contract`](../cores/rv5stage/README.md#udb-configuration).
 
 The encoder has no Ruby or UDB runtime dependency. Its output is intended for

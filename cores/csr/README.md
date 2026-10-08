@@ -48,16 +48,28 @@ core's interrupt boundary + next PC ------------> interrupt entry
 - FP/vector completion inputs update flags/status and vector progress. Drain
   outstanding updates before changing the host/guest context owning them.
 
+## Decode and configuration projection
+
+`decode.rhdl` supplies `csr_access_cases(Control, inactive)` for the six Zicsr
+operation/source mappings. `Control` has `csr` and `immediate` fields;
+`inactive` supplies caller-owned inactive action fields. The resulting partial
+relations compose into the caller\'s decoder, without a second hardware decoder.
+
+`udb.rhm` supplies `riscv_csr_udb_parameters(config)` for the shared bank\'s
+storage, counter enables, and WARL choices. Memory and precise-fault guarantees
+remain claims of the integrating core, not this state bank.
+
 ## Scope and navigation
 
 The bank preserves the existing RV32 Bare and RV64 Bare/Sv39 behavior,
 including optional RV64 hypervisor state. Trap vectors are direct. Retirement
 accounting accepts at most two instructions per cycle from one execution context.
-The integrating core must serialize privilege transitions. There is no instruction decoder,
+The integrating core must serialize privilege transitions. There is no complete instruction decoder,
 page walker, cache engine, or issue/retirement queue here.
 
 CSR IDs, masks, WARL helpers, and architectural semantics remain in
 [`riscv/`](../../riscv/README.md). The RV5Stage
-[adapter](../rv5stage/csr.rhdl) projects configuration and decode controls;
+[profile](../rv5stage/profile.rhm) supplies `csr_config` and its
+[adapter](../rv5stage/csr.rhdl) projects decode controls;
 RV2Wide consumes the bank directly from its [core](../rv2wide/core.rhdl).
 Both cores retain WB authorization and retirement policy.

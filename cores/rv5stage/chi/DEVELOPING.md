@@ -12,7 +12,8 @@ dependency direction, extension workflow, and focused validation.
 The package may depend on shared cache geometry and public cache/uncached
 protocols, the RISC-V physical-memory model, the shared CHI library, and public
 Rhodium libraries. Transaction engines must not import either cache
-implementation. `uncached.rhdl` owns fetch/data arbitration and fetch cancellation;
+implementation. `uncached.rhdl` adapts fetch/data payloads to the shared
+`cores/cache/uncached-arbiter.rhdl` owner-retaining arbiter;
 it uses the shared physical protocol specialized with `RV5StageMemoryContext`.
 
 [`../../chi-hart.rhdl`](../../chi-hart.rhdl) owns generic RISC-V
@@ -67,7 +68,7 @@ including nonzero trace/QoS.
 | [`write-unique.rhdl`](../../cache/chi/write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
 | [`writeback.rhdl`](../../cache/chi/writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
 | [`snoop.rhdl`](../../cache/chi/snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
-| [`uncached.rhdl`](uncached.rhdl) | Named-core fetch/data arbitration, owner retention, and fetch cancellation |
+| [`uncached.rhdl`](uncached.rhdl) | Named-core fetch/data shaping and shared arbiter/transport composition |
 | [`../../cache/chi/uncached.rhdl`](../../cache/chi/uncached.rhdl) | Shared nonallocating physical transaction sequencing |
 
 [`../uncached-protocol.rhdl`](../uncached-protocol.rhdl) owns translated requests

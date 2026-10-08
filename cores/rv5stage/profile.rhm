@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../csr/config.rhm".RiscvCsrConfig
   "../fp/profile.rhm".check_fp_profile
   "../cache/config.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
@@ -272,6 +273,25 @@ class RV5StageConfig(xlen :: XLen,
     when extensions.hypervisor
     | misa := misa ++ [MisaExtension.H]
     RiscvIsaProfile(xlen, names, misa)
+
+  /* Selects architectural CSR banks without exporting pipeline, cache, or execution configuration. */
+  property csr_config :: RiscvCsrConfig:
+    RiscvCsrConfig(
+      isa_profile,
+      ~mmu_type: if mmu_mode == RV5StageMmuMode.Bare | RiscvMmuType.Bare | RiscvMmuType.Sv39,
+      ~floating_point: extensions.floating_point,
+      ~compressed: extensions.compressed,
+      ~vector: vector,
+      ~vector_length: vector_length,
+      ~hypervisor: extensions.hypervisor,
+      ~sscofpmf: extensions.sscofpmf,
+      ~sstc: extensions.sstc,
+      ~smstateen: extensions.smstateen,
+      ~zicboz: extensions.zicboz,
+      ~zicbom: extensions.zicbom,
+      ~ssnpm: extensions.ssnpm,
+      ~svpbmt: extensions.svpbmt
+    )
 
   /* Projects architectural translation, cache, CBO, and vector facts for platform descriptions. */
   property hart_description :: RiscvHartDescription:

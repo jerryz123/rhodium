@@ -30,26 +30,6 @@ fun spike_csr_warl_policy(profile :: SpikeConfig) :: Map:
 fun extension(name :: NonemptyString, version :: NonemptyString) :: UdbExtension:
   UdbExtension(name, version)
 
-/* Wrap a Boolean implementation choice in a typed UDB parameter. */
-fun boolean_parameter(name :: NonemptyString, value :: Boolean) :: UdbParameter:
-  UdbParameter(name, UdbBooleanValue(value))
-
-/* Wrap an unsigned implementation constant in a typed UDB parameter. */
-fun natural_parameter(name :: NonemptyString, value :: Nat) :: UdbParameter:
-  UdbParameter(name, UdbNaturalValue(value))
-
-/* Wrap a textual implementation choice in a typed UDB parameter. */
-fun string_parameter(name :: NonemptyString, value :: String) :: UdbParameter:
-  UdbParameter(name, UdbStringValue(value))
-
-/* Wrap a nonempty list of unsigned implementation values in a typed UDB parameter. */
-fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Nat)) :: UdbParameter:
-  UdbParameter(name, UdbNaturalListValue(elements))
-
-/* Wrap a nonempty list of feature-enable bits in a typed UDB parameter. */
-fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)) :: UdbParameter:
-  UdbParameter(name, UdbBooleanListValue(elements))
-
 // ISA spellings and versions are explicit: an unmodeled claim must fail closed.
 def SpikeUdbExtensions = [
   ["i", extension("I", "2.1")],

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../cache/uncached-arbiter.rhdl".UncachedFetchArbiter
   lib("riscv/rtl/hypervisor.rhdl") open
   "bundles.rhdl" open
   "../cache/config.rhm" open
@@ -43,27 +44,21 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   chi <=> storage.chi
   inst io(IOMSHR(XLen.X64, Bits(3)))
   inst transport(CHIUncachedMemory(XLen.X64, config, Bits(3)))
-  inst requests(Arbiter(UncachedMemoryReq(XLen.X64, Bits(3)), 2))
-  reg instruction_owner(~init: Bool(#false))
-  reg instruction_live(~init: Bool(#false))
-  io.memory.request |> requests.ingress[0]
-  requests.egress |> transport.core.request
-  io.memory.request_fault <== transport.core.request_fault & (requests.chosen === bits(0, 1))
-  io.memory.request_access_fault <== transport.core.request_access_fault & (requests.chosen === bits(0, 1))
-  io.memory.drained <== transport.core.drained
-  def Array(data_response, fetch_response) = transport.core.response |> demux_flow(2, _response => instruction_owner.as_bits())
-  data_response |> io.memory.response
-  instruction.response.valid <== fetch_response.valid & instruction_live & !instruction.flush
+  inst ownership(UncachedFetchArbiter(XLen.X64, Bits(3)))
+  ownership.flush <== instruction.flush
+  io.memory |> ownership.data
+  ownership.transport |> transport.core
+  instruction.response.valid <== ownership.instruction_response.valid & !instruction.flush
   instruction.response.bits <== InstructionCacheResult(64):
-    data: fetch_response.bits.data
-    access_fault: fetch_response.bits.access_fault
+    data: ownership.instruction_response.bits.data
+    access_fault: ownership.instruction_response.bits.access_fault
     replay: Bool(#false)
-  fetch_response.ready <== !instruction_live ||| instruction.flush ||| instruction.response.ready
+  ownership.instruction_response.ready <== instruction.flush ||| instruction.response.ready
   transport.node_id <== uncached_node_id
-  transport.cancel <== instruction_owner & instruction.flush
+  transport.cancel <== ownership.cancel
   transport.chi <=> uncached_chi
   inst uncached_management(Queue(Bits(64), 1))
-  (instruction.request |> gate_flow(!instruction.flush & storage.core.drained & io.core.drained & !uncached_management.egress.valid)
+  (instruction.request |> gate_flow(storage.core.drained & io.core.drained & !uncached_management.egress.valid)
     |> map_flow(fetch => UncachedMemoryReq(XLen.X64, Bits(3))):
       device: fetch.device
       request:
@@ -77,15 +72,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
           byte_mask: bits(0xff, 8)
           context: bits(0, 3)
           locality: RiscvMemoryLocality.Default
-  ) |> requests.ingress[1]
-  when (transport.core.request.fire()):
-    instruction_owner <== requests.chosen === bits(1, 1)
-  when (instruction.flush):
-    instruction_live <== Bool(#false)
-  elsewhen (instruction.request.fire()):
-    instruction_live <== Bool(#true)
-  elsewhen (fetch_response.fire()):
-    instruction_live <== Bool(#false)
+  ) |> ownership.instruction_request
   prefetch |> filter_valid(_request => io.core.drained & !uncached_management.egress.valid) |> storage.prefetch
   def ordered_busy = !io.core.request.ready ||| uncached_management.egress.valid
   def request :: RV2WideMemoryReq() = memory.request.bits

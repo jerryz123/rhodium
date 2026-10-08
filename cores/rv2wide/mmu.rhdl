@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").riscv_translation_lookup
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   "bundles.rhdl" open
@@ -94,23 +95,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def normal_data_guest = mux((state.privilege === PrivilegeMode.Machine) & csr_flag(state.mstatus, MstatusMPRV), csr_flag(state.mstatus, MstatusMPV) & (data_privilege =/= PrivilegeMode.Machine), guest_state.virtualized)
   /* Captures both translation stages and their independent permission controls in each lookup owner. */
   fun lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode, guest :: Bool) :~ RiscvTlbLookup():
-    RiscvTlbLookup():
-      virtualized: guest
-      execute_read: Bool(#false)
-      virtual_address: address
-      access: access
-      context:
-        RiscvGuestTranslationContext():
-          vs_mode: mux(mux(guest, csr_field(guest_state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === bits(Sv39Mode, 4))), RiscvVSMode.Sv39, RiscvVSMode.Bare)
-          g_mode: mux(guest & (csr_field(guest_state.hgatp, Hgatp64Mode) === bits(Sv39Mode, 4)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
-          vs_root_ppn: mux(guest, csr_field(guest_state.vsatp, Satp64PPN), csr_field(state.satp, Satp64PPN))
-          g_root_ppn: csr_field(guest_state.hgatp, Hgatp64PPN)
-          privilege: privilege
-          vs_sum: csr_flag(mux(guest, guest_state.vsstatus, state.mstatus), MstatusSUM)
-          vs_mxr: csr_flag(mux(guest, guest_state.vsstatus, state.mstatus), MstatusMXR)
-          hs_mxr: guest & csr_flag(state.mstatus, MstatusMXR)
-          vs_pbmte: mux(guest, guest_state.vs_pbmte, state.pbmte)
-          g_pbmte: guest & state.pbmte
+    riscv_translation_lookup(address, access, privilege, (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === bits(Sv39Mode, 4)), csr_field(state.satp, Satp64PPN), csr_flag(state.mstatus, MstatusSUM), csr_flag(state.mstatus, MstatusMXR), state.pbmte, guest, guest_state)
 
   def instruction_lookup = lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
   def Array(early_index, retained_request) = pipeline.request |> fork_valid(2)

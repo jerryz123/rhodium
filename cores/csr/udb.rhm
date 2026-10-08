@@ -1,0 +1,42 @@
+#lang rhombus
+/* Publishes UDB parameters owned by the reusable CSR bank, not pipeline retirement or memory behavior. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "config.rhm".RiscvCsrConfig
+  lib("riscv/udb.rhm") open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+
+/* Describes implemented CSR storage, delegation enables, and WARL values from the bank specialization. */
+fun riscv_csr_udb_parameters(config :: RiscvCsrConfig) :: NonemptyList.of(UdbParameter):
+  def hpm_counters = for List (index in 0..32): config.sscofpmf && index == 3
+  def delegatable_counters = for List (index in 0..32): index < 3 || (config.sscofpmf && index == 3)
+  def base = [
+    boolean_parameter("MARCHID_IMPLEMENTED", #false),
+    boolean_parameter("MIMPID_IMPLEMENTED", #false),
+    natural_parameter("CONFIG_PTR_ADDRESS", 0),
+    natural_parameter("VENDOR_ID_BANK", 0),
+    natural_parameter("VENDOR_ID_OFFSET", 0),
+    boolean_parameter("MISA_CSR_IMPLEMENTED", #true),
+    string_parameter("MTVEC_ACCESS", "rw"),
+    natural_list_parameter("MTVEC_MODES", [0]),
+    natural_parameter("MTVEC_BASE_ALIGNMENT_DIRECT", 4),
+    string_parameter("MTVEC_ILLEGAL_WRITE_BEHAVIOR", "custom"),
+    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", config.sscofpmf),
+    boolean_list_parameter("HPM_COUNTER_EN", hpm_counters),
+    boolean_list_parameter("MCOUNTENABLE_EN", delegatable_counters),
+    natural_parameter("NUM_PMP_ENTRIES", 0),
+    boolean_parameter("TIME_CSR_IMPLEMENTED", #true),
+    boolean_list_parameter("SCOUNTENABLE_EN", delegatable_counters),
+    natural_list_parameter("STVEC_MODES", [0]),
+    natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if vector_profile_enabled(config.vector) | [0, 1, 2, 3] | [0]),
+    natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(config.floating_point) | [0, 1, 2, 3] | [0])
+  ]
+  def hpm:
+    if config.sscofpmf
+    | [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
+    | []
+  base ++ hpm ++ (if config.smstateen | [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")] | [])
+
+export riscv_csr_udb_parameters

@@ -1,0 +1,36 @@
+#lang rhodium
+/* Constructs host/guest translation lookup context without arbitration or retained pipeline state. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "translation.rhdl" open
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/privilege.rhdl") open
+  lib("riscv/rtl/sv39.rhdl") open
+  lib("riscv/rtl/csr.rhdl") open
+  lib("riscv/isa/csr.rhm") open
+  lib("riscv/isa/sv39.rhm").Sv39Mode
+
+/* Captures independently controlled host and guest roots, permissions, and memory-type enables. */
+fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode,
+                             enabled :: Bool, root_ppn :: Bits(44), sum :: Bool, mxr :: Bool, pbmte :: Bool,
+                             guest :: Bool, state :: RiscvHypervisorTranslation()) :~ RiscvTlbLookup():
+  RiscvTlbLookup():
+    virtualized: guest
+    execute_read: Bool(#false)
+    virtual_address: address
+    access: access
+    context:
+      RiscvGuestTranslationContext():
+        vs_mode: mux(mux(guest, csr_field(state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
+        g_mode: mux(guest & (csr_field(state.hgatp, Hgatp64Mode) === bits(Sv39Mode, 4)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
+        vs_root_ppn: mux(guest, csr_field(state.vsatp, Satp64PPN), root_ppn)
+        g_root_ppn: csr_field(state.hgatp, Hgatp64PPN)
+        privilege: privilege
+        vs_sum: mux(guest, csr_flag(state.vsstatus, MstatusSUM), sum)
+        vs_mxr: mux(guest, csr_flag(state.vsstatus, MstatusMXR), mxr)
+        hs_mxr: guest & mxr
+        vs_pbmte: mux(guest, state.vs_pbmte, pbmte)
+        g_pbmte: guest & pbmte
+
+export riscv_translation_lookup

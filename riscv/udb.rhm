@@ -109,7 +109,32 @@ class UdbConfiguration(name :: NonemptyString,
     def lines = header ++ extensions.map(fun (extension): extension.to_yaml()) ++ ["params:"] ++ parameters.map(fun (parameter): parameter.to_yaml()) ++ [""]
     String.join(lines, "\n")
 
+/* Wraps a Boolean architectural claim in a typed UDB parameter. */
+fun boolean_parameter(name :: NonemptyString, value :: Boolean) :: UdbParameter:
+  UdbParameter(name, UdbBooleanValue(value))
+
+/* Wraps a nonnegative architectural quantity in a typed UDB parameter. */
+fun natural_parameter(name :: NonemptyString, value :: Nat) :: UdbParameter:
+  UdbParameter(name, UdbNaturalValue(value))
+
+/* Wraps a textual architectural policy in a typed UDB parameter. */
+fun string_parameter(name :: NonemptyString, value :: String) :: UdbParameter:
+  UdbParameter(name, UdbStringValue(value))
+
+/* Encodes the allowed nonnegative values of an architectural parameter. */
+fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Nat)) :: UdbParameter:
+  UdbParameter(name, UdbNaturalListValue(elements))
+
+/* Encodes an indexed set of architectural capability flags. */
+fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)) :: UdbParameter:
+  UdbParameter(name, UdbBooleanListValue(elements))
+
 export:
+  boolean_parameter
+  natural_parameter
+  string_parameter
+  natural_list_parameter
+  boolean_list_parameter
   UdbParameterValue
   UdbBooleanValue
   UdbNaturalValue

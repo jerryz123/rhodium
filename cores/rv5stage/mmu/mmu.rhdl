@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").riscv_translation_lookup
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
@@ -128,23 +129,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
   /* Captures host or guest translation roots, privilege, permission controls, and PBMT enables. */
   fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RiscvTlbLookup():
-    def stages = RiscvGuestTranslationContext():
-      vs_mode: mux(mux(guest, csr_field(guest_state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
-      g_mode: mux(guest & (csr_field(guest_state.hgatp, Hgatp64Mode) === bits(Sv39Mode, 4)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
-      vs_root_ppn: mux(guest, csr_field(guest_state.vsatp, Satp64PPN), root_ppn)
-      g_root_ppn: csr_field(guest_state.hgatp, Hgatp64PPN)
-      privilege: effective_privilege
-      vs_sum: mux(guest, csr_flag(guest_state.vsstatus, MstatusSUM), sum)
-      vs_mxr: mux(guest, csr_flag(guest_state.vsstatus, MstatusMXR), mxr)
-      hs_mxr: guest & mxr
-      vs_pbmte: mux(guest, guest_state.vs_pbmte, pbmte)
-      g_pbmte: guest & pbmte
-    RiscvTlbLookup():
-      virtualized: guest
-      execute_read: Bool(#false)
-      virtual_address: address
-      access: access
-      context: stages
+    riscv_translation_lookup(address, access, effective_privilege, enabled, root_ppn, sum, mxr, pbmte, guest, guest_state)
   reg vector_invalidation_epoch(~init: bits(0, 2))
   when invalidate_all:
     vector_invalidation_epoch <== vector_invalidation_epoch + bits(1, 2)

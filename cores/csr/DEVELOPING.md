@@ -11,6 +11,10 @@ owns reusable state implementation, not a core's pipeline policy.
 - `config.rhm` selects bank specialization using existing architectural types.
   It also owns the bank's delegation masks and exports static WARL choices;
   RTL and resolved configuration metadata consume the same values.
+- `decode.rhdl` owns the six CSR operation/source rows; named decoders retain
+  serialization and privileged action mapping.
+- `udb.rhm` projects bank-owned storage and WARL facts from `RiscvCsrConfig`.
+  Both cores\' host profiles expose that same configuration used to instantiate RTL.
 - `protocol.rhdl` defines the neutral command and architectural action enum.
 - `file.rhdl` owns state, CSR dispatch, trap/return transitions, interrupt
   selection, FP state, counters, and passive cosim observations.

@@ -6,29 +6,8 @@ import:
   "profile.rhm" open
   "decode/system-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
-  "../csr/config.rhm".RiscvCsrConfig
   "../csr/protocol.rhdl" open
-  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/std/bits.rhdl") open
-
-/* Selects architectural CSR banks without exporting pipeline, cache, or execution configuration. */
-fun rv5stage_csr_config(profile :: RV5StageConfig) :: RiscvCsrConfig:
-  RiscvCsrConfig(
-    profile.isa_profile,
-    ~mmu_type: if profile.mmu_mode == RV5StageMmuMode.Bare | RiscvMmuType.Bare | RiscvMmuType.Sv39,
-    ~floating_point: profile.extensions.floating_point,
-    ~compressed: profile.extensions.compressed,
-    ~vector: profile.vector,
-    ~vector_length: profile.vector_length,
-    ~hypervisor: profile.extensions.hypervisor,
-    ~sscofpmf: profile.extensions.sscofpmf,
-    ~sstc: profile.extensions.sstc,
-    ~smstateen: profile.extensions.smstateen,
-    ~zicboz: profile.extensions.zicboz,
-    ~zicbom: profile.extensions.zicbom,
-    ~ssnpm: profile.extensions.ssnpm,
-    ~svpbmt: profile.extensions.svpbmt
-  )
 
 /* Maps decoded permission checks and state transitions; WRS and ordinary fences remain core-owned. */
 fun rv5stage_csr_action(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl()) :~ RiscvCsrAction:
@@ -48,5 +27,4 @@ fun rv5stage_csr_action(system :: RV5StageSystemControl(), fence :: RV5StageFenc
   ])
 
 export:
-  rv5stage_csr_config
   rv5stage_csr_action

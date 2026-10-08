@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/memory-decode.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../riscv/isa/h.rhm" open
   "../../../riscv/isa/svinval.rhm" open
@@ -273,21 +274,8 @@ def SvinvalHypervisorControlCases = [
 
 // Guest memory uses the scalar address adder and load/store datapath. Only
 // translation intent differs; HLVX remains a load for faults and writeback.
-def HypervisorMemoryControlCases = for List ([instruction, store, memory_width, unsigned, execute_read] in [
-  [HLV_B, #false, MemoryWidth.Byte, #false, #false],
-  [HLV_BU, #false, MemoryWidth.Byte, #true, #false],
-  [HLV_H, #false, MemoryWidth.Half, #false, #false],
-  [HLV_HU, #false, MemoryWidth.Half, #true, #false],
-  [HLV_W, #false, MemoryWidth.Word, #false, #false],
-  [HLV_WU, #false, MemoryWidth.Word, #true, #false],
-  [HLV_D, #false, MemoryWidth.Double, #false, #false],
-  [HLVX_HU, #false, MemoryWidth.Half, #true, #true],
-  [HLVX_WU, #false, MemoryWidth.Word, #true, #true],
-  [HSV_B, #true, MemoryWidth.Byte, #false, #false],
-  [HSV_H, #true, MemoryWidth.Half, #false, #false],
-  [HSV_W, #true, MemoryWidth.Word, #false, #false],
-  [HSV_D, #true, MemoryWidth.Double, #false, #false]
-]):
+def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_read] in RiscvGuestMemoryInstructions):
+  def store = ordinary in (RiscvWordStores ++ RiscvDoubleStores)
   def control = partial_pattern(RV5StageControl()):
     guest_access: if execute_read | RiscvGuestMemoryAccess.GuestExecuteRead | RiscvGuestMemoryAccess.Guest
     alu: scalar_address_alu
@@ -299,11 +287,7 @@ def HypervisorMemoryControlCases = for List ([instruction, store, memory_width, 
         right: OperandBSelect.Immediate
         immediate: RV5StageImmediateSelect.None
     branch: inactive_branch_control
-    memory:
-      partial_pattern(RV5StageMemoryControl()):
-        access: if store | CacheOperation.Store | CacheOperation.Load
-        width: memory_width
-        unsigned: if store | pattern(Bool, _) | Bool(unsigned)
+    memory: component_output(RV64IMemoryCases, instruction_pattern(ordinary))
     prefetch: CachePrefetchOperation.None
     writeback:
       partial_pattern(RV5StageWritebackControl()):

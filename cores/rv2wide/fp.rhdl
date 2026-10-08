@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/authorization.rhdl").align_fp_authorization
   "bundles.rhdl" open
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
@@ -59,11 +60,7 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
   def wb_owner = fixed_issue |> valid_pipe(2)
   when (authorize.valid):
     assert(wb_owner.valid & (wb_owner.bits.tag.as_bits() === authorize.bits.tag.as_bits()), "rv2wide_fp_wb_owner")
-  def decisions = authorize |> fork_valid(timing.latencies.length())
-  def returns = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
-    def selected = decisions[index] |> filter_valid(operation => timing.latency(operation.control.execution) === bits(latency, timing.width))
-    if latency == 2 | selected | selected |> valid_pipe(latency - 2)
-  def authorized = returns |> valid_arbiter()
+  def authorized = align_fp_authorization(authorize, timing, fun (operation :: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())): operation.control.execution, ~elapsed: 2)
   when (authorized.valid):
     assert(execution.result.valid & (execution.result.bits.tag.as_bits() === authorized.bits.tag.as_bits()), "rv2wide_fp_authorized_return")
   def completed = execution.result |> filter_flow(result => !result.tag.speculative ||| authorized.valid) |> to_valid() |> fork_valid(2)

@@ -420,8 +420,8 @@ counter. The shared CSR package uses existing ISA/RTL CSR, trap, interrupt,
 privilege, timer, vector, and feature descriptors, plus `std/bits.rhdl`,
 `std/ready-valid.rhdl`, the stable generator-parameter contract, and the passive
 `cores/cosim-source.rhm` metadata bridge. It imports no named core.
-`cores/rv5stage/csr.rhdl` projects named configuration/decode controls into its
-neutral configuration and command; `core.rhdl` owns retirement authorization.
+`cores/rv5stage/profile.rhm` projects named configuration into `RiscvCsrConfig`;
+`cores/rv5stage/csr.rhdl` projects decode controls into its neutral command; `core.rhdl` owns retirement authorization.
 `socs/configs/metadata.rhm` consumes that static specialization and Spike's
 implementation-owned WARL projection for reference configuration. No live CSR
 state or simulator dependency crosses back into the core packages.
@@ -462,12 +462,27 @@ These edges stay within the
 existing core-to-architecture dependency direction.
 The CSR specialization reads MISA from the existing RV5Stage profile projection,
 which owns the pure `riscv/isa/profile.rhm` catalog dependency.
+`cores/memory-decode.rhdl` imports shared LSU/atomic controls, canonical scalar,
+A/H/CMO catalogs, and `std/decode.rhdl`. `cores/csr/decode.rhdl` imports the
+Zicsr catalog, CSR RTL controls, and `std/decode.rhdl`. Both generate partial
+relations into caller-shaped bundles without a named-core dependency.
+`riscv/udb-profile.rhm` consumes only architectural hart/profile and UDB models;
+`cores/csr/udb.rhm` consumes shared CSR config, FP/vector descriptors, and that
+pure UDB model. Named UDB projections compose these instead of reauthoring
+architectural versions or CSR-bank facts. Precise faults remain core-owned claims.
+`cores/cache/uncached-arbiter.rhdl` consumes shared physical protocols, XLEN,
+and `flow/main.rhdl`; both named cores specialize it alongside the common CHI
+transport without another named-core import.
+
 Shared `cores/mmu/protocol.rhdl` imports the public Sv39/privilege adapters
 and `std/ready-valid.rhdl`, without named-core or cache payloads.
 `cores/mmu/translation.rhdl` imports that host protocol, public hypervisor,
 privilege, Sv39 and trap adapters, pure exception descriptors, and
 `std/ready-valid.rhdl`. Shared `cores/mmu/tlb.rhdl` and `walker.rhdl`
 consume these contracts and `std/bits.rhdl` / `flow/main.rhdl`.
+`cores/mmu/context.rhdl` consumes the shared translation protocol, public
+hypervisor/privilege/Sv39/CSR adapters, and pure CSR/Sv39 descriptors to form
+stateless lookup context. Both named MMUs consume it while retaining arbitration.
 Both host adapters are wiring-only; entry storage, permission checking, and
 walker continuation/response ownership belong to those shared implementations.
 The serialized composition lives under `cores/mmu/tests/translation-service.rhdl`;
@@ -587,6 +602,8 @@ rounding types. The named service imports shared FP bundles, execution, timing,
 and controls, the reusable writeback calendar, architectural XLEN/FP profiles,
 and Flow to arbitrate scalar/vector clients and reserve fixed returns.
 Generic request/result retagging remains in the FP bundles.
+`cores/fp/authorization.rhdl` imports timing and `flow/main.rhdl` to align opaque
+Valid owners; named wrappers retain issue permission, authorization, and collision checks.
 `cores/fp/timing.rhdl` imports only shared FP control types. The execution
 service, scalar FP wrapper, core, and vector composition/pipeline import it to
 share fixed return delays without introducing a named-core dependency into FP.

@@ -10,7 +10,6 @@ import:
   "../single-core-soc/main.rhdl".SingleCoreSoCConfig
   "../tiled-soc/main.rhdl".TiledSoCConfig
   "selection.rhm".CoreKind
-  lib("cores/rv5stage/csr.rhdl").rv5stage_csr_config
   lib("cores/spike/udb.rhm").spike_csr_warl_policy
   lib("cores/rv2wide/profile.rhm").RV2WideConfig
 
@@ -39,7 +38,7 @@ fun fabric_metadata(fabric :: SingleCoreSystemParams) :: Map:
 fun config_metadata(resolved :: ResolvedSoCConfig,
                     config :: MiniSoCConfig || SingleCoreSoCConfig || TiledSoCConfig = resolved.configuration()) :: Map:
   def csr_warl = match resolved.selection.core
-  | CoreKind.RV5Stage: rv5stage_csr_config(config.hart.profile).warl_policy()
+  | CoreKind.RV5Stage: config.hart.profile.csr_config.warl_policy()
   | CoreKind.Spike: spike_csr_warl_policy(config.hart.profile)
   | CoreKind.RV2Wide:
       def profile :: RV2WideConfig = config.hart.profile

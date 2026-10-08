@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../cache/uncached-arbiter.rhdl".UncachedFetchArbiter
   "../../cache/chi/uncached.rhdl" open
   "../../cache/chi/flits.rhdl" open
   "../../cache/protocol.rhdl" open
@@ -28,15 +29,14 @@ sync_circuit RV5StageUncached(xlen :: XLen, config :: RiscvHartCHIConfig,
   interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
   interface chi(CHIRNIChannels(config.flit), ~role: node)
   inst transport(CHIUncachedMemory(xlen, config, Context))
-  inst requests(Arbiter(UncachedMemoryReq(xlen, Context), 2))
-  reg owner_is_instruction(~init: Bool(#false))
-  reg instruction_live(~init: Bool(#false))
+  inst ownership(UncachedFetchArbiter(xlen, Context))
+  ownership.flush <== instruction.flush
 
   transport.node_id <== node_id
   chi <=> transport.chi
-  core.request |> requests.ingress[0]
+  core |> ownership.data
   (
-    instruction.request |> gate_flow(!instruction.flush)
+    instruction.request
       |> map_flow(fetch => UncachedMemoryReq(xlen, Context)):
           request:
             PhysicalMemoryReq(xlen, Context):
@@ -50,33 +50,15 @@ sync_circuit RV5StageUncached(xlen :: XLen, config :: RiscvHartCHIConfig,
               context: dont_care(Context)
               locality: dont_care(RiscvMemoryLocality)
           device: fetch.device
-  ) |> requests.ingress[1]
-  requests.egress |> transport.core.request
-  transport.cancel <== owner_is_instruction & instruction.flush
-  core.request_fault <== transport.core.request_fault & core.request.valid
-  core.request_access_fault <== transport.core.request_access_fault & core.request.valid
-  core.drained <== transport.core.drained
-
-  def Array(data_response, fetch_response) = transport.core.response |> demux_flow(2, _response => owner_is_instruction.as_bits())
-  data_response |> core.response
-  // Fetch has an explicit out-of-band cancellation contract. While live, the
-  // accepted CHI read holds its reply; once detached, consume it without an offer.
-  // A generic filter intentionally cannot promise that held-fetch contract.
-  instruction.response.valid <== fetch_response.valid & instruction_live
+  ) |> ownership.instruction_request
+  ownership.transport |> transport.core
+  transport.cancel <== ownership.cancel
+  instruction.response.valid <== ownership.instruction_response.valid
   instruction.response.bits <== RV5StageInstructionResp(#false):
-    word: fetch_response.bits.data[0..32]
+    word: ownership.instruction_response.bits.data[0..32]
     page_fault: Bool(#false)
-    access_fault: fetch_response.bits.access_fault
-  fetch_response.ready <== !instruction_live ||| instruction.response.ready
-
-  when (transport.core.request.fire()):
-    owner_is_instruction <== requests.chosen === bits(1, 1)
-  when (instruction.flush):
-    instruction_live <== Bool(#false)
-  elsewhen (instruction.request.fire()):
-    instruction_live <== Bool(#true)
-  elsewhen (fetch_response.fire()):
-    instruction_live <== Bool(#false)
+    access_fault: ownership.instruction_response.bits.access_fault
+  ownership.instruction_response.ready <== instruction.response.ready
 
   when (instruction.request.valid & transport.core.drained & !core.request.valid & !instruction.flush):
     assert(!instruction.request.bits.cacheable, "rv5stage_uncached_instruction_not_cacheable")

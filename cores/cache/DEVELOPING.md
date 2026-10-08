@@ -29,6 +29,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `chi/attachment.rhdl` | Shared-cache RN-I/RN-F capabilities and hart-to-Home attachment descriptions |
 | `chi/refill.rhdl`, `chi/writeback.rhdl`, `chi/snoop.rhdl` | Retained acquisition, victim, and snoop lifetimes |
 | `io-mshr.rhdl` | Opaque-context committed IO retention, from admission through final response |
+| `uncached-arbiter.rhdl` | Data-first fetch/data arbitration, retained response ownership, and detached-fetch draining |
 | `chi/uncached.rhdl`, `chi/write-unique.rhdl` | Nonallocating RN-I service and retryable partial-width write transport |
 
 ## Change workflow
@@ -72,7 +73,8 @@ fixtures live in this package's `tests/`. Follow the [L1I guide](l1i/DEVELOPING.
 for 32/64-bit block tests and named-core fetch integration coverage.
 
 For nonallocating service changes, run `rv5stage-uncached`, `rv5stage-io-mshr`,
-and `rv5stage-memory-router`. These integrated fixtures cover fetch cancellation,
+and `rv5stage-memory-router`. For fetch/data arbiter changes include RV2Wide\'s
+`rv2wide-fetch` fixture. These integrated fixtures cover fetch cancellation,
 data priority, committed IO retention, byte placement, block zero, and ordered
 routing. Keep cancellation at the pre-CHI-request boundary; never clear an
 accepted transaction's response owner on a requester flush.

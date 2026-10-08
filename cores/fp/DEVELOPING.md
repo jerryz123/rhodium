@@ -33,6 +33,7 @@ the caller rather than adding a dependency back toward a core.
 | [`datapath.rhdl`](datapath.rhdl) | Fixed F/D/half/Zfa execution and exact per-operand promotion |
 | [`div-sqrt.rhdl`](div-sqrt.rhdl) | One active variable operation with retained terminal state/tag |
 | [`timing.rhdl`](timing.rhdl) | Shared fixed-operation return-delay descriptor |
+| [`authorization.rhdl`](authorization.rhdl) | Opaque Valid-owner alignment to fixed returns, without admission or retirement policy |
 | [`execute.rhdl`](execute.rhdl) | Lane routing and fixed-return timing, with separate scheduled and buffered return adapters |
 | [`tests/`](tests/) | Shared decode contracts and standalone behavioral fixtures |
 
@@ -55,6 +56,9 @@ the caller rather than adding a dependency back toward a core.
 `timing.rhdl` owns fixed return delays and initiation interval one. Keep service
 return collision checks, scalar authorization alignment, and vector reservations
 on this shared descriptor; do not repeat a literal latency in callers.
+Both cores use `align_fp_authorization` for the delay mechanism, retaining their
+own authorization, cancellation, and owner/result checks. Cover latency diversity
+with `rv2wide-core-fp-late` and `rv5stage-core-rv64d` when changing this helper.
 
 `FpExecutionService` selects `FpScheduledReturns` or `FpBufferedReturns` while
 sharing the numeric lanes and timing pipeline. The scheduled adapter owns

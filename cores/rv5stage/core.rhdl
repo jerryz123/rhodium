@@ -236,7 +236,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst wb_fp_integer_scoreboard(Scoreboard(register_count))
   def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpScalar(xlen, effective_fp_profile, Bits(width), ~half_precision: execution_half_precision, ~zfa: zfa_enabled, ~speculative_fixed: #true, ~timing: fp_timing) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst wb_fp(wb_fp_module)
-  inst wb_csrs(RiscvCsrFile(rv5stage_csr_config(core_profile)))
+  inst wb_csrs(RiscvCsrFile(core_profile.csr_config))
   if hypervisor
   | block:
       output guest_translation: RiscvHypervisorTranslation()

@@ -4,6 +4,10 @@
 
 import:
   "../udb.rhm" open
+  "../udb-profile.rhm".riscv_udb_extensions
+  "../isa/hart.rhm" open
+  "../isa/profile.rhm" open
+  "../isa/xlen.rhm".XLen
 
 def config = UdbConfiguration(
   "test-core",
@@ -53,3 +57,26 @@ check:
     [UdbParameter("MXLEN", UdbNaturalValue(64)),
      UdbParameter("MXLEN", UdbNaturalValue(32))]
   ) ~throws "parameter names must be unique"
+
+def cache = RiscvCacheDescription(64, 16, 1024)
+for (xlen in [XLen.X32, XLen.X64]):
+  def hart = RiscvHartDescription(
+    RiscvIsaProfile(xlen, ["i", "m", "a", "b", "f", "c"], [MisaExtension.I, MisaExtension.M, MisaExtension.A, MisaExtension.B, MisaExtension.F, MisaExtension.C, MisaExtension.S, MisaExtension.U]),
+    if xlen == XLen.X32 | RiscvMmuType.Bare | RiscvMmuType.Sv39,
+    cache, cache
+  )
+  def extensions = riscv_udb_extensions(hart)
+  def names = extensions.map(fun (extension): extension.name)
+  check:
+    names.contains("Zmmul") ~is #true
+    names.contains("Zaamo") ~is #true
+    names.contains("Zalrsc") ~is #true
+    names.contains("Zba") ~is #true
+    names.contains("Zbb") ~is #true
+    names.contains("Zbs") ~is #true
+    names.contains("Zca") ~is #true
+    names.contains("Zcf") ~is (xlen == XLen.X32)
+    names.contains("Sv39") ~is (xlen == XLen.X64)
+    // Sv39 does not choose the implementation's A/D policy.
+    names.contains("Svade") ~is #false
+    riscv_udb_extensions(hart, ~additional: [UdbExtension("Svade", "1.0.0")]) ~is extensions ++ [UdbExtension("Svade", "1.0.0")]

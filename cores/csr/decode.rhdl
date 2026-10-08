@@ -1,0 +1,22 @@
+#lang rhodium
+/* Maps CSR instructions into caller-shaped controls without serialization or retirement policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/zicsr.rhm") open
+  lib("riscv/rtl/csr.rhdl") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Generates CSR operation/source columns and combines caller-owned inactive action fields. */
+fun csr_access_cases(Control :: DataType, inactive :: Pattern) :: List.of(DecodeCase):
+  for List ([instruction, operation, immediate] in [
+    [CSRRW, RiscvCsrOperation.Write, #false], [CSRRS, RiscvCsrOperation.Set, #false], [CSRRC, RiscvCsrOperation.Clear, #false],
+    [CSRRWI, RiscvCsrOperation.Write, #true], [CSRRSI, RiscvCsrOperation.Set, #true], [CSRRCI, RiscvCsrOperation.Clear, #true]
+  ]):
+    def access = partial_pattern(Control):
+      csr: operation
+      immediate: Bool(immediate)
+    DecodeCase(instruction_pattern(instruction), access.intersection(inactive).terms[0])
+
+export csr_access_cases

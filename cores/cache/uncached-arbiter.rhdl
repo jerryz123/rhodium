@@ -1,0 +1,42 @@
+#lang rhodium
+/* Shares ordered uncached transport between committed data and cancellable instruction reads. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+/* Gives data priority, retains the accepted response owner across flush, and drains detached fetches.
+   The transport permits one outstanding request. Callers shape/check requests; no stage is added. */
+sync_circuit UncachedFetchArbiter(xlen :: XLen, Context :: DataType):
+  interface data(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface instruction_request(Decoupled(UncachedMemoryReq(xlen, Context)), ~role: consumer)
+  interface instruction_response(Decoupled(PhysicalMemoryResp(xlen, Context)), ~role: producer)
+  interface transport(UncachedMemoryAccess(xlen, Context), ~role: requester)
+  input flush: Bool
+  output cancel: Bool
+  inst requests(Arbiter(UncachedMemoryReq(xlen, Context), 2))
+  reg owner_is_instruction(~init: Bool(#false))
+  reg instruction_live(~init: Bool(#false))
+  data.request |> requests.ingress[0]
+  instruction_request |> gate_flow(!flush) |> requests.ingress[1]
+  requests.egress |> transport.request
+  data.request_fault <== transport.request_fault & data.request.valid
+  data.request_access_fault <== transport.request_access_fault & data.request.valid
+  data.drained <== transport.drained
+  cancel <== owner_is_instruction & flush
+  def Array(data_response, fetch_response) = transport.response |> demux_flow(2, _response => owner_is_instruction.as_bits())
+  data_response |> data.response
+  // A detached fetch owns its physical reply but no longer offers it to the frontend.
+  fetch_response |> filter_flow(_response => instruction_live) |> instruction_response
+  when (transport.request.fire()):
+    owner_is_instruction <== requests.chosen === bits(1, 1)
+  when flush:
+    instruction_live <== Bool(#false)
+  elsewhen (instruction_request.fire()):
+    instruction_live <== Bool(#true)
+  elsewhen (fetch_response.fire()):
+    instruction_live <== Bool(#false)
+
+export UncachedFetchArbiter

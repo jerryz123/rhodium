@@ -23,6 +23,11 @@ inst dtlb(RiscvTranslationTlb(8))
 inst walker(RiscvTranslationWalker(~svnapot: #true))
 ```
 
+`context.rhdl` supplies `riscv_translation_lookup` to form the shared host/guest
+lookup from explicitly selected privilege, translation enables, roots, SUM/MXR,
+and PBMTE state. It is combinational and adds no arbitration or retained state.
+HLVX callers set `execute_read` on the resulting lookup separately.
+
 The caller supplies `RiscvTlbLookup` values, selects misses for the walker's
 Decoupled request, and routes its Irrevocable completion to the owning bank's
 Valid `RiscvTlbFill`. Hits stay combinational; they never pass through the walker.

@@ -4,154 +4,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../csr/udb.rhm".riscv_csr_udb_parameters
+  lib("riscv/udb-profile.rhm").riscv_udb_extensions
   "../../support/annotations.rhm".NonemptyString
   "../../riscv/udb.rhm" open
-  "../../riscv/isa/c.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
-  "../../riscv/isa/zkt.rhm".ZktVersion
-  "../../riscv/isa/zvkt.rhm".ZvktVersion
   "profile.rhm" open
 
-/* Pairs a UDB extension name with its exact implemented version. */
-fun extension(name :: NonemptyString, version :: NonemptyString):
-  UdbExtension(name, version)
-
-/* Wraps a Boolean architectural claim in a typed UDB parameter. */
-fun boolean_parameter(name :: NonemptyString, value :: Boolean):
-  UdbParameter(name, UdbBooleanValue(value))
-
-/* Wraps a nonnegative architectural quantity in a typed UDB parameter. */
-fun natural_parameter(name :: NonemptyString, value :: Nat):
-  UdbParameter(name, UdbNaturalValue(value))
-
-/* Wraps a textual architectural policy in a typed UDB parameter. */
-fun string_parameter(name :: NonemptyString, value :: String):
-  UdbParameter(name, UdbStringValue(value))
-
-/* Encodes the allowed nonnegative values of an architectural parameter. */
-fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Nat)):
-  UdbParameter(name, UdbNaturalListValue(elements))
-
-/* Encodes an indexed set of architectural capability flags. */
-fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)):
-  UdbParameter(name, UdbBooleanListValue(elements))
-
-/* Expands advertised ISA features into exact-version UDB entries, including implied subsets. */
+/* Projects the core's declared architecture through the shared version/implication catalog. */
 fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExtension):
-  def xlen = profile.xlen
-  def advertised = profile.isa_profile.isa_extensions
-  /* Tests the canonical ISA projection rather than maintaining a second feature selection. */
-  fun advertises(name :: String) :: Boolean: advertised.contains(name)
-  def mutable result = [
-    extension("I", "2.1"),
-    extension("M", "2.0"),
-    extension("Zmmul", "1.0.0"),
-    extension("A", "2.1.0"),
-    extension("Zaamo", "1.0.0"),
-    extension("Zalrsc", "1.0.0"),
-    extension("Za64rs", "1.0.0"),
-    extension("Za128rs", "1.0.0"),
-    extension("Zic64b", "1.0.0"),
-    extension("B", "1.0.0"),
-    extension("Zba", "1.0.0"),
-    extension("Zbb", "1.0.0"),
-    extension("Zbs", "1.0.0")
-  ]
-  when advertises("f")
-  | result := result ++ [extension("F", "2.2.0")]
-  when advertises("d")
-  | result := result ++ [extension("D", "2.2.0")]
-  when advertises("zfhmin") && !advertises("zfh")
-  | result := result ++ [extension("Zfhmin", "1.0.0")]
-  when advertises("zfh")
-  | result := result ++ [extension("Zfhmin", "1.0.0"), extension("Zfh", "1.0.0")]
-  when advertises("zfa")
-  | result := result ++ [extension("Zfa", "1.0.0")]
-  when advertises("zicbop")
-  | result := result ++ [extension("Zicbop", "1.0.0")]
-  when advertises("zicboz")
-  | result := result ++ [extension("Zicboz", "1.0.0")]
-  when advertises("zicbom")
-  | result := result ++ [extension("Zicbom", "1.0.0")]
-  when advertises("ziccif")
-  | result := result ++ [extension("Ziccif", "1.0.0")]
-  when advertises("zicclsm")
-  | result := result ++ [extension("Zicclsm", "1.0.0")]
-  when advertises("ziccamoa")
-  | result := result ++ [extension("Ziccamoa", "1.0.0")]
-  when advertises("ziccrse")
-  | result := result ++ [extension("Ziccrse", "1.0.0")]
-  when advertises("ssnpm")
-  | result := result ++ [extension("Ssnpm", "1.0.0")]
-  when advertises("supm")
-  | result := result ++ [extension("Supm", "1.0.0")]
-  when advertises("zihintpause")
-  | result := result ++ [extension("Zihintpause", "2.0.0")]
-  when advertises("zihintntl")
-  | result := result ++ [extension("Zihintntl", "1.0.0")]
-  when advertises("zawrs")
-  | result := result ++ [extension("Zawrs", "1.0.0")]
-  when advertises("c")
-  | result := result ++ [extension("C", "2.0")]
-  when advertises("zca") || advertises("c")
-  | result := result ++ [extension("Zca", "1.0.0")]
-  when advertises("zcb")
-  | result := result ++ [extension("Zcb", "1.0.0")]
-  when advertises("zcmop")
-  | result := result ++ [extension("Zcmop", "1.0.0")]
-  when advertises("zcf") || (advertises("c") && xlen == XLen.X32 && advertises("f"))
-  | result := result ++ [extension("Zcf", "1.0.0")]
-  when advertises("zcd") || (advertises("c") && advertises("d"))
-  | result := result ++ [extension("Zcd", "1.0.0")]
-  when advertises("zve32x")
-  | block:
-      when advertises("v")
-      | result := result ++ [extension("V", "1.0.0")]
-      result := result ++ [extension("Zve32x", "1.0.0")]
-      when advertises("zve32f")
-      | result := result ++ [extension("Zve32f", "1.0.0")]
-      when advertises("zve64x")
-      | result := result ++ [extension("Zve64x", "1.0.0")]
-      when advertises("zve64f")
-      | result := result ++ [extension("Zve64f", "1.0.0")]
-      when advertises("zve64d")
-      | result := result ++ [extension("Zve64d", "1.0.0")]
-      when advertises("zvfhmin") || advertises("zvfh")
-      | result := result ++ [extension("Zvfhmin", "1.0.0")]
-      when advertises("zvfh")
-      | result := result ++ [extension("Zvfh", "1.0.0")]
-      when advertises("zvbb")
-      | result := result ++ [extension("Zvkb", "1.0.0"), extension("Zvbb", "1.0.0")]
-      when advertises("zvkt")
-      | result := result ++ [extension("Zvkt", ZvktVersion)]
-      for (length in vector_length_extension_lengths(profile.vector_length)):
-        result := result ++ [extension("Zvl" ++ String.from_int(length) ++ "b", "1.0.0")]
-  result := result ++ [
-    extension("Zicntr", "2.0"),
-    extension("Zicond", "1.0.0"),
-    extension("Zicsr", "2.0"),
-    extension("Zifencei", "2.0.0"),
-    extension("Zihpm", "2.0"),
-    extension("Zimop", "1.0.0"),
-    extension("Zkt", ZktVersion),
-    extension("U", "1.0.0"),
-    extension("S", "1.13.0"),
-    extension("Sm", "1.13.0"),
-    extension("Svbare", "1.0.0")
-  ]
-  when profile.mmu_mode == RV5StageMmuMode.Sv39
-  | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
-  when advertises("sscofpmf")
-  | result := result ++ [extension("Sscofpmf", "1.0.0")]
-  for ([name, spelling] in [["ssccptr", "Ssccptr"], ["sstvecd", "Sstvecd"], ["sstvala", "Sstvala"], ["sscounterenw", "Sscounterenw"], ["ssu64xl", "Ssu64xl"]]):
-    when advertises(name)
-    | result := result ++ [extension(spelling, "1.0.0")]
-  for ([name, spelling] in [["h", "H"], ["sstc", "Sstc"], ["svinval", "Svinval"], ["svpbmt", "Svpbmt"], ["svnapot", "Svnapot"], ["smstateen", "Smstateen"], ["ssstateen", "Ssstateen"], ["sha", "Sha"], ["shcounterenw", "Shcounterenw"], ["shvstvala", "Shvstvala"], ["shtvala", "Shtvala"], ["shvstvecd", "Shvstvecd"], ["shvsatpa", "Shvsatpa"], ["shgatpa", "Shgatpa"]]):
-    when advertises(name)
-    | result := result ++ [extension(spelling, "1.0.0")]
-  result
+  riscv_udb_extensions(profile.hart_description, ~additional: if profile.mmu_mode == RV5StageMmuMode.Sv39 | [UdbExtension("Svade", "1.0.0")] | [])
 
 /* Validates integration address bounds and emits fixed and profile-dependent behavioral claims. */
 fun rv5stage_udb_parameters(profile :: RV5StageConfig,
@@ -165,7 +29,6 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   | error(~who: #'rv5stage_udb_parameters, "PMA granularity log2 must be between 2 and 66")
   def selected = profile.extensions
   def xlen = profile.xlen.width
-  def hpm_counters = for List (index in 0..32): selected.sscofpmf && index == 3
   def delegatable_counters = for List (index in 0..32): index < 3 || (selected.sscofpmf && index == 3)
   def mutable result = [
     natural_parameter("MXLEN", xlen),
@@ -197,25 +60,11 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT", #true),
     boolean_parameter("REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION", #true),
     natural_parameter("MTVAL_WIDTH", xlen),
-    boolean_parameter("MARCHID_IMPLEMENTED", #false),
-    boolean_parameter("MIMPID_IMPLEMENTED", #false),
-    natural_parameter("CONFIG_PTR_ADDRESS", 0),
-    natural_parameter("VENDOR_ID_BANK", 0),
-    natural_parameter("VENDOR_ID_OFFSET", 0),
     boolean_parameter("MISALIGNED_LDST", #true),
     string_parameter("MISALIGNED_LDST_EXCEPTION_PRIORITY", "high"),
     natural_parameter("MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE", 0),
     string_parameter("MISALIGNED_SPLIT_STRATEGY", "custom"),
     string_parameter("M_MODE_ENDIANNESS", "little"),
-    boolean_parameter("MISA_CSR_IMPLEMENTED", #true),
-    string_parameter("MTVEC_ACCESS", "rw"),
-    natural_list_parameter("MTVEC_MODES", [0]),
-    natural_parameter("MTVEC_BASE_ALIGNMENT_DIRECT", 4),
-    string_parameter("MTVEC_ILLEGAL_WRITE_BEHAVIOR", "custom"),
-    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", selected.sscofpmf),
-    boolean_list_parameter("HPM_COUNTER_EN", hpm_counters),
-    boolean_list_parameter("MCOUNTENABLE_EN", delegatable_counters),
-    natural_parameter("NUM_PMP_ENTRIES", 0),
     boolean_parameter("MUTABLE_MISA_M", #false),
     boolean_parameter("MUTABLE_MISA_A", #false),
     boolean_parameter("MUTABLE_MISA_B", #false),
@@ -225,7 +74,6 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     boolean_parameter("LRSC_FAIL_ON_VA_SYNONYM", #false),
     string_parameter("LRSC_MISALIGNED_BEHAVIOR", "always raise misaligned exception"),
     boolean_parameter("LRSC_FAIL_ON_NON_EXACT_LRSC", #true),
-    boolean_parameter("TIME_CSR_IMPLEMENTED", #true),
     boolean_parameter("MUTABLE_MISA_U", #false),
     string_parameter("U_MODE_ENDIANNESS", "little"),
     natural_list_parameter("UXLEN", [xlen]),
@@ -249,12 +97,8 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
     boolean_parameter("REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION", #true),
     natural_parameter("STVAL_WIDTH", xlen),
-    boolean_list_parameter("SCOUNTENABLE_EN", delegatable_counters),
-    natural_list_parameter("STVEC_MODES", [0]),
     boolean_parameter("SATP_MODE_BARE", #true),
-    boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
-    natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if vector_profile_enabled(profile.vector) | [0, 1, 2, 3] | [0]),
-    natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(selected.floating_point) | [0, 1, 2, 3] | [0])
+    boolean_parameter("TRAP_ON_ECALL_FROM_S", #true)
   ]
   when profile.mmu_mode == RV5StageMmuMode.Bare
   | result := result ++ [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #false)]
@@ -262,12 +106,8 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   | result := result ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
   when selected.ssnpm
   | result := result ++ [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])]
-  when selected.sscofpmf
-  | result := result ++ [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
   when selected.zawrs
   | result := result ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
-  when selected.smstateen
-  | result := result ++ [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")]
   when selected.hypervisor
   | block:
       result := result ++ [
@@ -334,7 +174,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     ]
   when vector_profile_is_v(profile.vector)
   | result := result ++ [boolean_parameter("MUTABLE_MISA_V", #false)]
-  result
+  result ++ riscv_csr_udb_parameters(profile.csr_config)
 
 /* Combines extension closure and behavioral parameters into one named UDB configuration. */
 fun rv5stage_udb_configuration(profile :: RV5StageConfig,

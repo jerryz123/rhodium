@@ -14,7 +14,7 @@ Before adding a component, decide who owns its policy:
 - Put small reusable execution blocks, data-shaping helpers, and integration
   contracts directly under `cores/`. Keep each component's instruction mapping
   beside it: `alu-decode.rhdl`, `branch-decode.rhdl`, `multiply-decode.rhdl`,
-  and `divide-decode.rhdl` describe component controls, not a whole core profile.
+  `divide-decode.rhdl`, and `memory-decode.rhdl` describe component controls, not a whole core profile.
   Numeric datapaths consume already-decoded controls; only their mappings
   import instruction catalogs.
 - Put substantial shared component families in their own directories:
@@ -177,6 +177,12 @@ tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
 FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
+
+`memory-decode.rhdl` generates active scalar/atomic/cache-block rows into caller-shaped
+controls and owns the guest-to-ordinary memory instruction mapping. Named decoders
+add inactive-domain rows, validity columns, and issue/retirement policy; shared
+relations must not constrain unused fields just to match another core\'s bundle.
+Use both cores\' composed decode checks when changing these mappings.
 
 Shared instruction mappings and row geometry use
 `cores/tests/{alu-decode,multiply-decode,divide-decode,vector-layout}-test.rhm`.

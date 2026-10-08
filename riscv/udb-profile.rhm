@@ -1,0 +1,140 @@
+#lang rhombus
+/* Projects declared hart ISA capabilities and architectural implications into versioned UDB extensions. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "udb.rhm" open
+  "isa/hart.rhm" open
+  "isa/profile.rhm" open
+  "isa/xlen.rhm".XLen
+  "isa/zkt.rhm".ZktVersion
+  "isa/zvkt.rhm".ZvktVersion
+
+def versions = [
+  ["I", "2.1"],
+  ["M", "2.0"],
+  ["Zmmul", "1.0.0"],
+  ["A", "2.1.0"],
+  ["Zaamo", "1.0.0"],
+  ["Zalrsc", "1.0.0"],
+  ["Za64rs", "1.0.0"],
+  ["Za128rs", "1.0.0"],
+  ["Zic64b", "1.0.0"],
+  ["B", "1.0.0"],
+  ["Zba", "1.0.0"],
+  ["Zbb", "1.0.0"],
+  ["Zbs", "1.0.0"],
+  ["F", "2.2.0"],
+  ["D", "2.2.0"],
+  ["Zfhmin", "1.0.0"],
+  ["Zfh", "1.0.0"],
+  ["Zfa", "1.0.0"],
+  ["Zicbop", "1.0.0"],
+  ["Zicboz", "1.0.0"],
+  ["Zicbom", "1.0.0"],
+  ["Ziccif", "1.0.0"],
+  ["Zicclsm", "1.0.0"],
+  ["Ziccamoa", "1.0.0"],
+  ["Ziccrse", "1.0.0"],
+  ["Ssnpm", "1.0.0"],
+  ["Supm", "1.0.0"],
+  ["Zihintpause", "2.0.0"],
+  ["Zihintntl", "1.0.0"],
+  ["Zawrs", "1.0.0"],
+  ["C", "2.0"],
+  ["Zca", "1.0.0"],
+  ["Zcb", "1.0.0"],
+  ["Zcmop", "1.0.0"],
+  ["Zcf", "1.0.0"],
+  ["Zcd", "1.0.0"],
+  ["V", "1.0.0"],
+  ["Zve32x", "1.0.0"],
+  ["Zve32f", "1.0.0"],
+  ["Zve64x", "1.0.0"],
+  ["Zve64f", "1.0.0"],
+  ["Zve64d", "1.0.0"],
+  ["Zvfhmin", "1.0.0"],
+  ["Zvfh", "1.0.0"],
+  ["Zvkb", "1.0.0"],
+  ["Zvbb", "1.0.0"],
+  ["Zicntr", "2.0"],
+  ["Zicond", "1.0.0"],
+  ["Zicsr", "2.0"],
+  ["Zifencei", "2.0.0"],
+  ["Zihpm", "2.0"],
+  ["Zimop", "1.0.0"],
+  ["U", "1.0.0"],
+  ["S", "1.13.0"],
+  ["Sm", "1.13.0"],
+  ["Svbare", "1.0.0"],
+  ["Sv39", "1.0.0"],
+  ["Svade", "1.0.0"],
+  ["Sscofpmf", "1.0.0"],
+  ["H", "1.0.0"],
+  ["Sstc", "1.0.0"],
+  ["Svinval", "1.0.0"],
+  ["Svpbmt", "1.0.0"],
+  ["Svnapot", "1.0.0"],
+  ["Smstateen", "1.0.0"],
+  ["Ssstateen", "1.0.0"],
+  ["Sha", "1.0.0"],
+  ["Shcounterenw", "1.0.0"],
+  ["Shvstvala", "1.0.0"],
+  ["Shtvala", "1.0.0"],
+  ["Shvstvecd", "1.0.0"],
+  ["Shvsatpa", "1.0.0"],
+  ["Shgatpa", "1.0.0"],
+  ["Ssccptr", "1.0.0"],
+  ["Sstvecd", "1.0.0"],
+  ["Sstvala", "1.0.0"],
+  ["Sscounterenw", "1.0.0"],
+  ["Ssu64xl", "1.0.0"],
+  ["Zkt", ZktVersion], ["Zvkt", ZvktVersion]
+]
+
+/* Expands architectural subsets only; implementation parameters and guarantees remain explicit inputs. */
+fun riscv_udb_extensions(hart :: RiscvHartDescription, ~additional: additional :: List.of(UdbExtension) = []) :: NonemptyList.of(UdbExtension):
+  def profile = hart.isa_profile
+  def mutable names = profile.isa_extensions
+  /* Adds a derived architectural spelling once, preserving deterministic order. */
+  fun add(name :: String):
+    unless names.contains(name) | names := names ++ [name]
+  /* Tests the evolving implication closure. */
+  fun has(name :: String) :: Boolean: names.contains(name)
+  when profile.misa_extensions.contains(MisaExtension.U) | add("u")
+  when profile.misa_extensions.contains(MisaExtension.S)
+  | block:
+      add("s")
+      add("sm")
+  add("svbare")
+  when hart.mmu_type == RiscvMmuType.Sv39 | add("sv39")
+  when has("m") | add("zmmul")
+  when has("a")
+  | block:
+      add("zaamo")
+      add("zalrsc")
+  when has("za64rs") | add("za128rs")
+  when has("b")
+  | block:
+      add("zba")
+      add("zbb")
+      add("zbs")
+  when has("d") | add("f")
+  when has("c")
+  | block:
+      add("zca")
+      when has("d") | add("zcd")
+      when has("f") && profile.xlen == XLen.X32 | add("zcf")
+  when has("zfh") | add("zfhmin")
+  when has("zvfh") | add("zvfhmin")
+  when has("zvbb") | add("zvkb")
+  def declared = for List (name in names):
+    def matching = versions.filter(~keep: fun (entry): entry[0].downcase() == name)
+    cond
+    | matching.length() == 1: UdbExtension(matching[0][0], matching[0][1])
+    | name.starts_with("zvl") && name.ends_with("b"): UdbExtension("Zvl" ++ name.substring(3..), "1.0.0")
+    | ~else: error(~who: #'riscv_udb_extensions, "no UDB version for declared extension " ++ name)
+
+  declared ++ additional
+
+export riscv_udb_extensions

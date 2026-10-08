@@ -104,6 +104,14 @@ waiting to issue its CHI request. Once accepted by CHI, it must drain normally;
 the caller is responsible for consuming any orphan response. Stores cannot be
 canceled. `drained` reports the transport's own idle state, not requester policy.
 
+`UncachedFetchArbiter(xlen, Context)` in `uncached-arbiter.rhdl` shares one
+ordered uncached transport between data and instruction requests. It gives
+data priority, retains the accepted response owner across flush, and drains
+detached instruction replies. It adds no pipeline stage. Connect its `cancel`
+to the transport: cancellation can withdraw an unissued read, never erase an
+accepted CHI transaction. Callers supply already-shaped, permission-checked
+requests and decide which frontend recovery events assert `flush`.
+
 The separate retryable `CacheWriteUnique` engine retains opaque context through
 retry/credit handling, DBID acquisition, write-data transfer, and completion.
 
@@ -117,8 +125,8 @@ is not an arbitrary late-faulting memory interface.
 [RV5Stage](../rv5stage/README.md) directly specializes these services with its
 architectural destination and core/PTW origin context. [RV2Wide](../rv2wide/README.md)
 owns an ordered completion FIFO and requests raw beats. Frontends, MMUs, and named
-core CHI endpoint composition remain outside this package. Fetch cancellation,
-instruction/data arbitration, and ordering between cached and IO traffic belong
-to the integrating core, not the shared transport.
+core CHI endpoint composition remain outside this package. The shared arbiter
+implements owner retention and cancellation; the integrating core chooses flush
+policy and orders cached traffic against IO.
 The [detailed L1D contract](l1d/README.md) describes SRAM scheduling, reservation
 protection, maintenance, and coherence behavior.

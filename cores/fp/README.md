@@ -80,6 +80,13 @@ following cycle's launch without crossing that aging pause. The caller must
 also reserve service ownership and the return cycle; this output alone is not
 an admission grant.
 
+`authorization.rhdl` supplies `align_fp_authorization(source, timing, control,
+~elapsed: cycles)`. It delays each Valid owner by its fixed execution latency
+minus elapsed launch-to-authorization cycles, with no result buffering. The
+control projection returns `FloatExecutionControl()`. The caller must authorize at
+or before every fixed return and reserve collision-free return cycles; the
+helper does not grant issue or retirement permission.
+
 Results may reorder across fixed latencies and variable paths. Use
 [`fp_request_with_tag` and `fp_result_with_tag`](bundles.rhdl) with ordinary
 Flow arbitration and tag-based routing to share the service. Tags remain
@@ -118,5 +125,6 @@ Architectural instruction descriptions and stateless FP helpers remain in
 [`riscv/`](../../riscv/README.md); numeric primitives remain in
 [`hardfloat/`](../../hardfloat/README.md). RV5Stage's
 [scalar wrapper](../rv5stage/fp/README.md) owns its FPR scoreboard, scalar/vector
-reservations, LSU adaptation, and retirement policy. No RV2Wide integration
-is implied by these shared components.
+reservations, LSU adaptation, and retirement policy. RV2Wide\'s
+[wrapper](../rv2wide/fp.rhdl) owns its two-wide scheduling and authorization.
+Both reuse the same execution, storage, and fixed-owner alignment components.

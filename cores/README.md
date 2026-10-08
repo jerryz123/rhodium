@@ -32,7 +32,18 @@ architectural result selection.
 | [`PipelinedMultiplier(width)`](multiplier.rhdl) | Power-of-two width of at least two; `Valid(MultiplierRequest)` to a `Valid` double-width product | Five feed-forward stages; accepts and advances one request per cycle with fixed latency and no backpressure | Signed/unsigned magnitude handling, four half-width partial products, reduction, and the complete product | Admission credits, result buffering, low/high/word projection, and architectural destination |
 | [`IterativeDivider(width)`](divider.rhdl) | `Decoupled(DividerRequest)` to an `Irrevocable(DividerResponse)` | One request at a time; trivial operands complete directly, otherwise leading-zero quotient work is skipped before resolving one remaining bit per cycle and finalizing signs; response stays stable until accepted; may replace a response as it is consumed | Quotient, remainder, divide-by-zero, and fixed-width signed-overflow behavior | Quotient/remainder/word projection and architectural destination |
 
-### Packed SIMD integer ALU
+### Shared memory decode
+
+`memory-decode.rhdl` supplies `scalar_memory_cases(Control, ~double: enabled)`,
+`atomic_memory_cases(Control, ~double: enabled)`, and
+`cache_block_memory_cases(Control)`. The caller-shaped control bundle supplies
+`access`, `atomic`, `width`, and `unsigned` fields as needed. The returned partial
+relations leave irrelevant controls unconstrained; callers add validity fields,
+inactive-domain coverage, and pipeline policy before composing their decoder.
+`RiscvGuestMemoryInstructions` maps guest loads/stores to ordinary LSU operations
+and distinguishes HLVX execute-read permission.
+
+## Packed SIMD integer ALU
 
 `SimdALU(xlen)` takes `xlen :: XLen` (`XLen.X32` or `XLen.X64`); its physical word width is `xlen.width`.
 The 32-bit specialization operates on 4, 2, or 1 independent E8/E16/E32

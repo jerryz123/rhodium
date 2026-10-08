@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../csr/decode.rhdl".csr_access_cases
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
@@ -49,27 +50,13 @@ def no_system = partial_pattern(RV5StageSystemControl()):
   csr: RiscvCsrOperation.None
   action: RV5StageSystemOperation.None
 
-/* Builds a fully specified CSR row with register or immediate source selection. */
-fun csr_control(operation :: RiscvCsrOperation, immediate :: Boolean):
-  pattern(RV5StageSystemControl()):
-    csr: operation
-    immediate: Bool(immediate)
-    action: RV5StageSystemOperation.None
-
 /* Builds a non-CSR system-action row with inactive source mode left unconstrained. */
 fun system_control(operation :: RV5StageSystemOperation):
   partial_pattern(RV5StageSystemControl()):
     csr: RiscvCsrOperation.None
     action: operation
 
-def ZicsrSystemCases = combine_case_groups([
-  instruction_cases([CSRRW], csr_control(RiscvCsrOperation.Write, #false)),
-  instruction_cases([CSRRS], csr_control(RiscvCsrOperation.Set, #false)),
-  instruction_cases([CSRRC], csr_control(RiscvCsrOperation.Clear, #false)),
-  instruction_cases([CSRRWI], csr_control(RiscvCsrOperation.Write, #true)),
-  instruction_cases([CSRRSI], csr_control(RiscvCsrOperation.Set, #true)),
-  instruction_cases([CSRRCI], csr_control(RiscvCsrOperation.Clear, #true))
-])
+def ZicsrSystemCases = csr_access_cases(RV5StageSystemControl(), partial_pattern(RV5StageSystemControl()): action: RV5StageSystemOperation.None)
 
 def PrivilegedSystemCases = combine_case_groups([
   instruction_cases([MRET], system_control(RV5StageSystemOperation.Mret)),

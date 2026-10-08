@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/authorization.rhdl").align_fp_authorization
   "../../fp/profile.rhm".check_fp_profile
   "../../fp/bundles.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
@@ -121,11 +122,7 @@ sync_circuit RV5StageFpScalar(
       def at_writeback = fixed_issue |> valid_pipe(2)
       when (authorize.valid):
         assert(at_writeback.valid & (at_writeback.bits.context === authorize.bits.context) & (at_writeback.bits.frd === authorize.bits.frd), "scalar_fp_authorization_is_wb_aligned")
-      def decisions = authorize |> fork_valid(timing.latencies.length())
-      def returns = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
-        def selected = decisions[index] |> filter_valid(operation => timing.latency(operation.control.execution) === bits(latency, timing.width))
-        if latency == 2 | selected | selected |> valid_pipe(latency - 2)
-      def authorized_result = returns |> valid_arbiter()
+      def authorized_result = align_fp_authorization(authorize, timing, fun (operation :: RV5StageFpIssue(xlen, profile, Context)): operation.control.execution, ~elapsed: 2)
       fixed_authorized <== authorized_result.valid
       when (authorized_result.valid):
         assert(execution_result.valid & execution_result.bits.tag.speculative & (execution_result.bits.tag.context === authorized_result.bits.context) & (execution_result.bits.tag.rd === authorized_result.bits.frd), "scalar_fp_return_is_scheduled")

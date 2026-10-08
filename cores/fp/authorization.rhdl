@@ -1,0 +1,20 @@
+#lang rhodium
+/* Aligns caller-authorized FP owners with fixed execution returns without adding result buffering. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "timing.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Delays each Valid owner by its operation latency minus elapsed launch-to-authorization cycles.
+   The caller supplies a control projection and owns admission, authorization, and return collisions. */
+fun align_fp_authorization(source :: Endpoint, timing :: FpExecutionTiming, control :: Function, ~elapsed: elapsed :: Nat) :: Endpoint:
+  unless math.min(timing.single, timing.double, timing.other) >= elapsed
+  | error(~who: #'align_fp_authorization, "authorization must precede every fixed return")
+  def decisions = source |> fork_valid(timing.latencies.length())
+  def returns = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
+    def selected = decisions[index] |> filter_valid(operation => timing.latency(control(operation)) === bits(latency, timing.width))
+    if latency == elapsed | selected | selected |> valid_pipe(latency - elapsed)
+  returns |> valid_arbiter()
+
+export align_fp_authorization

@@ -1,0 +1,214 @@
+#lang rhodium
+/* Maps scalar memory instructions to caller-shaped physical LSU controls without pipeline policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "load-store.rhdl" open
+  "cache/operation.rhdl" open
+  lib("riscv/rtl/atomic.rhdl") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/isa/a.rhm") open
+  lib("riscv/isa/h.rhm") open
+  lib("riscv/isa/zicboz.rhm") open
+  lib("riscv/isa/zicbom.rhm") open
+  lib("rhodium/std/decode.rhdl") open
+
+def RiscvWordLoads = [LB, LH, LW, LBU, LHU]
+def RiscvWordStores = [SB, SH, SW]
+def RiscvDoubleLoads = [LWU, LD]
+def RiscvDoubleStores = [SD]
+
+/* Generates only active scalar load/store rows; the caller supplies inactive-domain coverage. */
+fun scalar_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List.of(DecodeCase):
+  def SharedMemoryCases = decode_groups(Control, ~input: instruction_pattern):
+    [LB]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Byte
+      unsigned: Bool(#false)
+
+    [LBU]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Byte
+      unsigned: Bool(#true)
+
+    [LH]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Half
+      unsigned: Bool(#false)
+
+    [LHU]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Half
+      unsigned: Bool(#true)
+
+    [LW]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Word
+      unsigned: Bool(#false)
+
+    [SB]:
+      access: CacheOperation.Store
+      width: MemoryWidth.Byte
+
+    [SH]:
+      access: CacheOperation.Store
+      width: MemoryWidth.Half
+
+    [SW]:
+      access: CacheOperation.Store
+      width: MemoryWidth.Word
+
+  def RV64IOnlyMemoryCases = decode_groups(Control, ~input: instruction_pattern):
+    [LWU]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Word
+      unsigned: Bool(#true)
+
+    [LD]:
+      access: CacheOperation.Load
+      width: MemoryWidth.Double
+      unsigned: Bool(#false)
+
+    [SD]:
+      access: CacheOperation.Store
+      width: MemoryWidth.Double
+
+  SharedMemoryCases ++ (if double | RV64IOnlyMemoryCases | [])
+
+/* Generates word/double LR/SC and AMO controls, leaving unused fields unconstrained. */
+fun atomic_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List.of(DecodeCase):
+  def RV32AMemoryCases = decode_groups(Control, ~input: instruction_pattern):
+    [LR_W]:
+      access: CacheOperation.LoadReserved
+      width: MemoryWidth.Word
+      unsigned: Bool(#false)
+
+    [SC_W]:
+      access: CacheOperation.StoreConditional
+      width: MemoryWidth.Word
+
+    [AMOSWAP_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Swap
+      width: MemoryWidth.Word
+
+    [AMOADD_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Add
+      width: MemoryWidth.Word
+
+    [AMOXOR_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Xor
+      width: MemoryWidth.Word
+
+    [AMOAND_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.And
+      width: MemoryWidth.Word
+
+    [AMOOR_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Or
+      width: MemoryWidth.Word
+
+    [AMOMIN_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Min
+      width: MemoryWidth.Word
+
+    [AMOMAX_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Max
+      width: MemoryWidth.Word
+
+    [AMOMINU_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.MinUnsigned
+      width: MemoryWidth.Word
+
+    [AMOMAXU_W]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.MaxUnsigned
+      width: MemoryWidth.Word
+
+  def RV64AOnlyMemoryCases = decode_groups(Control, ~input: instruction_pattern):
+    [LR_D]:
+      access: CacheOperation.LoadReserved
+      width: MemoryWidth.Double
+      unsigned: Bool(#false)
+
+    [SC_D]:
+      access: CacheOperation.StoreConditional
+      width: MemoryWidth.Double
+
+    [AMOSWAP_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Swap
+      width: MemoryWidth.Double
+
+    [AMOADD_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Add
+      width: MemoryWidth.Double
+
+    [AMOXOR_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Xor
+      width: MemoryWidth.Double
+
+    [AMOAND_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.And
+      width: MemoryWidth.Double
+
+    [AMOOR_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Or
+      width: MemoryWidth.Double
+
+    [AMOMIN_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Min
+      width: MemoryWidth.Double
+
+    [AMOMAX_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.Max
+      width: MemoryWidth.Double
+
+    [AMOMINU_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.MinUnsigned
+      width: MemoryWidth.Double
+
+    [AMOMAXU_D]:
+      access: CacheOperation.Atomic
+      atomic: RiscvAtomicOperation.MaxUnsigned
+      width: MemoryWidth.Double
+
+  RV32AMemoryCases ++ (if double | RV64AOnlyMemoryCases | [])
+
+/* Maps cache-block operations; access width remains caller-owned because these operate on a whole line. */
+fun cache_block_memory_cases(Control :: DataType) :: List.of(DecodeCase):
+  for List (entry in [[CBO_ZERO, CacheOperation.CacheBlockZero], [CBO_INVAL, CacheOperation.CacheBlockInvalidate], [CBO_CLEAN, CacheOperation.CacheBlockClean], [CBO_FLUSH, CacheOperation.CacheBlockFlush]]):
+    DecodeCase(instruction_pattern(entry[0]), partial_pattern(Control): access: entry[1])
+
+/* Associates guest accesses with their ordinary LSU operation; the final flag selects HLVX execute-read permission. */
+def RiscvGuestMemoryInstructions = [
+  [HLV_B, LB, #false], [HLV_BU, LBU, #false], [HLV_H, LH, #false], [HLV_HU, LHU, #false],
+  [HLV_W, LW, #false], [HLV_WU, LWU, #false], [HLV_D, LD, #false],
+  [HLVX_HU, LHU, #true], [HLVX_WU, LWU, #true],
+  [HSV_B, SB, #false], [HSV_H, SH, #false], [HSV_W, SW, #false], [HSV_D, SD, #false]
+]
+
+export:
+  RiscvWordLoads
+  RiscvWordStores
+  RiscvDoubleLoads
+  RiscvDoubleStores
+  RiscvGuestMemoryInstructions
+  scalar_memory_cases
+  atomic_memory_cases
+  cache_block_memory_cases
