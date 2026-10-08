@@ -75,10 +75,14 @@ def main():
             for pattern in ('*.cpp', '*.hpp', 'test'):
                 for artifact in directory.glob(pattern):
                     artifact.unlink()
-        emit = [ROOT / 'tools/run-racket.sh', HERE / 'emit.rhm', work]
-        for row in rows:
-            emit += [row['name'], row['source'], row['export']]
-        run(emit, work / 'emit.log', timeout=1800)
+        # Bound each owner group independently: a complete repository run must
+        # not share one emission timeout across every architectural workload.
+        for group in dict.fromkeys(row['group'] for row in rows):
+            emit = [ROOT / 'tools/run-racket.sh', HERE / 'emit.rhm', work]
+            for row in rows:
+                if row['group'] == group:
+                    emit += [row['name'], row['source'], row['export']]
+            run(emit, work / ('emit-' + group + '.log'), timeout=1800)
 
         def test(row):
             directory = work / row['name']

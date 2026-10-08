@@ -69,13 +69,13 @@ bash tools/testing/circt/run.sh --group std
 
 The accepted groups are `language`, `std`, `protocols`, `cores`,
 `cores-components`, `cores-execution`, `cores-execution-frontend`,
-`cores-execution-control`, `cores-execution-datapath`, `cores-vector`,
+`cores-execution-datapath`, `cores-vector`,
 `cores-vector-functional`, `cores-vector-functional-1`,
 `cores-vector-functional-2`, `cores-vector-configurations`, `cores-memory`,
 `cores-cache`, `socs`, and `rfpl`. The `cores-vector-functional` group combines
 its two numbered CI shards; `cores-vector` adds the alternate-configuration
 shard, and `cores` combines the five subsystem groups. CI runs the leaf
-shards, the three core-execution leaves, and the rsim HardFloat suite independently so one
+shards, the two core-execution leaves, and the rsim HardFloat suite independently so one
 heavyweight build cannot consume another owner's budget.
 The `std` golden-reference selection includes both `rhodium/std` foundations and the root-level
 [`flow/` library](../../../flow/README.md).

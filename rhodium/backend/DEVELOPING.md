@@ -612,6 +612,13 @@ backend memory oracles cover the runtime behavior.
 Do not add tests merely asserting that an unimplemented feature is absent.
 Invalid type/operand combinations of supported operations are valid host cases.
 Keep generated RTL, DPI headers, executables, and stimulus tables temporary.
+Portable language behavior lives in `tests/rsim/` and runs through
+`python3 tools/testing/rsim/run.py --group language`. These drivers check
+arithmetic, vectors, records and interfaces, memories, hierarchy, synchronous
+clocking, and assertion enable/reset behavior directly through C++ model ports.
+Keep HDL-specific assertion failure, DPI scheduling, emitter diagnostics, and
+formal/backend differential tests at their existing boundaries.
+
 Canonical example goldens are owned by the [CIRCT guide](../../tools/testing/circt/DEVELOPING.md#verilog-references),
 not by the direct runner. Explain intentional output changes before updating any
 checked-in reference.

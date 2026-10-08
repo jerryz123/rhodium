@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
+from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
 
 
 def matches(path, *patterns):
@@ -80,16 +80,16 @@ class Selection:
         if not documentation and matches(path, "tools/testing/rsim/*", "rhodium/backend/*", "rhodium/compile/*",
                    "rhodium/std/*", "flow/*", "tools/run-racket.sh", "tools/racket-build-cache.sh"):
             self.add_checks(*RSIM_COMPONENT_CHECKS)
-        elif not documentation and matches(path, "examples/std/*", "examples/rtl/*"):
+        elif not documentation and matches(path, "examples/std/*", "examples/rtl/*", "examples/clocking/*"):
             self.add_checks("rsim-std")
         elif not documentation and matches(path, "chi/*", "noc/*", "devices/*", "examples/chi/*", "examples/noc/*"):
             self.add_checks("rsim-protocols")
         elif not documentation and matches(path, "cores/*", "riscv/*", "hardfloat/*", "examples/cores/*", "examples/riscv/*"):
-            self.add_checks("rsim-core-components", "rsim-hardfloat")
+            self.add_checks(*RSIM_CORE_CHECKS)
 
         # Shared cache drivers and hardware depend on CHI transaction machinery.
         if not documentation and matches(path, "chi/*"):
-            self.add_checks("rsim-core-components")
+            self.add_checks("rsim-core-components", "rsim-core-memory", "rsim-core-cache")
 
         # The rsim smoke also reuses the production UART and PTY helpers.
         if not documentation and matches(path, "devices/uart/uart.rhdl", "devices/uart/uart-dpi.rhdl",

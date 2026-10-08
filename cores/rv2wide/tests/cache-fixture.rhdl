@@ -78,9 +78,11 @@ sync_circuit RV2WideCacheFixture():
   mmu.physical_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
   // Exercise maintenance through each translated physical attribute without
   // replacing the production cache, its coherent engine, or its resident data.
-  mmu.physical_memory.request
-    |> map_flow(request => request.updated(~pbmt: mux(request.access.is_cache_management(), management_pbmt, request.pbmt)))
-    |> data.memory.request
+  (
+    mmu.physical_memory.request |> map_flow(request):
+      def physical = request.into(RV2WideMemoryReq(XLen.X64, 64))
+      physical.updated(~pbmt: mux(physical.access.is_cache_management(), management_pbmt, physical.pbmt))
+  ) |> data.memory.request
   data.memory.response |> mmu.physical_memory.response
   data.memory.fault |> mmu.physical_memory.fault
   mmu.physical_memory.drained <== data.memory.drained

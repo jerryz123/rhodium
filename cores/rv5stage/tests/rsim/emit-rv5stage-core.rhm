@@ -1,0 +1,71 @@
+#lang rhombus
+// Exports the core program and checks registered one-hot EX operand forwarding.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/compile/rtl.rhm").prepare_rtl
+  "../../../../rhodium/core/dependencies.rhm" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../cores/rv5stage/tests/core-fixture.rhdl" as core
+  "../../../../cores/rv5stage/profile.rhm".RV5StageConfig
+
+def program = elaborate(core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100000000, ~split_memory: #true))
+
+// Inspect and emit the same prepared graph so these checks cover the emitted RTL.
+def prepared = prepare_rtl(program)
+
+// This timing contract stops at the core payloads and parallel LSU response capture.
+// In particular, retirement arbitration must not become an EX operand source.
+def top = prepared.rtl.design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
+def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "ex_alu")
+unless alu
+| error(~who: #'ex_forwarding, "missing ALU timing boundary")
+for (operand_name in ["left", "right"]):
+  def seen = MutableMap.by(===){}
+  def sources = MutableSet{}
+  def bypass_muxes = MutableList[]
+  fun visit(value, path):
+    unless seen.get(value, #false)
+    | seen[value] := MutableSet{}
+    unless path in seen[value]
+    | seen[value].add(path)
+      def operation = top.find_operation(value.defining_op_id)
+      cond
+      | operation && operation.opcode == "rtl.instance":
+          def name = operation.attribute("name")
+          unless name in ["id_ex_pipe", "ex_mem_pipe", "mem_wb_pipe", "memory_response"]
+          | error(~who: #'ex_forwarding, "non-pipeline instance reaches ALU operand: " ++ name)
+          def output_index = identity_index(operation.results, value)
+          def output = operation.attribute("module").outputs[output_index]
+          unless output.name == (if name == "memory_response" | "captured_out" | "egress_out") && path.length() > 0 && path[0] == "bits"
+          | error(~who: #'ex_forwarding, "pipeline control reaches ALU operand")
+          sources.add([name, path])
+      | operation && operation.opcode in ["rtl.register", "rtl.register_reset"]:
+          error(~who: #'ex_forwarding, "non-pipeline register reaches ALU operand: " ++ operation.attribute("name"))
+      | ~else:
+          when operation && operation.opcode == "rtl.onehot_mux"
+          | bypass_muxes.add(operation)
+          def dependencies = direct_value_dependencies(value, path)
+          unless dependencies is_a List
+          | error(~who: #'ex_forwarding, "unclassified ALU operand dependency")
+          for (dependency in dependencies):
+            visit(dependency.value, dependency.path)
+  def inputs = alu.attribute("module").inputs
+  def input = inputs.find(fun (port): port.name == operand_name)
+  unless input
+  | error(~who: #'ex_forwarding, "missing ALU operand port")
+  def input_index = identity_index(inputs.map(fun (port): port.value), input.value)
+  def driver = place_leaf_driver(alu.places[input_index], [])
+  visit(driver.value, driver.path)
+  unless ["mem_wb_pipe", ["bits", "value"]] in sources
+  | error(~who: #'ex_forwarding, "ALU operand no longer reads the normal WB value")
+  for (field in ["outcome", "data"]):
+    unless ["memory_response", ["bits", field]] in sources
+    | error(~who: #'ex_forwarding, "WB load forwarding no longer reads its captured LSU " ++ field)
+  def operand_field = if operand_name == "left" | "operand_rs1" | "operand_rs2"
+  unless ["id_ex_pipe", ["bits", operand_field, "stage_sel"]] in sources
+  | error(~who: #'ex_forwarding, "ALU operand no longer reads its registered stage selector")
+  unless bypass_muxes.length() == 1 && bypass_muxes[0].operands.length() == 4 && bypass_muxes[0].operands[0].type.width == 3
+  | error(~who: #'ex_forwarding, "bypass must lower to one three-source one-hot mux")
+export program

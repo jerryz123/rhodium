@@ -35,7 +35,8 @@ class RsimRunnerTest(unittest.TestCase):
                 self.invoke(args)
 
     def test_rsim_build_executes_every_selected_fixture_and_checks_completion(self):
-        rows = runner.inventory()[:2]
+        inventory = runner.inventory()
+        rows = [inventory[0], next(row for row in inventory if row["group"] != inventory[0]["group"])]
         for completion in ("PASS\n", "unfinished\n"):
             with self.subTest(completion=completion), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary)
@@ -61,9 +62,13 @@ class RsimRunnerTest(unittest.TestCase):
                     else:
                         with self.assertRaises(RuntimeError):
                             self.invoke(arguments)
-                self.assertEqual(len(commands), 1 + 2 * len(rows))
+                emissions = [command for command in commands if command[0].endswith("run-racket.sh")]
+                self.assertEqual(len(emissions), len({row["group"] for row in rows}))
+                self.assertEqual(len(commands), len(emissions) + 2 * len(rows))
+                for emitted in emissions:
+                    self.assertEqual(len(emitted[3:]), 3)
                 self.assertTrue(commands[0][0].endswith('tools/run-racket.sh'))
-                for compile_command in commands[1::2]:
+                for compile_command in (command for command in commands if "-std=c++20" in command):
                     self.assertIn('-std=c++20', compile_command)
                     self.assertIn('-O2', compile_command)
                     self.assertTrue(any(arg.endswith('/model.cpp') for arg in compile_command))

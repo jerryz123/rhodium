@@ -245,7 +245,7 @@ belong to the executable smoke tests in
 For execution of the generated host-release ROM, run:
 
 ```sh
-FIXTURE=rv5stage-io-boot bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-io-boot' python3 tools/testing/rsim/run.py
 ```
 
 This cores-group CI fixture checks entry publication followed by explicit MSIP

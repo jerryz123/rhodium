@@ -153,7 +153,7 @@ from a DPI-result register in the observed design.
    WB payload and selects load-hit data. Both payload captures remain
    unconditional: a squash cancels validity, not forwarding payload capture.
    Never replace the registered load-data source with a live MEM response.
-5. Test cycle-visible behavior in the narrowest CIRCT/Verilator fixture, then
+5. Test cycle-visible behavior in the narrowest rsim fixture, then
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
    or deliberate limits change.
@@ -570,6 +570,35 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+Standalone register-file, FP pipeline, integer execution, writeback calendar,
+memory arbiter, divider workload, and vector-sequencer fixtures drive emitted
+rsim C++ directly. Their sources and independent scoreboards live under
+`tests/rsim/` and run in the `cores-components` CI group. Select fixtures by name:
+
+```sh
+python3 tools/testing/rsim/run.py --fixture rv5stage-integer-execution --fixture rv5stage-writeback
+python3 tools/testing/rsim/run.py --fixture rv5stage-vector-sequencer --fixture rv5stage-vector-sequencer-rv32 --fixture rv5stage-vector-sequencer-1024
+```
+
+Keep reset, pre-edge handshakes, stalls, cancellation, and parameter sweeps in
+the C++ oracle. Composed core workloads, instruction prediction/buffering,
+interrupt/privilege control, vector execution, memory routing, coherent caches,
+and LR/SC progress also run directly through rsim. Their groups are
+`cores-execution-frontend`, `cores-execution-control`, `cores-execution-datapath`,
+`cores-vector-functional-1`, `cores-vector-functional-2`,
+`cores-vector-configurations`, `cores-memory`, and `cores-cache`.
+`tests/rsim/driver.hpp` settles host combinational responses, samples pre-edge
+transfers, ticks the DUT, and then publishes registered host updates. Keep this
+ordering when porting a scoreboard; a native record must be assigned by fields,
+not initialized from its former packed SV integer.
+
+Traced and co-sim fixtures retain their HDL runtime checks. The RV32F/RV64D
+complete-core fixtures inspect the nested WB-FP launch/result/authorization
+ports, and vector-memory/one-slot fixtures bind observers to internal VRF
+writes and certificate lifetime. Those four need equivalent observation
+interfaces before migration; do not replace their internal oracles with only
+final output checks.
+
 Scalar architectural observation uses `rv5stage-cosim` (RV64, pipelined multiply)
 and `rv5stage-cosim32` (RV32, iterative multiply). Both drive real observed and
 unobserved occurrences of the same core definition in lockstep; the compilation
@@ -767,7 +796,7 @@ vvadd-style warm loads, signed/unsigned lanes, FP hits, exactly-once device
 reads, store-to-load ordering, and a younger lookup squashed by an older WB
 fault. Keep the timing regression at the real core/MMU/router/L1D
 boundary rather than replacing the cache with a fixed-latency response stub.
-Like the complete-core IO-boot fixture, it uses the SoC harness's Verilator
+The retained load-hit fixture uses the SoC harness's Verilator
 UNOPTFLAT setting for packed-interface scheduling; assertions and runtime
 convergence checks remain enabled. IO-MSHR request readiness is registered state,
 not a dependency on its request payload or whole `drained` output bundle.
@@ -780,8 +809,7 @@ The full-core test matrix for the [Ziccrse integration
 guarantee](README.md#lrsc-eventuality-ziccrse) is:
 
 ```sh
-FIXTURES='rv5stage-lrsc-core-progress rv5stage-lrsc-core-progress-predicted rv5stage-lrsc-core-progress-rv32' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-lrsc-core-progress rv5stage-lrsc-core-progress-predicted rv5stage-lrsc-core-progress-rv32' python3 tools/testing/rsim/run.py
 ```
 
 It executes sixteen-instruction constrained LR.W/SC.W and RV64 LR.D/SC.D loops through RV5Stage,
@@ -869,7 +897,7 @@ Account for the [UDB 0.1.17 applicability limitation](README.md#cache-block-and-
 when validating CMO-free configurations. Do not omit the hardware fact or
 silently enable CMO decode to satisfy that database version.
 Select `cache-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32` for
-CIRCT/Verilator validation. The data-cache benches cover all 64 CBO byte offsets,
+direct rsim validation. The data-cache benches cover all 64 CBO byte offsets,
 aligned word/doubleword LR/SC sites on both sides of a 64-byte boundary,
 neighboring-line isolation, exact SC matching, and one-shot reservation use;
 the RV64 bench also covers invalidating snoops. These size/boundary regressions
@@ -880,7 +908,7 @@ RV64 integer timing fixtures:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/zkt-test.rhm cores/rv5stage/tests/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
-FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' python3 tools/testing/rsim/run.py
 bash socs/tests/run-device-tree.sh
 ```
 
@@ -908,7 +936,7 @@ vector timing checks:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/zvkt-test.rhm riscv/tests/gnu-toolchain-test.rhm cores/rv5stage/tests/rv5stage-zvkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
-FIXTURE=rv5stage-zvkt bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-zvkt' python3 tools/testing/rsim/run.py
 bash socs/tests/run-device-tree.sh
 ```
 
@@ -950,8 +978,7 @@ service outside the cooldown gate.
 For WB-owned Zawrs waiting and the cache-owned reservation observation path:
 
 ```sh
-FIXTURES='rv5stage-zawrs rv5stage-wfi rv5stage-dcache rv5stage-memory-router rv5stage-mmu-replay' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-zawrs rv5stage-wfi rv5stage-dcache rv5stage-memory-router rv5stage-mmu-replay' python3 tools/testing/rsim/run.py
 ```
 
 The WRS bench checks retirement deltas through CSRs, original trap PC/value,
@@ -993,8 +1020,7 @@ permission policy in this core; do not add counter state for zero-valued slots.
 For data IO-MSHR admission, ordering, and shared RN-I contention, run:
 
 ```sh
-FIXTURES='rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot' python3 tools/testing/rsim/run.py
 ```
 
 The router fixture covers RV32 permission rejection and cached/uncached
@@ -1004,9 +1030,8 @@ The complete-core boot fixture executes the generated polling ROM with delayed
 entry publication, secondary-hart parking, and fence-ordered signature stores
 at three CHI response latencies. It requires one L1I line read for the polling
 ROM and one for the payload, allowing additional distinct speculative lines,
-with no D-cache traffic or ROM CompAck. This full-core fixture uses the SoC harness's
-Verilator `UNOPTFLAT` warning setting for packed interfaces; assertions and
-runtime convergence checks remain enabled. Keep simulator entry programming and SoC
+with no D-cache traffic or ROM CompAck. Its C++ driver checks the public CHI
+transactions and boot-ROM output words directly. Keep simulator entry programming and SoC
 BootROM policy separate from this core-level regression.
 
 For instruction-router flow changes, select `rv5stage-instruction-memory-router`
@@ -1019,7 +1044,7 @@ and self-snooped cache fixtures:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicbom-test.rhm cores/rv5stage/tests/rv5stage-test.rhm cores/rv5stage/tests/udb-test.rhm
 FIXTURES='riscv-csr' python3 tools/testing/rsim/run.py
-FIXTURES='rv5stage-zicbom rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-zicbom rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' python3 tools/testing/rsim/run.py
 ```
 
 Keep retirement context in the core, reusable xenvcfg policy in `riscv/rtl`,
@@ -1033,8 +1058,8 @@ cache's independent snoop service.
 For WB authorization and scalar/FP integration, run:
 
 ```sh
-FIXTURES='rv5stage-core rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-core rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The RV32F/RV64D benches exercise rejected memory dispatch, committed prefetches,
@@ -1052,7 +1077,7 @@ both XLEN SRAM sequences as well as the one-completion uncached sequence:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicboz-test.rhm
 FIXTURES='riscv-csr' python3 tools/testing/rsim/run.py
-FIXTURES='rv5stage-zicboz rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-zicboz rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' python3 tools/testing/rsim/run.py
 ```
 
 The scalar fixture covers request rejection/replay, fence drain ordering,
@@ -1073,8 +1098,8 @@ select the narrowest backend fixture. Exercise WB-stage fault classification
 or WFI control flow specifically with:
 
 ```sh
-FIXTURE=rv5stage-data-fault bash tools/testing/circt/run.sh
-FIXTURE=rv5stage-wfi bash tools/testing/circt/run.sh
+FIXTURES='rv5stage-data-fault' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-wfi' python3 tools/testing/rsim/run.py
 ```
 
 The backend test [`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md) owns

@@ -24,7 +24,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-control|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -84,7 +84,7 @@ if [[ -n "$fixture_group" && ( -n "${FIXTURE:-}" || -n "${FIXTURES:-}" ) ]]; the
   exit 2
 fi
 case "$fixture_group" in
-  ""|language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-control|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl) ;;
+  ""|language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl) ;;
   *)
     echo "unknown CIRCT fixture group: $fixture_group" >&2
     exit 2
@@ -104,8 +104,8 @@ integration_fixtures=(
   dont-care
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   uart-dpi chi-full-flits chi-router-composition
-  rv5stage-core rv5stage-branch-prediction rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
-)
+  rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-multiply
+  )
 
 repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
 test_tmp_dir="$(mktemp -d /tmp/rhodium-circt.XXXXXX)"
@@ -213,7 +213,7 @@ fixture_in_group() {
   fi
 
   if [[ "$group" == cores-execution ]]; then
-    for execution_group in cores-execution-frontend cores-execution-control cores-execution-datapath; do
+    for execution_group in cores-execution-frontend cores-execution-datapath; do
       fixture_in_group "$wanted" "$execution_group" && return 0
     done
     return 1
@@ -248,7 +248,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-rv32|cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-core-fp|cores-execution-datapath:rv2wide-core-fp-late|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch|cores-execution-datapath:rv2wide-fetch-disabled|cores-execution-datapath:rv2wide-assembly-prediction|cores-execution-datapath:rv2wide-frontend-prediction|cores-execution-datapath:rv2wide-bht|cores-execution-datapath:rv2wide-mmu)
+    cores-execution-datapath:rv2wide-rv32|cores-execution-datapath:rv2wide-fetch)
       return 0
       ;;
     cores-execution-datapath:rv5stage-cosim*)
@@ -257,10 +257,10 @@ fixture_in_group() {
     language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
-    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
+    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
-    cores-components:cosim-hooks|cores-components:riscv-hpm-*|cores-components:riscv-sscofpmf-*|cores-execution-control:rv5stage-sscofpmf-*)
+    cores-components:cosim-hooks|cores-components:riscv-hpm-*|cores-components:riscv-sscofpmf-*)
       return 0
       ;;
     std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
@@ -272,31 +272,31 @@ fixture_in_group() {
     cores-components:bpred-*|cores-components:fp-*|cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-control-policy|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
-    cores-execution-frontend:rv5stage-access-fault|cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-return-prediction|cores-execution-frontend:rv5stage-instruction-buffer|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput|cores-execution-frontend:rv5stage-branch-prediction|cores-execution-frontend:rv5stage-data-fault|cores-execution-frontend:rv5stage-zcb|cores-execution-frontend:rv5stage-mop)
+    cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput)
       return 0
       ;;
-    cores-components:riscv-csr|cores-components:riscv-zihpm-*|cores-components:riscv-hypervisor-csr|cores-execution-control:rv5stage-hypervisor-core|cores-components:riscv-sstc-rv32|cores-execution-control:rv5stage-interrupt|cores-execution-control:rv5stage-wfi|cores-execution-control:rv5stage-zawrs|cores-execution-control:rv5stage-pause)
+    cores-components:riscv-csr|cores-components:riscv-zihpm-*)
       return 0
       ;;
-    cores-execution-datapath:rv5stage-fp-*|cores-execution-datapath:rv5stage-register-file|cores-execution-datapath:rv5stage-core|cores-execution-datapath:rv5stage-zkt-*|cores-execution-datapath:rv5stage-core-rv32f|cores-execution-datapath:rv5stage-core-rv64d|cores-execution-datapath:rv5stage-integer-execution|cores-execution-datapath:rv5stage-multiply|cores-execution-datapath:rv5stage-divide|cores-execution-datapath:rv5stage-writeback)
+    cores-execution-datapath:rv5stage-fp-*|cores-execution-datapath:rv5stage-core-rv32f|cores-execution-datapath:rv5stage-core-rv64d|cores-execution-datapath:rv5stage-multiply)
       return 0
       ;;
-    cores-vector-functional-1:rv5stage-vector|cores-vector-functional-1:event-vector|cores-vector-functional-1:rv5stage-vector-control|cores-vector-functional-1:rv5stage-vector-config|cores-vector-functional-1:rv5stage-vector-fp|cores-vector-functional-1:rv5stage-vector-muldiv)
+    cores-vector-functional-1:event-vector|cores-vector-functional-1:rv5stage-vector-config)
       return 0
       ;;
-    cores-vector-functional-2:rv5stage-vector-reduction|cores-vector-functional-2:rv5stage-vector-memory|cores-vector-functional-2:rv5stage-vector-packed|cores-vector-functional-2:rv5stage-vector-overlap|cores-vector-functional-2:rv5stage-vector-admission|cores-vector-functional-2:rv5stage-vector-sequencer|cores-vector-functional-2:rv5stage-zvkt)
+    cores-vector-functional-2:rv5stage-vector-memory)
       return 0
       ;;
-    cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-sequencer-rv32|cores-vector-configurations:rv5stage-vector-sequencer-1024)
+    cores-vector-configurations:rv5stage-vector-memory-one-slot)
       return 0
       ;;
-    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:cache-compack|cores-memory:cache-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+    cores-memory:cache-compack|cores-memory:cache-copyback)
       return 0
       ;;
     cores-components:riscv-walk-trace|cores-components:riscv-svpbmt|cores-components:riscv-svnapot|cores-components:riscv-nested-walker|cores-components:riscv-guest-translation)
       return 0
       ;;
-    cores-cache:rv5stage-load-hit|cores-cache:cache-icache*|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:cache-store-buffer|cores-cache:rv5stage-lrsc-*)
+    cores-cache:rv5stage-load-hit)
       return 0
       ;;
     *)
@@ -434,7 +434,8 @@ lower_example_fixture() {
   local reference_export="${3:-verilog_reference}"
 
   example_fixture_selected "$fixture" "$reference_export" || return 0
-  [[ "$simulation_only" == false ]] || return 0
+  # Assertions retains an HDL failure bench after its positive behavior moves to rsim.
+  [[ "$simulation_only" == false || "$fixture" == assertions ]] || return 0
   prepare_example "$fixture" "$example" "$reference_export"
 }
 
@@ -594,7 +595,7 @@ verify_fixture() {
     # WB commit readiness; MEM/WB recovery only gates the younger EX lookup.
     # The core fixture's memory bus also packs WB admission with an independent
     # response offer and the completion arbiter's response readiness.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-core || "$fixture" == rv2wide-rv32 || "$fixture" == rv2wide-core-fp || "$fixture" == rv2wide-core-fp-late || "$fixture" == rv2wide-cache || "$fixture" == rv2wide-fetch || "$fixture" == rv2wide-fetch-disabled || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-rv32 || "$fixture" == rv2wide-fetch || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -620,81 +621,81 @@ verify_fixture() {
 }
 
 fixture_specs=(
-  'adder|adder_tb|examples/lop/adder-standard.rhdl|program|verilog_reference'
-  'adder4|adder4_tb|examples/rtl/adder4.rhdl|program|verilog_reference'
-  'generated-adder|generated_adder_tb|examples/rtl/generated-adder.rhdl|program|verilog_reference'
-  'alu|alu_tb|examples/rtl/alu.rhdl|program|verilog_reference'
-  'enum-state|enum_state_tb|examples/rtl/enum-state.rhdl|program|verilog_reference'
+  'adder||examples/lop/adder-standard.rhdl|program|verilog_reference'
+  'adder4||examples/rtl/adder4.rhdl|program|verilog_reference'
+  'generated-adder||examples/rtl/generated-adder.rhdl|program|verilog_reference'
+  'alu||examples/rtl/alu.rhdl|program|verilog_reference'
+  'enum-state||examples/rtl/enum-state.rhdl|program|verilog_reference'
   'enum-state-lookup||examples/rtl/enum-state.rhdl|lookup_program|lookup_verilog_reference'
   'enum-opcode||examples/rtl/enum-state.rhdl|opcode_program|opcode_verilog_reference'
-  'one-hot|one_hot_tb|examples/rtl/one-hot.rhdl|program|verilog_reference'
+  'one-hot||examples/rtl/one-hot.rhdl|program|verilog_reference'
   'one-hot-enum||examples/rtl/one-hot-enum.rhdl|program|verilog_reference'
   'masks||examples/rtl/masks.rhdl|program|verilog_reference'
-  'shifts|shifts_tb|examples/rtl/shifts.rhdl|program|verilog_reference'
-  'width-ops|width_ops_tb|examples/rtl/width-ops.rhdl|program|verilog_reference'
-  'vector|vector_tb|examples/rtl/vector.rhdl|program|verilog_reference'
+  'shifts||examples/rtl/shifts.rhdl|program|verilog_reference'
+  'width-ops||examples/rtl/width-ops.rhdl|program|verilog_reference'
+  'vector||examples/rtl/vector.rhdl|program|verilog_reference'
   'vector-carry||examples/rtl/vector.rhdl|carry_program|carry_verilog_reference'
   'vector-map||examples/rtl/vector.rhdl|map_program|map_verilog_reference'
-  'vector-update|vector_update_tb|examples/rtl/vector-update.rhdl|program|verilog_reference'
-  'vector-register-update|vector_register_update_tb|examples/rtl/vector-update.rhdl|register_program|register_verilog_reference'
-  'vec-shift-register|vec_shift_register_tb|examples/rtl/vec-shift-register.rhdl|program|verilog_reference'
-  'vec-shift-register-param|vec_shift_register_param_tb|examples/rtl/vec-shift-register-param.rhdl|program|verilog_reference'
-  'predicate-filter|predicate_filter_tb|examples/rtl/predicate-filter.rhdl|program|verilog_reference'
-  'wire|wire_tb|examples/rtl/wire.rhdl|program|verilog_reference'
-  'async-read-memory|async_read_memory_tb|examples/rtl/async-read-memory.rhdl|program|verilog_reference'
-  'sync-memory|sync_memory_tb|examples/rtl/sync-memory.rhdl|program|verilog_reference'
-  'sync-memory-1rw|sync_memory_1rw_tb|examples/rtl/sync-memory-1rw.rhdl|program|verilog_reference'
+  'vector-update||examples/rtl/vector-update.rhdl|program|verilog_reference'
+  'vector-register-update||examples/rtl/vector-update.rhdl|register_program|register_verilog_reference'
+  'vec-shift-register||examples/rtl/vec-shift-register.rhdl|program|verilog_reference'
+  'vec-shift-register-param||examples/rtl/vec-shift-register-param.rhdl|program|verilog_reference'
+  'predicate-filter||examples/rtl/predicate-filter.rhdl|program|verilog_reference'
+  'wire||examples/rtl/wire.rhdl|program|verilog_reference'
+  'async-read-memory||examples/rtl/async-read-memory.rhdl|program|verilog_reference'
+  'sync-memory||examples/rtl/sync-memory.rhdl|program|verilog_reference'
+  'sync-memory-1rw||examples/rtl/sync-memory-1rw.rhdl|program|verilog_reference'
   'sync-memory-masked||examples/rtl/sync-memory-masked.rhdl|program|verilog_reference'
-  'multi-write-memory|multi_write_memory_tb|examples/rtl/multi-write-memory.rhdl|program|verilog_reference'
+  'multi-write-memory||examples/rtl/multi-write-memory.rhdl|program|verilog_reference'
   'clocked-dpi|clocked_dpi_tb|examples/rtl/clocked-dpi.rhdl|program|verilog_reference'
   'clocked-dpi-always||examples/rtl/clocked-dpi.rhdl|always_program|always_verilog_reference'
   'clocked-dpi-explicit||examples/rtl/clocked-dpi.rhdl|explicit_program|explicit_verilog_reference'
-  'assertions|assertions_tb|examples/rtl/assertions.rhdl|program|verilog_reference'
-  'tiny-simd|tiny_simd_tb|examples/rtl/tiny-simd.rhdl|program|verilog_reference'
+  'assertions||examples/rtl/assertions.rhdl|program|verilog_reference'
+  'tiny-simd||examples/rtl/tiny-simd.rhdl|program|verilog_reference'
   'tiny-simd-no-multiply||examples/rtl/tiny-simd.rhdl|no_multiply_program|no_multiply_verilog_reference'
-  'stack|stack_tb|examples/rtl/stack.rhdl|program|verilog_reference'
+  'stack||examples/rtl/stack.rhdl|program|verilog_reference'
   'counter||examples/rtl/counter.rhdl|program|verilog_reference'
   'standard-counter||examples/std/standard-counter.rhdl|program|verilog_reference'
-  'multiply|multiply_tb|examples/rtl/multiply.rhdl|program|verilog_reference'
-  'expanding-arithmetic|expanding_arithmetic_tb|examples/rtl/expanding-arithmetic.rhdl|program|verilog_reference'
-  'fir-filter|fir_filter_tb|examples/rtl/fir-filter.rhdl|program|verilog_reference'
-  'unsigned-comparisons|unsigned_comparisons_tb|examples/rtl/unsigned-comparisons.rhdl|program|verilog_reference'
-  'signed-integers|signed_integers_tb|examples/rtl/signed-integers.rhdl|program|verilog_reference'
+  'multiply||examples/rtl/multiply.rhdl|program|verilog_reference'
+  'expanding-arithmetic||examples/rtl/expanding-arithmetic.rhdl|program|verilog_reference'
+  'fir-filter||examples/rtl/fir-filter.rhdl|program|verilog_reference'
+  'unsigned-comparisons||examples/rtl/unsigned-comparisons.rhdl|program|verilog_reference'
+  'signed-integers||examples/rtl/signed-integers.rhdl|program|verilog_reference'
   'sync-counter||examples/rtl/sync-counter.rhdl|program|verilog_reference'
   'sync-counter-resetless||examples/rtl/sync-counter.rhdl|resetless_program|resetless_verilog_reference'
   'sync-counter-explicit-clock||examples/rtl/sync-counter.rhdl|explicit_clock_program|explicit_clock_verilog_reference'
-  'enable-shift-register|enable_shift_register_tb|examples/rtl/enable-shift-register.rhdl|program|verilog_reference'
-  'reset-shift-register|reset_shift_register_tb|examples/rtl/reset-shift-register.rhdl|program|verilog_reference'
+  'enable-shift-register||examples/rtl/enable-shift-register.rhdl|program|verilog_reference'
+  'reset-shift-register||examples/rtl/reset-shift-register.rhdl|program|verilog_reference'
   'clocking-environment||examples/clocking/frontend-environment.rhdl|clocked_program|verilog_reference'
   'clocking-missing-crossings-broken||examples/clocking/missing-crossings.rhdl|broken_program|broken_verilog_reference'
   'clocking-missing-crossings-fixed||examples/clocking/missing-crossings.rhdl|clocked_program|verilog_reference'
   'clocking-reconvergence||examples/clocking/reconvergence.rhdl|clocked_program|verilog_reference'
-  'clocking-sync-level|clocking_sync_level_tb|examples/clocking/sync-level.rhdl|clocked_program|verilog_reference'
-  'hierarchy|hierarchy_tb|examples/rtl/hierarchy.rhdl|program|verilog_reference'
+  'clocking-sync-level||examples/clocking/sync-level.rhdl|clocked_program|verilog_reference'
+  'hierarchy||examples/rtl/hierarchy.rhdl|program|verilog_reference'
   'rfpl-circuit-pair||examples/rfpl/circuit-pair.rhdl|program|verilog_reference'
-  'nested-circuit|nested_circuit_tb|examples/rtl/nested-circuit.rhdl|program|verilog_reference'
-  'bundle|bundle_tb|examples/rtl/bundle.rhdl|program|verilog_reference'
-  'record-cast|record_cast_tb|examples/rtl/bundle.rhdl|cast_program|cast_verilog_reference'
+  'nested-circuit||examples/rtl/nested-circuit.rhdl|program|verilog_reference'
+  'bundle||examples/rtl/bundle.rhdl|program|verilog_reference'
+  'record-cast||examples/rtl/bundle.rhdl|cast_program|cast_verilog_reference'
   'bundle-specialization-types||examples/rtl/bundle.rhdl|specialization_program|specialization_verilog_reference'
   'bundle-conditional-specialization||examples/rtl/bundle.rhdl|conditional_specialization_program|conditional_specialization_verilog_reference'
   'bundle-nested-swap||examples/rtl/bundle.rhdl|nested_swap_program|nested_swap_verilog_reference'
   'bundle-hierarchy||examples/rtl/bundle.rhdl|hierarchy_program|hierarchy_verilog_reference'
   'tagged-union||examples/rtl/tagged-union.rhdl|program|verilog_reference'
   'nested-tagged-union||examples/rtl/nested-tagged-union.rhdl|program|verilog_reference'
-  'interface|interface_tb|examples/rtl/interface.rhdl|program|verilog_reference'
+  'interface||examples/rtl/interface.rhdl|program|verilog_reference'
   'interface-hierarchy||examples/rtl/interface.rhdl|hierarchy_program|hierarchy_verilog_reference'
   'interface-specialization||examples/rtl/interface-specialization.rhdl|program|verilog_reference'
   'interface-specialization-reversed||examples/rtl/interface-specialization.rhdl|reversed_program|reversed_verilog_reference'
   'interface-specialization-nested||examples/rtl/interface-specialization.rhdl|nested_program|nested_verilog_reference'
   'interface-specialization-width-adapter||examples/rtl/interface-specialization.rhdl|width_adapter_program|width_adapter_verilog_reference'
   'ready-valid-compatibility||examples/std/ready-valid-compatibility.rhdl|program|verilog_reference'
-  'interface-array|interface_array_tb|examples/rtl/interface-array.rhdl|program|verilog_reference'
+  'interface-array||examples/rtl/interface-array.rhdl|program|verilog_reference'
   'interface-generic-handle||examples/rtl/interface-array.rhdl|generic_handle_program|generic_handle_verilog_reference'
   'interface-parallel-handle||examples/rtl/interface-array.rhdl|parallel_handle_program|parallel_handle_verilog_reference'
   'interface-parallel-sink||examples/rtl/interface-array.rhdl|parallel_sink_program|parallel_sink_verilog_reference'
   'interface-array-hierarchy||examples/rtl/interface-array.rhdl|hierarchy_program|hierarchy_verilog_reference'
   'interface-array-sequence||examples/rtl/interface-array.rhdl|sequence_program|sequence_verilog_reference'
-  'nested-interface|nested_interface_tb|examples/rtl/nested-interface.rhdl|program|verilog_reference'
+  'nested-interface||examples/rtl/nested-interface.rhdl|program|verilog_reference'
   'nested-interface-member||examples/rtl/nested-interface.rhdl|member_program|member_verilog_reference'
   'nested-interface-deep||examples/rtl/nested-interface.rhdl|deep_program|deep_verilog_reference'
   'nested-interface-hierarchy||examples/rtl/nested-interface.rhdl|hierarchy_program|hierarchy_verilog_reference'
@@ -771,17 +772,17 @@ fixture_specs=(
   'generator-sync-overrides||examples/rtl/generator-parameters.rhdl|sync_overrides_program|sync_overrides_verilog_reference'
   'generator-sync-typed-defaults||examples/rtl/generator-parameters.rhdl|sync_typed_defaults_program|sync_typed_defaults_verilog_reference'
   'register-forms||examples/rtl/register-forms.rhdl|program|verilog_reference'
-  'priority-encoder|priority_encoder_tb|examples/rtl/priority-encoder.rhdl|five_program|five_verilog_reference'
+  'priority-encoder||examples/rtl/priority-encoder.rhdl|five_program|five_verilog_reference'
   'priority-encoder-shapes||examples/rtl/priority-encoder.rhdl|shapes_program|shapes_verilog_reference'
   'bit-negation||examples/rtl/bit-utilities.rhdl|negation_program|negation_verilog_reference'
   'bit-reductions||examples/rtl/bit-utilities.rhdl|reduction_program|reduction_verilog_reference'
   'bit-membership||examples/rtl/bit-utilities.rhdl|membership_program|membership_verilog_reference'
   'enum-validity||examples/rtl/bit-utilities.rhdl|enum_validity_program|enum_validity_verilog_reference'
   'sync-ram||examples/std/sync-ram.rhdl|program|verilog_reference'
-  'table|table_tb|examples/rtl/table.rhdl|program|verilog_reference'
+  'table||examples/rtl/table.rhdl|program|verilog_reference'
   'valid-pipe||examples/std/valid-pipe.rhdl|program|verilog_reference'
   'valid-pipe-capture-always||examples/std/valid-pipe.rhdl|capture_always_program|-'
-  'vec-search|vec_search_tb|examples/rtl/vec-search.rhdl|program|verilog_reference'
+  'vec-search||examples/rtl/vec-search.rhdl|program|verilog_reference'
   'riscv-instruction-fields||examples/riscv/instruction-fields.rhdl|program|verilog_reference'
   'rv64i-alu-integrated||examples/cores/decoded-alu.rhdl|program|-'
   'chi-ram||examples/chi/ram.rhdl|ram_program|-'
@@ -825,90 +826,25 @@ direct_fixture_specs=(
   'event-retained-bank|event_retained_bank_tb'
   'uart-dpi|uart_dpi_tb||program'
   'nested-bundle|||program'
-  'bundle-update|bundle_update_tb||program'
   'aggregate-memory|'
   'one-hot-aggregate|||program'
   'formal-differential|formal_differential_tb||program'
   'chi-full-flits|||program'
   'chi-router-composition|||program'
-  'rv5stage-chi-requests|rv5stage_chi_requests_tb||program'
   'cache-copyback|cache_copyback_tb'
-  'rv5stage-vector|rv5stage_vector_tb||program'
   'event-vector|event_vector_tb'
-  'rv5stage-vector-control|rv5stage_vector_control_tb||program'
   'rv5stage-vector-config|rv5stage_vector_config_tb'
-  'rv5stage-vector-fp|rv5stage_vector_fp_tb||program'
-  'rv5stage-vector-muldiv|rv5stage_vector_muldiv_tb||program'
-  'rv5stage-vector-reduction|rv5stage_vector_reduction_tb||program'
-  'rv5stage-vector-mask-512|rv5stage_vector_mask_512_tb||program'
   'rv5stage-vector-memory|rv5stage_vector_memory_tb||program'
-  'rv5stage-vector-packed|rv5stage_vector_packed_tb||program'
-  'rv5stage-vector-overlap|rv5stage_vector_overlap_tb||program'
-  'rv5stage-vector-admission|rv5stage_vector_admission_tb||program'
-  'rv5stage-vector-packed-rv32|rv5stage_vector_packed_tb||program'
   'rv5stage-vector-memory-one-slot|rv5stage_vector_memory_tb||program'
-  'rv5stage-vector-sequencer|rv5stage_vector_sequencer_tb||program'
-  'rv5stage-zvkt|rv5stage_zvkt_tb||program'
-  'rv5stage-vector-sequencer-rv32|rv5stage_vector_sequencer_rv32_tb||program'
-  'rv5stage-vector-sequencer-1024|rv5stage_vector_sequencer_1024_tb||program'
-  'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb||program'
-  'rv5stage-register-file|rv5stage_register_file_tb||program'
-  'rv5stage-hypervisor-core|rv5stage_hypervisor_core_tb||program'
-  'rv5stage-pointer-masking|rv5stage_pointer_masking_tb||program'
-  'rv5stage-sscofpmf-core|rv5stage_sscofpmf_core_tb||program'
-  'rv5stage-access-fault|rv5stage_access_fault_tb||program'
   'rv5stage-fetch|rv5stage_fetch_tb||program'
-  'rv5stage-return-prediction|rv5stage_return_prediction_tb||program'
-  'rv5stage-instruction-buffer|rv5stage_instruction_buffer_tb||program'
   'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
   'rv5stage-fetch-throughput|rv5stage_fetch_throughput_tb'
-  'rv5stage-memory-arbiter|rv5stage_memory_arbiter_tb||program'
   'rv5stage-load-hit|rv5stage_load_hit_tb'
-  'rv5stage-branch-prediction|rv5stage_branch_prediction_tb||program'
-  'rv5stage-core|rv5stage_core_tb'
-  'rv2wide-core|rv2wide_core_tb||program'
   'rv2wide-rv32|rv2wide_rv32_tb||program'
-  'rv2wide-core-fp|rv2wide_core_fp_tb||program'
-  'rv2wide-core-fp-late|rv2wide_core_fp_tb||program'
-  'rv2wide-cache|rv2wide_cache_tb||program'
   'rv2wide-fetch|rv2wide_fetch_tb'
-  'rv2wide-fetch-disabled|rv2wide_fetch_tb||program'
-  'rv2wide-assembly-prediction|rv2wide_assembly_prediction_tb||program'
-  'rv2wide-frontend-prediction|rv2wide_frontend_prediction_tb||program'
-  'rv2wide-bht|rv2wide_bht_tb||program'
-  'rv2wide-mmu|rv2wide_mmu_tb||program'
-  'rv5stage-zcb|rv5stage_zcb_tb||program'
-  'rv5stage-mop|rv5stage_mop_tb||program'
-  'rv5stage-zkt-rv32|rv5stage_zkt_rv32_tb||program'
-  'rv5stage-zkt-rv64|rv5stage_zkt_rv64_tb||program'
   'rv5stage-core-rv32f|rv5stage_core_rv32f_tb||program'
   'rv5stage-core-rv64d|rv5stage_core_rv64d_tb||program'
-  'rv5stage-data-fault|rv5stage_data_fault_tb||program'
-  'rv5stage-zicboz|rv5stage_zicboz_tb||program'
-  'rv5stage-zicbom|rv5stage_zicbom_tb||program'
-  'rv5stage-mmu-replay|rv5stage_mmu_replay_tb||program'
-  'rv5stage-interrupt|rv5stage_interrupt_tb||program'
-  'rv5stage-wfi|rv5stage_wfi_tb||program'
-  'rv5stage-zawrs|rv5stage_zawrs_tb||program'
-  'rv5stage-pause|rv5stage_pause_tb||program'
-  'rv5stage-ntl|rv5stage_ntl_tb||program'
-  'rv5stage-instruction-memory-router|rv5stage_instruction_memory_router_tb||program'
-  'rv5stage-memory-router|rv5stage_memory_router_tb||program'
-  'rv5stage-uncached|rv5stage_uncached_tb||program'
-  'rv5stage-io-mshr|rv5stage_io_mshr_tb||program'
-  'rv5stage-io-boot|rv5stage_io_boot_tb||program'
   'rv5stage-multiply|rv5stage_multiply_tb'
-  'rv5stage-integer-execution|rv5stage_integer_execution_tb||program'
-  'rv5stage-writeback|rv5stage_writeback_tb||program'
-  'rv5stage-divide|rv5stage_divide_tb||program'
-  'rv5stage-icache-coherence|rv5stage_icache_coherence_tb||program'
-  'rv5stage-icache-coherence-flat|rv5stage_icache_coherence_tb||program'
-  'rv5stage-dcache|rv5stage_dcache_tb||program'
-  'rv5stage-dcache-rv32|rv5stage_dcache_rv32_tb||program'
-  'rv5stage-lrsc-progress|rv5stage_lrsc_progress_tb||program'
-  'rv5stage-lrsc-core-progress|rv5stage_lrsc_core_progress_tb||program'
-  'rv5stage-lrsc-core-progress-predicted|rv5stage_lrsc_core_progress_tb||program'
-  'rv5stage-lrsc-core-progress-rv32|rv5stage_lrsc_core_progress_tb||program'
 )
 
 fixture_declared() {
@@ -982,7 +918,7 @@ if [[ "$mode" == --list-fixtures ]]; then
   exit 0
 fi
 
-fixture_groups=(language std protocols cores-components cores-execution-frontend cores-execution-control cores-execution-datapath cores-vector-functional-1 cores-vector-functional-2 cores-vector-configurations cores-memory cores-cache socs rfpl)
+fixture_groups=(language std protocols cores-components cores-execution-frontend cores-execution-datapath cores-vector-functional-1 cores-vector-functional-2 cores-vector-configurations cores-memory cores-cache socs rfpl)
 for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
   IFS='|' read -r fixture _ <<< "$spec"
   group_count=0
@@ -1001,7 +937,7 @@ materialize_args=()
 for spec in "${fixture_specs[@]}"; do
   IFS='|' read -r fixture top example program_export reference_export <<< "$spec"
   if example_fixture_selected "$fixture" "$reference_export" \
-      && [[ "$simulation_only" == false || -n "$top" ]]; then
+      && [[ "$simulation_only" == false || -n "$top" || "$fixture" == assertions ]]; then
     if [[ "$reference_export" != - \
         && ( "$compare_goldens" == true || "$update_goldens" == true ) ]]; then
       materialize_args+=(golden "$fixture" "$example" "$program_export" "$reference_export")

@@ -113,7 +113,7 @@ Include `riscv-csr`, `rv5stage-zicboz`, and `rv5stage-mmu-replay` when shared
 CSR or translation behavior changes. These fixtures check behavior, not IR
 shape; pair with `riscv-hypervisor-csr` and `rv5stage-hypervisor-core` for
 guest environment storage and precise denied-operation behavior. Use the
-[backend guide](../../tools/testing/circt/DEVELOPING.md) for invocation.
+[rsim guide](../../tools/testing/rsim/README.md) for invocation.
 
 From the repository root, run:
 

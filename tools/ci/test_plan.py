@@ -53,7 +53,14 @@ class PlanTest(unittest.TestCase):
     def test_rsim_component_selection_and_requirements(self):
         for path, expected in (
             ("flow/queue.rhdl", "rsim-std"),
+            ("examples/clocking/sync-level.rhdl", "rsim-std"),
+            ("cores/rv2wide/tests/rsim/driver.hpp", "rsim-core-components"),
             ("cores/tests/rsim/rv64i-alu.cpp", "rsim-core-components"),
+            ("cores/rv5stage/tests/rsim/vector-sequencer.hpp", "rsim-core-components"),
+            ("cores/rv5stage/tests/rsim/rv5stage-vector.cpp", "rsim-core-vector-functional-1"),
+            ("cores/rv5stage/tests/rsim/rv5stage-hypervisor-core.cpp", "rsim-core-execution-control"),
+            ("chi/protocol/flits.rhdl", "rsim-core-cache"),
+            ("chi/protocol/flits.rhdl", "rsim-core-memory"),
             ("hardfloat/tests/rsim/numeric.cpp", "rsim-hardfloat"),
             ("chi/tests/rsim/chi-read-once.cpp", "rsim-protocols"),
             ("chi/tests/rsim/request.hpp", "rsim-core-components"),
@@ -65,7 +72,7 @@ class PlanTest(unittest.TestCase):
             plan = self.plan(path)
             entries = [entry for entry in plan["checks_matrix"]["include"]
                        if entry["key"].startswith("rsim-")]
-            self.assertEqual(len(entries), 4)
+            self.assertEqual({entry["key"] for entry in entries}, {check.key for check in CHECKS if check.key.startswith("rsim-")})
             self.assertTrue(all(not entry["circt"] and not entry["verilator"] for entry in entries))
 
     def test_standard_library_goldens_need_no_simulator(self):
@@ -541,7 +548,7 @@ class PlanTest(unittest.TestCase):
             "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "host-examples"),
             "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "rsim-hardfloat"),
             "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "host-examples", "circt-verilog-differential"),
-            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "circt-core-execution-control", "circt-core-execution-datapath", "host-examples"),
+            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "rsim-core-execution-control", "circt-core-execution-datapath", "host-examples"),
             "chi/subordinate/dpi/chi_dpi_memory_dpi.cc": ("circt-verilog-differential",),
             "socs/mini-rv5stage-soc.rhdl": ("host-socs", "circt-core-memory", "host-hygiene"),
             "examples/rfpl/circuit-pair.rhdl": ("host-examples", "circt-rfpl", "host-hygiene"),
@@ -642,17 +649,33 @@ class PlanTest(unittest.TestCase):
             output = subprocess.run(["bash", runner, "--group", group, "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
             return set(output.splitlines())
 
-        leaves = [fixtures(group) for group in ("cores-execution-frontend", "cores-execution-control", "cores-execution-datapath")]
+        leaves = [fixtures(group) for group in ("cores-execution-frontend", "cores-execution-datapath")]
         combined = fixtures("cores-execution")
         self.assertTrue(all(leaves))
         self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
         self.assertEqual(set.union(*leaves), combined)
-        self.assertTrue({"rv2wide-core", "rv2wide-fetch-disabled", "rv2wide-assembly-prediction", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
+        self.assertTrue({"rv2wide-fetch", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[-1])
 
     def test_shared_predictor_fixtures_belong_to_components(self):
         runner = REPO / "tools/testing/rsim/run.py"
         output = subprocess.run(["python3", runner, "--group", "cores-components", "--list"], cwd=REPO, check=True, text=True, capture_output=True).stdout
         self.assertTrue({"bpred-btb", "bpred-btb-wide", "bpred-ras"} <= set(output.splitlines()))
+
+    def test_standalone_rv5stage_fixtures_belong_to_rsim_components(self):
+        runner = REPO / "tools/testing/rsim/run.py"
+        output = subprocess.run(["python3", runner, "--group", "cores-components", "--list"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+        expected = {"rv5stage-" + name for name in (
+            "register-file", "fp-pipeline", "integer-execution", "writeback", "divide",
+            "memory-arbiter", "vector-sequencer", "vector-sequencer-rv32", "vector-sequencer-1024")}
+        self.assertTrue(expected <= set(output.splitlines()))
+
+    def test_rv2wide_behavior_belongs_to_rsim_components(self):
+        runner = REPO / "tools/testing/rsim/run.py"
+        output = subprocess.run(["python3", runner, "--group", "cores-components", "--list"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+        expected = {"rv2wide-" + name for name in (
+            "core", "core-fp", "core-fp-late", "cache", "fetch-disabled",
+            "assembly-prediction", "frontend-prediction", "bht", "mmu")}
+        self.assertTrue(expected <= set(output.splitlines()))
 
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()

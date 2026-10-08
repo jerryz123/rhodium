@@ -36,7 +36,7 @@ importing the instruction-cache package.
 | Clean and dirty snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
 | Named-core integration | [RV5Stage](../../rv5stage/rv5stage.rhdl), [RV2Wide](../../rv2wide/rv2wide.rhdl) |
 | Host configuration and protocol metadata | [RV5Stage cache contract](../../rv5stage/tests/dcache-test.rhm), [transaction engines](../../rv5stage/tests/transaction-engines-test.rhm) |
-| Behavioral fixtures | [Rsim shared components](../tests/rsim/), [RV5Stage HDL integration](../../rv5stage/tests/circt/), [RV2Wide HDL integration](../../rv2wide/tests/circt/) |
+| Behavioral fixtures | [Rsim shared components](../tests/rsim/), [RV5Stage rsim integration](../../rv5stage/tests/rsim/), [RV2Wide rsim integration](../../rv2wide/tests/rsim/) |
 
 ## Change the cache
 
@@ -187,7 +187,8 @@ Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
 FIXTURES='cache-store-buffer riscv-atomic' python3 tools/testing/rsim/run.py
-FIXTURES='rv5stage-load-hit rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-load-hit' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Use the [RV5Stage guide](../../rv5stage/DEVELOPING.md#focused-validation) and

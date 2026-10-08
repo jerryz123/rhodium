@@ -1,7 +1,6 @@
 // Checks production fetch, selected compressed subsets, prediction, and precise memory/fault recovery.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_fetch_tb;
-`ifndef BPRED_DISABLED
   import "DPI-C" function void rv2wide_fetch_trace_bind();
   import "DPI-C" function void rv2wide_fetch_trace_finish();
   import "DPI-C" function void rv2wide_fetch_trace_expect(input int unsigned lane, input longint unsigned pc, input int unsigned instruction, prediction, ras_mismatch);
@@ -9,7 +8,6 @@ module rv2wide_fetch_tb;
   logic trace_reset=1;
   always @(posedge clock) trace_reset<=reset;
   always @(negedge clock) rv2wide_fetch_trace_check(int'(trace_reset));
-`endif
   typedef struct packed { logic [63:0] cause, value; logic [65:0] guest; } fault_t;
   typedef struct packed { logic valid; fault_t bits; } fault_flow_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
@@ -374,7 +372,6 @@ module rv2wide_fetch_tb;
       end
       default: $fatal(1,"oracle instruction %h",word);
     endcase
-`ifndef BPRED_DISABLED
     begin
       bit is_branch, pushes, pops;
       logic [63:0] predicted_pc;
@@ -387,7 +384,6 @@ module rv2wide_fetch_tb;
       prediction=is_branch ? (predicted_pc==64'(reference_pc) ? 1 : 2) : 0;
       rv2wide_fetch_trace_expect(lane,got.fetched.pc,raw,prediction,int'(got.fetched.speculated_ras_action!=2'(action)));
     end
-`endif
     assert(got.write==write_rd) else $fatal(1,"write flag at %h",got.fetched.pc);
     if(write_rd) begin
       assert(got.rd==5'(rd)) else $fatal(1,"rd");
@@ -546,9 +542,7 @@ module rv2wide_fetch_tb;
   endtask
 
   initial begin
-`ifndef BPRED_DISABLED
     rv2wide_fetch_trace_bind();
-`endif
     start_in='0;
     for(int p=0;p<4096;p+=4) insn(p,addi(0,0,0));
     for(int b=2048;b<4092;b++) backing[b]=8'(b);
@@ -576,11 +570,7 @@ module rv2wide_fetch_tb;
     launch(0,1,4096);
     assert(longest_dual>=5 && dreads>0 && completions_seen>0 && branch_count>=3)
       else $fatal(1,"missing throughput/memory coverage dual=%0d dreads=%0d complete=%0d branches=%0d",longest_dual,dreads,completions_seen,branch_count);
-`ifndef BPRED_DISABLED
     assert(predicted_conditional>0) else $fatal(1,"warm conditional branch never predicted taken");
-`else
-    assert(predicted_branches==0) else $fatal(1,"disabled predictor emitted a prediction");
-`endif
     $display("RV2Wide initial fetch phase: cycles=%0d corrections=%0d predictions=%0d",cycles,branch_count,predicted_branches);
     assert(wrong_path_reads>0 && detached_refills>0) else $fatal(1,"no wrong-path retained refill");
     phase=1; launch(512,1,512); // accepted CHI error, not illegal-instruction decoding
@@ -762,9 +752,7 @@ module rv2wide_fetch_tb;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(compressed_retired>=80 && compressed_dual_run>=5 && straddled_retired>=3 && registers[20]==1 && registers[21]==3 && registers[9]==registers[10] && registers[10]==registers[11] && registers[12]=='h662 && registers[13]==13 && reference_pc=='h66e)
       else $fatal(1,"compressed stream/link/backpressure coverage count=%0d dual=%0d cross=%0d",compressed_retired,compressed_dual_run,straddled_retired);
-`ifndef BPRED_DISABLED
     assert(predicted_straddles>0) else $fatal(1,"warm straddling branch never used the BTB");
-`endif
     // An illegal compressed encoding retains its 16-bit mtval after an older
     // accepted compressed load drains, without executing its canonical zero.
     @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
@@ -932,7 +920,6 @@ module rv2wide_fetch_tb;
       end
       assert(completions.size()==0) else $fatal(1,"split allocated a deferred RF owner");
     end
-`ifndef BPRED_DISABLED
     // All Zcb forms execute through the normal decoder, including every compact
     // register, dependent M/B results, cold narrow loads, and masked stores.
     begin
@@ -986,17 +973,12 @@ module rv2wide_fetch_tb;
       assert(reference_pc==pc && zc_pairs>0 && registers[16]==65 && registers[15]=='h81 && completions.size()==0)
         else $fatal(1,"Zcb/Zcmop execution, pairing, dependencies, or drain");
     end
-`endif
     // Selected-subset legality must preserve raw 16-bit trap values and drain
     // an older accepted load. The C-only variant rejects these optional forms;
     // the extended variant rejects adjacent reserved encodings instead.
     for(int scenario=0;scenario<2;scenario++) begin
       logic [15:0] invalid;
-`ifdef BPRED_DISABLED
-      invalid=scenario==0 ? 16'h9c75 : 16'h6081; // C.NOT / C.MOP.1 disabled
-`else
       invalid=scenario==0 ? 16'h9c79 : 16'h6101; // reserved unary / zero C.ADDI16SP
-`endif
       @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
       for(int r=0;r<32;r++) registers[r]=0;
       for(int b=0;b<8;b++) begin backing['h800+b]=8'('ha0+b); model_bytes['h800+b]=backing['h800+b]; end
@@ -1015,7 +997,6 @@ module rv2wide_fetch_tb;
       assert(registers[9]==64'ha7a6a5a4a3a2a1a0 && registers[11]==64'(invalid) && registers[13]=='h412 && registers[12]==0)
         else $fatal(1,"compressed subset legality/trap provenance/drain");
     end
-`ifndef BPRED_DISABLED
     // Repeated best-effort I hints in a resident loop eventually fill a cold
     // target. The later branch uses that line without another CHI request.
     @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
@@ -1087,8 +1068,6 @@ module rv2wide_fetch_tb;
       wait(sleeping); repeat(3) @(negedge clock);
       assert(reference_pc==pc+4 && dreads==before_reads+8) else $fatal(1,"compressed NTL fetch/allocation");
     end
-`endif
-`ifndef BPRED_DISABLED
     // Enable PBMTE through the real CSR bank, then execute both NC and IO
     // mappings over coherent RAM. Fetch and WB data share one uncached identity.
     for(int kind=1;kind<=2;kind++) begin
@@ -1129,8 +1108,6 @@ module rv2wide_fetch_tb;
       assert(pbmt_fetches>before_fetches && pbmt_loads==before_loads+4 && pbmt_stores==before_stores+1) else $fatal(1,"PBMT cached allocation or duplicate/squashed data effect");
       $display("PBMT kind=%0d passed at cycle=%0d: %0d fetches, %0d loads, %0d stores",kind,cycles,pbmt_fetches-before_fetches,pbmt_loads-before_loads,pbmt_stores-before_stores);
     end
-`endif
-`ifndef BPRED_DISABLED
     // Rewrite warm I/D mappings through a coherent virtual alias of the leaf
     // table. No harness memory mutation occurs while the hart is executing.
     begin
@@ -1176,11 +1153,8 @@ module rv2wide_fetch_tb;
       assert(reference_pc=='h400048 && svinval_remapped && registers[5]==64'h0807060504030201 && registers[7]==64'h1817161514131211 && registers[9]==33)
         else $fatal(1,"Svinval failed to expose rewritten coherent instruction/data PTEs");
     end
-`endif
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
-`ifndef BPRED_DISABLED
     rv2wide_fetch_trace_finish();
-`endif
     $finish;
   end
 endmodule

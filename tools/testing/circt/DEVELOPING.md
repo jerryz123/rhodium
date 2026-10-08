@@ -29,34 +29,33 @@ The [repository test-development guide](../DEVELOPING.md) owns test placement,
 authoring principles, and CI classification outside this backend-specific
 fixture boundary.
 
-RV5Stage scalar fixtures belong to `cores-execution-frontend`,
-`cores-execution-control`, or `cores-execution-datapath`. Their aggregate
-`cores-execution` selector remains available for local runs; CI gives each
-leaf its own timeout. Frontend covers fetch, prediction, decode, and fault
-delivery; control covers CSRs, counters, privilege, and wait/interrupt
-behavior; datapath covers FP, integer execution, writeback, retirement, and
-integrated cores. Keep the three leaves nonempty, disjoint, and exhaustive
-when adding a fixture.
+Remaining RV5Stage HDL fixtures belong to `cores-execution-frontend` or
+`cores-execution-datapath`; `cores-execution` combines both. They cover
+trace/DPI, co-sim, and nested FP observations. Portable scalar behavior lives
+in the rsim execution groups, including the control group. Keep HDL leaves
+nonempty, disjoint, and exhaustive when adding an HDL fixture.
 
-Reusable CSR, MMU, predictor, FP, ALU, and standalone cache behavior belongs
+Reusable CSR, MMU, predictor, FP, ALU, standalone cache, and RV5Stage
+register-file, FP pipeline, integer execution, writeback calendar, divider
+workload, memory-arbiter, and vector-sequencer behavior, plus RV2Wide
+core/FP, cache, disabled-fetch, prediction, BHT, and MMU behavior belong
 to the rsim `cores-components` group in
 [`../rsim/fixtures.tsv`](../rsim/fixtures.tsv). Shared fixtures stay with
-their package under `tests/rsim/`. The `riscv-walk-trace` runtime descriptor
+their package under `tests/rsim/`. Portable language behavior also uses rsim;
+its example-backed rows here retain references without a Verilator top.
+RV2Wide enabled-fetch retains its HDL trace/DPI event oracle. The `riscv-walk-trace` runtime descriptor
 and DPI integration and `cosim-hooks` ABI fixture retain their HDL owner here.
-Named-core retirement, fetch, memory replay, and architectural integration
-remain in their existing execution and memory groups.
+Named-core trace/retirement and internal-observer integration remain in
+their HDL execution and memory groups. Portable memory replay and architectural
+workloads belong to the rsim groups.
 
-RV5Stage vector fixtures belong to `cores-vector-functional-1` or
-`cores-vector-functional-2` for the default functional configurations, or
-`cores-vector-configurations` for alternate XLEN, VLEN, queue depth, and slot
-counts. The numbered functional groups partition one semantic owner by CI
-runtime; `cores-vector-functional` combines them for local runs.
-`cores-vector` also includes the configuration group, and `cores` combines
-the vector aggregate with the component, scalar/frontend execution, memory,
-and cache groups. CI gives the three vector leaves and the package-owned
-HardFloat runner independent jobs.
-The CI classifier check uses the runner's manifest-only listing to require
-the execution and vector functional leaves to be nonempty, disjoint, and exhaustive.
+Retained vector HDL fixtures use `cores-vector-functional-1` for event/config
+tracing, `cores-vector-functional-2` for bound memory observers, and
+`cores-vector-configurations` for the one-slot observer variant. The functional
+aggregate combines the first two; `cores-vector` adds configurations. The CI
+classifier requires the execution and vector leaves to remain nonempty,
+disjoint, and exhaustive. Portable vector behavior uses the corresponding rsim
+fixture groups.
 
 Alternate vector fixtures cover parameter boundaries, not a cross-product of
 every subsystem with every supported value. Keep one behavioral owner for each

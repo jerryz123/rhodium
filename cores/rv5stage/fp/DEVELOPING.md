@@ -66,7 +66,8 @@ when wrapper semantics change. Generated output remains untracked.
 ```sh
 tools/run-racket-tests.sh cores/fp/tests/decode-test.rhm \
   cores/rv5stage/tests/fp-pipeline-test.rhm cores/rv5stage/tests/core-ctrl-test.rhm
-FIXTURES='rv5stage-fp-pipeline rv5stage-core-rv32f rv5stage-core-rv64d' \
+python3 tools/testing/rsim/run.py --fixture rv5stage-fp-pipeline
+FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 

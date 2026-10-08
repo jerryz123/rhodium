@@ -38,12 +38,20 @@ foreign/runtime boundary requires HDL integration. Scalar and aggregate memory
 semantics have dedicated backend differential oracles. The portable SyncRam
 behavior suite belongs to rsim and has no duplicate SV bench.
 
-Rsim behavioral fixtures are selected from `rsim/fixtures.tsv`. The four
-CI lanes cover standard-library/Flow (including elementary language examples),
-reusable core components, protocols/controllers, and HardFloat. They require a
+Rsim behavioral fixtures are selected from `rsim/fixtures.tsv`. The
+CI lanes cover standard-library/Flow and portable language behavior,
+reusable and standalone named-core components, protocols/controllers, and HardFloat. They require a
 C++20 compiler but neither CIRCT nor Verilator. Package changes select their
-rsim owner; shared rsim or orchestration changes select all four. HDL golden
-and instrumentation lanes remain independently selected.
+rsim owners; shared rsim or orchestration changes select all rsim lanes. HDL golden
+and instrumentation lanes remain independently selected. Language behavior
+includes arithmetic, aggregates, hierarchy, synchronous clocking, memories,
+and assertion enable/reset behavior; the same examples retain their HDL
+goldens. RV2Wide core/FP, cache, disabled-fetch, prediction, BHT, and MMU
+scoreboards belong to the core lane, while enabled-fetch retains its HDL
+trace/DPI oracle. RV5Stage composed behavior has separate frontend, control,
+datapath, vector, memory, and cache groups, preserving the previous workload
+split without HDL dependencies. Use the fixture inventory to select a group;
+traced/co-sim and internal-observer fixtures stay in their HDL lanes.
 
 The host/backend lane also runs the small standalone rsim C++ fixtures, using
 the runner's C++ compiler without HDL tools. The backend differential lane
@@ -286,13 +294,13 @@ litmus7 selection with its independent 90-minute budget; OpenSBI retains a
 runner results even on failure. The full litmus inventory is manual only and has
 no CI job or schedule. Do not remove smoke cases because they expose a failure.
 
-Core CIRCT coverage gives frontend, control, and datapath execution leaves,
-two functional vector shards, alternate vector configuration, and HardFloat
-independent jobs and timeout budgets. The aggregate `cores-execution` selector
-combines the three execution leaves; `cores-vector-functional` combines
-the two functional shards, `cores-vector` adds configurations, and `cores`
-still covers the five manifest-owned subsystem groups.
-HardFloat retains its package-owned runner and target.
+Core rsim coverage gives frontend, control, and datapath execution, two
+functional vector shards, alternate vector configurations, memory, and cache
+independent jobs and timeout budgets. HardFloat uses the same rsim runner
+through its package-owned target. Retained CIRCT fixtures use separate HDL
+jobs for their trace/runtime and observation contracts; its `cores-execution`
+selector combines frontend and datapath, while the vector aggregates retain
+both functional shards and the alternate-configuration shard.
 
 Both RVA23 single-core software matrices independently select ISA tests, benchmarks,
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.

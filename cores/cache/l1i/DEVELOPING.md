@@ -31,7 +31,7 @@ separation.
 | Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
 | Core/MMU/CHI integration | [RV5Stage](../../rv5stage/rv5stage.rhdl), [RV2Wide physical fetch](../../rv2wide/rv2wide.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
-| Behavioral fixtures | [Rsim shared cache](../tests/rsim/), [RV5Stage HDL integration](../../rv5stage/tests/circt/) |
+| Behavioral fixtures | [Rsim shared cache](../tests/rsim/), [RV5Stage rsim integration](../../rv5stage/tests/rsim/) |
 
 ## Change the cache
 

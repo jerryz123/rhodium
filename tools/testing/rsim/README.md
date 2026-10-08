@@ -57,25 +57,36 @@ and binaries for the selected fixtures so stale regions cannot enter a build.
 
 ## Test boundaries
 
-Rsim component lanes own standard-library, Flow, reusable-core, HardFloat,
-and portable controller behavior. CIRCT and direct-SystemVerilog tests retain
-emitter diagnostics, exact Verilog references, backend differential checks,
-foreign ABI/event-runtime integration, and named-core/SoC harnesses. Those
-checks exercise a different boundary and are not copies of component benches.
+Rsim component lanes own portable language behavior, standard-library, Flow, reusable-core, HardFloat,
+and portable controller behavior. The `cores-components` group also includes
+RV5Stage register-file, FP pipeline, integer execution, writeback calendar,
+memory arbiter, divider workload, and three vector-sequencer configurations.
+RV2Wide core/FP, cache, disabled-fetch, assembly and frontend prediction, BHT,
+and MMU scoreboards also run in this group. Enabled-fetch remains an HDL test
+because it additionally checks trace/DPI events.
+RV5Stage composed core, control, vector, memory-routing, coherent-cache, and
+LR/SC workloads use separate `cores-execution-*`, `cores-vector-*`,
+`cores-memory`, and `cores-cache` groups. Each configuration keeps its complete
+scoreboard and parameter-specific workload.
+CIRCT and direct-SystemVerilog tests retain emitter diagnostics, exact Verilog
+references, backend differential checks, foreign ABI/event-runtime integration,
+and the remaining instrumented named-core/SoC harnesses. Those checks exercise a different boundary and are not copies of component benches.
 When migrating a suite, preserve its independent oracle, reset/stall timing,
 parameter coverage, and expected assertion failures before retiring its SV
 bench and behavioral manifest entry. Example-owned Verilog goldens may remain.
 
 The protocol/controller migration has no remaining rsim feature blocker in the
-ported inventory. The standalone FESVR MMIO requester runs through rsim too. Deliberate
-HDL owners are:
+ported inventory. The standalone FESVR MMIO requester runs through rsim too.
+Remaining HDL owners are:
 
 | Remaining owner | Contract that keeps it on the HDL path |
 |---|---|
 | Event fixtures, including traced Home, FESVR, and page walks | Generated trace descriptors, DPI callbacks, and event ordering in the HDL runtime |
 | UART DPI and co-sim hooks | Foreign ABI and production host integration |
-| Compiler language/backend fixtures | Emitted HDL semantics, clock scheduling, exact references, and cross-backend differential oracles |
-| Named-core and SoC fixtures | Existing architectural/integration harnesses outside this migration |
+| Compiler HDL/backend fixtures | Exact emission references, HDL assertions and DPI scheduling, and cross-backend/formal differential oracles |
+| RV5Stage core-rv32f/core-rv64d | Nested WB-FP issue, result, and authorization observations |
+| RV5Stage vector-memory and vector-memory-one-slot | Bound internal VRF-write and certificate-lifetime observers |
+| Remaining named-core event tests and SoC fixtures | HDL trace/runtime and system harness integration |
 
 An untraced rsim Home or FESVR driver does not replace the trace-runtime
 oracle. Their retained SV workload bodies live under the event test owner and

@@ -881,7 +881,7 @@ unaligned single mask registers at large LMUL.
 
 The composed `tests/vector-fixture.rhdl` captures request controls alongside
 the bank read, executes the actual SIMD ALU, and optionally commits its result
-through the same masked port used for initialization. Its independent SV
+through the same masked port used for initialization. Its independent C++
 scoreboard checks public read/write behavior at VLEN 128, 256, and 512,
 including in-place operations, register boundaries, bit-granular forwarding,
 partial bodies, broadcasts, comparison/carry packing, widening, and reset. Do not
@@ -891,7 +891,7 @@ Run from the repository root through the persistent worktree-specific cache:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/vector-test.rhm
-FIXTURE=rv5stage-vector bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-vector' python3 tools/testing/rsim/run.py
 make check-boundaries
 ```
 
@@ -910,8 +910,9 @@ consecutive VRF writes each, with exact row/data/mask checks across private
 execute, scheduled completion, and in-place reuse.
 The signature-memory model rejects each store once, then retains readiness
 until acceptance, exercising replay without periodic readiness/retry phase lock.
-The `rv5stage-vector-sequencer` and `rv5stage-vector-sequencer-rv32` fixtures
-compose real decode/VRF/execute with a flushable result boundary. An independent
+The rsim `rv5stage-vector-sequencer`, `rv5stage-vector-sequencer-rv32`, and
+`rv5stage-vector-sequencer-1024` fixtures (selected with
+`python3 tools/testing/rsim/run.py --fixture NAME`) compose real decode/VRF/execute with a flushable result boundary. An independent
 element model checks all decoded packed integer operations, fixed-point averaging,
 saturation, rounding, and clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
 mask writes, in-place operations, randomized read-admission stalls, result maturity,
