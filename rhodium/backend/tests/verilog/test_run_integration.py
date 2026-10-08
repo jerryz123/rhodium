@@ -18,7 +18,7 @@ class IntegrationTest(unittest.TestCase):
     def invoke(self, *options, emission_error=None):
         with tempfile.TemporaryDirectory() as work, \
              patch.object(integration.tempfile, "mkdtemp", return_value=work), \
-             patch("sys.argv", ["run-integration.py", "--fixture", "sync-ram", *options]), \
+             patch("sys.argv", ["run-integration.py", "--fixture", "event-runtime", *options]), \
              patch.object(integration.shutil, "which", return_value="/tool/verilator"), \
              patch.object(integration.Path, "is_file", return_value=True), \
              patch.object(integration, "run", return_value="artifact", side_effect=emission_error) as run, \
@@ -30,14 +30,14 @@ class IntegrationTest(unittest.TestCase):
     def test_direct_runs_only_the_direct_emitter_and_bench(self):
         run, simulate = self.invoke()
         self.assertEqual(run.call_count, 1)
-        self.assertEqual(run.call_args.args[0][-2:], ["direct", "sync-ram"])
+        self.assertEqual(run.call_args.args[0][-2:], ["direct", "event-runtime"])
         self.assertEqual(simulate.call_count, 1)
         self.assertEqual(simulate.call_args.args[2], "direct")
 
     def test_manifest_comparison_keeps_direct_behavior_without_a_second_circt_simulation(self):
         run, simulate = self.invoke("--check-manifests")
         self.assertEqual([call.args[0][-2:] for call in run.call_args_list],
-                         [["direct", "sync-ram"], ["circt", "sync-ram"]])
+                         [["direct", "event-runtime"], ["circt", "event-runtime"]])
         self.assertEqual(simulate.call_count, 1)
 
     def test_full_differential_keeps_both_behavioral_routes(self):

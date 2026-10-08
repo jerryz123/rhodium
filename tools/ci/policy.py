@@ -43,10 +43,13 @@ CHECKS = (
     Check("host-examples", "Host / auxiliary examples", "ci-host-examples-test", timeout=15),
     Check("verilog-direct", "SystemVerilog / direct smoke", "ci-verilog-direct-test", verilator=True),
     Check("circt-verilog-differential", "SystemVerilog / differential", "ci-backend-differential-test", circt=True, verilator=True),
+    Check("rsim-std", "Rsim / standard library", "ci-rsim-std-test"),
+    Check("rsim-core-components", "Rsim / core components", "ci-rsim-core-components-test"),
+    Check("rsim-protocols", "Rsim / protocols", "ci-rsim-protocols-test"),
     Check("circt-language", "CIRCT / language", "ci-circt-language-test", circt=True, verilator=True),
-    Check("circt-std", "CIRCT / standard library", "ci-circt-std-test", circt=True, verilator=True),
+    Check("circt-std", "CIRCT / standard-library goldens", "ci-circt-std-test", circt=True),
     Check("circt-protocols", "CIRCT / protocols", "ci-circt-protocols-test", circt=True, verilator=True),
-    Check("circt-core-components", "CIRCT / core components", "ci-circt-core-components-test", circt=True, verilator=True),
+    Check("circt-core-components", "CIRCT / core emission and instrumentation", "ci-circt-core-components-test", circt=True, verilator=True),
     Check("circt-core-execution-frontend", "CIRCT / core frontend", "ci-circt-core-execution-frontend-test", circt=True, verilator=True),
     Check("circt-core-execution-control", "CIRCT / core control", "ci-circt-core-execution-control-test", circt=True, verilator=True),
     Check("circt-core-execution-datapath", "CIRCT / core datapath", "ci-circt-core-execution-datapath-test", circt=True, verilator=True),
@@ -55,7 +58,7 @@ CHECKS = (
     Check("circt-core-vector-configurations", "CIRCT / core vector configurations", "ci-circt-core-vector-configurations-test", circt=True, verilator=True),
     Check("circt-core-memory", "CIRCT / core memory", "ci-circt-core-memory-test", circt=True, verilator=True),
     Check("circt-core-cache", "CIRCT / core caches", "ci-circt-core-cache-test", circt=True, verilator=True),
-    Check("circt-hardfloat", "CIRCT / HardFloat", "hardfloat-circt-test", circt=True, verilator=True),
+    Check("rsim-hardfloat", "Rsim / HardFloat", "hardfloat-rsim-test"),
     Check("circt-rfpl", "CIRCT / RFPL", "rfpl-circt-test", circt=True, verilator=True),
 )
 
@@ -63,9 +66,10 @@ CHECK_BY_KEY = {check.key: check for check in CHECKS}
 
 HOST_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("host-"))
 CIRCT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("circt-"))
-CIRCT_CORE_CHECKS = frozenset(
-    check.key for check in CHECKS if check.key.startswith("circt-core-") or check.key == "circt-hardfloat"
+CORE_CHECKS = frozenset(
+    check.key for check in CHECKS if check.key.startswith("circt-core-") or check.key in ("rsim-hardfloat", "rsim-core-components")
 )
+RSIM_COMPONENT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("rsim-"))
 NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup")
 PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")
 # Software policy has exactly two axes. Core choice only selects the DUT.

@@ -6,7 +6,9 @@
 Backend validation is split by the failure boundary it exercises. Host-side
 Rhombus tests check backend emission, diagnostics, and policies without
 invoking external tools. The fixture runner can then check selected designs
-with CIRCT, exact SystemVerilog references, and Verilator.
+with CIRCT, exact SystemVerilog references, and Verilator. Portable component
+behavior lives in the [rsim runner](../rsim/README.md); migrated
+examples retain their Verilog references here without duplicate SV benches.
 
 The [backend guide](../../../rhodium/backend/README.md) owns lowering architecture
 and operation contracts. The [example guide](../../../examples/README.md) owns the
@@ -73,9 +75,9 @@ The accepted groups are `language`, `std`, `protocols`, `cores`,
 `cores-cache`, `socs`, and `rfpl`. The `cores-vector-functional` group combines
 its two numbered CI shards; `cores-vector` adds the alternate-configuration
 shard, and `cores` combines the five subsystem groups. CI runs the leaf
-shards, the three core-execution leaves, and the separately owned HardFloat suite independently so one
+shards, the three core-execution leaves, and the rsim HardFloat suite independently so one
 heavyweight build cannot consume another owner's budget.
-A `std` selection includes both `rhodium/std` foundations and the root-level
+The `std` golden-reference selection includes both `rhodium/std` foundations and the root-level
 [`flow/` library](../../../flow/README.md).
 A group selects every declared fixture in that group, not just the curated
 spine. `FIXTURE`, `FIXTURES`, and `--group` are mutually exclusive selectors;

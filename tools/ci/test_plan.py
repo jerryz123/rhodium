@@ -50,6 +50,27 @@ class PlanTest(unittest.TestCase):
     def assert_checks(self, path, *expected):
         self.assertTrue(set(expected).issubset(check_keys(self.plan(path))), path)
 
+    def test_rsim_component_selection_and_requirements(self):
+        for path, expected in (
+            ("flow/queue.rhdl", "rsim-std"),
+            ("cores/tests/rsim/rv64i-alu.cpp", "rsim-core-components"),
+            ("hardfloat/tests/rsim/numeric.cpp", "rsim-hardfloat"),
+            ("chi/tests/rsim/chi-read-once.cpp", "rsim-protocols"),
+            ("chi/tests/rsim/request.hpp", "rsim-core-components"),
+            ("sims/tests/rsim/fesvr-mmio.cpp", "rsim-protocols"),
+            ("sims/fesvr/direct-memory-htif.rhdl", "rsim-protocols"),
+        ):
+            self.assert_checks(path, expected)
+        for path in ("tools/testing/rsim/run.py", "rhodium/backend/rsim.rhm"):
+            plan = self.plan(path)
+            entries = [entry for entry in plan["checks_matrix"]["include"]
+                       if entry["key"].startswith("rsim-")]
+            self.assertEqual(len(entries), 4)
+            self.assertTrue(all(not entry["circt"] and not entry["verilator"] for entry in entries))
+
+    def test_standard_library_goldens_need_no_simulator(self):
+        self.assertFalse(next(check for check in CHECKS if check.key == "circt-std").verilator)
+
     def test_shared_core_ownership_audits_select_hygiene(self):
         for path in ("cores/check-boundaries.sh", "cores/tests/check-boundaries.sh"):
             with self.subTest(path=path):
@@ -72,7 +93,6 @@ class PlanTest(unittest.TestCase):
                      "rhodium/event/tests/circt/verilog/event-runtime_tb.sv",
                      "rhodium/event/tests/circt/verilog/event-elastic_dpi.cpp",
                      "rhodium/std/sync-ram.rhdl", "rhodium/std/ready-valid.rhdl",
-                     "rhodium/std/tests/circt/verilog/sync-ram_tb.sv",
                      "examples/std/sync-ram.rhdl", "devices/uart/uart-dpi.rhdl",
                      "devices/uart/dpi/uart_dpi.cc", "devices/uart/dpi/uart_dpi.h",
                      "devices/tests/uart-dpi-fixture.rhdl",
@@ -519,7 +539,7 @@ class PlanTest(unittest.TestCase):
             "rhodium/backend/tests/circt/verilog/adder_tb.sv": ("host-backend", "circt-language", "circt-rfpl"),
             "devicetree/main.rhm": ("host-models", "host-hygiene"),
             "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "host-examples"),
-            "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "circt-hardfloat"),
+            "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "rsim-hardfloat"),
             "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "host-examples", "circt-verilog-differential"),
             "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "circt-core-execution-control", "circt-core-execution-datapath", "host-examples"),
             "chi/subordinate/dpi/chi_dpi_memory_dpi.cc": ("circt-verilog-differential",),
@@ -596,8 +616,9 @@ class PlanTest(unittest.TestCase):
             with self.subTest(check=check.key):
                 self.assertTrue(check.name)
                 self.assertGreater(check.timeout, 0)
-                if check.circt:
-                    self.assertTrue(check.verilator)
+                # Lowering-only lanes need CIRCT without an HDL simulator.
+                self.assertIsInstance(check.circt, bool)
+                self.assertIsInstance(check.verilator, bool)
 
     def test_vector_functional_shards_partition_the_aggregate(self):
         runner = REPO / "tools/testing/circt/run.sh"
@@ -629,8 +650,8 @@ class PlanTest(unittest.TestCase):
         self.assertTrue({"rv2wide-core", "rv2wide-fetch-disabled", "rv2wide-assembly-prediction", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
 
     def test_shared_predictor_fixtures_belong_to_components(self):
-        runner = REPO / "tools/testing/circt/run.sh"
-        output = subprocess.run(["bash", runner, "--group", "cores-components", "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+        runner = REPO / "tools/testing/rsim/run.py"
+        output = subprocess.run(["python3", runner, "--group", "cores-components", "--list"], cwd=REPO, check=True, text=True, capture_output=True).stdout
         self.assertTrue({"bpred-btb", "bpred-btb-wide", "bpred-ras"} <= set(output.splitlines()))
 
     def test_every_tracked_executable_input_selects_a_lane(self):

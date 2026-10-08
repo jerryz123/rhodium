@@ -52,7 +52,7 @@ The child guides own file-level maps and local extension rules:
 | [`adapters/`](adapters/DEVELOPING.md) | Transaction-preserving fragmentation and address projection |
 | [`noc/`](noc/DEVELOPING.md) | Pure CHI-to-NoC compilation and CHI-specific RTL attachment |
 | [`main.rhdl`](main.rhdl) | Compatibility facade; no per-directory facades |
-| [`tests/`](tests/) | Host tests, invalid cases, CIRCT fixtures, and Verilator benches |
+| [`tests/`](tests/) | Host tests, invalid cases, rsim fixture exports, and C++ behavior drivers |
 
 The boundary audit recursively enumerates production sources while excluding
 `tests/`; `bash chi/tests/check-boundaries.sh` covers nested imports, the pure
@@ -112,3 +112,16 @@ bash tools/testing/circt/run.sh --group protocols
 That group also includes nearby NoC and device fixtures. Use the backend test
 [`DEVELOPING.md`](../tools/testing/circt/DEVELOPING.md) to select narrower modes and
 maintain checked-in artifacts.
+
+## Rsim behavior validation
+
+Run `python3 tools/testing/rsim/run.py --group protocols` for protocol and
+controller behavior, or use `--fixture chi-inclusive-home` for the Home
+regression. C++ drivers preserve complete-packet comparisons, pre-edge transfer
+sampling, backpressure, reset, and exact-label assertion failures. The owning
+inventory is [rsim/fixtures.tsv](../tools/testing/rsim/fixtures.tsv).
+
+The traced Home workload lives with `rhodium/event/tests/circt/`; it validates
+runtime lineage and DPI descriptor integration. It is not a second untraced
+CHI behavior lane. Example-owned CHI Verilog references remain in CIRCT's
+manifest without behavioral tops.

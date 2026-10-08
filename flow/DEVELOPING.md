@@ -211,13 +211,13 @@ make ci-plan-test
 For cycle-visible behavior, select the relevant existing fixtures:
 
 ```sh
-FIXTURES='queue-options shift-queue rr-arbiter packet-rr-arbiter selective-atomic-fork selective-join state-flow' bash tools/testing/circt/run.sh
+FIXTURES='queue-options shift-queue rr-arbiter packet-rr-arbiter selective-atomic-fork selective-join state-flow' python3 tools/testing/rsim/run.py
 ```
 
-The [backend guide](../tools/testing/circt/README.md) owns fixture selection and
+The [rsim test guide](../tools/testing/rsim/README.md) owns component fixture selection and
 toolchain requirements. Credited, flit, control-only, valid-only, and event
 fixtures provide additional coverage when those contracts change.
-Use `make ci-circt-std-test` for the complete shared library backend group.
+Use `make ci-rsim-std-test` for shared-library behavior and `make ci-circt-std-test` for example Verilog references.
 Use `FIXTURE=event-offer bash tools/testing/circt/run.sh` for best-effort offer
 conversion and observation-gated transfer/stall lineage; its scoreboard checks exact
 current-attempt parents, rejected/replayed offers, reset, and unchanged wiring.

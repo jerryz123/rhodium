@@ -35,8 +35,8 @@ Use these placement rules when adding code:
 
 Tests and examples are outside the package. Put executable authoring examples
 under [`../../examples/std/`](../../examples/std/) and compiler-facing host
-tests under [`tests/`](tests/). CIRCT fixtures and Verilator benches belong
-under [`tests/circt/`](tests/circt/).
+tests under [`tests/`](tests/). Rsim fixture exports and C++ behavioral drivers belong
+under [`tests/rsim/`](tests/rsim/).
 
 ## Architecture and ownership
 
@@ -99,7 +99,7 @@ Do not copy those implementations into the library.
 5. Add a host test only for static information, types, pure host policy, or a
    public elaboration-time rejection. Do not snapshot incidental operation or
    instance structure for every new module.
-6. Test observable RTL behavior with the focused backend emitter and Verilator
+6. Test observable RTL behavior with the rsim emitter and C++
    bench. Generated Verilog is test output, not
    hand-maintained source.
 7. Update the standard-library dependency inventory in
@@ -138,7 +138,7 @@ The standard library is covered at three levels:
 |---|---|---|
 | Compiler-facing host | [`tests/`](tests/) | Static information, exact public types, pure host policy, protocol compatibility, and invalid uses |
 | Executable examples | [`examples/std/`](../../examples/std/) | Public import paths and realistic authoring composition |
-| CIRCT and Verilator | Emitters and benches under [`tests/circt/`](tests/circt/) | Lowering and cycle-visible behavior for stateful or backend-sensitive components |
+| Rsim | Fixture exports and drivers under [`tests/rsim/`](tests/rsim/) | Cycle-visible behavior of reusable components |
 
 Prefer a focused test and its fixture. Representative ownership is:
 
@@ -153,7 +153,7 @@ Prefer a focused test and its fixture. Representative ownership is:
 Keep host checks distinct from backend evidence. Exact IR is appropriate when
 the standard-library feature is compiler-facing; a reusable hardware module
 does not need its own elaboration snapshot. Use the corresponding emitter and
-Verilator bench for reset, latency, handshake, and other observable behavior.
+rsim C++ driver for reset, latency, handshake, and other observable behavior.
 
 Lane-mask expansion belongs in `bits.rhdl`, using ordinary vector construction
 and bit selection without new IR operations or protocol dependencies. The
@@ -203,12 +203,12 @@ make examples-std
 Run `make check-boundaries` after adding or moving a module or changing direct
 imports. Use `make frontend-test` when a change spans several standard-library
 families or shared interface semantics. For backend-sensitive changes, select
-the corresponding fixture through [`tools/testing/circt/run.sh`](../../tools/testing/circt/run.sh);
+the corresponding fixture through [rsim runner](../../tools/testing/rsim/README.md);
 the CI grouping for the complete standard-library backend set is:
 
 ```sh
-make ci-circt-std-test
+make ci-rsim-std-test
 ```
 
-That final target requires the external CIRCT and Verilator toolchain. State
+That final target requires a C++20 compiler and runs without HDL tools. State
 which level was actually run; do not treat host elaboration as RTL simulation.

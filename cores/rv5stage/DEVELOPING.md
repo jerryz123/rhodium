@@ -750,7 +750,7 @@ HU/SPVP legality, warm permissions, and precise denied-store behavior. Pair it w
 MMU replay regressions and `riscv-hypervisor-csr` when changing this boundary.
 
 Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/csr/tests/csr-test.rhm`
-and `FIXTURES='riscv-hypervisor-csr riscv-csr' bash tools/testing/circt/run.sh`
+and `FIXTURES='riscv-hypervisor-csr riscv-csr' python3 tools/testing/rsim/run.py`
 when changing this boundary. The [SoC mandatory-requirement gate](../../socs/tests/udb-test.rhm)
 checks the published RVA23 declarations.
 
@@ -982,8 +982,7 @@ For Zihpm CSR catalogs, profile claims, and access semantics, run:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/csr-test.rhm riscv/rtl/tests/riscv-csr-bank-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm
-FIXTURES='riscv-zihpm-rv32 riscv-zihpm-rv64 riscv-csr' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='riscv-zihpm-rv32 riscv-zihpm-rv64 riscv-csr' python3 tools/testing/rsim/run.py
 ```
 
 The two Zihpm benches share an XLEN-parameterized sweep of every HPM slot,
@@ -1019,8 +1018,8 @@ and self-snooped cache fixtures:
 
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicbom-test.rhm cores/rv5stage/tests/rv5stage-test.rhm cores/rv5stage/tests/udb-test.rhm
-FIXTURES='rv5stage-zicbom riscv-csr rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='riscv-csr' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-zicbom rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Keep retirement context in the core, reusable xenvcfg policy in `riscv/rtl`,
@@ -1052,8 +1051,8 @@ both XLEN SRAM sequences as well as the one-completion uncached sequence:
 
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicboz-test.rhm
-FIXTURES='rv5stage-zicboz riscv-csr rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='riscv-csr' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-zicboz rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The scalar fixture covers request rejection/replay, fence drain ordering,

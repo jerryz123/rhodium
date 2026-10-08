@@ -38,25 +38,13 @@ behavior; datapath covers FP, integer execution, writeback, retirement, and
 integrated cores. Keep the three leaves nonempty, disjoint, and exhaustive
 when adding a fixture.
 
-Shared `riscv-csr`, `riscv-hypervisor-csr`, `riscv-sstc-rv32`, `riscv-zihpm-*`,
-and `riscv-sscofpmf-*` fixtures live under `cores/csr/tests/` and belong to
-`cores-components`; named-core
-retirement and interrupt integration remain in `cores-execution-control`.
-
-Shared `riscv-guest-translation`, `riscv-nested-walker`, `riscv-svnapot`,
-`riscv-svpbmt`, and `riscv-walk-trace` fixtures also belong to `cores-components`
-and live under `cores/mmu/tests/`. Production RV5Stage MMU replay and
-physical-port arbitration remain in `cores-memory`.
-
-Shared `fp-register-file`, `fp-service`, and `fp-scheduled` fixtures live under
-`cores/fp/tests/` and belong to `cores-components`. RV5Stage's scalar wrapper,
-core writeback, and vector integration remain with their named-core owners.
-
-Shared `bpred-btb`, `bpred-btb-wide`, and `bpred-ras` fixtures live under `cores/bpred/tests/`
-and belong to `cores-components`. RV5Stage fetch, branch, and return prediction
-integration remain in `cores-execution-frontend`. RV2Wide assembly repair,
-predicted execution, and enabled/disabled full fetch fixtures remain in
-`cores-execution-datapath`.
+Reusable CSR, MMU, predictor, FP, ALU, and standalone cache behavior belongs
+to the rsim `cores-components` group in
+[`../rsim/fixtures.tsv`](../rsim/fixtures.tsv). Shared fixtures stay with
+their package under `tests/rsim/`. The `riscv-walk-trace` runtime descriptor
+and DPI integration and `cosim-hooks` ABI fixture retain their HDL owner here.
+Named-core retirement, fetch, memory replay, and architectural integration
+remain in their existing execution and memory groups.
 
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or
 `cores-vector-functional-2` for the default functional configurations, or
@@ -336,9 +324,9 @@ diff disappear.
    the owning example source.
 2. Add the fixture, group, export names, optional top, and expected behavior to
    the manifest in [`run.sh`](run.sh).
-3. If simulation is required, add
-   `<package>/tests/circt/verilog/<fixture>_tb.sv` and an optional matching
-   `<fixture>_dpi.cpp` beside it.
+3. Put portable component behavior in the [rsim inventory](../rsim/README.md).
+   Add `<package>/tests/circt/verilog/<fixture>_tb.sv` and an optional matching
+   `<fixture>_dpi.cpp` only for an HDL-specific or retained integration contract.
 4. Run `make check-example-verilog`, then the narrow selector from the
    [CIRCT test guide](README.md#choose-the-smallest-useful-run).
 5. If the reference changed intentionally, update only that fixture with the
@@ -352,7 +340,7 @@ diff disappear.
    manifest entry's fourth field. The shared driver owns compilation and output. Use
    a custom emitter without that field only when the fixture needs its own
    prepared-graph checks or instrumentation artifacts.
-3. Add a matching bench only when the fixture needs behavioral validation.
+3. Add a matching bench only for behavior that exercises the HDL integration boundary.
    A direct emitter may use a local DPI companion or the fixture-name-matched
    source under [`devices/uart/dpi/`](../../../devices/uart/dpi/).
 4. Run the fixture first in `--verify-only` mode, then add simulation if the

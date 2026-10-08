@@ -10,7 +10,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-runtime-test
 .PHONY: check-license-headers
 .PHONY: check-license-headers-staged
-.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-plan-test ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-rsim-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-plan-test ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 .PHONY: ci-circt-core-vector-functional-1-test ci-circt-core-vector-functional-2-test
 .PHONY: ci-circt-core-execution-frontend-test ci-circt-core-execution-control-test ci-circt-core-execution-datapath-test
 
@@ -63,14 +63,14 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(COSIM_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
   socs/tests/write-device-trees.rhm \
   tools/write-riscv-udb-config.rhm \
-  $(shell find . -type f -path '*/tests/circt/emit-*.rhm' -print) \
+  $(shell find . -type f \( -path '*/tests/circt/emit-*.rhm' -o -path '*/tests/rsim/emit-*.rhm' \) -print) \
   $(wildcard rhodium/backend/tests/verilog/emit-*.rhm) \
   $(wildcard rhodium/backend/tests/rsim/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm sims/tests/*.rhdl) \
   $(wildcard sims/emit-*.rhm) \
   $(wildcard sims/program-test/*.rhm) \
   $(wildcard sims/arch-test/*.rhm) \
-  tools/testing/circt/load-example.rhm tools/testing/run-negative.rkt \
+  tools/testing/rsim/emit.rhm tools/testing/circt/load-example.rhm tools/testing/run-negative.rkt \
   noc/tests/language/run-negative.rkt tools/check-parameter-annotations.rkt)
 
 print-racket-compile-sources:
@@ -164,7 +164,7 @@ backend-differential-test: check-boundaries
 	python3 rhodium/backend/tests/rsim/run.py --differential
 
 ci-verilog-direct-test: check-boundaries
-	CIRCT_OPT=/nonexistent python3 rhodium/backend/tests/verilog/run-integration.py --fixture sync-ram
+	CIRCT_OPT=/nonexistent python3 rhodium/backend/tests/verilog/run.py --family sync-memory
 
 ci-backend-differential-test: check-boundaries
 	python3 rhodium/backend/tests/verilog/run.py --differential
@@ -221,10 +221,10 @@ soc-test: check-boundaries
 hardfloat-host-test: check-boundaries
 	tools/run-racket-tests.sh $(HARDFLOAT_TESTS)
 
-hardfloat-circt-test: check-boundaries
-	bash hardfloat/tests/run-circt.sh
+hardfloat-rsim-test: check-boundaries
+	python3 tools/testing/rsim/run.py --group hardfloat
 
-hardfloat-test: hardfloat-host-test hardfloat-circt-test
+hardfloat-test: hardfloat-host-test hardfloat-rsim-test
 
 emacs-test:
 	emacs -Q --batch -L tools/emacs -l tools/emacs/tests/rhodium-mode-test.el -f ert-run-tests-batch-and-exit
@@ -240,7 +240,8 @@ riscv-udb-config:
 	  tools/write-riscv-udb-config.rhm "$(RISCV_UDB_CONFIGURATION)" "$(RISCV_UDB_OUTPUT)"
 
 rv5stage-test: rv5stage-host-test
-	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed riscv-atomic rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file riscv-csr riscv-zihpm-rv32 riscv-zihpm-rv64 bpred-btb rv5stage-fetch rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-branch-prediction rv5stage-core rv5stage-load-hit rv5stage-zcb rv5stage-mop rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-multiply rv5stage-divide cache-icache rv5stage-dcache rv5stage-dcache-rv32' bash tools/testing/circt/run.sh
+	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed riscv-atomic riscv-csr riscv-zihpm-rv32 riscv-zihpm-rv64 bpred-btb cache-icache fp-register-file' python3 tools/testing/rsim/run.py
+	FIXTURES='rv5stage-fp-pipeline rv5stage-register-file rv5stage-fetch rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-branch-prediction rv5stage-core rv5stage-load-hit rv5stage-zcb rv5stage-mop rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-multiply rv5stage-divide rv5stage-dcache rv5stage-dcache-rv32' bash tools/testing/circt/run.sh
 
 circt-test: check-example-verilog
 	bash tools/testing/circt/run.sh
@@ -331,12 +332,12 @@ ci-host-socs-test: soc-test
 ci-plan-test:
 	python3 -m unittest tools.ci.test_plan tools.ci.test_install_racket
 
-ci-host-hygiene-test: check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
+ci-host-hygiene-test: rsim-runner-test check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
 	python3 -m unittest tools.ci.test_install_racket
 
 host-test: host-checks examples
 
-test: host-test circt-test rfpl-circt-test hardfloat-circt-test
+test: host-test rsim-component-test circt-test rfpl-circt-test
 
 setup-circt:
 	bash tools/install-circt.sh
@@ -392,3 +393,21 @@ examples-formal: check-boundaries
 examples-rv5stage:
 	bash tools/check-example-verilog.sh examples/rv5stage
 	tools/run-racket-tests.sh $(RV5STAGE_EXAMPLES)
+
+.PHONY: rsim-component-test ci-rsim-std-test ci-rsim-core-components-test ci-rsim-protocols-test rsim-runner-test
+
+# Component behavior runs directly against rsim; HDL lanes own emission and ABI checks.
+rsim-component-test:
+	python3 tools/testing/rsim/run.py
+
+ci-rsim-std-test:
+	python3 tools/testing/rsim/run.py --group std --group language
+
+ci-rsim-core-components-test:
+	python3 tools/testing/rsim/run.py --group cores-components
+
+ci-rsim-protocols-test:
+	python3 tools/testing/rsim/run.py --group protocols
+
+rsim-runner-test:
+	python3 -m unittest discover -s tools/testing/rsim -p 'test_*.py'

@@ -30,8 +30,8 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 | Single-beat and uniform-family routers, physical-slot binding, and unused-local closure | [`router.rhdl`](router.rhdl) |
 | Wormhole reservation and switching | [`wormhole-router.rhdl`](wormhole-router.rhdl) |
 | Behavioral fixture designs | [`tests/`](tests/) |
-| CIRCT emitters and Verilator benches | [`tests/circt/`](tests/circt/) |
-| Shared CIRCT runner | [`../../tools/testing/circt/`](../../tools/testing/circt/DEVELOPING.md) |
+| Rsim fixture exports and C++ drivers | [`tests/rsim/`](tests/rsim/) |
+| Native runner | [`../../tools/testing/rsim/`](../../tools/testing/rsim/README.md) |
 
 ## Change a hardware realization
 
@@ -59,17 +59,17 @@ make noc-test
 ```
 
 The backend protocol group owns route-computer, router, assembled-network,
-wormhole, escape-router, and router-family CIRCT/Verilator fixtures:
+wormhole, escape-router, and router-family rsim fixtures:
 
 ```sh
-bash tools/testing/circt/run.sh --group protocols
+python3 tools/testing/rsim/run.py --group protocols
 ```
 
 That group also includes CHI and device fixtures and is broader than this
-directory. Use the backend test
-[`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md) to select verification,
-simulation, or golden-reference modes. Repository test wrappers provide the
-persistent worktree-specific `PLTCOMPILEDROOTS`; direct runs should use them.
+directory. Use the [rsim test guide](../../tools/testing/rsim/README.md)
+to select individual fixtures. The [HDL test guide](../../tools/testing/circt/DEVELOPING.md)
+owns verification and golden-reference modes. Repository test wrappers provide
+the persistent worktree-specific compiled root.
 
 For family-slot binding changes, select `noc-router-family` for generic routing
 and backpressure behavior, plus `chi-family-noc` and `chi-router-composition`

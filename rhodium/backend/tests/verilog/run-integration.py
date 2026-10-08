@@ -9,11 +9,9 @@ import tempfile
 
 from support import ROOT, FIXTURES, run
 
-# Reuse the owning packages' benches and native model; no generated copies or
-# alternative circuit implementations belong to this compiler integration test.
+# Exercise HDL-specific event and foreign-call boundaries. Portable component
+# behavior belongs to rsim; memory lowering has its own backend oracle.
 CASES = {
-    "sync-ram": ("sync_ram_tb", "rhodium/std/tests/circt/verilog/sync-ram_tb.sv",
-                 (), "fixed-latency masked SyncRam passed"),
     "event-runtime": ("event_runtime_tb", "rhodium/event/tests/circt/verilog/event-runtime_tb.sv",
                       ("rhodium/event/tests/circt/verilog/event-runtime_dpi.cpp", "rheg/runtime/rheg.cc"),
                       "event runtime simulation passed"),

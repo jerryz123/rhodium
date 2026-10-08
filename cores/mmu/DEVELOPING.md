@@ -58,7 +58,8 @@ The shared fixtures live in `cores/mmu/tests/` and belong to `cores-components`:
 
 ```sh
 tools/run-racket-tests.sh cores/mmu/tests/mmu-test.rhm cores/rv5stage/tests/mmu-test.rhm
-FIXTURES='riscv-guest-translation riscv-nested-walker riscv-svnapot riscv-svpbmt riscv-walk-trace rv5stage-mmu-replay' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='riscv-guest-translation riscv-nested-walker riscv-svnapot riscv-svpbmt' python3 tools/testing/rsim/run.py
+FIXTURES='riscv-walk-trace rv5stage-mmu-replay' bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
 

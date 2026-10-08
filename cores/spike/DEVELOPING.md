@@ -128,7 +128,7 @@ tools/run-racket-tests.sh cores/spike/tests/profile-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/udb-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/elaboration-test.rhm
 make -C sims spike-core-test
-FIXTURE=spike-attributes bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=spike-attributes python3 tools/testing/rsim/run.py
 make -C sims spike-dpi-compile-check VERILATOR_ROOT=/path/to/verilator/share
 make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
 ```

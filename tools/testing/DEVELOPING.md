@@ -20,8 +20,10 @@ behavior, normally in `<package>/tests/`. Compiler tests therefore live under
 This directory owns only repository-wide test policy and reusable
 orchestration. [`run-negative.rkt`](run-negative.rkt) is a package-neutral
 diagnostic harness. [`circt/`](circt/DEVELOPING.md) owns external-tool
-orchestration, but package-local `tests/circt/` directories own their emitters,
-benches, and DPI companions. Canonical valid authoring programs belong under
+orchestration for HDL contracts. [`rsim/`](rsim/README.md) owns direct C++
+orchestration; package-local `tests/rsim/` directories own behavioral drivers
+and program-export fixtures. Package-local `tests/circt/` directories retain
+HDL-specific benches and DPI companions. Canonical valid authoring programs belong under
 [`../../examples/`](../../examples/README.md); invalid programs stay beside the
 frontend or domain suite that owns their diagnostics.
 
@@ -30,28 +32,31 @@ When moving or adding implementation, move its tests with it and run
 move package fixtures into `tools/testing/` merely because one runner consumes
 them.
 
-Representative compiler integration tests may reuse existing package-owned
-circuits, benches, and DPI companions. The direct/differential backend targets
-include SyncRam and UART DPI integrations; their focused invocation and checks
-are documented in the [backend contributor guide](../../rhodium/backend/DEVELOPING.md#validation).
-Keep those test artifacts with their original owners. CI runs direct authored
-behavior plus shared-target manifest comparisons in the differential lane,
-reusing the language, standard-library, and protocol lanes for CIRCT behavior.
-The planner enrolls those three owners whenever it selects the differential
-lane. A separate SyncRam smoke retains the no-CIRCT dependency boundary.
+Representative compiler integration tests may reuse package-owned event and
+UART DPI fixtures. Keep those artifacts with their original owners; their
+foreign/runtime boundary requires HDL integration. Scalar and aggregate memory
+semantics have dedicated backend differential oracles. The portable SyncRam
+behavior suite belongs to rsim and has no duplicate SV bench.
+
+Rsim behavioral fixtures are selected from `rsim/fixtures.tsv`. The four
+CI lanes cover standard-library/Flow (including elementary language examples),
+reusable core components, protocols/controllers, and HardFloat. They require a
+C++20 compiler but neither CIRCT nor Verilator. Package changes select their
+rsim owner; shared rsim or orchestration changes select all four. HDL golden
+and instrumentation lanes remain independently selected.
 
 The host/backend lane also runs the small standalone rsim C++ fixtures, using
 the runner's C++ compiler without HDL tools. The backend differential lane
 compares the same fixtures through direct SV/Verilator. Rsim's sources, driver,
 and independent oracles remain in `rhodium/backend/tests/rsim/`; its generated
-models and native binaries are temporary artifacts. The native suite also runs
+models and native binaries are temporary artifacts. The rsim suite also runs
 the production PTY UART integration; its UART/host/helper dependencies select
 both host/backend and backend differential lanes.
 The differential suite also checks the generated SV/DPI binding for rsim
 using the unchanged `sims/TestDriver.v` and its native lifecycle runtime; changes
 to that driver or runtime select the
 backend differential lane. This binding proof requires Verilator and remains
-outside the HDL-free native suite.
+outside the HDL-free rsim suite.
 
 ## Authoring principles
 
@@ -59,9 +64,10 @@ outside the HDL-free native suite.
   elaborates or passes `verify_design`. Successful compilation and elaboration
   are compiler responsibilities and should be covered once at representative
   integration boundaries, not repeated for every library component.
-- For reusable hardware, prefer CIRCT/Verilator tests of cycle-visible behavior:
+- For reusable hardware, use rsim tests of cycle-visible behavior:
   outputs, state transitions, reset, handshakes, backpressure, arbitration,
-  ordering, faults, and protocol interactions.
+  ordering, faults, and protocol interactions. Drive the emitted C++ model
+  directly, following the [rsim driver contract](rsim/README.md#driver-contract).
 - Keep host tests for pure host algorithms and configuration, public
   elaboration-time rejection, specialization that removes or changes a public
   interface, and structural metadata consumed by another tool.
@@ -74,7 +80,7 @@ outside the HDL-free native suite.
   kernel or core meaning.
 - Update Verilog references only when backend output changes intentionally, and
   review the example-source diff.
-- Keep generated Racket, CIRCT, SystemVerilog, and Verilator output out of
+- Keep generated Racket, C++, CIRCT, SystemVerilog, and Verilator output out of
   version control.
 - Reserve broader suites for cross-layer, shared-infrastructure, or complete
   backend-pipeline changes.
@@ -241,7 +247,7 @@ CHI, core, and shared standard/flow library changes also select the SoC host sha
 when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard, direct SystemVerilog simulation, and every
 external CIRCT group, including the backend differential route. The direct lane
-requires Verilator without CIRCT and runs one authored SyncRam smoke; the
+requires Verilator without CIRCT and runs the independent memory oracle; the
 differential lane installs both and owns the full compiler behavioral families. Its
 Builder fixtures, oracle, and runner live under
 [`rhodium/backend/tests/verilog/`](../../rhodium/backend/tests/verilog/); see the

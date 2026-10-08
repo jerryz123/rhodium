@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
+from .policy import CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
 
 
 def matches(path, *patterns):
@@ -25,7 +25,7 @@ class Selection:
     def add_checks(self, *keys):
         self.checks.update(keys)
         if "circt-verilog-differential" in keys:
-            # Authored comparisons reuse these lanes' CIRCT behavioral oracles.
+            # Backend comparisons retain HDL golden and integration coverage.
             self.checks.update(("circt-language", "circt-std", "circt-protocols"))
 
     def add_native(self, *suites):
@@ -68,15 +68,30 @@ class Selection:
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-toolchain.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
 
-        # Authored backend integrations reuse SyncRam, UART, and Flow event
-        # scoreboards. Their dependencies must select both emission routes.
+        # Backend oracles cover memory lowering, UART, and Flow events.
+        # Their dependencies must select both emission routes.
         if not documentation and matches(path, "rhodium/std/*", "devices/uart/uart.rhdl",
                                          "devices/uart/uart-dpi.rhdl", "devices/uart/dpi/*",
                                          "devices/tests/uart-dpi*", "devices/tests/circt/verilog/uart-dpi*",
                                          "examples/std/sync-ram.rhdl", "flow/*", "rhodium/event/*", "rheg/*"):
             self.add_checks("verilog-direct", "circt-verilog-differential")
 
-        # The native rsim smoke also reuses the production UART and PTY helpers.
+        # Rsim behavior follows component ownership, independently of HDL goldens.
+        if not documentation and matches(path, "tools/testing/rsim/*", "rhodium/backend/*", "rhodium/compile/*",
+                   "rhodium/std/*", "flow/*", "tools/run-racket.sh", "tools/racket-build-cache.sh"):
+            self.add_checks(*RSIM_COMPONENT_CHECKS)
+        elif not documentation and matches(path, "examples/std/*", "examples/rtl/*"):
+            self.add_checks("rsim-std")
+        elif not documentation and matches(path, "chi/*", "noc/*", "devices/*", "examples/chi/*", "examples/noc/*"):
+            self.add_checks("rsim-protocols")
+        elif not documentation and matches(path, "cores/*", "riscv/*", "hardfloat/*", "examples/cores/*", "examples/riscv/*"):
+            self.add_checks("rsim-core-components", "rsim-hardfloat")
+
+        # Shared cache drivers and hardware depend on CHI transaction machinery.
+        if not documentation and matches(path, "chi/*"):
+            self.add_checks("rsim-core-components")
+
+        # The rsim smoke also reuses the production UART and PTY helpers.
         if not documentation and matches(path, "devices/uart/uart.rhdl", "devices/uart/uart-dpi.rhdl",
                                          "devices/uart/dpi/*", "devices/tests/circt/verilog/uart-dpi_dpi.cpp"):
             self.add_checks("host-backend")
@@ -126,6 +141,8 @@ class Selection:
             self.all()
         elif path == "tools/check-example-verilog.sh":
             self.add_checks("host-hygiene", "host-examples", *CIRCT_CHECKS)
+        elif matches(path, "tools/testing/rsim/*"):
+            self.add_checks("host-hygiene", *RSIM_COMPONENT_CHECKS)
         elif matches(path, "tools/testing/circt/*"):
             self.add_checks("host-hygiene", "host-examples", *CIRCT_CHECKS)
         elif path == "tools/testing/run-negative.rkt":
@@ -154,7 +171,7 @@ class Selection:
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/analysis/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/language.rhm", "rhodium/main.rkt"):
             self.all()
         elif matches(path, "rhodium/std/*", "flow/*"):
-            self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-examples", "circt-language", "circt-std", "circt-protocols", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-examples", "circt-language", "circt-std", "circt-protocols", *CORE_CHECKS)
             self.simulation = True
         elif matches(path, "rhodium/backend/*", "rhodium/compile/*"):
             self.add_checks("host-backend", "verilog-direct", *CIRCT_CHECKS)
@@ -188,9 +205,9 @@ class Selection:
         elif matches(path, "noc/*"):
             self.add_checks("host-models", "host-socs", "circt-protocols", "host-examples")
         elif matches(path, "riscv/*"):
-            self.add_checks("host-models", "host-cores", "host-socs", "host-examples", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-models", "host-cores", "host-socs", "host-examples", *CORE_CHECKS)
         elif matches(path, "hardfloat/*"):
-            self.add_checks("host-models", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-models", *CORE_CHECKS)
             self.simulation = True
         elif matches(path, "devicetree/*"):
             self.add_checks("host-models")
@@ -200,10 +217,10 @@ class Selection:
         elif matches(path, "chi/*"):
             self.add_checks("host-protocols", "host-socs", "circt-protocols", "host-examples")
         elif matches(path, "cores/*"):
-            self.add_checks("host-cores", "host-socs", "host-examples", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-cores", "host-socs", "host-examples", *CORE_CHECKS)
             self.simulation = True
-        elif matches(path, "sims/fesvr/*.rhdl"):
-            self.add_checks("circt-protocols")
+        elif matches(path, "sims/fesvr/*.rhdl", "sims/tests/rsim/*", "sims/tests/fesvr-mmio-fixture.rhdl"):
+            self.add_checks("rsim-protocols", "circt-protocols")
             self.simulation = True
         elif matches(path, "sims/cosim/*"):
             self.add_checks("host-socs", "circt-core-components", "circt-core-execution-datapath")
@@ -211,7 +228,7 @@ class Selection:
         elif matches(path, "sims/*"):
             self.simulation = True
         elif matches(path, "socs/*"):
-            self.add_checks("host-socs", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-socs", *CORE_CHECKS)
             self.simulation = True
         elif matches(path, "support/annotations.rhm", "support/tests/*"):
             self.add_checks("host-foundation")

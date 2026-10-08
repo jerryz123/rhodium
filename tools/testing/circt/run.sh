@@ -98,19 +98,13 @@ integration_fixtures=(
   alu enum-state shifts signed-integers generated-adder
   formal-differential
   vector-update vec-shift-register-param
-  async-read-memory sync-memory-masked sync-ram
+  async-read-memory
   clocked-dpi assertions hierarchy bundle interface-array
-  queue-options shift-queue rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
-  state-flow
   tiled-time tiled-distribution
-  dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
+  dont-care
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
-  chi-noc-adapter
-  chi-response-profile
-  rv32i-alu rv64i-alu-integrated simd-alu simd-alu32 load-store-rv32-word bit-manip bit-manip-rv32 cache-replacement
-  credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
-  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-inclusive-directory chi-read-once-home chi-read-stream chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
-  rv5stage-core rv5stage-branch-prediction bpred-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
+  uart-dpi chi-full-flits chi-router-composition
+  rv5stage-core rv5stage-branch-prediction rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
 repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -650,7 +644,7 @@ fixture_specs=(
   'async-read-memory|async_read_memory_tb|examples/rtl/async-read-memory.rhdl|program|verilog_reference'
   'sync-memory|sync_memory_tb|examples/rtl/sync-memory.rhdl|program|verilog_reference'
   'sync-memory-1rw|sync_memory_1rw_tb|examples/rtl/sync-memory-1rw.rhdl|program|verilog_reference'
-  'sync-memory-masked|sync_memory_masked_tb|examples/rtl/sync-memory-masked.rhdl|program|verilog_reference'
+  'sync-memory-masked||examples/rtl/sync-memory-masked.rhdl|program|verilog_reference'
   'multi-write-memory|multi_write_memory_tb|examples/rtl/multi-write-memory.rhdl|program|verilog_reference'
   'clocked-dpi|clocked_dpi_tb|examples/rtl/clocked-dpi.rhdl|program|verilog_reference'
   'clocked-dpi-always||examples/rtl/clocked-dpi.rhdl|always_program|always_verilog_reference'
@@ -659,8 +653,8 @@ fixture_specs=(
   'tiny-simd|tiny_simd_tb|examples/rtl/tiny-simd.rhdl|program|verilog_reference'
   'tiny-simd-no-multiply||examples/rtl/tiny-simd.rhdl|no_multiply_program|no_multiply_verilog_reference'
   'stack|stack_tb|examples/rtl/stack.rhdl|program|verilog_reference'
-  'counter|counter_tb|examples/rtl/counter.rhdl|program|verilog_reference'
-  'standard-counter|standard_counter_tb|examples/std/standard-counter.rhdl|program|verilog_reference'
+  'counter||examples/rtl/counter.rhdl|program|verilog_reference'
+  'standard-counter||examples/std/standard-counter.rhdl|program|verilog_reference'
   'multiply|multiply_tb|examples/rtl/multiply.rhdl|program|verilog_reference'
   'expanding-arithmetic|expanding_arithmetic_tb|examples/rtl/expanding-arithmetic.rhdl|program|verilog_reference'
   'fir-filter|fir_filter_tb|examples/rtl/fir-filter.rhdl|program|verilog_reference'
@@ -708,48 +702,48 @@ fixture_specs=(
   'interface-transform||examples/rtl/interface-transform.rhdl|program|verilog_reference'
   'interface-transform-boundary||examples/rtl/interface-transform.rhdl|boundary_program|boundary_verilog_reference'
   'interface-transform-terminal||examples/rtl/interface-transform.rhdl|detached_terminal_program|detached_terminal_verilog_reference'
-  'pipe|pipe_tb|examples/std/flow-control.rhdl|pipe_program|pipe_verilog_reference'
-  'queue|queue_tb|examples/std/flow-control.rhdl|queue_program|queue_verilog_reference'
-  'queue-one|queue_one_tb|examples/std/flow-control.rhdl|queue_one_program|queue_one_verilog_reference'
-  'queue-options|queue_options_tb|examples/std/flow-control.rhdl|queue_options_program|queue_options_verilog_reference'
-  'arbiter|arbiter_tb|examples/std/flow-control.rhdl|arbiter_program|arbiter_verilog_reference'
-  'flow-chain|flow_chain_tb|examples/std/flow-control.rhdl|chain_program|chain_verilog_reference'
-  'rr-arbiter|rr_arbiter_tb|examples/std/flow-topology.rhdl|rr_arbiter_program|rr_arbiter_verilog_reference'
-  'packet-rr-arbiter|packet_rr_arbiter_tb|examples/std/packet-arbitration.rhdl|program|verilog_reference'
-  'demux|demux_tb|examples/std/flow-topology.rhdl|demux_program|demux_verilog_reference'
-  'join|join_tb|examples/std/flow-topology.rhdl|join_program|join_verilog_reference'
-  'selective-join|selective_join_tb|examples/std/selective-join.rhdl|program|verilog_reference'
-  'broadcast|broadcast_tb|examples/std/flow-topology.rhdl|broadcast_program|broadcast_verilog_reference'
-  'atomic-fork|atomic_fork_tb|examples/std/flow-topology.rhdl|atomic_fork_program|atomic_fork_verilog_reference'
-  'selective-atomic-fork|selective_atomic_fork_tb|examples/std/selective-atomic-fork.rhdl|program|verilog_reference'
-  'flow-map|flow_map_tb|examples/std/flow-topology.rhdl|flow_map_program|flow_map_verilog_reference'
+  'pipe||examples/std/flow-control.rhdl|pipe_program|pipe_verilog_reference'
+  'queue||examples/std/flow-control.rhdl|queue_program|queue_verilog_reference'
+  'queue-one||examples/std/flow-control.rhdl|queue_one_program|queue_one_verilog_reference'
+  'queue-options||examples/std/flow-control.rhdl|queue_options_program|queue_options_verilog_reference'
+  'arbiter||examples/std/flow-control.rhdl|arbiter_program|arbiter_verilog_reference'
+  'flow-chain||examples/std/flow-control.rhdl|chain_program|chain_verilog_reference'
+  'rr-arbiter||examples/std/flow-topology.rhdl|rr_arbiter_program|rr_arbiter_verilog_reference'
+  'packet-rr-arbiter||examples/std/packet-arbitration.rhdl|program|verilog_reference'
+  'demux||examples/std/flow-topology.rhdl|demux_program|demux_verilog_reference'
+  'join||examples/std/flow-topology.rhdl|join_program|join_verilog_reference'
+  'selective-join||examples/std/selective-join.rhdl|program|verilog_reference'
+  'broadcast||examples/std/flow-topology.rhdl|broadcast_program|broadcast_verilog_reference'
+  'atomic-fork||examples/std/flow-topology.rhdl|atomic_fork_program|atomic_fork_verilog_reference'
+  'selective-atomic-fork||examples/std/selective-atomic-fork.rhdl|program|verilog_reference'
+  'flow-map||examples/std/flow-topology.rhdl|flow_map_program|flow_map_verilog_reference'
   'flow-filter||examples/std/flow-topology.rhdl|filter_flow_program|filter_flow_verilog_reference'
   'flow-gate||examples/std/flow-topology.rhdl|gate_flow_program|gate_flow_verilog_reference'
   'flow-endpoint-first||examples/std/flow-topology.rhdl|endpoint_first_program|endpoint_first_verilog_reference'
   'flow-fan-in-project||examples/std/flow-topology.rhdl|fan_in_project_program|fan_in_project_verilog_reference'
   'flow-zip-route||examples/std/flow-topology.rhdl|zip_route_program|zip_route_verilog_reference'
-  'ctrl-pipe|ctrl_pipe_tb|examples/std/ctrl-flow.rhdl|ctrl_pipe_program|ctrl_pipe_verilog_reference'
-  'ctrl-queue|ctrl_queue_tb|examples/std/ctrl-flow.rhdl|ctrl_queue_program|ctrl_queue_verilog_reference'
-  'ctrl-queue-options|ctrl_queue_options_tb|examples/std/ctrl-flow.rhdl|ctrl_queue_options_program|ctrl_queue_options_verilog_reference'
-  'ctrl-arbiter|ctrl_arbiter_tb|examples/std/ctrl-flow.rhdl|ctrl_arbiter_program|ctrl_arbiter_verilog_reference'
-  'ctrl-rr-arbiter|ctrl_rr_arbiter_tb|examples/std/ctrl-flow.rhdl|ctrl_rr_arbiter_program|ctrl_rr_arbiter_verilog_reference'
-  'ctrl-demux|ctrl_demux_tb|examples/std/ctrl-flow.rhdl|ctrl_demux_program|ctrl_demux_verilog_reference'
-  'ctrl-join|ctrl_join_tb|examples/std/ctrl-flow.rhdl|ctrl_join_program|ctrl_join_verilog_reference'
-  'ctrl-broadcast|ctrl_broadcast_tb|examples/std/ctrl-flow.rhdl|ctrl_broadcast_program|ctrl_broadcast_verilog_reference'
+  'ctrl-pipe||examples/std/ctrl-flow.rhdl|ctrl_pipe_program|ctrl_pipe_verilog_reference'
+  'ctrl-queue||examples/std/ctrl-flow.rhdl|ctrl_queue_program|ctrl_queue_verilog_reference'
+  'ctrl-queue-options||examples/std/ctrl-flow.rhdl|ctrl_queue_options_program|ctrl_queue_options_verilog_reference'
+  'ctrl-arbiter||examples/std/ctrl-flow.rhdl|ctrl_arbiter_program|ctrl_arbiter_verilog_reference'
+  'ctrl-rr-arbiter||examples/std/ctrl-flow.rhdl|ctrl_rr_arbiter_program|ctrl_rr_arbiter_verilog_reference'
+  'ctrl-demux||examples/std/ctrl-flow.rhdl|ctrl_demux_program|ctrl_demux_verilog_reference'
+  'ctrl-join||examples/std/ctrl-flow.rhdl|ctrl_join_program|ctrl_join_verilog_reference'
+  'ctrl-broadcast||examples/std/ctrl-flow.rhdl|ctrl_broadcast_program|ctrl_broadcast_verilog_reference'
   'ctrl-chain||examples/std/ctrl-flow.rhdl|ctrl_chain_program|ctrl_chain_verilog_reference'
   'valid-map-fork||examples/std/valid-flow.rhdl|program|verilog_reference'
   'valid-filter||examples/std/valid-flow.rhdl|accepted_program|accepted_verilog_reference'
   'valid-to-decoupled||examples/std/valid-flow.rhdl|decoupled_program|decoupled_verilog_reference'
   'completion-queue||examples/std/completion-queue.rhdl|program|verilog_reference'
   'completion-queue-one||examples/std/completion-queue.rhdl|single_program|single_verilog_reference'
-  'credited-flow|credited_flow_tb|examples/std/credited-transport.rhdl|program|verilog_reference'
+  'credited-flow||examples/std/credited-transport.rhdl|program|verilog_reference'
   'credited-flow-chained||examples/std/credited-transport.rhdl|chained_program|chained_verilog_reference'
   'credited-monitor||examples/std/credited-transport.rhdl|monitor_program|monitor_verilog_reference'
-  'flit-formats|flit_formats_tb|examples/std/flit-formats.rhdl|program|verilog_reference'
-  'state-flow|state_flow_tb|examples/std/state-flow.rhdl|program|-'
+  'flit-formats||examples/std/flit-formats.rhdl|program|verilog_reference'
+  'state-flow||examples/std/state-flow.rhdl|program|-'
   'tiled-distribution|tiled_distribution_tb|socs/tests/tiled-distribution-fixture.rhdl|distribution_design|-'
   'tiled-time|tiled_time_tb|socs/tests/tiled-distribution-fixture.rhdl|time_design|-'
-  'scoreboard|scoreboard_tb|examples/std/scoreboard.rhdl|program|verilog_reference'
+  'scoreboard||examples/std/scoreboard.rhdl|program|verilog_reference'
   'full-adder||examples/rtl/full-adder.rhdl|program|verilog_reference'
   'adder-core||examples/lop/adder-core.rhm|program|verilog_reference'
   'adder-kernel||examples/lop/adder-kernel.rhm|program|verilog_reference'
@@ -763,12 +757,12 @@ fixture_specs=(
   'host-parameters||examples/rtl/host-parameters.rhdl|program|verilog_reference'
   'fresh-generators||examples/rtl/fresh-generators.rhdl|program|verilog_reference'
   'dont-care||examples/std/dont-care.rhdl|program|verilog_reference'
-  'decode|decode_tb|examples/std/decode.rhdl|program|verilog_reference'
+  'decode||examples/std/decode.rhdl|program|verilog_reference'
   'decode-composition||examples/std/decode-composition.rhdl|program|verilog_reference'
-  'noc-crossbar|noc_crossbar_tb|examples/noc/noc-crossbar.rhdl|program|-'
-  'noc-route-computer|noc_route_computer_tb|examples/noc/noc-route-computer.rhdl|program|verilog_reference'
-  'noc-router|noc_router_tb|examples/noc/noc-router.rhdl|program|-'
-  'noc-network|noc_network_tb|examples/noc/noc-network.rhdl|program|-'
+  'noc-crossbar||examples/noc/noc-crossbar.rhdl|program|-'
+  'noc-route-computer||examples/noc/noc-route-computer.rhdl|program|verilog_reference'
+  'noc-router||examples/noc/noc-router.rhdl|program|-'
+  'noc-network||examples/noc/noc-network.rhdl|program|-'
   'generator-ordinary-defaults||examples/rtl/generator-parameters.rhdl|ordinary_defaults_program|ordinary_defaults_verilog_reference'
   'generator-ordinary-overrides||examples/rtl/generator-parameters.rhdl|ordinary_overrides_program|ordinary_overrides_verilog_reference'
   'generator-ordinary-typed-defaults||examples/rtl/generator-parameters.rhdl|ordinary_typed_defaults_program|ordinary_typed_defaults_verilog_reference'
@@ -783,15 +777,15 @@ fixture_specs=(
   'bit-reductions||examples/rtl/bit-utilities.rhdl|reduction_program|reduction_verilog_reference'
   'bit-membership||examples/rtl/bit-utilities.rhdl|membership_program|membership_verilog_reference'
   'enum-validity||examples/rtl/bit-utilities.rhdl|enum_validity_program|enum_validity_verilog_reference'
-  'sync-ram|sync_ram_tb|examples/std/sync-ram.rhdl|program|verilog_reference'
+  'sync-ram||examples/std/sync-ram.rhdl|program|verilog_reference'
   'table|table_tb|examples/rtl/table.rhdl|program|verilog_reference'
-  'valid-pipe|valid_pipe_tb|examples/std/valid-pipe.rhdl|program|verilog_reference'
-  'valid-pipe-capture-always|valid_pipe_capture_always_tb|examples/std/valid-pipe.rhdl|capture_always_program|-'
+  'valid-pipe||examples/std/valid-pipe.rhdl|program|verilog_reference'
+  'valid-pipe-capture-always||examples/std/valid-pipe.rhdl|capture_always_program|-'
   'vec-search|vec_search_tb|examples/rtl/vec-search.rhdl|program|verilog_reference'
   'riscv-instruction-fields||examples/riscv/instruction-fields.rhdl|program|verilog_reference'
-  'rv64i-alu-integrated|rv64i_alu_integrated_tb|examples/cores/decoded-alu.rhdl|program|-'
-  'chi-ram|chi_ram_tb|examples/chi/ram.rhdl|ram_program|-'
-  'chi-home|chi_home_tb|examples/chi/home.rhdl|home_program|-'
+  'rv64i-alu-integrated||examples/cores/decoded-alu.rhdl|program|-'
+  'chi-ram||examples/chi/ram.rhdl|ram_program|-'
+  'chi-home||examples/chi/home.rhdl|home_program|-'
   'rv5stage||examples/cores/rv5stage.rhdl|program|-'
 )
 
@@ -829,65 +823,16 @@ direct_fixture_specs=(
   'event-offer|event_offer_tb'
   'event-retained|event_retained_tb'
   'event-retained-bank|event_retained_bank_tb'
-  'aclint|aclint_tb||program'
-  'bootrom|bootrom_tb||program'
-  'fesvr-mmio|fesvr_mmio_tb||program'
-  'boot-address|boot_address_tb||program'
-  'plic|plic_tb||program'
-  'uart16550|uart16550_tb||program'
   'uart-dpi|uart_dpi_tb||program'
-  'hdmi-frame-reader|hdmi_frame_reader_tb||program'
-  'hdmi-scanout|hdmi_scanout_tb||program'
-  'hdmi-tmds|hdmi_tmds_tb||program'
   'nested-bundle|||program'
   'bundle-update|bundle_update_tb||program'
   'aggregate-memory|'
   'one-hot-aggregate|||program'
-  'round-robin-matcher|round_robin_matcher_tb||program'
-  'expand-mask|expand_mask_tb||program'
-  'runtime-alignment|runtime_alignment_tb||program'
-  'transfer-range|transfer_range_tb||program'
-  'noc-wormhole|noc_wormhole_tb||program'
-  'noc-escape-router|noc_escape_router_tb||program'
   'formal-differential|formal_differential_tb||program'
-  'noc-router-family|noc_router_family_tb||program'
-  'rv32i-alu|rv32i_alu_tb||program'
-  'rv64i-alu|rv64i_alu_tb||program'
-  'credited-monitor-overgrant|||program'
-  'chi-foundation|chi_foundation_tb||program'
-  'chi-packets|chi_packets_tb||program'
-  'chi-messages|chi_messages_tb||program'
-  'chi-request-update|chi_request_update_tb||program'
   'chi-full-flits|||program'
-  'chi-link|chi_link_tb||program'
-  'chi-monitor|chi_monitor_tb||program'
-  'chi-channel-monitor|chi_channel_monitor_tb||program'
-  'chi-transaction|chi_transaction_tb||program'
-  'chi-retryable-transaction|chi_retryable_transaction_tb||program'
-  'chi-response-profile|chi_response_profile_tb||program'
-  'chi-transaction-sn|chi_transaction_sn_tb||program'
-  'chi-coherent|chi_coherent_tb||program'
-  'chi-cache-maintenance|chi_cache_maintenance_tb||program'
-  'chi-read-once|chi_read_once_tb||program'
-  'chi-read-once-home|chi_read_once_home_tb||program'
-  'chi-read-stream|chi_read_stream_tb||program'
-  'chi-maintenance-home|chi_maintenance_home_tb||program'
-  'chi-maintenance-inclusive|chi_maintenance_inclusive_tb||program'
-  'chi-coherent-home|chi_coherent_home_tb||program'
-  'chi-inclusive-home|chi_inclusive_home_tb||program'
-  'chi-inclusive-directory|chi_inclusive_directory_tb||program'
-  'chi-snp-noc|chi_snp_noc_tb||program'
-  'chi-sn-noc|chi_sn_noc_tb||program'
-  'chi-family-noc|chi_family_noc_tb||program'
-  'chi-noc-adapter|chi_noc_adapter_tb||program'
   'chi-router-composition|||program'
-  'chi-transfer-fragmenter|chi_transfer_fragmenter_tb||program'
-  'chi-fragmenter-metadata|chi_fragmenter_metadata_tb||program'
   'rv5stage-chi-requests|rv5stage_chi_requests_tb||program'
   'cache-copyback|cache_copyback_tb'
-  'load-store|load_store_tb||program'
-  'simd-alu|simd_alu_tb||program'
-  'simd-alu32|simd_alu_tb||program'
   'rv5stage-vector|rv5stage_vector_tb||program'
   'event-vector|event_vector_tb'
   'rv5stage-vector-control|rv5stage_vector_control_tb||program'
@@ -906,45 +851,13 @@ direct_fixture_specs=(
   'rv5stage-zvkt|rv5stage_zvkt_tb||program'
   'rv5stage-vector-sequencer-rv32|rv5stage_vector_sequencer_rv32_tb||program'
   'rv5stage-vector-sequencer-1024|rv5stage_vector_sequencer_1024_tb||program'
-  'riscv-cmo|riscv_cmo_tb||program'
-  'spike-attributes|spike_attributes_tb||program'
-  'riscv-pointer-masking|riscv_pointer_masking_tb||program'
-  'load-store-rv32-word|load_store_rv32_word_tb||program'
-  'bit-manip|bit_manip_tb||program'
-  'bit-manip-rv32|bit_manip_rv32_tb||program'
-  'iterative-multiplier|iterative_multiplier_tb||program'
-  'pipelined-multiplier|pipelined_multiplier_tb||program'
-  'iterative-divider|iterative_divider_tb||program'
-  'cache-replacement|cache_replacement_tb||program'
-  'riscv-counters-rv32|riscv_counters_rv32_tb||program'
-  'riscv-control-policy|riscv_control_policy_tb||program'
-  'riscv-hpm-rv32|riscv_hpm_rv32_tb||program'
-  'riscv-hpm-rv64|riscv_hpm_rv64_tb||program'
-  'riscv-floating-point|riscv_floating_point_tb||program'
-  'riscv-compressed|riscv_compressed_tb||program'
-  'fp-register-file|fp_register_file_tb||program'
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb||program'
-  'fp-service|fp_service_tb||program'
-  'fp-scheduled|fp_service_tb||program'
   'rv5stage-register-file|rv5stage_register_file_tb||program'
-  'riscv-csr|riscv_csr_tb||program'
-  'riscv-hypervisor-csr|riscv_hypervisor_csr_tb||program'
-  'riscv-sstc-rv32|riscv_sstc_rv32_tb||program'
   'rv5stage-hypervisor-core|rv5stage_hypervisor_core_tb||program'
   'rv5stage-pointer-masking|rv5stage_pointer_masking_tb||program'
-  'riscv-zihpm-rv32|riscv_zihpm_rv32_tb||program'
-  'riscv-zihpm-rv64|riscv_zihpm_rv64_tb||program'
-  'riscv-sscofpmf-rv32|riscv_sscofpmf_rv32_tb||program'
-  'riscv-sscofpmf-rv64|riscv_sscofpmf_rv64_tb||program'
-  'riscv-sscofpmf-rv64h|riscv_sscofpmf_rv64h_tb||program'
   'rv5stage-sscofpmf-core|rv5stage_sscofpmf_core_tb||program'
-  'riscv-atomic|riscv_atomic_tb||program'
   'rv5stage-access-fault|rv5stage_access_fault_tb||program'
   'rv5stage-fetch|rv5stage_fetch_tb||program'
-  'bpred-btb|bpred_btb_tb||program'
-  'bpred-btb-wide|bpred_btb_wide_tb||program'
-  'bpred-bht|bpred_bht_tb||program'
-  'bpred-ras|bpred_ras_tb||program'
   'rv5stage-return-prediction|rv5stage_return_prediction_tb||program'
   'rv5stage-instruction-buffer|rv5stage_instruction_buffer_tb||program'
   'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
@@ -952,7 +865,6 @@ direct_fixture_specs=(
   'rv5stage-memory-arbiter|rv5stage_memory_arbiter_tb||program'
   'rv5stage-load-hit|rv5stage_load_hit_tb'
   'rv5stage-branch-prediction|rv5stage_branch_prediction_tb||program'
-  'shift-queue|shift_queue_tb||program'
   'rv5stage-core|rv5stage_core_tb'
   'rv2wide-core|rv2wide_core_tb||program'
   'rv2wide-core-fp|rv2wide_core_fp_tb||program'
@@ -974,10 +886,6 @@ direct_fixture_specs=(
   'rv5stage-zicboz|rv5stage_zicboz_tb||program'
   'rv5stage-zicbom|rv5stage_zicbom_tb||program'
   'rv5stage-mmu-replay|rv5stage_mmu_replay_tb||program'
-  'riscv-svpbmt|riscv_svpbmt_tb||program'
-  'riscv-svnapot|riscv_svnapot_tb||program'
-  'riscv-nested-walker|riscv_nested_walker_tb||program'
-  'riscv-guest-translation|riscv_guest_translation_tb||program'
   'rv5stage-interrupt|rv5stage_interrupt_tb||program'
   'rv5stage-wfi|rv5stage_wfi_tb||program'
   'rv5stage-zawrs|rv5stage_zawrs_tb||program'
@@ -992,12 +900,9 @@ direct_fixture_specs=(
   'rv5stage-integer-execution|rv5stage_integer_execution_tb||program'
   'rv5stage-writeback|rv5stage_writeback_tb||program'
   'rv5stage-divide|rv5stage_divide_tb||program'
-  'cache-icache|cache_icache_tb||program'
-  'cache-icache64|cache_icache_tb||program'
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb||program'
   'rv5stage-icache-coherence-flat|rv5stage_icache_coherence_tb||program'
   'rv5stage-dcache|rv5stage_dcache_tb||program'
-  'cache-store-buffer|cache_store_buffer_tb||program'
   'rv5stage-dcache-rv32|rv5stage_dcache_rv32_tb||program'
   'rv5stage-lrsc-progress|rv5stage_lrsc_progress_tb||program'
   'rv5stage-lrsc-core-progress|rv5stage_lrsc_core_progress_tb||program'
@@ -1146,101 +1051,3 @@ run_expected_assertion_failure event-instance event_instance_invalid_tb \
 run_expected_assertion_failure event-parents event_parents_missing_tb \
   rhodium/event/tests/circt/verilog/event-parents-missing_tb.sv __event_parent_present_ \
   "$repo_dir/rheg/runtime/rheg.cc"
-run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_route_tb \
-  chi/tests/circt/verilog/chi-noc-adapter_tb.sv chi_req_noc_target_has_route
-run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_target_tb \
-  chi/tests/circt/verilog/chi-noc-adapter_tb.sv chi_rsp_noc_ejection_target
-run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_family_route_tb \
-  chi/tests/circt/verilog/chi-noc-adapter_tb.sv chi_dat_noc_family_target_has_route
-run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_family_target_tb \
-  chi/tests/circt/verilog/chi-noc-adapter_tb.sv chi_req_noc_family_ejection_target
-run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_family_snp_site_tb \
-  chi/tests/circt/verilog/chi-noc-adapter_tb.sv chi_snp_noc_family_ejection_site
-run_expected_assertion_failure credited-monitor \
-  credited_monitor_underflow_tb \
-  flow/tests/circt/verilog/credited-monitor-underflow_tb.sv \
-  credited_transfer_has_credit
-run_expected_assertion_failure credited-monitor-overgrant \
-  credited_monitor_overgrant_tb \
-  flow/tests/circt/verilog/credited-monitor-overgrant_tb.sv \
-  credited_grant_within_limit
-run_expected_assertion_failure chi-monitor \
-  chi_monitor_unsupported_opcode_tb \
-  chi/tests/circt/verilog/chi-monitor-unsupported-opcode_tb.sv \
-  chi_tx_req_opcode_supported
-run_expected_assertion_failure chi-channel-monitor \
-  chi_channel_monitor_duplicate_tb \
-  chi/tests/circt/verilog/chi-channel-monitor_tb.sv \
-  rni_transaction_txn_id_unique
-run_expected_assertion_failure chi-channel-monitor \
-  chi_channel_monitor_identity_tb \
-  chi/tests/circt/verilog/chi-channel-monitor_tb.sv \
-  rni_rx_dat_tgt_id
-run_expected_assertion_failure chi-channel-monitor \
-  chi_channel_monitor_early_data_tb \
-  chi/tests/circt/verilog/chi-channel-monitor_tb.sv \
-  rni_transaction_write_data_has_dbid
-run_expected_assertion_failure chi-transaction \
-  chi_transaction_duplicate_txn_tb \
-  chi/tests/circt/verilog/chi-transaction-duplicate-txn_tb.sv \
-  chi_transaction_txn_id_unique
-run_expected_assertion_failure chi-transaction \
-  chi_transaction_early_data_tb \
-  chi/tests/circt/verilog/chi-transaction-early-data_tb.sv \
-  chi_transaction_write_data_has_dbid
-run_expected_assertion_failure chi-coherent \
-  chi_coherent_early_comp_ack_tb \
-  chi/tests/circt/verilog/chi-coherent-early-comp-ack_tb.sv \
-  chi_coherent_comp_ack_has_read_data
-run_expected_assertion_failure chi-inclusive-home chi_copyback_mask_tb \
-  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_copyback_byte_enable
-run_expected_assertion_failure chi-coherent chi_copyback_early_data_tb \
-  chi/tests/circt/verilog/chi-coherent_tb.sv chi_coherent_copyback_data_has_grant
-run_expected_assertion_failure chi-inclusive-home chi_copyback_duplicate_tb \
-  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_requester_write_data_id_unique
-run_expected_assertion_failure chi-inclusive-home chi_copyback_state_tb \
-  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_copyback_state_consistent
-run_expected_assertion_failure chi-inclusive-home chi_victim_dbid_error_tb \
-  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_victim_writeback_dbid_error_zero
-run_expected_assertion_failure chi-inclusive-home chi_victim_comp_dbid_tb \
-  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_victim_writeback_completion_matches_dbid
-run_expected_assertion_failure chi-coherent-home chi_copyback_backing_error_tb \
-  chi/tests/circt/verilog/chi-coherent-home_tb.sv chi_hnf_copyback_backing_response_ok
-run_expected_assertion_failure chi-cache-maintenance \
-  chi_cache_maintenance_wrong_source_tb \
-  chi/tests/circt/verilog/chi-cache-maintenance_tb.sv \
-  chi_maintenance_response_source
-run_expected_assertion_failure chi-cache-maintenance \
-  chi_cache_maintenance_bad_address_tb \
-  chi/tests/circt/verilog/chi-cache-maintenance_tb.sv \
-  chi_maintenance_aligned
-run_expected_assertion_failure chi-read-once \
-  chi_read_once_bad_address_tb \
-  chi/tests/circt/verilog/chi-read-once_tb.sv \
-  chi_read_once_address_aligned
-run_expected_assertion_failure chi-read-once \
-  chi_read_once_duplicate_data_tb \
-  chi/tests/circt/verilog/chi-read-once_tb.sv \
-  chi_read_once_data_id_unique
-run_expected_assertion_failure chi-ram chi_ram_invalid_tb \
-  chi/tests/circt/verilog/chi-ram-invalid_tb.sv \
-  chi_ram_request_address_supported
-for boot_address_case in hole alignment size source mask dbid target early_data; do
-  boot_address_assertion=boot_address_request_supported
-  if [[ "$boot_address_case" == source || "$boot_address_case" == mask || "$boot_address_case" == dbid || "$boot_address_case" == target ]]; then
-    boot_address_assertion=boot_address_write_data_supported
-  elif [[ "$boot_address_case" == early_data ]]; then
-    boot_address_assertion=boot_address_write_data_expected
-  fi
-  run_expected_assertion_failure boot-address "boot_address_${boot_address_case}_tb" \
-    devices/tests/circt/verilog/boot-address-invalid-tb.sv "$boot_address_assertion"
-done
-run_expected_assertion_failure plic plic_invalid_access_tb \
-  devices/tests/circt/verilog/plic-invalid-access-tb.sv \
-  plic_request_supported
-run_expected_assertion_failure chi-home chi_home_wrong_response_source_tb \
-  chi/tests/circt/verilog/chi-home-wrong-source-tb.sv \
-  chi_hni_transaction_response_transfer_paired
-run_expected_assertion_failure chi-home chi_home_wrong_data_source_tb \
-  chi/tests/circt/verilog/chi-home-wrong-source-tb.sv \
-  chi_hni_transaction_read_data_transfer_paired

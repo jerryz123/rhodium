@@ -34,7 +34,7 @@ contract without allocating predictor state.
 | `bht.rhdl` | Banked asynchronous direction counters, saved-index saturation, and lazy row initialization |
 | `ras.rhdl` | Canonical/compressed RISC-V hints and speculative/resolved bounded stacks |
 | `tests/ras-fixture.rhdl` | Direct stack and classification test boundary |
-| `tests/circt/` | Shared BTB/BHT/RAS emitters and cycle-visible Verilator oracles |
+| `tests/rsim/` | Shared BTB/BHT/RAS emitters and cycle-visible C++ oracles |
 
 ## Change workflow
 
@@ -51,10 +51,10 @@ Do not add compatibility forwarding modules under the old named-core paths.
 
 ## Validation
 
-Run the direct behavioral fixtures through the managed Racket/CIRCT runner:
+Run the direct behavioral fixtures through the managed Racket/rsim runner:
 
 ```sh
-FIXTURES='bpred-btb bpred-btb-wide bpred-bht bpred-ras' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='bpred-btb bpred-btb-wide bpred-bht bpred-ras' python3 tools/testing/rsim/run.py
 ```
 
 They cover counter saturation, address ordering and halfword cursors, entry and
@@ -66,4 +66,4 @@ For changes to shared payloads or extraction boundaries, also run the RV5Stage
 `rv5stage-branch-prediction` fixtures. Include `event-frontend` when changing
 fetch Flow contracts. After moves or import changes run `make check-boundaries`;
 fixture names and shared-component CI ownership live in the
-[CIRCT manifest](../../tools/testing/circt/run.sh).
+[rsim inventory](../../tools/testing/rsim/fixtures.tsv).

@@ -66,7 +66,7 @@ a shared semantic responsibility actually belongs in core.
 | `tests/verilog/memory.py` | Synchronous-memory oracle and isolated per-width simulations |
 | `tests/verilog/assertions.py`, `dpi.py` | Assertion and foreign-effect families |
 | `tests/verilog/run.py` | Family selection and optional CIRCT comparison |
-| `tests/verilog/run-integration.py` | Existing SyncRam and UART benches/native model |
+| `tests/verilog/run-integration.py` | Event and UART benches/native model |
 
 ### Representation invariants
 
@@ -646,7 +646,7 @@ language, standard-library, and protocol lanes already run the same authored
 CIRCT benches. The planner always selects those owners alongside the
 differential lane. Local `--differential` retains both behavioral routes for
 self-contained integration checks. The full direct suite remains available
-locally; CI's independent direct lane runs only SyncRam with an invalid
+locally; CI's independent direct lane runs the independent memory oracle with an invalid
 `CIRCT_OPT` to protect backend independence without repeating the full suite.
 
 `tests/rsim/wide.py` checks widths 64/65/127/128/129/512 against Python integers and
@@ -988,7 +988,7 @@ qualify optimized SoC compilation and smoke execution separately.
 | Synchronous memory | Depths 1/3/4; 1R/1W/1R1W/1RW; scalar/aggregate data; bit, granule, and whole-word masks; per-bit definedness; old read results; independent instances |
 | Assertions | Guard/reset suppression; pre-update sampling; occurrence/label diagnostics; two passing and six expected failures; all eight scenarios with synthesis defined |
 | DPI | Native and packed widths through 129 bits; wide inputs/out results; held results; independent clocks/enables; call multisets and instance scopes; generated C-header ABI; explicit synthesis rejection |
-| Authored integrations | Existing SyncRam timing/masks, UART bidirectional serial/PTY behavior, and event runtime/elastic lineage and functional equivalence, reusing package-owned benches and native models |
+| Authored integrations | UART bidirectional serial/PTY behavior, and event runtime/elastic lineage and functional equivalence, reusing package-owned benches and native models |
 
 Only defined output bits enter comparisons or differential transcripts. Oracles
 track startup and partial initialization explicitly; undefined addresses,

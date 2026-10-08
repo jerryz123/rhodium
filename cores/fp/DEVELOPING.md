@@ -72,8 +72,7 @@ From the repository root:
 
 ```sh
 tools/run-racket-tests.sh cores/fp/tests/decode-test.rhm
-FIXTURES='fp-register-file fp-service fp-scheduled' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='fp-register-file fp-service fp-scheduled' python3 tools/testing/rsim/run.py
 ```
 
 The host test checks canonical domains, operand metadata, partial execution

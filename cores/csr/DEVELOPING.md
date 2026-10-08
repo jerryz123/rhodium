@@ -46,7 +46,7 @@ run the affected shared fixtures in `tests/`. Generated RTL stays untracked.
 
 ```sh
 tools/run-racket-tests.sh cores/csr/tests/csr-test.rhm
-FIXTURES='riscv-csr riscv-hypervisor-csr riscv-sstc-rv32' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='riscv-csr riscv-hypervisor-csr riscv-sstc-rv32' python3 tools/testing/rsim/run.py
 ```
 
 Use `riscv-zihpm-rv32`/`riscv-zihpm-rv64` for zero-counter aliases and

@@ -18,7 +18,7 @@ implementation at commit
 with its separate BSD notice preserved in [`LICENSE.md`](LICENSE.md).
 
 The port is ordinary Rhodium: it elaborates into the public core IR and lowers
-through the existing CIRCT backend. It neither adds floating-point operations
+through Rhodium compilation targets. It neither adds floating-point operations
 to Rhodium core nor imports Chisel or wraps generated Verilog.
 
 Contributors maintaining the port should read
@@ -284,7 +284,7 @@ From the repository root, run the complete focused package validation with:
 make hardfloat-test
 ```
 
-This target requires the CIRCT and Verilator tools used by the repository test
+This target uses rsim and the C++20 compiler used by the repository test
 harness. Host-only and backend-specific slices, their exact coverage, and the
 incremental bytecode-cache requirements are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).

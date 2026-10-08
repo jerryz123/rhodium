@@ -12,6 +12,22 @@ Contributors adding or reorganizing tests should read
 [`DEVELOPING.md`](DEVELOPING.md) for placement, CI ownership, and maintenance
 policy.
 
+## Run hardware behavior directly
+
+Rsim is the default for portable component behavior:
+
+```sh
+python3 tools/testing/rsim/run.py --fixture queue
+python3 tools/testing/rsim/run.py --group cores-components
+make hardfloat-rsim-test
+make rsim-component-test
+```
+
+The [rsim guide](rsim/README.md) describes fixture selection, compiler
+requirements, direct `eval()`/`tick_model()` semantics, and retained failure
+artifacts. CIRCT remains responsible for HDL emission references and HDL-specific
+integration; named-core and SoC simulation retain their existing harnesses.
+
 ## Start with the change owner
 
 Tests live with their owning implementation, not in this tooling directory.
@@ -112,7 +128,7 @@ standalone UART DPI C++ check.
 ### External CIRCT and Verilator checks
 
 Use external checks when a change can affect CIRCT MLIR, generated
-SystemVerilog, or runtime hardware behavior. The neutral CIRCT runner owns
+SystemVerilog, or HDL-specific runtime behavior. The neutral CIRCT runner owns
 fixture selection, grouping, tool discovery, exact-reference policy, temporary
 artifacts, and expected-failure simulations; packages own the selected
 emitters and benches. See the [CIRCT test guide](circt/README.md).
@@ -125,7 +141,7 @@ emitters and benches. See the [CIRCT test guide](circt/README.md).
 | `make verilog-golden-test` | Compare every example-backed fixture with its exact reference using the pinned CIRCT version |
 | `make circt-full-test` | Lower every backend-manifest fixture, compare all eligible references, and run every available backend-manifest simulation |
 | `make rfpl-circt-test` | Run RFPL's separately owned CIRCT and Verilog-reference fixture |
-| `make hardfloat-circt-test` | Run HardFloat's separately owned CIRCT and Verilator fixtures |
+| `make hardfloat-rsim-test` | Run HardFloat's rsim C++ fixtures |
 | `make rv5stage-test` | Run RV5Stage host checks, then its focused backend fixture set |
 
 For one backend fixture, use `FIXTURE=name`; for a small batch, use the
@@ -167,7 +183,7 @@ Use aggregate targets only when the change spans their full scope:
 | `make unit-test` | Core, analysis, frontend, invalid-frontend, and backend host tests |
 | `make host-checks` | Host tests, package models, protocols, cores, SoCs, and repository hygiene without the explicit example sweep |
 | `make host-test` | `host-checks` plus every non-formal example |
-| `make test` | `host-test`, the curated backend CIRCT spine, RFPL CIRCT, and HardFloat CIRCT/Verilator checks |
+| `make test` | `host-test`, all rsim component suites, the curated backend CIRCT spine, and RFPL CIRCT checks |
 | `make ci-plan-test` | Validate CI path selection, tracked executable coverage, and the stable gate contract |
 
 `make test` is the broad repository aggregate, not an exhaustive superset. It

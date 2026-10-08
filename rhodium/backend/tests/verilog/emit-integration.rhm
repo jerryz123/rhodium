@@ -13,9 +13,8 @@ import:
 
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[0] in ["direct", "circt"]
-| error("expected direct|circt sync-ram|uart-dpi|event-runtime|event-elastic")
+| error("expected direct|circt uart-dpi|event-runtime|event-elastic")
 def fixture = match arguments[1]
-| "sync-ram": ["examples/std/sync-ram.rhdl", #'program]
 | "uart-dpi": ["devices/tests/uart-dpi-fixture.rhdl", #'program]
 | "event-runtime": ["rhodium/event/tests/event-instrument-fixture.rhdl", #'runtime]
 | "event-elastic": ["rhodium/event/tests/event-elastic-fixture.rhdl", #'elastic]

@@ -42,7 +42,7 @@ rounding-mode selection, CSR policy, register state, and retirement belong in
 | [`rtl/arithmetic/multiply-add.rhdl`](rtl/arithmetic/multiply-add.rhdl) | Fused pre-multiply, post-multiply, normalization, and final rounding |
 | [`rtl/arithmetic/divide-sqrt.rhdl`](rtl/arithmetic/divide-sqrt.rhdl) | Generic one- or two-bit iterative division/square root |
 | [`rtl/arithmetic/divide-sqrt-f64.rhdl`](rtl/arithmetic/divide-sqrt-f64.rhdl) | Pipelined multiply-assisted binary64 forms |
-| [`tests/`](tests/) | Host representations and CIRCT/Verilator behavior checks |
+| [`tests/`](tests/) | Host representations and rsim behavior checks |
 
 ## Translation and provenance policy
 
@@ -66,7 +66,7 @@ When updating or adding a component:
 3. Reuse shared type, recoding, resizing, rounding, and primitive layers rather
    than copying algorithm fragments.
 4. Keep host tests for representations and pure reference calculations. Test
-   numeric and sequential behavior in a permanent CIRCT/Verilator fixture;
+   numeric and sequential behavior in a permanent rsim C++ fixture;
    avoid duplicating it with internal-operation snapshots.
 5. Update [README.md](README.md) when public formats, operations, protocols, or
    deliberate limits change.
@@ -81,14 +81,13 @@ make hardfloat-host-test
 ```
 
 The four fixture sources export elaborated `program` values. The package runner
-uses the shared CIRCT test driver to compile those exports; fixtures do not
+uses the shared rsim driver to compile those exports; fixtures do not
 select a backend or extract artifacts.
 
-Run CIRCT lowering, generated-SystemVerilog compilation, and the four permanent
-Verilator fixtures with:
+Run the four permanent C++ behavior fixtures directly against rsim with:
 
 ```sh
-make hardfloat-circt-test
+make hardfloat-rsim-test
 ```
 
 Run both slices with:
@@ -102,7 +101,7 @@ Repository wrappers manage the persistent worktree-specific
 execution so structural invalidation and incremental rebuilding remain active.
 
 The host slice checks format constraints, nominal packed layouts, and public
-specialization. The CIRCT and Verilator slice covers representative IEEE
+specialization. The rsim slice covers representative IEEE
 special values, exhaustive F16
 representation round trips, rounding families, classification, comparison,
 raw resizing, integer and format conversion, add/subtract, multiply,

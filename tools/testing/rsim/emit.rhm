@@ -1,0 +1,36 @@
+#lang rhombus
+/* Emits rsim component models and typed test port bindings from fixture program exports. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  rhombus/cmdline open
+  rhombus/private/dynamic_require open
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/core/types.rhm").clock_type
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+
+def arguments = current_command_line()
+unless arguments.length() >= 1 && (arguments.length() - 1) mod 3 == 0
+| error("expected OUTPUT followed by NAME SOURCE EXPORT triples")
+
+/* Match the rsim model's injective spelling at the test boundary. */
+fun identifier(name :: String): "p" ++ name.replace("_", "_u", ~all: #true)
+
+for (serial in 0..rkt.quotient(arguments.length() - 1, 3)):
+  def index = 1 + 3 * serial
+  def name = arguments[index]
+  def program = dynamic_require(arguments[index + 1], rkt.#{string->symbol}(arguments[index + 2]))
+  def result = compile_program(program, rsim_target)
+  def directory = rkt.#{build-path}(arguments[0], name)
+  file.#{make-directory*}(directory)
+  for (artifact in result.artifacts):
+    file.#{display-to-file}(artifact.content, rkt.#{build-path}(directory, artifact.name), ~exists: #'#{truncate/replace})
+  def top = result.manifest.top
+  def header = "// Binds this component test directly to its rsim model.\n#pragma once\n#include \"" ++ top ++ ".hpp\"\nusing Model = rsim_" ++ identifier(top) ++ "::Model;\ninline Model dut;\n"
+  def inputs = for List (port in result.manifest.signature.inputs.filter(~keep: fun (port): !clock_type(port.type))):
+    "inline auto& " ++ port.name ++ " = dut.inputs." ++ identifier(port.name) ++ ";"
+  def outputs = for List (port in result.manifest.signature.outputs):
+    "inline const auto& " ++ port.name ++ " = dut.outputs()." ++ identifier(port.name) ++ ";"
+  file.#{display-to-file}(header ++ String.join(inputs ++ outputs, "\n") ++ "\n", rkt.#{build-path}(directory, "ports.hpp"), ~exists: #'#{truncate/replace})
+  println("emitted " ++ name)

@@ -31,7 +31,7 @@ separation.
 | Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
 | Core/MMU/CHI integration | [RV5Stage](../../rv5stage/rv5stage.rhdl), [RV2Wide physical fetch](../../rv2wide/rv2wide.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
-| CIRCT/Verilator fixtures | [Shared cache](../tests/circt/), [RV5Stage integration](../../rv5stage/tests/circt/) |
+| Behavioral fixtures | [Rsim shared cache](../tests/rsim/), [RV5Stage HDL integration](../../rv5stage/tests/circt/) |
 
 ## Change the cache
 
@@ -92,7 +92,8 @@ Use the host check for geometry and public protocol contracts:
 
 ```sh
 tools/run-racket-tests.sh cores/cache/tests/icache-test.rhm
-FIXTURES='cache-icache cache-icache64 cache-compack' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='cache-icache cache-icache64' python3 tools/testing/rsim/run.py
+FIXTURES='cache-compack' bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
 

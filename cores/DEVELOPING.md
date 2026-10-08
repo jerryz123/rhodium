@@ -32,7 +32,7 @@ Before adding a component, decide who owns its policy:
 - Put instruction decode, core-specific architectural integration, pipeline policy, adapters, and
   integrated tests under `cores/<name>/`.
 - Put direct tests for root components in [`tests/`](tests/) and family tests
-  under that family's `tests/` directory, including its CIRCT emitters and
+  under that family's `tests/` directory, including rsim drivers and any HDL-specific emitters and
   benches. Put a named core's tests under its own `tests/` directory.
 
 A reusable component may use the closed RISC-V `XLen` configuration when its
@@ -122,7 +122,7 @@ import compiler passes, simulators, or reference models.
    and exceptional fixed-width behavior in [README.md](README.md).
 3. Use a host test only for pure configuration or public elaboration-time
    rejection. Test datapath results, state, backpressure, and timing through a
-   CIRCT/Verilator fixture; do not snapshot internal operations just because a
+   rsim fixture; do not snapshot internal operations just because a
    component is new.
 4. Integrate the component into a named core only after its standalone contract
    is stable.
@@ -166,7 +166,7 @@ both widening halves, compaction masks, and enable remapping against independent
 per-element models:
 
 ```sh
-FIXTURES='simd-alu simd-alu32' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='simd-alu simd-alu32' python3 tools/testing/rsim/run.py
 ```
 
 Pure host contracts can use the package tests directly. Cycle-visible behavior
@@ -174,8 +174,7 @@ is owned by the matching backend fixtures:
 
 ```sh
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
-FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' python3 tools/testing/rsim/run.py
 ```
 
 `memory-decode.rhdl` generates active scalar/atomic/cache-block rows into caller-shaped

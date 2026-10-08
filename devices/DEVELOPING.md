@@ -62,7 +62,7 @@ model stays beside its Rhodium adapter under `uart/dpi/`.
 | Rhodium PTY adapter | [`uart/uart-dpi.rhdl`](uart/uart-dpi.rhdl) |
 | PTY ABI and host implementation | [`uart/dpi/uart_dpi.h`](uart/dpi/uart_dpi.h), [`uart/dpi/uart_dpi.cc`](uart/dpi/uart_dpi.cc) |
 | Host image, configuration, parameter, and ABI checks | [`tests/`](tests/) |
-| CIRCT emitters and Verilator benches | [`tests/circt/`](tests/circt/) |
+| Rsim component fixtures | [`tests/rsim/`](tests/rsim/); UART DPI ABI remains under `tests/circt/` |
 
 ## Add or change a device
 
@@ -77,7 +77,7 @@ model stays beside its Rhodium adapter under `uart/dpi/`.
    independently before integrating the Rhodium DPI adapter.
 5. Use a host test for image construction, parameters, or ABI validation. Test
    register effects, interrupts, serial timing, and transactions in a
-   CIRCT/Verilator fixture; do not add a separate internal-shape snapshot.
+   rsim fixture; do not add a separate internal-shape snapshot.
 6. Update [`../socs/`](../socs/README.md) only when a concrete platform adopts
    the device or changes its address, NodeID, PMA, Home, or interrupt policy.
 
@@ -94,12 +94,11 @@ The target runs package-boundary checks, every `devices/tests/*-test.rhm`, and
 [`run-uart-dpi-cpp.sh`](tests/run-uart-dpi-cpp.sh). The Rhombus test wrapper
 selects the persistent worktree-specific compiled root when none is supplied.
 
-To lower and simulate only the device fixtures through CIRCT and
-Verilator, run:
+To run device behavior natively and the UART foreign-ABI integration separately:
 
 ```sh
-FIXTURES='bootrom boot-address aclint plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds' \
-  bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='bootrom boot-address aclint plic uart16550 hdmi-frame-reader hdmi-scanout hdmi-tmds' python3 tools/testing/rsim/run.py
+FIXTURES='uart-dpi' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 These fixtures cover transactions, registers, interrupts, serial pins, and the
@@ -126,5 +125,5 @@ The `hdmi-tmds` fixture discovers every reachable disparity state in an
 independent integer reference model, then drives a reference prefix and all
 256 byte values from each state. It also covers all four control symbols,
 invalid-cycle state retention, reset during active data, decoding, and long
-streams. The shared test-only `tmds-reference.svh` updates disparity by
+streams. The shared test-only `tests/rsim/tmds-reference.hpp` updates disparity by
 counting transmitted bits instead of repeating the RTL's arithmetic.
