@@ -1,4 +1,4 @@
-// Checks accepted immediate-target repairs, packet cuts, straddles, RAS actions, and compressed FP expansion.
+// Checks cross-block assembly, credits, prediction/fault ownership, repairs, RAS actions, and compressed FP expansion.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_assembly_prediction_tb;
   typedef struct packed { logic valid; logic [63:0] cause, value; logic [65:0] guest; } fault_t;
@@ -88,9 +88,10 @@ module rv2wide_assembly_prediction_tb;
       end
     end
   end
-  task automatic offer(logic [63:0] pc,data,pred_pc=0,pred_target=0,bit compressed=0,fault=0);
+  task automatic offer(logic [63:0] pc,data,pred_pc=0,pred_target=0,bit compressed=0,fault=0,
+                       direction_t [3:0] directions='0,direction_t prefix='0);
     @(negedge clock);
-    blocks_in='{1'b1,'{pc,data,'{fault,64'd1,pc,'0},'{pred_pc!=0,pred_pc,pred_target,compressed,2'd0},'0,'0}};
+    blocks_in='{1'b1,'{pc,data,'{fault,64'd1,pc,'0},'{pred_pc!=0,pred_pc,pred_target,compressed,2'd0},directions,prefix}};
     do @(posedge clock); while(!blocks_out);
     @(negedge clock); blocks_in='0;
   endtask
@@ -175,6 +176,111 @@ module rv2wide_assembly_prediction_tb;
     expected_pc.push_back('hf40);
     offer('hf40,{32'h00100013,32'h000082e7},'hf40,'hdead); drain(); // JALR x5,x1: pop-push.
     assert(repairs==11 && return_speculations==6) else $fatal(1,"return repair/action count changed");
+    // A buffered next block fills either output slot, including a straddling
+    // first or second instruction. Direction ownership follows each start PC.
+    for(int offset=0;offset<4;offset++) for(int first_c=0;first_c<2;first_c++) for(int second_c=0;second_c<2;second_c++) begin
+      logic [127:0] bytes;
+      logic [63:0] base,pc,second_pc;
+      logic [31:0] first_raw,second_raw;
+      direction_t [3:0] first_directions,second_directions;
+      direction_t prefix;
+      packet_t held;
+      int first_bytes,second_bytes,second_parcel;
+      clear(); instructions_in=0;
+      base='h10000+64'(int'((offset*4+first_c*2+second_c)*32)); pc=base+64'(offset*2);
+      first_bytes=first_c!=0?2:4; second_bytes=second_c!=0?2:4; second_pc=pc+64'(first_bytes);
+      first_raw=first_c!=0?32'h00000001:32'h00100013;
+      second_raw=second_c!=0?32'h00000001:32'h00200013;
+      for(int parcel=0;parcel<8;parcel++) bytes[parcel*16+:16]=16'h0001;
+      bytes[offset*16+:32]=first_raw;
+      if(first_c!=0) bytes[(offset+1)*16+:16]=16'h0001;
+      second_parcel=offset+first_bytes/2;
+      bytes[second_parcel*16+:32]=second_raw;
+      if(second_c!=0) bytes[(second_parcel+1)*16+:16]=16'h0001;
+      for(int parcel=0;parcel<4;parcel++) begin
+        first_directions[parcel]='{1'b1,12'(parcel),10'd17,1'b0};
+        second_directions[parcel]='{1'b1,12'(4+parcel),10'd29,1'b0};
+      end
+      prefix='{1'b1,12'd3,10'd17,1'b0};
+      expected_pc.push_back(pc); expected_pc.push_back(second_pc);
+      offer(pc,bytes[63:0],0,0,0,0,first_directions);
+      offer(base+8,bytes[127:64],0,0,0,0,second_directions,prefix);
+      assert(instructions_out.valid && instructions_out.bits.count==2) else $fatal(1,"cross-block pair missing offset=%0d sizes=%0d/%0d",offset,first_bytes,second_bytes);
+      assert(instructions_out.bits.entries[0].raw_instruction==first_raw && instructions_out.bits.entries[1].raw_instruction==second_raw)
+        else $fatal(1,"cross-block bytes changed");
+      for(int lane=0;lane<2;lane++) begin
+        int parcel,size;
+        parcel=lane==0?offset:second_parcel; size=lane==0?first_bytes:second_bytes;
+        assert(instructions_out.bits.entries[lane].direction.history==(parcel<4?10'd17:10'd29)) else $fatal(1,"cross-block direction history owner");
+        assert(instructions_out.bits.entries[lane].direction.index==12'(parcel)) else $fatal(1,"cross-block direction index owner");
+        assert(instructions_out.bits.entries[lane].sequential_pc==instructions_out.bits.entries[lane].pc+64'(size)) else $fatal(1,"cross-block length changed");
+      end
+      held=instructions_out.bits;
+      repeat(4) begin @(negedge clock); assert(instructions_out.valid && instructions_out.bits==held && available==1) else $fatal(1,"stalled window changed"); end
+      instructions_in=1; #1;
+      assert(available==2'(1+(offset*2+first_bytes+second_bytes)/8)) else $fatal(1,"consumed block credit was not immediately reusable");
+      @(posedge clock); @(negedge clock); instructions_in=0;
+      assert(expected_pc.size()==0) else $fatal(1,"cross-block packet did not transfer");
+    end
+    // An unavailable second block never delays a complete first instruction.
+    clear(); instructions_in=0;
+    expected_pc.push_back('h11006);
+    offer('h11006,64'h0001000100010001);
+    assert(instructions_out.valid && instructions_out.bits.count==1) else $fatal(1,"complete instruction waited for lookahead");
+    instructions_in=1; @(posedge clock); @(negedge clock); instructions_in=0;
+    // A fault in a second instruction's continuation preserves the first
+    // instruction and reports the straddling PC with the continuation fault VA.
+    clear();
+    expected_pc.push_back('h11104); expected_pc.push_back('h11106);
+    offer('h11104,{16'h0013,16'h0001,32'h00010001});
+    offer('h11108,0,0,0,0,1);
+    assert(instructions_out.valid && instructions_out.bits.count==2 && !instructions_out.bits.entries[0].fault.valid &&
+           instructions_out.bits.entries[1].fault.valid && instructions_out.bits.entries[1].fault.value=='h11108)
+      else $fatal(1,"second-slot continuation fault ownership");
+    instructions_in=1; @(posedge clock); @(negedge clock); instructions_in=0;
+    // Drain all three resident blocks as a continuous parcel stream, rather
+    // than emitting a singleton at every eight-byte boundary.
+    clear();
+    for(int parcel=0;parcel<9;parcel++) expected_pc.push_back('h11206+64'(parcel*2));
+    offer('h11206,64'h0001000100010001);
+    offer('h11208,64'h0001000100010001);
+    offer('h11210,64'h0001000100010001);
+    assert(available==0 && !blocks_out) else $fatal(1,"full block window did not retain backpressure");
+    instructions_in=1; #1;
+    assert(available==1) else $fatal(1,"full window release credit unavailable");
+    while(expected_pc.size()>0) begin
+      assert(instructions_out.valid && instructions_out.bits.count==(expected_pc.size()>1?2'd2:2'd1))
+        else $fatal(1,"block boundary broke sustained assembly");
+      @(posedge clock); @(negedge clock);
+    end
+    instructions_in=0;
+    // A taken branch in slot one can release both contributing blocks. Neither
+    // fallthrough bytes nor a following noncontiguous target enter the packet.
+    clear();
+    expected_pc.push_back('h11306); expected_pc.push_back('h11308);
+    offer('h11306,64'h0001000100010001);
+    offer('h11308,{32'h00100013,32'h0400006f},'h11308,'h11348);
+    assert(instructions_out.valid && instructions_out.bits.count==2 && instructions_out.bits.entries[1].prediction.valid && !repair_out.valid)
+      else $fatal(1,"cross-block taken suffix lost prediction");
+    instructions_in=1; #1;
+    assert(available==3) else $fatal(1,"taken suffix did not release both block credits");
+    @(posedge clock); @(negedge clock); instructions_in=0;
+    expected_pc.push_back('h1134e);
+    offer('h1134e,64'h0001000100010001);
+    offer('h12000,64'h0001000100010001);
+    assert(instructions_out.valid && instructions_out.bits.count==1) else $fatal(1,"assembled across noncontiguous blocks");
+    instructions_in=1; @(posedge clock); @(negedge clock); instructions_in=0;
+    // Fresh continuation direction can override the prefix's provisional BTB
+    // taken prediction without inventing an assembler repair.
+    clear();
+    expected_pc.push_back('h12106); expected_pc.push_back('h1210a);
+    offer('h12106,{16'h0063,48'h000100010001},'h12106,'h12306);
+    offer('h12108,{48'h000100010001,16'h2000},0,0,0,0,'0,'{1'b1,12'h123,10'd41,1'b0});
+    assert(instructions_out.valid && instructions_out.bits.count==2 && !instructions_out.bits.entries[0].prediction.valid &&
+           instructions_out.bits.entries[0].direction.valid && !repair_out.valid)
+      else $fatal(1,"not-taken continuation repaired a recognized branch");
+    instructions_in=1; @(posedge clock); @(negedge clock); instructions_in=0;
+    clear(); instructions_in=1;
     $display("RV2Wide assembly prediction repair/cut/straddle/RAS tests passed (%0d instructions)",retired); $finish;
   end
   initial begin #10000; $fatal(1,"assembly timeout"); end

@@ -189,7 +189,7 @@ module rv2wide_bht_tb;
     begin_case(0,0); expected_history=2; expected_index=12'((('h100>>3)^2)*4);
     history_commit_in='{1'b1,2'b11,2'b01};
     @(negedge clock); history_commit_in='0;
-    redirect_in='{1'b1,'{64'h100,64'h100,'{2'd0,64'd0,64'd0}}};
+    redirect_in='{1'b1,'{64'h100,64'h100,'{2'd0,64'd0,64'd0,'0}}};
     @(negedge clock); redirect_in='0; virtual_lookup_in.ready=1;
     finish_case();
     assert(history_followups>=5) else $fatal(1,"post-prediction history not exercised");

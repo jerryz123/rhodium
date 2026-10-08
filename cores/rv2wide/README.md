@@ -78,6 +78,11 @@ even for not-taken conditional branches. Prediction metadata belongs to
 the instruction, not its packet position, and remains attached after compaction.
 The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.
+The fetch assembler can form a two-instruction packet across adjacent 8-byte
+blocks, including a 32-bit instruction spanning their boundary. If only one
+complete instruction is available, it emits that instruction without waiting
+for the next block. Predicted-taken cuts and the single-RAS-action restriction
+still delimit packets; cross-block assembly does not waive execution hazards.
 The source must follow redirects and supply instructions in program order;
 the standalone slice does not fetch instructions itself. `fetch_flush: Pulse()`
 immediately cancels younger fetch work, even while a fault is waiting for older

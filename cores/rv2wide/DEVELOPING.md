@@ -37,7 +37,7 @@ Event annotations live on functional Flow boundaries, independently of the cosim
 source contract. The issue window exposes Valid candidates; each lane's named
 window contract observes the actual compacting count and prefix consumption,
 replicating a packet owner for its one/two appended instructions. The assembler
-retains a trailing block owner and joins it with the live block for straddles.
+selects the one/two retained or live block owners contributing bytes to each packet.
 EX/MEM mapping and lane grants certify manually authored combinational regions.
 Split ownership uses its actual capture/release/pending controls. Successful WB
 parents accepted load/divide requests; EX parents the multiply's existing owner
@@ -377,13 +377,18 @@ Reset is coordinated with the memory service; it ends the entire response epoch.
 The frontend pairs one accepted S0 virtual index with S1 physical permission
 resolution and an S2 block outcome. Both lookup contexts use flushable Flow
 Valid pipes. Reserve one of the assembler's three block slots for each admitted
-lookup using registered occupancy. The Flow ShiftQueue has live bypass; two C
-expanders feed the existing eight-entry instruction window without another
-instruction queue. The assembler retains a consumed-halfword cursor and at most
-one unfinished 32-bit prefix. Advance this state only with packet acceptance or
-when saving an incomplete prefix that produces no packet. Never depend on current
+lookup using occupancy plus same-cycle resident block releases. The assembler
+owns three compacting block slots and a two-block decode window with live input
+bypass; two C expanders feed the existing eight-entry instruction window without
+another instruction queue. One consumed-halfword cursor retains unfinished bytes
+in their original block, including incomplete 32-bit instructions. Decode the
+second instruction across a sequential block boundary whenever bytes are available;
+do not wait for it when the first instruction is already complete. Advance the
+cursor and release zero/one/two blocks only with packet acceptance. Credit only
+resident releases, not a consumed live input, and keep block admission independent
+of packet readiness. Never depend on current
 issue readiness to accept a cache result. Replay kills younger lookup stages only
-and preserves buffered blocks and prefixes; MEM/WB recovery clears assembly and
+and preserves buffered blocks and unfinished bytes; MEM/WB recovery clears assembly and
 the instruction buffer. Start is
 quiescent-only and the buffer is already empty. Accepted refills belong to L1I
 and remain live across speculative cancellation. Fetch faults carry explicit
@@ -391,7 +396,7 @@ cause/address through the ordinary instruction token and suppress decode
 hazards, memory requests, branch effects, and GPR writes.
 Keep canonical decode bits separate from raw encoding and sequential PC. Link and
 system recovery use the sequential PC; illegal trap values use the raw encoding.
-A faulting continuation uses the retained prefix's instruction PC and the next
+A faulting continuation uses the instruction's original PC and the next
 block's fault address. The CSR bank's C configuration must agree with this IALIGN.
 `RV2WideConfig.compressed` retains C as the mandatory base and accepts optional
 Zcb/Zcmop additions, validated through the shared architectural catalog. Pass
@@ -861,7 +866,10 @@ forms), empty-stack target preservation, fallthrough
 suffix cuts, predicted straddles and continuation faults, and
 single-shot RAS actions under packet backpressure. Its D-enabled configuration
 also checks all four compressed FP load/store expansions and raw encodings.
-Local repair clears block and prefix ownership on the following cycle; it must
+Cross-block cases cover every halfword start and instruction-length pair, stalled
+packet retention, source-block history, immediate credit reuse, complete-first
+progress without lookahead, and a second-slot continuation fault.
+Local repair clears block ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.
 `rv2wide-frontend-prediction` supplies fixed-cycle instruction-cache responses
 through public ports. It checks same-cycle S1 prediction and S2 target offers
