@@ -84,7 +84,7 @@ sync_circuit RV2WideCosimObserver(xlen :: XLen, tap_types :: Map, instance :: Na
     def result :: RV2WideRetirement(xlen) = if index < 2 | retirement[index] | literal(RV2WideRetirement(xlen), 0)
     def deferred = if index < 2 | result.deferred | Bool(#false)
     def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
-    def next_pc = mux(mret ||| sret, taps["csr_redirect"], mux(token.taken, token.target, token.fetched.sequential_pc))
+    def next_pc = mux(mret ||| sret, taps["csr_redirect"], mux(token.branch.taken, token.branch.target, token.fetched.sequential_pc))
     rhodium_rv2wide_lane.call(
       instance_id, bits(index, 64), lane((if index < 2 | retired[index] | Bool(#false)).as_bits()),
       lane((if index < 2 | split_capture & (memory_lane === bits(index, 1)) | Bool(#false)).as_bits()),

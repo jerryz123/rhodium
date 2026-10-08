@@ -20,7 +20,7 @@ circuit RV2WidePredecode(profile :: RV2WideConfig):
   output(compressed, legal, control_flow, conditional, immediate): Bool
   output offset: Bits(xlen.width)
   output action: RasAction
-  inst expander(RiscvCompressedExpander(xlen, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile.floating_point, ~xlen: xlen, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause, ~zihintntl: profile.zihintntl, ~svinval: profile.svinval, ~hypervisor: profile.hypervisor).map(fun (instruction): instruction.name)))
+  inst expander(RiscvCompressedExpander(xlen, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile).map(fun (instruction): instruction.name)))
   expander.compressed <== raw[0..16]
   compressed <== raw[0..2] =/= bits(3, 2)
   canonical <== mux(compressed, expander.expansion.instruction, raw)

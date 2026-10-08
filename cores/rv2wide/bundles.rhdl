@@ -130,6 +130,12 @@ bundle RV2WideResolution(xlen :: XLen):
   value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
+/* Stores only scheduling decisions; instruction ownership is attached at service boundaries. */
+bundle RV2WideFpSchedule():
+  lane: Bits(1)
+  speculative: Bool
+  direct: Bool
+
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
 bundle RV2WideFpOwner(xlen :: XLen):
   fetched: RV2WideInstruction(xlen)
@@ -138,6 +144,20 @@ bundle RV2WideFpOwner(xlen :: XLen):
   destination: FloatDestination
   speculative: Bool
   direct: Bool
+
+/* Reconstructs an FP owner from its one pipeline instruction and compact scheduling tag. */
+fun rv2wide_fp_owner(xlen :: XLen, fetched :: RV2WideInstruction(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, FpProfile, RV2WideFpSchedule())) :~ RV2WideFpOwner(xlen):
+  RV2WideFpOwner(xlen):
+    fetched: fetched
+    lane: request.tag.lane
+    rd: rd
+    destination: request.control.registers.destination
+    speculative: request.tag.speculative
+    direct: request.tag.direct
+
+/* Attaches architectural ownership only when numerical work enters a shared service. */
+fun rv2wide_fp_request(xlen :: XLen, fetched :: RV2WideInstruction(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, FpProfile, RV2WideFpSchedule())) :~ FpExecutionRequest(xlen, FpProfile, RV2WideFpOwner(xlen)):
+  fp_request_with_tag(xlen, FpProfile, RV2WideFpSchedule(), RV2WideFpOwner(xlen), request, rv2wide_fp_owner(xlen, fetched, rd, request))
 
 /* Carries an already extracted FP memory value to the architectural FPR write port. */
 bundle RV2WideFpLoad(xlen :: XLen):
@@ -156,7 +176,7 @@ bundle RV2WideExecute(xlen :: XLen):
   rd: Bits(5)
   illegal: Bool
   virtual_instruction: Bool
-  fp_request: FpExecutionRequest(xlen, FpProfile, RV2WideFpOwner(xlen))
+  fp_request: FpExecutionRequest(xlen, FpProfile, RV2WideFpSchedule())
 
 /* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
 hardware_enum RV2WideCacheOutcome:
@@ -174,6 +194,15 @@ hardware_enum RV2WideBranchPrediction:
   Correct
   Mispredicted
 
+/* Carries the EX comparison inputs and the MEM-resolved control transfer through WB. */
+bundle RV2WideBranchResult(xlen :: XLen):
+  taken: Bool
+  target: Bits(xlen.width)
+  update: BranchUpdate(xlen)
+  control: BranchResolverControl()
+  operands_from_older: Vec(2, Bool)
+  mispredicted: Bool
+
 /* Retains one result, control transfer, and fault/replay outcome through MEM and WB. */
 bundle RV2WideResult(xlen :: XLen):
   fetched: RV2WideInstruction(xlen)
@@ -181,12 +210,7 @@ bundle RV2WideResult(xlen :: XLen):
   write: Bool
   data: Bits(xlen.width)
   result_ready: Bool
-  taken: Bool
-  target: Bits(xlen.width)
-  branch_update: BranchUpdate(xlen)
-  branch_control: BranchResolverControl()
-  branch_operands_from_older: Vec(2, Bool)
-  mispredicted: Bool
+  branch: RV2WideBranchResult(xlen)
   memory: RV2WideMemoryControl()
   guest_access: RiscvGuestMemoryAccess
   prefetch: CachePrefetchOperation
@@ -202,7 +226,7 @@ bundle RV2WideResult(xlen :: XLen):
   right: Bits(xlen.width)
   resolution: RV2WideResolution(xlen)
   fp: RV2WideFpControl()
-  fp_request: FpExecutionRequest(xlen, FpProfile, RV2WideFpOwner(xlen))
+  fp_request: FpExecutionRequest(xlen, FpProfile, RV2WideFpSchedule())
 
 /* Restarts unassembled fetch work without discarding already accepted instructions. */
 bundle RV2WideFetchRepair(xlen :: XLen):
@@ -215,9 +239,9 @@ bundle RV2WideFetchRepair(xlen :: XLen):
 fun rv2wide_history_after(prediction :: BhtPrediction(10), taken :: Bool) :~ Bits(10):
   mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
 
-/* Carries exact byte address/width, positioned ordinary stores, and unshifted atomic operands. */
-bundle RV2WideMemoryReq(xlen :: XLen):
-  address: Bits(64)
+/* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */
+bundle RV2WideMemoryReq(xlen :: XLen, address_width :: PosInt):
+  address: Bits(address_width)
   access: CacheOperation
   atomic: RiscvAtomicOperation
   width: MemoryWidth
@@ -226,6 +250,19 @@ bundle RV2WideMemoryReq(xlen :: XLen):
   locality: RiscvMemoryLocality
   pbmt: PageMemoryType
   guest_access: RiscvGuestMemoryAccess
+
+/* Crosses the translation boundary without changing access size or positioned store lanes. */
+fun rv2wide_physical_request(xlen :: XLen, request :: RV2WideMemoryReq(xlen, xlen.width), address :: Bits(64), pbmt :: PageMemoryType) :~ RV2WideMemoryReq(xlen, 64):
+  RV2WideMemoryReq(xlen, 64):
+    address: address
+    access: request.access
+    atomic: request.atomic
+    width: request.width
+    data: request.data
+    mask: request.mask
+    locality: request.locality
+    pbmt: pbmt
+    guest_access: request.guest_access
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle RV2WideLookupResult(xlen :: XLen):
@@ -239,7 +276,7 @@ interface RV2WidePipelineAccess(xlen :: XLen):
   role responder
   provider requester
   requester -> responder:
-    request: Valid(RV2WideMemoryReq(xlen))
+    request: Valid(RV2WideMemoryReq(xlen, xlen.width))
     commit: Bool
   responder -> requester:
     response: Valid(RV2WideLookupResult(xlen))
@@ -252,12 +289,12 @@ interface RV2WidePipelineAccess(xlen :: XLen):
    registered ordered_busy prevents younger memory effects, including earlier lookup hits.
    Reservation validity is live shared-cache state for WB wait-on-reservation.
    Reset must reset both participants together. */
-interface RV2WideMemory(xlen :: XLen):
+interface RV2WideMemory(xlen :: XLen, address_width :: PosInt):
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(RV2WideMemoryReq(xlen))
+    request: Decoupled(RV2WideMemoryReq(xlen, address_width))
   responder -> requester:
     fault: Valid(RV2WideResolution(xlen))
     response: Decoupled(Bits(xlen.width))
@@ -285,6 +322,10 @@ bundle RV2WideOperand(xlen :: XLen):
   data: Bits(xlen.width)
 
 export:
+  RV2WideFpSchedule
+  rv2wide_fp_owner
+  rv2wide_fp_request
+  rv2wide_physical_request
   RV2WideFpOwner
   RV2WideFpLoad
   RV2WideTranslationState
@@ -301,6 +342,7 @@ export:
   RV2WideResolution
   RV2WideExecute
   RV2WideResult
+  RV2WideBranchResult
   RV2WideMemoryReq
   RV2WideCacheOutcome
   RV2WideBranchPrediction

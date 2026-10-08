@@ -132,7 +132,9 @@ retains a split owner through its final retirement/trap, including completed
 store prefixes. Three native service FIFOs correspond to accepted memory,
 WB-authorized multiply, and divide. Variable-return arbitration schedules load
 and divide owners through three feed-forward stages; multiply writes directly
-on its authorized WB+1 edge. The versioned `rv2wide.v4` source contract samples
+on its authorized WB+1 edge. The versioned `rv2wide.v5` source contract consumes
+grouped branch payloads and compact FP scheduling tags without changing the
+native callback ABI. It samples
 virtual entry/return context, guest trap provenance, and counter-3 timing as well
 as both the direct source and RF destination on that edge, independently of
 same-cycle variable-return admission. Only the actual RF-write edge seals its GPR

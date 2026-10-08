@@ -15,10 +15,19 @@ the fetch frontend, integer slice, age/order rules, and behavioral fixtures. Fol
 prediction addresses, register state, load/store shaping, and integer services.
 Use canonical RV32 instruction catalogs rather than projecting RV64 patterns;
 compressed expansion and the composed decoder must select the same domain.
+Both consume `RV2WideConfig` directly through `rv2wide_instructions(profile)`
+and `rv2wide_control_cases(profile)`. Keep XLEN selection in one canonical
+integer-domain function, not a second default-RV64 decoder or caller-maintained
+feature-keyword list. Optional rows reuse inactive component patterns while
+retaining don't-care masks.
 Keep fixed 64-bit fetch blocks, boot/time inputs, and CHI transport separate
 from architectural width. The shared uncached engine remains 64-bit so it can
 return one complete fetch block; scalar IO is explicitly widened/narrowed at
 the cache adapter, preserving its exact access size and byte offset.
+Memory request and interface constructors take explicit address width: core
+VAs are XLEN, physical adapter requests are 64 bits. Build the physical request
+at the translation boundary with `rv2wide_physical_request`; never widen VAs
+inside the pipeline merely to match CHI transport.
 
 `bare-memory.rhdl` implements the same EX/MEM/WB contract without translation
 storage. It owns PMA qualification and core/split response routing; accepted
@@ -32,6 +41,23 @@ No independent lane handshake may allow a younger instruction to pass an
 older blocked instruction. WB is the only transaction and retirement authority;
 its accepted deferred owners later write through the shared younger-slot port.
 Redirect qualification gates new transfers as well as flushing pipe state.
+
+`RV2WideResult.branch` groups comparison, recovery, and training state. FP
+requests stored alongside a fetched instruction carry only `RV2WideFpSchedule`;
+attach the complete `RV2WideFpOwner` at EX launch, WB authorization, or memory
+completion. Do not store a duplicate fetched instruction in the request tag.
+These are ownership boundaries, not extra pipeline stages or latency assumptions.
+
+WB separates live/retained owners, the pre-dispatch prefix (`wb_dispatch`),
+service acceptance/faults, and the successful retirement prefix (`wb_retire`).
+Dispatch must not consume final retirement validity: admission readiness/faults
+would then feed back into the request that produced them. Retained split/CMO/WRS
+state remains local to WB and accepted work survives speculative flush.
+The retained lifecycle is `Idle -> Draining -> Ready -> Accepted -> Idle`;
+completion can exit an earlier phase for a reservation wake or admission fault.
+Keep capture/completion priority and the registered drain edge unchanged.
+Use Flow maps/filters for combinational stage transfers; explicit selection and
+retained-storage contracts remain where core policy chooses or retains owners.
 
 Reuse ALU, branch, load/store shaping, and shared scoreboard components and the `cores/*-decode.rhdl` instruction
 relations. Never import RV5Stage or another named core. Do not create an
@@ -745,7 +771,9 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v4` contract. The core declares
+`observation.rhdl` names the passive `rv2wide.v5` contract. Its typed tokens
+use grouped branch state and compact FP scheduling tags; the native callbacks
+retain their existing architectural fields and timing. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
 `cores/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.

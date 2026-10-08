@@ -80,7 +80,7 @@ sync_circuit RV2WideMmuFixture():
   fetch_resolution <== mmu.instruction.resolution
   fetch_physical <== mmu.instruction.address
   fetch_pbmt <== mmu.instruction.pbmt
-  def request = RV2WideMemoryReq(XLen.X64):
+  def request = RV2WideMemoryReq(XLen.X64, 64):
     guest_access: guest_access
     address: address
     access: access

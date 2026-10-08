@@ -288,6 +288,9 @@ the shared hart MMU-type descriptor.
 `cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
 composition and one hardware decoder per issue slot, plus the architectural
 XLEN descriptor to select the shared F/D/Zfa instruction/control relations.
+Its combined relation consumes the named core's `profile.rhm` configuration;
+core decode and compressed predecode share that selection without duplicating
+feature arguments. The pure configuration has no reverse dependency on RTL.
 Its system and combined control relations also import the pure
 `riscv/isa/svinval.rhm` catalog; optional invalidation reuses shared CSR actions
 and the existing WB/MMU ownership boundary.
@@ -391,7 +394,7 @@ functional handshakes, and no named core imports the simulator receiver.
 
 RV2Wide's core, MMU, and composition import the same passive metadata bridge
 for dual WB slots, CSR command context, deferred return ownership, and physical
-request/fragment provenance. `cores/rv2wide/observation.rhdl` declares `rv2wide.v2`
+request/fragment provenance. `cores/rv2wide/observation.rhdl` declares `rv2wide.v5`
 without imports. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
 RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing helpers,
 architectural privilege/interrupt/XLEN/FP-profile descriptors,

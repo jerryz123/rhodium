@@ -31,11 +31,11 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(RV2WideInstructionTranslation(xlen), ~role: responder)
   interface pipeline(RV2WidePipelineAccess(xlen), ~role: responder)
-  interface memory(RV2WideMemory(xlen), ~role: responder)
+  interface memory(RV2WideMemory(xlen, xlen.width), ~role: responder)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
-  interface physical_memory(RV2WideMemory(xlen), ~role: requester)
+  interface physical_memory(RV2WideMemory(xlen, 64), ~role: requester)
 
   instruction.address <== (if xlen == XLen.X64 | instruction.request.bits | instruction.request.bits.zext(64))
   instruction.pbmt <== PageMemoryType.PMA
@@ -50,7 +50,7 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def fragment_virtual = apply_pointer_mask(xlen, misaligned.fault_address, state.pointer_masking)
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, state.pointer_masking))) |> split.response
   /* Indexes one XLEN beat while the pipeline retains the original architectural access. */
-  fun cache_request(request :: RV2WideMemoryReq(xlen)) :~ CachePipelineReq(xlen):
+  fun cache_request(request :: RV2WideMemoryReq(xlen, xlen.width)) :~ CachePipelineReq(xlen):
     def address :: Bits(xlen.width) = request.address[0..xlen.width]
     CachePipelineReq(xlen):
       address: address.align_down(bytes)
@@ -62,9 +62,10 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def Array(index, context) = pipeline.request |> fork_valid(2)
   index |> map_valid(request => cache_request(request)) |> pipeline_lookup
   def mem = context |> valid_pipe(1)
-  def request :: RV2WideMemoryReq(xlen) = mem.bits
+  def request :: RV2WideMemoryReq(xlen, xlen.width) = mem.bits
   def block = request.access.is_cache_block()
-  def first = mux(block, request.address.align_down(CacheLineBytes), request.address)
+  def physical_address = if xlen == XLen.X64 | request.address | request.address.zext(64)
+  def first = mux(block, physical_address.align_down(CacheLineBytes), physical_address)
   def last = first +& mux(block, bits(CacheLineBytes - 1, 64), memory_access_bytes(XLen.X64, request.width) - bits(1, 64))
   def region = config.physical_map.lookup(first, last)
   def atomic = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
@@ -94,10 +95,10 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def fragment_address = if xlen == XLen.X64 | masked_address | masked_address.zext(64)
   def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& bits(bytes - 1, 64))
   def fragment_permitted = fragment_region.mapped & fragment_region.cacheable & fragment_region.read_idempotent & !fragment_region.device & mux(misaligned.request.bits.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
-  inst requests(Arbiter(RV2WideMemoryReq(xlen), 2))
+  inst requests(Arbiter(RV2WideMemoryReq(xlen, 64), 2))
   inst owners(Queue(Bool, 8))
-  memory.request |> gate_flow(!misaligned.busy) |> requests.ingress[0]
-  (misaligned.request |> gate_flow(fragment_permitted) |> map_flow(fragment => RV2WideMemoryReq(xlen)):
+  memory.request |> gate_flow(!misaligned.busy) |> map_flow(request => rv2wide_physical_request(xlen, request, (if xlen == XLen.X64 | request.address | request.address.zext(64)), PageMemoryType.PMA)) |> requests.ingress[0]
+  (misaligned.request |> gate_flow(fragment_permitted) |> map_flow(fragment => RV2WideMemoryReq(xlen, 64)):
     address: fragment_address
     access: fragment.access
     atomic: fragment.atomic
@@ -151,7 +152,7 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   hints.egress |> filter_valid(_hint => !flush & hint_region.mapped & hint_region.cacheable & hint_region.read_idempotent & !hint_region.device & hint_permission) |> map_valid(hint => hint.updated(~address: hint_address)) |> physical_prefetch
   describe_cosim_signals({
     "pipeline_valid": physical_pipeline.request.valid,
-    "pipeline_address": request.address,
+    "pipeline_address": physical_address,
     "request_valid": requests.ingress[0].fire(),
     "request_address": requests.ingress[0].bits.address,
     "fragment_valid": requests.ingress[1].fire(),

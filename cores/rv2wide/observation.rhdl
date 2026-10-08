@@ -2,5 +2,5 @@
 /* Names RV2Wide's passive WB, deferred-completion, and physical-memory observation contract. */
 // SPDX-License-Identifier: Apache-2.0
 
-def RV2WideObservationContract = "rv2wide.v4"
+def RV2WideObservationContract = "rv2wide.v5"
 export RV2WideObservationContract

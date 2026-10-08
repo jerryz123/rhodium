@@ -15,10 +15,13 @@ for (xlen in [XLen.X32, XLen.X64]):
   def design = compile_program(elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile)), rtl_target).report.design
   def core = design.modules.find(fun (module_def): module_def.name == "RV2Wide")
   def memory = design.modules.find(fun (module_def): module_def.name == "RV2WideBareMemory")
+  def execution = design.modules.find(fun (module_def): module_def.name == "RV2WideCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type
   check:
     retired.field("data").type.width ~is xlen.width
     retired.field("fetched").type.field("pc").type.width ~is xlen.width
     core.find_input("start_in").type.field("bits").type.width ~is 64
     memory.find_input("state").type.field("satp").type.width ~is xlen.width
+    execution.find_output("memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is xlen.width
+    memory.find_output("physical_memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is 64
     design.modules.filter(~keep: fun (module_def): module_def.name == "RiscvTranslationWalker").length() ~is 0

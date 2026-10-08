@@ -54,6 +54,12 @@ RV32 uses the low 32 boot-address bits. Bare mode has no TLB or walker: PMA
 permissions, ordered IO, and independently checked misaligned fragments remain
 active. CSR `satp` reads zero and ignores mode writes in this specialization.
 
+`RV2WideMemoryReq(xlen, address_width)` and `RV2WideMemory(xlen, address_width)`
+separate byte-address width from scalar beat width. The core-facing request uses
+`xlen.width` virtual-address bits; the Bare/Sv39 adapter produces 64-bit physical
+addresses for the cache/CHI adapter. Translation does not change access size,
+store byte lanes, or response ordering.
+
 For the fetching core with both shared caches, import
 `cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
 `RV2Wide(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
@@ -690,7 +696,7 @@ allocate, mutate memory, or perform device reads. The service returns:
 
 LR/SC/AMO use Slow after successful checks, never a speculative load/store hit.
 
-`memory: RV2WideMemory(xlen)` accepts WB `Decoupled` requests. Admission is
+`memory: RV2WideMemory(xlen, xlen.width)` accepts WB `Decoupled` virtual requests. Admission is
 non-speculative and resolves synchronous exceptions **before acceptance**:
 `fault.valid` supplies a Fault resolution, including its precise address, and
 the service must deassert request readiness. Otherwise a transfer irrevocably

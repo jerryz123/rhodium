@@ -35,7 +35,7 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
   load.data <== result.data
   def Array(integer_return, fp_return) = joined |> demux_flow(2, owner => owner.fp.valid & (owner.fp.bits.registers.destination === FloatDestination.FloatingPoint))
   (fp_return |> map_flow(owner => RV2WideFpLoad(xlen)):
-    owner: owner.fp_request.tag
+    owner: rv2wide_fp_owner(xlen, owner.fetched, owner.rd, owner.fp_request)
     precision: owner.fp.bits.execution.destination_precision
     data: if xlen == XLen.X64 | load.value | load.value.zext(64)
   ) |> fp_completed

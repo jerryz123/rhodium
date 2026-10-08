@@ -33,7 +33,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   def bytes = xlen.width / 8
   input node_id: Bits(config.flit.node_id_width)
   input uncached_node_id: Bits(config.flit.node_id_width)
-  interface memory(RV2WideMemory(xlen), ~role: responder)
+  interface memory(RV2WideMemory(xlen, 64), ~role: responder)
   interface instruction(RV2WideUncachedInstruction(), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: consumer)
@@ -81,7 +81,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
       operation: request.operation
   ) |> storage.prefetch
   def ordered_busy = !io.core.request.ready ||| uncached_management.egress.valid
-  def request :: RV2WideMemoryReq(xlen) = memory.request.bits
+  def request :: RV2WideMemoryReq(xlen, 64) = memory.request.bits
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def zero_block = request.access.is_cache_block_zero()
   def management = request.access.is_cache_management()
