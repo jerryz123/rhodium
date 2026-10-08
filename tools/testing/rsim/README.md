@@ -30,8 +30,11 @@ Racket and Rhombus run through the repository's managed-cache wrapper.
 export, and package-owned C++ driver. The source exports an elaborated program;
 it does not select a compiler backend. [`emit.rhm`](emit.rhm) selects rsim,
 writes its artifacts, and creates `ports.hpp` bindings for the public ports.
-Authored port names alias typed model inputs and outputs. Records and vectors
-remain native aggregates; wide bit values use the emitted word representation.
+Authored port names alias typed model inputs and outputs in the `ports`
+namespace, so they do not redeclare host-library globals. Use `ports::name`
+when a port name conflicts with a host symbol (for example, `ports::select`).
+`test.hpp` makes unambiguous short names available for convenience. Records and
+vectors remain native aggregates; wide bit values use the emitted word representation.
 
 A driver includes `test.hpp` and supplies an independent scoreboard or expected
 values. `eval()` settles combinational outputs without advancing state.

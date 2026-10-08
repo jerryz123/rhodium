@@ -27,10 +27,10 @@ for (serial in 0..rkt.quotient(arguments.length() - 1, 3)):
   for (artifact in result.artifacts):
     file.#{display-to-file}(artifact.content, rkt.#{build-path}(directory, artifact.name), ~exists: #'#{truncate/replace})
   def top = result.manifest.top
-  def header = "// Binds this component test directly to its rsim model.\n#pragma once\n#include \"" ++ top ++ ".hpp\"\nusing Model = rsim_" ++ identifier(top) ++ "::Model;\ninline Model dut;\n"
+  def header = "// Binds this component test directly to its rsim model.\n#pragma once\n#include \"" ++ top ++ ".hpp\"\nusing Model = rsim_" ++ identifier(top) ++ "::Model;\ninline Model dut;\nnamespace ports {\n"
   def inputs = for List (port in result.manifest.signature.inputs.filter(~keep: fun (port): !clock_type(port.type))):
     "inline auto& " ++ port.name ++ " = dut.inputs." ++ identifier(port.name) ++ ";"
   def outputs = for List (port in result.manifest.signature.outputs):
     "inline const auto& " ++ port.name ++ " = dut.outputs()." ++ identifier(port.name) ++ ";"
-  file.#{display-to-file}(header ++ String.join(inputs ++ outputs, "\n") ++ "\n", rkt.#{build-path}(directory, "ports.hpp"), ~exists: #'#{truncate/replace})
+  file.#{display-to-file}(header ++ String.join(inputs ++ outputs, "\n") ++ "\n}\n", rkt.#{build-path}(directory, "ports.hpp"), ~exists: #'#{truncate/replace})
   println("emitted " ++ name)

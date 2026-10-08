@@ -13,6 +13,8 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+// Allow short port names in drivers; qualify collisions as ports::name.
+using namespace ports;
 inline std::uint64_t test_cycles = 0;
 inline void eval() { dut.eval(); }
 inline void tick_model() {
