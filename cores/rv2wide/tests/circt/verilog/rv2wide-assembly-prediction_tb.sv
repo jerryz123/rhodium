@@ -1,7 +1,7 @@
 // Checks accepted immediate-target repairs, packet cuts, straddles, RAS actions, and compressed FP expansion.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_assembly_prediction_tb;
-  typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
+  typedef struct packed { logic valid; logic [63:0] cause, value; logic [65:0] guest; } fault_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
   typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
@@ -90,7 +90,7 @@ module rv2wide_assembly_prediction_tb;
   end
   task automatic offer(logic [63:0] pc,data,pred_pc=0,pred_target=0,bit compressed=0,fault=0);
     @(negedge clock);
-    blocks_in='{1'b1,'{pc,data,'{fault,64'd1,pc},'{pred_pc!=0,pred_pc,pred_target,compressed,2'd0},'0,'0}};
+    blocks_in='{1'b1,'{pc,data,'{fault,64'd1,pc,'0},'{pred_pc!=0,pred_pc,pred_target,compressed,2'd0},'0,'0}};
     do @(posedge clock); while(!blocks_out);
     @(negedge clock); blocks_in='0;
   endtask

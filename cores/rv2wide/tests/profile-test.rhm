@@ -9,6 +9,9 @@ import:
   lib("riscv/isa/c.rhm") open
 
 def integer = RV2WideConfig()
+def supervisor = RV2WideConfig(~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true)
+def hypervisor = RV2WideConfig(~hypervisor: #true)
+def sha = RV2WideConfig(~hypervisor: #true, ~smstateen: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~sstc: #true, ~svinval: #true)
 def zero = RV2WideConfig(~zicboz: #true)
 def management = RV2WideConfig(~zicbom: #true)
 def cmo = RV2WideConfig(~zicboz: #true, ~zicbom: #true)
@@ -32,6 +35,14 @@ def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension
 def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
+  supervisor.csr_config.ssnpm ~is #true
+  supervisor.csr_config.sscofpmf ~is #true
+  supervisor.csr_config.smstateen ~is #true
+  sha.csr_config.hypervisor ~is #true
+  RV2WideConfig(~supm: #true) ~throws "Supm requires Ssnpm"
+  supervisor.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["ssnpm", "supm", "sscofpmf", "smstateen", "ssstateen"]
+  hypervisor.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits + 128
+  sha.isa_profile.isa_extensions.contains("sha") ~is #true
   integer.svinval ~is #false
   invalidation.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["svinval"]
   invalidation_fp.isa_profile.isa_extensions ~is pbmt_napot.isa_profile.isa_extensions ++ ["svinval"]
@@ -105,10 +116,17 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    extensions.contains("Ssnpm") ~is profile.ssnpm
+    extensions.contains("Supm") ~is profile.supm
+    extensions.contains("Sscofpmf") ~is profile.sscofpmf
+    extensions.contains("Smstateen") ~is profile.smstateen
+    extensions.contains("Ssstateen") ~is profile.smstateen
+    extensions.contains("H") ~is profile.hypervisor
+    extensions.contains("Sha") ~is (profile.hypervisor && profile.smstateen)
     extensions.contains("Svinval") ~is profile.svinval
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Svinval").map(fun (extension): extension.version) ~is (if profile.svinval | ["1.0.0"] | [])
     extensions.contains("Svpbmt") ~is profile.svpbmt

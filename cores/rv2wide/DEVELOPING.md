@@ -53,6 +53,31 @@ PCs in the host. The instrumented `rv2wide-fetch` oracle compares both slots'
 PC, raw instruction, prediction result, and RAS mismatch after settled callbacks,
 using its independent instruction execution and public prediction payloads.
 
+### Supervisor and guest context
+
+Shared `RiscvCsrFile` owns Ssnpm, Sscofpmf, state-enable, and H architectural
+state. RV2Wide only projects configuration, counts the successful retirement
+prefix, and supplies precise commands and faults. Apply pointer masking after
+the EX address bypass, before lookup/alignment. Serialized CSR updates flush
+younger work, so no stale masking mode survives a context change.
+
+Guest access is a composed decode column, not an opcode re-decoder. Retain it
+through MEM/WB and split ownership. The MMU builds one shared lookup shape with
+both VS/G roots, SUM/MXR/PBMT controls, effective privilege, and HLVX intent.
+Keep ordinary MPRV/MPV separate from explicit HLV/HSV context. Full invalidation
+serializes at WB; never cancel an accepted physical response owner.
+
+Fetch faults and resolution payloads carry `RiscvGuestFault` through either
+age slot. Preserve second-fragment VAs and implicit-PTE GPAs. Physical faults
+also retain whether the address was guest virtual. The cosim adapter consumes
+shared passive virtual-context, trap-provenance, and HPM timing observations;
+it does not implement a second CSR model.
+
+Extend the existing `rv2wide-core` and `rv2wide-mmu` fixtures for these
+boundaries and rerun `rv2wide-fetch`/FP integration when packed payloads change.
+Profile/UDB tests cover selected declarations and implementation parameters.
+Keep broader ISA qualification in the existing software suites.
+
 ## Implementation map
 
 | Owner | Responsibility |
@@ -65,6 +90,7 @@ using its independent instruction execution and public prediction payloads.
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
+| `pairing.rhdl` | Same-group source dependencies, supported consumer routes, and unresolved RAWs |
 | `frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
 | `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
@@ -168,17 +194,27 @@ same-pair RAW check; all older and younger destination reservations remain.
 Do not truncate the folded offset to 32 bits or cascade EX ALUs. Neighboring
 OP-IMM operations, ADDIW, and other producers retain their ordinary interlocks.
 
-RR may also waive the younger rs1 RAW/read interlock for a zero-immediate ordinary
-integer load whose base is the same-pair older non-memory, non-M, non-FP, non-system, non-branch
-writer. The older writer still passes every ordinary admission interlock.
-Carry `address_from_older` across the existing EX register; select slot zero's
+
+`pairing.rhdl` selects one `RV2WidePairRoute` per younger source and returns
+unresolved dependencies in `RV2WidePairing`. Its selected routes are the sole
+authority for both RAW/readiness exemptions and the pipeline consumer muxes.
+Keep resource conflicts, deferred WAW checks, and admission state in `core.rhdl`;
+a route never overrides those interlocks. Classify consumers with decoded
+controls and displacement; the AUIPC/ADDI operand rewrite additionally checks
+its exact instruction forms.
+
+RR may waive the younger rs1 RAW/read interlock only for a zero-displacement
+integer load (including HLV/HLVX) whose base is the same-pair older non-memory,
+non-M, non-FP, non-system, non-branch writer. The older writer still passes every
+ordinary admission interlock.
+Carry the `LoadAddress` route across the existing EX register; select slot zero's
 ALU result directly as the younger address, after rather than before the younger
 ALU. Never route this bypass through another dependent addition. Keep normal
 MEM checks, WB authorization, split-access ownership, and fault/replay priority.
 Every other source and destination hazard retains its ordinary interlock.
 
 The same ordinary ALU producer may supply a younger integer store's rs2.
-Waive only that source's RAW/read interlock and carry `store_data_from_older`
+Waive only that source's RAW/read interlock and carry its `StoreData` route
 through EX. Select the older ALU result before StoreGen and retain the raw value
 in the existing MEM/WB `store_data` payload, including slow and split accesses.
 Do not waive the store's rs1 dependency or restrict its immediate offset.
@@ -187,8 +223,8 @@ remain unchanged; FP stores, atomics, and deferred producers do not use this pat
 
 For a younger conditional branch, RR may waive either comparison source's
 RAW/read interlock when the same eligible older ALU writer replaces it. Carry
-the two `branch_operands_from_older` selections through EX into MEM, alongside
-the original operands and shared `BranchResolverControl`. MEM selects slot
+the selected `BranchOperand` routes through EX and project their two mux enables
+into MEM, alongside the original operands and shared `BranchResolverControl`. MEM selects slot
 zero's registered ALU result before the younger slot's comparator. Do not add
 an EX ALU-to-comparator path, waive an unrelated source, or extend the selection
 to deferred/FP/system/control-transfer producers or a dependent JALR base.
@@ -678,7 +714,7 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v3` contract. The core declares
+`observation.rhdl` names the passive `rv2wide.v4` contract. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
 `cores/cosim-source.rhm`; `rv2wide.rhdl` binds the sibling MMU's physical
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.

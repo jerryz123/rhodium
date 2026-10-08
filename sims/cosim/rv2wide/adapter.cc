@@ -83,7 +83,13 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
   for (const auto& lane : f.lanes) require(lane.has_value(), "missing WB lane");
   for (const auto& value : f.completions) require(value.has_value(), "missing completion lane");
   const auto& b = *boundary; const auto& p = *physical;
-  c.sampled_environment(instance,{b.interrupts,b.time,h.cycle,bool(b.interrupt_boundary)});
+  h.hpm_overflows |= h.hpm_previous_overflow;
+  Environment environment{b.interrupts,b.time,h.cycle,bool(b.interrupt_boundary)};
+  if (b.hpm_enabled) environment.hpm_counters.emplace(3,b.hpm_counter);
+  environment.hpm_overflows = h.hpm_overflows;
+  c.sampled_environment(instance,std::move(environment));
+  if (b.trap || b.interrupt || f.lanes[0]->retired || f.lanes[0]->split || f.lanes[1]->retired || f.lanes[1]->split) h.hpm_overflows = 0;
+  h.hpm_previous_overflow = b.hpm_overflow ? Word{8} : 0;
 
   // Old returns resolve before new admissions, permitting same-edge destination reuse.
   const auto& wb = *f.completions[3];
@@ -132,7 +138,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     require(h.next != UINT64_MAX, "instruction order wrapped");
     const Id id{h.epoch,h.next++};
     const Word bytes = lane.fetch_fault ? 0 : (lane.encoding & 3) == 3 ? 4 : 2;
-    c.instruction(instance,id,{lane.pc,lane.encoding,bytes,bytes,{b.privilege,false},3});
+    c.instruction(instance,id,{lane.pc,lane.encoding,bytes,bytes,{b.privilege,bool(b.virtualized)},3});
     return Owner{id,lane,false,0};
   };
   std::optional<Owner> inline_fp_load;
@@ -147,7 +153,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     const bool split = h.split.has_value();
     require(!split || (slot == 0 && h.split->lane.pc == lane.pc), "retirement bypassed a split owner");
     auto owner = split ? *h.split : allocate(lane);
-    c.retire(instance,owner.id,{lane.next_pc,{b.next_privilege,false}});
+    c.retire(instance,owner.id,{lane.next_pc,{b.next_privilege,bool(b.next_virtualized)}});
     if (lane.fp == 1) {
       require(!split, "arithmetic retained as split access");
       c.seal(instance,owner.id,1,0);
@@ -201,7 +207,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
   }
   require(!inline_fp_load,"FP hit omitted its architectural write");
   for (const auto& owner:h.fp) require(owner.variable || owner.due>h.cycle,"missing fixed FP completion");
-  const Trap trap{b.cause & (UINT64_MAX >> 1),b.epc,b.tval,b.target,{b.target_privilege,false},false,0,0};
+  const Trap trap{b.cause & (UINT64_MAX >> 1),b.epc,b.tval,b.target,{b.target_privilege,bool(b.target_virtualized)},bool(b.guest_valid),b.htval,b.htinst};
   require(!(b.interrupt && b.trap), "interrupt and synchronous trap coincide");
   if (b.trap) {
     const auto& fault = *f.lanes[2];
@@ -238,9 +244,9 @@ extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, 
     adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),LaneSample{Word(index),Word(retired),Word(split),Word(pc),Word(encoding),Word(next_pc),Word(fetch_fault),Word(rd),Word(write),Word(data),Word(deferred),Word(service),Word(memory),Word(address),Word(access),Word(width),Word(atomic),Word(store_data),Word(fp),Word(fp_destination),Word(fp_delay)});
   });
 }
-extern "C" void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary) noexcept {
+extern "C" void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary, std::int64_t virtualized, std::int64_t next_virtualized, std::int64_t target_virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst, std::int64_t hpm_enabled, std::int64_t hpm_counter, std::int64_t hpm_overflow) noexcept {
   dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& c) {
-    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),BoundarySample{Word(privilege),Word(next_privilege),Word(interrupt),Word(trap),Word(cause),Word(epc),Word(tval),Word(target),Word(target_privilege),Word(interrupts),Word(time),Word(interrupt_boundary)});
+    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),BoundarySample{Word(privilege),Word(next_privilege),Word(interrupt),Word(trap),Word(cause),Word(epc),Word(tval),Word(target),Word(target_privilege),Word(interrupts),Word(time),Word(interrupt_boundary),Word(virtualized),Word(next_virtualized),Word(target_virtualized),Word(guest_valid),Word(htval),Word(htinst),Word(hpm_enabled),Word(hpm_counter),Word(hpm_overflow)});
   });
 }
 extern "C" void rhodium_rv2wide_completion(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t write, std::int64_t data) noexcept {

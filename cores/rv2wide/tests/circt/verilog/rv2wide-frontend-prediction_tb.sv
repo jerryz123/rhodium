@@ -1,13 +1,13 @@
 // Checks same-cycle S1 prediction/S2 correction, blocked offers, and recovery through public ports.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_frontend_prediction_tb;
-  typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
+  typedef struct packed { logic valid; logic [63:0] cause, value; logic [65:0] guest; } fault_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
   typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
-  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; logic [65:0] guest; } resolution_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } address_flow_t;
@@ -46,7 +46,7 @@ module rv2wide_frontend_prediction_tb;
   bit inject_younger_error=0, inject_younger_replay=0;
   RV2WideFrontend dut(.*);
   always #5 clock=~clock;
-  assign translation_in='{translation_out.request.bits, '{2'd0,64'd0,64'd0},2'd0};
+  assign translation_in='{translation_out.request.bits, '{2'd0,64'd0,64'd0,'0},2'd0};
   // Fixed-cycle cache outcomes; S1 kill/flush suppress the next response, not
   // the current one. Frontend commands suppress current publication themselves.
   // Real L1I combinational flush behavior is covered by the production fetch test.
@@ -159,7 +159,7 @@ module rv2wide_frontend_prediction_tb;
     virtual_lookup_in.ready=1; @(negedge clock); checks++;
     restart(6);
     wait(instructions_out.valid);
-    @(negedge clock); redirect_in='{1'b1,'{64'h100,64'h600,'{2'd0,64'd0,64'd0}}};
+    @(negedge clock); redirect_in='{1'b1,'{64'h100,64'h600,'{2'd0,64'd0,64'd0,'0}}};
     #1;
     assert(accepted_cycle<0 && virtual_lookup_out.valid && virtual_lookup_out.bits==64'h600) else $fatal(1,"architectural redirect lost priority accepted=%0d valid=%b target=%h",accepted_cycle,virtual_lookup_out.valid,virtual_lookup_out.bits);
     @(negedge clock); redirect_in='0;

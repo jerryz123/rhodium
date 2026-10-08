@@ -1,0 +1,55 @@
+#lang rhodium
+/* Selects implemented same-group operand routes and retains unsatisfied RAW dependencies. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "decode/core-ctrl.rhdl".RV2WideControl
+  "decode/operand-ctrl.rhdl".RV2WideImmediate
+  "decode/system-ctrl.rhdl" open
+  lib("cores/cache/operation.rhdl").CacheOperation
+
+/* Names operand rewrites and physical consumer muxes, not a general EX-to-EX bypass. */
+hardware_enum RV2WidePairRoute:
+  Register
+  LoadAddress
+  StoreData
+  BranchOperand
+  AuipcAddi
+
+/* Shares one route decision between source interlocks and pipeline mux controls. */
+bundle RV2WidePairing():
+  routes: Vec(2, RV2WidePairRoute)
+  unresolved: Vec(2, Bool)
+  /* Only a selected physical bypass may waive a younger source's ordinary readiness check. */
+  method replaced(pairing) :: Vec(2, Bool):
+    vec(for List (source in 0..2): pairing.routes[source] =/= RV2WidePairRoute.Register)
+
+/* Resolves each younger RAW against an eligible older ALU writer without changing either instruction's resource admission. */
+fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool) :: RV2WidePairing():
+  def older :: RV2WideControl() = controls[0]
+  def younger :: RV2WideControl() = controls[1]
+  def immediate :: RV2WideImmediate = younger.operand.immediate
+  def writes = valid[0] & older.writeback.enable & destination.or_reduce()
+  def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
+  def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
+  def producer = writes & !older_deferred & !older.fp.valid & !older.system.serializing() & !older.branch.resolver.enable
+  def integer_memory = !younger.fp.valid & younger.memory.enable
+  def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1]).or_reduce()
+  def store_data = integer_memory & (younger.memory.access === CacheOperation.Store)
+  def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
+  def auipc_addi = (instructions[0][0..7] === bits(0x17, 7)) & (instructions[1][0..7] === bits(0x13, 7)) & (instructions[1][12..15] === bits(0, 3))
+  def routes = vec(
+    for List (source in 0..2):
+      def consumer = if source == 0 | load_address | store_data
+      def route = mux(consumer, (if source == 0 | RV2WidePairRoute.LoadAddress | RV2WidePairRoute.StoreData), mux(branch_operand, RV2WidePairRoute.BranchOperand, RV2WidePairRoute.Register))
+      def selected = if source == 0 | mux(auipc_addi, RV2WidePairRoute.AuipcAddi, route) | route
+      mux(producer & dependency[source], selected, RV2WidePairRoute.Register)
+  )
+  RV2WidePairing():
+    routes: routes
+    unresolved: vec(for List (source in 0..2): dependency[source] & (routes[source] === RV2WidePairRoute.Register))
+
+export:
+  RV2WidePairRoute
+  RV2WidePairing
+  rv2wide_pairing

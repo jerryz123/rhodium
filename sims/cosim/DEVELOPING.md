@@ -132,8 +132,9 @@ retains a split owner through its final retirement/trap, including completed
 store prefixes. Three native service FIFOs correspond to accepted memory,
 WB-authorized multiply, and divide. Variable-return arbitration schedules load
 and divide owners through three feed-forward stages; multiply writes directly
-on its authorized WB+3 edge. The versioned `rv2wide.v3` source contract samples
-both the direct source and RF destination on that edge, independently of
+on its authorized WB+3 edge. The versioned `rv2wide.v4` source contract samples
+virtual entry/return context, guest trap provenance, and counter-3 timing as well
+as both the direct source and RF destination on that edge, independently of
 same-cycle variable-return admission. Only the actual RF-write edge seals its GPR
 producer. CSR traps allocate after draining older services; a successful older
 slot retains its retirement when the younger faults. No callback order, PC-only

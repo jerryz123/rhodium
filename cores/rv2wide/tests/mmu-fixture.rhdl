@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
   lib("flow/main.rhdl") open
   "../mmu.rhdl" open
   "../bundles.rhdl" open
@@ -21,6 +23,8 @@ sync_circuit RV2WideMmuFixture():
   input(satp, mstatus): Bits(64)
   input invalidate: Bool
   input pbmte: Bool
+  input guest_state: RiscvHypervisorTranslation()
+  input guest_access: RiscvGuestMemoryAccess
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   input fetch_valid: Bool
@@ -59,7 +63,11 @@ sync_circuit RV2WideMmuFixture():
   output completed: Bool
   output completed_data: Bits(64)
   inst mmu(RV2WideMmu(test_fetch_chi, ~svnapot: #true))
+  mmu.split_guest_access <== guest_access
   mmu.state <== RV2WideTranslationState():
+    pointer_masking: literal(PointerMaskControl(), 0)
+    guest_pointer_masking: literal(PointerMaskControl(), 0)
+    guest: guest_state
     privilege: privilege.into(PrivilegeMode)
     satp: satp
     mstatus: mstatus
@@ -73,6 +81,7 @@ sync_circuit RV2WideMmuFixture():
   fetch_physical <== mmu.instruction.address
   fetch_pbmt <== mmu.instruction.pbmt
   def request = RV2WideMemoryReq():
+    guest_access: guest_access
     address: address
     access: access
     atomic: RiscvAtomicOperation.Swap
@@ -124,6 +133,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.physical_memory.request.ready <== physical_ready & !physical_fault
   mmu.physical_memory.fault.valid <== mmu.physical_memory.request.valid & physical_fault
   mmu.physical_memory.fault.bits <== RV2WideResolution():
+    guest: literal(RiscvGuestFault(), 0)
     disposition: RV2WideDisposition.Fault
     cause: bits(5, 64)
     value: mmu.physical_memory.request.bits.address

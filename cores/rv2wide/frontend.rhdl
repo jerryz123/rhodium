@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/hypervisor.rhdl") open
   "bundles.rhdl" open
   "profile.rhm".RV2WideConfig
   "instruction-assembler.rhdl" open
@@ -202,6 +203,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     attempt.cursor <== address.updated(~prediction: prediction, ~row: mux(address.hashed, address.row, address.pc[3..13] ^ s1_history), ~hashed: Bool(#true))
     attempt.replay <== translation_replay & !misaligned
     attempt.fault <== RV2WideFetchFault():
+      guest: translation.resolution.guest
       valid: denied
       cause: mux(misaligned, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(translation_fault, translation.resolution.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, 64)))
       value: address.pc
@@ -222,6 +224,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     fault: result_fault
   (outcome |> map_valid(attempt):
          def fetch_fault = RV2WideFetchFault():
+           guest: attempt.fault.guest
            valid: result_fault
            cause: mux(attempt.fault.valid, attempt.fault.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, 64))
            value: mux(attempt.fault.valid, attempt.fault.value, attempt.cursor.pc)

@@ -39,11 +39,13 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
   def compressed_versions = (if profile.compressed.contains(CompressedExtension.Zcb) | [["Zcb", "1.0.0"]] | []) ++ (if profile.compressed.contains(CompressedExtension.Zcmop) | [["Zcmop", "1.0.0"]] | [])
   def selected_versions = versions ++ (if fp | [["F", "2.2.0"], ["D", "2.2.0"], ["Zcd", "1.0.0"]] | []) ++ (if profile.zfa | [["Zfa", "1.0.0"]] | []) ++ half_versions ++ compressed_versions ++ (if profile.zicboz | [["Zicboz", "1.0.0"]] | []) ++ (if profile.zicbom | [["Zicbom", "1.0.0"]] | []) ++ (if profile.zicbop | [["Zicbop", "1.0.0"]] | []) ++ (if profile.zawrs | [["Zawrs", "1.0.0"]] | []) ++ (if profile.zihintpause | [["Zihintpause", "2.0.0"]] | []) ++ (if profile.zihintntl | [["Zihintntl", "1.0.0"]] | []) ++ (if profile.sstc | [["Sstc", "1.0.0"]] | [])
   def translation_versions = (if profile.svnapot | [["Svnapot", "1.0.0"]] | []) ++ (if profile.svpbmt | [["Svpbmt", "1.0.0"]] | []) ++ (if profile.svinval | [["Svinval", "1.0.0"]] | [])
-  def extensions = (selected_versions ++ translation_versions).map(fun (entry): UdbExtension(entry[0], entry[1]))
+  def supervisor_versions = (if profile.ssnpm | [["Ssnpm", "1.0.0"]] | []) ++ (if profile.supm | [["Supm", "1.0.0"]] | []) ++ (if profile.sscofpmf | [["Sscofpmf", "1.0.0"]] | []) ++ (if profile.smstateen | [["Smstateen", "1.0.0"], ["Ssstateen", "1.0.0"]] | [])
+  def hypervisor_versions = (if profile.hypervisor | [["H", "1.0.0"], ["Shcounterenw", "1.0.0"], ["Shvstvala", "1.0.0"], ["Shtvala", "1.0.0"], ["Shvstvecd", "1.0.0"], ["Shvsatpa", "1.0.0"], ["Shgatpa", "1.0.0"]] | []) ++ (if profile.hypervisor && profile.smstateen | [["Sha", "1.0.0"]] | [])
+  def extensions = (selected_versions ++ translation_versions ++ supervisor_versions ++ hypervisor_versions).map(fun (entry): UdbExtension(entry[0], entry[1]))
   def xlen = profile.xlen.width
   def pma_granularity_log2 = 3
-  def hpm_counters = for List (_ in 0..32): #false
-  def delegatable_counters = for List (index in 0..32): index < 3
+  def hpm_counters = for List (index in 0..32): profile.sscofpmf && index == 3
+  def delegatable_counters = for List (index in 0..32): index < 3 || (profile.sscofpmf && index == 3)
   def parameters = [
     natural_parameter("MXLEN", xlen),
     natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
@@ -89,7 +91,7 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
     natural_list_parameter("MTVEC_MODES", [0]),
     natural_parameter("MTVEC_BASE_ALIGNMENT_DIRECT", 4),
     string_parameter("MTVEC_ILLEGAL_WRITE_BEHAVIOR", "custom"),
-    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", #false),
+    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", profile.sscofpmf),
     boolean_list_parameter("HPM_COUNTER_EN", hpm_counters),
     boolean_list_parameter("MCOUNTENABLE_EN", delegatable_counters),
     natural_parameter("NUM_PMP_ENTRIES", 0),
@@ -142,7 +144,35 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
       ]
     | []
   def wait_parameters = if profile.zawrs | [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)] | []
-  UdbConfiguration(name, description, extensions, parameters ++ fp_parameters ++ wait_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
+  def supervisor_parameters = (if profile.ssnpm | [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])] | []) ++ (if profile.sscofpmf | [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])] | []) ++ (if profile.smstateen | [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")] | [])
+  def mutable hypervisor_parameters = []
+  when profile.hypervisor
+  | block:
+      hypervisor_parameters := [
+        boolean_parameter("MUTABLE_MISA_H", #false), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
+        string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 0),
+        natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0]),
+        boolean_parameter("VSEI_INTR_IMPL", #true), boolean_parameter("VSSI_INTR_IMPL", #true), boolean_parameter("VSTI_INTR_IMPL", #true),
+        boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
+        boolean_list_parameter("HCOUNTENABLE_EN", delegatable_counters),
+        boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_ILLEGAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_VA_IN_VSTVAL_ON_BREAKPOINT", #false),
+        boolean_parameter("REPORT_GPA_IN_TVAL_ON_INTERMEDIATE_GUEST_PAGE_FAULT", #true),
+        boolean_parameter("IGNORE_INVALID_VSATP_MODE_WRITES_WHEN_V_EQ_ZERO", #true), boolean_parameter("TRAP_ON_ECALL_FROM_VS", #true)
+      ]
+      for (kind in ["LOAD", "STORE_AMO", "INSTRUCTION"]):
+        for (cause in ["MISALIGNED", "ACCESS_FAULT", "PAGE_FAULT"]):
+          hypervisor_parameters := hypervisor_parameters ++ [boolean_parameter("REPORT_VA_IN_VSTVAL_ON_" ++ kind ++ "_" ++ cause, #true)]
+        hypervisor_parameters := hypervisor_parameters ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_" ++ kind ++ "_GUEST_PAGE_FAULT", #true), string_parameter("TINST_VALUE_ON_FINAL_" ++ kind ++ "_GUEST_PAGE_FAULT", "always zero")]
+      for (mode in ["SV39", "SV48", "SV57"]):
+        hypervisor_parameters := hypervisor_parameters ++ [boolean_parameter(mode ++ "X4_TRANSLATION", mode == "SV39"), boolean_parameter(mode ++ "_VSMODE_TRANSLATION", mode == "SV39")]
+      for (cause in ["BREAKPOINT", "INSTRUCTION_ADDRESS_MISALIGNED", "LOAD_ACCESS_FAULT", "LOAD_ADDRESS_MISALIGNED", "LOAD_PAGE_FAULT", "MCALL", "SCALL", "STORE_AMO_ACCESS_FAULT", "STORE_AMO_ADDRESS_MISALIGNED", "STORE_AMO_PAGE_FAULT", "UCALL", "VIRTUAL_INSTRUCTION", "VSCALL"]):
+        hypervisor_parameters := hypervisor_parameters ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
+      when profile.smstateen
+      | hypervisor_parameters := hypervisor_parameters ++ [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")]
+  UdbConfiguration(name, description, extensions, parameters ++ fp_parameters ++ wait_parameters ++ supervisor_parameters ++ hypervisor_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
 
 export:
   rv2wide_udb_configuration

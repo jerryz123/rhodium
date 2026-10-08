@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "pairing.rhdl".RV2WidePairRoute
   "decode/core-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
@@ -19,6 +20,8 @@ import:
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
   lib("riscv/isa/fp-profile.rhm") open
@@ -29,6 +32,9 @@ bundle RV2WideTranslationState():
   mstatus: Bits(64)
   satp: Bits(64)
   pbmte: Bool
+  guest: RiscvHypervisorTranslation()
+  pointer_masking: PointerMaskControl()
+  guest_pointer_masking: PointerMaskControl()
 
 /* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
 interface RV2WideInstructionTranslation():
@@ -77,6 +83,7 @@ bundle RV2WideFetchFault():
   valid: Bool
   cause: Bits(64)
   value: Bits(64)
+  guest: RiscvGuestFault()
 
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
 bundle RV2WideInstruction():
@@ -118,6 +125,7 @@ bundle RV2WideResolution():
   disposition: RV2WideDisposition
   cause: Bits(64)
   value: Bits(64)
+  guest: RiscvGuestFault()
 
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
 bundle RV2WideFpOwner():
@@ -141,11 +149,10 @@ bundle RV2WideExecute():
   control: RV2WideControl()
   rs1: Bits(64)
   rs2: Bits(64)
-  address_from_older: Bool
-  store_data_from_older: Bool
-  branch_operands_from_older: Vec(2, Bool)
+  pair_routes: Vec(2, RV2WidePairRoute)
   rd: Bits(5)
   illegal: Bool
+  virtual_instruction: Bool
   fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
 
 /* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
@@ -156,6 +163,7 @@ hardware_enum RV2WideCacheOutcome:
   Replay
   PageFault
   AccessFault
+  GuestPageFault
 
 /* Classifies effective next-PC accuracy independently of RAS-action repair. */
 hardware_enum RV2WideBranchPrediction:
@@ -177,6 +185,7 @@ bundle RV2WideResult():
   branch_operands_from_older: Vec(2, Bool)
   mispredicted: Bool
   memory: RV2WideMemoryControl()
+  guest_access: RiscvGuestMemoryAccess
   prefetch: CachePrefetchOperation
   pause: Bool
   locality_hint: RiscvMemoryLocality
@@ -213,11 +222,13 @@ bundle RV2WideMemoryReq():
   mask: Bits(8)
   locality: RiscvMemoryLocality
   pbmt: PageMemoryType
+  guest_access: RiscvGuestMemoryAccess
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle RV2WideLookupResult():
   outcome: RV2WideCacheOutcome
   data: Bits(64)
+  guest: RiscvGuestFault()
 
 /* Pairs an EX lookup with next-cycle MEM feedback and a one-cycle WB store candidate. */
 interface RV2WidePipelineAccess():

@@ -291,6 +291,10 @@ pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
 `branch-training.rhdl`, and `load-response.rhdl` import the same Flow facade for
 stream contracts, instruction/retired-training storage, owner storage, and
 atomic response/context joining.
+RV2Wide's `pairing.rhdl` imports its composed control, operand, and system-control types
+and shared cache-operation enum. `core.rhdl` consumes its combinational pairing
+result; `bundles.rhdl` imports its operand-route type for EX storage. No shared
+component or architectural catalog depends on this named-core policy.
 RV2Wide's bundles also import the shared `cores/branch-resolver.rhdl` control
 payload for registered MEM comparison; operand bypass and recovery remain core policy.
 RV2Wide's `decode/long-ctrl.rhdl` consumes the reusable RISC-V multiply/divide
@@ -425,7 +429,11 @@ state or simulator dependency crosses back into the core packages.
 interrupt descriptors, and the neutral command/action protocol. Its composed
 system decode remains in `cores/rv2wide/decode/`; single-slot serialization,
 dual retirement counts, deferred-memory drain, and precise interrupt boundaries
-remain RV2Wide policy, without imports from another named core.
+remain RV2Wide policy, without imports from another named core. RV2Wide also
+imports architectural pointer-masking and hypervisor RTL definitions for address
+normalization, guest lookup context, and fault provenance; its decode consumes
+the pure H catalog. Those contracts feed the existing shared MMU and CSR bank,
+not another named core's adapters.
 
 `riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
 plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.

@@ -52,6 +52,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   inst data(RV2WideL1D(cache, ~chi: config))
   inst mmu(RV2WideMmu(config, ~svnapot: profile.svnapot))
   describe_cosim_context(core, {"mmu": mmu})
+  mmu.split_guest_access <== core.split_guest_access
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush
   frontend.translation <=> mmu.instruction

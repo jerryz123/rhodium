@@ -10,14 +10,14 @@ module rv2wide_fetch_tb;
   always @(posedge clock) trace_reset<=reset;
   always @(negedge clock) rv2wide_fetch_trace_check(int'(trace_reset));
 `endif
-  typedef struct packed { logic [63:0] cause, value; } fault_t;
+  typedef struct packed { logic [63:0] cause, value; logic [65:0] guest; } fault_t;
   typedef struct packed { logic valid; fault_t bits; } fault_flow_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
   typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; logic deferred; } retirement_t;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
-  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; logic [65:0] guest; } resolution_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } start_t;

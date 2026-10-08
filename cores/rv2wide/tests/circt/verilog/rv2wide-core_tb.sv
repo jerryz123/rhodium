@@ -2,7 +2,7 @@
 // Checks RV2Wide architectural ordering, scheduled multiply returns, and retained memory ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
-  typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
+  typedef struct packed { logic [63:0] cause, value; logic [65:0] guest; } fetch_fault_t;
   typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; logic [1:0] ras_action, predicted_ras_action; logic [63:0] return_address; } branch_update_t;
@@ -11,19 +11,19 @@ module rv2wide_core_tb;
   typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
-  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; logic [65:0] guest; } resolution_t;
   typedef struct packed { logic valid; resolution_t bits; } resolution_flow_t;
   typedef struct packed { logic valid; instruction_t bits; } instruction_flow_t;
   typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; logic deferred; } retirement_t;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
-  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; logic [2:0] locality; logic [1:0] pbmt; } memory_req_t;
+  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; logic [2:0] locality; logic [1:0] pbmt, guest_access; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
   typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy, reservation_valid; } memory_in_t;
   typedef struct packed { memory_req_flow_t request; logic response_ready; } memory_out_t;
-  typedef struct packed { logic [2:0] outcome; logic [63:0] data; } lookup_t;
+  typedef struct packed { logic [2:0] outcome; logic [63:0] data; logic [65:0] guest; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
   typedef struct packed { lookup_flow_t response; logic commit_ready; } pipeline_in_t;
   typedef struct packed { memory_req_flow_t request; logic commit; } pipeline_out_t;
@@ -99,6 +99,7 @@ module rv2wide_core_tb;
   int waw_dual=0, waw_deferred=0;
   int address_pairs=0;
   int auipc_addi_pairs=0;
+  int guest_address_pairs=0;
   bit response_management[16];
   int store_data_pairs=0;
   int branch_pairs=0;
@@ -126,11 +127,11 @@ module rv2wide_core_tb;
     return word[6:0]==7'h33 && word[31:25]==7'h07 && word[14:12] inside {3'd5,3'd7};
   endfunction
   function automatic bit serializing_encoding(logic [31:0] word);
-    return word[6:0]==7'h73 && !mop_encoding(word);
+    return word[6:0]==7'h73 && !mop_encoding(word) && !(word[31:28]==4'h6 && word[14:12]==4);
   endfunction
 
   RV2WideCore dut(
-    .prefetch_out(prefetch),
+    .prefetch_out(prefetch), .split_guest_access(),
     .translation_state(), .translation_flush(translation_flush), .instruction_invalidate_out(instruction_invalidate),
     .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(predictor_clear),
     .direction_update_out(direction_update), .history_restore_out(history_restore),
@@ -246,7 +247,7 @@ module rv2wide_core_tb;
     split_in.request_ready = !split_active;
     split_in.response.bits = split_reply;
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
-    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5,6,7,8,9} ? 64'd7 : 64'd5, value: fault_address};
+    memory_in.fault.bits = '{guest:'0,disposition: 2'd1, cause: memory_out.request.bits.access inside {2,4,5,6,7,8,9} ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
     memory_in.drained = response_count == 0 && !memory_out.request.valid;
     pipeline_in.response = lookup_response;
@@ -365,6 +366,8 @@ module rv2wide_core_tb;
           else $fatal(1,"dependent load crossed forbidden pairing boundary");
         address_pairs++;
       end
+      if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[1].bits.instruction==32'h6c00c1f3 &&
+         memory_stage[0].bits.instruction==imm(1,0,'h300)) guest_address_pairs++;
       if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[11:7]!=0 &&
          memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[24:20] &&
          (memory_stage[0].bits.instruction[6:0] inside {7'h13,7'h1b,7'h33,7'h3b,7'h37,7'h17,7'h03,7'h6f,7'h67} || mop_encoding(memory_stage[0].bits.instruction)) &&
@@ -440,7 +443,7 @@ module rv2wide_core_tb;
             expected_completions.push_back(want);
             if ((want.fetched.instruction[6:0] inside {7'h33,7'h3b}) && want.fetched.instruction[31:25]==1 && want.fetched.instruction[14:12]<4)
               multiply_authorized_cycle[want.fetched.pc]=cycles;
-            if(want.fetched.instruction[6:0] inside {7'h03,7'h23,7'h2f,7'h0f}) response_owners.push_back(want);
+            if(want.fetched.instruction[6:0] inside {7'h03,7'h23,7'h2f,7'h0f} || (want.fetched.instruction[31:28]==4'h6 && want.fetched.instruction[14:12]==4)) response_owners.push_back(want);
           end
           if (want.write && !retired[lane].bits.deferred)
             assert (retired[lane].bits.rd == want.rd && retired[lane].bits.data == want.data)
@@ -847,7 +850,7 @@ module rv2wide_core_tb;
       expected[expected_index].fetched.direction=instructions.bits.entries[1].direction;
     end
     if (fetch_fault_lane >= 0)
-      instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
+      instructions.bits.entries[fetch_fault_lane].fault = '{valid: 1'b1, bits: '{guest:'0,cause: 64'd1, value: pc + 4*64'(fetch_fault_lane)}};
     #1;
     while (!ready) tick();
     tick();
@@ -879,7 +882,7 @@ module rv2wide_core_tb;
   endtask
   task automatic stop_at(logic [63:0] pc, logic [63:0] target, int disposition = 0, logic [63:0] cause = 0, logic [63:0] value = 0);
     redirect_t item;
-    item = '{pc: pc, target: disposition == 1 ? trap_target : target, resolution: '{disposition: 2'(disposition), cause: cause, value: value}};
+    item = '{pc: pc, target: disposition == 1 ? trap_target : target, resolution: '{guest:'0,disposition: 2'(disposition), cause: cause, value: value}};
     expected_redirects.push_back(item);
   endtask
   task automatic reset_core;
@@ -1065,7 +1068,7 @@ module rv2wide_core_tb;
     send('h2543, imm(10, 0, 1), '0, 1, 0, 0);
     drain();
     inject_enable = 1; inject_pc = 'h2550;
-    inject_result = '{disposition: 2'd1, cause: 64'd5, value: 64'hdead};
+    inject_result = '{guest:'0,disposition: 2'd1, cause: 64'd5, value: 64'hdead};
     stop_at('h2550, 'h2550, 1, 2, 64'hffffffff);
     send('h2550, 32'hffffffff, '0, 1, 0, 0);
     drain(); inject_enable = 0;
@@ -1074,7 +1077,7 @@ module rv2wide_core_tb;
         logic [63:0] pc;
         pc = 64'('h2600 + 64*lane + 16*action);
         inject_enable = 1; inject_pc = pc + 64'(4*lane);
-        inject_result = '{disposition: 2'(action), cause: 64'd13, value: 64'h3000};
+        inject_result = '{guest:'0,disposition: 2'(action), cause: 64'd13, value: 64'h3000};
         stop_at(inject_pc, inject_pc, action, 13, 'h3000);
         send(pc, imm(12, 0, 101), imm(13, 0, 102), 2, lane == 1, 0);
         if (action == 1) tick();
@@ -1097,7 +1100,7 @@ module rv2wide_core_tb;
 
     // An older injected fault wins over a younger taken branch in the same pair.
     inject_enable = 1; inject_pc = 'h2800;
-    inject_result = '{disposition: 2'd1, cause: 64'd5, value: 64'hdead};
+    inject_result = '{guest:'0,disposition: 2'd1, cause: 64'd5, value: 64'hdead};
     stop_at('h2800, 'h2800, 1, 5, 'hdead);
     send('h2800, imm(16, 0, 1), jump(17, 64), 2, 0, 0);
     drain(); inject_enable = 0;
@@ -1294,7 +1297,7 @@ module rv2wide_core_tb;
     lookup_mode = 1;
     stop_at('h4f00, 'h4f20);
     send('h4f00, jump(16, 32), store(2, 1, 0, 3), 2, 1, 0); drain();
-    inject_enable = 1; inject_pc = 'h4f40; inject_result = '{disposition: 2'd1, cause: 64'd2, value: 64'hdead};
+    inject_enable = 1; inject_pc = 'h4f40; inject_result = '{guest:'0,disposition: 2'd1, cause: 64'd2, value: 64'hdead};
     stop_at('h4f40, 'h4f40, 1, 2, 'hdead);
     send('h4f40, imm(16, 0, 9), store(2, 1, 0, 3), 2, 0, 0); drain(); inject_enable = 0;
 
@@ -1317,7 +1320,7 @@ module rv2wide_core_tb;
 
     // A younger fault drains older accepted work, including same-group WB acceptance.
     hold_responses = 1;
-    inject_enable = 1; inject_pc = 'h5104; inject_result = '{disposition: 2'd1, cause: 64'd2, value: 64'hbad};
+    inject_enable = 1; inject_pc = 'h5104; inject_result = '{guest:'0,disposition: 2'd1, cause: 64'd2, value: 64'hbad};
     stop_at('h5104, 'h5104, 1, 2, 'hbad);
     send('h5100, imm(11, 1, 8, 3, 'h03), imm(20, 0, 7), 2, 1, 0);
     repeat (10) tick();
@@ -1513,7 +1516,7 @@ module rv2wide_core_tb;
     send('h6208,imm(1,1,32),prefetch_insn(1,1,-32)); drain();
     send('h6210,imm(7,1,3,6),prefetch_insn(2,1)); drain(); // ORI neighbors
     stop_at('h6218,'h6258); send('h6218,jump(3,64),prefetch_insn(3,1),2,1,0); drain();
-    inject_enable=1; inject_pc='h6260; inject_result='{disposition:2'd1,cause:64'd5,value:64'hbad};
+    inject_enable=1; inject_pc='h6260; inject_result='{guest:'0,disposition:2'd1,cause:64'd5,value:64'hbad};
     stop_at('h6260,0,1,5,'hbad); send('h6260,imm(4,0,1),prefetch_insn(1,1),2,0,0); drain(); inject_enable=0;
     assert(prefetch_count>=26 && prefetch_pairs>0) else $fatal(1,"missing prefetch issue/dual coverage");
 
@@ -1776,7 +1779,7 @@ module rv2wide_core_tb;
       if(reason==0) begin
         stop_at('h6670,'h66b0); send('h6670,jump(0,64),32'h0100000f,2,1,0);
       end else begin
-        inject_enable=1; inject_pc='h6670; inject_result='{disposition:2'(reason),cause:64'd5,value:64'hbad};
+        inject_enable=1; inject_pc='h6670; inject_result='{guest:'0,disposition:2'(reason),cause:64'd5,value:64'hbad};
         stop_at('h6670,reason==1 ? 0 : 'h6670,reason,5,'hbad);
         send('h6670,imm(1,0,1),32'h0100000f,2,0,0);
       end
@@ -1946,7 +1949,7 @@ module rv2wide_core_tb;
       send('h9300,imm(4,3,0),imm(3,0,9)); drain();
       reset_core(); send('h9400,imm(1,0,101),imm(2,0,3)); drain();
       stop_at('h9408,'h9408,1,13,'hdead);
-      inject_enable=1; inject_pc='h9408; inject_result='{disposition:2'd1,cause:64'd13,value:64'hdead};
+      inject_enable=1; inject_pc='h9408; inject_result='{guest:'0,disposition:2'd1,cause:64'd13,value:64'hdead};
       send('h9408,imm(7,0,7),m_insn(3,1,2,funct3),2,0,0); drain(); inject_enable=0;
       send('h9500,imm(3,0,5),imm(4,3,1)); drain();
     end
@@ -1965,7 +1968,7 @@ module rv2wide_core_tb;
     // Same-group older preacceptance replay rejects an EX-launched multiply.
     reset_core(); send('ha200,imm(1,0,17),imm(2,0,3)); drain();
     stop_at('ha208,'ha208,2);
-    inject_enable=1; inject_pc='ha208; inject_result='{disposition:2'd2,cause:64'd0,value:64'd0};
+    inject_enable=1; inject_pc='ha208; inject_result='{guest:'0,disposition:2'd2,cause:64'd0,value:64'd0};
     send('ha208,imm(7,0,7),m_insn(3,1,2,0),2,0,0); drain(); inject_enable=0;
     send('ha208,imm(7,0,7),m_insn(3,1,2,0)); drain();
     // A returned product writes immediately; even a read-modify-write consumer
@@ -1986,7 +1989,7 @@ module rv2wide_core_tb;
     reset_core(); send('h9600,imm(1,0,17),imm(2,0,3)); drain();
     stop_at('h9608,'h9700); send('h9608,jump(0,'hf8),m_insn(3,1,2,0),2,1,0); drain();
     send('h9700,imm(3,0,5),imm(4,3,1)); drain();
-    csr_access('h9708,2,5,0,'h301,64'h8000000000141107);
+    csr_access('h9708,2,5,0,'h301,64'h8000000000141187);
     // Complete B catalog in both issue slots, with independent paired B work
     // and dependent consumers. Dirty upper words expose .UW/word/unary shaping.
     for(int scenario=0;scenario<7;scenario++) begin
@@ -2209,7 +2212,7 @@ module rv2wide_core_tb;
       end
       // An older fault cancels a same-destination younger write as well.
       inject_enable=1; inject_pc=pc+16;
-      inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+      inject_result='{guest:'0,disposition:2'd1,cause:64'd5,value:64'hdead};
       stop_at(pc+16,pc+16,1,5,'hdead);
       before_waw=waw_dual;
       send(pc+16,imm(10,0,1),imm(10,0,2),2,0,0); drain();
@@ -2302,7 +2305,7 @@ module rv2wide_core_tb;
         int before_pairs;
         reset_core(); before_pairs=auipc_addi_pairs;
         inject_enable=1; inject_pc='h10944+64'(4*lane);
-        inject_result='{disposition:2'(replay!=0 ? 2 : 1),cause:64'd5,value:64'hdead};
+        inject_result='{guest:'0,disposition:2'(replay!=0 ? 2 : 1),cause:64'd5,value:64'hdead};
         stop_at(inject_pc,inject_pc,replay!=0 ? 2 : 1,5,'hdead);
         send('h10944,{20'h80000,5'd3,7'h17},imm(3,3,-2048),2,lane==1,0); drain();
         assert(auipc_addi_pairs==before_pairs+1) else $fatal(1,"qualified AUIPC/ADDI pair split before MEM");
@@ -2438,7 +2441,7 @@ module rv2wide_core_tb;
     end
     // An older fault may perform a speculative lookup, never younger authorization.
     reset_core(); inject_enable=1; inject_pc='h11500;
-    inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+    inject_result='{guest:'0,disposition:2'd1,cause:64'd5,value:64'hdead};
     stop_at('h11500,'h11500,1,5,'hdead);
     send('h11500,imm(3,0,'h300),imm(3,3,0,3,'h03),2,0,0); drain();
     inject_enable=0; send('h11508,imm(4,3,0),0,1); drain();
@@ -2542,7 +2545,7 @@ module rv2wide_core_tb;
       int before_stores;
       before_stores=stores;
       inject_enable=1; inject_pc='h12408;
-      inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+      inject_result='{guest:'0,disposition:2'd1,cause:64'd5,value:64'hdead};
       stop_at('h12408,'h12408,1,5,'hdead);
       send('h12408,imm(3,0,77),store(3,1,0,3),2,0,0); drain();
       assert(stores==before_stores) else $fatal(1,"older fault authorized younger store");
@@ -2599,7 +2602,7 @@ module rv2wide_core_tb;
     // must not establish pending state either.
     for(int fault_slot=0;fault_slot<2;fault_slot++) begin
       reset_core(); inject_enable=1; inject_pc=64'('h13400+4*fault_slot);
-      inject_result='{disposition:2'd1,cause:64'd5,value:64'hdead};
+      inject_result='{guest:'0,disposition:2'd1,cause:64'd5,value:64'hdead};
       stop_at(inject_pc,inject_pc,1,5,'hdead);
       if(fault_slot==1) send('h13400,32'h00500033,imm(3,0,1),2,1,0);
       else send('h13400,imm(3,0,1),32'h00500033,2,0,0);
@@ -2820,7 +2823,7 @@ module rv2wide_core_tb;
       for(int replay=0;replay<2;replay++) begin
         int before_pairs, before_training, before_commits;
         reset_core(); inject_enable=1; inject_pc='h12c00+64'(4*rejected_lane);
-        inject_result='{disposition:replay!=0 ? 2'd2 : 2'd1,cause:64'd5,value:64'hdead};
+        inject_result='{guest:'0,disposition:replay!=0 ? 2'd2 : 2'd1,cause:64'd5,value:64'hdead};
         stop_at(inject_pc,inject_pc,replay!=0 ? 2 : 1,5,'hdead);
         before_pairs=branch_pairs; before_training=branch_updates; before_commits=commits;
         send('h12c00,imm(3,0,1),branch(3,3,32),2,rejected_lane==1,0); drain();
@@ -2871,7 +2874,7 @@ module rv2wide_core_tb;
       int before_training, before_commits;
       reset_core(); before_training=branch_updates; before_commits=commits;
       inject_enable=1; inject_pc='h15100+64'(rejected_lane*4);
-      inject_result='{replay!=0?2'd2:2'd1,64'd5,64'hdead};
+      inject_result='{guest:'0,disposition:replay!=0?2'd2:2'd1,cause:64'd5,value:64'hdead};
       stop_at(inject_pc,inject_pc,replay!=0?2:1,5,'hdead);
       send('h15100,branch(0,0,32,1),branch(0,0,32,1),2,rejected_lane==1,0); drain();
       // Trap entry clears table training, including the simultaneous successful prefix.
@@ -2893,6 +2896,113 @@ module rv2wide_core_tb;
       assert(dual_branches==before_dual+1 && ras_resolutions==before_ras+1) else $fatal(1,"one-RAS pair serialized or RAS resolution lost");
     end
     $display("Dual branches: %0d; RAS resolutions: %0d; peak queued training: %0d",dual_branches,ras_resolutions,max_training_pending-1);
+    // Ssnpm masks data addresses after generation; neither GPR values nor code PCs are modified.
+    for(int pmm=2;pmm<=3;pmm++) begin
+      logic [63:0] pc, tag;
+      pc='h16000; tag=pmm==2 ? 64'hfe00000000000300 : 64'habcd000000000300;
+      reset_core();
+      constant64(pc,1,64'(pmm)<<32); drain(); csr_access(pc,1,0,1,'h10a,0); pc+=4;
+      constant64(pc,1,tag); drain();
+      constant64(pc,2,64'h20000); drain(); csr_access(pc,1,0,2,'h300,64'ha00000000); pc+=4; // MPRV U
+      expect_system(pc,imm(3,1,0,3,'h03),64'h9f9e9d9c9b9a9998);
+      expect_memory('h300,0,8,0);
+      send(pc,imm(3,1,0,3,'h03),0,1,0,0); drain(); pc+=4;
+      send(pc,imm(4,1,0),0,1); drain(); // Still holds the complete tagged pointer.
+    end
+    // A dual-retirement count advances the one implemented HPM counter by two.
+    begin
+      logic [63:0] pc;
+      pc='h17000;
+      reset_core(); csr_access(pc,5,0,8,'h320,0); pc+=4;
+      csr_access(pc,5,0,2,'h323,0); pc+=4; // instret selector
+      csr_access(pc,5,0,0,'hb03,0); pc+=4;
+      csr_access(pc,5,0,0,'h320,8); pc+=4;
+      send(pc,imm(3,0,1),imm(4,0,2)); pc+=8; drain();
+      csr_access(pc,5,0,8,'h320,0); pc+=4;
+      csr_access(pc,2,5,0,'hb03,3); // pair plus the inhibiting CSR's retiring edge
+    end
+    // Overflow is based on the carry from the full two-instruction retirement count.
+    begin
+      logic [63:0] pc;
+      pc='h17800; reset_core();
+      csr_access(pc,5,0,8,'h320,0); pc+=4; csr_access(pc,5,0,2,'h323,0); pc+=4;
+      constant64(pc,1,64'hffffffffffffffff); drain(); csr_access(pc,1,0,1,'hb03,0); pc+=4;
+      csr_access(pc,5,0,0,'h320,8); pc+=4; send(pc,imm(3,0,1),imm(4,0,2)); pc+=8; drain();
+      csr_access(pc,5,0,8,'h320,0); pc+=4; csr_access(pc,2,5,0,'hb03,2); pc+=4;
+      csr_access(pc,2,6,0,'h344,8192); pc+=4; csr_access(pc,2,7,0,'h323,64'h8000000000000002); pc+=4;
+      constant64(pc,1,64'h4000000000000002); drain(); csr_access(pc,1,0,1,'h323,64'h8000000000000002); pc+=4;
+      csr_access(pc,5,0,0,'hb03,2); pc+=4; csr_access(pc,5,0,0,'h320,8); pc+=4;
+      send(pc,imm(3,0,3),imm(4,0,4)); pc+=8; drain(); csr_access(pc,2,5,0,'hb03,0);
+    end
+    // State-enable gates lower-mode access to senvcfg, independently of its PMM bits.
+    for(int enabled=0;enabled<2;enabled++) begin
+      logic [63:0] pc;
+      pc='h18000;
+      reset_core();
+      if(enabled!=0) begin
+        constant64(pc,1,64'h4000000000000000); drain(); csr_access(pc,1,0,1,'h30c,0); pc+=4;
+      end
+      constant64(pc,1,'h800); drain(); csr_access(pc,1,0,1,'h300,64'ha00000000); pc+=4;
+      send(pc,imm(2,0,'h500),0,1); pc+=4; drain(); csr_access(pc,1,0,2,'h341,0); pc+=4;
+      expect_system(pc,32'h30200073); stop_at(pc,'h500,3); send(pc,32'h30200073,0,1,0,0); drain();
+      if(enabled!=0) csr_access('h500,2,3,0,'h10a,0);
+      else begin
+        stop_at('h500,0,1,2,64'(csr(2,3,0,'h10a))); send('h500,csr(2,3,0,'h10a),0,1,0,0); drain();
+      end
+    end
+    // HLV.D has zero decoded displacement despite nonzero instruction[31:20].
+    // It uses the same address route as ordinary loads, without a dependent adder.
+    begin
+      logic [63:0] pc;
+      logic [31:0] hlv;
+      int before_pairs;
+      pc='h19000; hlv=32'h6c00c1f3; // hlv.d x3,(x1)
+      reset_core(); before_pairs=guest_address_pairs;
+      expect_instruction(pc,imm(1,0,'h300));
+      expect_system(pc+4,hlv,64'h9f9e9d9c9b9a9998); expect_memory('h300,0,8,0);
+      send(pc,imm(1,0,'h300),hlv,2,0,0); drain(); pc+=8;
+      assert(guest_address_pairs==before_pairs+1) else $fatal(1,"decoded zero-displacement guest load did not pair");
+      send(pc,imm(4,3,1),0,1); drain();
+      // Full invalidation fences serialize and invalidate once at successful WB.
+      for(int i=0;i<4;i++) begin
+        logic [31:0] word;
+        int before_flush;
+        word=i==0 ? 32'h22000073 : i==1 ? 32'h62000073 : i==2 ? 32'h26000073 : 32'h66000073;
+        before_flush=translation_invalidations;
+        pc+=4; expect_system(pc,word); stop_at(pc,pc+4,3); send(pc,word,0,1,0,0); drain();
+        assert(translation_invalidations==before_flush+1) else $fatal(1,"HFENCE/HINVAL invalidation");
+      end
+    end
+    // Enter VS using MPV; an explicit guest load traps as virtual instruction,
+    // with the older successful slot preserved and no accepted memory request.
+    for(int lane=0;lane<2;lane++) begin
+      logic [63:0] pc;
+      logic [31:0] hlv;
+      int before_commits, before_requests;
+      pc='h1a000; hlv=32'h6c00c1f3;
+      reset_core(); constant64(pc,1,64'h8000000800); drain(); csr_access(pc,1,0,1,'h300,64'ha00000000); pc+=4;
+      send(pc,imm(2,0,'h500),0,1); pc+=4; drain(); csr_access(pc,1,0,2,'h341,0); pc+=4;
+      expect_system(pc,32'h30200073); stop_at(pc,'h500,3); send(pc,32'h30200073,0,1,0,0); drain();
+      before_commits=commits; before_requests=requests;
+      stop_at('h500+64'(lane*4),0,1,22,64'(hlv));
+      if(lane==0) send('h500,hlv,imm(5,0,7),2,0,0);
+      else send('h500,imm(5,0,7),hlv,2,1,0);
+      drain();
+      assert(commits==before_commits+lane && requests==before_requests) else $fatal(1,"virtual fault retirement prefix");
+      csr_access(0,2,6,0,'h342,22);
+    end
+    // Either fault slot retains implicit-PTE provenance into the architectural trap CSRs.
+    for(int lane=0;lane<2;lane++) begin
+      reset_core(); inject_enable=1; inject_pc='h1b000+64'(lane*4);
+      inject_result='{disposition:2'd1,cause:64'd21,value:64'h500008,guest:{1'b1,64'h20000,1'b1}};
+      stop_at(inject_pc,0,1,21,'h500008);
+      if(lane==0) send('h1b000,imm(5,0,7),imm(6,0,8),2,0,0);
+      else send('h1b000,imm(5,0,7),imm(6,0,8),2,1,0);
+      drain(); inject_enable=0;
+      csr_access(0,2,7,0,'h34b,'h8000);
+      csr_access(4,2,8,0,'h34a,'h3000);
+      csr_access(8,2,9,0,'h343,'h500008);
+    end
     $display("Paired load addresses: %0d; paired store data: %0d; paired branch operands: %0d",address_pairs,store_data_pairs,branch_pairs);
     $display("Paired AUIPC/ADDI operations: %0d",auipc_addi_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);

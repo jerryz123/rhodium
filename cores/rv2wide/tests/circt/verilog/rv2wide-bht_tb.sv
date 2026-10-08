@@ -1,13 +1,13 @@
 // Checks fresh-S2 gshare redirects, direction overrides, straddles, replay, and retained history ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_bht_tb;
-  typedef struct packed { logic valid; logic [63:0] cause, value; } fault_t;
+  typedef struct packed { logic valid; logic [63:0] cause, value; logic [65:0] guest; } fault_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
   typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fault_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
-  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; logic [65:0] guest; } resolution_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } address_flow_t;
@@ -49,7 +49,7 @@ module rv2wide_bht_tb;
   logic [9:0] expected_history=0;
   RV2WideFrontend dut(.*);
   always #5 clock=~clock;
-  assign translation_in='{translation_out.request.bits,'{2'd0,64'd0,64'd0},2'd0};
+  assign translation_in='{translation_out.request.bits,'{2'd0,64'd0,64'd0,'0},2'd0};
   assign memory_in='{ '{response_valid,'{response_data,1'b0,response_replay}} };
   function automatic logic [63:0] word(logic [63:0] address);
     if(scenario inside {11,12}) return address=='h110 ? {32'h00100013,32'h20000063} : {32'h00100013,32'h00100013};
@@ -154,7 +154,7 @@ module rv2wide_bht_tb;
     // A direction-only override must retain the valid BTB target. Refetch
     // without clearing predictors and observe that same provisional S1 offer.
     source_cycle=-1; target_cycle=-1; branch_cycle=-1; btb_cycle=-1;
-    redirect_in='{1'b1,'{64'h100,64'h100,'{2'd0,64'd0,64'd0}}}; history_restore_in='{1'b1,10'd0};
+    redirect_in='{1'b1,'{64'h100,64'h100,'{2'd0,64'd0,64'd0,'0}}}; history_restore_in='{1'b1,10'd0};
     @(negedge clock); redirect_in='0; history_restore_in='0; finish_case();
     assert(btb_cycle==source_cycle+1) else $fatal(1,"BHT not-taken override invalidated the BTB target");
     begin_case(2); virtual_lookup_in.ready=1; finish_case();
@@ -180,7 +180,7 @@ module rv2wide_bht_tb;
     // Architectural recovery outranks a simultaneous direction correction.
     begin_case(8); virtual_lookup_in.ready=1;
     wait(memory_in.response.valid); @(negedge clock);
-    redirect_in='{1'b1,'{64'h100,64'h600,'{2'd0,64'd0,64'd0}}}; history_restore_in='{1'b1,10'd7}; #1;
+    redirect_in='{1'b1,'{64'h100,64'h600,'{2'd0,64'd0,64'd0,'0}}}; history_restore_in='{1'b1,10'd7}; #1;
     assert(virtual_lookup_out.valid && virtual_lookup_out.bits=='h600 && !instructions_out.valid) else $fatal(1,"architectural redirect lost priority");
     @(negedge clock); redirect_in='0; history_restore_in='0;
     wait(recovery_packets>0); @(negedge clock); checks++;

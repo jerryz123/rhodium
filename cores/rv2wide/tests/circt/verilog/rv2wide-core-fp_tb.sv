@@ -1,26 +1,26 @@
 // Checks FP ownership and shared GPR write scheduling against integer multiply and load returns.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_fp_tb;
-  typedef struct packed { logic [63:0] cause, value; } fetch_fault_t;
+  typedef struct packed { logic [63:0] cause, value; logic [65:0] guest; } fetch_fault_t;
   typedef struct packed { logic valid; fetch_fault_t bits; } fetch_fault_flow_t;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
   typedef struct packed { logic valid; logic [11:0] index; logic [9:0] history; logic taken; } direction_t;
   typedef struct packed { logic [63:0] pc; logic [31:0] instruction, raw_instruction; logic [63:0] sequential_pc; logic compressed_illegal; fetch_fault_flow_t fault; prediction_t prediction; logic [1:0] speculated_ras_action; direction_t direction; } instruction_t;
   typedef struct packed { logic [1:0] count; instruction_t [1:0] entries; } packet_t;
   typedef struct packed { logic valid; packet_t bits; } packet_flow_t;
-  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; logic [65:0] guest; } resolution_t;
   typedef struct packed { logic valid; resolution_t bits; } resolution_flow_t;
   typedef struct packed { logic valid; instruction_t bits; } instruction_flow_t;
   typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; logic deferred; } retirement_t;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
-  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; logic [2:0] locality; logic [1:0] pbmt; } memory_req_t;
+  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic [63:0] data; logic [7:0] mask; logic [2:0] locality; logic [1:0] pbmt, guest_access; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
   typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy, reservation_valid; } memory_in_t;
   typedef struct packed { memory_req_flow_t request; logic response_ready; } memory_out_t;
-  typedef struct packed { logic [2:0] outcome; logic [63:0] data; } lookup_t;
+  typedef struct packed { logic [2:0] outcome; logic [63:0] data; logic [65:0] guest; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
   typedef struct packed { lookup_flow_t response; logic commit_ready; } pipeline_in_t;
   typedef struct packed { memory_req_flow_t request; logic commit; } pipeline_out_t;
@@ -71,7 +71,7 @@ module rv2wide_core_fp_tb;
     .branch_update_out(),.predictor_restore_out(),.predictor_clear_out(),
     .direction_update_out(),.history_restore_out(),
     .ras_resolution_out(),.history_commit_out(),
-    .translation_state(),.translation_flush(),.instruction_invalidate_out(),.fetch_flush_out(),.instruction_capacity(),.sleeping(),.prefetch_out()
+    .split_guest_access(), .translation_state(),.translation_flush(),.instruction_invalidate_out(),.fetch_flush_out(),.instruction_capacity(),.sleeping(),.prefetch_out()
   );
   always_comb begin
     resolution[0]='0; resolution[1]='0;
@@ -79,7 +79,7 @@ module rv2wide_core_fp_tb;
     memory_in.response.valid=pending_load && cycles>=response_due;
     memory_in.response.bits=load_data;
     for(int lane=0;lane<2;lane++) if(inject_fault && memory_stage[lane].valid && memory_stage[lane].bits.pc==inject_pc) begin
-      resolution[lane].valid=1; resolution[lane].bits='{disposition:2'd1,cause:64'd2,value:64'd0};
+      resolution[lane].valid=1; resolution[lane].bits='{guest:'0,disposition:2'd1,cause:64'd2,value:64'd0};
     end
     pipeline_in.commit_ready=1;
     split_in.request_ready=!pending_split;

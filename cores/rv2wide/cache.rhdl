@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/hypervisor.rhdl") open
   "bundles.rhdl" open
   "../cache/config.rhm" open
   "../cache/protocol.rhdl" open
@@ -142,6 +143,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   ) |> io.core.request
   memory.fault.valid <== memory.request.valid & !permitted
   memory.fault.bits <== RV2WideResolution():
+    guest: literal(RiscvGuestFault(), 0)
     disposition: RV2WideDisposition.Fault
     cause: mux(request.access.store_fault_class(), bits(7, 64), bits(5, 64))
     value: memory.request.bits.address

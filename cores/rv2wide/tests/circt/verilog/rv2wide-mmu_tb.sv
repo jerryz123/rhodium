@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_mmu_tb;
-  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
+  typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; logic [65:0] guest; } resolution_t;
   typedef struct packed { logic valid; logic [63:0] address; logic [1:0] operation; } prefetch_t;
   prefetch_t prefetch_in='0, physical_prefetch_out;
   logic clock=0, reset=1;
@@ -8,6 +8,9 @@ module rv2wide_mmu_tb;
   logic [1:0] privilege=1;
   logic [63:0] satp=64'h8000000000000010, mstatus=0;
   logic pbmte=0;
+  typedef struct packed {logic vs_pbmte, virtualized; logic [63:0] hstatus, vsstatus, vsatp, hgatp;} guest_state_t;
+  guest_state_t guest_state='0;
+  logic [1:0] guest_access=0;
   wire [1:0] fetch_pbmt, physical_pbmt;
   logic invalidate=0, fetch_valid=0, ex_valid=0, wb_valid=0, commit=0;
   logic [3:0] access=1;
@@ -36,7 +39,7 @@ module rv2wide_mmu_tb;
   task automatic wait_request(input logic [63:0] pa);
     #1; // Settle a just-withdrawn WB offer before observing the next PTE request.
     for(int i=0;!physical_valid && i<80;i++) tick();
-    assert(physical_valid && physical_address==pa) else $fatal(1,"PTE expected=%h actual=%h valid=%b",pa,physical_address,physical_valid);
+    assert(physical_valid && physical_address==pa) else $fatal(1,"PTE expected=%h actual=%h valid=%b VA=%h privilege=%d satp=%h guest=%h",pa,physical_address,physical_valid,address,privilege,satp,guest_state);
     falling();
   endtask
   task automatic return_data(input logic [63:0] data, input bit core_reply=0);
@@ -405,6 +408,34 @@ module rv2wide_mmu_tb;
     privilege=3; access=1; address=8; wb_valid=1; #1;
     assert(physical_valid && physical_address==8 && physical_pbmt==0) else $fatal(1,"Bare inherited PBMT");
     wb_valid=0;
+    // Guest Bare with G-stage Sv39x4 uses the same TLB/walker, including HLVX X permissions.
+    pbmte=0; satp=0; privilege=1; access=1; guest_state='0;
+    guest_state.virtualized=1; guest_state.hgatp=64'h8000000000000010;
+    fence(); offer_wb('h16008);
+    reply('h10000,('h11<<10)|1); reply('h11000,('h12<<10)|1); reply('h120b0,('h16<<10)|'hd7);
+    repeat(5) tick(); falling(); address='h16008; wb_valid=1; #1;
+    assert(physical_valid && physical_address=='h16008 && !wb_fault) else $fatal(1,"guest G-stage translation");
+    wb_valid=0; guest_state.virtualized=0; guest_state.hstatus=64'h100; guest_access=2;
+    offer_wb('h16008);
+    // Cached permissions reject HLVX without repeating the successful data walk.
+    repeat(5) tick(); falling(); wb_valid=1; #1;
+    assert(wb_fault && wb_fault_bits.cause==21 && wb_fault_bits.value=='h16008 && wb_fault_bits.guest=={1'b1,64'h16008,1'b0})
+      else $fatal(1,"HLVX failed G-stage execute permission/fault provenance");
+    wb_valid=0;
+    // Implicit VS PTE reads themselves undergo G translation and retain their GPA.
+    guest_access=0; guest_state.virtualized=1; guest_state.vsatp=64'h8000000000000020;
+    fence(); offer_wb('h500008); reply('h10000,0);
+    repeat(5) tick(); falling(); wb_valid=1; #1;
+    assert(wb_fault && wb_fault_bits.cause==21 && wb_fault_bits.value=='h500008 && wb_fault_bits.guest=={1'b1,64'h20000,1'b1})
+      else $fatal(1,"implicit VS PTE guest fault ownership");
+    wb_valid=0; guest_state='0; guest_state.hstatus=64'h100; guest_access=2;
+    // HLVX also requires executable PMA even with both translation stages Bare.
+    fence(); address='h2300; wb_valid=1; #1;
+    assert(wb_fault && !physical_valid && wb_fault_bits.cause==5 && wb_fault_bits.value=='h2300)
+      else $fatal(1,"HLVX bypassed physical execute permission");
+    guest_access=1; #1;
+    assert(physical_valid && !wb_fault) else $fatal(1,"ordinary guest load inherited HLVX PMA restriction");
+    wb_valid=0; guest_state='0; guest_access=0;
     $display("RV2Wide MMU timing, Svnapot/Svpbmt mappings, permissions, invalidation, arbitration, and cancel/drain passed");
     $finish;
   end

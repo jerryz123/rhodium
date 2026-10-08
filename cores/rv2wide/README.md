@@ -5,7 +5,8 @@
 
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
-it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
+it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state and optional
+H/Sha guest execution with Sv39x4 translation. `RV2WideCore()` remains the
 independently usable RR-through-WB execution slice. It executes RV64IMACB, optionally RV64IMAFDCB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and scalar
 loads/stores, including retained misaligned accesses in cacheable normal memory.
@@ -28,7 +29,7 @@ private-cache geometry; `RV2WideHart` starts once at the platform reset vector
 after reset. The shared SoC BootROM performs normal FESVR entry publication and
 ACLINT release. The corresponding `mini-rv2wide-rv64imafdcb` and
 `simple-rv2wide-rv64imafdcb` selections add F/D and compressed FP loads/stores.
-No RV32, vector, H, or Tiled selection is provided.
+No RV32, vector, H-enabled SoC preset, or Tiled selection is provided.
 
 ## Entry point
 
@@ -205,6 +206,38 @@ replay. Demand traffic takes priority. Accepted instruction hints fetch into
 L1I; read and write hints use the shared L1D's read or unique-ownership refill.
 No architectural load/store request or delayed completion is created.
 
+## Supervisor and hypervisor options
+
+The following `RV2WideConfig` options default to disabled and do not change
+the existing lean SoC presets:
+
+| Option | Architectural behavior |
+|---|---|
+| `~ssnpm: #true` | U-mode pointer masking with PMLEN 0, 7, or 16; applies to explicit scalar/FP data, atomics, CMOs, and prefetch addresses, not fetches or PTE reads |
+| `~supm: #true` | Publishes user pointer-masking support; requires Ssnpm |
+| `~sscofpmf: #true` | Counter 3 counts cycles or retired instructions, including two in one cycle; privilege filtering, overflow state, and LCOF interrupt use the shared CSR bank |
+| `~smstateen: #true` | Smstateen/Ssstateen CSR access gates, including lower-mode environment configuration |
+| `~hypervisor: #true` | H: VS/VU execution, Sv39/Sv39x4 two-stage translation, virtual interrupts, guest CSRs, HLV/HLVX/HSV, and HFENCE |
+
+Selecting both hypervisor and state-enable support publishes Sha and the
+shared bank's guest supervisor guarantees. This is supervisor/hypervisor
+capability parity, not full RV5Stage ISA parity: RV2Wide has no vector or RV32
+execution configuration, and does not publish RV5Stage's complete RVA23 profile.
+
+HLVX uses execute permission at both translation stages while retaining load
+fault classification, and bypasses pointer masking. With H and Svinval enabled,
+HINVAL.VVMA/GVMA use the same serialized full-invalidation boundary as HFENCE.
+With H and Sstc, the shared bank also supplies virtual-supervisor timer state.
+
+Guest provenance accompanies fetch, MEM, admission, and split-access faults
+until WB, including faults on implicit VS PTE reads. An older successful slot
+retires before a younger fault; accepted deferred work drains before trap entry.
+Page-table response ownership survives translation cancellation.
+
+Standalone users connect `translation_state` and `split_guest_access` to
+`RV2WideMmu`. The latter remains the retained split owner's access mode through
+completion. The composed `RV2Wide` connects these automatically.
+
 ## Supervisor timer
 
 Select `RV2WideConfig(~sstc: #true)` to implement and advertise Sstc 1.0.
@@ -223,8 +256,8 @@ Ordinary interrupt enables and delegation govern delivery. WFI can wake on a
 locally enabled timer even when global interrupt delivery is disabled. When
 delivery is enabled, RV2Wide traps at a precise instruction boundary after
 accepted deferred work drains. Timer expiry never discards an accepted load or
-partially retires a two-instruction group. This scalar core does not expose
-hypervisor virtual timers.
+partially retires a two-instruction group. Selecting H also exposes the shared
+bank's virtual-supervisor timer and its H/VS enable/delegation controls.
 
 ## Pause hint
 
@@ -416,8 +449,8 @@ stage or an older-ALU-to-younger-ALU path in EX. All other destination hazards
 and fault/replay rules still apply.
 
 A slot-0 integer ALU producer can pair with a
-slot-1 ordinary integer load that uses its result as the base address and has zero
-immediate offset. EX sends the producer's result directly to the load lookup,
+slot-1 integer load that uses its result as the base address and has zero
+decoded displacement, including HLV/HLVX when H is enabled. EX sends the producer's result directly to the load lookup,
 without a second dependent address addition or an extra pipeline stage.
 This includes a load overwriting the producer's destination. This address
 bypass excludes stores, atomics, nonzero-offset loads, and memory, M, FP, CSR,

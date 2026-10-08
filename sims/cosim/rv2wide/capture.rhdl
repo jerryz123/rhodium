@@ -28,7 +28,8 @@ dpi_import procedure rhodium_rv2wide_fp(instance: Bits(64), index: Bits(64), val
 /* Samples only external inputs and architectural trap/return decisions, not a CSR-bank snapshot. */
 dpi_import procedure rhodium_rv2wide_boundary(
   instance: Bits(64), privilege: Bits(64), next_privilege: Bits(64), interrupt_take: Bits(64), trap: Bits(64), cause: Bits(64), epc: Bits(64),
-  tval: Bits(64), target: Bits(64), target_privilege: Bits(64), interrupts: Bits(64), time: Bits(64), interrupt_boundary: Bits(64)
+  tval: Bits(64), target: Bits(64), target_privilege: Bits(64), interrupts: Bits(64), time: Bits(64), interrupt_boundary: Bits(64),
+  virtualized: Bits(64), next_virtualized: Bits(64), target_virtualized: Bits(64), guest_valid: Bits(64), htval: Bits(64), htinst: Bits(64), hpm_enabled: Bits(64), hpm_counter: Bits(64), hpm_overflow: Bits(64)
 )
 /* Samples variable service admission, direct multiply return, and their RF write destination. */
 dpi_import procedure rhodium_rv2wide_completion(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), write: Bits(64), data: Bits(64))
@@ -71,6 +72,9 @@ sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: F
   def sret :: Bool = taps["csr_sret"]
   def mret_privilege :: PrivilegeMode = taps["csr_mret_privilege"]
   def sret_privilege :: PrivilegeMode = taps["csr_sret_privilege"]
+  def virtualized :: Bool = taps["csr_virtualized"]
+  def returned_virtual :: Bool = taps["csr_returned_virtual"]
+  def guest_valid :: Bool = taps["csr_fault_details_valid"] & taps["csr_guest_page_fault"]
   def next_privilege = mux(mret, mret_privilege, mux(sret, sret_privilege, privilege))
   def interrupt_inputs :: RiscvInterrupts() = taps["csr_interrupt_inputs"]
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
@@ -98,7 +102,9 @@ sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: F
     instance_id, lane(privilege.as_bits()), lane(next_privilege.as_bits()), tap_lane("csr_interrupt_take"), tap_lane("csr_synchronous_trap"),
     tap_lane("csr_trap_cause"), tap_lane("csr_trap_pc"), tap_lane("csr_trap_value"), tap_lane("csr_redirect"),
     lane(mux(trap_target === RiscvTrapTarget.Machine, PrivilegeMode.Machine, PrivilegeMode.Supervisor).as_bits()),
-    riscv_interrupt_pending(XLen.X64, interrupt_inputs), tap_lane("csr_time_input"), tap_lane("csr_interrupt_boundary"), ~enable: active
+    riscv_interrupt_pending(XLen.X64, interrupt_inputs), tap_lane("csr_time_input"), tap_lane("csr_interrupt_boundary"),
+    lane(virtualized.as_bits()), lane(mux(mret ||| sret, returned_virtual, virtualized).as_bits()), tap_lane("csr_trap_to_guest"), lane(guest_valid.as_bits()),
+    tap_lane("csr_fault_gpa"), tap_lane("csr_fault_inst"), tap_lane("csr_hpm_enabled"), tap_lane("csr_hpm_counter"), tap_lane("csr_hpm_overflow"), ~enable: active
   )
   for (index in 0..4):
     def result :: RV2WideRetirement() = completions[index]

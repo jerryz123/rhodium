@@ -203,7 +203,35 @@ void block_zero(bool fault) {
   }
   c.finish();
 }
+void guest_context_and_hpm() {
+  Collector c; c.reset(0,0,{0,0x8000,{1,true},64,0}); DpiBinding binding(c); std::mt19937 random(7);
+  Sample s; s.boundary.privilege=1; s.boundary.virtualized=1; s.boundary.hpm_enabled=1; s.boundary.hpm_counter=100;
+  s.boundary.hpm_overflow=1;
+  require(sample(c,binding,0,s,random).empty());
+  s.boundary.hpm_overflow=0;
+  require(sample(c,binding,1,s,random).empty());
+  s.retire(0,0x8000,1,11); s.retire(1,0x8004,2,22);
+  s.boundary.next_privilege=1; s.boundary.next_virtualized=1;
+  auto pair=sample(c,binding,2,s,random);
+  require(pair.size()==2);
+  for (const auto& record:pair) {
+    require(std::get<Instruction>(record.event).privilege.virtualized);
+    require(std::get<Retirement>(record.outcome).privilege.virtualized);
+    require(record.environment.hpm_counters.at(3)==100 && record.environment.hpm_overflows==8);
+  }
+  s=Sample(); s.boundary.privilege=1; s.boundary.virtualized=1; s.boundary.trap=1;
+  s.boundary.cause=21; s.boundary.epc=0x8008; s.boundary.tval=0x1234; s.boundary.target=0x100;
+  s.boundary.target_privilege=1; s.boundary.guest_valid=1; s.boundary.htval=0x800; s.boundary.htinst=0x3000;
+  s.lanes[2].pc=0x8008; s.lanes[2].encoding=0x3023;
+  auto fault=sample(c,binding,3,s,random);
+  require(fault.size()==1);
+  const auto& trap=std::get<Trap>(fault[0].outcome);
+  require(!trap.privilege.virtualized && trap.guest_valid && trap.htval==0x800 && trap.htinst==0x3000);
+  require(fault[0].environment.hpm_overflows==0);
+  c.finish();
+}
 int main() {
+  guest_context_and_hpm();
   block_zero(false); block_zero(true);
   const auto expected=run(0);
   for (unsigned seed=1;seed<100;++seed) require(run(seed)==expected);
