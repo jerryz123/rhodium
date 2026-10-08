@@ -35,6 +35,14 @@ external-tool emitters remain under [`../tests/circt/`](../tests/circt/).
 Do not add root-level forwarding modules for old paths; update consumers as one
 move so the directory boundary remains visible.
 
+The scanner refreshes validated return hints from the live RAS at S2, before
+the admitted packet updates the stack. A changed warm target uses the existing
+late-redirect path, not structural-entry invalidation. For an upper-halfword
+32-bit return, publish corrected prefix metadata and apply its action once;
+retain the pending redirect until the continuation is admitted. Redirecting at
+the prefix would kill the continuation, and re-reading the stack afterward
+would use the already-popped head. Faults and epoch clears suppress that redirect.
+
 ## Focused validation
 
 Scanner packet, repair, and fallback outputs derive from explicit ingress

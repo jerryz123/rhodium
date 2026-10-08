@@ -1,5 +1,5 @@
 #lang rhodium
-/* Validates S2 predictions and discovers direct-jump and return fallbacks. */
+/* Validates S2 predictions, refreshes live RAS targets, and discovers jump/return fallbacks. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,8 +20,7 @@ fun compressed_jump_offset(instruction :: Bits(16), output_width :: PosInt) :~ B
   def immediate = instruction[12..13] ++ instruction[8..9] ++ instruction[9..11] ++ instruction[6..7] ++ instruction[7..8] ++ instruction[2..3] ++ instruction[11..12] ++ instruction[3..6] ++ bits(0, 1)
   immediate.into(SInt(12)).sext(output_width).as_bits()
 
-/* Validates predicted instruction boundaries, removes stale packet cuts, and discovers direct
-   jumps/returns.
+/* Validates predicted boundaries, refreshes warm RAS targets, and discovers direct jumps/returns.
    Its private partial-word state supports straddles independently of Decode's residual storage. */
 sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def hypervisor = core_profile.extensions.hypervisor
@@ -37,6 +36,8 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   reg partial(~init: Bool(#false))
   reg partial_halfword(Bits(16))
   reg partial_prediction_seen(~init: Bool(#false))
+  reg partial_return_repair(~init: Bool(#false))
+  reg partial_return_prediction(BranchPrediction(xlen))
   def packet = ingress.bits
   def lower_compressed = if compressed_enabled | packet.word[0..2] =/= bits(3, 2) | Bool(#false)
   def upper_compressed = if compressed_enabled | packet.word[16..18] =/= bits(3, 2) | Bool(#false)
@@ -79,24 +80,32 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def first_fallback = first_direct_jump ||| (first_return & ras_head_valid)
   def second_fallback = second_direct_jump ||| (second_return & ras_head_valid)
   def prediction_missing = !packet.prediction.valid & (!partial ||| !partial_prediction_seen)
-  def fallback_valid = ingress.valid & prediction_missing & !packet.page_fault & !packet.access_fault & (first_fallback ||| second_fallback)
+  // Refresh the validated hint before this packet's RAS action. A straddling
+  // return pops here once, but its redirect must wait for the continuation.
+  def return_repair = prediction.valid & prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid & (prediction.target =/= ras_head) & !packet.page_fault & !packet.access_fault
+  def return_prefix = prediction.pc[1].into(Bool) & !prediction.compressed
+  def continued_return_repair = partial & partial_return_repair & first_complete & !packet.page_fault & !packet.access_fault
+  def missing_fallback = prediction_missing & (first_fallback ||| second_fallback)
+  def fallback_valid = ingress.valid & (missing_fallback ||| (return_repair & !return_prefix) ||| continued_return_repair)
   def fallback_pc = mux(first_fallback, first_pc, second_pc)
   def fallback_target = mux(first_fallback, mux(first_direct_jump, first_direct_target, ras_head), mux(second_direct_jump, second_direct_target, ras_head))
   def fallback_prediction = BranchPrediction(xlen):
-    valid: fallback_valid
+    valid: ingress.valid & missing_fallback & !packet.page_fault & !packet.access_fault
     pc: fallback_pc
     target: fallback_target
     compressed: mux(first_fallback, first_compressed, Bool(#true))
     ras_action: mux(first_fallback, first_action, second_action)
-  def effective_prediction = mux(fallback_valid, fallback_prediction, prediction)
+  def refreshed_prediction = prediction.updated(~target: ras_head)
+  def effective_prediction = mux(return_repair, refreshed_prediction, mux(fallback_prediction.valid, fallback_prediction, prediction))
+  def redirect_prediction = mux(continued_return_repair, partial_return_prediction, mux(return_repair, refreshed_prediction, fallback_prediction))
   // A valid lower compressed prediction cuts the upper parcel. A stale cut
   // instead retains the complete word and restarts after it, not before it.
   def cut_upper = effective_prediction.valid & !effective_prediction.pc[1].into(Bool) & effective_prediction.compressed
-  def cut_after_straddle = fallback_valid & partial & first_fallback
+  def cut_after_straddle = continued_return_repair ||| (fallback_prediction.valid & partial & first_fallback)
   def mask = mux(cut_upper ||| cut_after_straddle, bits(1, 2), packet.mask)
   def Array(packets, repairs, fallbacks) = ingress |> fork_valid(3)
   (packets |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: effective_prediction))) |> egress
-  (fallbacks |> filter_valid(_packet => fallback_valid & !clear.valid) |> map_valid(_packet => fallback_prediction)) |> fallback
+  (fallbacks |> filter_valid(_packet => fallback_valid & !packet.page_fault & !packet.access_fault & !clear.valid) |> map_valid(_packet => redirect_prediction)) |> fallback
   (repairs |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
     pc: packet.pc.align_down(4) + bits(4, xlen.width)
     entry: packet.prediction.pc
@@ -104,10 +113,13 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   when (clear.valid):
     partial <== Bool(#false)
     partial_prediction_seen <== Bool(#false)
+    partial_return_repair <== Bool(#false)
   elsewhen (ingress.valid):
     partial <== mask[1].into(Bool) & upper_start & !upper_compressed & !packet.page_fault & !packet.access_fault
     partial_halfword <== packet.word[16..32]
     partial_prediction_seen <== packet.prediction.valid
+    partial_return_repair <== return_repair & return_prefix
+    partial_return_prediction <== refreshed_prediction
 
 export:
   RV5StageFetchScan

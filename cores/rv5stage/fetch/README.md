@@ -39,3 +39,10 @@ Branch prediction uses the shared [`cores/bpred/`](../../bpred/README.md)
 components. Their [`protocol.rhdl`](../../bpred/protocol.rhdl) defines prediction and training payloads,
 while the parent [branch-prediction contract](../README.md#branch-prediction)
 defines their observable policy and generator parameters.
+
+S2 refreshes a warm return prediction from the live stack before applying its
+action. If an older call changed the head after S1 lookup, this late correction
+redirects younger fetch work without invalidating the return entry. A straddling
+return retains its corrected target until its continuation arrives; the prefix's
+stack action is not repeated. Faults suppress corrections, and an empty stack
+preserves the BTB target.

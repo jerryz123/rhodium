@@ -262,6 +262,10 @@ instructions. J/B immediate targets override matching taken BTB targets; target
 mismatches invalidate the stale entry. Only JAL/C.J and RAS returns discover
 fallbacks; never discover a conditional branch through the BTB's unconditional
 discovery port or infer an unknown direction from its immediate.
+Assembly also refreshes known return targets from the live RAS before the
+accepted packet's stack action. Treat a changed RAS target as a cursor repair,
+not stale BTB contents: retain the entry and its return hint. Straddles wait
+for complete assembly, and stalls emit neither repair nor stack action.
 Architectural restart/redirect, accepted assembly repair, fresh S2 direction correction, and S2 replay take
 priority over S1 prediction and the saved cursor in the S0 request mux.
 Architectural and assembly replacements may reuse storage that their clear
@@ -745,7 +749,9 @@ core fixture supplies explicit predictions to check correct taken branch/target
 pairing and wrong-direction/target recovery; shared eight-byte cursor ordering
 is covered by `bpred-btb-wide`.
 `rv2wide-assembly-prediction` isolates stale entry boundary/length repairs,
-immediate-target corrections without changing conditional direction, fallthrough
+immediate-target corrections without changing conditional direction, live-RAS
+refreshes of warm returns (including compressed, straddling, and coroutine
+forms), empty-stack target preservation, fallthrough
 suffix cuts, predicted straddles and continuation faults, and
 single-shot RAS actions under packet backpressure. Its D-enabled configuration
 also checks all four compressed FP load/store expansions and raw encodings.

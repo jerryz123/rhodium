@@ -1,5 +1,5 @@
 #lang rhodium
-/* Assembles mixed-width instructions and corrects immediate targets without losing boundary fault ownership. */
+/* Assembles mixed-width instructions and refreshes immediate/RAS targets without losing boundary fault ownership. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -60,6 +60,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   wire actions: Vec(2, RasAction)
   wire known_predictions: Vec(2, Bool)
   wire target_repairs: Vec(2, Bool)
+  wire entry_repairs: Vec(2, Bool)
   def first_cut = first_valid & fetched[0].prediction.valid
   def second_valid = first_valid & !head.bits.fault.valid & (parcels >= (first_size + second_size)) & !first_cut & !(actions[0].is_one_of(RasAction.Push, RasAction.Pop, RasAction.PopPush) & actions[1].is_one_of(RasAction.Push, RasAction.Pop, RasAction.PopPush))
   def used = mux(first_valid, first_size + mux(second_valid, second_size, bits(0, 3)), bits(0, 3))
@@ -92,7 +93,8 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def sequential_pc = pc + (size.zext(64) << 1)
     actions[lane] <== action
     known_predictions[lane] <== known
-    target_repairs[lane] <== known & !bht_branch & immediate_control_flow & (predicted.target =/= immediate_target)
+    entry_repairs[lane] <== known & !bht_branch & immediate_control_flow & (predicted.target =/= immediate_target)
+    target_repairs[lane] <== entry_repairs[lane] ||| (known & returning & (predicted.target =/= ras_head))
     fetched[lane] <== RV2WideInstruction():
       pc: pc
       instruction: canonical
@@ -104,7 +106,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
         BranchPrediction(XLen.X64):
           valid: known ||| fallback
           pc: pc
-          target: mux(immediate_control_flow, immediate_target, mux(known, predicted.target, ras_head))
+          target: mux(immediate_control_flow, immediate_target, mux(returning, ras_head, mux(known, predicted.target, ras_head)))
           compressed: compressed
           ras_action: action
       speculated_ras_action: mux(Bool(profile.ras_entries > 0), action, RasAction.None)
@@ -121,11 +123,12 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   def selected :: RV2WideInstruction() = mux(first_cut, fetched[0], fetched[1])
   def fallback = cut & !mux(first_cut, known_predictions[0], known_predictions[1])
   def target_repair = cut & mux(first_cut, target_repairs[0], target_repairs[1])
+  def entry_repair = cut & mux(first_cut, entry_repairs[0], entry_repairs[1])
   def accepted_tail :: RV2WideInstruction() = mux(second_valid, fetched[1], fetched[0])
   repair.valid <== advance & (bad_head ||| bad_partial ||| fallback ||| target_repair)
   repair.bits <== RV2WideFetchRepair():
     target: mux(cut, selected.prediction.target, tail_pc)
-    invalidate: bad_head ||| bad_partial ||| target_repair
+    invalidate: bad_head ||| bad_partial ||| entry_repair
     entry: mux(target_repair, selected.pc, mux(bad_partial, partial_prediction.pc, head.bits.prediction.pc))
     history: rv2wide_history_after(accepted_tail.direction, accepted_tail.direction.taken)
   // A local repair preserves this edge's accepted prefix; discard its queued

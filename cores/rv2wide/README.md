@@ -351,7 +351,10 @@ target for the S0 request in that same cycle, ahead of the S1 prediction.
 Cache backpressure can delay the actual lookup; the selected cursor is retained.
 Buffered blocks undergo the same correction when their packet is accepted;
 an incomplete straddling instruction waits for its continuation. RAS-backed
-returns use the same redirect path. Stale predictions invalidate the exact entry;
+returns refresh the target from the live stack on packet acceptance, including
+warm BTB hits whose lookup preceded an older call's stack update. A changed
+return target uses the same redirect path without invalidating the BTB entry.
+Stale instruction boundaries, lengths, and immediate targets invalidate the exact entry;
 only direct-jump and return fallbacks discover entries. Local repair discards
 younger fetch blocks, not instructions already accepted by the issue window.
 General JALR targets still require BTB/RAS prediction or execution. Disabling the

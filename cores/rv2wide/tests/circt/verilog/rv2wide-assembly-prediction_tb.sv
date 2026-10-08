@@ -23,6 +23,7 @@ module rv2wide_assembly_prediction_tb;
   ras_flow_t speculate_out;
   logic [63:0] expected_pc[$];
   int repairs=0,speculations=0,retired=0;
+  int return_speculations=0;
   RV2WideInstructionAssembler dut(.*,.discover_out());
   always #5 clock=~clock;
   always @(posedge clock) if(!reset) begin
@@ -47,6 +48,16 @@ module rv2wide_assembly_prediction_tb;
         assert(repair_out.valid && repair_out.bits.target==target && repair_out.bits.invalidate==(want!='hb00)) else $fatal(1,"missing immediate repair");
       end
       if(want=='hd00) assert(!instructions_out.bits.entries[lane].prediction.valid && !repair_out.valid) else $fatal(1,"conditional direction changed");
+      if(want=='he00 || want=='he40 || want=='he86 || want=='hec0 || want=='hf00 || want=='hf40) begin
+        logic [63:0] target;
+        bit correction;
+        target=want=='hec0 ? 'hdead : 'h1234;
+        correction=want!='hec0 && want!='hf00;
+        assert(instructions_out.bits.entries[lane].prediction.valid && instructions_out.bits.entries[lane].prediction.target==target && instructions_out.bits.count==1)
+          else $fatal(1,"return did not refresh live RAS at %h",want);
+        assert(repair_out.valid==correction) else $fatal(1,"wrong return repair at %h",want);
+        if(correction) assert(repair_out.bits.target==target && !repair_out.bits.invalidate) else $fatal(1,"return repair invalidated context-independent BTB entry");
+      end
       if(want>='ha00 && want<'ha08) begin
         logic [31:0] canonical;
         logic [15:0] raw;
@@ -68,8 +79,13 @@ module rv2wide_assembly_prediction_tb;
       if(repairs==2) assert(repair_out.bits.invalidate && repair_out.bits.entry=='h200 && repair_out.bits.target=='h240) else $fatal(1,"stale length/direct fallback");
     end
     if(speculate_out.valid) begin
-      speculations++;
-      assert(speculate_out.bits.action==1 && speculate_out.bits.return_address==64'('h600+speculations*4)) else $fatal(1,"RAS action owner/count");
+      if(speculate_out.bits.action==1) begin
+        speculations++;
+        assert(speculate_out.bits.return_address==64'('h600+speculations*4)) else $fatal(1,"RAS action owner/count");
+      end else begin
+        return_speculations++;
+        assert(speculate_out.bits.action==(return_speculations==6 ? 3 : 2)) else $fatal(1,"return action changed");
+      end
     end
   end
   task automatic offer(logic [63:0] pc,data,pred_pc=0,pred_target=0,bit compressed=0,fault=0);
@@ -137,6 +153,28 @@ module rv2wide_assembly_prediction_tb;
     expected_pc.push_back('hd00); expected_pc.push_back('hd04);
     offer('hd00,{32'h00100013,32'h00000063}); drain();
     assert(repairs==7 && speculations==2) else $fatal(1,"repair/RAS count changed");
+    // Warm BTB targets were frozen before an older call updated the RAS.
+    ras_head_valid=1; ras_head='h1234;
+    expected_pc.push_back('he00);
+    offer('he00,{32'h00100013,32'h00008067},'he00,'hdead); drain();
+    expected_pc.push_back('he40);
+    instructions_in=0; ras_head='h1111;
+    offer('he40,{48'h000100010001,16'h8082},'he40,'hdead,1);
+    repeat(4) @(negedge clock);
+    assert(return_speculations==1 && !repair_out.valid) else $fatal(1,"stalled return changed RAS/cursor");
+    ras_head='h1234; instructions_in=1; drain();
+    expected_pc.push_back('he86);
+    offer('he86,{16'h8067,48'h000100010001},'he86,'hdead);
+    offer('he88,{48'h000100010001,16'h0000}); drain();
+    ras_head_valid=0;
+    expected_pc.push_back('hec0);
+    offer('hec0,{32'h00100013,32'h00008067},'hec0,'hdead); drain();
+    ras_head_valid=1;
+    expected_pc.push_back('hf00);
+    offer('hf00,{32'h00100013,32'h00008067},'hf00,'h1234); drain();
+    expected_pc.push_back('hf40);
+    offer('hf40,{32'h00100013,32'h000082e7},'hf40,'hdead); drain(); // JALR x5,x1: pop-push.
+    assert(repairs==11 && return_speculations==6) else $fatal(1,"return repair/action count changed");
     $display("RV2Wide assembly prediction repair/cut/straddle/RAS tests passed (%0d instructions)",retired); $finish;
   end
   initial begin #10000; $fatal(1,"assembly timeout"); end

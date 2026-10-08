@@ -90,6 +90,6 @@ extern "C" void fallback_trace_check() {
 }
 extern "C" void fallback_trace_finish() {
   rheg::graph().validate();
-  if(expected || checked!=9 || held!=1 || successors<50) fail("missing successor or fallback coverage");
+  if(expected || checked!=12 || held!=1 || successors<50) fail("missing successor or fallback coverage");
   std::printf("Exact fetch ancestry passed: %u ordinary S0 -> S0 successors; %u S2 -> S0 fallbacks, including %u blocked/retained redirect\n",successors,checked,held);
 }

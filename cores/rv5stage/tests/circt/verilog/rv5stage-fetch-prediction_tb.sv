@@ -131,6 +131,14 @@ module rv5stage_fetch_prediction_tb;
         'hd00: return 32'ha0110001; // C.NOP followed by C.J +4.
         default: return 32'h00000013;
       endcase
+      13, 14, 15: case (address)
+        'h100: return 32'h100000ef; // Outer call to 0x200.
+        'h200: return mode==15 ? 32'h102000ef : 32'h100000ef; // Short inner call.
+        'h204: return 32'h00008067; // Return to the outer caller.
+        'h300: return mode==13 ? 32'h00018082 : mode==14 ? 32'h00008067 : 32'h80670001;
+        'h304: return 32'h00010000; // Straddling return continuation.
+        default: return 32'h00000013;
+      endcase
       default: return 32'h00000013;
     endcase
   endfunction
@@ -370,6 +378,37 @@ module rv5stage_fetch_prediction_tb;
       expect_pc('h800, 'h900, 0, 2'd1);
       expect_pc('h900, 'h804, 0, 2'd2);
       expect_pc('h804, 'h800);
+    end
+
+    // A warm return lookup overlaps the inner call's S2 push, so its S1
+    // snapshot is the outer address. S2 must refresh it before popping once.
+    for(int return_mode=13;return_mode<=15;return_mode++) begin
+      automatic logic [63:0] return_pc=return_mode==15 ? 'h302 : 'h300;
+      initialize(return_mode);
+      train('h100, 'h200, 0, 0, 1, 2'd1);
+      train('h200, return_pc, 0, 0, 1, 2'd1);
+      train(return_pc, 'hdead, return_mode==13, 0, 1, 2'd2);
+      train('h204, 'h104, 0, 0, 1, 2'd2);
+      fallback_trace_expect(return_mode==15 ? 'h304 : 'h300, 'h204, 1);
+      start('h100);
+      expect_pc('h100, 'h200, 0, 2'd1);
+      expect_pc('h200, return_pc, 0, 2'd1);
+      expect_pc(return_pc, 'h204, 0, 2'd2);
+      expect_pc('h204, 'h104, 0, 2'd2);
+      expect_pc('h104, 'h108);
+      assert(local_flushes==0) else $fatal(1,"return refresh invalidated a warm BTB entry");
+    end
+    for(int return_mode=14;return_mode<=15;return_mode++) begin
+      automatic logic [63:0] return_pc=return_mode==15 ? 'h302 : 'h300;
+      initialize(return_mode);
+      train('h100, 'h200, 0, 0, 1, 2'd1);
+      train('h200, return_pc, 0, 0, 1, 2'd1);
+      train(return_pc, 'hdead, 0, 0, 1, 2'd2);
+      fault_address=return_mode==15 ? 'h304 : 'h300;
+      start('h100);
+      expect_pc('h100, 'h200, 0, 2'd1);
+      expect_pc('h200, return_pc, 0, 2'd1);
+      expect_pc(return_pc, return_pc+4, 1, 0, fault_address);
     end
 
     initialize(10);
