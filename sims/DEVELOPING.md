@@ -235,7 +235,7 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 Mini/Simple RV2Wide use the same event target, including composition with cosim.
 `trace-smoke` reuses the scalar cosim payload and `check-rv2wide-events.sql` checks
 fetch/packet-to-issue ownership, dual-slot issue, PC/instruction preservation,
-fixed EX/MEM timing, successful WB, exact EX+5 multiply writes, and the
+fixed EX/MEM timing, successful WB, exact EX+3 multiply writes, and the
 three-stage variable-return path. The existing RV5Stage trace checks remain separate because its stage and
 prediction contracts differ. Keep trace selection out of SoC/ISA/CI inventories.
 

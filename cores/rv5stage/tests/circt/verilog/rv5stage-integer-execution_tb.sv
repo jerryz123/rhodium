@@ -1,4 +1,4 @@
-// Checks elastic integer services and exact five-cycle scalar multiply authorization.
+// Checks elastic integer services and exact three-cycle scalar multiply authorization.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_integer_execution_tb;
   typedef struct packed { logic ready; } ready_t;
@@ -36,8 +36,8 @@ module rv5stage_integer_execution_tb;
   scalar_completion_t scalar_completion_out;
   ready_t scalar_completion_in;
   logic scalar_available;
-  scalar_issue_t scalar_history[5];
-  bit scalar_committed[5];
+  scalar_issue_t scalar_history[3];
+  bit scalar_committed[3];
   int scalar_cycle = 0, scalar_received = 0, scalar_canceled = 0;
   RV5StageIntegerExecutionFixture dut (.scalar_issue_in(scalar_issue), .scalar_authorize_in(scalar_authorize), .*);
   always #5 clock = ~clock;
@@ -75,27 +75,27 @@ module rv5stage_integer_execution_tb;
       multiply_sent <= 0; divide_sent <= 0; multiply_received <= 0; divide_received <= 0;
       multiply_stalled <= 0; divide_stalled <= 0; replacements <= 0;
       scalar_cycle <= 0; scalar_received <= 0; scalar_canceled <= 0;
-      for (int i = 0; i < 5; i++) begin scalar_history[i] <= '0; scalar_committed[i] <= 0; end
+      for (int i = 0; i < 3; i++) begin scalar_history[i] <= '0; scalar_committed[i] <= 0; end
     end else begin
       cycles <= cycles + 1;
       scalar_cycle <= scalar_cycle + 1;
       assert(scalar_available) else $fatal(1,"fixed scalar launch acquired a queue stall");
-      assert(scalar_completion_out.valid == (scalar_history[4].valid && scalar_committed[4]))
-        else $fatal(1,"scalar result not exactly five cycles after its authorized launch at %0d",scalar_cycle);
+      assert(scalar_completion_out.valid == (scalar_history[2].valid && scalar_committed[2]))
+        else $fatal(1,"scalar result not exactly three cycles after its launch at %0d",scalar_cycle);
       if (scalar_completion_out.valid) begin
-        left = $signed({64'b0,scalar_history[4].bits.left});
-        right = $signed({64'b0,scalar_history[4].bits.right});
-        if (scalar_history[4].bits.control.mode.left_signed && left[63]) left -= 128'sd1 << 64;
-        if (scalar_history[4].bits.control.mode.right_signed && right[63]) right -= 128'sd1 << 64;
+        left = $signed({64'b0,scalar_history[2].bits.left});
+        right = $signed({64'b0,scalar_history[2].bits.right});
+        if (scalar_history[2].bits.control.mode.left_signed && left[63]) left -= 128'sd1 << 64;
+        if (scalar_history[2].bits.control.mode.right_signed && right[63]) right -= 128'sd1 << 64;
         scalar_product = 128'(left * right);
-        scalar_value = scalar_history[4].bits.control.high_result ? scalar_product[127:64] : scalar_product[63:0];
-        if (scalar_history[4].bits.control.word_result) scalar_value = {{32{scalar_value[31]}},scalar_value[31:0]};
-        assert(scalar_completion_out.bits == scalar_result_t'{scalar_history[4].bits.rd, scalar_value})
+        scalar_value = scalar_history[2].bits.control.high_result ? scalar_product[127:64] : scalar_product[63:0];
+        if (scalar_history[2].bits.control.word_result) scalar_value = {{32{scalar_value[31]}},scalar_value[31:0]};
+        assert(scalar_completion_out.bits == scalar_result_t'{scalar_history[2].bits.rd, scalar_value})
           else $fatal(1,"scalar scheduled result or owner differs");
         scalar_received <= scalar_received + 1;
       end
-      if (scalar_history[4].valid && !scalar_committed[4]) scalar_canceled <= scalar_canceled + 1;
-      for (int i = 4; i > 0; i--) begin scalar_history[i] <= scalar_history[i-1]; scalar_committed[i] <= scalar_committed[i-1]; end
+      if (scalar_history[2].valid && !scalar_committed[2]) scalar_canceled <= scalar_canceled + 1;
+      for (int i = 2; i > 0; i--) begin scalar_history[i] <= scalar_history[i-1]; scalar_committed[i] <= scalar_committed[i-1]; end
       scalar_history[0] <= scalar_issue;
       scalar_committed[0] <= scalar_cycle % 4 != 0;
       if (multiply_stalled) assert(multiply_result_out == held_multiply) else $fatal(1,"multiply changed while held");
@@ -133,7 +133,7 @@ module rv5stage_integer_execution_tb;
       if (multiply_received == 24 && divide_received == 24) begin
         assert(replacements != 0) else $fatal(1,"replacement not covered");
         assert(scalar_received > 30 && scalar_canceled > 10) else $fatal(1,"scalar authorization/cancellation coverage missing");
-        $display("fixed scalar multiply passed: %0d five-cycle returns, %0d canceled launches",scalar_received,scalar_canceled);
+        $display("fixed scalar multiply passed: %0d three-cycle returns, %0d canceled launches",scalar_received,scalar_canceled);
         $display("tagged integer execution passed: 48 results, held-result reset, %0d replacements",replacements); $finish;
       end
       if (cycles > 5000) $fatal(1,"tagged execution timeout");

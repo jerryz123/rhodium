@@ -1,4 +1,4 @@
--- Validates RV2Wide ancestry, exact EX+5 multiply writes, variable returns, and RR stall explanations.
+-- Validates RV2Wide ancestry, exact EX+3 multiply writes, variable returns, and RR stall explanations.
 -- SPDX-License-Identifier: Apache-2.0
 WITH raw_events AS (
   SELECT s.id, t.name, s.ts, s.arg_set_id,
@@ -71,7 +71,7 @@ SELECT
   (SELECT count(*)=0 FROM edges WHERE dst='core/s4.wb.deferred' AND
     (parent_pc!=child_pc OR parent_instruction!=child_instruction OR
      src NOT IN ('core/s2.ex.slot0','core/s2.ex.slot1','core/s4.wb.slot0','core/s4.wb.slot1') OR
-     (src GLOB 'core/s2.ex.slot[01]' AND (child_instruction NOT GLOB 'mul*' OR delay!=5)) OR
+     (src GLOB 'core/s2.ex.slot[01]' AND (child_instruction NOT GLOB 'mul*' OR delay!=3)) OR
      (src GLOB 'core/s4.wb.slot[01]' AND (child_instruction GLOB 'mul*' OR delay<4 OR parent_rd!=child_rd)))) AND
   (SELECT count(*)=0 FROM (SELECT parent,dst FROM edges WHERE dst GLOB 'core/*.slot[01]' AND dst NOT GLOB 'core/s1.rr.slot[01]' GROUP BY parent,dst HAVING count(*)>1)) AND
   (SELECT count(*)=0 FROM pipeline WHERE COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),0)!=0) AND

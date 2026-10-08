@@ -252,9 +252,9 @@ decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their
 completion is available for forwarding. x0 M results need no service owner.
 
-EX launches the five-stage multiplier. An unflushable two-stage owner path reaches
-WB at the same time as its instruction; WB retirement authorizes a three-stage
-continuation to the product. RR books EX+5 (RR+6) in the shared fixed GPR calendar.
+EX launches the three-stage multiplier. An unflushable two-stage owner path reaches
+WB at the same time as its instruction; WB retirement authorizes a one-stage
+continuation to the product. RR books EX+3 (RR+4) in the shared fixed GPR calendar.
 The authorized product writes and forwards directly on that edge. A killed,
 replayed, or faulted owner drains without publishing the speculative product;
 its unused booking simply ages out. Keep the multiplier feed-forward, with no
@@ -704,7 +704,7 @@ not coissue with memory or integer long-latency work. It may pair with ordinary
 integer instructions without introducing younger side effects before acceptance.
 
 `rv2wide-core-fp` exercises 3/5/2-cycle execution; `rv2wide-core-fp-late`
-uses 3/5/5 cycles to collide integer-returning FP operations with multiply returns.
+uses 3/5/3 cycles to collide integer-returning FP operations with multiply returns.
 Both enable Zfa; the first selects Zfh and the late fixture selects Zfhmin.
 They share a public-interface bench covering both age slots, FPR dependencies,
 loads/stores, killed EX arithmetic, divide, flags, and illegal FS/rm. Zfa cases
@@ -753,7 +753,7 @@ The simulation-owned [adapter](../../sims/cosim/DEVELOPING.md) assigns age IDs,
 retains deferred owners, and resolves both slots at a settled sample barrier.
 Keep replay and speculative EX multiply launch out of architectural admission.
 The completion adapter follows the three unflushable RR-to-WB stages for load
-and divide, but matches multiply directly to its authorized WB+3 RF-write edge.
+and divide, but matches multiply directly to its authorized WB+1 RF-write edge.
 It permits concurrent multiply writeback and variable-return admission. Update
 that contract and its ownership tests if these latencies change.
 
@@ -796,10 +796,10 @@ M scenarios exercise every RV64M encoding and result projection, signed/mixed/un
 high products, zero-divisor and overflow rules, overlapping pipelined multiplies
 and loads, cross-service completion ownership, RAW/WAW interlocks, x0, and rejected
 versus accepted operations across branch/trap recovery. A dependent multiply
-consumer must reach MEM within six cycles of its producer's MEM token; repeated
+consumer must reach MEM within four cycles of its producer's MEM token; repeated
 consumers cover forwarding and same-register WAW release at the direct write
-edge. Every accepted multiply completion must arrive exactly three cycles
-after WB authorization (five after EX), including competing variable returns.
+edge. Every accepted multiply completion must arrive exactly one cycle
+after WB authorization (three after EX), including competing variable returns.
 Sixteen independent multiplies must write on consecutive cycles, and both FP
 timing variants exercise fixed-return pairing in each age order.
 B scenarios cover every RV64 Zba/Zbb/Zbs instruction in both age slots, with

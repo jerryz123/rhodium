@@ -1,5 +1,5 @@
 #lang rhombus
-/* Exercises colliding five-cycle integer multiply and FP-to-GPR writeback bookings. */
+/* Exercises colliding three-cycle integer multiply and FP-to-GPR writeback bookings. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,5 +9,5 @@ import:
   "../../profile.rhm" open
   "../../core.rhdl" open
 
-def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zihintntl: #true), ~fp_timing: FpExecutionTiming(3, 5, 5)))
+def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zihintntl: #true), ~fp_timing: FpExecutionTiming(3, 5, 3)))
 export program

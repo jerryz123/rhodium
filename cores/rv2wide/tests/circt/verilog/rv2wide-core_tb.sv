@@ -469,8 +469,8 @@ module rv2wide_core_tb;
           multiply_stream_cycle=cycles; multiply_stream_count++;
         end
         if (multiply_authorized_cycle.exists(completed.bits.fetched.pc)) begin
-          assert(cycles==multiply_authorized_cycle[completed.bits.fetched.pc]+3)
-            else $fatal(1,"multiply missed fixed EX+5 writeback pc=%h",completed.bits.fetched.pc);
+          assert(cycles==multiply_authorized_cycle[completed.bits.fetched.pc]+1)
+            else $fatal(1,"multiply missed fixed EX+3 writeback pc=%h",completed.bits.fetched.pc);
           multiply_authorized_cycle.delete(completed.bits.fetched.pc);
         end
         index=-1;
@@ -1977,7 +1977,7 @@ module rv2wide_core_tb;
     send('hab08,m_insn(3,1,2,0),imm(8,0,8));
     send('hab10,imm(3,3,1),imm(5,3,2));
     send('hab18,imm(6,3,3),imm(7,3,4)); drain();
-    assert(multiply_mem_cycle>=0 && dependent_mem_cycle-multiply_mem_cycle<=6)
+    assert(multiply_mem_cycle>=0 && dependent_mem_cycle-multiply_mem_cycle<=4)
       else $fatal(1,"multiply consumer waited beyond return: producer=%0d consumer=%0d",multiply_mem_cycle,dependent_mem_cycle);
     // More independent work than the arithmetic depth must still sustain one
     // direct write per cycle, without completion-buffer capacity admission.

@@ -1,4 +1,4 @@
-// Verifies direct EX multiplication, consecutive launches, five-cycle dependencies, and replay cancellation.
+// Verifies direct EX multiplication, consecutive launches, three-cycle dependencies, and replay cancellation.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_multiply_tb;

@@ -1,10 +1,33 @@
-#lang rhombus
-// Defines a program for the reusable eight-bit pipelined multiplier fixture.
+#lang rhodium
+// Exercises the shared multiplier at minimum, exhaustive-byte, RV32, and RV64 widths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("flow/main.rhdl") open
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../../cores/multiplier.rhdl" as multiplier
+  "../../../cores/multiplier.rhdl" open
 
-def program = elaborate(multiplier.PipelinedMultiplier(8))
+sync_circuit PipelinedMultiplierFixture():
+  interface request2(Valid(MultiplierRequest(2)), ~role: consumer)
+  interface response2(Valid(Bits(4)), ~role: producer)
+  interface request8(Valid(MultiplierRequest(8)), ~role: consumer)
+  interface response8(Valid(Bits(16)), ~role: producer)
+  interface request32(Valid(MultiplierRequest(32)), ~role: consumer)
+  interface response32(Valid(Bits(64)), ~role: producer)
+  interface request64(Valid(MultiplierRequest(64)), ~role: consumer)
+  interface response64(Valid(Bits(128)), ~role: producer)
+  inst small(PipelinedMultiplier(2))
+  inst byte(PipelinedMultiplier(8))
+  inst word(PipelinedMultiplier(32))
+  inst full(PipelinedMultiplier(64))
+  request2 |> small.request
+  small.response |> response2
+  request8 |> byte.request
+  byte.response |> response8
+  request32 |> word.request
+  word.response |> response32
+  request64 |> full.request
+  full.response |> response64
+
+def program = elaborate(PipelinedMultiplierFixture())
 export program

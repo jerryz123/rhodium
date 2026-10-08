@@ -29,7 +29,7 @@ architectural result selection.
 | [`CachePrefetchReq(address_width)`](cache-prefetch.rhdl) | Address plus instruction, read, or write intent, transported over `Valid` | Best effort; no acceptance, completion, or fault channel | A reusable core-to-memory-hierarchy prefetch event | ISA decode, translation, permission checks, cache policy, and dropping under contention |
 | [`MemoryResponseCapture(Context, Result)`](memory-response.rhdl) | Same-cycle `Valid` context and optional response, plus a local fallback | Context passes combinationally; result arrives one cycle later; payload captures even in bubbles | Response pairing and result storage, with structural lineage from both inputs | Parallel instruction/control capture, response selection policy, recovery, and retirement |
 | [`IterativeMultiplier(width)`](multiplier.rhdl) | `Decoupled(MultiplierRequest)` to an `Irrevocable` double-width product | One request at a time; one magnitude-preparation cycle after capture, then one multiplier bit per cycle; response stays stable until accepted; may replace a response as it is consumed | Signed/unsigned magnitude handling and the complete product | Low/high/word projection and architectural destination |
-| [`PipelinedMultiplier(width)`](multiplier.rhdl) | Power-of-two width of at least two; `Valid(MultiplierRequest)` to a `Valid` double-width product | Five feed-forward stages; accepts and advances one request per cycle with fixed latency and no backpressure | Signed/unsigned magnitude handling, four half-width partial products, reduction, and the complete product | Admission credits, result buffering, low/high/word projection, and architectural destination |
+| [`PipelinedMultiplier(width)`](multiplier.rhdl) | Power-of-two width of at least two; `Valid(MultiplierRequest)` to a `Valid` double-width product | Three feed-forward stages; accepts and advances one request per cycle with fixed latency and no backpressure | Four raw half-width products, signed corrections, carry-save reduction, and one final sum | Write-cycle reservations or elastic return credits, low/high/word projection, and architectural destination |
 | [`IterativeDivider(width)`](divider.rhdl) | `Decoupled(DividerRequest)` to an `Irrevocable(DividerResponse)` | One request at a time; trivial operands complete directly, otherwise leading-zero quotient work is skipped before resolving one remaining bit per cycle and finalizing signs; response stays stable until accepted; may replace a response as it is consumed | Quotient, remainder, divide-by-zero, and fixed-width signed-overflow behavior | Quotient/remainder/word projection and architectural destination |
 
 ### Shared memory decode
@@ -147,9 +147,11 @@ within the containing XLEN word. It does not split misaligned accesses.
 The iterative multiplier and divider transfer requests on `request.fire()` and
 hold their `Irrevocable` responses until `response.fire()`. The pipelined
 multiplier instead consumes every asserted `Valid` request and produces the
-corresponding `Valid` response exactly five cycles later. It has no readiness
-path: a caller that needs backpressure must reserve result capacity before
-launch and buffer the fixed-latency responses outside the reusable block.
+corresponding `Valid` response exactly three cycles later, independently of
+operand values and signedness. The stages compute raw half-width products,
+compress their aligned terms and signed corrections without full-width carry
+propagation, then perform one final addition. It has no readiness path: a
+caller must reserve its write cycle or elastic return capacity before launch.
 
 ## Map RISC-V instructions onto components
 

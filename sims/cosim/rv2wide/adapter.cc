@@ -164,7 +164,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
       owner.address = p.request_address;
       if (lane.memory) require(owner.physical, "accepted memory has no physical address");
       else c.seal(instance,owner.id,1,0);
-      if (lane.service == 1) owner.due = h.cycle + 3;
+      if (lane.service == 1) owner.due = h.cycle + 1;
       h.services[lane.service].push_back(owner);
     } else {
       if (lane.fp == 2) inline_fp_load = owner;

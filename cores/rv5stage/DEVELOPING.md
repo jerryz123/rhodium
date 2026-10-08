@@ -276,7 +276,7 @@ repair, and precise continuation faults.
 
 Pipelined scalar multiply reserves the following EX launch and its GPR return
 cycle atomically at ID admission. The GPR delay is multiplier latency plus the
-ID/EX boundary. EX sends operands directly into the five-stage multiplier;
+ID/EX boundary. EX sends operands directly into the three-stage multiplier;
 there are no scalar request queues. A registered launch grant prevents vector
 work from displacing an admitted scalar. A waiting vector request gets a turn
 by withholding new scalar admissions, never by delaying a promised launch.
@@ -310,8 +310,8 @@ response waits at its producer; an aged waiter pauses new reservations, without
 revoking already-issued work. The broader full-SoC and CoreMark validation of
 scheduled writeback predates the direct EX-admission refinement; rerun it before
 claiming that refinement has the same coverage. The `rv5stage-multiply` trace
-checks five cycles from producer EX to dependent ID admission and consecutive
-independent launches. `rv5stage-integer-execution` checks exact five-cycle
+checks three cycles from producer EX to dependent ID admission and consecutive
+independent launches. `rv5stage-integer-execution` checks exact three-cycle
 returns, WB authorization, cancellation, and reset through the production scalar
 adapter; `rv5stage-vector-muldiv` covers shared scalar/vector execution.
 

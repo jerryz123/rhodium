@@ -778,7 +778,7 @@ this boundary does not introduce a reorder buffer or precise late bus faults.
 | Integer ALU, branch link, immediate, and ordinary CSR result | Scalar pipeline | Ordinary WB register-file port |
 | Integer load hit | EX request, parallel MEM lookup | Normal WB register-file port and bypass |
 | Missed/busy/uncached load or atomic result | Transaction and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
-| Pipelined multiply | Decode reserves the following EX launch and future GPR write cycle; EX directly starts five-stage arithmetic; WB authorizes the result and reserves the GPR | Scheduled deferred write; squashed results are discarded |
+| Pipelined multiply | Decode reserves the following EX launch and future GPR write cycle; EX directly starts three-stage arithmetic; WB authorizes the result and reserves the GPR | Scheduled deferred write; squashed results are discarded |
 | Iterative multiply or divide | Scalar request slot reserved in Decode; GPR reserved and request queued at WB; shared service arbitrates independently | Deferred completion arbiter |
 | FP result targeting an integer register | FP request and GPR reservation accepted at WB | FP completion to deferred completion arbiter |
 | FP result targeting an FP register | FP request and FPR reservation accepted at WB | FP pipeline's internal FP register-file port |
@@ -796,7 +796,7 @@ from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
 An admitted scalar pipelined multiply reaches the arithmetic unit in its EX
-cycle and returns five cycles later, without request or completion buffering.
+cycle and returns three cycles later, without request or completion buffering.
 The dependent instruction may leave Decode in that return cycle through
 same-cycle register-file forwarding. Independent scalar multiplies can launch
 on consecutive cycles. Shared-unit contention is resolved before scalar Decode
@@ -1053,7 +1053,7 @@ runs the same cross-field validation as direct construction.
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
 | `profile.data_cache_service_queue_depth` | Positive capacity for authorized L1D requests and same-line miss waiters; defaults to two |
-| `profile.multiplier` | `Iterative` by default, or a five-stage feed-forward `Pipelined` implementation; both provide operand-independent timing |
+| `profile.multiplier` | `Iterative` by default, or a three-stage feed-forward `Pipelined` implementation; both provide operand-independent timing |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
 
 All supported compressed-extension selections include Zca and permit two-byte

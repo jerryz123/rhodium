@@ -53,8 +53,8 @@ std::string run(unsigned seed) {
     if (cycle==2) { auto& l=s.retire(0,0x8010,4); l.deferred=1; l.service=1; }
     if (cycle==3) s.retire(0,0x8014);
     // A multiply writes directly while an unrelated variable result enters RR.
-    if (cycle==5) { s.completions[0]={0,1,0x8008,3,1,33}; s.completions[1]={1,1,0x8010,4,1,44}; s.completions[3]={3,1,0x8010,4,1,44}; }
-    if (cycle==8) s.completions[3]={3,1,0x8008,3,1,33};
+    if (cycle==3) { s.completions[0]={0,1,0x8008,3,1,33}; s.completions[1]={1,1,0x8010,4,1,44}; s.completions[3]={3,1,0x8010,4,1,44}; }
+    if (cycle==6) s.completions[3]={3,1,0x8008,3,1,33};
     if (cycle==8) {
       s.retire(0,0x8018,6,66);
       s.lanes[2].pc=0x801c; s.lanes[2].encoding=0;
@@ -79,7 +79,7 @@ std::string run(unsigned seed) {
     // A replay/idle edge cannot allocate a record, even with stale slot payloads.
     if (cycle==14) s.lanes[0].pc=0xdead;
     auto emitted=sample(c,binding,cycle,s,random);
-    if (cycle==3 || cycle==6) require(emitted.empty());
+    if (cycle==3 || cycle==4) require(emitted.empty());
     records.insert(records.end(),emitted.begin(),emitted.end());
   }
   require(records.size()==10);
@@ -164,16 +164,13 @@ void fp_owners(unsigned seed) {
 void reject_bad_fixed_return(bool early) {
   Collector c; c.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(c); std::mt19937 random(0);
   Sample admitted; auto& l=admitted.retire(0,0x8000,7); l.deferred=1; l.service=1;
-  sample(c,binding,0,admitted,random);
   bool rejected=false;
   try {
-    for (Word cycle=1;cycle<=3;++cycle) {
-      Sample s;
-      if (early && cycle==2) { s.completions[1]={1,1,0x8000,7,1,42}; s.completions[3]={3,1,0x8000,7,1,42}; }
-      sample(c,binding,cycle,s,random);
-    }
+    if (early) { admitted.completions[1]={1,1,0x8000,7,1,42}; admitted.completions[3]={3,1,0x8000,7,1,42}; }
+    sample(c,binding,0,admitted,random);
+    sample(c,binding,1,Sample(),random);
   } catch (const std::runtime_error& error) {
-    rejected=std::string(error.what()).find(early ? "fixed RF write cycle" : "missing scheduled multiply")!=std::string::npos;
+    rejected=std::string(error.what()).find(early ? "service completion has no owner" : "missing scheduled multiply")!=std::string::npos;
   }
   require(rejected);
 }

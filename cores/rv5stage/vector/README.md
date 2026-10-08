@@ -673,7 +673,7 @@ iterative divider. Vector requests have priority at the multiplier; the
 divider uses round-robin arbitration. The vector multiplier request queue
 bypasses when empty, attempting admission two cycles after sequencing when
 the multiplier has capacity. The iterative multiplier retains one request;
-the five-stage pipelined multiplier advances every launched request without
+the three-stage pipelined multiplier advances every launched request without
 backpressure. The integrated service reserves its destination write cycle
 before launch and pipelines the opaque owner tag beside the operands, without
 completed-result storage. The standalone elastic adapter retains result credits

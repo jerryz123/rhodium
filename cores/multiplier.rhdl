@@ -7,7 +7,7 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
 
-def PipelinedMultiplierStages :: PosInt = 5
+def PipelinedMultiplierStages :: PosInt = 3
 
 /* Select independent signed or unsigned interpretation of each operand. */
 bundle MultiplierMode():
@@ -23,30 +23,26 @@ bundle MultiplierRequest(width :: PosInt):
   right: Bits(width)
   mode: MultiplierMode()
 
-/* Carry prepared unsigned magnitudes and the final product-negation flag. */
-bundle PipelinedMultiplierOperands(width :: PosInt):
-  left: Bits(width)
-  right: Bits(width)
-  negate: Bool
-
-/* Retain four half-width partial products and their common sign-restoration flag. */
+/* Retain raw half-width products and upper-half two's-complement correction terms. */
 bundle PipelinedMultiplierPartials(width :: PosInt):
   low_low: Bits(width)
   low_high: Bits(width)
   high_low: Bits(width)
   high_high: Bits(width)
-  negate: Bool
+  left_correction: Bits(width)
+  right_correction: Bits(width)
+  correction_carry: Bits(2)
 
-/* Carry two aligned double-width partial sums for the following reduction stage. */
+/* Carry two double-width carry-save vectors into the final carry-propagating addition. */
 bundle PipelinedMultiplierReduction(width :: PosInt):
   first: Bits(width * 2)
   second: Bits(width * 2)
-  negate: Bool
 
-/* Pair the complete unsigned magnitude product with its final sign-restoration flag. */
-bundle PipelinedMultiplierMagnitude(width :: PosInt):
-  product: Bits(width * 2)
-  negate: Bool
+/* Compress three terms into sum and shifted carry without full-width carry propagation. */
+fun multiplier_carry_save(width :: PosInt, a :: Bits(width * 2), b :: Bits(width * 2), c :: Bits(width * 2)) :~ PipelinedMultiplierReduction(width):
+  PipelinedMultiplierReduction(width):
+    first: a ^ b ^ c
+    second: ((a & b) ||| (a & c) ||| (b & c)) << 1
 
 /*
  * Captures one request, prepares magnitudes for one cycle, then consumes one
@@ -116,8 +112,9 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     response_valid <== Bool(#false)
 
 /*
- * Five feed-forward stages accept one operation per cycle while partitioning
- * the full product into half-width multipliers and two levels of wide arithmetic.
+ * Three feed-forward stages compute raw half-width products, carry-save reduction,
+ * and one final sum. Signed corrections affect only the upper product half:
+ * a*b - negative(a)*(b<<width) - negative(b)*(a<<width), modulo 2^(2*width).
  */
 sync_circuit PipelinedMultiplier(width :: Pow2Int):
   unless width >= 2
@@ -128,33 +125,26 @@ sync_circuit PipelinedMultiplier(width :: Pow2Int):
   interface request(Valid(MultiplierRequest(width)), ~role: consumer)
   interface response(Valid(Bits(product_width)), ~role: producer)
 
-  def operands = request |> map_valid(operation):
+  def partials = request |> map_valid(operation):
     def left_negative = operation.mode.left_signed & operation.left[width - 1].into(Bool)
     def right_negative = operation.mode.right_signed & operation.right[width - 1].into(Bool)
-    PipelinedMultiplierOperands(width):
-      left: mux(left_negative, -operation.left, operation.left)
-      right: mux(right_negative, -operation.right, operation.right)
-      negate: left_negative ^ right_negative
-  def prepared = operands |> valid_pipe(1)
-  def partials = prepared |> map_valid(operation => PipelinedMultiplierPartials(width)):
-    low_low: operation.left[0..half_width] *& operation.right[0..half_width]
-    low_high: operation.left[0..half_width] *& operation.right[half_width..width]
-    high_low: operation.left[half_width..width] *& operation.right[0..half_width]
-    high_high: operation.left[half_width..width] *& operation.right[half_width..width]
-    negate: operation.negate
+    PipelinedMultiplierPartials(width):
+      low_low: operation.left[0..half_width] *& operation.right[0..half_width]
+      low_high: operation.left[0..half_width] *& operation.right[half_width..width]
+      high_low: operation.left[half_width..width] *& operation.right[0..half_width]
+      high_high: operation.left[half_width..width] *& operation.right[half_width..width]
+      left_correction: mux(left_negative, !operation.right, bits(0, width))
+      right_correction: mux(right_negative, !operation.left, bits(0, width))
+      correction_carry: (left_negative & right_negative).as_bits() ++ (left_negative ^ right_negative).as_bits()
   def multiplied = partials |> valid_pipe(1)
-  def reductions = multiplied |> map_valid(operation => PipelinedMultiplierReduction(width)):
-    first: operation.low_low.zext(product_width) + (operation.low_high.zext(product_width) << half_width)
-    second: (operation.high_low.zext(product_width) << half_width) + (operation.high_high.zext(product_width) << width)
-    negate: operation.negate
+  def reductions = multiplied |> map_valid(operation):
+    def low = multiplier_carry_save(width, operation.low_low.zext(product_width), operation.low_high.zext(product_width) << half_width, operation.high_low.zext(product_width) << half_width)
+    def high = multiplier_carry_save(width, operation.high_high.zext(product_width) << width, operation.left_correction.zext(product_width) << width, operation.right_correction.zext(product_width) << width)
+    def combined = multiplier_carry_save(width, low.first, low.second, high.first)
+    def folded = multiplier_carry_save(width, combined.first, combined.second, high.second)
+    multiplier_carry_save(width, folded.first, folded.second, operation.correction_carry.zext(product_width) << width)
   def reduced = reductions |> valid_pipe(1)
-  def magnitudes = reduced |> map_valid(operation => PipelinedMultiplierMagnitude(width)):
-    product: operation.first + operation.second
-    negate: operation.negate
-  def summed = magnitudes |> valid_pipe(1)
-  def signed = summed |> map_valid(operation):
-    mux(operation.negate, -operation.product, operation.product)
-  signed |> valid_pipe(1) |> response
+  reduced |> map_valid(operation => operation.first + operation.second) |> valid_pipe(1) |> response
 
 export:
   MultiplierMode

@@ -26,8 +26,8 @@ extern "C" void multiply_trace_finish() {
   };
   const auto producer = cycle(execute, 0x68);
   const auto consumer = cycle(decode, 0x6c);
-  if (consumer != producer + 5) {
-    std::fprintf(stderr, "multiply dependency: EX %llu, dependent ID %llu, expected gap 5\n",
+  if (consumer != producer + 3) {
+    std::fprintf(stderr, "multiply dependency: EX %llu, dependent ID %llu, expected gap 3\n",
                  static_cast<unsigned long long>(producer), static_cast<unsigned long long>(consumer));
     std::abort();
   }
@@ -41,5 +41,5 @@ extern "C" void multiply_trace_finish() {
     std::fprintf(stderr, "expected canceled and retried EX multiply, saw %u launches\n", replayed_launches);
     std::abort();
   }
-  std::printf("multiply timing passed: five-cycle dependency, four consecutive EX launches, canceled/retried launch\n");
+  std::printf("multiply timing passed: three-cycle dependency, four consecutive EX launches, canceled/retried launch\n");
 }

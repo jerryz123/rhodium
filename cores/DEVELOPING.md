@@ -172,6 +172,13 @@ FIXTURES='simd-alu simd-alu32' python3 tools/testing/rsim/run.py
 Pure host contracts can use the package tests directly. Cycle-visible behavior
 is owned by the matching backend fixtures:
 
+`pipelined-multiplier` checks the three-cycle contract at widths 2, 8, 32, and 64.
+Small widths exhaust every operand/signedness pair; RV32/RV64 combine signed
+extremes, half-width carry boundaries, and seeded random products. Its independent
+full-width oracle checks every valid cycle, including bubbles and reset with
+work in flight. Preserve the raw partial-product, carry-save, final-add boundary;
+do not reintroduce operand-dependent shortcuts or completed-product storage.
+
 ```sh
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
 FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' python3 tools/testing/rsim/run.py

@@ -23,7 +23,7 @@ make -C sims isa-smoke SOC=simple-rv2wide-rv64imacb
 ```
 
 Both use the exact lean RV64IMACB preset, M/S/U, and Sv39. Mini has 32-set,
-direct-mapped L1s; Simple has 64-set, four-way L1s. Both retain the five-stage
+direct-mapped L1s; Simple has 64-set, four-way L1s. Both retain the three-stage
 feed-forward multiplier. `RV2WideConfig` owns this architectural projection and
 private-cache geometry; `RV2WideHart` starts once at the platform reset vector
 after reset. The shared SoC BootROM performs normal FESVR entry publication and
@@ -545,9 +545,9 @@ shared physical control relations. One M instruction may issue per group and
 may pair with independent ALU or branch work. Memory and M instructions split
 the group so WB allocates at most one deferred destination per cycle.
 
-The five-stage shared multiplier launches from EX at one operation per cycle.
+The three-stage shared multiplier launches from EX at one operation per cycle.
 Its owner reaches WB with the instruction, where retirement authorizes the
-result. RR books the shared younger GPR write port for EX+5, alongside fixed FP
+result. RR books the shared younger GPR write port for EX+3, alongside fixed FP
 returns. The product writes and forwards directly on that edge, without a result
 queue or deferred-return pipeline. Conflicting fixed returns wait at issue,
 before execution. Rejected owners leave a harmless unused booking; the physical
