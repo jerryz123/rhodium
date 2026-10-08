@@ -29,7 +29,7 @@ sync_circuit RV2WideMmuFixture():
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   input fetch_valid: Bool
   input fetch_address: Bits(64)
-  output fetch_resolution: RV2WideResolution()
+  output fetch_resolution: RV2WideResolution(XLen.X64)
   output fetch_physical: Bits(64)
   output fetch_pbmt: PageMemoryType
   input(ex_valid, wb_valid, commit): Bool
@@ -48,7 +48,7 @@ sync_circuit RV2WideMmuFixture():
   output(index_address, resolve_address): Bits(64)
   output outcome: RV2WideCacheOutcome
   output wb_fault: Bool
-  output wb_fault_bits: RV2WideResolution()
+  output wb_fault_bits: RV2WideResolution(XLen.X64)
   output wb_ready: Bool
   input(physical_ready, physical_fault, response_valid): Bool
   input response_data: Bits(64)
@@ -64,7 +64,7 @@ sync_circuit RV2WideMmuFixture():
   output completed_data: Bits(64)
   inst mmu(RV2WideMmu(test_fetch_chi, ~svnapot: #true))
   mmu.split_guest_access <== guest_access
-  mmu.state <== RV2WideTranslationState():
+  mmu.state <== RV2WideTranslationState(XLen.X64):
     pointer_masking: literal(PointerMaskControl(), 0)
     guest_pointer_masking: literal(PointerMaskControl(), 0)
     guest: guest_state
@@ -80,7 +80,7 @@ sync_circuit RV2WideMmuFixture():
   fetch_resolution <== mmu.instruction.resolution
   fetch_physical <== mmu.instruction.address
   fetch_pbmt <== mmu.instruction.pbmt
-  def request = RV2WideMemoryReq():
+  def request = RV2WideMemoryReq(XLen.X64):
     guest_access: guest_access
     address: address
     access: access
@@ -132,7 +132,7 @@ sync_circuit RV2WideMmuFixture():
   completed_data <== mmu.memory.response.bits
   mmu.physical_memory.request.ready <== physical_ready & !physical_fault
   mmu.physical_memory.fault.valid <== mmu.physical_memory.request.valid & physical_fault
-  mmu.physical_memory.fault.bits <== RV2WideResolution():
+  mmu.physical_memory.fault.bits <== RV2WideResolution(XLen.X64):
     guest: literal(RiscvGuestFault(), 0)
     disposition: RV2WideDisposition.Fault
     cause: bits(5, 64)

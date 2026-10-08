@@ -8,6 +8,8 @@ import:
   "frontend.rhdl" open
   "cache.rhdl" open
   "mmu.rhdl" open
+  "bare-memory.rhdl".RV2WideBareMemory
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "instruction-memory.rhdl" open
   "bundles.rhdl" open
   "../cache/config.rhm" open
@@ -24,6 +26,7 @@ import:
    Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct instruction, data, and uncached identities separate retained transactions. */
 sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV2WideConfig = RV2WideConfig(~instruction_cache: instruction_cache, ~data_cache: cache)):
+  def xlen = profile.xlen
   unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'RV2Wide, "RV2Wide requires 64-byte CHI cache lines")
   unless profile.instruction_cache == instruction_cache && profile.data_cache == cache
@@ -33,9 +36,9 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   input(hart_id, time_counter): Bits(64)
   trace_instance("hart", hart_id)
   interface start(Valid(Bits(64)), ~role: consumer)
-  interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
-  interface completed(Valid(RV2WideRetirement()), ~role: producer)
-  interface redirect(Valid(RV2WideRedirect()), ~role: producer)
+  interface retired[2](Valid(RV2WideRetirement(xlen)), ~role: producer)
+  interface completed(Valid(RV2WideRetirement(xlen)), ~role: producer)
+  interface redirect(Valid(RV2WideRedirect(xlen)), ~role: producer)
   interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
   interface data_chi(CHIRNChannels(config.flit), ~role: node)
   interface uncached_chi(CHIRNIChannels(config.flit), ~role: node)
@@ -49,8 +52,8 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   sleeping <== core.sleeping
   inst frontend(RV2WideFrontend(config, profile))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
-  inst data(RV2WideL1D(cache, ~chi: config))
-  inst mmu(RV2WideMmu(config, ~svnapot: profile.svnapot))
+  inst data(RV2WideL1D(cache, ~chi: config, ~xlen: xlen))
+  inst mmu(if profile.mmu_type == RiscvMmuType.Bare | RV2WideBareMemory(xlen, config) | RV2WideMmu(config, ~svnapot: profile.svnapot))
   describe_cosim_context(core, {"mmu": mmu})
   mmu.split_guest_access <== core.split_guest_access
   mmu.state <== core.translation_state
@@ -105,7 +108,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   retired_count <== core.retired_count
   for (slot in 0..2):
     core.resolution[slot].valid <== Bool(#false)
-    core.resolution[slot].bits <== dont_care(RV2WideResolution())
+    core.resolution[slot].bits <== dont_care(RV2WideResolution(xlen))
 
 export:
   RV2Wide

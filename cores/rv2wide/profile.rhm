@@ -18,12 +18,14 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
   [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U, MisaExtension.C]
 )
 
-/* Selects implementation resources and optional scalar, supervisor, and hypervisor features while retaining RV64, C, and Sv39. */
-class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean):
+/* Selects implementation resources and optional scalar, supervisor, and hypervisor features with RV32/RV64 scalar widths, mandatory C, and Bare or RV64 Sv39 translation. */
+class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean):
   implements StableCircuitParam
 
   /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and a 4K-counter BHT. */
-  constructor (~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
+  constructor (~xlen: xlen :: XLen = XLen.X64,
+               ~mmu_type: mmu_type :: RiscvMmuType = if xlen == XLen.X32 | RiscvMmuType.Bare | RiscvMmuType.Sv39,
+               ~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
                ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4),
                ~btb_entries: btb_entries :: Nat = 32,
                ~ras_entries: ras_entries :: Nat = 6,
@@ -47,16 +49,22 @@ class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig,
                ~sscofpmf: sscofpmf :: Boolean = #false,
                ~smstateen: smstateen :: Boolean = #false,
                ~hypervisor: hypervisor :: Boolean = #false):
+    unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
+    | error(~who: #'RV2WideConfig, "RV2Wide supports Bare or RV64 Sv39")
+    when xlen == XLen.X32 && (floating_point != FloatingPointProfile.None || hypervisor || ssnpm || supm)
+    | error(~who: #'RV2WideConfig, "RV32 supports scalar integer execution without H or pointer masking")
+    when mmu_type == RiscvMmuType.Bare && (svnapot || svpbmt || hypervisor)
+    | error(~who: #'RV2WideConfig, "translation extensions require Sv39")
     unless floating_point == FloatingPointProfile.None || floating_point == FloatingPointProfile.D
     | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP or RV64D")
     when zfa && floating_point == FloatingPointProfile.None
     | error(~who: #'RV2WideConfig, "Zfa requires floating-point support")
     check_half_precision_profile(floating_point, half_precision)
-    unless compressed_extensions_report_misa_c(XLen.X64, floating_point, compressed) && compressed.contains(CompressedExtension.C)
+    unless compressed_extensions_report_misa_c(xlen, floating_point, compressed) && compressed.contains(CompressedExtension.C)
     | error(~who: #'RV2WideConfig, "RV2Wide requires C as its compressed base")
     when supm && !ssnpm
     | error(~who: #'RV2WideConfig, "Supm requires Ssnpm hardware")
-    super(instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor)
+    super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor)
 
   property isa_profile :: RiscvIsaProfile:
     def half_extensions = match half_precision
@@ -67,13 +75,13 @@ class RV2WideConfig(instruction_cache :: CacheConfig, data_cache :: CacheConfig,
     | RV2WideIsaProfile
     | RiscvIsaProfile(XLen.X64, ["i", "m", "a", "f", "d"] ++ RV2WideIsaProfile.isa_extensions.drop(3) ++ (if zfa | ["zfa"] | []) ++ half_extensions, RV2WideIsaProfile.misa_extensions.take(6) ++ [MisaExtension.F, MisaExtension.D, MisaExtension.C])
     def compressed_additions = (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | []) ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
-    RiscvIsaProfile(XLen.X64, base.isa_extensions ++ compressed_additions ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if zicbop | ["zicbop"] | []) ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ (if sstc | ["sstc"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svinval | ["svinval"] | []) ++ (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | []) ++ (if sscofpmf | ["sscofpmf"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | []) ++ (if hypervisor | ["h", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | []), base.misa_extensions ++ (if hypervisor | [MisaExtension.H] | []))
-  property xlen :: XLen: XLen.X64
+    def base_extensions = base.isa_extensions.filter(~keep: fun (name): (xlen == XLen.X64 || name != "ssu64xl") && (mmu_type != RiscvMmuType.Bare || name != "ssccptr"))
+    RiscvIsaProfile(xlen, base_extensions ++ compressed_additions ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if zicbop | ["zicbop"] | []) ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ (if sstc | ["sstc"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svinval | ["svinval"] | []) ++ (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | []) ++ (if sscofpmf | ["sscofpmf"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | []) ++ (if hypervisor | ["h", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | []), base.misa_extensions ++ (if hypervisor | [MisaExtension.H] | []))
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
-  property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: RiscvMmuType.Sv39, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom, ~sstc: sstc, ~svpbmt: svpbmt, ~ssnpm: ssnpm, ~sscofpmf: sscofpmf, ~smstateen: smstateen, ~hypervisor: hypervisor)
+  property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: mmu_type, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom, ~sstc: sstc, ~svpbmt: svpbmt, ~ssnpm: ssnpm, ~sscofpmf: sscofpmf, ~smstateen: smstateen, ~hypervisor: hypervisor)
   property hart_description :: RiscvHartDescription:
     RiscvHartDescription(
-      isa_profile, RiscvMmuType.Sv39,
+      isa_profile, mmu_type,
       RiscvCacheDescription(CacheLineBytes, instruction_cache.sets, instruction_cache.capacity_bytes),
       RiscvCacheDescription(CacheLineBytes, data_cache.sets, data_cache.capacity_bytes),
       ~cbo_block_bytes: CacheLineBytes

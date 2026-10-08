@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "bundles.rhdl" open
   lib("cores/multiplier.rhdl") open
   lib("cores/divider.rhdl") open
@@ -11,34 +12,34 @@ import:
   lib("flow/main.rhdl") open
 
 /* Attaches architectural identity and projection controls to the EX multiply operands. */
-bundle RV2WideMultiplyIssue():
-  request: MultiplierRequest(64)
+bundle RV2WideMultiplyIssue(xlen :: XLen):
+  request: MultiplierRequest(xlen.width)
   control: RiscvMultiplyControl()
-  owner: RV2WideRetirement()
+  owner: RV2WideRetirement(xlen)
 
 /* Attaches WB authorization and architectural result selection to divide operands. */
-bundle RV2WideDivideIssue():
-  request: DividerRequest(64)
+bundle RV2WideDivideIssue(xlen :: XLen):
+  request: DividerRequest(xlen.width)
   control: RiscvDivideControl()
-  owner: RV2WideRetirement()
+  owner: RV2WideRetirement(xlen)
 
 /* Launches a feed-forward multiply in EX and gates its aligned owner at WB two cycles later.
    The core reserves its RF write cycle before issue; numerical results never wait in storage.
    Rejected WB owners drain without publishing the still-running product. */
-sync_circuit RV2WideMultiply():
-  interface issue(Valid(RV2WideMultiplyIssue()), ~role: consumer)
+sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64):
+  interface issue(Valid(RV2WideMultiplyIssue(xlen)), ~role: consumer)
   input authorize: Bool
-  interface completed(Valid(RV2WideRetirement()), ~role: producer)
+  interface completed(Valid(RV2WideRetirement(xlen)), ~role: producer)
   output drained: Bool
 
-  inst execution(PipelinedMultiplier(64))
+  inst execution(PipelinedMultiplier(xlen.width))
   issue |> map_valid(operation => operation.request) |> execution.request
   def wb_owner :: Endpoint = issue |> valid_pipe(2)
   def returned :: Endpoint = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(operation):
     def product = execution.response.bits
-    def value = mux(operation.control.high_result, product[64..128], product[0..64])
-    def result = mux(operation.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
+    def value = mux(operation.control.high_result, product[xlen.width..2 * xlen.width], product[0..xlen.width])
+    def result = if xlen == XLen.X32 | value | mux(operation.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     operation.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
   def count_width = index_width(PipelinedMultiplierStages + 1)
@@ -53,18 +54,18 @@ sync_circuit RV2WideMultiply():
     assert(wb_owner.valid, "rv2wide_multiply_wb_owner")
 
 /* Holds one authorized divider owner until its backpressured result enters the completion arbiter. */
-sync_circuit RV2WideDivide():
-  interface issue(Decoupled(RV2WideDivideIssue()), ~role: consumer)
-  interface completed(Decoupled(RV2WideRetirement()), ~role: producer)
+sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64):
+  interface issue(Decoupled(RV2WideDivideIssue(xlen)), ~role: consumer)
+  interface completed(Decoupled(RV2WideRetirement(xlen)), ~role: producer)
   output drained: Bool
 
-  inst execution(IterativeDivider(64))
+  inst execution(IterativeDivider(xlen.width))
   issue |> map_flow(operation => operation.request) |> execution.request
-  reg owner(RV2WideDivideIssue())
+  reg owner(RV2WideDivideIssue(xlen))
   reg occupied(~init: Bool(#false))
   (execution.response |> map_flow(response):
     def value = mux(owner.control.remainder, response.remainder, response.quotient)
-    def result = mux(owner.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
+    def result = if xlen == XLen.X32 | value | mux(owner.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     owner.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
   when (issue.fire()):

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "../core.rhdl" open
   "../profile.rhm".RV2WideConfig
   "../cache.rhdl" open
@@ -47,10 +48,10 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
 sync_circuit RV2WideCacheFixture():
   input node_id: Bits(test_flit.node_id_width)
   input management_pbmt: PageMemoryType
-  interface instructions(Decoupled(RV2WidePacket()), ~role: consumer)
-  interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
-  interface completed(Valid(RV2WideRetirement()), ~role: producer)
-  interface redirect(Valid(RV2WideRedirect()), ~role: producer)
+  interface instructions(Decoupled(RV2WidePacket(XLen.X64)), ~role: consumer)
+  interface retired[2](Valid(RV2WideRetirement(XLen.X64)), ~role: producer)
+  interface completed(Valid(RV2WideRetirement(XLen.X64)), ~role: producer)
+  interface redirect(Valid(RV2WideRedirect(XLen.X64)), ~role: producer)
   interface chi(CHIRNChannels(test_flit), ~role: node)
   interface uncached_chi(CHIRNIChannels(test_flit), ~role: node)
   output(issued, retired_count): Bits(2)
@@ -100,7 +101,7 @@ sync_circuit RV2WideCacheFixture():
   retired_count <== core.retired_count
   for (slot in 0..2):
     core.resolution[slot].valid <== Bool(#false)
-    core.resolution[slot].bits <== dont_care(RV2WideResolution())
+    core.resolution[slot].bits <== dont_care(RV2WideResolution(XLen.X64))
 
 export:
   RV2WideCacheFixture

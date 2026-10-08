@@ -1,0 +1,24 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  "../rv2wide.rhdl".RV2Wide
+  "../profile.rhm".RV2WideConfig
+  "cache-fixture.rhdl" open
+
+for (xlen in [XLen.X32, XLen.X64]):
+  def profile = RV2WideConfig(~xlen: xlen, ~mmu_type: RiscvMmuType.Bare, ~instruction_cache: test_cache, ~data_cache: test_cache, ~ssnpm: xlen == XLen.X64, ~supm: xlen == XLen.X64, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false)
+  def design = compile_program(elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile)), rtl_target).report.design
+  def core = design.modules.find(fun (module_def): module_def.name == "RV2Wide")
+  def memory = design.modules.find(fun (module_def): module_def.name == "RV2WideBareMemory")
+  def retired = core.find_output("retired_0_out").type.field("bits").type
+  check:
+    retired.field("data").type.width ~is xlen.width
+    retired.field("fetched").type.field("pc").type.width ~is xlen.width
+    core.find_input("start_in").type.field("bits").type.width ~is 64
+    memory.find_input("state").type.field("satp").type.width ~is xlen.width
+    design.modules.filter(~keep: fun (module_def): module_def.name == "RiscvTranslationWalker").length() ~is 0

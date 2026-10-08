@@ -3,19 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "bundles.rhdl".RV2WideBranchTraining
   lib("flow/main.rhdl") open
 
 /* Accepts age-ordered Valid offers and emits one update every cycle, bypassing when empty.
    The caller must reserve capacity before issue; clear discards both queued and live offers. */
-sync_circuit RV2WideBranchTrainingBuffer():
-  interface incoming[2](Valid(RV2WideBranchTraining()), ~role: consumer)
-  interface training(Valid(RV2WideBranchTraining()), ~role: producer)
+sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
+  interface incoming[2](Valid(RV2WideBranchTraining(xlen)), ~role: consumer)
+  interface training(Valid(RV2WideBranchTraining(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)
   output pending: Bits(2)
 
   reg count(~init: bits(0, 2))
-  reg entries(Vec(2, RV2WideBranchTraining()))
+  reg entries(Vec(2, RV2WideBranchTraining(xlen)))
   def queued = count.or_reduce()
   def offered = incoming[0].valid ||| incoming[1].valid
   def first = mux(incoming[0].valid, incoming[0].bits, incoming[1].bits)

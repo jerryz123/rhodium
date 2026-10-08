@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/rv32i.rhm") as rv32
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open
@@ -35,15 +37,15 @@ hardware_enum RV2WideImmediate:
   J
   S
   Prefetch
-  /* Extracts the selected architectural immediate as a sign-extended RV64 value. */
-  method decode(select, instruction :: Bits(32)) :: Bits(64):
-    mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, 64)):
-      RV2WideImmediate.Zero: bits(0, 64)
-      RV2WideImmediate.B: instruction_immediate(fields.BImmediate, instruction, 64)
-      RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, 64)
-      RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, 64)
-      RV2WideImmediate.S: instruction_immediate(fields.SImmediate, instruction, 64)
-      RV2WideImmediate.Prefetch: instruction_immediate(fields.PrefetchImmediate, instruction, 64)
+  /* Extracts the selected architectural immediate as a sign-extended XLEN-wide value. */
+  method decode(select, instruction :: Bits(32), xlen :: XLen) :: Bits(xlen.width):
+    mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, xlen.width)):
+      RV2WideImmediate.Zero: bits(0, xlen.width)
+      RV2WideImmediate.B: instruction_immediate(fields.BImmediate, instruction, xlen.width)
+      RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, xlen.width)
+      RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, xlen.width)
+      RV2WideImmediate.S: instruction_immediate(fields.SImmediate, instruction, xlen.width)
+      RV2WideImmediate.Prefetch: instruction_immediate(fields.PrefetchImmediate, instruction, xlen.width)
 
 /* Separates source-use interlocks from datapath selection and immediate extraction. */
 bundle RV2WideOperandControl():
@@ -53,95 +55,104 @@ bundle RV2WideOperandControl():
   right_immediate: Bool
   immediate: RV2WideImmediate
 
-def bitmanip_unary = [zbb.CLZ, zbb.CLZW, zbb.CTZ, zbb.CTZW, zbb.CPOP, zbb.CPOPW, zbb.ORC_B, zbb.REV8, zbb.SEXT_B, zbb.SEXT_H, zbb.ZEXT_H]
-def bitmanip_immediate = [zba.SLLI_UW, zbb.RORI, zbb.RORIW, zbs.BCLRI, zbs.BEXTI, zbs.BINVI, zbs.BSETI]
-def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruction_pattern):
-  group ZimopInstructions:
-    uses_rs1: Bool(#false)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Zero
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.Zero
-  [LR_W, LR_D]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.Zero
-  group excluding_instructions(RV64AInstructions, [LR_W, LR_D]):
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.Zero
-  group bitmanip_unary:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Register
-  group bitmanip_immediate:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.I
-  group excluding_instructions(RV64BInstructions, bitmanip_unary ++ bitmanip_immediate) ++ ZicondInstructions:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#false)
-  group RV64MInstructions:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-  [CSRRW, CSRRS, CSRRC]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#false)
-  [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI, SFENCE_VMA, FENCE, FENCE_I]:
-    uses_rs1: Bool(#false)
-    uses_rs2: Bool(#false)
-  [LUI]:
-    uses_rs1: Bool(#false)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Zero
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.U
-  [AUIPC]:
-    uses_rs1: Bool(#false)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Pc
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.U
-  [ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADDIW, SLLIW, SRLIW, SRAIW, LB, LH, LW, LD, LBU, LHU, LWU]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#false)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.I
-  [SB, SH, SW, SD]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#true)
-    immediate: RV2WideImmediate.S
-  [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, ADDW, SUBW, SLLW, SRLW, SRAW]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-    left: RV2WideLeft.Register
-    right_immediate: Bool(#false)
-  [JAL]:
-    uses_rs1: Bool(#false)
-    uses_rs2: Bool(#false)
-    immediate: RV2WideImmediate.J
-  [JALR]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#false)
-    immediate: RV2WideImmediate.I
-  [BEQ, BNE, BLT, BGE, BLTU, BGEU]:
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-    immediate: RV2WideImmediate.B
+/* Authors operand columns directly against the selected canonical RV32 or RV64 encodings. */
+fun rv2wide_operand_cases(xlen :: XLen):
+  def reserved = if xlen == XLen.X32 | [LR_W] | [LR_W, LR_D]
+  def atomic = if xlen == XLen.X32 | RV32AInstructions | RV64AInstructions
+  def bitmanip = if xlen == XLen.X32 | RV32BInstructions | RV64BInstructions
+  def multiply = if xlen == XLen.X32 | RV32MInstructions | RV64MInstructions
+  def bitmanip_unary = [zbb.CLZ, zbb.CTZ, zbb.CPOP, zbb.ORC_B, zbb.SEXT_B, zbb.SEXT_H] ++ (if xlen == XLen.X32 | [zbb.RV32_REV8, zbb.RV32_ZEXT_H] | [zbb.CLZW, zbb.CTZW, zbb.CPOPW, zbb.REV8, zbb.ZEXT_H])
+  def bitmanip_immediate = if xlen == XLen.X32 | [zbb.RV32_RORI, zbs.RV32_BCLRI, zbs.RV32_BEXTI, zbs.RV32_BINVI, zbs.RV32_BSETI] | [zba.SLLI_UW, zbb.RORI, zbb.RORIW, zbs.BCLRI, zbs.BEXTI, zbs.BINVI, zbs.BSETI]
+  decode_groups(RV2WideOperandControl(), ~input: instruction_pattern):
+    group ZimopInstructions:
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Zero
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.Zero
+    group reserved:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.Zero
+    group excluding_instructions(atomic, reserved):
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#true)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.Zero
+    group bitmanip_unary:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Register
+    group bitmanip_immediate:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.I
+    group excluding_instructions(bitmanip, bitmanip_unary ++ bitmanip_immediate) ++ ZicondInstructions:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#true)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#false)
+    group multiply:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#true)
+    [CSRRW, CSRRS, CSRRC]:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+    [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI, SFENCE_VMA, FENCE, FENCE_I]:
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+    [LUI]:
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Zero
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.U
+    [AUIPC]:
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Pc
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.U
+    group [ADDI, SLTI, SLTIU, XORI, ORI, ANDI, LB, LH, LW, LBU, LHU] ++ (if xlen == XLen.X32 | [rv32.SLLI, rv32.SRLI, rv32.SRAI] | [SLLI, SRLI, SRAI, ADDIW, SLLIW, SRLIW, SRAIW, LD, LWU]):
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.I
+    group [SB, SH, SW] ++ (if xlen == XLen.X64 | [SD] | []):
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#true)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#true)
+      immediate: RV2WideImmediate.S
+    group [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND] ++ (if xlen == XLen.X64 | [ADDW, SUBW, SLLW, SRLW, SRAW] | []):
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#true)
+      left: RV2WideLeft.Register
+      right_immediate: Bool(#false)
+    [JAL]:
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+      immediate: RV2WideImmediate.J
+    [JALR]:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      immediate: RV2WideImmediate.I
+    [BEQ, BNE, BLT, BGE, BLTU, BGEU]:
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#true)
+      immediate: RV2WideImmediate.B
+
+def RV2WideOperandCases = rv2wide_operand_cases(XLen.X64)
 
 export:
   RV2WideLeft
   RV2WideImmediate
   RV2WideOperandControl
   RV2WideOperandCases
+  rv2wide_operand_cases

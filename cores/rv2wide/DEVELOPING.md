@@ -11,6 +11,21 @@ the fetch frontend, integer slice, age/order rules, and behavioral fixtures. Fol
 
 ## Architecture and ownership
 
+`RV2WideConfig.xlen` selects scalar width through decode, pipeline payloads,
+prediction addresses, register state, load/store shaping, and integer services.
+Use canonical RV32 instruction catalogs rather than projecting RV64 patterns;
+compressed expansion and the composed decoder must select the same domain.
+Keep fixed 64-bit fetch blocks, boot/time inputs, and CHI transport separate
+from architectural width. The shared uncached engine remains 64-bit so it can
+return one complete fetch block; scalar IO is explicitly widened/narrowed at
+the cache adapter, preserving its exact access size and byte offset.
+
+`bare-memory.rhdl` implements the same EX/MEM/WB contract without translation
+storage. It owns PMA qualification and core/split response routing; accepted
+responses survive invalidation. `mmu.rhdl` remains the RV64 Sv39/guest adapter.
+The top selects one implementation from `profile.mmu_type`. Keep exact SoC
+profile checks unchanged: scalar RV32 alone does not implement `rv32int`.
+
 Keep stage logic in one pipeline-ordered `core.rhdl`. Flow owns feed-forward
 storage; the issue window owns prefix admission, retention, and coalescing.
 No independent lane handshake may allow a younger instruction to pass an
@@ -24,7 +39,7 @@ instruction-kind enum followed by a second runtime control decoder.
 Core control rows join exact canonical instruction patterns using
 `component_output`, following RV5Stage's composition pattern. Unobserved
 payload controls stay don't-cares behind cared enables/source-use bits.
-The complete B catalog joins `RV64BAluCases` into each existing decoder.
+The selected B catalog joins `RV32BAluCases` or `RV64BAluCases` into each decoder.
 Operand policy distinguishes binary, unary, and immediate B operations; only
 observed routing fields are constrained. Reuse each slot's existing shared ALU
 and forwarding paths rather than adding a bit-manipulation unit or decoder.
@@ -101,7 +116,7 @@ Keep broader ISA qualification in the existing software suites.
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
-| `profile.rhm`, `udb.rhm` | Lean RV64IMACB/RV64IMAFDCB architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
+| `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
 | `hart.rhdl` | Core-neutral SoC port adaptation and one reset-vector start per reset epoch |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
 
@@ -140,7 +155,7 @@ responses, ordinary core replies, and PTE responses share one ordered physical
 owner FIFO and are routed with `zip_flow`/`demux_flow`. The second fragment must
 wait for first-fragment completion, and fault provenance must use the engine's
 virtual fault address, not its aligned physical request. Preserve accepted
-prefixes on later faults. Check the full eight-byte footprint against normal,
+prefixes on later faults. Check the full XLEN/8-byte footprint against normal,
 cacheable, idempotent memory; do not widen device accesses into this path.
 
 Preserve natural access width through MMU translation. Cache service aligns its
@@ -186,7 +201,7 @@ returns into their WB lane's forwarding payload; late FP returns precede the
 pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
 
 For an AUIPC followed by ADDI reading its nonzero destination, RR folds the
-sign-extended U and I immediates at RV64 width. Capture the older PC and folded
+sign-extended U and I immediates at the selected XLEN. Capture the older PC and folded
 offset in the younger token's existing operand registers and select its register
 right operand; EX's ordinary ALU then adds them independently of the older ALU.
 Keep both instruction records intact. Waive only that younger rs1 read and
@@ -706,6 +721,17 @@ FP, and concurrent load/arithmetic owners. Keep wider software coverage in the
 existing ISA-smoke lanes, not a separate FP qualification matrix.
 
 ## Validation
+
+`rv2wide-rv32` executes the production fetching/cache top in Bare mode. Its
+public-retirement and CHI oracle covers RV32 arithmetic and high products,
+division, compressed jumps, word-sized cached and IO beats, split accesses,
+atomics, CSR WARL behavior, and precise illegal/access traps. Run it alongside
+the existing RV64 core/fetch fixtures for XLEN or memory-adapter changes:
+
+```sh
+FIXTURES='rv2wide-rv32 rv2wide-core rv2wide-fetch' bash tools/testing/circt/run.sh --simulate-only
+tools/run-racket-tests.sh cores/rv2wide/tests/profile-test.rhm cores/rv2wide/tests/xlen-test.rhm
+```
 
 For tracing changes run the batched `event-window` behavioral fixture and the
 Mini/Simple trace smoke with the native Perfetto importer. Use `COSIM=1` on one

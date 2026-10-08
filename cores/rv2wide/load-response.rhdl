@@ -11,35 +11,35 @@ import:
   lib("flow/main.rhdl") open
 
 /* Reserves one context per accepted request; pipeline flushes cannot discard committed owners. */
-sync_circuit RV2WideLoadResponse():
-  interface allocate(Valid(RV2WideResult()), ~role: consumer)
-  interface response(Decoupled(Bits(64)), ~role: consumer)
-  interface completed(Decoupled(RV2WideRetirement()), ~role: producer)
-  interface fp_completed(Decoupled(RV2WideFpLoad()), ~role: producer)
+sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
+  interface allocate(Valid(RV2WideResult(xlen)), ~role: consumer)
+  interface response(Decoupled(Bits(xlen.width)), ~role: consumer)
+  interface completed(Decoupled(RV2WideRetirement(xlen)), ~role: producer)
+  interface fp_completed(Decoupled(RV2WideFpLoad(xlen)), ~role: producer)
   output available: Bool
   output drained: Bool
   interface ordered_completed(Pulse(), ~role: producer)
 
-  inst owners(Queue(RV2WideResult(), 4))
+  inst owners(Queue(RV2WideResult(xlen), 4))
   allocate |> to_decoupled() |> owners.ingress
   available <== owners.ingress.ready
   drained <== !owners.count.or_reduce() & !allocate.valid
   def joined :: Endpoint = Array(response, owners.egress) |> zip_flow(data, owner):
     owner.updated(~data: data)
-  def result :: RV2WideResult() = joined.bits
+  def result :: RV2WideResult(xlen) = joined.bits
   ordered_completed.valid <== joined.fire() & !result.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
-  inst load(LoadGen(XLen.X64))
+  inst load(LoadGen(xlen, xlen.width / 8))
   load.address <== result.address
   load.width <== result.memory.width
   load.unsigned_load <== result.memory.unsigned
   load.data <== result.data
   def Array(integer_return, fp_return) = joined |> demux_flow(2, owner => owner.fp.valid & (owner.fp.bits.registers.destination === FloatDestination.FloatingPoint))
-  (fp_return |> map_flow(owner => RV2WideFpLoad()):
+  (fp_return |> map_flow(owner => RV2WideFpLoad(xlen)):
     owner: owner.fp_request.tag
     precision: owner.fp.bits.execution.destination_precision
-    data: load.value
+    data: if xlen == XLen.X64 | load.value | load.value.zext(64)
   ) |> fp_completed
-  def completion = integer_return |> map_flow(owner => RV2WideRetirement()):
+  def completion = integer_return |> map_flow(owner => RV2WideRetirement(xlen)):
     fetched: owner.fetched
     rd: owner.rd
     write: owner.write

@@ -1,8 +1,9 @@
 #lang rhodium
-/* Composes RV64M service selection with the shared physical multiply/divide control relations. */
+/* Composes XLEN-selected M service selection with the shared physical multiply/divide control relations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   lib("cores/multiply-decode.rhdl") open
   lib("cores/divide-decode.rhdl") open
   lib("riscv/isa/m.rhm") open
@@ -23,18 +24,18 @@ bundle RV2WideLongControl():
   divide: RiscvDivideControl()
 
 /* Adds one service column to each canonical instruction using the existing exact-pattern mappings. */
-fun long_cases(instructions :: List.of(InstructionSpec)):
-  def multiply = for List (row in RV64ZmmulControlCases):
+fun long_cases(instructions :: List.of(InstructionSpec), ~xlen: xlen :: XLen = XLen.X64):
+  def multiply = for List (row in (if xlen == XLen.X32 | RV32ZmmulControlCases | RV64ZmmulControlCases)):
     def output = partial_pattern(RV2WideLongControl()):
       service: RV2WideLongOperation.Multiply
       multiply: row.output
     DecodeCase(row.input, output)
-  def divide = for List (row in RV64MDivideControlCases):
+  def divide = for List (row in (if xlen == XLen.X32 | RV32MDivideControlCases | RV64MDivideControlCases)):
     def output = partial_pattern(RV2WideLongControl()):
       service: RV2WideLongOperation.Divide
       divide: row.output
     DecodeCase(row.input, output)
-  multiply ++ divide ++ instruction_cases(excluding_instructions(instructions, RV64MInstructions), partial_pattern(RV2WideLongControl()): service: RV2WideLongOperation.None)
+  multiply ++ divide ++ instruction_cases(excluding_instructions(instructions, if xlen == XLen.X32 | RV32MInstructions | RV64MInstructions), partial_pattern(RV2WideLongControl()): service: RV2WideLongOperation.None)
 
 export:
   RV2WideLongOperation

@@ -19,6 +19,7 @@ import:
   lib("cores/rv2wide/core.rhdl").RV2WideCore
   lib("cores/rv2wide/profile.rhm").RV2WideConfig
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
+  lib("riscv/isa/xlen.rhm").XLen
 
 def adapters = {"test.v1": recipe}
 def source = make_fixture()
@@ -56,8 +57,8 @@ for (backend in [circt_target, verilog_target]):
 
 // The production contract must preserve the authored graph and public ports on
 // both targets, rather than adding functional observation ports during elaboration.
-for (profile in [FloatingPointProfile.None, FloatingPointProfile.D]):
-  def rv2wide = elaborate(RV2WideCore(RV2WideConfig(~floating_point: profile, ~hypervisor: profile == FloatingPointProfile.D, ~ssnpm: #true, ~sscofpmf: #true, ~smstateen: #true, ~zicbom: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true)))
+for (profile in [RV2WideConfig(~xlen: XLen.X32)] ++ (for List (fp in [FloatingPointProfile.None, FloatingPointProfile.D]): RV2WideConfig(~floating_point: fp, ~hypervisor: fp == FloatingPointProfile.D, ~ssnpm: #true, ~sscofpmf: #true, ~smstateen: #true, ~zicbom: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true))):
+  def rv2wide = elaborate(RV2WideCore(profile))
   def rv2wide_before = dump_ir(rv2wide.design)
   def rv2wide_program = rv2wide
   for (backend in [circt_target, verilog_target]):

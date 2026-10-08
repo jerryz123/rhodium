@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../csr/udb.rhm".riscv_csr_udb_parameters
   lib("riscv/udb-profile.rhm").riscv_udb_extensions
   "profile.rhm".RV2WideConfig
@@ -12,12 +13,12 @@ import:
 
 /* Publishes the selected scalar profile, optional FP subsets, and Sv39's software A/D update policy. */
 fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, description :: NonemptyString, physical_address_width :: PosInt) :: UdbConfiguration:
-  unless physical_address_width <= 64
-  | error(~who: #'rv2wide_udb_configuration, "physical address width must fit RV64")
-  def extensions = riscv_udb_extensions(profile.hart_description, ~additional: [UdbExtension("Svade", "1.0.0")])
+  unless physical_address_width <= profile.xlen.width
+  | error(~who: #'rv2wide_udb_configuration, "physical address width must fit XLEN")
+  def extensions = riscv_udb_extensions(profile.hart_description, ~additional: if profile.mmu_type == RiscvMmuType.Bare | [] | [UdbExtension("Svade", "1.0.0")])
   def fp = profile.floating_point == FloatingPointProfile.D
   def xlen = profile.xlen.width
-  def pma_granularity_log2 = 3
+  def pma_granularity_log2 = if xlen == 32 | 2 | 3
   def delegatable_counters = for List (index in 0..32): index < 3 || (profile.sscofpmf && index == 3)
   def parameters = [
     natural_parameter("MXLEN", xlen),

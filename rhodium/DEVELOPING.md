@@ -269,7 +269,14 @@ shared CSR bank, preserving IALIGN and architectural publication consistency.
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. Its MMU and physical cache adapter use
 `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
-It owns EX/MEM translation alignment and
+`cores/rv2wide/bare-memory.rhdl` consumes the named-core bundles, shared cache
+protocol/map, split engine, Flow, passive observation helpers, and architectural
+XLEN, guest-fault, pointer-masking, PBMT, and CMO descriptors plus `std/bits.rhdl`
+alignment helpers, without importing the TLB/walker.
+The top selects Bare or Sv39 via `riscv/isa/hart.rhm`. XLEN-specialized pipeline
+and service payloads consume `riscv/isa/xlen.rhm`; operand and combined decode
+also import the canonical `riscv/isa/rv32i.rhm` catalog.
+The Sv39 adapter owns EX/MEM translation alignment and
 WB/split/PTE arbitration; the cache package has no reverse dependency. Its MMU
 and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports

@@ -7,7 +7,7 @@ RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state and optional
 H/Sha guest execution with Sv39x4 translation. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes RV64IMACB, optionally RV64IMAFDCB:
+independently usable RR-through-WB execution slice. It executes scalar RV32IMACB or RV64IMACB, optionally RV64IMAFDCB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and scalar
 loads/stores, including retained misaligned accesses in cacheable normal memory.
 It also executes Zicond and Zimop, plus Zicsr, ECALL/EBREAK, MRET/SRET, WFI,
@@ -29,7 +29,7 @@ private-cache geometry; `RV2WideHart` starts once at the platform reset vector
 after reset. The shared SoC BootROM performs normal FESVR entry publication and
 ACLINT release. The corresponding `mini-rv2wide-rv64imafdcb` and
 `simple-rv2wide-rv64imafdcb` selections add F/D and compressed FP loads/stores.
-No RV32, vector, H-enabled SoC preset, or Tiled selection is provided.
+No RV32 SoC preset, vector, H-enabled SoC preset, or Tiled selection is provided.
 
 ## Entry point
 
@@ -40,6 +40,19 @@ import:
 
 inst core(RV2WideCore())
 ```
+
+Select `RV2WideConfig(~xlen: XLen.X32)` for scalar RV32 with Bare translation.
+The default remains RV64/Sv39; `~mmu_type: RiscvMmuType.Bare` also selects
+Bare-only RV64. RV32 currently excludes FP, H, and pointer masking. Translation
+extensions require Sv39. This scalar specialization is not the repository's
+`rv32int` preset, which additionally requires integer vectors.
+
+Pipeline and retirement payload constructors take `xlen`; architectural PCs,
+GPRs, arithmetic, and scalar memory beats use that width. Fetch blocks and the
+boot-address input remain 64 bits; CHI flit widths are also independent of XLEN.
+RV32 uses the low 32 boot-address bits. Bare mode has no TLB or walker: PMA
+permissions, ordered IO, and independently checked misaligned fragments remain
+active. CSR `satp` reads zero and ignores mode writes in this specialization.
 
 For the fetching core with both shared caches, import
 `cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
@@ -62,15 +75,15 @@ Branch prediction corrections, memory replays, traps, and privilege returns redi
 internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D` adapter.
 
-When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket())`. Each packet has a `count`
+When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket(xlen))`. Each packet has a `count`
 of one or two and that many valid `entries`, oldest first. Entries contain a
-64-bit `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
+XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
 for C), length-derived `sequential_pc`, `compressed_illegal`, and optional fetch-fault
 cause/address. Direct packet producers supply all of this metadata; a 32-bit
 instruction normally uses the same raw/canonical bits and `sequential_pc = pc + 4`.
 Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
 bits are ignored for fetch faults.
-Each entry also supplies `prediction: BranchPrediction(XLen.X64)` and
+Each entry also supplies `prediction: BranchPrediction(xlen)` and
 `speculated_ras_action: RasAction`. A nonpredicting packet source clears
 `prediction.valid`, uses `RasAction.None`, and zeroes `direction: BhtPrediction(10)`.
 Predicting sources retain the saved direction index and pre-instruction history
@@ -433,7 +446,7 @@ initial implementation, not a physical SRAM guarantee.
 ## Execution and ordering
 
 Zicond's CZERO.EQZ/CZERO.NEZ use each slot's shared ALU and ordinary GPR
-interlocks/forwarding; the condition observes the full 64-bit rs2. All 32 MOP.R
+interlocks/forwarding; the condition observes the full XLEN-wide rs2. All 32 MOP.R
 and eight MOP.RR encodings implement Zimop's zero-result behavior. Their encoded
 source fields are ignored, but destination reservations and x0 rules still apply.
 MOPs are ordinary dual-issue ALU work, not serializing system instructions.
@@ -515,7 +528,7 @@ If the younger instruction faults, replays, or defers its write, the older write
 still updates the register file. Outstanding older deferred writes remain WAW
 interlocked until their RF write edge.
 
-`retired[2]: Valid(RV2WideRetirement())` reports the successful ordered prefix
+`retired[2]: Valid(RV2WideRetirement(xlen))` reports the successful ordered prefix
 at WB, including PC, encoding, destination, write enable, and value. `issued`
 and `retired_count` report counts of zero, one, or two for the current edge.
 Outputs have no backpressure. `deferred` means a memory or multiply/divide operation was
@@ -527,7 +540,7 @@ have `write` false. Non-writing data is unspecified on either interface.
 
 ## Multiply and divide
 
-All RV64M operations, including MULW, DIVW/DIVUW, and REMW/REMUW, use the
+RV32M and RV64M operations, including the RV64-only MULW, DIVW/DIVUW, and REMW/REMUW, use the
 shared physical control relations. One M instruction may issue per group and
 may pair with independent ALU or branch work. Memory and M instructions split
 the group so WB allocates at most one deferred destination per cycle.
@@ -553,7 +566,8 @@ Division by zero and signed overflow return the architectural M results.
 
 ## Atomic memory operations
 
-RV64A supplies LR.W/LR.D, SC.W/SC.D, and all nine W/D AMOs through the shared
+RV32A supplies LR.W, SC.W, and all nine W AMOs; RV64A additionally supplies
+their D forms. Both use the shared
 coherent L1D. The composed decoder selects cache ownership, AMO function, and
 natural transfer width; there is no second atomic execution unit. LR and AMO
 word results sign-extend their prior 32-bit value. SC returns zero on success
@@ -660,9 +674,9 @@ ordered slow response +--> result projection --> reserve younger RR slot
                              unflushable completion pipe --> shared WB write
 ```
 
-`pipeline: RV2WidePipelineAccess()` carries an EX request and the next cycle's
+`pipeline: RV2WidePipelineAccess(xlen)` carries an EX request and the next cycle's
 MEM result. Its byte address, positioned store data, and byte mask describe
-one access within an aligned eight-byte beat. A speculative lookup must not
+one access within an aligned XLEN/8-byte beat. A speculative lookup must not
 allocate, mutate memory, or perform device reads. The service returns:
 
 - `LoadHit`: an aligned raw beat, normalized by the shared `LoadGen` for normal
@@ -676,7 +690,7 @@ allocate, mutate memory, or perform device reads. The service returns:
 
 LR/SC/AMO use Slow after successful checks, never a speculative load/store hit.
 
-`memory: RV2WideMemory()` accepts WB `Decoupled` requests. Admission is
+`memory: RV2WideMemory(xlen)` accepts WB `Decoupled` requests. Admission is
 non-speculative and resolves synchronous exceptions **before acceptance**:
 `fault.valid` supplies a Fault resolution, including its precise address, and
 the service must deassert request readiness. Otherwise a transfer irrevocably
@@ -791,7 +805,8 @@ successor. A late fault enters the existing precise trap path without writing
 the destination or retiring the instruction. No deferred RF owner or third
 register-file write port is introduced.
 
-Each aligned eight-byte fragment is translated, checked, and completed before
+Each aligned XLEN/8-byte fragment is translated (or directly resolved in
+Bare mode), checked, and completed before
 the next fragment issues. Only cacheable, idempotent normal memory is supported;
 misaligned device/uncached accesses report access faults without device effects.
 The first fragment reports the original VA on fault; the second reports the
@@ -801,8 +816,8 @@ replayed or rolled back. LR/SC/AMO still require natural alignment.
 
 ## Resolution and restart boundary
 
-`memory_stage[2]: Valid(RV2WideInstruction())` identifies each current MEM token.
-The corresponding `resolution[2]: Valid(RV2WideResolution())` may qualify it in
+`memory_stage[2]: Valid(RV2WideInstruction(xlen))` identifies each current MEM token.
+The corresponding `resolution[2]: Valid(RV2WideResolution(xlen))` may qualify it in
 the same cycle with Continue, Fault, or Replay. This is a synchronous stage
 qualification boundary, **not** an asynchronous memory response interface.
 Absent qualification means Continue. Inputs for nonexistent or WB-squashed
@@ -812,7 +827,7 @@ ordering before connecting a real memory subsystem.
 An internally detected instruction fault takes precedence over external
 qualification. Faults and replays never retire or write their destination.
 WB chooses the oldest fault/replay, allowing a preceding successful instruction
-to retire exactly once. `redirect: Valid(RV2WideRedirect())` reports recovery:
+to retire exactly once. `redirect: Valid(RV2WideRedirect(xlen))` reports recovery:
 
 - Continue: a prediction correction at MEM; `target` is the actual successor
   (the taken target or sequential PC). This

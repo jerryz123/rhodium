@@ -3,20 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "bundles.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Coalesces packet boundaries after partial issue; clear discards resident and live offers. */
-sync_circuit RV2WideIssueWindow():
-  interface ingress(Decoupled(RV2WidePacket()), ~role: consumer)
+sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
+  interface ingress(Decoupled(RV2WidePacket(xlen)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  output head: RV2WidePacket()
-  interface candidates[2](Valid(RV2WideInstruction()), ~role: producer)
+  output head: RV2WidePacket(xlen)
+  interface candidates[2](Valid(RV2WideInstruction(xlen)), ~role: producer)
   output available: Bits(4)
   input consume: Bits(2)
 
   reg count(~init: bits(0, 4))
-  reg entries(Vec(8, RV2WideInstruction()))
+  reg entries(Vec(8, RV2WideInstruction(xlen)))
   def remaining = count - consume.zext(4)
   available <== bits(8, 4) - count
   ingress.ready <== !clear.valid & (remaining <= bits(6, 4))
@@ -24,7 +25,7 @@ sync_circuit RV2WideIssueWindow():
   head.entries <== vec([entries[0], entries[1]])
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), bits(0, 4))
   // Observe accepted packets without changing their independent ingress readiness.
-  def accepted :: Handle = interface_link(Valid(RV2WidePacket()))
+  def accepted :: Handle = interface_link(Valid(RV2WidePacket(xlen)))
   accepted.left.valid <== ingress.fire()
   accepted.left.bits <== ingress.bits
   describe_interface_contract(ingress, accepted.left, "packet-acceptance", ~trace_model: interface_trace_combinational())

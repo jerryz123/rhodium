@@ -10,6 +10,7 @@ import:
   "decode/long-ctrl.rhdl" open
   lib("flow/main.rhdl") open
   lib("cores/load-store.rhdl").MemoryWidth
+  lib("cores/load-store.rhdl").memory_word_bytes
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("cores/cache/l1i/protocol.rhdl").InstructionCacheResult
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
@@ -26,26 +27,28 @@ import:
   lib("cores/fp/types.rhdl") open
   lib("riscv/isa/fp-profile.rhm") open
 
+def FpProfile = FloatingPointProfile.D
+
 /* Exposes WB-owned architectural translation controls without pipeline payload coupling. */
-bundle RV2WideTranslationState():
+bundle RV2WideTranslationState(xlen :: XLen):
   privilege: PrivilegeMode
-  mstatus: Bits(64)
-  satp: Bits(64)
+  mstatus: Bits(xlen.width)
+  satp: Bits(xlen.width)
   pbmte: Bool
   guest: RiscvHypervisorTranslation()
   pointer_masking: PointerMaskControl()
   guest_pointer_masking: PointerMaskControl()
 
 /* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
-interface RV2WideInstructionTranslation():
+interface RV2WideInstructionTranslation(xlen :: XLen):
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Valid(Bits(64))
+    request: Valid(Bits(xlen.width))
   responder -> requester:
     address: Bits(64)
-    resolution: RV2WideResolution()
+    resolution: RV2WideResolution(xlen)
     pbmt: PageMemoryType
 
 /* Carries resolved physical fetch attributes without granting physical permission. */
@@ -79,32 +82,32 @@ interface RV2WideUncachedInstruction():
     response: Decoupled(InstructionCacheResult(64))
 
 /* Retains the architectural cause and faulting address independently of instruction data. */
-bundle RV2WideFetchFault():
+bundle RV2WideFetchFault(xlen :: XLen):
   valid: Bool
-  cause: Bits(64)
-  value: Bits(64)
+  cause: Bits(xlen.width)
+  value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
-bundle RV2WideInstruction():
-  pc: Bits(64)
+bundle RV2WideInstruction(xlen :: XLen):
+  pc: Bits(xlen.width)
   instruction: Bits(32)
   raw_instruction: Bits(32)
-  sequential_pc: Bits(64)
+  sequential_pc: Bits(xlen.width)
   compressed_illegal: Bool
-  fault: RV2WideFetchFault()
-  prediction: BranchPrediction(XLen.X64)
+  fault: RV2WideFetchFault(xlen)
+  prediction: BranchPrediction(xlen)
   speculated_ras_action: RasAction
   direction: BhtPrediction(10)
 
 /* Offers a nonempty prefix of up to two instructions to the issue window. */
-bundle RV2WidePacket():
+bundle RV2WidePacket(xlen :: XLen):
   count: Bits(2)
-  entries: Vec(2, RV2WideInstruction())
+  entries: Vec(2, RV2WideInstruction(xlen))
 
 /* Keeps a retired branch's BTB outcome and saved BHT address together during serialized training. */
-bundle RV2WideBranchTraining():
-  branch: BranchUpdate(XLen.X64)
+bundle RV2WideBranchTraining(xlen :: XLen):
+  branch: BranchUpdate(xlen)
   direction_valid: Bool
   direction_index: Bits(12)
 
@@ -121,15 +124,15 @@ hardware_enum RV2WideDisposition:
   System
 
 /* Supplies a same-cycle MEM outcome; fault payload is observed only for Fault. */
-bundle RV2WideResolution():
+bundle RV2WideResolution(xlen :: XLen):
   disposition: RV2WideDisposition
-  cause: Bits(64)
-  value: Bits(64)
+  cause: Bits(xlen.width)
+  value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
-bundle RV2WideFpOwner():
-  fetched: RV2WideInstruction()
+bundle RV2WideFpOwner(xlen :: XLen):
+  fetched: RV2WideInstruction(xlen)
   lane: Bits(1)
   rd: Bits(5)
   destination: FloatDestination
@@ -137,23 +140,23 @@ bundle RV2WideFpOwner():
   direct: Bool
 
 /* Carries an already extracted FP memory value to the architectural FPR write port. */
-bundle RV2WideFpLoad():
-  owner: RV2WideFpOwner()
+bundle RV2WideFpLoad(xlen :: XLen):
+  owner: RV2WideFpOwner(xlen)
   precision: FloatPrecision
   data: Bits(64)
 
 
 /* Holds RR operands, controls, and same-pair address, store-data, and branch selections. */
-bundle RV2WideExecute():
-  fetched: RV2WideInstruction()
+bundle RV2WideExecute(xlen :: XLen):
+  fetched: RV2WideInstruction(xlen)
   control: RV2WideControl()
-  rs1: Bits(64)
-  rs2: Bits(64)
+  rs1: Bits(xlen.width)
+  rs2: Bits(xlen.width)
   pair_routes: Vec(2, RV2WidePairRoute)
   rd: Bits(5)
   illegal: Bool
   virtual_instruction: Bool
-  fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
+  fp_request: FpExecutionRequest(xlen, FpProfile, RV2WideFpOwner(xlen))
 
 /* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
 hardware_enum RV2WideCacheOutcome:
@@ -172,15 +175,15 @@ hardware_enum RV2WideBranchPrediction:
   Mispredicted
 
 /* Retains one result, control transfer, and fault/replay outcome through MEM and WB. */
-bundle RV2WideResult():
-  fetched: RV2WideInstruction()
+bundle RV2WideResult(xlen :: XLen):
+  fetched: RV2WideInstruction(xlen)
   rd: Bits(5)
   write: Bool
-  data: Bits(64)
+  data: Bits(xlen.width)
   result_ready: Bool
   taken: Bool
-  target: Bits(64)
-  branch_update: BranchUpdate(XLen.X64)
+  target: Bits(xlen.width)
+  branch_update: BranchUpdate(xlen)
   branch_control: BranchResolverControl()
   branch_operands_from_older: Vec(2, Bool)
   mispredicted: Bool
@@ -189,23 +192,23 @@ bundle RV2WideResult():
   prefetch: CachePrefetchOperation
   pause: Bool
   locality_hint: RiscvMemoryLocality
-  address: Bits(64)
-  store_data: Bits(64)
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
   cache_outcome: RV2WideCacheOutcome
   system: RV2WideSystemControl()
-  csr_source: Bits(64)
+  csr_source: Bits(xlen.width)
   muldiv: RV2WideLongControl()
-  left: Bits(64)
-  right: Bits(64)
-  resolution: RV2WideResolution()
+  left: Bits(xlen.width)
+  right: Bits(xlen.width)
+  resolution: RV2WideResolution(xlen)
   fp: RV2WideFpControl()
-  fp_request: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner())
+  fp_request: FpExecutionRequest(xlen, FpProfile, RV2WideFpOwner(xlen))
 
 /* Restarts unassembled fetch work without discarding already accepted instructions. */
-bundle RV2WideFetchRepair():
-  target: Bits(64)
+bundle RV2WideFetchRepair(xlen :: XLen):
+  target: Bits(xlen.width)
   invalidate: Bool
-  entry: Bits(64)
+  entry: Bits(xlen.width)
   history: Bits(10)
 
 /* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
@@ -213,33 +216,33 @@ fun rv2wide_history_after(prediction :: BhtPrediction(10), taken :: Bool) :~ Bit
   mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
 
 /* Carries exact byte address/width, positioned ordinary stores, and unshifted atomic operands. */
-bundle RV2WideMemoryReq():
+bundle RV2WideMemoryReq(xlen :: XLen):
   address: Bits(64)
   access: CacheOperation
   atomic: RiscvAtomicOperation
   width: MemoryWidth
-  data: Bits(64)
-  mask: Bits(8)
+  data: Bits(xlen.width)
+  mask: Bits(memory_word_bytes(xlen))
   locality: RiscvMemoryLocality
   pbmt: PageMemoryType
   guest_access: RiscvGuestMemoryAccess
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
-bundle RV2WideLookupResult():
+bundle RV2WideLookupResult(xlen :: XLen):
   outcome: RV2WideCacheOutcome
-  data: Bits(64)
+  data: Bits(xlen.width)
   guest: RiscvGuestFault()
 
 /* Pairs an EX lookup with next-cycle MEM feedback and a one-cycle WB store candidate. */
-interface RV2WidePipelineAccess():
+interface RV2WidePipelineAccess(xlen :: XLen):
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Valid(RV2WideMemoryReq())
+    request: Valid(RV2WideMemoryReq(xlen))
     commit: Bool
   responder -> requester:
-    response: Valid(RV2WideLookupResult())
+    response: Valid(RV2WideLookupResult(xlen))
     commit_ready: Bool
 
 /* Authorizes slow transactions at WB. Admission resolves all synchronous faults;
@@ -249,37 +252,37 @@ interface RV2WidePipelineAccess():
    registered ordered_busy prevents younger memory effects, including earlier lookup hits.
    Reservation validity is live shared-cache state for WB wait-on-reservation.
    Reset must reset both participants together. */
-interface RV2WideMemory():
+interface RV2WideMemory(xlen :: XLen):
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(RV2WideMemoryReq())
+    request: Decoupled(RV2WideMemoryReq(xlen))
   responder -> requester:
-    fault: Valid(RV2WideResolution())
-    response: Decoupled(Bits(64))
+    fault: Valid(RV2WideResolution(xlen))
+    response: Decoupled(Bits(xlen.width))
     drained: Bool
     ordered_busy: Bool
     reservation_valid: Bool
 
 /* Reports one successfully retired instruction and its optional architectural GPR write. */
-bundle RV2WideRetirement():
-  fetched: RV2WideInstruction()
+bundle RV2WideRetirement(xlen :: XLen):
+  fetched: RV2WideInstruction(xlen)
   rd: Bits(5)
   write: Bool
-  data: Bits(64)
+  data: Bits(xlen.width)
   deferred: Bool
 
 /* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement. */
-bundle RV2WideRedirect():
-  pc: Bits(64)
-  target: Bits(64)
-  resolution: RV2WideResolution()
+bundle RV2WideRedirect(xlen :: XLen):
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  resolution: RV2WideResolution(xlen)
 
 /* Describes a youngest-older operand match, including results not yet usable. */
-bundle RV2WideOperand():
+bundle RV2WideOperand(xlen :: XLen):
   blocked: Bool
-  data: Bits(64)
+  data: Bits(xlen.width)
 
 export:
   RV2WideFpOwner

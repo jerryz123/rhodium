@@ -1,0 +1,12 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../rv2wide.rhdl" open
+  "../cache-fixture.rhdl" open
+  "../../profile.rhm".RV2WideConfig
+
+def profile = RV2WideConfig(~xlen: XLen.X32, ~instruction_cache: test_cache, ~data_cache: test_cache, ~sscofpmf: #true, ~sstc: #true, ~zicboz: #true, ~zicbom: #true)
+def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
+export program

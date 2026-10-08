@@ -3,12 +3,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../profile.rhm" open
   "../udb.rhm" open
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/c.rhm") open
 
 def integer = RV2WideConfig()
+def integer32 = RV2WideConfig(~xlen: XLen.X32)
+def bare64 = RV2WideConfig(~mmu_type: RiscvMmuType.Bare)
+check:
+  integer32.xlen ~is XLen.X32
+  integer32.hart_description.mmu_type ~is RiscvMmuType.Bare
+  integer32.csr_config.mmu_type ~is RiscvMmuType.Bare
+  integer32.isa_profile.isa_extensions.contains("ssu64xl") ~is #false
+  bare64.hart_description.mmu_type ~is RiscvMmuType.Bare
+  integer.hart_description.mmu_type ~is RiscvMmuType.Sv39
+  RV2WideConfig(~xlen: XLen.X32, ~mmu_type: RiscvMmuType.Sv39) ~throws "Bare or RV64 Sv39"
+  RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.D) ~throws "RV32 supports scalar integer"
+  RV2WideConfig(~xlen: XLen.X32, ~hypervisor: #true) ~throws "RV32 supports scalar integer"
+  RV2WideConfig(~mmu_type: RiscvMmuType.Bare, ~svpbmt: #true) ~throws "translation extensions require Sv39"
 def supervisor = RV2WideConfig(~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true)
 def hypervisor = RV2WideConfig(~hypervisor: #true)
 def sha = RV2WideConfig(~hypervisor: #true, ~smstateen: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~sstc: #true, ~svinval: #true)
@@ -116,10 +131,13 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
-  def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
+for (profile in [integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+  def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", if profile.xlen == XLen.X32 | 32 | 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    configuration.parameters.filter(~keep: fun (parameter): parameter.name == "MXLEN").map(fun (parameter): parameter.value.to_yaml()) ~is [to_string(profile.xlen.width)]
+    extensions.contains("Sv39") ~is (profile.mmu_type == RiscvMmuType.Sv39)
+    extensions.contains("Svade") ~is (profile.mmu_type != RiscvMmuType.Bare)
     extensions.contains("Ssnpm") ~is profile.ssnpm
     extensions.contains("Supm") ~is profile.supm
     extensions.contains("Sscofpmf") ~is profile.sscofpmf

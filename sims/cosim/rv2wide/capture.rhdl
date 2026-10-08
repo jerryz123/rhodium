@@ -43,10 +43,10 @@ dpi_import procedure rhodium_rv2wide_physical(
 /* Compiles the stateless adapter selected by the versioned RV2Wide observation contract. */
 fun rv2wide_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
   def profile :: RV2WideConfig = configuration["profile"]
-  compile_program(elaborate(RV2WideCosimObserver(types, instance, configuration["fp_timing"])), rtl_target).report.elaboration
+  compile_program(elaborate(RV2WideCosimObserver(profile.xlen, types, instance, configuration["fp_timing"])), rtl_target).report.elaboration
 
 /* Reports pre-edge facts only; all instruction identities and completion retention live in C++. */
-sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: FpExecutionTiming):
+sync_circuit RV2WideCosimObserver(xlen :: XLen, tap_types :: Map, instance :: Nat, timing :: FpExecutionTiming):
   def taps = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): name != "clock" && name != "reset")):
     values(name, observer_input(name, tap_types[name]))
   def instance_id = bits(instance, 64)
@@ -57,16 +57,16 @@ sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: F
     lane(value.as_bits())
   /* Standalone core observations have no sibling physical-memory provenance. */
   fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | bits(0, 64)
-  def tokens :: Vec(2, RV2WideResult()) = taps["wb_tokens"]
-  def retirement :: Vec(2, RV2WideRetirement()) = taps["wb_retirement"]
+  def tokens :: Vec(2, RV2WideResult(xlen)) = taps["wb_tokens"]
+  def retirement :: Vec(2, RV2WideRetirement(xlen)) = taps["wb_retirement"]
   def retired :: Vec(2, Bool) = taps["wb_retired"]
   def writes :: Vec(2, Bool) = taps["wb_writes"]
   def split_capture :: Bool = taps["wb_split_capture"]
   def memory_lane :: Bits(1) = taps["wb_memory_lane"]
   def multiply :: Bool = taps["wb_multiply_accepted"]
-  def command :: RV2WideResult() = taps["wb_command"]
+  def command :: RV2WideResult(xlen) = taps["wb_command"]
   def completion_valid :: Vec(4, Bool) = taps["completion_fire"]
-  def completions :: Vec(4, RV2WideRetirement()) = taps["completion"]
+  def completions :: Vec(4, RV2WideRetirement(xlen)) = taps["completion"]
   def privilege :: PrivilegeMode = taps["csr_privilege"]
   def mret :: Bool = taps["csr_mret"]
   def sret :: Bool = taps["csr_sret"]
@@ -78,41 +78,42 @@ sync_circuit RV2WideCosimObserver(tap_types :: Map, instance :: Nat, timing :: F
   def next_privilege = mux(mret, mret_privilege, mux(sret, sret_privilege, privilege))
   def interrupt_inputs :: RiscvInterrupts() = taps["csr_interrupt_inputs"]
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
+  def trap_cause :: Bits(xlen.width) = taps["csr_trap_cause"]
   for (index in 0..3):
-    def token :: RV2WideResult() = if index < 2 | tokens[index] | command
-    def result :: RV2WideRetirement() = if index < 2 | retirement[index] | literal(RV2WideRetirement(), 0)
+    def token :: RV2WideResult(xlen) = if index < 2 | tokens[index] | command
+    def result :: RV2WideRetirement(xlen) = if index < 2 | retirement[index] | literal(RV2WideRetirement(xlen), 0)
     def deferred = if index < 2 | result.deferred | Bool(#false)
     def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
     def next_pc = mux(mret ||| sret, taps["csr_redirect"], mux(token.taken, token.target, token.fetched.sequential_pc))
     rhodium_rv2wide_lane.call(
       instance_id, bits(index, 64), lane((if index < 2 | retired[index] | Bool(#false)).as_bits()),
       lane((if index < 2 | split_capture & (memory_lane === bits(index, 1)) | Bool(#false)).as_bits()),
-      token.fetched.pc, lane(token.fetched.raw_instruction), next_pc, lane(token.fetched.fault.valid.as_bits()),
-      lane(token.rd), lane(write.as_bits()), result.data, lane(deferred.as_bits()),
+      lane(token.fetched.pc), lane(token.fetched.raw_instruction), lane(next_pc), lane(token.fetched.fault.valid.as_bits()),
+      lane(token.rd), lane(write.as_bits()), lane(result.data), lane(deferred.as_bits()),
       lane(mux(token.memory.enable, bits(0, 2), mux(multiply, bits(1, 2), bits(2, 2)))),
       // Maintenance has no architectural byte effect. Its retained retirement
       // or trap is sufficient; Sail independently checks permissions and VA.
-      lane((token.memory.enable & !token.memory.access.is_cache_management()).as_bits()), token.address, lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
-      lane(token.memory.atomic.as_bits()), token.store_data,
+      lane((token.memory.enable & !token.memory.access.is_cache_management()).as_bits()), lane(token.address), lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
+      lane(token.memory.atomic.as_bits()), lane(token.store_data),
       mux(token.fp.valid, mux(token.memory.enable, mux(token.fp.bits.registers.destination === FloatDestination.FloatingPoint, bits(2, 64), bits(3, 64)), bits(1, 64)), bits(0, 64)),
       mux(token.fp.valid, lane(token.fp.bits.registers.destination.as_bits()), bits(0, 64)),
       mux(token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot, !bits(0, 64), timing.latency(token.fp.bits.execution, ~width: 64) - bits(2, 64)), ~enable: active
     )
   rhodium_rv2wide_boundary.call(
     instance_id, lane(privilege.as_bits()), lane(next_privilege.as_bits()), tap_lane("csr_interrupt_take"), tap_lane("csr_synchronous_trap"),
-    tap_lane("csr_trap_cause"), tap_lane("csr_trap_pc"), tap_lane("csr_trap_value"), tap_lane("csr_redirect"),
+    lane(trap_cause[0..xlen.width - 1]), tap_lane("csr_trap_pc"), tap_lane("csr_trap_value"), tap_lane("csr_redirect"),
     lane(mux(trap_target === RiscvTrapTarget.Machine, PrivilegeMode.Machine, PrivilegeMode.Supervisor).as_bits()),
-    riscv_interrupt_pending(XLen.X64, interrupt_inputs), tap_lane("csr_time_input"), tap_lane("csr_interrupt_boundary"),
+    lane(riscv_interrupt_pending(xlen, interrupt_inputs)), tap_lane("csr_time_input"), tap_lane("csr_interrupt_boundary"),
     lane(virtualized.as_bits()), lane(mux(mret ||| sret, returned_virtual, virtualized).as_bits()), tap_lane("csr_trap_to_guest"), lane(guest_valid.as_bits()),
     tap_lane("csr_fault_gpa"), tap_lane("csr_fault_inst"), tap_lane("csr_hpm_enabled"), tap_lane("csr_hpm_counter"), tap_lane("csr_hpm_overflow"), ~enable: active
   )
   for (index in 0..4):
-    def result :: RV2WideRetirement() = completions[index]
-    rhodium_rv2wide_completion.call(instance_id, bits(index, 64), lane(completion_valid[index].as_bits()), result.fetched.pc, lane(result.rd), lane(result.write.as_bits()), result.data, ~enable: active)
-  def fp_result :: FpExecutionResult(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner()) = taps["fp_completion"]
-  def fp_load :: RV2WideFpLoad() = taps["fp_load"]
-  rhodium_rv2wide_fp.call(instance_id, bits(0, 64), tap_lane("fp_valid"), fp_result.tag.fetched.pc, lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, fp_result.integer_value, fp_result.fp_value), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), ~enable: active)
-  rhodium_rv2wide_fp.call(instance_id, bits(1, 64), tap_lane("fp_load_valid"), fp_load.owner.fetched.pc, lane(fp_load.owner.rd), bits(2, 64), fp_load_value(FloatingPointProfile.D, fp_load.precision, fp_load.data), bits(0, 64), bits(0, 64), ~enable: active)
+    def result :: RV2WideRetirement(xlen) = completions[index]
+    rhodium_rv2wide_completion.call(instance_id, bits(index, 64), lane(completion_valid[index].as_bits()), lane(result.fetched.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
+  def fp_result :: FpExecutionResult(xlen, FloatingPointProfile.D, RV2WideFpOwner(xlen)) = taps["fp_completion"]
+  def fp_load :: RV2WideFpLoad(xlen) = taps["fp_load"]
+  rhodium_rv2wide_fp.call(instance_id, bits(0, 64), tap_lane("fp_valid"), lane(fp_result.tag.fetched.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), fp_result.fp_value), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, bits(1, 64), tap_lane("fp_load_valid"), lane(fp_load.owner.fetched.pc), lane(fp_load.owner.rd), bits(2, 64), fp_load_value(FloatingPointProfile.D, fp_load.precision, fp_load.data), bits(0, 64), bits(0, 64), ~enable: active)
   rhodium_rv2wide_physical.call(
     instance_id, mmu_lane("mmu_request_valid"), mmu_lane("mmu_request_address"), mmu_lane("mmu_pipeline_valid"), mmu_lane("mmu_pipeline_address"),
     mmu_lane("mmu_fragment_valid"), mmu_lane("mmu_fragment_address"), mmu_lane("mmu_fragment_virtual"), mmu_lane("mmu_fragment_mask"), mmu_lane("mmu_fragment_data"),

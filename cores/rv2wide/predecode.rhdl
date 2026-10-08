@@ -14,12 +14,13 @@ import:
 
 /* Expands one candidate encoding without asserting that it lies at an instruction boundary. */
 circuit RV2WidePredecode(profile :: RV2WideConfig):
+  def xlen = profile.xlen
   input raw: Bits(32)
   output canonical: Bits(32)
   output(compressed, legal, control_flow, conditional, immediate): Bool
-  output offset: Bits(64)
+  output offset: Bits(xlen.width)
   output action: RasAction
-  inst expander(RiscvCompressedExpander(XLen.X64, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause, ~zihintntl: profile.zihintntl, ~svinval: profile.svinval, ~hypervisor: profile.hypervisor).map(fun (instruction): instruction.name)))
+  inst expander(RiscvCompressedExpander(xlen, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile.floating_point, ~xlen: xlen, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause, ~zihintntl: profile.zihintntl, ~svinval: profile.svinval, ~hypervisor: profile.hypervisor).map(fun (instruction): instruction.name)))
   expander.compressed <== raw[0..16]
   compressed <== raw[0..2] =/= bits(3, 2)
   canonical <== mux(compressed, expander.expansion.instruction, raw)
@@ -28,7 +29,7 @@ circuit RV2WidePredecode(profile :: RV2WideConfig):
   def direct = legal & (canonical[0..7] === bits(0x6f, 7))
   immediate <== direct ||| conditional
   control_flow <== immediate ||| (legal & (canonical[0..7] === bits(0x67, 7)) & (canonical[12..15] === bits(0, 3)))
-  offset <== mux(direct, instruction_immediate(fields.JImmediate, canonical, 64), instruction_immediate(fields.BImmediate, canonical, 64))
+  offset <== mux(direct, instruction_immediate(fields.JImmediate, canonical, xlen.width), instruction_immediate(fields.BImmediate, canonical, xlen.width))
   action <== mux(control_flow, riscv_ras_action(canonical), RasAction.None)
 
 export RV2WidePredecode

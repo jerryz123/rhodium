@@ -12,8 +12,8 @@ import:
 
 /* Starts once at the platform reset vector after each reset epoch and exposes the three CHI identities. */
 sync_circuit RV2WideHart(profile :: RV2WideConfig, ~reset_address: reset_address :: Nat, ~chi: config :: RiscvHartCHIConfig):
-  unless bits.length(reset_address) <= 64
-  | error(~who: #'RV2WideHart, "reset address must fit RV64")
+  unless bits.length(reset_address) <= profile.xlen.width
+  | error(~who: #'RV2WideHart, "reset address must fit XLEN")
   input chi_identity: RiscvHartCHIIdentity(config.flit)
   input interrupts: RiscvInterrupts()
   input(hart_id, time_counter): Bits(64)

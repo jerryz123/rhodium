@@ -49,18 +49,18 @@ bundle RV2WidePhysicalResponse():
    requests arbitrate core-first without locking the cache for a walk's lifetime.
    Optional Svnapot enables shared 64 KiB mappings in both translation banks. */
 sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false):
-  input state: RV2WideTranslationState()
+  input state: RV2WideTranslationState(XLen.X64)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
-  interface instruction(RV2WideInstructionTranslation(), ~role: responder)
-  interface pipeline(RV2WidePipelineAccess(), ~role: responder)
-  interface memory(RV2WideMemory(), ~role: responder)
+  interface instruction(RV2WideInstructionTranslation(XLen.X64), ~role: responder)
+  interface pipeline(RV2WidePipelineAccess(XLen.X64), ~role: responder)
+  interface memory(RV2WideMemory(XLen.X64), ~role: responder)
   interface split(RiscvSplitAccess(XLen.X64, Bool), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(XLen.X64)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(XLen.X64), ~role: requester)
-  interface physical_memory(RV2WideMemory(), ~role: requester)
+  interface physical_memory(RV2WideMemory(XLen.X64), ~role: requester)
 
   inst itlb(RiscvTranslationTlb())
   inst dtlb(RiscvTranslationTlb())
@@ -74,7 +74,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(XLen.X64, result.fault_address, split_mask))) |> split.response
   when (split.request.fire()):
     split_mode <== split_guest_access
-  def split_request = misaligned.request |> map_flow(request => RV2WideMemoryReq()):
+  def split_request = misaligned.request |> map_flow(request => RV2WideMemoryReq(XLen.X64)):
     guest_access: split_mode
     address: request.address
     access: request.access
@@ -100,7 +100,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def instruction_lookup = lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
   def Array(early_index, retained_request) = pipeline.request |> fork_valid(2)
   /* Positions a raw beat without changing the original VA retained by the core. */
-  fun cache_request(request :: RV2WideMemoryReq()) :~ CachePipelineReq(XLen.X64):
+  fun cache_request(request :: RV2WideMemoryReq(XLen.X64)) :~ CachePipelineReq(XLen.X64):
     CachePipelineReq(XLen.X64):
       byte_mask: request.mask
       address: request.address.align_down(8)
@@ -110,8 +110,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
       data: request.data
   early_index |> map_valid(request => cache_request(request)) |> pipeline_lookup
   def mem_request = retained_request |> valid_pipe(1)
-  def mem :: RV2WideMemoryReq() = mem_request.bits
-  def data_request :: RV2WideMemoryReq() = mux(split_request.valid, split_request.bits, mux(memory.request.valid, memory.request.bits, mem))
+  def mem :: RV2WideMemoryReq(XLen.X64) = mem_request.bits
+  def data_request :: RV2WideMemoryReq(XLen.X64) = mux(split_request.valid, split_request.bits, mux(memory.request.valid, memory.request.bits, mem))
   def data_virtual_address = mux(split_request.valid, split_fault_address, data_request.address)
   def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
   def explicit_guest = data_request.guest_access =/= RiscvGuestMemoryAccess.Normal
@@ -123,7 +123,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   // Registered hints never contend with demand translation or allocate a walk.
   // A context change discards both staged forms, including the outgoing edge.
-  reg prefetch_previous_state(RV2WideTranslationState(), ~init: literal(RV2WideTranslationState(), 0))
+  reg prefetch_previous_state(RV2WideTranslationState(XLen.X64), ~init: literal(RV2WideTranslationState(XLen.X64), 0))
   prefetch_previous_state <== state
   def prefetch_flush = invalidate ||| (prefetch_previous_state.as_bits() =/= state.as_bits())
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
@@ -170,7 +170,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def data_pbmt = riscv_host_result(data_result).pbmt
   instruction.pbmt <== riscv_host_result(instruction_result).pbmt
   instruction.address <== instruction_result.physical_address.zext(64)
-  instruction.resolution <== RV2WideResolution():
+  instruction.resolution <== RV2WideResolution(XLen.X64):
     guest: instruction_result.fault_details.updated(~guest_virtual_address: guest_state.virtualized)
     disposition: mux(!instruction_known, RV2WideDisposition.Replay, mux(instruction_result.fault === RiscvTranslationFault.None, RV2WideDisposition.Continue, RV2WideDisposition.Fault))
     cause: riscv_translation_fault_cause(instruction_result)
@@ -215,7 +215,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   otherwise:
     outcome <== mux(physical_pipeline.response.valid, cache_outcome, RV2WideCacheOutcome.Replay)
   pipeline.response.valid <== mem_request.valid
-  pipeline.response.bits <== RV2WideLookupResult():
+  pipeline.response.bits <== RV2WideLookupResult(XLen.X64):
     guest: data_guest_fault
     outcome: outcome
     data: physical_pipeline.response.bits.data
@@ -267,7 +267,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   // The owner FIFO tracks accepted physical transactions, not live walks.
   // Cancellation suppresses translation publication, never response draining.
-  inst requests(Arbiter(RV2WideMemoryReq(), 3))
+  inst requests(Arbiter(RV2WideMemoryReq(XLen.X64), 3))
   inst owners(Queue(RV2WidePhysicalOwner, 8))
   (memory.request |> gate_flow(data_ok & !misaligned.busy & (!execute_read ||| region.executable))
     |> map_flow(request => request.updated(~address: data_result.physical_address.zext(64), ~pbmt: data_pbmt))
@@ -283,7 +283,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def pte_attributes = resolve_memory_attributes(pte_region, walker.memory.request.bits.pbmt)
   def pte_permitted = pte_region.mapped & pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent & pte_region.readable
   requests.ingress[2].valid <== walker.memory.request.valid & pte_permitted
-  requests.ingress[2].bits <== RV2WideMemoryReq():
+  requests.ingress[2].bits <== RV2WideMemoryReq(XLen.X64):
     guest_access: RiscvGuestMemoryAccess.Normal
     address: walker.memory.request.bits.address
     access: CacheOperation.Load
@@ -303,7 +303,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   walker.memory.request.ready <== requests.ingress[2].ready ||| pte_fault
   walker.memory.request_access_fault <== pte_fault
   memory.fault.valid <== memory.request.valid & !misaligned.busy & ((data_known & (!data_ok ||| (execute_read & !region.executable))) ||| (physical_memory.fault.valid & (origin === RV2WidePhysicalOwner.Core)))
-  memory.fault.bits <== RV2WideResolution():
+  memory.fault.bits <== RV2WideResolution(XLen.X64):
     guest: data_guest_fault
     disposition: RV2WideDisposition.Fault
     cause: mux(!data_ok, riscv_translation_fault_cause(data_result), mux(execute_read & !region.executable, exception_cause_bits(ExceptionCause.LoadAccessFault, 64), physical_memory.fault.bits.cause))
