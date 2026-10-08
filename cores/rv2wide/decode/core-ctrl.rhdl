@@ -31,6 +31,7 @@ import:
   lib("riscv/isa/zawrs.rhm") open
   lib("riscv/isa/zihintpause.rhm") open
   lib("riscv/isa/zihintntl.rhm") open
+  lib("riscv/isa/svinval.rhm") open
   lib("riscv/rtl/zihintntl.rhdl") open
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
@@ -145,8 +146,8 @@ def RV2WidePrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperati
   DecodeCase(instruction_pattern(entry[0]), output)
 
 /* Selects the exact scalar domain used by decode and compressed expansion. */
-fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false, ~zihintpause: zihintpause :: Boolean = #false, ~zihintntl: zihintntl :: Boolean = #false) :: List.of(InstructionSpec):
-  RV2WideInstructions ++ (if zicboz | ZicbozInstructions | []) ++ (if zicbom | ZicbomInstructions | []) ++ (if zicbop | ZicbopInstructions | []) ++ (if zawrs | ZawrsInstructions | []) ++ (if zihintpause | ZihintpauseInstructions | []) ++ (if zihintntl | ZihintntlInstructions | []) ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
+fun rv2wide_instructions(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false, ~zihintpause: zihintpause :: Boolean = #false, ~zihintntl: zihintntl :: Boolean = #false, ~svinval: svinval :: Boolean = #false) :: List.of(InstructionSpec):
+  RV2WideInstructions ++ (if zicboz | ZicbozInstructions | []) ++ (if zicbom | ZicbomInstructions | []) ++ (if zicbop | ZicbopInstructions | []) ++ (if zawrs | ZawrsInstructions | []) ++ (if zihintpause | ZihintpauseInstructions | []) ++ (if zihintntl | ZihintntlInstructions | []) ++ (if svinval | SvinvalInstructions | []) ++ fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
 
 // WRS is operand-free and uses the core's retained WB owner, not a memory request.
 def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WRS_STO, RV2WideWait.ShortTimeout]]):
@@ -209,8 +210,28 @@ def RV2WideLocalityCases = for List (entry in [[NTL_P1, RiscvMemoryLocality.P1],
     fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
   DecodeCase(instruction_pattern(entry[0]), output)
 
-/* Adds selected CMOs, waits, hint overlays, and shared FP controls to the integer decoder. */
-fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false, ~zihintpause: zihintpause :: Boolean = #false, ~zihintntl: zihintntl :: Boolean = #false) :: List.of(DecodeCase):
+// These serialized commands share inactive datapaths, but retain distinct CSR actions.
+def RV2WideInvalidationControlCases = for List (instruction in SvinvalInstructions):
+  def input = instruction_pattern(instruction)
+  def output = pattern(RV2WideControl()):
+    alu: unused_alu
+    operand:
+      partial_pattern(RV2WideOperandControl()):
+        uses_rs1: Bool(#false)
+        uses_rs2: Bool(#false)
+    branch: component_output(core_branch_cases, instruction_pattern(ADDI))
+    memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+    prefetch: CachePrefetchOperation.None
+    pause: Bool(#false)
+    locality_hint: RiscvMemoryLocality.Default
+    writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
+    system: component_output(RV2WideInvalidationCases, input)
+    muldiv: component_output(core_long_cases, instruction_pattern(ADDI))
+    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+  DecodeCase(input, output)
+
+/* Adds selected CMOs, waits, invalidation, hint overlays, and shared FP controls to the integer decoder. */
+fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~zicboz: zicboz :: Boolean = #false, ~zicbom: zicbom :: Boolean = #false, ~zicbop: zicbop :: Boolean = #false, ~zawrs: zawrs :: Boolean = #false, ~zihintpause: zihintpause :: Boolean = #false, ~zihintntl: zihintntl :: Boolean = #false, ~svinval: svinval :: Boolean = #false) :: List.of(DecodeCase):
   def instructions = fp_instructions(XLen.X64, profile, half_precision, ~zfa: zfa)
   def controls = fp_control_cases(XLen.X64, profile, half_precision, ~zfa: zfa)
   def fp_branches = branch_cases(instructions)
@@ -221,7 +242,7 @@ fun rv2wide_control_cases(profile :: FloatingPointProfile, ~half_precision: half
     DecodeCase(input, component_output(RV2WideCboControlCases, input))
   def hint_cases = (if zicbop | RV2WidePrefetchCases | []) ++ (if zihintpause | RV2WidePauseCases | []) ++ (if zihintntl | RV2WideLocalityCases | [])
   def integer_cases = if hint_cases.length() > 0 | overlay_decode_cases(RV2WideControlCases, hint_cases) | RV2WideControlCases
-  integer_cases ++ cbo_cases ++ (if zawrs | RV2WideWaitCases | []) ++ for List (instruction in instructions):
+  integer_cases ++ cbo_cases ++ (if zawrs | RV2WideWaitCases | []) ++ (if svinval | RV2WideInvalidationControlCases | []) ++ for List (instruction in instructions):
     def input = instruction_pattern(instruction)
     def load = instruction.name in ["FLH", "FLW", "FLD"]
     def store = instruction.name in ["FSH", "FSW", "FSD"]

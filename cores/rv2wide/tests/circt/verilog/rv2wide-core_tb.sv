@@ -87,6 +87,8 @@ module rv2wide_core_tb;
   int requests = 0, responses = 0, canceled = 0, stores = 0, stall_cycles = 0, hits = 0, lookups = 0;
   int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
   logic instruction_invalidate;
+  logic translation_flush;
+  int translation_invalidations=0;
   branch_update_flow_t branch_update;
   int branch_updates=0;
   int invalidations=0;
@@ -125,7 +127,7 @@ module rv2wide_core_tb;
 
   RV2WideCore dut(
     .prefetch_out(prefetch),
-    .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
+    .translation_state(), .translation_flush(translation_flush), .instruction_invalidate_out(instruction_invalidate),
     .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(),
     .direction_update_out(direction_update), .history_restore_out(history_restore),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(time_counter), .sleeping(sleeping),
@@ -180,6 +182,7 @@ module rv2wide_core_tb;
     else assert(history_restore.bits==want) else $fatal(1,"recovery history mismatch pc=%h got=%h want=%h",redirect.bits.pc,history_restore.bits,want);
     history_recoveries++;
   end
+  always @(posedge clock) if(!reset && translation_flush) translation_invalidations++;
   always @(posedge clock) if(!reset && instruction_invalidate) begin
     invalidations++;
     assert(retired[0].valid && retired[0].bits.fetched.instruction==32'h0000100f && redirect.valid && redirect.bits.resolution.disposition==3)
@@ -1552,6 +1555,54 @@ module rv2wide_core_tb;
     assert(response_count==1 && expected.size()==1 && expected_redirects.size()==1) else $fatal(1,"CSR escaped accepted-load drain");
     hold_responses=0; drain();
     csr_access('h640c,2,4,0,'h340,model[1]);
+
+    // Svinval uses the same precise, single-slot WB boundary. TVM restricts
+    // invalidation, not the ordering instructions; U may execute neither.
+    for(int privilege=0;privilege<3;privilege++) for(int tvm=0;tvm<2;tvm++) for(int operation=0;operation<3;operation++) begin
+      logic [31:0] word;
+      logic [63:0] pc;
+      bit allowed;
+      int before_flushes;
+      reset_core(); pc='h16000;
+      word=operation==0 ? 32'h17f08073 : (operation==1 ? 32'h18000073 : 32'h18100073);
+      allowed=privilege==2 || (privilege==1 && (operation!=0 || tvm==0));
+      constant64(pc,1,(tvm!=0 ? 64'h100000 : 0) | (privilege==1 ? 64'h800 : 0)); drain();
+      csr_access(pc,1,0,1,'h300,64'ha00000000); pc+=4;
+      if(privilege!=2) begin
+        send(pc,imm(2,0,'h500),0,1); pc+=4; drain();
+        csr_access(pc,1,0,2,'h341,0); pc+=4;
+        expect_system(pc,32'h30200073); stop_at(pc,'h500,3);
+        send(pc,32'h30200073,0,1,0,0); drain(); pc='h500;
+      end
+      before_flushes=translation_invalidations;
+      // An ordinary older peer retires, while the system command issues alone.
+      expect_instruction(pc,imm(6,0,42));
+      if(allowed) begin expect_system(pc+4,word); stop_at(pc+4,pc+8,3); end
+      else stop_at(pc+4,0,1,2,64'(word));
+      send(pc,imm(6,0,42),word,2,0,0); drain();
+      assert(translation_invalidations==before_flushes+int'(allowed && operation==0))
+        else $fatal(1,"Svinval invalidation/ordering mismatch privilege=%0d TVM=%0d operation=%0d",privilege,tvm,operation);
+      if(!allowed) begin
+        csr_access(0,2,7,0,'h341,pc+4);
+        csr_access(4,2,8,0,'h343,64'(word));
+      end
+    end
+    for(int operation=0;operation<3;operation++) begin
+      logic [31:0] word;
+      int before_flushes;
+      reset_core(); hold_responses=1;
+      word=operation==0 ? 32'h16000073 : (operation==1 ? 32'h18000073 : 32'h18100073);
+      before_flushes=translation_invalidations;
+      send('h16100,imm(1,0,0,3,'h03),imm(2,0,2));
+      expect_system('h16108,word); stop_at('h16108,'h1610c,3);
+      send('h16108,word,imm(3,0,99),2,0,0);
+      repeat(10) tick();
+      assert(response_count==1 && expected.size()==1 && translation_invalidations==before_flushes)
+        else $fatal(1,"Svinval escaped accepted-load drain");
+      hold_responses=0; drain();
+      assert(translation_invalidations==before_flushes+int'(operation==0))
+        else $fatal(1,"Svinval repeated invalidation");
+    end
 
     // Interrupts stop before the oldest unretired instruction and retain the
     // precise boundary while already retired load owners drain.

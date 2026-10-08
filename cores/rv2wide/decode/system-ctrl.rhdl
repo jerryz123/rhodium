@@ -13,6 +13,7 @@ import:
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
   lib("riscv/isa/privileged.rhm") open
+  lib("riscv/isa/svinval.rhm") open
   lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
@@ -126,7 +127,21 @@ def RV2WideSystemCases = decode_groups(RV2WideSystemControl(), ~input: instructi
     action: RiscvCsrAction.None
     fence: RV2WideFence.Instruction
 
+// Full invalidation ignores address/ASID operands; ordering retains its own privilege rule.
+def RV2WideInvalidationCases = decode_groups(RV2WideSystemControl(), ~input: instruction_pattern):
+  [SINVAL_VMA]:
+    wait: RV2WideWait.None
+    fence: RV2WideFence.None
+    csr: RiscvCsrOperation.None
+    action: RiscvCsrAction.SfenceVma
+  [SFENCE_W_INVAL, SFENCE_INVAL_IR]:
+    wait: RV2WideWait.None
+    fence: RV2WideFence.None
+    csr: RiscvCsrOperation.None
+    action: RiscvCsrAction.TranslationOrder
+
 export:
+  RV2WideInvalidationCases
   RV2WideWait
   RV2WideFence
   RV2WideSystemControl

@@ -281,6 +281,9 @@ the shared hart MMU-type descriptor.
 `cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
 composition and one hardware decoder per issue slot, plus the architectural
 XLEN descriptor to select the shared F/D/Zfa instruction/control relations.
+Its system and combined control relations also import the pure
+`riscv/isa/svinval.rhm` catalog; optional invalidation reuses shared CSR actions
+and the existing WB/MMU ownership boundary.
 `cores/rv2wide/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward

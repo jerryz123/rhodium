@@ -377,6 +377,19 @@ The existing `rv2wide-cache` fixture varies management-request PBMT at its
 physical boundary while retaining real dirty cache contents and CHI snoops.
 This checks that NC/IO aliases do not turn maintenance into local completion.
 
+Optional `profile.svinval` selects the pure ISA catalog and composed system
+columns, and publishes Svinval through the same ISA/UDB projection. SINVAL.VMA
+reuses the shared CSR bank's `SfenceVma` action. Its address/ASID operands are
+unused because invalidation is global. The two ordering instructions instead
+use `TranslationOrder`, preserving their distinct TVM permission rule and
+avoiding unnecessary TLB flushes. All three reuse system serialization and
+successor restart; no new transaction state belongs in the core.
+Extend `rv2wide-core` for M/S/U permissions, TVM, accepted-load drain, and
+invalidation pulses; `rv2wide-fetch` rewrites warm I/D mappings through a
+coherent PTE alias before executing the complete ordering/invalidation sequence.
+Run those fixtures, `rv2wide-mmu` for canceled accepted-PTE response ownership,
+and `tests/profile-test.rhm` for configuration/publication changes.
+
 Architectural invalidation clears TLBs and retained faults at the retirement edge.
 Registered walker cancellation breaks the retirement/readiness feedback path;
 the invalidation edge suppresses completion publication and new walk admission.

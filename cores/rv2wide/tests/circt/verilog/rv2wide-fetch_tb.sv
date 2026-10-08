@@ -59,6 +59,7 @@ module rv2wide_fetch_tb;
   int cycles=0, reference_pc=0, commits=0, dual_run=0, longest_dual=0;
   int ireads=0, dreads=0, acks=0, replay_count=0, branch_count=0, faults=0, phase=0;
   int pbmt_kind=0, pbmt_fetches=0, pbmt_loads=0, pbmt_stores=0;
+  bit svinval_remapped=0;
   int wrong_path_reads=0, detached_refills=0, completions_seen=0;
   int reset_canceled_refills=0;
   int predicted_branches=0, predicted_conditional=0, predicted_straddles=0;
@@ -158,7 +159,7 @@ module rv2wide_fetch_tb;
   endfunction
   function automatic int instruction_pa(int pc);
     if(pc>='h400000 && pc<'h401000) return 'h14000+(pc&'hfff);
-    if(pc>='h401000 && pc<'h402000) return 'h16000+(pc&'hfff);
+    if(pc>='h401000 && pc<'h402000) return (phase==34 && svinval_remapped ? 'h18000 : 'h16000)+(pc&'hfff);
     return pc;
   endfunction
   function automatic logic [31:0] instruction_at(int pc);
@@ -167,6 +168,8 @@ module rv2wide_fetch_tb;
     return word;
   endfunction
   function automatic int data_pa(logic [63:0] address);
+    if(phase==34 && address>='h502000 && address<'h503000) return 'h12000+int'(address&'hfff);
+    if(phase==34 && svinval_remapped && address>='h500000 && address<'h501000) return 'h17000+int'(address&'hfff);
     if(phase>=6 && address>='h500000 && address<'h501000) return (phase==13 ? 'h2000 : 'h15000)+int'(address&'hfff);
     if(phase>=23 && address>='h501000 && address<'h502000) return 'h17000+int'(address&'hfff);
     return int'(address);
@@ -348,6 +351,7 @@ module rv2wide_fetch_tb;
       end
       7'h73: begin
         assert(phase>=5) else $fatal(1,"unexpected system instruction");
+        if(phase==34 && (word & 32'hfe007fff)==32'h16000073) svinval_remapped=1;
         if(phase>=6) begin
           if(word==32'h30200073) reference_pc=phase==19 ? expected_fault_pc+4 : 'h400000;
           else if(word[14:12]==2) begin
@@ -1124,6 +1128,53 @@ module rv2wide_fetch_tb;
         else $fatal(1,"PBMT CSR/fetch/data integration kind=%0d",kind);
       assert(pbmt_fetches>before_fetches && pbmt_loads==before_loads+4 && pbmt_stores==before_stores+1) else $fatal(1,"PBMT cached allocation or duplicate/squashed data effect");
       $display("PBMT kind=%0d passed at cycle=%0d: %0d fetches, %0d loads, %0d stores",kind,cycles,pbmt_fetches-before_fetches,pbmt_loads-before_loads,pbmt_stores-before_stores);
+    end
+`endif
+`ifndef BPRED_DISABLED
+    // Rewrite warm I/D mappings through a coherent virtual alias of the leaf
+    // table. No harness memory mutation occurs while the hart is executing.
+    begin
+      logic [63:0] pte;
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0; ustate=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      for(int p='h10000;p<'h20000;p++) begin backing[p]=0; model_bytes[p]=0; end
+      pte=('h11<<10)|1; for(int b=0;b<8;b++) backing['h10000+b]=pte[b*8+:8];
+      pte=('h12<<10)|1; for(int b=0;b<8;b++) backing['h11010+b]=pte[b*8+:8];
+      pte=('h14<<10)|'hcb; for(int b=0;b<8;b++) backing['h12000+b]=pte[b*8+:8];
+      pte=('h16<<10)|'hcb; for(int b=0;b<8;b++) backing['h12008+b]=pte[b*8+:8];
+      pte=('h15<<10)|'hc7; for(int b=0;b<8;b++) backing['h12800+b]=pte[b*8+:8];
+      pte=('h12<<10)|'hc7; for(int b=0;b<8;b++) backing['h12810+b]=pte[b*8+:8];
+      for(int b=0;b<8;b++) begin
+        backing['h15000+b]=8'(b+1); model_bytes['h15000+b]=8'(b+1);
+        backing['h17000+b]=8'(b+17); model_bytes['h17000+b]=8'(b+17);
+      end
+      insn('h300,addi(1,0,8)); insn('h304,{6'd0,6'd60,5'd1,3'b001,5'd1,7'h13});
+      insn('h308,addi(1,1,16)); insn('h30c,{12'h180,5'd1,3'b001,5'd0,7'h73});
+      insn('h310,addi(1,0,2047)); insn('h314,addi(1,1,1));
+      insn('h318,{12'h300,5'd1,3'b001,5'd0,7'h73});
+      insn('h31c,{20'h400,5'd1,7'h37}); insn('h320,{12'h341,5'd1,3'b001,5'd0,7'h73});
+      insn('h324,32'h30200073);
+      insn('h14000,{20'h500,5'd1,7'h37}); insn('h14004,load(5,1,0,3));
+      insn('h14008,jal(10,'hff8));
+      insn('h1400c,{20'h503,5'd2,7'h37}); insn('h14010,addi(2,2,-2048));
+      insn('h14014,{20'h6,5'd3,7'h37}); insn('h14018,addi(3,3,-'h339));
+      insn('h1401c,store(3,2,0,3));
+      insn('h14020,{20'h502,5'd4,7'h37}); insn('h14024,{20'h6,5'd3,7'h37});
+      insn('h14028,addi(3,3,'hcb)); insn('h1402c,store(3,4,8,3));
+      insn('h14030,32'h18000073); // SFENCE.W.INVAL
+      insn('h14034,32'h16008073); // SINVAL.VMA x1,x0: conservative full invalidation
+      insn('h14038,32'h18100073); // SFENCE.INVAL.IR
+      insn('h1403c,load(7,1,0,3)); insn('h14040,jal(10,'hfc0));
+      insn('h14044,32'h10500073);
+      insn('h16000,addi(9,0,11)); insn('h16004,{12'd0,5'd10,3'd0,5'd0,7'h67});
+      insn('h18000,addi(9,9,22)); insn('h18004,{12'd0,5'd10,3'd0,5'd0,7'h67});
+      phase=34; pbmt_kind=0; svinval_remapped=0; reference_pc='h300;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(reference_pc=='h400048 && svinval_remapped && registers[5]==64'h0807060504030201 && registers[7]==64'h1817161514131211 && registers[9]==33)
+        else $fatal(1,"Svinval failed to expose rewritten coherent instruction/data PTEs");
     end
 `endif
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);

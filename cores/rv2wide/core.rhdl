@@ -223,7 +223,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
-  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause, ~zihintntl: profile.zihintntl))
+  def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile.floating_point, ~half_precision: profile.half_precision, ~zfa: profile.zfa, ~zicboz: profile.zicboz, ~zicbom: profile.zicbom, ~zicbop: profile.zicbop, ~zawrs: profile.zawrs, ~zihintpause: profile.zihintpause, ~zihintntl: profile.zihintntl, ~svinval: profile.svinval))
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
   // At most one memory instruction issues per group; the older CMO owns the

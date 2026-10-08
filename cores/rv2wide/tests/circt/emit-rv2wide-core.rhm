@@ -6,5 +6,5 @@ import:
   "../../core.rhdl" open
   "../../profile.rhm".RV2WideConfig
 
-def program = elaborate(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true)))
+def program = elaborate(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true, ~svinval: #true)))
 export program

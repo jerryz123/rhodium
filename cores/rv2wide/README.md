@@ -564,6 +564,14 @@ Reserved NAPOT encodings fault. Permissions and software-managed A/D checks
 remain unchanged; SFENCE.VMA invalidates the complete mapping in both banks.
 No neighboring-PTE scan or new pipeline stage is introduced.
 
+Select `RV2WideConfig(~svinval: #true)` to implement and advertise Svinval 1.0;
+it defaults to disabled. SINVAL.VMA conservatively invalidates both entire TLBs
+and cancels stale walk publication, like SFENCE.VMA. SFENCE.W.INVAL and
+SFENCE.INVAL.IR use the same drained, single-slot WB boundary without
+invalidating translations. All three are illegal in U-mode; mstatus.TVM
+additionally disallows SINVAL.VMA in S-mode, but not the ordering instructions.
+This implementation does not pipeline invalidations or implement HINVAL forms.
+
 Select `RV2WideConfig(~svpbmt: #true)` to implement and advertise Svpbmt 1.0;
 it defaults to disabled. The shared CSR bank supplies `menvcfg.PBMTE`, and a
 change flushes translation state. Both TLBs retain the leaf's PMA/NC/IO selector.
