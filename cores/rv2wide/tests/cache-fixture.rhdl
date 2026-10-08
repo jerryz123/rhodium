@@ -15,6 +15,7 @@ import:
   lib("chi/protocol/link.rhdl").CHINodeKind
   lib("chi/protocol/fabric.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("chi/protocol/channels.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -45,6 +46,7 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
 
 sync_circuit RV2WideCacheFixture():
   input node_id: Bits(test_flit.node_id_width)
+  input management_pbmt: PageMemoryType
   interface instructions(Decoupled(RV2WidePacket()), ~role: consumer)
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
   interface completed(Valid(RV2WideRetirement()), ~role: producer)
@@ -72,9 +74,22 @@ sync_circuit RV2WideCacheFixture():
   core.pipeline <=> mmu.pipeline
   core.prefetch |> mmu.prefetch
   mmu.physical_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
-  mmu.physical_memory <=> data.memory
+  // Exercise maintenance through each translated physical attribute without
+  // replacing the production cache, its coherent engine, or its resident data.
+  mmu.physical_memory.request
+    |> map_flow(request => request.updated(~pbmt: mux(request.access.is_cache_management(), management_pbmt, request.pbmt)))
+    |> data.memory.request
+  data.memory.response |> mmu.physical_memory.response
+  data.memory.fault |> mmu.physical_memory.fault
+  mmu.physical_memory.drained <== data.memory.drained
+  mmu.physical_memory.ordered_busy <== data.memory.ordered_busy
+  mmu.physical_memory.reservation_valid <== data.memory.reservation_valid
   mmu.physical_pipeline <=> data.pipeline
   mmu.pipeline_lookup |> data.pipeline_lookup
+  data.instruction.flush <== Bool(#false)
+  data.instruction.request.valid <== Bool(#false)
+  data.instruction.request.bits <== dont_care(RV2WidePhysicalInstructionReq())
+  data.instruction.response.ready <== Bool(#true)
   data.chi <=> chi
   data.node_id <== node_id
   data.uncached_node_id <== bits(4, test_flit.node_id_width)

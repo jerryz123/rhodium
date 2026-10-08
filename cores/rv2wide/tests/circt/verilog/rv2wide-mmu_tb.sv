@@ -7,6 +7,8 @@ module rv2wide_mmu_tb;
   always #5 clock=~clock;
   logic [1:0] privilege=1;
   logic [63:0] satp=64'h8000000000000010, mstatus=0;
+  logic pbmte=0;
+  wire [1:0] fetch_pbmt, physical_pbmt;
   logic invalidate=0, fetch_valid=0, ex_valid=0, wb_valid=0, commit=0;
   logic [3:0] access=1;
   logic [2:0] locality=0;
@@ -45,7 +47,7 @@ module rv2wide_mmu_tb;
   endtask
   task automatic reply(input logic [63:0] pa, data);
     wait_request(pa);
-    assert(physical_locality==0) else $fatal(1,"unexpected locality on PTE/default request");
+    assert(physical_locality==0 && physical_pbmt==0) else $fatal(1,"unexpected locality on PTE/default request");
     physical_ready=1; tick(); falling(); physical_ready=0;
     return_data(data);
   endtask
@@ -351,8 +353,60 @@ module rv2wide_mmu_tb;
     assert(fetch_resolution.disposition==1 && fetch_resolution.cause==12 && fetch_resolution.value=='h40f008 && !physical_valid)
       else $fatal(1,"NAPOT instruction page fault/provenance");
     fetch_valid=0;
-    $display("RV2Wide MMU timing, Svnapot mappings, permissions, invalidation, arbitration, and cancel/drain passed");
+    // PBMTE is part of translation context. NC/IO stay off the speculative
+    // cache path, but retain their selector and exact address through WB.
+    for(int kind=1;kind<=2;kind++) begin
+      fence(); access=1; pbmte=1;
+      offer_wb('h500008); walk_data((64'(kind)<<61)|('h15<<10)|'hc7);
+      address='h500008; ex_valid=1;
+      tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && outcome==0 && !resolve_valid && !physical_valid) else $fatal(1,"PBMT speculative allocation");
+      tick(); falling(); wb_valid=1; #1;
+      assert(physical_valid && physical_address=='h15008 && physical_pbmt==2'(kind) && !wb_fault) else $fatal(1,"PBMT WB metadata");
+      physical_ready=1; tick(); falling(); wb_valid=0; physical_ready=0;
+      return_data(64'h123456,1);
+      for(int operation=7;operation<=9;operation++) begin
+        access=4'(operation); wb_valid=1; #1;
+        assert(physical_valid && physical_address=='h15008 && physical_pbmt==2'(kind) && !wb_fault) else $fatal(1,"PBMT hid cache management");
+        wb_valid=0;
+      end
+      access=1;
+      hint('h50003f,2,0); hint('h50003f,3,0);
+      // PBMT must not make unsupported physical atomic service legal.
+      access=3; ex_valid=1; tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && outcome==5 && !resolve_valid) else $fatal(1,"PBMT atomic speculative permission");
+      tick(); falling(); access=1;
+      // The conservative split path still refuses non-idempotent/noncacheable beats.
+      start_split('h500007); finish_split(0,'h500007,0,1);
+      fetch_address='h400008; fetch_valid=1;
+      walk_at(fetch_address,(64'(kind)<<61)|('h14<<10)|'hcb);
+      assert(fetch_resolution.disposition==0 && fetch_physical=='h14008 && fetch_pbmt==2'(kind)) else $fatal(1,"PBMT fetch metadata");
+      fetch_valid=0; hint('h400008,1,0);
+      pbmte=0; address='h500008; ex_valid=1;
+      tick(); falling(); ex_valid=0; #1;
+      assert(result_valid && outcome==0 && !resolve_valid) else $fatal(1,"PBMTE reused enabled-context entry");
+      tick(); falling();
+      offer_wb('h500008); walk_data((64'(kind)<<61)|('h15<<10)|'hc7);
+      data_page_fault('h500008);
+    end
+    // Reserved leaf encodings and PBMT in a nonleaf must fault, not fill.
+    pbmte=1; fence(); offer_wb('h500008);
+    walk_data((64'd3<<61)|('h15<<10)|'hc7); data_page_fault('h500008);
+    fence(); offer_wb('h500008);
+    reply('h10000,(64'd1<<61)|('h11<<10)|1);
+    repeat(5) tick(); falling(); data_page_fault('h500008);
+    // PBMT and Svnapot coexist in a single mapping; permissions remain unchanged.
+    fence(); offer_wb('h507008);
+    walk_at('h507008,64'ha000000000006043);
+    address='h50f008; wb_valid=1; #1;
+    assert(physical_valid && physical_address=='h1f008 && physical_pbmt==1) else $fatal(1,"NAPOT PBMT combination");
+    wb_valid=0; data_page_fault('h50f008,2);
+    // Bare translation ignores any stale page attributes and returns PMA.
+    privilege=3; access=1; address=8; wb_valid=1; #1;
+    assert(physical_valid && physical_address==8 && physical_pbmt==0) else $fatal(1,"Bare inherited PBMT");
+    wb_valid=0;
+    $display("RV2Wide MMU timing, Svnapot/Svpbmt mappings, permissions, invalidation, arbitration, and cancel/drain passed");
     $finish;
   end
-  initial begin #60000; $fatal(1,"MMU timeout"); end
+  initial begin #100000; $fatal(1,"MMU timeout"); end
 endmodule

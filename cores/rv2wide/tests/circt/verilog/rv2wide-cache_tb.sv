@@ -29,7 +29,7 @@ module rv2wide_cache_tb;
   wire uncached_activity;
   chi_in_t chi_in;
   chi_out_t chi_out;
-  RV2WideCacheFixture dut(.clock(clock), .reset(reset), .node_id(7'd3),
+  RV2WideCacheFixture dut(.clock(clock), .reset(reset), .node_id(7'd3), .management_pbmt(2'(maintenance_commits%3)),
     .instructions_in(instructions), .instructions_out(instructions_ready),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]), .completed_out(completed),
     .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out),

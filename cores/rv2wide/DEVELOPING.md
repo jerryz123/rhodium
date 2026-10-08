@@ -70,6 +70,7 @@ using its independent instruction execution and public prediction payloads.
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
+| `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
@@ -353,6 +354,28 @@ The existing MMU fixture checks cold walks from different subpages, warm I/D
 offsets, MEM/WB address agreement, mapping bounds, permission/A/D faults,
 reserved encodings, and whole-mapping invalidation/remapping. Run `rv2wide-mmu`
 and `riscv-svnapot` plus `tests/profile-test.rhm` for this integration.
+
+Optional `profile.svpbmt` configures the shared CSR bank and ISA/UDB publication.
+Carry the bank's PBMTE in `RV2WideTranslationState`; shared CSR translation
+flush already handles interpretation changes. Resolve architectural PBMT with
+`riscv/rtl/svpbmt.rhdl` only after translation. MEM qualification, WB physical
+requests, split-fragment permission checks, and prefetch probes must agree.
+Implicit PTE traffic retains physical PMA semantics; management routing uses
+physical cacheability to reach resident aliases even through NC/IO mappings.
+
+`instruction-memory.rhdl` preserves the S1/S2 lookup contract and retains one
+nonallocating block until a retry consumes it. A changed retry may discard an
+obsolete completed block. Architectural flush detaches it, not accepted bus
+ownership. The cache adapter arbitrates data before fetch around the existing
+uncached transport. IOMSHR admission remains independent of a younger fetch
+owner, and data drain excludes that owner, preventing a WB/fetch dependency
+cycle. The adapter withdraws unissued canceled fetches and drains issued ones.
+Extend `rv2wide-mmu` for PBMT permissions/context and `rv2wide-fetch` for
+real PBMTE CSR writes, NC/IO execution, shared data/fetch arbitration, and
+redirect/FENCE.I behavior; run `tests/profile-test.rhm` for publication.
+The existing `rv2wide-cache` fixture varies management-request PBMT at its
+physical boundary while retaining real dirty cache contents and CHI snoops.
+This checks that NC/IO aliases do not turn maintenance into local completion.
 
 Architectural invalidation clears TLBs and retained faults at the retirement edge.
 Registered walker cancellation breaks the retirement/readiness feedback path;

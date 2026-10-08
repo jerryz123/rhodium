@@ -18,6 +18,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/rtl/trap.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -43,7 +44,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   interface start(Valid(Bits(64)), ~role: consumer)
   interface redirect(Valid(RV2WideRedirect()), ~role: consumer)
   interface flush(Pulse(), ~role: consumer)
-  interface memory(InstructionCacheLookup(64, 64), ~role: requester)
+  interface memory(RV2WideInstructionLookup(), ~role: requester)
   interface invalidate(Pulse(), ~role: consumer)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
   interface translation(RV2WideInstructionTranslation(), ~role: requester)
@@ -179,7 +180,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   // instruction PC becomes a fault token, never an aliased aligned fetch.
   def s1_base = translation.address.align_down(8)
   def physical = config.physical_map.lookup(s1_base, s1_base +& bits(7, 64))
-  def permitted = physical.mapped & physical.executable & physical.instruction_cacheable & physical.read_idempotent & !physical.device
+  def attributes = resolve_memory_attributes(physical, translation.pbmt)
+  def permitted = physical.mapped & physical.executable
   def misaligned = !s1.egress.bits.pc.is_aligned(2)
   s1.egress |> filter_valid(cursor => !command & !repair & !stop & cursor.pc.is_aligned(2)) |> map_valid(cursor => cursor.pc) |> translation.request
   def translation_replay = translation.resolution.disposition === RV2WideDisposition.Replay
@@ -192,8 +194,10 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     replay: translation_replay
     fault: denied
   def Array(resolutions, contexts) = looked_up |> fork_valid(2)
-  (resolutions |> filter_valid(_pc => !denied & !translation_replay) |> map_valid(_address => InstructionCacheReq(64)):
+  (resolutions |> filter_valid(_pc => !denied & !translation_replay) |> map_valid(_address => RV2WidePhysicalInstructionReq()):
     address: s1_base
+    cacheable: attributes.instruction_cacheable
+    device: attributes.strongly_ordered
   ) |> memory.request
   (contexts |> map_valid(address):
     wire attempt: RV2WideFetchAttempt()

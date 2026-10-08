@@ -17,6 +17,8 @@ def wait = RV2WideConfig(~zawrs: #true)
 def pause = RV2WideConfig(~zihintpause: #true)
 def locality = RV2WideConfig(~zihintntl: #true)
 def timer = RV2WideConfig(~sstc: #true)
+def pbmt = RV2WideConfig(~svpbmt: #true)
+def pbmt_napot = RV2WideConfig(~svpbmt: #true, ~svnapot: #true, ~floating_point: FloatingPointProfile.D)
 def napot = RV2WideConfig(~svnapot: #true)
 def napot_fp = RV2WideConfig(~svnapot: #true, ~floating_point: FloatingPointProfile.D)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
@@ -28,6 +30,14 @@ def zcmop = RV2WideConfig(~compressed: compressed_extensions(CompressedExtension
 def compressed_fp = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop))
 
 check:
+  integer.svpbmt ~is #false
+  integer.csr_config.svpbmt ~is #false
+  pbmt.csr_config.svpbmt ~is #true
+  pbmt.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["svpbmt"]
+  pbmt_napot.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["svnapot", "svpbmt"]
+  pbmt.hart_description.isa_profile ~is pbmt.isa_profile
+  pbmt.csr_config.isa_profile ~is pbmt.isa_profile
+  pbmt.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   integer.svnapot ~is #false
   napot.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["svnapot"]
   napot_fp.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["svnapot"]
@@ -87,10 +97,12 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer, zero, management, cmo, prefetch, wait, pause, locality, timer, napot, napot_fp, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [integer, zero, management, cmo, prefetch, wait, pause, locality, timer, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
+    extensions.contains("Svpbmt") ~is profile.svpbmt
+    configuration.extensions.filter(~keep: fun (extension): extension.name == "Svpbmt").map(fun (extension): extension.version) ~is (if profile.svpbmt | ["1.0.0"] | [])
     extensions.contains("Svnapot") ~is profile.svnapot
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Svnapot").map(fun (extension): extension.version) ~is (if profile.svnapot | ["1.0.0"] | [])
     extensions.contains("Sstc") ~is profile.sstc

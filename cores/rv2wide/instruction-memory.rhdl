@@ -1,0 +1,60 @@
+#lang rhodium
+/* Routes fixed-cycle fetch attempts to L1I or one replay-owned nonallocating read. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../cache/l1i/protocol.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Preserves S1/S2 timing while uncached reads retain their physical address until a
+   matching retry consumes the result. Architectural flush detaches the consumer;
+   the shared transport drains any accepted CHI transaction independently. */
+sync_circuit RV2WideInstructionMemory():
+  interface core(RV2WideInstructionLookup(), ~role: responder)
+  interface cache(InstructionCacheLookup(64, 64), ~role: requester)
+  interface uncached(RV2WideUncachedInstruction(), ~role: requester)
+  def flush = core.flush ||| core.invalidate_all
+  inst s2(ValidPipeAlwaysCapture(RV2WidePhysicalInstructionReq(), 1), ~reset_when: flush)
+  core.request |> filter_valid(_request => !core.s1_kill & !flush) |> s2.ingress
+  cache.flush <== flush
+  cache.invalidate_all <== core.invalidate_all
+  cache.s1_kill <== core.s1_kill
+  (core.request |> filter_valid(request => request.cacheable & !core.s1_kill & !flush)
+    |> map_valid(request => InstructionCacheReq(64)):
+      address: request.address
+  ) |> cache.request
+  reg pending(~init: Bool(#false))
+  reg completed(~init: Bool(#false))
+  reg request(RV2WidePhysicalInstructionReq())
+  reg response(InstructionCacheResult(64))
+  def uncached_attempt = s2.egress.valid & !s2.egress.bits.cacheable & !flush
+  def completed_match = completed & (request.as_bits() === s2.egress.bits.as_bits())
+  uncached.flush <== flush
+  s2.egress |> filter_valid(request => !request.cacheable & !flush & !pending & !completed) |> offer_decoupled() |> uncached.request
+  def returned = uncached.response |> gate_flow(pending & !flush) |> to_valid()
+  def unavailable = InstructionCacheResult(64):
+    data: bits(0, 64)
+    access_fault: Bool(#false)
+    replay: Bool(#true)
+  s2.egress |> filter_valid(_request => !flush)
+    |> map_valid(request => mux(request.cacheable, mux(cache.response.valid, cache.response.bits, unavailable), mux(completed_match, response, unavailable)))
+    |> core.response
+  when flush:
+    pending <== Bool(#false)
+    completed <== Bool(#false)
+  otherwise:
+    when (uncached.request.fire()):
+      pending <== Bool(#true)
+      request <== s2.egress.bits
+    elsewhen (returned.valid):
+      pending <== Bool(#false)
+      completed <== Bool(#true)
+      response <== returned.bits
+    // A local prediction repair can replace the retried address without an
+    // architectural flush. Consume a matching block, or discard its stale peer.
+    elsewhen uncached_attempt:
+      completed <== Bool(#false)
+
+export:
+  RV2WideInstructionMemory

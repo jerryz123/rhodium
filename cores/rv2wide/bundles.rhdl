@@ -10,6 +10,8 @@ import:
   lib("flow/main.rhdl") open
   lib("cores/load-store.rhdl").MemoryWidth
   lib("cores/cache/operation.rhdl").CacheOperation
+  lib("cores/cache/l1i/protocol.rhdl").InstructionCacheResult
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("cores/cache-prefetch.rhdl").CachePrefetchOperation
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/branch-resolver.rhdl").BranchResolverControl
@@ -26,6 +28,7 @@ bundle RV2WideTranslationState():
   privilege: PrivilegeMode
   mstatus: Bits(64)
   satp: Bits(64)
+  pbmte: Bool
 
 /* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
 interface RV2WideInstructionTranslation():
@@ -37,6 +40,37 @@ interface RV2WideInstructionTranslation():
   responder -> requester:
     address: Bits(64)
     resolution: RV2WideResolution()
+    pbmt: PageMemoryType
+
+/* Carries resolved physical fetch attributes without granting physical permission. */
+bundle RV2WidePhysicalInstructionReq():
+  address: Bits(64)
+  cacheable: Bool
+  device: Bool
+
+/* Resolves physical S1 fetches into fixed-cycle S2 cache, fault, or replay outcomes. */
+interface RV2WideInstructionLookup():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    invalidate_all: Bool
+    s1_kill: Bool
+    request: Valid(RV2WidePhysicalInstructionReq())
+  responder -> requester:
+    response: Valid(InstructionCacheResult(64))
+
+/* Cancels a fetch consumer while retaining accepted transport response ownership. */
+interface RV2WideUncachedInstruction():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    request: Decoupled(RV2WidePhysicalInstructionReq())
+  responder -> requester:
+    response: Decoupled(InstructionCacheResult(64))
 
 /* Retains the architectural cause and faulting address independently of instruction data. */
 bundle RV2WideFetchFault():
@@ -167,6 +201,7 @@ bundle RV2WideMemoryReq():
   data: Bits(64)
   mask: Bits(8)
   locality: RiscvMemoryLocality
+  pbmt: PageMemoryType
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle RV2WideLookupResult():
@@ -229,6 +264,9 @@ export:
   RV2WideFpLoad
   RV2WideTranslationState
   RV2WideInstructionTranslation
+  RV2WidePhysicalInstructionReq
+  RV2WideInstructionLookup
+  RV2WideUncachedInstruction
   RV2WideFetchFault
   RV2WideInstruction
   RV2WidePacket

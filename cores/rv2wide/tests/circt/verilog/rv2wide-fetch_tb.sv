@@ -58,6 +58,7 @@ module rv2wide_fetch_tb;
   retirement_t completions[$];
   int cycles=0, reference_pc=0, commits=0, dual_run=0, longest_dual=0;
   int ireads=0, dreads=0, acks=0, replay_count=0, branch_count=0, faults=0, phase=0;
+  int pbmt_kind=0, pbmt_fetches=0, pbmt_loads=0, pbmt_stores=0;
   int wrong_path_reads=0, detached_refills=0, completions_seen=0;
   int reset_canceled_refills=0;
   int predicted_branches=0, predicted_conditional=0, predicted_straddles=0;
@@ -181,8 +182,8 @@ module rv2wide_fetch_tb;
     if(ustate==1 && cycles>=udue) begin
       uncached_chi_in.dat.response.valid=1;
       uncached_chi_in.dat.response.bits.opcode=4'h4;
-      uncached_chi_in.dat.response.bits.src_id=7'd5;
-      uncached_chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid=7'd5;
+      uncached_chi_in.dat.response.bits.src_id=urequest.tgt_id;
+      uncached_chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid=urequest.tgt_id;
       uncached_chi_in.dat.response.bits.tgt_id=7'd4;
       uncached_chi_in.dat.response.bits.txn_id=urequest.txn_id;
       uncached_chi_in.dat.response.bits.byte_enable='1;
@@ -191,7 +192,7 @@ module rv2wide_fetch_tb;
     if((ustate==2 || ustate==4) && cycles>=udue) begin
       uncached_chi_in.rsp.response.valid=1;
       uncached_chi_in.rsp.response.bits.opcode=ustate==2 ? 5'h06 : 5'h04;
-      uncached_chi_in.rsp.response.bits.src_id=7'd5;
+      uncached_chi_in.rsp.response.bits.src_id=urequest.tgt_id;
       uncached_chi_in.rsp.response.bits.tgt_id=7'd4;
       uncached_chi_in.rsp.response.bits.txn_id=urequest.txn_id;
       uncached_chi_in.rsp.response.bits.dbid_or_group_id=12'd11;
@@ -303,14 +304,14 @@ module rv2wide_fetch_tb;
       end
       7'h03: begin
         address=registers[rs1]+64'($signed(word[31:20])); write_rd=rd!=0;
-        assert(ustate==0) else $fatal(1,"younger load bypassed ordered IO");
+        assert(ustate==0 || (pbmt_kind!=0 && urequest.address>='h14000 && urequest.address<'h15000)) else $fatal(1,"younger load bypassed ordered IO");
         bytes=1<<word[13:12];
         for(int b=0;b<bytes;b++) value[b*8+:8]=model_bytes[data_pa(address+64'(b))];
         if(!word[14] && value[bytes*8-1]) value|='1 << (bytes*8);
       end
       7'h23: begin
         imm=64'($signed({word[31:25],word[11:7]})); address=registers[rs1]+imm;
-        assert(ustate==0) else $fatal(1,"younger store bypassed ordered IO");
+        assert(ustate==0 || (pbmt_kind!=0 && urequest.address>='h14000 && urequest.address<'h15000)) else $fatal(1,"younger store bypassed ordered IO");
         for(int b=0;b<(1<<word[13:12]);b++) model_bytes[data_pa(address+64'(b))]=registers[rs2][b*8+:8];
       end
       7'h2f: begin
@@ -340,7 +341,7 @@ module rv2wide_fetch_tb;
           assert(!got.write && !got.deferred) else $fatal(1,"PAUSE created a write");
           pauses++; last_pause_cycle=cycles;
         end else begin
-        assert(ustate==0 && !dactive && completions.size()==0) else $fatal(1,"fence before memory drain");
+        assert((ustate==0 || (pbmt_kind!=0 && urequest.address>='h14000 && urequest.address<'h15000)) && !dactive && completions.size()==0) else $fatal(1,"fence before memory drain");
         fences++;
         if(word[14:12]==1) instruction_fences++;
         end
@@ -355,6 +356,7 @@ module rv2wide_fetch_tb;
               12'h342: value=64'(expected_fault_cause);
               12'h343: value=expected_fault_value;
               12'h341: value=64'(expected_fault_pc);
+              12'h30a: value=64'h4000000000000000;
               default: $fatal(1,"unexpected paged CSR read");
             endcase
           end
@@ -394,7 +396,7 @@ module rv2wide_fetch_tb;
 
   always @(posedge clock) if(!reset) begin
     cycles<=cycles+1;
-    if(cycles>25000) $fatal(1,"timeout phase=%0d pc=%h",phase,reference_pc);
+    if(cycles>60000) $fatal(1,"timeout phase=%0d pc=%h",phase,reference_pc);
     if(retired[0].valid && retired[1].valid) begin
       dual_run++; if(dual_run>longest_dual) longest_dual=dual_run;
       if(phase==14 && dual_run>compressed_dual_run) compressed_dual_run=dual_run;
@@ -456,7 +458,7 @@ module rv2wide_fetch_tb;
     end
     if(instruction_chi_out.rsp.requester.valid && instruction_chi_in.rsp.requester.ready) acks++;
     if(data_chi_out.requests.valid && data_chi_in.requests.ready) begin
-      assert(ustate==0) else $fatal(1,"cache request bypassed IO");
+      assert(ustate==0 || (pbmt_kind!=0 && urequest.address>='h14000 && urequest.address<'h15000)) else $fatal(1,"cache request bypassed IO");
       assert(data_chi_out.requests.bits.address<4096 || (data_chi_out.requests.bits.address>='h10000 && data_chi_out.requests.bits.address<'h20000)) else $fatal(1,"unmapped data transaction");
       case(data_chi_out.requests.bits.opcode)
         7'h02,7'h07: begin drequest<=data_chi_out.requests.bits; dactive<=1; dpacket<=0; ddue<=cycles+70; dreads++; end
@@ -473,7 +475,18 @@ module rv2wide_fetch_tb;
       for(int b=0;b<16;b++) if(data_chi_out.request_data.bits.byte_enable[b])
         backing[int'(wrequest.address)+16*int'(data_chi_out.request_data.bits.data_id)+b]=data_chi_out.request_data.bits.data[b*8+:8];
     if(uncached_chi_out.req.valid && uncached_chi_in.req.ready) begin
-      assert(!dactive && !wactive && (uncached_chi_out.req.bits.opcode==7'h04 || uncached_chi_out.req.bits.opcode==7'h1c)) else $fatal(1,"IO failed to drain cached predecessors");
+      assert(!dactive && !wactive) else $fatal(1,"IO failed to drain cached predecessors");
+      if(pbmt_kind!=0) begin
+        assert(uncached_chi_out.req.bits.tgt_id==1 && uncached_chi_out.req.bits.opcode inside {7'h03,7'h18}) else $fatal(1,"PBMT lost coherent Home/opcode");
+        assert(uncached_chi_out.req.bits.address>='h14000 && uncached_chi_out.req.bits.address<'h16000 && uncached_chi_out.req.bits.size_or_num_req==3) else $fatal(1,"PBMT physical address/width");
+        assert(uncached_chi_out.req.bits.mem_attr[1]==(pbmt_kind==2)) else $fatal(1,"PBMT Device attribute");
+        if(uncached_chi_out.req.bits.address<'h15000) begin
+          assert(uncached_chi_out.req.bits.opcode==7'h03) else $fatal(1,"fetch became a write");
+          pbmt_fetches++;
+        end else if(uncached_chi_out.req.bits.opcode==7'h03) pbmt_loads++;
+        else pbmt_stores++;
+      end else begin
+      assert(uncached_chi_out.req.bits.opcode inside {7'h04,7'h1c}) else $fatal(1,"wrong IO opcode");
       assert(uncached_chi_out.req.bits.address>='h2000 && uncached_chi_out.req.bits.address<'h2400) else $fatal(1,"wrong IO address");
       assert(uncached_chi_out.req.bits.size_or_num_req<=3) else $fatal(1,"IO widened beyond XLEN");
       case(uncached_chi_out.req.bits.address)
@@ -484,8 +497,9 @@ module rv2wide_fetch_tb;
         default: $fatal(1,"unexpected or wrong-path IO transaction");
       endcase
       assert(uncached_chi_out.req.bits.mem_attr[1]==(uncached_chi_out.req.bits.address<'h2300)) else $fatal(1,"wrong Device attribute");
+      end
       urequest<=uncached_chi_out.req.bits;
-      if(uncached_chi_out.req.bits.opcode==7'h04) begin ustate<=1; ureads++; end
+      if(uncached_chi_out.req.bits.opcode inside {7'h03,7'h04}) begin ustate<=1; ureads++; end
       else begin ustate<=2; uwrites++; end
       udue<=cycles+40;
     end
@@ -1068,6 +1082,48 @@ module rv2wide_fetch_tb;
       @(negedge clock); start_in='0;
       wait(sleeping); repeat(3) @(negedge clock);
       assert(reference_pc==pc+4 && dreads==before_reads+8) else $fatal(1,"compressed NTL fetch/allocation");
+    end
+`endif
+`ifndef BPRED_DISABLED
+    // Enable PBMTE through the real CSR bank, then execute both NC and IO
+    // mappings over coherent RAM. Fetch and WB data share one uncached identity.
+    for(int kind=1;kind<=2;kind++) begin
+      logic [63:0] pte;
+      int before_fetches, before_loads, before_stores;
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0; ustate=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      for(int p='h10000;p<'h20000;p++) begin backing[p]=0; model_bytes[p]=0; end
+      pte=('h11<<10)|1; for(int b=0;b<8;b++) backing['h10000+b]=pte[b*8+:8];
+      pte=('h12<<10)|1; for(int b=0;b<8;b++) backing['h11010+b]=pte[b*8+:8];
+      pte=(64'(kind)<<61)|('h14<<10)|'hcb; for(int b=0;b<8;b++) backing['h12000+b]=pte[b*8+:8];
+      pte=(64'(kind)<<61)|('h15<<10)|'hc7; for(int b=0;b<8;b++) backing['h12800+b]=pte[b*8+:8];
+      for(int b=0;b<16;b++) begin backing['h15000+b]=8'(b+1); model_bytes['h15000+b]=8'(b+1); end
+      insn('h300,addi(1,0,'h380)); insn('h304,{12'h305,5'd1,3'b001,5'd0,7'h73});
+      insn('h308,addi(1,0,8)); insn('h30c,{6'd0,6'd60,5'd1,3'b001,5'd1,7'h13});
+      insn('h310,addi(1,1,16)); insn('h314,{12'h180,5'd1,3'b001,5'd0,7'h73});
+      insn('h318,32'h12000073);
+      insn('h31c,addi(1,0,2047)); insn('h320,addi(1,1,1));
+      insn('h324,{12'h300,5'd1,3'b001,5'd0,7'h73});
+      insn('h328,{20'h400,5'd1,7'h37}); insn('h32c,{12'h341,5'd1,3'b001,5'd0,7'h73});
+      insn('h330,addi(1,0,1)); insn('h334,{6'd0,6'd62,5'd1,3'b001,5'd1,7'h13});
+      insn('h338,{12'h30a,5'd1,3'b001,5'd0,7'h73});
+      insn('h33c,{12'h30a,5'd0,3'b010,5'd2,7'h73}); insn('h340,32'h30200073);
+      insn('h14000,{20'h500,5'd1,7'h37}); insn('h14004,load(5,1,0,3));
+      insn('h14008,addi(6,5,1)); insn('h1400c,store(6,1,8,3));
+      insn('h14010,load(7,1,8,3)); insn('h14014,jal(0,'h2c));
+      insn('h14018,store(0,1,0,3)); // Squashed by the branch.
+      insn('h14040,load(8,1,0,3)); insn('h14044,32'h0000100f);
+      insn('h14048,load(9,1,8,3)); insn('h1404c,32'h10500073);
+      phase=31+kind; pbmt_kind=kind; reference_pc='h300;
+      before_fetches=pbmt_fetches; before_loads=pbmt_loads; before_stores=pbmt_stores;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(reference_pc=='h400050 && registers[2]==64'h4000000000000000 && registers[5]==64'h0807060504030201 && registers[7]==registers[6] && registers[8]==registers[5] && registers[9]==registers[6])
+        else $fatal(1,"PBMT CSR/fetch/data integration kind=%0d",kind);
+      assert(pbmt_fetches>before_fetches && pbmt_loads==before_loads+4 && pbmt_stores==before_stores+1) else $fatal(1,"PBMT cached allocation or duplicate/squashed data effect");
+      $display("PBMT kind=%0d passed at cycle=%0d: %0d fetches, %0d loads, %0d stores",kind,cycles,pbmt_fetches-before_fetches,pbmt_loads-before_loads,pbmt_stores-before_stores);
     end
 `endif
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);

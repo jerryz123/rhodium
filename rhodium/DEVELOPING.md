@@ -241,7 +241,13 @@ fetch cancellation and cached/IO ordering stay named-core policy. RV2Wide's cach
 adapter imports the same cache, physical-map contract, Flow, and Bits helpers,
 plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physical
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
-independent of RV2Wide retirement. Its request bundles additionally import the
+independent of RV2Wide retirement. Its cache adapter also arbitrates data/fetch
+on the existing uncached engine and imports the neutral L1I result type.
+Its `instruction-memory.rhdl` consumes RV2Wide physical-fetch bundles, the
+neutral L1I protocol, and Flow for fixed-cycle replay and canceled-response
+ownership. Its core, bundles, frontend, MMU, and cache adapter import
+`riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes; bundles also
+consume the shared L1I result type. Its request bundles additionally import the
 shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom,
 Zicbop, Zawrs, Zihintpause, and Zihintntl catalogs;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,

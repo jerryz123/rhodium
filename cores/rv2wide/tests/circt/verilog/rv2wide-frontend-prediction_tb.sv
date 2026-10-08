@@ -15,9 +15,11 @@ module rv2wide_frontend_prediction_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] data; logic access_fault, replay; } result_t;
   typedef struct packed { logic valid; result_t bits; } result_flow_t;
-  typedef struct packed { logic flush, invalidate_all, s1_kill; address_flow_t request; } memory_request_t;
+  typedef struct packed { logic [63:0] address; logic cacheable, device; } fetch_request_t;
+  typedef struct packed { logic valid; fetch_request_t bits; } fetch_flow_t;
+  typedef struct packed { logic flush, invalidate_all, s1_kill; fetch_flow_t request; } memory_request_t;
   typedef struct packed { result_flow_t response; } memory_response_t;
-  typedef struct packed { logic [63:0] address; resolution_t resolution; } translation_result_t;
+  typedef struct packed { logic [63:0] address; resolution_t resolution; logic [1:0] pbmt; } translation_result_t;
   typedef struct packed { address_flow_t request; } translation_request_t;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; logic [1:0] ras_action, predicted_ras_action; logic [63:0] return_address; } update_t;
   typedef struct packed { logic valid; update_t bits; } update_flow_t;
@@ -42,7 +44,7 @@ module rv2wide_frontend_prediction_tb;
   bit inject_younger_error=0, inject_younger_replay=0;
   RV2WideFrontend dut(.*);
   always #5 clock=~clock;
-  assign translation_in='{translation_out.request.bits, '{2'd0,64'd0,64'd0}};
+  assign translation_in='{translation_out.request.bits, '{2'd0,64'd0,64'd0},2'd0};
   // Fixed-cycle cache outcomes; S1 kill/flush suppress the next response, not
   // the current one. Frontend commands suppress current publication themselves.
   // Real L1I combinational flush behavior is covered by the production fetch test.
@@ -70,16 +72,16 @@ module rv2wide_frontend_prediction_tb;
       cycles++;
       if(virtual_lookup_out.valid && virtual_lookup_in.ready && virtual_lookup_out.bits==64'h100 && source_cycle<0) source_cycle=cycles;
       if(memory_out.request.valid && !memory_out.s1_kill && !memory_out.flush)
-        assert(array_valid && memory_out.request.bits==array_address) else $fatal(1,"physical lookup lost its S0 owner");
-      if(memory_out.request.valid && memory_out.request.bits==64'h100 && (scenario==2 || scenario==3 || scenario==7 || scenario==11 || scenario==14 || scenario==15) && accepted_cycle<0)
+        assert(array_valid && memory_out.request.bits.address==array_address) else $fatal(1,"physical lookup lost its S0 owner");
+      if(memory_out.request.valid && memory_out.request.bits.address==64'h100 && (scenario==2 || scenario==3 || scenario==7 || scenario==11 || scenario==14 || scenario==15) && accepted_cycle<0)
         assert(cycles==source_cycle+1 && virtual_lookup_out.valid && virtual_lookup_out.bits==((scenario==11 || scenario>=14)?target_pc:64'h700))
           else $fatal(1,"BTB result did not select a request during S1 scenario=%0d cycle=%0d source=%0d request=%h",scenario,cycles,source_cycle,virtual_lookup_out.bits);
       array_valid<=virtual_lookup_out.valid && virtual_lookup_in.ready;
       array_address<=virtual_lookup_out.bits;
       response_valid<=memory_out.request.valid && !memory_out.s1_kill && !memory_out.flush;
-      response_data<=word(memory_out.request.bits);
-      response_error<=inject_younger_error && memory_out.request.bits!=64'h100;
-      response_replay<=inject_younger_replay && memory_out.request.bits!=64'h100;
+      response_data<=word(memory_out.request.bits.address);
+      response_error<=inject_younger_error && memory_out.request.bits.address!=64'h100;
+      response_replay<=inject_younger_replay && memory_out.request.bits.address!=64'h100;
       if(virtual_lookup_out.valid && virtual_lookup_in.ready && virtual_lookup_out.bits==(target_pc & ~64'd7) && cycles>source_cycle && target_cycle<0)
         target_cycle=cycles;
       if(instructions_out.valid && instructions_in.ready) begin

@@ -8,6 +8,7 @@ import:
   "frontend.rhdl" open
   "cache.rhdl" open
   "mmu.rhdl" open
+  "instruction-memory.rhdl" open
   "bundles.rhdl" open
   "../cache/config.rhm" open
   "../cache-prefetch.rhdl" open
@@ -63,7 +64,10 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   core.predictor_clear |> frontend.predictor_clear
   core.direction_update |> frontend.direction_update
   core.history_restore |> frontend.history_restore
-  frontend.memory <=> instruction.core
+  inst instruction_memory(RV2WideInstructionMemory())
+  frontend.memory <=> instruction_memory.core
+  instruction_memory.cache <=> instruction.core
+  instruction_memory.uncached <=> data.instruction
   frontend.virtual_lookup |> instruction.virtual_lookup
   core.prefetch |> mmu.prefetch
   def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)

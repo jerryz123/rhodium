@@ -49,6 +49,7 @@ import:
   lib("rhodium/std/decode.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
   lib("flow/main.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
 
 /* Resolves oldest-to-youngest candidates so a nearer unavailable producer blocks stale data. */
 fun forwarded_operand(address :: Bits(5), stored :: Bits(64), producers :: List.of(Endpoint)) :: RV2WideOperand():
@@ -141,6 +142,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     privilege: wb_csrs.privilege
     mstatus: wb_csrs.mstatus
     satp: wb_csrs.satp
+    pbmte: wb_csrs.pbmte
   translation_flush <== wb_csrs.translation_flush
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
@@ -520,6 +522,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.store_data)
     mask: ex_store.mask.as_bits()
     locality: RiscvMemoryLocality.Default
+    pbmt: PageMemoryType.PMA
   describe_interface_selection([ex_memory_lane === bits(0, 1), ex_memory_lane === bits(1, 1)], ~name: "lookup")
   describe_interface_contract(Array(ex_paths[0][2], ex_paths[1][2]), pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
 
@@ -724,6 +727,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     data: mux(wb_request_owner.memory.access.is_store(), wb_store.data, wb_request_owner.store_data)
     mask: wb_store.mask.as_bits()
     locality: mux(wb_request_owner.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store), wb_memory_locality, RiscvMemoryLocality.Default)
+    pbmt: PageMemoryType.PMA
   pipeline.commit <== wb_store_hit & !wb_memory_blocked
   def wb_admission_fault = memory.request.valid & memory.fault.valid
   wb_management_fault <== wb_management & wb_admission_fault

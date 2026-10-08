@@ -10,6 +10,7 @@ import:
   "../../cache/operation.rhdl" open
   "../../cache-prefetch.rhdl" open
   lib("riscv/rtl/atomic.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
   "../../load-store.rhdl" open
   lib("riscv/rtl/privilege.rhdl") open
@@ -19,12 +20,14 @@ sync_circuit RV2WideMmuFixture():
   input privilege: Bits(2)
   input(satp, mstatus): Bits(64)
   input invalidate: Bool
+  input pbmte: Bool
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   input fetch_valid: Bool
   input fetch_address: Bits(64)
   output fetch_resolution: RV2WideResolution()
   output fetch_physical: Bits(64)
+  output fetch_pbmt: PageMemoryType
   input(ex_valid, wb_valid, commit): Bool
   input access: CacheOperation
   input address: Bits(64)
@@ -51,6 +54,7 @@ sync_circuit RV2WideMmuFixture():
   output physical_data: Bits(64)
   output physical_mask: Bits(8)
   output physical_locality: RiscvMemoryLocality
+  output physical_pbmt: PageMemoryType
   output response_ready: Bool
   output completed: Bool
   output completed_data: Bits(64)
@@ -59,6 +63,7 @@ sync_circuit RV2WideMmuFixture():
     privilege: privilege.into(PrivilegeMode)
     satp: satp
     mstatus: mstatus
+    pbmte: pbmte
   mmu.invalidate <== invalidate
   prefetch |> mmu.prefetch
   mmu.physical_prefetch |> physical_prefetch
@@ -66,6 +71,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.instruction.request.bits <== fetch_address
   fetch_resolution <== mmu.instruction.resolution
   fetch_physical <== mmu.instruction.address
+  fetch_pbmt <== mmu.instruction.pbmt
   def request = RV2WideMemoryReq():
     address: address
     access: access
@@ -74,6 +80,7 @@ sync_circuit RV2WideMmuFixture():
     data: bits(0, 64)
     mask: bits(0xff, 8)
     locality: locality
+    pbmt: PageMemoryType.PMA
   mmu.pipeline.request.valid <== ex_valid
   mmu.pipeline.request.bits <== request
   mmu.pipeline.commit <== commit
@@ -131,6 +138,7 @@ sync_circuit RV2WideMmuFixture():
   physical_data <== mmu.physical_memory.request.bits.data
   physical_mask <== mmu.physical_memory.request.bits.mask
   physical_locality <== mmu.physical_memory.request.bits.locality
+  physical_pbmt <== mmu.physical_memory.request.bits.pbmt
   response_ready <== mmu.physical_memory.response.ready
 
 export:

@@ -564,6 +564,23 @@ Reserved NAPOT encodings fault. Permissions and software-managed A/D checks
 remain unchanged; SFENCE.VMA invalidates the complete mapping in both banks.
 No neighboring-PTE scan or new pipeline stage is introduced.
 
+Select `RV2WideConfig(~svpbmt: #true)` to implement and advertise Svpbmt 1.0;
+it defaults to disabled. The shared CSR bank supplies `menvcfg.PBMTE`, and a
+change flushes translation state. Both TLBs retain the leaf's PMA/NC/IO selector.
+NC and IO accesses bypass allocation; IO retains strong ordering. Physical
+mapping, read/write/execute permissions, and the CHI coherence Home are not
+overridden. Unsupported PBMT encodings and nonleaf PBMT bits raise page faults.
+
+Noncacheable instruction blocks use the existing fixed-cycle replay contract:
+one retained read shares the uncached CHI requester with committed data, with
+data priority. Redirects detach fetch consumers while accepted traffic drains.
+Data requests retain exact widths and complete through the existing IOMSHR.
+PBMT aliases of coherent RAM use `ReadOnce`/`WriteUniquePtl`, not NoSnp.
+Cache maintenance still reaches cached aliases using physical cacheability.
+Prefetch drops noncacheable mappings, and misaligned NC/IO accesses remain
+unsupported. Page-table reads use physical attributes rather than the leaf's
+PBMT selector.
+
 One memory operation may issue per group, in either age slot. The memory service has
 the same lookup-versus-authorization split as RV5Stage:
 
@@ -823,10 +840,12 @@ The MMU checks the CHI physical map before physical tag resolution; the data-cac
 adapter rechecks authorized admission. Early array indexing uses only page-offset
 bits and causes no allocation or mutation. Coherent, cacheable, idempotent RAM
 uses aligned full-width cache beats. Mapped noncacheable RAM and devices instead
-use exact-address, exact-width `ReadNoSnp`/`WriteNoSnpPtl` transactions through
+use exact-address, exact-width transactions through
 the shared IOMSHR and uncached CHI engine. They drain older cached work before
 admission, permit only one ordered transaction, and block younger memory effects
-until its response is consumed. Speculation never issues a device transaction.
+until its response is consumed. Speculative data operations never issue a device
+transaction. Statically noncoherent regions use `ReadNoSnp`/`WriteNoSnpPtl`;
+PBMT overrides preserve the physical coherence domain as described above.
 PMA permission/mapping failures trap without CHI traffic, with the original VA;
 page-table reads remain restricted to readable, cacheable, idempotent RAM.
 
