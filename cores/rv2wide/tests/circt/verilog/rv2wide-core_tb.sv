@@ -1,4 +1,4 @@
-// Checks dual-issue writes, paired load addresses/store data/branch operands, and precise recovery.
+// Checks dual-issue writes, AUIPC/ADDI pairs, paired memory/branch operands, and precise recovery.
 // Checks RV2Wide architectural ordering, scheduled multiply returns, and retained memory ownership.
 // SPDX-License-Identifier: Apache-2.0
 module rv2wide_core_tb;
@@ -98,6 +98,7 @@ module rv2wide_core_tb;
   int conditional_dual=0, mop_dual=0;
   int waw_dual=0, waw_deferred=0;
   int address_pairs=0;
+  int auipc_addi_pairs=0;
   bit response_management[16];
   int store_data_pairs=0;
   int branch_pairs=0;
@@ -350,6 +351,10 @@ module rv2wide_core_tb;
         if(memory_stage[lane].bits.pc=='hab08) multiply_mem_cycle=cycles;
         if(memory_stage[lane].bits.pc=='hab10) dependent_mem_cycle=cycles;
       end
+      if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[6:0]==7'h17 &&
+         memory_stage[0].bits.instruction[11:7]!=0 && memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[19:15] &&
+         memory_stage[1].bits.instruction[6:0]==7'h13 && memory_stage[1].bits.instruction[14:12]==0)
+        auipc_addi_pairs++;
       if(memory_stage[0].valid && memory_stage[1].valid && memory_stage[0].bits.instruction[11:7]!=0 &&
          memory_stage[0].bits.instruction[11:7]==memory_stage[1].bits.instruction[19:15] &&
          (memory_stage[0].bits.instruction[6:0] inside {7'h13,7'h1b,7'h33,7'h3b,7'h37,7'h17,7'h03,7'h2f,7'h6f,7'h67} || mop_encoding(memory_stage[0].bits.instruction)) &&
@@ -2212,6 +2217,109 @@ module rv2wide_core_tb;
       inject_enable=0;
       send(pc+24,imm(13,10,0),0,1); drain();
     end
+    // Both architectural values survive U/I folding, including signed overflow
+    // of a 32-bit folded offset, PC carry/borrow, and RV64 modular wrap.
+    for(int pc_case=0;pc_case<3;pc_case++) begin
+      for(int upper_case=0;upper_case<5;upper_case++) begin
+        for(int lower_case=0;lower_case<5;lower_case++) begin
+          for(int destination=0;destination<3;destination++) begin
+            logic [63:0] pc;
+            logic [19:0] upper;
+            int lower, rd, before_pairs, before_dual;
+            reset_core();
+            case(pc_case)
+              0: pc=64'hffe;
+              1: pc=64'h80000000fffffff8;
+              2: pc=64'hfffffffffffffff8;
+            endcase
+            case(upper_case)
+              0: upper=0;
+              1: upper=1;
+              2: upper=20'h7ffff;
+              3: upper=20'h80000;
+              4: upper=20'hfffff;
+            endcase
+            case(lower_case)
+              0: lower=-2048;
+              1: lower=-1;
+              2: lower=0;
+              3: lower=1;
+              4: lower=2047;
+            endcase
+            rd=destination==0 ? 3 : destination==1 ? 4 : 0;
+            before_pairs=auipc_addi_pairs; before_dual=dual_commits;
+            send(pc,{upper,5'd3,7'h17},imm(rd,3,lower));
+            send(pc+8,imm(5,3,0),imm(6,rd,0)); drain();
+            assert(auipc_addi_pairs==before_pairs+1 && dual_commits>=before_dual+1)
+              else $fatal(1,"AUIPC/ADDI did not pair pc=%h upper=%h lower=%0d rd=%0d",pc,upper,lower,rd);
+            send(pc+16,imm(7,3,0),imm(8,rd,0)); drain();
+          end
+        end
+      end
+    end
+    begin
+      int before_pairs;
+      reset_core(); before_pairs=auipc_addi_pairs; longest_dual_run=0; dual_run=0;
+      for(int i=0;i<16;i++) send('h10800+64'(8*i),{20'(i-8),5'd3,7'h17},imm(3,3,i-8));
+      drain();
+      assert(auipc_addi_pairs==before_pairs+16 && longest_dual_run>=12)
+        else $fatal(1,"AUIPC/ADDI lost sustained dual issue");
+    end
+    // Older/younger destination reservations still block the appropriate prefix;
+    // an immediate's apparent rs2 field must not cause a false source hazard.
+    for(int reservation=0;reservation<3;reservation++) begin
+      int before_pairs, before_commits, pending_rd;
+      reset_core(); hold_responses=1;
+      pending_rd=reservation==0 ? 3 : reservation==1 ? 4 : 2;
+      send('h10900,imm(pending_rd,0,'h300,3,'h03),0,1); repeat(8) tick();
+      before_pairs=auipc_addi_pairs; before_commits=commits;
+      send('h10904,{20'd1,5'd3,7'h17},imm(4,3,2));
+      repeat(6) tick();
+      assert(commits==before_commits+(reservation==0 ? 0 : reservation==1 ? 1 : 2))
+        else $fatal(1,"AUIPC/ADDI reservation boundary failed kind=%0d",reservation);
+      hold_responses=0; drain();
+      assert(auipc_addi_pairs==before_pairs+(reservation==1 ? 0 : 1))
+        else $fatal(1,"AUIPC/ADDI reservation changed pair ownership kind=%0d",reservation);
+      send('h1090c,imm(5,3,0),imm(6,4,0)); drain();
+    end
+    // Nearby operations retain normal RAW splitting, and x0 is not a producer.
+    for(int scenario=0;scenario<4;scenario++) begin
+      logic [31:0] first, second;
+      int before_pairs, before_dual;
+      reset_core(); before_pairs=auipc_addi_pairs; before_dual=dual_commits;
+      first={20'd1,5'd3,scenario==2 ? 7'h37 : 7'h17};
+      second=imm(4,3,7,scenario==0 ? 4 : 0,scenario==1 ? 'h1b : 'h13);
+      if(scenario==3) begin first={20'd1,5'd0,7'h17}; second=imm(4,0,7); end
+      send('h10920,first,second); drain();
+      assert(auipc_addi_pairs==before_pairs && dual_commits==before_dual+(scenario==3 ? 1 : 0))
+        else $fatal(1,"AUIPC/ADDI recognition escaped its boundary kind=%0d",scenario);
+      send('h10928,imm(5,3,0),imm(6,4,0)); drain();
+    end
+    // A stop in either member preserves only the successful prefix, including
+    // the intermediate AUIPC value when the rejected ADDI targets the same RF entry.
+    for(int lane=0;lane<2;lane++) begin
+      for(int replay=0;replay<2;replay++) begin
+        int before_pairs;
+        reset_core(); before_pairs=auipc_addi_pairs;
+        inject_enable=1; inject_pc='h10944+64'(4*lane);
+        inject_result='{disposition:2'(replay!=0 ? 2 : 1),cause:64'd5,value:64'hdead};
+        stop_at(inject_pc,inject_pc,replay!=0 ? 2 : 1,5,'hdead);
+        send('h10944,{20'h80000,5'd3,7'h17},imm(3,3,-2048),2,lane==1,0); drain();
+        assert(auipc_addi_pairs==before_pairs+1) else $fatal(1,"qualified AUIPC/ADDI pair split before MEM");
+        inject_enable=0;
+        send('h1094c,imm(5,3,0),0,1); drain();
+        if(replay!=0) begin
+          if(lane==0) send('h10944,{20'h80000,5'd3,7'h17},imm(3,3,-2048));
+          else send('h10948,imm(3,3,-2048),0,1);
+          drain(); send('h10954,imm(6,3,0),0,1); drain();
+        end
+      end
+    end
+    reset_core();
+    send('h10960,{20'd1,5'd3,7'h17},imm(3,3,1),2,0,0);
+    reset_core();
+    send('h10968,imm(5,3,0),0,1); drain();
+
     // All ordinary load widths can use the current older ALU result, not stale RF.
     reset_core(); lookup_mode=1;
     send('h11000,imm(1,0,'h100),imm(2,0,'h200)); drain();
@@ -2786,6 +2894,7 @@ module rv2wide_core_tb;
     end
     $display("Dual branches: %0d; RAS resolutions: %0d; peak queued training: %0d",dual_branches,ras_resolutions,max_training_pending-1);
     $display("Paired load addresses: %0d; paired store data: %0d; paired branch operands: %0d",address_pairs,store_data_pairs,branch_pairs);
+    $display("Paired AUIPC/ADDI operations: %0d",auipc_addi_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     assert(branch_updates>0) else $fatal(1,"no retired branch training");

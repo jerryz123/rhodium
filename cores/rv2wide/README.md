@@ -409,7 +409,13 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
 ```
 
 RR consumes zero, one, or two instructions. Independent ALU operations can
-issue and retire two per cycle. A slot-0 integer ALU producer can pair with a
+issue and retire two per cycle. AUIPC can pair with a dependent ADDI, including
+an ADDI overwriting the same destination. Both execute in parallel and retain
+their own PCs, instructions, and retirement values; this does not add a pipeline
+stage or an older-ALU-to-younger-ALU path in EX. All other destination hazards
+and fault/replay rules still apply.
+
+A slot-0 integer ALU producer can pair with a
 slot-1 ordinary integer load that uses its result as the base address and has zero
 immediate offset. EX sends the producer's result directly to the load lookup,
 without a second dependent address addition or an extra pipeline stage.

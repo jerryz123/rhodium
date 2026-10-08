@@ -330,6 +330,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def system :: RV2WideSystemControl() = rr_controls[lane].system
     rr_decodable[lane] & system.serializing()
   def rr_pair_alu = rr_older_write & !rr_older_deferred & !rr_controls[0].fp.valid & !rr_system[0] & !rr_controls[0].branch.resolver.enable
+  // Fold the two immediates in RR so both EX ALUs independently add to the older PC.
+  def rr_pair_auipc_addi = rr_pair_alu & rr_decodable[1] & (rr_head.entries[0].instruction[0..7] === bits(0x17, 7)) & (rr_head.entries[1].instruction[0..7] === bits(0x13, 7)) & (rr_head.entries[1].instruction[12..15] === bits(0, 3)) & (rr_rd[0] === rr_rs1[1])
+  def rr_pair_offset = instruction_immediate(fields.UImmediate, rr_head.entries[0].instruction, 64) + instruction_immediate(fields.IImmediate, rr_head.entries[1].instruction, 64)
   // The older ALU result is the entire zero-offset address: no second dependent adder.
   def rr_pair_address = rr_pair_alu & rr_decodable[1] & !rr_controls[1].fp.valid & rr_controls[1].memory.enable & (rr_controls[1].memory.access === CacheOperation.Load) & (rr_rd[0] === rr_rs1[1]) & (rr_head.entries[1].instruction[20..32] === bits(0, 12))
   // Store data bypasses independently of address calculation and immediate offset.
@@ -337,9 +340,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   // Conditional comparison uses registered MEM operands; JALR still needs its base in EX.
   def rr_pair_branch_compare = rr_pair_alu & rr_decodable[1] & rr_controls[1].branch.resolver.enable & !rr_controls[1].branch.resolver.unconditional
   def rr_pair_branch_operands = vec(rr_pair_branch_compare & (rr_rd[0] === rr_rs1[1]), rr_pair_branch_compare & (rr_rd[0] === rr_rs2[1]))
-  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !(rr_pair_address ||| rr_pair_branch_operands[0])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1]) & !(rr_pair_store_data ||| rr_pair_branch_operands[1])))
+  def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1]) & !(rr_pair_auipc_addi ||| rr_pair_address ||| rr_pair_branch_operands[0])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1]) & !(rr_pair_store_data ||| rr_pair_branch_operands[1])))
   def rr_data_blocked = for List (lane in 0..2):
-    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & (rr_pair_address ||| rr_pair_branch_operands[0])) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & (rr_pair_store_data ||| rr_pair_branch_operands[1])) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
+    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| (rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & (rr_pair_auipc_addi ||| rr_pair_address ||| rr_pair_branch_operands[0])) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & (rr_pair_store_data ||| rr_pair_branch_operands[1])) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
   def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| rr_training_blocked[lane]
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
@@ -392,6 +395,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   for (lane in 0..2):
     def ex_ingress :: Endpoint = ex_pipe[lane].ingress
     def rr_access :: CacheOperation = rr_controls[lane].memory.access
+    def rr_auipc_addi = Bool(lane == 1) & rr_pair_auipc_addi
     ex_pipe[lane].flush <== rr_squash
     // Younger offers inherit the older offer's blockers, not a generic age hazard.
     def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & (rr_pair_raw ||| rr_pair_waw)))
@@ -407,9 +411,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       structural_hazard: structural_hazard ||| rr_pause_blocked ||| (Bool(lane == 1) & rr_decodable[0] & rr_controls[0].pause)
     (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => RV2WideExecute()):
       fetched: fetched
-      control: rr_controls[lane].updated(~memory: rr_controls[lane].memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access)))
-      rs1: rr_left[lane].data
-      rs2: rr_right[lane].data
+      control: rr_controls[lane].updated(
+        ~operand: rr_controls[lane].operand.updated(~right_immediate: rr_controls[lane].operand.right_immediate & !rr_auipc_addi),
+        ~memory: rr_controls[lane].memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
+      )
+      rs1: mux(rr_auipc_addi, rr_head.entries[0].pc, rr_left[lane].data)
+      rs2: mux(rr_auipc_addi, rr_pair_offset, rr_right[lane].data)
       address_from_older: Bool(lane == 1) & rr_pair_address
       store_data_from_older: Bool(lane == 1) & rr_pair_store_data
       branch_operands_from_older: vec(for List (source in 0..2): Bool(lane == 1) & rr_pair_branch_operands[source])

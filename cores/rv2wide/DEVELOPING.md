@@ -159,7 +159,16 @@ so never infer younger-write priority from the port number. Insert direct FP
 returns into their WB lane's forwarding payload; late FP returns precede the
 pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
 
-RR may waive the younger rs1 RAW/read interlock only for a zero-immediate ordinary
+For an AUIPC followed by ADDI reading its nonzero destination, RR folds the
+sign-extended U and I immediates at RV64 width. Capture the older PC and folded
+offset in the younger token's existing operand registers and select its register
+right operand; EX's ordinary ALU then adds them independently of the older ALU.
+Keep both instruction records intact. Waive only that younger rs1 read and
+same-pair RAW check; all older and younger destination reservations remain.
+Do not truncate the folded offset to 32 bits or cascade EX ALUs. Neighboring
+OP-IMM operations, ADDIW, and other producers retain their ordinary interlocks.
+
+RR may also waive the younger rs1 RAW/read interlock for a zero-immediate ordinary
 integer load whose base is the same-pair older non-memory, non-M, non-FP, non-system, non-branch
 writer. The older writer still passes every ordinary admission interlock.
 Carry `address_from_older` across the existing EX register; select slot zero's
@@ -709,6 +718,9 @@ retirement, packet coalescing, age-ordered same-destination pairing, RAW/WAW and
 RV64/word ALU operations, seeded dependency-heavy arithmetic, signed/unsigned
 branches and jumps in either slot, JALR masking, misalignment/illegal faults,
 MEM qualification, replay/restart, older-fault priority, and reset cancellation.
+AUIPC/ADDI cases check signed-immediate extremes, carry/borrow and RV64 wrap,
+same/different/x0 destinations, sustained pairing, EX and stored-RF consumers,
+pending destinations, excluded neighboring operations, recovery, and reset.
 Same-pair ALU/conditional-branch scenarios cover every predicate, either/both
 replaced sources, signed/unsigned disagreement, both prediction directions,
 selected word/B/AUIPC results, sustained dual issue, producer RAW/WAW and unrelated
