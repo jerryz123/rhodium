@@ -53,6 +53,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   interface predictor_restore(Pulse(), ~role: consumer)
   interface predictor_clear(Pulse(), ~role: consumer)
   interface direction_update(Valid(BhtUpdate(10)), ~role: consumer)
+  interface ras_resolution(Valid(RasResolution(XLen.X64)), ~role: consumer)
+  interface history_commit(Valid(RV2WideHistoryCommit()), ~role: consumer)
   interface history_restore(Valid(Bits(10)), ~role: consumer)
 
   reg active(~init: Bool(#false))
@@ -76,15 +78,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   bht.clear.valid <== btb.invalidate_all.valid
   direction_update |> bht.update
   ras.restore.valid <== restore
-  def Array(training, resolution) = branch_update |> fork_valid(2)
-  training |> btb.update
-  (resolution |> map_valid(update => RasResolution(XLen.X64)):
-    actual:
-      RasUpdate(XLen.X64):
-        action: update.ras_action
-        return_address: update.return_address
-    predicted_action: update.predicted_ras_action
-  ) |> ras.resolve
+  branch_update |> btb.update
+  ras_resolution |> ras.resolve
   assembler.discover |> btb.discover
   assembler.speculate |> ras.speculate
   assembler.ras_head_valid <== ras.head_valid & !restore
@@ -117,7 +112,10 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   def s2_straddle = s2_prediction.valid & (s2_prediction.pc[0..3] === bits(6, 3)) & !s2_prediction.compressed & !s2.egress.bits.cursor.continuation
   def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.target, s2.egress.bits.cursor.pc.align_down(8) + bits(8, 64))
   direction_repair <== Bool(profile.bht) & direction.valid & !result_fault & (direction.next_pc =/= provisional_successor)
-  def committed_next = mux(direction_update.valid, committed_history[0..9] ++ direction_update.bits.taken.as_bits(), committed_history)
+  def mutable committed_next = committed_history
+  for (lane in 0..2):
+    def history :: Bits(10) = committed_next
+    committed_next := mux(history_commit.valid & history_commit.bits.enable[lane], history[0..9] ++ history_commit.bits.taken[lane].as_bits(), history)
   def s1_history = mux(direction.valid & !result_fault & Bool(profile.bht), direction.history_after, speculative_history)
   when (bht.clear.valid):
     speculative_history <== bits(0, 10)

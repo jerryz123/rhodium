@@ -37,6 +37,9 @@ module rv2wide_bht_tb;
   translation_result_t translation_in;
   update_flow_t branch_update_in='0;
   direction_update_t direction_update_in='0;
+  logic [68:0] ras_resolution_in='0;
+  typedef struct packed { logic valid; logic [1:0] enable, taken; } history_commit_t;
+  history_commit_t history_commit_in='0;
   history_t history_restore_in='0;
   int cycles=0, scenario=0, source_cycle=-1, target_cycle=-1, branch_cycle=-1, btb_cycle=-1, checks=0, history_followups=0, recovery_packets=0;
   logic response_valid=0, response_replay=0;
@@ -100,7 +103,7 @@ module rv2wide_bht_tb;
   end
   task automatic begin_case(int which, bit want_taken=1, bit btb_taken=0, int history=0);
     @(negedge clock); reset=1; start_in='0; redirect_in='0; flush_in='0;
-    branch_update_in='0; direction_update_in='0; history_restore_in='0;
+    branch_update_in='0; direction_update_in='0; history_restore_in='0; history_commit_in='0;
     scenario=which; taken=want_taken; expected_history=10'(history);
     virtual_lookup_in.ready=0; instructions_in.ready=1;
     source_cycle=-1; target_cycle=-1; branch_cycle=-1; btb_cycle=-1; saw_replay=0; replay_once=which==4;
@@ -181,6 +184,14 @@ module rv2wide_bht_tb;
     assert(virtual_lookup_out.valid && virtual_lookup_out.bits=='h600 && !instructions_out.valid) else $fatal(1,"architectural redirect lost priority");
     @(negedge clock); redirect_in='0; history_restore_in='0;
     wait(recovery_packets>0); @(negedge clock); checks++;
+    // Commit two outcomes without table writes, then recover through committed history.
+    // Older taken then younger not-taken folds 00 -> 01 -> 10, not 01 or 00.
+    begin_case(0,0); expected_history=2; expected_index=12'((('h100>>3)^2)*4);
+    history_commit_in='{1'b1,2'b11,2'b01};
+    @(negedge clock); history_commit_in='0;
+    redirect_in='{1'b1,'{64'h100,64'h100,'{2'd0,64'd0,64'd0}}};
+    @(negedge clock); redirect_in='0; virtual_lookup_in.ready=1;
+    finish_case();
     assert(history_followups>=5) else $fatal(1,"post-prediction history not exercised");
     $display("RV2Wide S2 gshare simulation passed: %0d scenarios",checks); $finish;
   end

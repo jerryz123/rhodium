@@ -101,6 +101,9 @@ module rv2wide_core_tb;
   bit response_management[16];
   int store_data_pairs=0;
   int branch_pairs=0;
+  int dual_branches=0, ras_resolutions=0, max_training_pending=0;
+  logic [63:0] training_pending[$];
+  logic predictor_clear;
   bit expected_branch_taken[logic [63:0]];
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_t;
   typedef struct packed { logic valid; prefetch_t bits; } prefetch_flow_t;
@@ -128,8 +131,9 @@ module rv2wide_core_tb;
   RV2WideCore dut(
     .prefetch_out(prefetch),
     .translation_state(), .translation_flush(translation_flush), .instruction_invalidate_out(instruction_invalidate),
-    .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(),
+    .branch_update_out(branch_update), .predictor_restore_out(), .predictor_clear_out(predictor_clear),
     .direction_update_out(direction_update), .history_restore_out(history_restore),
+    .ras_resolution_out(ras_resolution), .history_commit_out(history_commit),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(time_counter), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
@@ -144,32 +148,80 @@ module rv2wide_core_tb;
   typedef struct packed { logic valid; logic [9:0] bits; } history_restore_t;
   direction_update_t direction_update;
   history_restore_t history_restore;
+  typedef struct packed { logic valid; logic [1:0] action; logic [63:0] return_address; logic [1:0] predicted_action; } ras_resolution_t;
+  typedef struct packed { logic valid; logic [1:0] enable, taken; } history_commit_t;
+  ras_resolution_t ras_resolution;
+  history_commit_t history_commit;
   direction_t offered_direction[logic [63:0]];
   logic [9:0] corrected_history[logic [63:0]];
   int direction_updates=0, history_recoveries=0;
   function automatic direction_t direction_metadata(logic [63:0] pc, logic [31:0] word, bit taken=0);
     return '{word[6:0]==7'h63,12'((pc>>1)^'h2d5),10'((pc>>1)^'h155),taken};
   endfunction
-  always @(posedge clock) if(!reset && branch_update.valid) begin
-    branch_updates++;
-    if(expected_branch_taken.exists(branch_update.bits.pc)) begin
-      assert(branch_update.bits.taken==expected_branch_taken[branch_update.bits.pc])
-        else $fatal(1,"paired branch compared stale operands pc=%h",branch_update.bits.pc);
-      expected_branch_taken.delete(branch_update.bits.pc);
-    end
-    assert(branch_update.bits.branch && ((retired[0].valid && retired[0].bits.fetched.pc==branch_update.bits.pc) || (retired[1].valid && retired[1].bits.fetched.pc==branch_update.bits.pc)))
-      else $fatal(1,"predictor trained without successful WB retirement");
-    assert(direction_update.valid==branch_update.bits.conditional) else $fatal(1,"nonconditional trained BHT or conditional lost metadata");
-    if(direction_update.valid) begin
-      direction_updates++;
-      assert(direction_update.index==offered_direction[branch_update.bits.pc].index && direction_update.taken==branch_update.bits.taken)
-        else $fatal(1,"BHT training did not use saved lookup index/outcome");
-      if(corrected_history.exists(branch_update.bits.pc)) begin
-        assert(corrected_history[branch_update.bits.pc]=={offered_direction[branch_update.bits.pc].history[8:0],branch_update.bits.taken})
-          else $fatal(1,"MEM recovery omitted the actual conditional outcome");
-        corrected_history.delete(branch_update.bits.pc);
+  function automatic bit branch_encoding(logic [31:0] word);
+    return word[6:0] inside {7'h63,7'h6f,7'h67};
+  endfunction
+  function automatic logic [1:0] ras_action(logic [31:0] word);
+    bit rd_link, rs1_link;
+    rd_link=word[11:7] inside {1,5}; rs1_link=word[19:15] inside {1,5};
+    if(word[6:0]==7'h6f) return rd_link ? 1 : 0;
+    if(word[6:0]!=7'h67) return 0;
+    if(!rd_link) return rs1_link ? 2 : 0;
+    return rs1_link && word[11:7]!=word[19:15] ? 3 : 1;
+  endfunction
+  always @(posedge clock) if(!reset) begin
+    int ras_count;
+    ras_count=0;
+    for(int lane=0;lane<2;lane++) begin
+      bit conditional, stack_event;
+      conditional=retired[lane].valid && retired[lane].bits.fetched.instruction[6:0]==7'h63;
+      assert((history_commit.valid && history_commit.enable[lane])==conditional)
+        else $fatal(1,"committed history was delayed or lost a retirement lane");
+      if(conditional && expected_branch_taken.exists(retired[lane].bits.fetched.pc))
+        assert(history_commit.taken[lane]==expected_branch_taken[retired[lane].bits.fetched.pc])
+          else $fatal(1,"committed history appended the wrong lane outcome");
+      if(retired[lane].valid && branch_encoding(retired[lane].bits.fetched.instruction))
+        training_pending.push_back(retired[lane].bits.fetched.pc);
+      stack_event=retired[lane].valid && branch_encoding(retired[lane].bits.fetched.instruction) &&
+        (ras_action(retired[lane].bits.fetched.instruction)!=0 || retired[lane].bits.fetched.speculated_ras_action!=0);
+      if(stack_event) begin
+        ras_count++;
+        assert(ras_resolution.valid && ras_resolution.action==ras_action(retired[lane].bits.fetched.instruction) &&
+          ras_resolution.return_address==retired[lane].bits.fetched.sequential_pc &&
+          ras_resolution.predicted_action==retired[lane].bits.fetched.speculated_ras_action)
+          else $fatal(1,"RAS resolution was delayed or selected the other branch");
       end
     end
+    assert(ras_count<=1 && ras_resolution.valid==(ras_count!=0)) else $fatal(1,"multiple or spurious RAS actions");
+    ras_resolutions+=ras_count;
+    if(retired[0].valid && retired[1].valid && branch_encoding(retired[0].bits.fetched.instruction) && branch_encoding(retired[1].bits.fetched.instruction)) dual_branches++;
+    if(predictor_clear) training_pending.delete();
+    if(training_pending.size()>max_training_pending) max_training_pending=training_pending.size();
+    if(branch_update.valid) begin
+      logic [63:0] expected_pc;
+      assert(training_pending.size()>0) else $fatal(1,"predictor trained an unretired branch");
+      expected_pc=training_pending.pop_front();
+      assert(branch_update.bits.pc==expected_pc) else $fatal(1,"branch training reordered: got=%h expected=%h",branch_update.bits.pc,expected_pc);
+      branch_updates++;
+      if(expected_branch_taken.exists(branch_update.bits.pc)) begin
+        assert(branch_update.bits.taken==expected_branch_taken[branch_update.bits.pc])
+          else $fatal(1,"paired branch compared stale operands pc=%h",branch_update.bits.pc);
+        expected_branch_taken.delete(branch_update.bits.pc);
+      end
+      assert(branch_update.bits.branch) else $fatal(1,"nonbranch training payload");
+      assert(direction_update.valid==branch_update.bits.conditional) else $fatal(1,"nonconditional trained BHT or conditional lost metadata");
+      if(direction_update.valid) begin
+        direction_updates++;
+        assert(direction_update.index==offered_direction[branch_update.bits.pc].index && direction_update.taken==branch_update.bits.taken)
+          else $fatal(1,"BHT training did not use saved lookup index/outcome");
+        if(corrected_history.exists(branch_update.bits.pc)) begin
+          assert(corrected_history[branch_update.bits.pc]=={offered_direction[branch_update.bits.pc].history[8:0],branch_update.bits.taken})
+            else $fatal(1,"MEM recovery omitted the actual conditional outcome");
+          corrected_history.delete(branch_update.bits.pc);
+        end
+      end
+    end
+    assert(training_pending.size()<=2) else $fatal(1,"training queue exceeded two entries");
   end
   always @(posedge clock) if(!reset && redirect.valid && redirect.bits.resolution.disposition inside {0,2}) begin
     direction_t checkpoint;
@@ -764,22 +816,29 @@ module rv2wide_core_tb;
   task automatic tick;
     @(posedge clock); #1;
   endtask
-  task automatic send(logic [63:0] pc, logic [31:0] first, logic [31:0] second, int count = 2, bit keep0 = 1, bit keep1 = 1, int fetch_fault_lane = -1, prediction_t second_prediction = '0);
+  task automatic send(logic [63:0] pc, logic [31:0] first, logic [31:0] second, int count = 2, bit keep0 = 1, bit keep1 = 1, int fetch_fault_lane = -1, prediction_t second_prediction = '0, prediction_t first_prediction = '0);
     int expected_index=expected.size();
     if (keep0) expect_instruction(pc, first);
     if (count == 2 && keep1) expect_instruction(pc + 4, second);
     instructions.valid = 1;
     instructions.bits.count = 2'(count);
-    instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0, default: '0};
+    instructions.bits.entries[0] = '{pc: pc, instruction: first, raw_instruction: first, sequential_pc: pc + 4, compressed_illegal: 0, fault: '0, prediction: first_prediction, default: '0};
     instructions.bits.entries[1] = '{pc: pc + 4, instruction: second, raw_instruction: second, sequential_pc: pc + 8, compressed_illegal: 0, fault: '0, prediction: second_prediction, default: '0};
     for(int lane=0;lane<count;lane++) begin
       instructions.bits.entries[lane].direction=direction_metadata(instructions.bits.entries[lane].pc,instructions.bits.entries[lane].instruction,instructions.bits.entries[lane].prediction.valid);
+      instructions.bits.entries[lane].speculated_ras_action=instructions.bits.entries[lane].prediction.ras_action;
       offered_direction[instructions.bits.entries[lane].pc]=instructions.bits.entries[lane].direction;
       corrected_history.delete(instructions.bits.entries[lane].pc);
+    end
+    if(keep0) begin
+      expected[expected_index].fetched.prediction=first_prediction;
+      expected[expected_index].fetched.speculated_ras_action=first_prediction.ras_action;
+      expected[expected_index].fetched.direction=instructions.bits.entries[0].direction;
     end
     if(count==2 && keep1) begin
       expected_index+=keep0 ? 1 : 0;
       expected[expected_index].fetched.prediction=second_prediction;
+      expected[expected_index].fetched.speculated_ras_action=second_prediction.ras_action;
       expected[expected_index].fetched.direction=instructions.bits.entries[1].direction;
     end
     if (fetch_fault_lane >= 0)
@@ -791,7 +850,7 @@ module rv2wide_core_tb;
   endtask
   task automatic drain;
     instructions.valid = 0;
-    do tick(); while (expected.size() != 0 || expected_redirects.size() != 0 || expected_requests.size() != 0 || expected_completions.size() != 0 || response_count != 0 || split_active);
+    do tick(); while (expected.size() != 0 || expected_redirects.size() != 0 || expected_requests.size() != 0 || expected_completions.size() != 0 || response_count != 0 || split_active || training_pending.size()!=0);
     repeat (8) tick();
     assert (expected.size() == 0 && expected_redirects.size() == 0) else $fatal(1, "missing ordered outcomes");
   endtask
@@ -826,6 +885,7 @@ module rv2wide_core_tb;
     hold_split=0; split_fault=0; expected_split_locality=0;
     expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete(); multiply_authorized_cycle.delete();
     expected_branch_taken.delete();
+    training_pending.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
     for (int i = 0; i < 4096; i++) begin
       memory_bytes[i] = 8'(i ^ 'h98);
@@ -2667,6 +2727,64 @@ module rv2wide_core_tb;
     send('h12c40,imm(3,0,1),branch(3,3,32),2,0,0); tick();
     reset_core(); drain();
     send('h12c48,imm(4,3,0),0,1); drain();
+    // Both comparators resolve independently, including two correctly taken branches.
+    for(int outcomes=0;outcomes<4;outcomes++) begin
+      int before_dual, before_training;
+      logic [63:0] pc;
+      prediction_t first_prediction, second_prediction;
+      reset_core(); pc='h13000+64'(outcomes*8);
+      first_prediction='{1'(outcomes&1),pc,pc+4,1'b0,2'd0};
+      second_prediction='{1'((outcomes>>1)&1),pc+4,pc+8,1'b0,2'd0};
+      expected_branch_taken[pc]=1'(outcomes&1); expected_branch_taken[pc+4]=1'((outcomes>>1)&1);
+      before_dual=dual_branches; before_training=branch_updates;
+      send(pc,branch(0,0,4,outcomes[0]?0:1),branch(0,0,4,outcomes[1]?0:1),2,1,1,-1,second_prediction,first_prediction); drain();
+      assert(dual_branches==before_dual+1 && branch_updates==before_training+2 && expected_branch_taken.num()==0)
+        else $fatal(1,"dual branch outcomes split or training lost outcomes=%0d",outcomes);
+    end
+    // A sustained two-branch stream must backpressure RR, never lose a table write.
+    begin
+      int before_dual, before_training;
+      reset_core(); before_dual=dual_branches; before_training=branch_updates;
+      for(int pair=0;pair<64;pair++) send('h14000+64'(pair*8),branch(0,0,32,1),branch(0,0,32,1));
+      drain();
+      assert(branch_updates==before_training+128 && dual_branches>=before_dual+2 && max_training_pending==3)
+        else $fatal(1,"branch training FIFO pressure: updates=%0d/128 dual=%0d peak=%0d/3",branch_updates-before_training,dual_branches-before_dual,max_training_pending);
+    end
+    // Oldest correction wins; a younger correction retains both retirement updates.
+    for(int correcting_lane=0;correcting_lane<2;correcting_lane++) begin
+      int before_training;
+      reset_core(); before_training=branch_updates;
+      stop_at('h15000+64'(correcting_lane*4),'h15020+64'(correcting_lane*4));
+      send('h15000,branch(0,0,32,correcting_lane==0?0:1),branch(0,0,32,correcting_lane==1?0:1),2,1,correcting_lane==1); drain();
+      assert(branch_updates==before_training+1+correcting_lane) else $fatal(1,"dual branch recovery trained wrong prefix");
+    end
+    // Fault/replay in either branch qualifies only its successful older prefix.
+    for(int rejected_lane=0;rejected_lane<2;rejected_lane++) for(int replay=0;replay<2;replay++) begin
+      int before_training, before_commits;
+      reset_core(); before_training=branch_updates; before_commits=commits;
+      inject_enable=1; inject_pc='h15100+64'(rejected_lane*4);
+      inject_result='{replay!=0?2'd2:2'd1,64'd5,64'hdead};
+      stop_at(inject_pc,inject_pc,replay!=0?2:1,5,'hdead);
+      send('h15100,branch(0,0,32,1),branch(0,0,32,1),2,rejected_lane==1,0); drain();
+      // Trap entry clears table training, including the simultaneous successful prefix.
+      assert(branch_updates==before_training+(replay!=0?rejected_lane:0) && commits==before_commits+rejected_lane)
+        else $fatal(1,"branch rejection prefix mismatch lane=%0d replay=%0d updates=%0d commits=%0d",rejected_lane,replay,branch_updates-before_training,commits-before_commits);
+    end
+    // Two calls split, but a conditional plus one call may retire together.
+    begin
+      int before_dual, before_ras;
+      prediction_t first_prediction, second_prediction;
+      reset_core(); before_dual=dual_branches; before_ras=ras_resolutions;
+      first_prediction='{1'b1,64'h15200,64'h15204,1'b0,2'd1};
+      second_prediction='{1'b1,64'h15204,64'h15208,1'b0,2'd1};
+      send('h15200,jump(1,4),jump(5,4),2,1,1,-1,second_prediction,first_prediction); drain();
+      assert(dual_branches==before_dual && ras_resolutions==before_ras+2) else $fatal(1,"two RAS actions issued together");
+      reset_core(); before_dual=dual_branches; before_ras=ras_resolutions;
+      second_prediction='{1'b1,64'h15244,64'h15248,1'b0,2'd1};
+      send('h15240,branch(0,0,32,1),jump(1,4),2,1,1,-1,second_prediction); drain();
+      assert(dual_branches==before_dual+1 && ras_resolutions==before_ras+1) else $fatal(1,"one-RAS pair serialized or RAS resolution lost");
+    end
+    $display("Dual branches: %0d; RAS resolutions: %0d; peak queued training: %0d",dual_branches,ras_resolutions,max_training_pending-1);
     $display("Paired load addresses: %0d; paired store data: %0d; paired branch operands: %0d",address_pairs,store_data_pairs,branch_pairs);
     $display("Same-destination writes: %0d normal-WB pairs, %0d younger deferred pairs",waw_dual,waw_deferred);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);

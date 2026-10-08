@@ -64,6 +64,7 @@ using its independent instruction execution and public prediction payloads.
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
+| `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
 | `frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
 | `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
@@ -179,7 +180,7 @@ For a younger conditional branch, RR may waive either comparison source's
 RAW/read interlock when the same eligible older ALU writer replaces it. Carry
 the two `branch_operands_from_older` selections through EX into MEM, alongside
 the original operands and shared `BranchResolverControl`. MEM selects slot
-zero's registered ALU result before the single shared comparator. Do not add
+zero's registered ALU result before the younger slot's comparator. Do not add
 an EX ALU-to-comparator path, waive an unrelated source, or extend the selection
 to deferred/FP/system/control-transfer producers or a dependent JALR base.
 EX still calculates the PC-relative or JALR target independently. MEM resolves
@@ -295,7 +296,28 @@ EX carries the target, comparison controls/operands, and update metadata into ME
 MEM resolves the actual successor and misprediction and retains them through WB.
 MEM correction preserves its own transfer and kills younger tokens. WB alone
 qualifies training and resolved RAS actions from the successful retirement
-prefix. MEM flush restores through current WB, and the surviving corrected
+prefix. Each MEM lane resolves independently, with the oldest correction
+retaining priority. RR permits at most one actual or speculative RAS action
+per group; conditional branches do not consume this restriction.
+
+`branch-training.rhdl` owns the two-entry training FIFO, accepting both successful
+WB branches in age order and emitting one BTB/BHT update each cycle, bypassing
+the oldest incoming update when empty. A training record retains the branch
+outcome and its saved BHT address together. RR projects occupancy through the
+WB, MEM, and EX branch groups, subtracting one training write at each edge
+and saturating at zero. It admits a new pair only if its projected WB update
+fits; WB never waits for training capacity. Faults and flushes only reduce
+the projected arrivals. Projection and capacity assertions enforce this booking.
+Speculative recovery preserves retired training; predictor clear cancels
+the queue. RAS resolution and the two-lane conditional history commit bypass
+this FIFO and reach the frontend on the retirement edge. The frontend folds
+history in lane order before command recovery, independently of counter writes.
+Core tests compare emitted training against an ordered retirement oracle,
+exercise sustained dual-branch pressure and oldest-stop prefixes, and verify
+the one-RAS-action restriction. The BHT fixture checks a dual history commit
+without a concurrent table update.
+
+MEM flush restores through current WB, and the surviving corrected
 branch restores again at WB with its actual action included. Pause assembly
 speculation on this reconciliation edge because RAS restore wins speculation.
 WB faults/replays restore without training rejected branches. Architectural

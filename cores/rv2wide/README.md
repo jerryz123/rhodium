@@ -363,16 +363,25 @@ BTB retains the existing no-direct-jump-fallback behavior.
 MEM compares predicted and actual successors. Correct taken predictions retain
 target-stream work, including a target instruction paired in the younger lane.
 Wrong direction, wrong target, or unmatched RAS action recovers once at MEM;
-older WB recovery has priority. Resolved BTB training and resolved RAS updates
-come only from successfully retiring branches, separately from assembly discovery.
-BHT training also occurs only at successful WB, using the instruction's saved
-index and the current counter. Each instruction carries its pre-instruction
-history checkpoint. MEM restores the correcting branch's checkpoint plus its
+older WB recovery has priority. Only successfully retiring branches generate
+resolved predictor updates, separately from assembly discovery. A two-entry
+ordered buffer accepts up to two BTB/BHT training records per cycle and emits
+one per cycle; RR projects queue occupancy through the in-flight retirement
+groups, including one table write per cycle, before issuing.
+BTB/BHT training may lag retirement, using the instruction's saved index and
+the current counter. Committed conditional history appends both retirement
+outcomes in age order immediately, and resolved RAS actions also apply at WB,
+so recovery never waits for table training. Speculative redirects preserve
+queued training; predictor invalidation discards it. Each instruction carries
+its pre-instruction history checkpoint. MEM restores the correcting branch's checkpoint plus its
 actual conditional outcome; older WB rejection restores before the rejected
 instruction. Local assembly repairs retain only the accepted prefix's history.
-Standalone integrations connect the core's `direction_update: Valid(BhtUpdate(10))`
-and `history_restore: Valid(Bits(10))` to the frontend alongside the existing
-BTB/RAS event interfaces. `prediction.valid` still means predicted-taken;
+Standalone integrations connect the core's serialized `branch_update` and
+`direction_update: Valid(BhtUpdate(10))`, immediate
+`ras_resolution: Valid(RasResolution(XLen.X64))` and
+`history_commit: Valid(RV2WideHistoryCommit())`, and
+`history_restore: Valid(Bits(10))` to the frontend, alongside predictor restore
+and clear events. `prediction.valid` still means predicted-taken;
 `direction.valid` means a conditional lookup exists, including predicted-not-taken.
 Direction mismatches reconcile history even when target and fallthrough coincide.
 The speculative stack changes once per accepted complete
@@ -430,8 +439,11 @@ Same-destination writes can pair when the older writer is guaranteed to use
 normal WB, even if the younger writer completes later. An older memory, M, or late FP-to-GPR
 writer can defer its result and still splits a same-destination pair. An
 instruction that cannot pair stays at the head for the
-next cycle. One branch resolver serves either age slot, and two branches cannot
-issue together.
+next cycle. Each slot has a branch resolver, so two independent branches may
+issue and retire together, including two predicted-not-taken branches. At most
+one instruction with an actual or speculative RAS action may issue per cycle;
+two such instructions split the pair. Ordinary dependency checks still apply,
+and an older misprediction suppresses the younger instruction.
 The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
 relations joined to RV2Wide operand/writeback controls.

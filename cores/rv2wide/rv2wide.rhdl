@@ -63,6 +63,8 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   core.predictor_restore |> frontend.predictor_restore
   core.predictor_clear |> frontend.predictor_clear
   core.direction_update |> frontend.direction_update
+  core.ras_resolution |> frontend.ras_resolution
+  core.history_commit |> frontend.history_commit
   core.history_restore |> frontend.history_restore
   inst instruction_memory(RV2WideInstructionMemory())
   frontend.memory <=> instruction_memory.core

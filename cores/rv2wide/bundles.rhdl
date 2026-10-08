@@ -95,6 +95,17 @@ bundle RV2WidePacket():
   count: Bits(2)
   entries: Vec(2, RV2WideInstruction())
 
+/* Keeps a retired branch's BTB outcome and saved BHT address together during serialized training. */
+bundle RV2WideBranchTraining():
+  branch: BranchUpdate(XLen.X64)
+  direction_valid: Bool
+  direction_index: Bits(12)
+
+/* Advances committed conditional history in retirement order, independently of table training. */
+bundle RV2WideHistoryCommit():
+  enable: Vec(2, Bool)
+  taken: Vec(2, Bool)
+
 /* Distinguishes MEM continuation, synchronous trap, preacceptance replay, and WB system recovery. */
 hardware_enum RV2WideDisposition:
   Continue
@@ -270,6 +281,8 @@ export:
   RV2WideFetchFault
   RV2WideInstruction
   RV2WidePacket
+  RV2WideBranchTraining
+  RV2WideHistoryCommit
   RV2WideDisposition
   RV2WideResolution
   RV2WideExecute

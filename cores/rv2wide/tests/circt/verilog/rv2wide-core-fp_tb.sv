@@ -70,6 +70,7 @@ module rv2wide_core_fp_tb;
     .split_in(split_in),.split_out(split_out),
     .branch_update_out(),.predictor_restore_out(),.predictor_clear_out(),
     .direction_update_out(),.history_restore_out(),
+    .ras_resolution_out(),.history_commit_out(),
     .translation_state(),.translation_flush(),.instruction_invalidate_out(),.fetch_flush_out(),.instruction_capacity(),.sleeping(),.prefetch_out()
   );
   always_comb begin

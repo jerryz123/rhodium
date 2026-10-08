@@ -287,9 +287,10 @@ and the existing WB/MMU ownership boundary.
 `cores/rv2wide/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
-pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`, and
-`load-response.rhdl` import the same Flow facade for stream contracts, owner
-storage, and atomic response/context joining.
+pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
+`branch-training.rhdl`, and `load-response.rhdl` import the same Flow facade for
+stream contracts, instruction/retired-training storage, owner storage, and
+atomic response/context joining.
 RV2Wide's bundles also import the shared `cores/branch-resolver.rhdl` control
 payload for registered MEM comparison; operand bypass and recovery remain core policy.
 RV2Wide's `decode/long-ctrl.rhdl` consumes the reusable RISC-V multiply/divide

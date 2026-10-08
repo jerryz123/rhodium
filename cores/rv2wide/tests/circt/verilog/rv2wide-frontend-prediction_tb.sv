@@ -35,6 +35,8 @@ module rv2wide_frontend_prediction_tb;
   translation_result_t translation_in;
   update_flow_t branch_update_in='0;
   logic [13:0] direction_update_in='0;
+  logic [68:0] ras_resolution_in='0;
+  logic [4:0] history_commit_in='0;
   logic [10:0] history_restore_in='0;
   logic response_valid=0, response_error=0, response_replay=0;
   logic [63:0] response_data=0, array_address=0;
