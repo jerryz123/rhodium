@@ -40,8 +40,9 @@ bundle RV2WidePhysicalResponse():
 
 /* Resolves speculative hits without allocation; only WB data misses request walks.
    Instruction walks survive replay, pending WB walks have priority, and physical
-   requests arbitrate core-first without locking the cache for a walk's lifetime. */
-sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
+   requests arbitrate core-first without locking the cache for a walk's lifetime.
+   Optional Svnapot enables shared 64 KiB mappings in both translation banks. */
+sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false):
   input state: RV2WideTranslationState()
   input invalidate: Bool
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
@@ -56,7 +57,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
 
   inst itlb(RiscvTranslationTlb())
   inst dtlb(RiscvTranslationTlb())
-  inst walker(RiscvTranslationWalker())
+  inst walker(RiscvTranslationWalker(~svnapot: svnapot))
   inst misaligned(RiscvMisalignedEngine(XLen.X64, Bool))
   split.request |> misaligned.start
   misaligned.completion |> split.response

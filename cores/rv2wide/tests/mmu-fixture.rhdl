@@ -54,7 +54,7 @@ sync_circuit RV2WideMmuFixture():
   output response_ready: Bool
   output completed: Bool
   output completed_data: Bits(64)
-  inst mmu(RV2WideMmu(test_fetch_chi))
+  inst mmu(RV2WideMmu(test_fetch_chi, ~svnapot: #true))
   mmu.state <== RV2WideTranslationState():
     privilege: privilege.into(PrivilegeMode)
     satp: satp

@@ -49,7 +49,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   inst frontend(RV2WideFrontend(config, profile))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(RV2WideL1D(cache, ~chi: config))
-  inst mmu(RV2WideMmu(config))
+  inst mmu(RV2WideMmu(config, ~svnapot: profile.svnapot))
   describe_cosim_context(core, {"mmu": mmu})
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush

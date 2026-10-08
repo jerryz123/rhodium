@@ -32,6 +32,7 @@ module rv2wide_mmu_tb;
     falling(); address=va; wb_valid=1; tick(); falling(); wb_valid=0;
   endtask
   task automatic wait_request(input logic [63:0] pa);
+    #1; // Settle a just-withdrawn WB offer before observing the next PTE request.
     for(int i=0;!physical_valid && i<80;i++) tick();
     assert(physical_valid && physical_address==pa) else $fatal(1,"PTE expected=%h actual=%h valid=%b",pa,physical_address,physical_valid);
     falling();
@@ -70,6 +71,29 @@ module rv2wide_mmu_tb;
     reply('h11010,('h12<<10)|1);
     reply('h12800,leaf);
     repeat(5) tick(); falling();
+  endtask
+  task automatic walk_at(input logic [63:0] va, leaf, input int level=0);
+    reply('h10000+((va>>30)&511)*8,level==2 ? leaf : ('h11<<10)|1);
+    if(level<2) reply('h11000+((va>>21)&511)*8,level==1 ? leaf : ('h12<<10)|1);
+    if(level<1) reply('h12000+((va>>12)&511)*8,leaf);
+    repeat(5) tick(); falling();
+  endtask
+  task automatic data_hit(input logic [63:0] va, pa, input int operation=1);
+    address=va; access=4'(operation); ex_valid=1;
+    tick(); falling(); ex_valid=0; #1;
+    assert(result_valid && resolve_valid && resolve_address==pa && !physical_valid)
+      else $fatal(1,"NAPOT MEM translation va=%h pa=%h got=%h",va,pa,resolve_address);
+    tick(); falling(); wb_valid=1; #1;
+    assert(physical_valid && physical_address==pa && physical_access==access && !wb_fault)
+      else $fatal(1,"NAPOT WB translation va=%h",va);
+    // No acceptance: inspect the authorization path without allocating a reply.
+    wb_valid=0;
+  endtask
+  task automatic data_page_fault(input logic [63:0] va, input int operation=1);
+    address=va; access=4'(operation); wb_valid=1; #1;
+    assert(wb_fault && !physical_valid && !wb_ready && wb_fault_bits.cause==(operation==1 ? 13 : 15) && wb_fault_bits.value==va)
+      else $fatal(1,"NAPOT data page fault/provenance va=%h",va);
+    tick(); falling(); wb_valid=0;
   endtask
   task automatic hint(input logic [63:0] va, input int operation, input bit accepted, input logic [63:0] pa=0, input int cancel_stage=0);
     // Two registered stages; neither a dropped hint nor a successful probe walks.
@@ -269,8 +293,66 @@ module rv2wide_mmu_tb;
     // Device fragments are rejected locally, even when one natural beat would
     // otherwise cover the access. Atomic alignment remains a core decision.
     privilege=3; start_split('h2001,1,1); finish_split(0,'h2001,0,1);
-    $display("RV2Wide MMU timing, permissions, invalidation, arbitration, and cancel/drain passed");
+    // One accepted leaf supplies the full 64 KiB mapping through each bank.
+    // Cold walks begin at different subpages; neighboring PTEs are never read.
+    privilege=1; satp=64'h8000000000000010; access=1;
+    for(int first=0;first<16;first+=7) begin
+      logic [63:0] va;
+      va='h500000+64'(first*4096)+'h128;
+      fence(); offer_wb(va); walk_at(va,64'h80000000000060cf);
+      for(int page=0;page<16;page++) begin
+        data_hit('h500000+64'(page*4096),'h10000+64'(page*4096));
+        data_hit('h500128+64'(page*4096),'h10128+64'(page*4096),2);
+        data_hit('h500ff8+64'(page*4096),'h10ff8+64'(page*4096));
+      end
+      hint('h50ffff,2,1,'h1ffc0);
+      // Outside the mapping, speculative MEM returns Slow, without walking.
+      for(int side=0;side<2;side++) begin
+        address=side==0 ? 'h4ffff8 : 'h510000; ex_valid=1;
+        tick(); falling(); ex_valid=0; #1;
+        assert(result_valid && outcome==0 && !resolve_valid && !physical_valid) else $fatal(1,"NAPOT DTLB overreach");
+        tick(); falling();
+      end
+      fetch_address='h400128+64'(first*4096); fetch_valid=1;
+      walk_at(fetch_address,64'h80000000000060cb);
+      for(int page=0;page<16;page++) begin
+        fetch_address='h400ff8+64'(page*4096); #1;
+        assert(fetch_resolution.disposition==0 && fetch_physical=='h10ff8+64'(page*4096) && !physical_valid)
+          else $fatal(1,"NAPOT ITLB subpage offset");
+        tick(); falling();
+      end
+      fetch_address='h410000; #1;
+      assert(fetch_resolution.disposition==2) else $fatal(1,"NAPOT ITLB overreach");
+      fetch_valid=0;
+    end
+    // Fence removes both banks' whole-region entries, allowing a new base.
+    fence(); fetch_address='h400008; #1;
+    assert(fetch_resolution.disposition==2) else $fatal(1,"NAPOT ITLB survived fence");
+    access=1; offer_wb('h500008); walk_at('h500008,64'h80000000000020cf);
+    data_hit('h500008,8);
+    fetch_valid=1; walk_at('h400008,64'h80000000000020cb);
+    assert(fetch_resolution.disposition==0 && fetch_physical==8) else $fatal(1,"NAPOT ITLB stale base");
+    fetch_valid=0;
+    // Warm permission checks must apply to every subpage, including current U mode.
+    fence(); offer_wb('h503008); walk_at('h503008,64'h8000000000006043);
+    data_hit('h50f008,'h1f008);
+    data_page_fault('h50e008,2);
+    privilege=0; data_page_fault('h50d008); privilege=1;
+    // Missing A, missing D, reserved low PPN, and upper-level N fault, not fill.
+    for(int scenario=0;scenario<4;scenario++) begin
+      logic [63:0] leaf;
+      fence(); access=scenario==1 ? 2 : 1;
+      leaf=scenario==0 ? 64'h800000000000608f : scenario==1 ? 64'h800000000000604f : scenario==2 ? 64'h80000000000064cf : 64'h80000000000060cf;
+      offer_wb('h507128); walk_at('h507128,leaf,scenario==3 ? 1 : 0);
+      data_page_fault('h507128,scenario==1 ? 2 : 1);
+    end
+    fence(); fetch_address='h40f008; fetch_valid=1;
+    walk_at(fetch_address,64'h8000000000006043); // Readable but not executable.
+    assert(fetch_resolution.disposition==1 && fetch_resolution.cause==12 && fetch_resolution.value=='h40f008 && !physical_valid)
+      else $fatal(1,"NAPOT instruction page fault/provenance");
+    fetch_valid=0;
+    $display("RV2Wide MMU timing, Svnapot mappings, permissions, invalidation, arbitration, and cancel/drain passed");
     $finish;
   end
-  initial begin #30000; $fatal(1,"MMU timeout"); end
+  initial begin #60000; $fatal(1,"MMU timeout"); end
 endmodule

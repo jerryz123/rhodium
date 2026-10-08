@@ -554,6 +554,13 @@ and a fetch walk never owns the physical data port for its entire lifetime.
 Faults retain the original virtual address through retirement in either slot.
 Sv39 uses software-managed A/D bits; absent A/D permission produces a page fault.
 
+Select `RV2WideConfig(~svnapot: #true)` to implement and advertise Svnapot 1.0;
+it defaults to disabled. The shared walker accepts level-zero 64 KiB NAPOT
+leaves, and both TLBs retain the full mapping with subpage offsets preserved.
+Reserved NAPOT encodings fault. Permissions and software-managed A/D checks
+remain unchanged; SFENCE.VMA invalidates the complete mapping in both banks.
+No neighboring-PTE scan or new pipeline stage is introduced.
+
 One memory operation may issue per group, in either age slot. The memory service has
 the same lookup-versus-authorization split as RV5Stage:
 

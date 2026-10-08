@@ -341,6 +341,15 @@ Only WB data misses enter the retained pending-walk slot. An instruction walk
 already in progress finishes first, and the pending WB lookup wins next admission.
 The walker captures its request context, independent of subsequent live CSRs.
 
+Optional `profile.svnapot` passes through the production top and MMU to the
+shared walker's structural PTE validation. Keep the shared mapping's page size
+intact through fill and lookup; do not implement another NAPOT decoder or expand
+a leaf into sixteen fills. ISA/UDB metadata follows the same profile selection.
+The existing MMU fixture checks cold walks from different subpages, warm I/D
+offsets, MEM/WB address agreement, mapping bounds, permission/A/D faults,
+reserved encodings, and whole-mapping invalidation/remapping. Run `rv2wide-mmu`
+and `riscv-svnapot` plus `tests/profile-test.rhm` for this integration.
+
 Architectural invalidation clears TLBs and retained faults at the retirement edge.
 Registered walker cancellation breaks the retirement/readiness feedback path;
 the invalidation edge suppresses completion publication and new walk admission.
