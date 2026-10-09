@@ -1046,8 +1046,7 @@ void stop_at(std::uint64_t pc, std::uint64_t target, int disposition = 0,
   redirect_t item;
   item = {.ppc = pc,
           .ptarget = disposition == 1 ? trap_target : target,
-          .presolution = {.pguest = {},
-                          .pdisposition =
+          .presolution = {.pdisposition =
                               static_cast<uint8_t>(((disposition)&low_mask(2))),
                           .pcause = cause,
                           .pvalue = value}};
@@ -1331,8 +1330,7 @@ int main() {
     drain();
     inject_enable = 1;
     inject_pc = UINT64_C(0x2550);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(1),
+    inject_result = {.pdisposition = UINT64_C(1),
                      .pcause = UINT64_C(5),
                      .pvalue = UINT64_C(0xdead)};
     stop_at(UINT64_C(0x2550), UINT64_C(0x2550), 1, 2, UINT64_C(0xffffffff));
@@ -1345,8 +1343,7 @@ int main() {
         pc = ((UINT64_C(0x2600) + 64 * lane + 16 * action) & low_mask(64));
         inject_enable = 1;
         inject_pc = pc + ((4 * lane) & low_mask(64));
-        inject_result = {.pguest = {},
-                         .pdisposition =
+        inject_result = {.pdisposition =
                              static_cast<uint8_t>(((action)&low_mask(2))),
                          .pcause = UINT64_C(13),
                          .pvalue = UINT64_C(0x3000)};
@@ -1376,8 +1373,7 @@ int main() {
     // An older injected fault wins over a younger taken branch in the same pair.
     inject_enable = 1;
     inject_pc = UINT64_C(0x2800);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(1),
+    inject_result = {.pdisposition = UINT64_C(1),
                      .pcause = UINT64_C(5),
                      .pvalue = UINT64_C(0xdead)};
     stop_at(UINT64_C(0x2800), UINT64_C(0x2800), 1, 5, UINT64_C(0xdead));
@@ -1683,8 +1679,7 @@ int main() {
     drain();
     inject_enable = 1;
     inject_pc = UINT64_C(0x4f40);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(1),
+    inject_result = {.pdisposition = UINT64_C(1),
                      .pcause = UINT64_C(2),
                      .pvalue = UINT64_C(0xdead)};
     stop_at(UINT64_C(0x4f40), UINT64_C(0x4f40), 1, 2, UINT64_C(0xdead));
@@ -1720,8 +1715,7 @@ int main() {
     hold_responses = 1;
     inject_enable = 1;
     inject_pc = UINT64_C(0x5104);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(1),
+    inject_result = {.pdisposition = UINT64_C(1),
                      .pcause = UINT64_C(2),
                      .pvalue = UINT64_C(0xbad)};
     stop_at(UINT64_C(0x5104), UINT64_C(0x5104), 1, 2, UINT64_C(0xbad));
@@ -2046,8 +2040,7 @@ int main() {
     drain();
     inject_enable = 1;
     inject_pc = UINT64_C(0x6260);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(1),
+    inject_result = {.pdisposition = UINT64_C(1),
                      .pcause = UINT64_C(5),
                      .pvalue = UINT64_C(0xbad)};
     stop_at(UINT64_C(0x6260), 0, 1, 5, UINT64_C(0xbad));
@@ -2442,8 +2435,7 @@ int main() {
       } else {
         inject_enable = 1;
         inject_pc = UINT64_C(0x6670);
-        inject_result = {.pguest = {},
-                         .pdisposition =
+        inject_result = {.pdisposition =
                              static_cast<uint8_t>(((reason)&low_mask(2))),
                          .pcause = UINT64_C(5),
                          .pvalue = UINT64_C(0xbad)};
@@ -2760,8 +2752,7 @@ int main() {
       stop_at(UINT64_C(0x9408), UINT64_C(0x9408), 1, 13, UINT64_C(0xdead));
       inject_enable = 1;
       inject_pc = UINT64_C(0x9408);
-      inject_result = {.pguest = {},
-                       .pdisposition = UINT64_C(1),
+      inject_result = {.pdisposition = UINT64_C(1),
                        .pcause = UINT64_C(13),
                        .pvalue = UINT64_C(0xdead)};
       send(UINT64_C(0x9408), imm(7, 0, 7), m_insn(3, 1, 2, funct3), 2, 0, 0);
@@ -2794,8 +2785,7 @@ int main() {
     stop_at(UINT64_C(0xa208), UINT64_C(0xa208), 2);
     inject_enable = 1;
     inject_pc = UINT64_C(0xa208);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(2),
+    inject_result = {.pdisposition = UINT64_C(2),
                      .pcause = UINT64_C(0),
                      .pvalue = UINT64_C(0)};
     send(UINT64_C(0xa208), imm(7, 0, 7), m_insn(3, 1, 2, 0), 2, 0, 0);
@@ -3199,8 +3189,7 @@ int main() {
       // An older fault cancels a same-destination younger write as well.
       inject_enable = 1;
       inject_pc = pc + 16;
-      inject_result = {.pguest = {},
-                       .pdisposition = UINT64_C(1),
+      inject_result = {.pdisposition = UINT64_C(1),
                        .pcause = UINT64_C(5),
                        .pvalue = UINT64_C(0xdead)};
       stop_at(pc + 16, pc + 16, 1, 5, UINT64_C(0xdead));
@@ -3358,8 +3347,7 @@ int main() {
         before_pairs = auipc_addi_pairs;
         inject_enable = 1;
         inject_pc = UINT64_C(0x10944) + ((4 * lane) & low_mask(64));
-        inject_result = {.pguest = {},
-                         .pdisposition = static_cast<uint8_t>(
+        inject_result = {.pdisposition = static_cast<uint8_t>(
                              ((replay != 0 ? 2 : 1) & low_mask(2))),
                          .pcause = UINT64_C(5),
                          .pvalue = UINT64_C(0xdead)};
@@ -3612,8 +3600,7 @@ int main() {
     reset_core();
     inject_enable = 1;
     inject_pc = UINT64_C(0x11500);
-    inject_result = {.pguest = {},
-                     .pdisposition = UINT64_C(1),
+    inject_result = {.pdisposition = UINT64_C(1),
                      .pcause = UINT64_C(5),
                      .pvalue = UINT64_C(0xdead)};
     stop_at(UINT64_C(0x11500), UINT64_C(0x11500), 1, 5, UINT64_C(0xdead));
@@ -3801,8 +3788,7 @@ int main() {
       before_stores = stores;
       inject_enable = 1;
       inject_pc = UINT64_C(0x12408);
-      inject_result = {.pguest = {},
-                       .pdisposition = UINT64_C(1),
+      inject_result = {.pdisposition = UINT64_C(1),
                        .pcause = UINT64_C(5),
                        .pvalue = UINT64_C(0xdead)};
       stop_at(UINT64_C(0x12408), UINT64_C(0x12408), 1, 5, UINT64_C(0xdead));
@@ -3899,8 +3885,7 @@ int main() {
       reset_core();
       inject_enable = 1;
       inject_pc = ((UINT64_C(0x13400) + 4 * fault_slot) & low_mask(64));
-      inject_result = {.pguest = {},
-                       .pdisposition = UINT64_C(1),
+      inject_result = {.pdisposition = UINT64_C(1),
                        .pcause = UINT64_C(5),
                        .pvalue = UINT64_C(0xdead)};
       stop_at(inject_pc, inject_pc, 1, 5, UINT64_C(0xdead));
@@ -4253,8 +4238,7 @@ int main() {
         reset_core();
         inject_enable = 1;
         inject_pc = UINT64_C(0x12c00) + ((4 * rejected_lane) & low_mask(64));
-        inject_result = {.pguest = {},
-                         .pdisposition = static_cast<uint8_t>(
+        inject_result = {.pdisposition = static_cast<uint8_t>(
                              replay != 0 ? UINT64_C(2) : UINT64_C(1)),
                          .pcause = UINT64_C(5),
                          .pvalue = UINT64_C(0xdead)};
@@ -4340,8 +4324,7 @@ int main() {
         before_commits = commits;
         inject_enable = 1;
         inject_pc = UINT64_C(0x15100) + ((rejected_lane * 4) & low_mask(64));
-        inject_result = {.pguest = {},
-                         .pdisposition = static_cast<uint8_t>(
+        inject_result = {.pdisposition = static_cast<uint8_t>(
                              replay != 0 ? UINT64_C(2) : UINT64_C(1)),
                          .pcause = UINT64_C(5),
                          .pvalue = UINT64_C(0xdead)};
@@ -4602,8 +4585,7 @@ void drive() {
     memory_in.pfault.pvalid =
         memory_out.prequest.pvalid && inject_memory_fault &&
         memory_out.prequest.pbits.paddress == fault_address;
-    memory_in.pfault.pbits = {.pguest = {},
-                              .pdisposition = UINT64_C(1),
+    memory_in.pfault.pbits = {.pdisposition = UINT64_C(1),
                               .pcause =
                                   (memory_out.prequest.pbits.paccess == 2 ||
                                    memory_out.prequest.pbits.paccess == 4 ||

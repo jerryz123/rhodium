@@ -484,221 +484,113 @@ void stimulus() {
   request_valid = 0;
   issue_ready = 1;
   cancel = 0;
-  {
-    std::uint64_t acc, mask, old;
-    int width, length, dest;
-    instruction = 0;
-    vtype = 0;
-    vl = 0;
-    vstart = 0;
-    scalar = 0;
-    saturate_count = 0;
-    for (unsigned repeat_index = 0; repeat_index < (3); ++repeat_index)
-      tick();
-    reset = 0;
-    for (int r = 0; r < 32; r++) {
-      for (int c = 0; c < 8; c++)
-        model[r][c] = random_word();
-      load_reg(r);
-    }
-    // Guaranteed clipping checks one sticky-CSR pulse per accepted beat.
-    for (int c = 0; c < 8; c++) {
-      model[8][c] = UINT64_MAX;
-      model[9][c] = UINT64_MAX;
-    }
-    load_reg(8);
-    load_reg(9);
-    {
-      int prior_saturations, beats;
-      prior_saturations = saturate_count;
-      run(vec(32, 24, 8, 9, 0), 0, 0, 512 / 8);
-      CHECK(saturate_count - prior_saturations == 8);
-      for (int c = 0; c < 8; c++)
-        model[24][c] = UINT64_MAX;
-      check_reg(24);
-      beats = (512 / 8 + 3) / 4;
-      prior_saturations = saturate_count;
-      run(vec(46, 24, 8, 0, 3), 0, 0, 512 / 8);
-      CHECK(saturate_count - prior_saturations == beats);
-    }
-    for (int sew = 0; sew < 4; sew++) {
-      width = 8 << sew;
-      mask = UINT64_MAX >> (64 - width);
-      for (int lm = 0; lm < 8; lm++) {
-        if (lm == 4 || (lm >= 5 && sew > lm - 5))
-          continue;
-        length = (512 / width) * (lm < 4 ? (1 << lm) : 1) /
-                 (lm < 4 ? 1 : (1 << (8 - lm)));
-        for (int op = 0; op < 8; op++) {
-          for (int scenario = 0; scenario < 4; scenario++) {
-            // Single-register seed/destination may be unaligned, overlap the
-            // source group, each other, or the input mask.
-            dest = scenario == 0   ? 7
-                   : scenario == 1 ? 8
-                   : scenario == 2 ? 3
-                                   : 0;
-            if (scenario == 3) {
-              for (int c = 0; c < 8; c++)
-                model[0][c] = 0;
-              load_reg(0);
-            } else {
-              for (int c = 0; c < 8; c++)
-                model[0][c] = random_word();
-              load_reg(0);
-            }
-            acc = element(3, 0, width);
-            for (int i = 0; i < length; i++)
-              if (scenario == 0 || element(0, i, 1) != 0)
-                acc = fold(op, width, acc, element(8, i, width));
-            mode = 0;
-            run(vec(op, dest, 8, 3, 2, scenario != 0), sew, lm, length, 0, -1,
-                sew == 3 && lm == 1 && op == 0 && scenario == 0);
-            model[dest][0] = (model[dest][0] & ~mask) | (acc & mask);
-            check_reg(dest);
-          }
-        }
-      }
-      // Empty reductions preserve even element zero; cancellation discards
-      // partial internal accumulation without an architectural VRF write.
-      for (int op = 0; op < 8; op++) {
-        acc = fold(op, width, element(3, 0, width), element(8, 0, width));
-        run(vec(op, 7, 8, 3, 2), sew, 3, 1);
-        model[7][0] = (model[7][0] & ~mask) | (acc & mask);
-        check_reg(7);
-      }
-      run(vec(0, 7, 8, 3, 2), sew, 3, 0);
-      check_reg(7);
-      run(vec(0, 7, 8, 3, 2), sew, 3, 8, 0, 2);
-      check_reg(7);
-      for (int c = 0; c < 8; c++)
-        model[3][c] = random_word();
-      load_reg(3);
-      // Both scalar moves ignore LMUL; extraction also ignores VL/vstart.
-      for (int empty = 0; empty < 4; empty++) {
-        scalar = ((-7) & low_mask(64));
-        old = model[3][0];
-        run(vec(16, 3, 0, 5, 6), sew, 3, empty == 1 ? 0 : 4,
-            empty == 2   ? 4
-            : empty == 3 ? 1
-                         : 0);
-        if (empty == 0 || empty == 3)
-          model[3][0] =
-              (old & ~mask) |
-              (((sext(((scalar)&low_mask(64)), 64)) & low_mask(64)) & mask);
-        check_reg(3);
-        scalar_expected = sext(element(3, 0, width), width);
-        mode = 3;
-        run(vec(16, 5, 3, 0, 2), sew, 3, 0, 7);
-        mode = 0;
-      }
-    }
-    // Widening reductions fold narrow LMUL-sized sources into a single wide
-    // seed/result element and advance only as each private result matures.
-    for (int sew = 0; sew < 3; sew++) {
-      for (int lm = 0; lm < 8; lm++) {
-        int exponent, length;
-        exponent = lm < 4 ? lm : lm - 8;
-        if (lm == 4 || sew > exponent + 3)
-          continue;
-        length = exponent >= 0 ? (512 / (8 << sew)) << exponent
-                               : (512 / (8 << sew)) >> (-exponent);
+  instruction = 0;
+  vtype = 0;
+  vl = 0;
+  vstart = 0;
+  scalar = 0;
+  saturate_count = 0;
+  for (int i = 0; i < 3; ++i)
+    tick();
+  reset = 0;
+  for (int r = 0; r < 32; r++) {
+    for (int c = 0; c < 8; c++)
+      model[r][c] = random_word();
+    load_reg(r);
+  }
+
+  // Exercise all eight words of a register and one saturation pulse per beat.
+  for (int c = 0; c < 8; c++) {
+    model[8][c] = UINT64_MAX;
+    model[9][c] = UINT64_MAX;
+  }
+  load_reg(8);
+  load_reg(9);
+  int prior_saturations = saturate_count;
+  run(vec(32, 24, 8, 9, 0), 0, 0, 64);
+  CHECK(saturate_count - prior_saturations == 8);
+  for (int c = 0; c < 8; c++)
+    model[24][c] = UINT64_MAX;
+  check_reg(24);
+  prior_saturations = saturate_count;
+  run(vec(46, 24, 8, 0, 3), 0, 0, 64);
+  CHECK(saturate_count - prior_saturations == 16);
+
+  // The 128-bit fixture owns the full SEW/LMUL and aliasing sweeps. Here the
+  // narrowest/widest elements traverse an eight-register source group.
+  for (int sew : {0, 3}) {
+    int width = 8 << sew;
+    int length = 512 / width * 8;
+    std::uint64_t mask = low_mask(width);
+    for (int op = 0; op < 8; op++) {
+      for (int masked = 0; masked < 2; masked++) {
         for (int c = 0; c < 8; c++)
           model[0][c] = random_word();
         load_reg(0);
-        widening_reduction_case(0, sew, lm, length, 24, 3, 8, 0);
-        widening_reduction_case(1, sew, lm, length, 24, 3, 8, 1);
-      }
-      // The scalar destination may overlap either data source or the mask;
-      // different-width source/source aliasing is rejected by decode instead.
-      widening_reduction_case(0, sew, 0, 512 / (8 << sew), 8);
-      widening_reduction_case(1, sew, 0, 512 / (8 << sew), 3);
-      for (int c = 0; c < 8; c++)
-        model[0][c] = 0;
-      load_reg(0);
-      widening_reduction_case(0, sew, 0, 512 / (8 << sew), 0, 3, 8, 1);
-      widening_reduction_case(1, sew, 0, 0, 7);
-      widening_reduction_case(1, sew, 0, 512 / (8 << sew), 7, 3, 8, 0, 2);
-    }
-    for (int sew = 0; sew < 4; sew++) {
-      for (int lm = 0; lm < 8; lm++) {
-        if (lm == 4 || (lm >= 5 && sew > lm - 5))
-          continue;
-        length = (512 / (8 << sew)) * (lm < 4 ? 1 << lm : 1) /
-                 (lm < 4 ? 1 : 1 << (8 - lm));
-        for (int op = 0; op < 7; op++) {
-          int lanes;
-          lanes = op < 5 ? 64 : 64 / (8 << sew);
-          scan_case(op, sew, lm, length, 7, 0);
-          scan_case(op, sew, lm, length, 6, 1);
-          scan_case(op, sew, lm, 0, 0, 1);
-        }
+        std::uint64_t acc = element(3, 0, width);
+        for (int i = 0; i < length; i++)
+          if (!masked || element(0, i, 1) != 0)
+            acc = fold(op, width, acc, element(8, i, width));
+        run(vec(op, 7, 8, 3, 2, masked), sew, 3, length);
+        model[7][0] = (model[7][0] & ~mask) | (acc & mask);
+        check_reg(7);
       }
     }
-    for (int op = 0; op < 7; op++) {
-      for (int pattern = 0; pattern < 6; pattern++) {
-        scan_case(op, 0, 3, 512, pattern, pattern == 5);
-        scan_case(op, 0, 3, 65, pattern, 1);
-      }
-      scan_case(op, 0, 3, 512, 7, 1, 1);
-      scan_case(op, 0, 3, 1, 1, 1);
-    }
-    // vid supports arbitrary vstart; indices retain their architectural origin.
-    for (int sew = 0; sew < 4; sew++) {
-      scan_case(6, sew, 3, 512 / (8 << sew) * 8, 7, 1, -1, 3);
-      scan_case(6, sew, 3, 1, 7, 0, -1, 5);
-    }
-    // Production private-pipeline maturity, including partial-prefix
-    // cancellation followed by a nonzero-vstart reissue over preserved state.
-    for (int sew = 0; sew < 4; sew++) {
-      for (int form = 0; form < 6; form++) {
-        bool down;
-        down = (form == 2 || form == 3 || form == 5);
-        length = 512 >> sew;
-        slide_case(form, sew, length, 0, 0, -1, down);
-        slide_case(form, sew, length - 1, 1, 1, -1, down);
-        slide_case(form, sew, length, 0, 1, 1, down);
-        slide_case(form, sew, length, 8 >> sew, 1, -1, down);
-        slide_case(form, sew, 0, 0, 1);
-        slide_case(form, sew, 1, 0, 0);
-      }
-    }
-    for (int sew = 0; sew < 4; sew++)
-      for (int lm = 0; lm < 8; lm++) {
-        int exponent, maximum;
-        exponent = lm < 4 ? lm : lm - 8;
-        if (lm == 4 || sew > exponent + 3)
-          continue;
-        maximum = exponent >= 0 ? (512 / (8 << sew)) << exponent
-                                : (512 / (8 << sew)) >> (-exponent);
-        for (int form = 0; form < 4; form++) {
-          int ie, lanes;
-          ie = exponent + (form == 1 ? 1 - sew : 0);
-          lanes = form < 2 ? 1 : 8 >> sew;
-          if (form == 1 && (ie < -3 || ie > 3))
-            continue;
-          gather_case(form, sew, lm, maximum, 0, 0);
-          gather_case(form, sew, lm, maximum - 1, 1, 1);
-          gather_case(form, sew, lm, 0, 0, 1);
-          gather_case(form, sew, lm, 1, 3, 0);
-          if (maximum > lanes) {
-            gather_case(form, sew, lm, maximum, 0, 1);
-            gather_case(form, sew, lm, maximum, 0, 0, 1);
-          }
-        }
-      }
-    // Compression streams its mask/data sources through the production bank,
-    // writes each mature packed destination beat, and preserves its tail.
-    for (int sew = 0; sew < 4; sew++) {
-      int maximum;
-      maximum = 512 / (8 << sew);
-      compress_case(sew, 0, maximum, 0);
-      compress_case(sew, 0, maximum > 0 ? maximum - 1 : 0, 1);
-      compress_case(sew, 3, 8 * maximum, 2);
-    }
-    compress_case(0, 0, 0, 2);
-
-    throw Finished{};
   }
+  // Keep the feed-forward, bubble-free reduction check at this width.
+  std::uint64_t acc = element(3, 0, 64);
+  for (int i = 0; i < 16; i++)
+    acc += element(8, i, 64);
+  run(vec(0, 7, 8, 3, 2), 3, 1, 16, 0, -1, 1);
+  model[7][0] = acc;
+  check_reg(7);
+  for (int sew = 0; sew < 3; sew++) {
+    int length = 512 / (8 << sew) * 8;
+    widening_reduction_case(0, sew, 3, length, 24);
+    widening_reduction_case(1, sew, 3, length, 24, 3, 8, 1);
+  }
+  widening_reduction_case(1, 0, 3, 512, 7, 3, 8, 0, 2);
+
+  // Preserve the wide-mask regressions: first-set at bits 63, 64, and 511,
+  // a scalar popcount of 512, and SEW8 prefix/index wrap beyond 255.
+  for (int op = 0; op < 7; op++) {
+    for (int pattern = 0; pattern < 6; pattern++) {
+      scan_case(op, 0, 3, 512, pattern, pattern == 5);
+      scan_case(op, 0, 3, 65, pattern, 1);
+    }
+    scan_case(op, 0, 3, 64, 2, 0);
+    scan_case(op, 0, 3, 511, 4, 0);
+    scan_case(op, 0, 3, 512, 7, 1, 1);
+    scan_case(op, 0, 3, 1, 1, 1);
+  }
+  // Nonzero vstart preserves the architectural origin of vid indices.
+  for (int sew = 0; sew < 4; sew++) {
+    scan_case(6, sew, 3, 512 / (8 << sew) * 8, 7, 1, -1, 3);
+    scan_case(6, sew, 3, 1, 7, 0, -1, 5);
+  }
+
+  // Representative multiword permutations retain stalls, masked tails, and
+  // cancellation followed by nonzero-vstart restart without another sweep.
+  for (int sew : {0, 3}) {
+    int length = 512 >> sew;
+    for (int form = 0; form < 6; form++) {
+      bool down = form == 2 || form == 3 || form == 5;
+      slide_case(form, sew, length, 0, 0, -1, down);
+      slide_case(form, sew, length - 1, 1, 1, -1, down);
+      slide_case(form, sew, length, 0, 1, 1, down);
+    }
+    for (int form = 0; form < 4; form++) {
+      // vrgatherei16 with SEW8 would need EMUL16 at LMUL8.
+      if (sew == 0 && form == 1)
+        continue;
+      gather_case(form, sew, 3, length, 0, 0);
+      gather_case(form, sew, 3, length - 1, 1, 1);
+    }
+    compress_case(sew, 3, length, 2);
+  }
+  std::cout << "macros=" << macros << " cycles=" << cycles
+            << " checks=" << checks << '\n';
+  throw Finished{};
 }
 
 int main() {

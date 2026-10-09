@@ -587,6 +587,12 @@ and LR/SC progress also run directly through rsim. Their groups are
 `cores-execution-frontend`, `cores-execution-control`, `cores-execution-datapath`,
 `cores-vector-functional-1`, `cores-vector-functional-2`,
 `cores-vector-configurations`, `cores-memory`, and `cores-cache`.
+The 128-bit `rv5stage-vector-reduction` fixture owns the full SEW/LMUL,
+aliasing, and empty-operation sweeps. `rv5stage-vector-mask-512` keeps the
+wide-mask boundaries at bits 63/64 and 511/512, scalar counts of 512,
+SEW8 prefix/index wrap, and representative multiword reductions and
+permutations with stalls, cancellation, and restart. Do not duplicate the
+full parameter sweep at the larger width.
 `tests/rsim/driver.hpp` settles host combinational responses, samples pre-edge
 transfers, ticks the DUT, and then publishes registered host updates. Keep this
 ordering when porting a scoreboard; a native record must be assigned by fields,
