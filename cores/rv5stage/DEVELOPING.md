@@ -598,13 +598,51 @@ transfers, ticks the DUT, and then publishes registered host updates. Keep this
 ordering when porting a scoreboard; a native record must be assigned by fields,
 not initialized from its former packed SV integer.
 
-Traced and co-sim fixtures retain their HDL runtime checks. The RV32F/RV64D
-complete-core fixtures inspect the nested WB-FP launch/result/authorization
-ports, and vector-memory/one-slot fixtures bind observers to internal VRF
-writes and certificate lifetime. Those four need equivalent observation
-interfaces before migration; do not replace their internal oracles with only
-final output checks.
+Alternate vector fixtures cover parameter boundaries, not a cross-product of
+every subsystem with every supported value. Keep one behavioral owner for each
+distinct risk: RV32 packed transport, RV32 sequencer geometry, a single
+completion slot, wide mask indexing, and gather indices above 255. The default
+functional fixtures own operation breadth. A second fixture should not rerun a
+complete operation scoreboard merely to repeat a shared completion-slot or
+XLEN value already covered at its owning boundary.
 
+Fetch/source/prediction/throughput, multiply, retirement, and load-hit trace
+fixtures run directly on rsim with their independent lineage and timing oracles.
+The RV32F/RV64D complete-core fixtures share `tests/rsim/core-wb-behavior.hpp`;
+vector-memory and one-slot configurations share `tests/rsim/vector-memory-behavior.hpp`.
+Keep the same complete workload in each parameter configuration.
+
+[`tests/rsim/port-observers.rhm`](tests/rsim/port-observers.rhm) is test-only
+instrumentation replacing the former SV bind/hierarchical monitors. It copies
+the prepared hierarchy and adds clocked callbacks at the same public component
+ports, without changing functional ports, state, or production generators.
+Each observer requires one matching module definition and explicit scalar field
+paths; callbacks receive pre-edge values before deferred host responses publish.
+The FP oracle proves a killed operation launched and returned without WB
+authorization. Vector oracles check exact VRF row/data/mask writes, contiguous
+write timing, scalar overlap, and fast-certificate acceptance. Keep these checks
+when changing a fixture; final architectural signatures alone do not replace them.
+Vector configuration composes this observation pass before event tracing and
+retains its independent ancestry oracle. Co-sim retains its separate HDL checks.
+
+`rv5stage-vector-config` additionally instruments its existing real-core
+program and checks each sequencing occurrence against its scalar WB ancestor,
+while retaining its architectural signatures and exact VRF-write scoreboard.
+The `rv5stage-load-hit` fixture also links RHEG and exports a matching descriptor;
+its scoreboard checks D-cache S1/MEM and S2/WB alignment, public core/cache
+admission, and retained S2-to-S3-to-S4 ancestry including direct-refill fields.
+The existing bench checks functional load timing and architectural results.
+Every refill receives RetryAck and PCrdGrant before retransmission, with request
+backpressure; both attempts must retain the same refill residency, whose parent
+is the original S4 occurrence.
+`rv5stage-retirement-trace` drives the real core's public fetch packets with
+explicit predictions and delayed memory responses. Its DPI scoreboard checks
+exact retired PCs/instructions/prediction fields and original MEM parents, with
+compressed branches, indirect targets, RAS-only repair, replay, squash, traps,
+and WRS/CMO retention. It can save a collector snapshot through
+`RHEG_RETIREMENT_SNAPSHOT` for native Perfetto validation.
+`rv5stage-load-hit` can similarly save its shared-cache ancestry snapshot with
+`RHEG_LOAD_HIT_SNAPSHOT`.
 Scalar architectural observation uses `rv5stage-cosim` (RV64, pipelined multiply)
 and `rv5stage-cosim32` (RV32, iterative multiply). Both drive real observed and
 unobserved occurrences of the same core definition in lockstep; the compilation
@@ -802,9 +840,7 @@ vvadd-style warm loads, signed/unsigned lanes, FP hits, exactly-once device
 reads, store-to-load ordering, and a younger lookup squashed by an older WB
 fault. Keep the timing regression at the real core/MMU/router/L1D
 boundary rather than replacing the cache with a fixed-latency response stub.
-The retained load-hit fixture uses the SoC harness's Verilator
-UNOPTFLAT setting for packed-interface scheduling; assertions and runtime
-convergence checks remain enabled. IO-MSHR request readiness is registered state,
+IO-MSHR request readiness is registered state,
 not a dependency on its request payload or whole `drained` output bundle.
 Include `rv5stage-fp-pipeline`, `rv5stage-core-rv32f`, and `rv5stage-core-rv64d`
 for FP-hit writeback or shared payload changes.
@@ -1065,7 +1101,7 @@ For WB authorization and scalar/FP integration, run:
 
 ```sh
 FIXTURES='rv5stage-core rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' python3 tools/testing/rsim/run.py
-FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' python3 tools/testing/rsim/run.py
 ```
 
 The RV32F/RV64D benches exercise rejected memory dispatch, committed prefetches,
@@ -1108,7 +1144,8 @@ FIXTURES='rv5stage-data-fault' python3 tools/testing/rsim/run.py
 FIXTURES='rv5stage-wfi' python3 tools/testing/rsim/run.py
 ```
 
-The backend test [`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md) owns
-fixture modes, tool discovery, and artifacts. SoC integration belongs to
+The [rsim test guide](../../tools/testing/rsim/README.md) owns behavior-fixture
+selection and artifacts; the [CIRCT contributor guide](../../tools/testing/circt/DEVELOPING.md)
+owns the retained HDL integration checks. SoC integration belongs to
 [`../../socs/DEVELOPING.md`](../../socs/DEVELOPING.md), and executable target
 coverage belongs to [`../../sims/DEVELOPING.md`](../../sims/DEVELOPING.md).

@@ -17,7 +17,7 @@ flowchart LR
   Analyze --> Manifest["event manifest and dynamic plans"]
   Manifest --> Descriptor["JSON and C++ descriptor"]
   Manifest --> Instrument["ordinary verified IR with DPI"]
-  Instrument --> Backend["selected CIRCT or direct SV backend"]
+  Instrument --> Backend["selected rsim, CIRCT, or direct SV backend"]
 ```
 
 | Owner | Responsibility |
@@ -36,7 +36,7 @@ flowchart LR
 
 Core, frontend, standard/flow libraries, diagrams, and backends must not import
 this optional consumer. Instrumentation produces ordinary verified IR; do not
-add event cases to CIRCT lowering. RHEG consumes the generated descriptor and
+add event cases to backend lowering. RHEG consumes the generated descriptor and
 DPI ABI, not compiler sources. The authoritative package inventory is
 [rhodium/DEVELOPING.md](../DEVELOPING.md).
 
@@ -62,7 +62,7 @@ Only child modules export subtree activity to their parent; the root consumes
 activity internally so instrumentation preserves the exact top signature.
 The logical design and its functional ports/storage are unchanged.
 
-Run `event-instance-test.rhm` and the `event-instance` CIRCT fixture for nested
+Run `event-instance-test.rhm` and the `event-instance` rsim fixture for nested
 scopes, reused module definitions, wide IDs, late first use,
 reset rebinding, functional timing, exact lineage, and a failing stability
 assertion. The RHEG native-import tests own viewer projection.
@@ -404,7 +404,44 @@ wrappers:
 ```sh
 make event-test
 make event-runtime-test
+python3 tools/testing/rsim/run.py --fixture event-queue
 ```
+
+`event-queue`, `event-pipeline`, `event-arbiter`, `event-demux`,
+`event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, `event-offer`,
+`event-retained`, `event-window`, `event-crossbar`, `event-feedback`,
+`event-branching`, `event-partial`, `event-offer-register`, `event-parents`,
+`event-instance`, `event-retained-bank`, `event-frontend`, `event-home`,
+`event-subordinate`, `event-fesvr`, and `event-vector` run directly on rsim.
+Their exported pipeline targets apply the existing trace pass; C++ drivers link
+the production RHEG collector and bind the generated descriptors. They sample
+public transfers before `tick()` and compare graphs after callbacks complete.
+The original workload lengths, reset schedules, untraced reference lanes, and
+independent coverage assertions are retained. Standalone Flow instrumentation
+uses the language rsim group; Home/subordinate/FESVR use protocols, frontend
+uses core execution frontend, and vector milestones use vector functional 1.
+Event, diagram, and collector changes select all instrumented rsim owners.
+For fixtures that need named site constants,
+[`tests/rsim/trace-sites.rhm`](tests/rsim/trace-sites.rhm) wraps
+one trace-pass invocation and appends `test-sites.h` from that invocation's report.
+Each fixture owns its label/path lookup and uniqueness checks. Optional preceding
+test passes compose before that same trace invocation; RV5Stage vector configuration
+uses this to preserve its public-component-port observations. Retirement/load-hit
+and RV2Wide fetching trace suites also retain their independent graph oracles on rsim. The compiler,
+runner, and runtime need no site-specific branches or separate elaboration.
+The parent and instance drivers also require the original missing-parent and
+bound-identity stability assertions to fail with their expected labels. Each
+negative case starts from a fresh model and executes hardware reset; positive
+graph comparisons finish before deliberately invalid stimulus begins.
+The `event-runtime` and `event-elastic` fixtures remain on HDL for the backend
+differential checks below. Keep focused HDL coverage for emission-sensitive ABI,
+context, and scheduling behavior.
+
+Home, FESVR, and fetch share their complete behavioral workloads with the
+untraced rsim fixtures through package-owned headers. Optional observers sample
+before the model edge and check after foreign callbacks, without changing host
+responder timing. Home's backing-request hints remain explicit public-workload
+annotations. Negative protocol cases stay with the untraced behavioral owner.
 
 `trace-pass-test.rhm` checks both targets, matching descriptors, repeated
 compilation and ordinary/traced reuse of one source, partial-mode gaps, and a
@@ -451,7 +488,83 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-stall` | Per-cycle blocked offers, changing/withdrawn Decoupled values, elastic and bypass/replacement queue ancestry, reset, repeated payloads and differential functional behavior |
 | `event-offer` | Best-effort Valid offers, observation-gated transfer/stall suppression, exact replay ancestry, reset, and unchanged public wiring |
 | `event-retained` | Scoped command-to-child-attempt ownership followed by payload mapping, repeated emissions, equal payloads, same-cycle release/replacement, pending reset, arbitration with unknown traffic, and independent public-state checks |
+| `event-partial` | Known, opaque, and unannotated contributors through selection, storage, joins, and downstream checkpoints; exact unknown flags, stalls, unchanged reference behavior, and pending reset |
+| `event-offer-register` | Selected and nearest owners through stalled replacement, simultaneous update/delivery, drain, pending observations, repeated payloads, and reset |
+| `event-instance` | Nested scopes on repeated definitions, equal IDs in distinct instances, pre-use changes, late activity, 64-bit IDs, reset rebinding, unchanged transfers, and rejection of bound-identity changes |
+| `event-parents` | Observation-gated and late-bound checkpoints, intermediate/combined parents through a flushed pipe and fork, repeated data, bubbles, reset, and rejection of a missing selected parent |
 | `event-retained-bank` | Three independent owners, two simultaneous readers, exact residency endpoints, concurrent releases, same-edge reuse, repeated payloads, pending reset, and local/child contract diagnostics |
+
+### Instrumented component workloads
+
+`event-vector` instruments the production vector execution engine. Its
+public-transfer oracle tracks sequence/issue occurrences,
+fixed-cycle feedback, accepted slots, tagged returns, and direct completion without
+reading generated metadata state. Equal-PC macros, retries after a prefix,
+fault/truncation, slot reuse, out-of-order returns, empty/store completions,
+stalls, and pending reset protect vector milestones. Its sequencing-stall checks
+require an active sequencer owner and at least one blocked setup, source, or
+aggregate operand-fetch acceptance; transferred plans must have no blocked
+reason. The feedback oracle checks public sequencing release: final read-plan
+transfer for ordinary compute and final authorization, fault, truncation, or
+cancellation for serialized work. Same-cycle replacement releases the old
+sequencer owner before capturing the new one; the oracle retains issue owners
+until their separate issue-completion pulses. Retry keeps its existing owner,
+and accepted results may outlive sequencing ownership.
+
+`event-frontend`
+runs the existing fetch bench against an instrumented production frontend;
+its public memory/instruction scoreboard checks exact occurrence parents and
+captures, not generated controls or payload-equality matching.
+`event-home` runs the two-slot inclusive-Home bench with its production retained bank
+and caller-owned checkpoints in `chi/tests/home-trace-fixture.rhdl`. It checks
+every emitted request/response/data occurrence against public port
+transfers, with overlapping owners, out-of-order fills, reused IDs, hit/miss
+responses, stalls, and pending reset. Its read/write residency ends are scored
+against public completion; copyback must have received every packet before its
+internal retirement.
+`event-subordinate` checks intrinsic retained-request contracts on the shared
+single-beat MMIO engine. Its public-transfer scoreboard requires exact parents
+through DBID and delayed write data, ignores credit returns, and tests reset
+in every retained phase plus read/write completion under backpressure.
+`event-fesvr` instruments the production host access engine under the existing
+MMIO bench. An independent public-transfer scoreboard checks every request
+fragment, write-data transfer, and final host response against its accepted
+command, including errors, delayed completion, and pending reset. The ordinary
+and traced emitters share `sims/tests/fesvr-mmio-fixture.rhdl` service parameters.
+
+`rv5stage-fetch-throughput` links RHEG for the real frontend/MMU/L1I
+path. A public admission/S1-kill/S2-outcome model identifies the exact S0 parent
+of refill residency and its TXREQ descendants, including delayed retries, request backpressure, redirect while
+the refill remains owned, and pending reset. Retain its cold/warm instruction
+throughput and payload checks alongside the lineage scoreboard.
+`rv5stage-fetch-source` independently models the original cursor, continuation,
+admission, and replacement priorities from public inputs. It compares inactive
+offer payloads as well as transfers, and checks exact restart/replay/successor/
+held parent occurrences with equal PCs, blocked replacements, clears, and reset.
+`rv5stage-fetch-prediction` instruments its existing production frontend fixture.
+Its public request/kill pipeline model identifies the precise S2 occurrence that
+triggers each selected fallback, then checks its S0 parent reference through the
+redirect pipe and blocked cursor. Direct/compressed jumps, returns, straddling
+instructions, and held redirects retain the existing functional scoreboard.
+The same monitor checks ordinary S1-selected successors against their original
+S0 occurrence, including BTB-predicted and sequential requests.
+
+`cache-compack` instruments both production line engines. Its independent
+public-transfer packet-set model checks exact RXDAT-to-CompAck parents with
+reordered/gapped packets, repeated IDs and payloads, request/acknowledgement/
+completion stalls, reset during collection and pending acknowledgement, and
+noncoherent instruction ROM reads interleaved with coherent requests.
+It also compares exact refill start/end cycles against command/completion transfers.
+`cache-copyback` retains its packet and coherence checks while validating
+15 residency intervals across all three DAT widths and retries.
+`riscv-walk-trace` checks the production walker's exact residency graph,
+PTE/completion parents, held completion, faults, cancellation, and pending reset
+using only public handshakes.
+
+These component workloads use their owning rsim groups and the same production
+collector. `rv5stage-multiply` additionally retains its exact decode/execute
+timing oracle alongside the architectural store signatures. No HDL tools are
+needed for these behavioral runs.
 
 The `event-runtime` runner includes the standalone collector test. `event-join`
 binds a descriptor generated from the same instrumented result as its RTL, adding

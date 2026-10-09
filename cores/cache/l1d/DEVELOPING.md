@@ -188,7 +188,7 @@ Test cache, transaction, and atomic behavior through compiled fixtures:
 ```sh
 FIXTURES='cache-store-buffer riscv-atomic' python3 tools/testing/rsim/run.py
 FIXTURES='rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' python3 tools/testing/rsim/run.py
-FIXTURES='rv5stage-load-hit' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-load-hit' python3 tools/testing/rsim/run.py
 ```
 
 Use the [RV5Stage guide](../../rv5stage/DEVELOPING.md#focused-validation) and

@@ -1,0 +1,13 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../event-parents-fixture.rhdl" as fixture
+  "trace-sites.rhm".traced_target
+
+def program = fixture.gated()
+fun site_header(manifest):
+  def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(constants, "") ++ "}\n"
+def target = traced_target(site_header)
+export program target

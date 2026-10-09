@@ -19,13 +19,18 @@ def inventory():
     rows = []
     for line in (HERE / 'fixtures.tsv').read_text().splitlines():
         if line and not line.startswith('#'):
-            name, group, source, export, driver = line.split('\t')
+            fields = line.split('\t')
+            if not 5 <= len(fields) <= 7:
+                raise ValueError('expected 5–7 fixture fields')
+            name, group, source, export, driver = fields[:5]
+            target = fields[5] if len(fields) > 5 and fields[5] else '-'
+            sources = fields[6].split() if len(fields) > 6 else []
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
                 raise ValueError(f"invalid fixture name: {name}")
-            for path in (source, driver):
+            for path in (source, driver, *sources):
                 if not (ROOT / path).is_file():
                     raise ValueError(f"{name}: missing fixture file: {path}")
-            rows.append(dict(name=name, group=group, source=source, export=export, driver=driver))
+            rows.append(dict(name=name, group=group, source=source, export=export, driver=driver, target=target, sources=sources))
     if len({r['name'] for r in rows}) != len(rows):
         raise ValueError('duplicate rsim fixture name')
     return rows
@@ -72,7 +77,7 @@ def main():
         for row in rows:
             directory = work / row['name']
             directory.mkdir(parents=True, exist_ok=True)
-            for pattern in ('*.cpp', '*.hpp', 'test'):
+            for pattern in ('*.cpp', '*.hpp', '*.h', '*.json', 'test'):
                 for artifact in directory.glob(pattern):
                     artifact.unlink()
         # Bound each owner group independently: a complete repository run must
@@ -81,13 +86,14 @@ def main():
             emit = [ROOT / 'tools/run-racket.sh', HERE / 'emit.rhm', work]
             for row in rows:
                 if row['group'] == group:
-                    emit += [row['name'], row['source'], row['export']]
+                    emit += [row['name'], row['source'], row['export'], row['target']]
             run(emit, work / ('emit-' + group + '.log'), timeout=1800)
 
         def test(row):
             directory = work / row['name']
             command = shlex.split(os.environ.get('CXX', 'c++')) + ['-std=c++20', '-O2', '-I' + str(HERE), '-I' + str(directory)]
-            command += list(directory.glob('*.cpp')) + [ROOT / row['driver'], '-o', directory / 'test']
+            command += ['-I' + str(parent) for parent in dict.fromkeys((ROOT / source).parent for source in row['sources'])]
+            command += list(directory.glob('*.cpp')) + [ROOT / row['driver']] + [ROOT / source for source in row['sources']] + ['-o', directory / 'test']
             run(command, directory / 'build.log')
             output = run([directory / 'test'], directory / 'run.log', timeout=120)
             if output.splitlines().count('PASS') != 1:

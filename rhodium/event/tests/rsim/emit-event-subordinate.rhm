@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits production single-beat subordinate instrumentation and its matching descriptor.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../chi/tests/single-beat-trace-fixture.rhdl".traced_subordinate
+  lib("rhodium/event/instrument.rhm").EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = traced_subordinate
+fun site_header(manifest):
+  def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig())
+export program target

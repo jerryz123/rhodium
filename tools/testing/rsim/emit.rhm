@@ -11,17 +11,18 @@ import:
   lib("rhodium/backend/rsim-target.rhm").rsim_target
 
 def arguments = current_command_line()
-unless arguments.length() >= 1 && (arguments.length() - 1) mod 3 == 0
-| error("expected OUTPUT followed by NAME SOURCE EXPORT triples")
+unless arguments.length() >= 1 && (arguments.length() - 1) mod 4 == 0
+| error("expected OUTPUT followed by NAME SOURCE EXPORT TARGET quadruples")
 
 /* Match the rsim model's injective spelling at the test boundary. */
 fun identifier(name :: String): "p" ++ name.replace("_", "_u", ~all: #true)
 
-for (serial in 0..rkt.quotient(arguments.length() - 1, 3)):
-  def index = 1 + 3 * serial
+for (serial in 0..rkt.quotient(arguments.length() - 1, 4)):
+  def index = 1 + 4 * serial
   def name = arguments[index]
   def program = dynamic_require(arguments[index + 1], rkt.#{string->symbol}(arguments[index + 2]))
-  def result = compile_program(program, rsim_target)
+  def target = if arguments[index + 3] == "-" | rsim_target | dynamic_require(arguments[index + 1], rkt.#{string->symbol}(arguments[index + 3]))
+  def result = compile_program(program, target)
   def directory = rkt.#{build-path}(arguments[0], name)
   file.#{make-directory*}(directory)
   for (artifact in result.artifacts):

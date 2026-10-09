@@ -80,16 +80,26 @@ class Selection:
         if not documentation and matches(path, "tools/testing/rsim/*", "rhodium/backend/*", "rhodium/compile/*",
                    "rhodium/std/*", "flow/*", "tools/run-racket.sh", "tools/racket-build-cache.sh"):
             self.add_checks(*RSIM_COMPONENT_CHECKS)
-        elif not documentation and matches(path, "examples/std/*", "examples/rtl/*", "examples/clocking/*"):
+        elif not documentation and matches(path, "examples/std/*", "examples/rtl/*", "examples/clocking/*",
+                                                "rhodium/event/*", "rhodium/diagram/*", "rheg/*"):
             self.add_checks("rsim-std")
         elif not documentation and matches(path, "chi/*", "noc/*", "devices/*", "examples/chi/*", "examples/noc/*"):
             self.add_checks("rsim-protocols")
         elif not documentation and matches(path, "cores/*", "riscv/*", "hardfloat/*", "examples/cores/*", "examples/riscv/*"):
             self.add_checks(*RSIM_CORE_CHECKS)
 
+        # Trace compilation and collection are shared by all instrumented rsim owners.
+        if not documentation and matches(path, "rhodium/event/*", "rhodium/diagram/*", "rheg/*"):
+            self.add_checks("rsim-protocols", "rsim-core-components", "rsim-core-cache",
+                            "rsim-core-execution-frontend", "rsim-core-execution-datapath",
+                            "rsim-core-vector-functional-1")
+        # Protocol workloads also supply the trace variants' public-transfer oracles.
+        if not documentation and matches(path, "chi/*", "sims/tests/rsim/*", "sims/tests/fesvr-mmio-fixture.rhdl"):
+            self.add_checks("rsim-protocols")
+
         # Shared cache drivers and hardware depend on CHI transaction machinery.
         if not documentation and matches(path, "chi/*"):
-            self.add_checks("rsim-core-components", "rsim-core-memory", "rsim-core-cache")
+            self.add_checks("rsim-core-components", "rsim-core-memory", "rsim-core-cache", "rsim-core-execution-frontend")
 
         # The rsim smoke also reuses the production UART and PTY helpers.
         if not documentation and matches(path, "devices/uart/uart.rhdl", "devices/uart/uart-dpi.rhdl",

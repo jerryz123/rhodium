@@ -36,7 +36,8 @@ class RsimRunnerTest(unittest.TestCase):
 
     def test_rsim_build_executes_every_selected_fixture_and_checks_completion(self):
         inventory = runner.inventory()
-        rows = [inventory[0], next(row for row in inventory if row["group"] != inventory[0]["group"])]
+        rows = [inventory[0], next(row for row in inventory if row["group"] != inventory[0]["group"]),
+                next(row for row in inventory if row['target'] != '-' and row['sources'])]
         for completion in ("PASS\n", "unfinished\n"):
             with self.subTest(completion=completion), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary)
@@ -66,11 +67,18 @@ class RsimRunnerTest(unittest.TestCase):
                 self.assertEqual(len(emissions), len({row["group"] for row in rows}))
                 self.assertEqual(len(commands), len(emissions) + 2 * len(rows))
                 for emitted in emissions:
-                    self.assertEqual(len(emitted[3:]), 3)
+                    emitted_rows = [emitted[i:i + 4] for i in range(3, len(emitted), 4)]
+                    for name, source, export, target in emitted_rows:
+                        row = next(row for row in rows if row['name'] == name)
+                        self.assertEqual([source, export, target], [row['source'], row['export'], row['target']])
                 self.assertTrue(commands[0][0].endswith('tools/run-racket.sh'))
                 for compile_command in (command for command in commands if "-std=c++20" in command):
                     self.assertIn('-std=c++20', compile_command)
                     self.assertIn('-O2', compile_command)
+                    row = next(row for row in rows if str(runner.ROOT / row['driver']) in compile_command)
+                    for source in row['sources']:
+                        self.assertIn(str(runner.ROOT / source), compile_command)
+                        self.assertIn('-I' + str((runner.ROOT / source).parent), compile_command)
                     self.assertTrue(any(arg.endswith('/model.cpp') for arg in compile_command))
                     self.assertFalse(any(arg.endswith('/stale.cpp') for arg in compile_command))
 

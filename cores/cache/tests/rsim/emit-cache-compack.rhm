@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits both instrumented line engines with their RXDAT-to-CompAck descriptor.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  "../compack-trace-fixture.rhdl".traced_compack
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = traced_compack
+fun site_header(manifest):
+  def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ site.label.replace("/", "_") ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

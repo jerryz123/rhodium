@@ -1,9 +1,0 @@
-#lang rhombus
-// Defines the real vector LSU with a single completion slot to exercise zero-index wraparound.
-// SPDX-License-Identifier: Apache-2.0
-import:
-  "../../../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
-  "../../../../riscv/isa/vector-profile.rhm" open
-  lib("rhodium/frontend/foundation.rhm").elaborate
-def program = elaborate(RV5StageLoadHit(~vector: VectorProfile.V, ~vector_length: 128, ~vector_completion_slots: 1))
-export program

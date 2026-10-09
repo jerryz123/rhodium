@@ -1,0 +1,61 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/core/ir.rhm") open
+  lib("rhodium/core/builder.rhm").Builder
+  lib("rhodium/core/types.rhm").Bits
+  lib("rhodium/event/copy.rhm").copy_module
+  lib("rhodium/compile/pipeline.rhm") open
+
+// Replace the old SV bind monitors with clocked observations of the same public
+// component ports. Each specification names one module definition, one callback,
+// and scalar field paths; every callback receives reset followed by uint64 words.
+// Copy before adding effects so fixture elaboration and other targets stay intact.
+fun port_observer_pass(specs):
+  fun instrument(prepared):
+    def builder = Builder(Design())
+    def imports = MutableMap.by(===){}
+    for (item in prepared.rtl.design.dpi_imports):
+      imports[item] := builder.dpi_import_results(item.name, item.input_names, item.input_types, item.results, item.location)
+    def copies = MutableMap.by(===){}
+    def counts = MutableMap{}
+    for (spec in specs): counts[spec[1]] := 0
+    fun copy(original):
+      unless copies.has_key(original)
+      | def children = MutableMap{}
+        for (op in original.operations):
+          when op.opcode == "rtl.instance" | children[op.id] := copy(op.attribute("module"))
+        def copied = copy_module(builder, original, original.name, children, imports)
+        def module_def = copied.module_def
+        fun port(name):
+          def input = module_def.inputs.find(fun (p): p.name == name)
+          if input
+          | input.value
+          | block:
+              def output = module_def.outputs.find(fun (p): p.name == name)
+              unless output | error("missing observer port " ++ original.name ++ "." ++ name)
+              builder.read(output.place)
+        for (spec in specs):
+          when original.name == spec[0] || original.name.starts_with(spec[0] ++ "_")
+          | counts[spec[1]] := counts[spec[1]] + 1
+            def samples = for List (path in [["reset"]] ++ spec[2], index in 0..):
+              def prefix = "test_observer_" ++ spec[1] ++ "_arg" ++ to_string(index)
+              def mutable value = port(path[0])
+              for (field in path.drop(1), depth in 0..):
+                value := builder.record_get(module_def, value, field, prefix ++ "_field" ++ to_string(depth))
+              def width = value.type.packed_width()
+              unless width <= 64 | error("observer fields must fit one word")
+              def packed = builder.cast(module_def, value, Bits(width), prefix ++ "_packed")
+              if width == 64 | packed | builder.zext(module_def, packed, 64, prefix ++ "_word")
+            def imported = builder.dpi_import(spec[1], for List (i in 0..samples.length()): "arg" ++ to_string(i), samples.map(fun (v): v.type))
+            builder.dpi_call(module_def, imported, samples, port("clock"), builder.constant(module_def, Bits(1), 1, "test_observer_enable_" ++ spec[1]))
+        builder.finish(module_def)
+        copies[original] := copied
+      copies[original]
+    def top = copy(prepared.rtl.top).module_def
+    for (spec in specs):
+      unless counts[spec[1]] == 1 | error("expected exactly one observer module: " ++ spec[0] ++ ", found " ++ to_string(counts[spec[1]]))
+    RTLPassResult(DesignElaboration(builder.design, top))
+  RTLPass("test-port-observers", instrument)
+
+export port_observer_pass

@@ -1,0 +1,11 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
+  "../event-join-fixture.rhdl" as fixture
+
+def program = fixture.joined
+def target = rtl_pipeline_target(rsim_target, [event_trace_pass()])
+export program target

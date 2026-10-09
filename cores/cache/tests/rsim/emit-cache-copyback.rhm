@@ -1,0 +1,14 @@
+#lang rhombus
+// Instruments shared copyback residency across packet widths, retries, and snoop handoff.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  "../copyback-fixture.rhdl".CacheCopyBackFixture
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = elaborate(CacheCopyBackFixture())
+fun site_header(manifest):
+  ""
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

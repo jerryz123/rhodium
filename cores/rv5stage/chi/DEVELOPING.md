@@ -133,7 +133,7 @@ tools/run-racket-tests.sh \
 
 Use the `rv5stage-uncached`, `cache-icache`, and `rv5stage-dcache` rsim
 fixtures for cycle-visible traffic, retry, refill, writeback, and snoop
-behavior. The retained HDL `cache-copyback` fixture also checks residency start/end cycles against
+behavior. The rsim `cache-copyback` fixture also checks residency start/end cycles against
 public commands and completions at all DAT widths. `cache-compack` checks
 exact refill residency boundaries and last-packet event ownership in both
 line engines through stalls, reordered packets, ROM reads, and pending reset.
@@ -141,4 +141,4 @@ Include the composed RV5Stage or SoC owner when configuration or
 external endpoint integration changes. Run `make check-boundaries` after
 moving modules or changing dependency direction. The [rsim guide](../../../tools/testing/rsim/README.md)
 owns direct C++ invocation; the [HDL guide](../../../tools/testing/circt/DEVELOPING.md)
-owns trace-runtime fixture modes.
+owns emission-sensitive fixture modes.

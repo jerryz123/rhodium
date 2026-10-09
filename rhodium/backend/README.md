@@ -304,8 +304,12 @@ counts at least the operand width produce zero for logical shifts and sign fill
 for arithmetic right shifts.
 All scheduled computations are evaluated unconditionally in dependency order.
 There is no general event-driven activity scheduler.
-SystemVerilog scope/context APIs, event tracing, and multiple clocks
-remain unsupported.
+Compose `event_trace_pass` with `rtl_pipeline_target(rsim_target, ...)` to run
+instrumented RTL through the same foreign-call path. Link the RHEG collector and
+bind the returned descriptor. Direct rsim event suites cover storage, selection,
+routing, replication, joined lineage, stall/offer observations, and retained
+owner/window lifetimes, recirculation, and partial-tracing completeness. Collector queries belong after `tick()`, when all enabled calls finish.
+SystemVerilog scope/context APIs and multiple clocks remain unsupported.
 Unsupported operations or types in the reachable hierarchy produce
 source/occurrence-qualified errors before compilation returns artifacts. See the
 contributor guide for

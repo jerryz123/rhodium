@@ -59,7 +59,7 @@ Run affected behavioral owners through the managed fixture runner:
 tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache
 FIXTURES='rv5stage-dcache rv5stage-dcache-rv32' python3 tools/testing/rsim/run.py
-FIXTURES='rv5stage-load-hit' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv5stage-load-hit' python3 tools/testing/rsim/run.py
 make check-boundaries
 ```
 

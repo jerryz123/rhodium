@@ -14,11 +14,37 @@ constexpr uint128 mask128(unsigned width) {
 template <class T> std::uint64_t bits(T value, unsigned hi, unsigned lo) {
   return std::uint64_t(value >> lo) & low_mask(hi - lo + 1);
 }
+template <class T>
+uint128 read_bits(const T &value, unsigned offset, unsigned width) {
+  CHECK(width <= 128);
+  if constexpr (requires { value.words; }) {
+    CHECK(offset + width <= value.words.size() * 32);
+    uint128 result = 0;
+    for (unsigned bit = 0; bit < width; ++bit)
+      result |=
+          uint128((value.words[(offset + bit) / 32] >> ((offset + bit) % 32)) &
+                  1)
+          << bit;
+    return result;
+  } else {
+    return (uint128(value) >> offset) & mask128(width);
+  }
+}
 template <class T, class U>
 void write_bits(T &value, unsigned offset, unsigned width, U replacement) {
-  auto mask = mask128(width) << offset;
-  value =
-      T((uint128(value) & ~mask) | ((uint128(replacement) << offset) & mask));
+  CHECK(width <= 128);
+  if constexpr (requires { value.words; }) {
+    CHECK(offset + width <= value.words.size() * 32);
+    for (unsigned bit = 0; bit < width; ++bit) {
+      auto &word = value.words[(offset + bit) / 32];
+      auto mask = std::uint32_t(1) << ((offset + bit) % 32);
+      word = (word & ~mask) | (((uint128(replacement) >> bit) & 1) ? mask : 0);
+    }
+  } else {
+    auto mask = mask128(width) << offset;
+    value =
+        T((uint128(value) & ~mask) | ((uint128(replacement) << offset) & mask));
+  }
 }
 template <class T> struct Queue : std::deque<T> {
   T take() {
@@ -90,9 +116,7 @@ inline std::uint64_t sign_extend(std::uint64_t value, unsigned width) {
 template <class T> struct Slice {
   T &value;
   unsigned offset, width;
-  operator uint128() const {
-    return (uint128(value) >> offset) & mask128(width);
-  }
+  operator uint128() const { return read_bits(value, offset, width); }
   Slice &operator=(const Slice &other) { return *this = uint128(other); }
   template <class U> Slice &operator=(U replacement) {
     write_bits(value, offset, width, replacement);

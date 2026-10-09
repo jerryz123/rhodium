@@ -31,7 +31,7 @@ on execution-owned payloads.
 
 The core may consume fetch and predictor protocols and use the RAS classifier
 when resolving an instruction. Tests remain under [`../tests/`](../tests/), and
-external-tool emitters remain under [`../tests/circt/`](../tests/circt/).
+behavioral drivers and emitters live under [`../tests/rsim/`](../tests/rsim/).
 Do not add root-level forwarding modules for old paths; update consumers as one
 move so the directory boundary remains visible.
 
@@ -59,5 +59,5 @@ paths remain. Direct predictor behavior is covered by the shared `bpred-btb`
 and `bpred-ras` fixtures. Fetch integration is covered by `rv5stage-instruction-buffer`, `rv5stage-fetch-prediction`,
 `rv5stage-fetch-throughput`, `rv5stage-return-prediction`,
 `rv5stage-branch-prediction`, `rv5stage-fetch`, `rv5stage-core`, and
-`event-frontend` CIRCT fixtures. Run Racket and Rhombus checks through the
+`event-frontend` rsim fixtures. Run Racket and Rhombus checks through the
 repository wrappers so they use the managed worktree cache.

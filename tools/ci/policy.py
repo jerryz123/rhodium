@@ -58,13 +58,7 @@ CHECKS = (
     Check("circt-std", "CIRCT / standard-library goldens", "ci-circt-std-test", circt=True),
     Check("circt-protocols", "CIRCT / protocols", "ci-circt-protocols-test", circt=True, verilator=True),
     Check("circt-core-components", "CIRCT / core emission and instrumentation", "ci-circt-core-components-test", circt=True, verilator=True),
-    Check("circt-core-execution-frontend", "CIRCT / core frontend", "ci-circt-core-execution-frontend-test", circt=True, verilator=True),
     Check("circt-core-execution-datapath", "CIRCT / core datapath", "ci-circt-core-execution-datapath-test", circt=True, verilator=True),
-    Check("circt-core-vector-functional-1", "CIRCT / core vector functional 1", "ci-circt-core-vector-functional-1-test", circt=True, verilator=True),
-    Check("circt-core-vector-functional-2", "CIRCT / core vector functional 2", "ci-circt-core-vector-functional-2-test", circt=True, verilator=True),
-    Check("circt-core-vector-configurations", "CIRCT / core vector configurations", "ci-circt-core-vector-configurations-test", circt=True, verilator=True),
-    Check("circt-core-memory", "CIRCT / core memory", "ci-circt-core-memory-test", circt=True, verilator=True),
-    Check("circt-core-cache", "CIRCT / core caches", "ci-circt-core-cache-test", circt=True, verilator=True),
     Check("rsim-hardfloat", "Rsim / HardFloat", "hardfloat-rsim-test"),
     Check("circt-rfpl", "CIRCT / RFPL", "rfpl-circt-test", circt=True, verilator=True),
 )

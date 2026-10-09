@@ -1,0 +1,19 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/contracts.rhm").Artifact
+  lib("rhodium/compile/pipeline.rhm") open
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
+  lib("rhodium/event/instrument.rhm").EventInstrumentationConfig
+
+// Derive test bindings from the same trace invocation that supplies RTL and descriptors.
+fun traced_target(site_header, config = EventInstrumentationConfig(), ~before: before = []):
+  def tracing = event_trace_pass(config)
+  fun transform(prepared):
+    def result = tracing.transform(prepared)
+    def bindings = Artifact("test-sites.h", "text/x-c++hdr", "// Resolves test observations against the emitted event descriptor.\n#pragma once\n#include \"events.h\"\n" ++ site_header(result.report.manifest))
+    RTLPassResult(result.rtl, result.artifacts ++ [bindings], result.report, result.diagnostics)
+  rtl_pipeline_target(rsim_target, before ++ [RTLPass("event-trace", transform)])
+
+export traced_target

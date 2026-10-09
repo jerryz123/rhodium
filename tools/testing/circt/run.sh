@@ -24,7 +24,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-datapath|socs|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -84,7 +84,7 @@ if [[ -n "$fixture_group" && ( -n "${FIXTURE:-}" || -n "${FIXTURES:-}" ) ]]; the
   exit 2
 fi
 case "$fixture_group" in
-  ""|language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl) ;;
+  ""|language|std|protocols|cores|cores-components|cores-execution|cores-execution-datapath|socs|rfpl) ;;
   *)
     echo "unknown CIRCT fixture group: $fixture_group" >&2
     exit 2
@@ -104,7 +104,6 @@ integration_fixtures=(
   dont-care
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   uart-dpi chi-full-flits chi-router-composition
-  rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-multiply
   )
 
 repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -206,32 +205,20 @@ fixture_in_group() {
   local spec fixture top example program_export reference_export
 
   if [[ "$group" == cores ]]; then
-    for core_group in cores-components cores-execution cores-vector cores-memory cores-cache; do
+    for core_group in cores-components cores-execution; do
       fixture_in_group "$wanted" "$core_group" && return 0
     done
     return 1
   fi
 
   if [[ "$group" == cores-execution ]]; then
-    for execution_group in cores-execution-frontend cores-execution-datapath; do
+    for execution_group in cores-execution-datapath; do
       fixture_in_group "$wanted" "$execution_group" && return 0
     done
     return 1
   fi
 
-  if [[ "$group" == cores-vector ]]; then
-    for vector_group in cores-vector-functional cores-vector-configurations; do
-      fixture_in_group "$wanted" "$vector_group" && return 0
-    done
-    return 1
-  fi
 
-  if [[ "$group" == cores-vector-functional ]]; then
-    for functional_group in cores-vector-functional-1 cores-vector-functional-2; do
-      fixture_in_group "$wanted" "$functional_group" && return 0
-    done
-    return 1
-  fi
 
   for spec in "${fixture_specs[@]}"; do
     IFS='|' read -r fixture top example program_export reference_export <<< "$spec"
@@ -248,60 +235,10 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-rv32|cores-execution-datapath:rv2wide-fetch)
+    cores-execution-datapath:rv5stage-cosim*|cores-components:cosim-hooks|language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:formal-differential|language:event-runtime|language:event-elastic|protocols:uart-dpi|protocols:chi-full-flits|protocols:chi-router-composition)
       return 0
       ;;
-    cores-execution-datapath:rv5stage-cosim*)
-      return 0
-      ;;
-    language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
-      return 0
-      ;;
-    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
-      return 0
-      ;;
-    cores-components:cosim-hooks|cores-components:riscv-hpm-*|cores-components:riscv-sscofpmf-*)
-      return 0
-      ;;
-    std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
-      return 0
-      ;;
-    protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:hdmi-*|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
-      return 0
-      ;;
-    cores-components:bpred-*|cores-components:fp-*|cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-control-policy|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
-      return 0
-      ;;
-    cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput)
-      return 0
-      ;;
-    cores-components:riscv-csr|cores-components:riscv-zihpm-*)
-      return 0
-      ;;
-    cores-execution-datapath:rv5stage-fp-*|cores-execution-datapath:rv5stage-core-rv32f|cores-execution-datapath:rv5stage-core-rv64d|cores-execution-datapath:rv5stage-multiply)
-      return 0
-      ;;
-    cores-vector-functional-1:event-vector|cores-vector-functional-1:rv5stage-vector-config)
-      return 0
-      ;;
-    cores-vector-functional-2:rv5stage-vector-memory)
-      return 0
-      ;;
-    cores-vector-configurations:rv5stage-vector-memory-one-slot)
-      return 0
-      ;;
-    cores-memory:cache-compack|cores-memory:cache-copyback)
-      return 0
-      ;;
-    cores-components:riscv-walk-trace|cores-components:riscv-svpbmt|cores-components:riscv-svnapot|cores-components:riscv-nested-walker|cores-components:riscv-guest-translation)
-      return 0
-      ;;
-    cores-cache:rv5stage-load-hit)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
+    *) return 1 ;;
   esac
 }
 
@@ -554,13 +491,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
-    dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-vector || "$fixture" == rv5stage-vector-config || "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-fetch-prediction || "$fixture" == cache-compack ]]; then
-    dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  fi
-
-  if [[ "$fixture" == event-retained-bank || "$fixture" == cache-copyback || "$fixture" == riscv-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv2wide-fetch ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-elastic ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -595,7 +526,7 @@ verify_fixture() {
     # WB commit readiness; MEM/WB recovery only gates the younger EX lookup.
     # The core fixture's memory bus also packs WB admission with an independent
     # response offer and the completion arbiter's response readiness.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-rv32 || "$fixture" == rv2wide-fetch || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    if grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -791,39 +722,12 @@ fixture_specs=(
 )
 
 direct_fixture_specs=(
-  'rv5stage-retirement-trace|rv5stage_retirement_trace_tb'
   'rv5stage-cosim|rv5stage_cosim_tb'
   'rv5stage-cosim32|rv5stage_cosim_tb'
   'rv5stage-cosim-vector|rv5stage_cosim_vector_tb'
-  'event-instance|event_instance_tb'
   'event-runtime|event_runtime_tb'
-  'event-pipeline|event_pipeline_tb'
-  'event-window|event_window_tb'
-  'event-frontend|event_frontend_tb'
-  'event-home|event_home_tb'
-  'event-subordinate|event_subordinate_tb'
-  'cache-compack|cache_compack_tb'
-  'riscv-walk-trace|riscv_walk_trace_tb'
-  'rv5stage-fetch-source|rv5stage_fetch_source_tb'
-  'event-offer-register|event_offer_register_tb'
-  'event-parents|event_parents_tb'
-  'event-fesvr|event_fesvr_tb'
   'cosim-hooks|cosim_hooks_tb||program'
-  'event-partial|event_partial_tb'
   'event-elastic|event_elastic_tb'
-  'event-queue|event_queue_tb'
-  'event-arbiter|event_arbiter_tb'
-  'event-crossbar|event_crossbar_tb'
-  'event-feedback|event_feedback_tb'
-  'event-branching|event_branching_tb'
-  'event-demux|event_demux_tb'
-  'event-atomic-fork|event_atomic_fork_tb'
-  'event-broadcast|event_broadcast_tb'
-  'event-join|event_join_tb'
-  'event-stall|event_stall_tb'
-  'event-offer|event_offer_tb'
-  'event-retained|event_retained_tb'
-  'event-retained-bank|event_retained_bank_tb'
   'uart-dpi|uart_dpi_tb||program'
   'nested-bundle|||program'
   'aggregate-memory|'
@@ -831,20 +735,6 @@ direct_fixture_specs=(
   'formal-differential|formal_differential_tb||program'
   'chi-full-flits|||program'
   'chi-router-composition|||program'
-  'cache-copyback|cache_copyback_tb'
-  'event-vector|event_vector_tb'
-  'rv5stage-vector-config|rv5stage_vector_config_tb'
-  'rv5stage-vector-memory|rv5stage_vector_memory_tb||program'
-  'rv5stage-vector-memory-one-slot|rv5stage_vector_memory_tb||program'
-  'rv5stage-fetch|rv5stage_fetch_tb||program'
-  'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
-  'rv5stage-fetch-throughput|rv5stage_fetch_throughput_tb'
-  'rv5stage-load-hit|rv5stage_load_hit_tb'
-  'rv2wide-rv32|rv2wide_rv32_tb||program'
-  'rv2wide-fetch|rv2wide_fetch_tb'
-  'rv5stage-core-rv32f|rv5stage_core_rv32f_tb||program'
-  'rv5stage-core-rv64d|rv5stage_core_rv64d_tb||program'
-  'rv5stage-multiply|rv5stage_multiply_tb'
 )
 
 fixture_declared() {
@@ -918,7 +808,7 @@ if [[ "$mode" == --list-fixtures ]]; then
   exit 0
 fi
 
-fixture_groups=(language std protocols cores-components cores-execution-frontend cores-execution-datapath cores-vector-functional-1 cores-vector-functional-2 cores-vector-configurations cores-memory cores-cache socs rfpl)
+fixture_groups=(language std protocols cores-components cores-execution-datapath socs rfpl)
 for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
   IFS='|' read -r fixture _ <<< "$spec"
   group_count=0
@@ -980,11 +870,3 @@ done
 
 run_expected_assertion_failure assertions assertions_fail_tb \
   rhodium/backend/tests/circt/verilog/assertions_fail_tb.sv request_holds
-run_expected_assertion_failure event-instance event_instance_invalid_tb \
-  rhodium/event/tests/circt/verilog/event-instance-invalid_tb.sv __event_instance_1_stable \
-  rhodium/event/tests/circt/verilog/event-instance_tb.sv \
-  rhodium/event/tests/circt/verilog/event-instance_dpi.cpp "$repo_dir/rheg/runtime/rheg.cc" \
-  -CFLAGS "-I$test_tmp_dir -I$repo_dir/rheg/runtime"
-run_expected_assertion_failure event-parents event_parents_missing_tb \
-  rhodium/event/tests/circt/verilog/event-parents-missing_tb.sv __event_parent_present_ \
-  "$repo_dir/rheg/runtime/rheg.cc"

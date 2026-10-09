@@ -108,6 +108,13 @@ class PlanTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assert_checks(path, "verilog-direct", "circt-verilog-differential")
 
+    def test_event_rsim_runtime_dependencies(self):
+        for path in ("rhodium/event/trace-pass.rhm", "rhodium/event/instrument.rhm",
+                     "rhodium/event/tests/rsim/event-queue.cpp", "rhodium/diagram/extract.rhm",
+                     "rheg/runtime/rheg.cc"):
+            with self.subTest(path=path):
+                self.assert_checks(path, "rsim-std")
+
     def test_authored_comparisons_enroll_the_reused_circt_behavioral_owners(self):
         for path in ("rhodium/backend/tests/verilog/run-integration.py", "examples/std/sync-ram.rhdl",
                      "devices/uart/dpi/uart_dpi.cc", "rhodium/event/trace-pass.rhm"):
@@ -542,15 +549,15 @@ class PlanTest(unittest.TestCase):
             "rhodium/compile/program.rhm": ("host-backend", "circt-language"),
             "rhodium/lowering/program.rhm": ("host-foundation", "host-backend", "circt-language"),
             "rhodium/event/instrument.rhm": ("host-foundation", "host-backend", "circt-language"),
-            "flow/queue.rhdl": ("host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-hygiene", "circt-std", "circt-protocols", "circt-core-cache", "host-examples"),
+            "flow/queue.rhdl": ("host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-hygiene", "circt-std", "circt-protocols", "rsim-core-cache", "host-examples"),
             "rhodium/backend/tests/circt/verilog/adder_tb.sv": ("host-backend", "circt-language", "circt-rfpl"),
             "devicetree/main.rhm": ("host-models", "host-hygiene"),
             "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "host-examples"),
-            "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "rsim-hardfloat"),
+            "hardfloat/rtl/recode.rhdl": ("host-models", "rsim-core-cache", "rsim-hardfloat"),
             "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "host-examples", "circt-verilog-differential"),
-            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "rsim-core-execution-control", "circt-core-execution-datapath", "host-examples"),
+            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "rsim-core-execution-frontend", "rsim-core-execution-control", "circt-core-execution-datapath", "host-examples"),
             "chi/subordinate/dpi/chi_dpi_memory_dpi.cc": ("circt-verilog-differential",),
-            "socs/mini-rv5stage-soc.rhdl": ("host-socs", "circt-core-memory", "host-hygiene"),
+            "socs/mini-rv5stage-soc.rhdl": ("host-socs", "rsim-core-memory", "host-hygiene"),
             "examples/rfpl/circuit-pair.rhdl": ("host-examples", "circt-rfpl", "host-hygiene"),
             "tools/write-riscv-udb-config.rhm": ("host-models", "host-cores", "host-socs", "host-hygiene"),
             "sims/arch-test/platform.rhm": ("host-socs", "host-hygiene"),
@@ -627,34 +634,21 @@ class PlanTest(unittest.TestCase):
                 self.assertIsInstance(check.circt, bool)
                 self.assertIsInstance(check.verilator, bool)
 
-    def test_vector_functional_shards_partition_the_aggregate(self):
+    def test_core_execution_hdl_inventory(self):
         runner = REPO / "tools/testing/circt/run.sh"
+        output = subprocess.run(["bash", runner, "--group", "cores-execution", "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+        fixtures = set(output.splitlines())
+        self.assertTrue({"rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= fixtures)
+        leaf = subprocess.run(["bash", runner, "--group", "cores-execution-datapath", "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+        self.assertEqual(fixtures, set(leaf.splitlines()))
 
-        def fixtures(group):
-            output = subprocess.run(["bash", runner, "--group", group, "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
-            return set(output.splitlines())
-
-        first = fixtures("cores-vector-functional-1")
-        second = fixtures("cores-vector-functional-2")
-        combined = fixtures("cores-vector-functional")
-        self.assertTrue(first)
-        self.assertTrue(second)
-        self.assertTrue(first.isdisjoint(second))
-        self.assertEqual(first | second, combined)
-
-    def test_core_execution_shards_partition_the_aggregate(self):
-        runner = REPO / "tools/testing/circt/run.sh"
-
-        def fixtures(group):
-            output = subprocess.run(["bash", runner, "--group", group, "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
-            return set(output.splitlines())
-
-        leaves = [fixtures(group) for group in ("cores-execution-frontend", "cores-execution-datapath")]
-        combined = fixtures("cores-execution")
-        self.assertTrue(all(leaves))
-        self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
-        self.assertEqual(set.union(*leaves), combined)
-        self.assertTrue({"rv2wide-fetch", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[-1])
+    def test_trace_changes_select_instrumented_rsim_owners(self):
+        for path in ("rhodium/event/trace-pass.rhm", "rheg/runtime/rheg.cc"):
+            with self.subTest(path=path):
+                selected = check_keys(self.plan(path))
+                self.assertTrue({"rsim-protocols", "rsim-core-components", "rsim-core-cache",
+                                 "rsim-core-execution-frontend", "rsim-core-execution-datapath",
+                                 "rsim-core-vector-functional-1"} <= selected)
 
     def test_shared_predictor_fixtures_belong_to_components(self):
         runner = REPO / "tools/testing/rsim/run.py"

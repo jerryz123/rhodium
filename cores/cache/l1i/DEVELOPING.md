@@ -93,7 +93,7 @@ Use the host check for geometry and public protocol contracts:
 ```sh
 tools/run-racket-tests.sh cores/cache/tests/icache-test.rhm
 FIXTURES='cache-icache cache-icache64' python3 tools/testing/rsim/run.py
-FIXTURES='cache-compack' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='cache-compack' python3 tools/testing/rsim/run.py
 make check-boundaries
 ```
 

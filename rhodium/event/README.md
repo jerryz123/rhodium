@@ -384,8 +384,11 @@ def compiled = compile_program(program, target)
 ```
 
 `program` is the same `DesignElaboration` used for ordinary compilation. Use
-`circt_target` in place of `verilog_target` for CIRCT. Compilation returns the
-backend artifact plus `events.json` (`application/json`) and `events.h`
+`circt_target` in place of `verilog_target` for CIRCT, or `rsim_target` for
+standalone C++ simulation. With rsim, link the RHEG runtime directly, bind the
+generated descriptor, and query the collector after `tick()` completes; `eval()`
+does not emit events. The collector owns one instrumented top per process.
+Compilation returns the backend artifacts plus `events.json` (`application/json`) and `events.h`
 (`text/x-c++hdr`), generated from one instrumentation result. Compilation does
 not write files. Settings belong to the configured pass; omitting it adds no
 trace state or descriptors. Repeated compilation leaves the source unchanged.

@@ -10,9 +10,8 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-runtime-test
 .PHONY: check-license-headers
 .PHONY: check-license-headers-staged
-.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-rsim-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-plan-test ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
-.PHONY: ci-circt-core-vector-functional-1-test ci-circt-core-vector-functional-2-test
-.PHONY: ci-circt-core-execution-frontend-test ci-circt-core-execution-datapath-test
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-rsim-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-plan-test ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: ci-circt-core-execution-datapath-test
 
 RISCV_UDB_CONFIGURATION ?=
 RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
@@ -143,7 +142,8 @@ event-test: check-boundaries
 	tools/run-racket-tests.sh $(EVENT_TESTS)
 
 event-runtime-test: check-boundaries
-	FIXTURES="event-runtime event-pipeline event-window event-frontend event-home event-subordinate event-fesvr event-feedback event-branching event-partial event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-offer-register event-parents event-retained event-retained-bank" bash tools/testing/circt/run.sh
+	python3 tools/testing/rsim/run.py --fixture event-queue --fixture event-pipeline --fixture event-arbiter --fixture event-demux --fixture event-atomic-fork --fixture event-broadcast --fixture event-join --fixture event-stall --fixture event-offer --fixture event-retained --fixture event-window --fixture event-crossbar --fixture event-feedback --fixture event-branching --fixture event-partial --fixture event-offer-register --fixture event-parents --fixture event-instance --fixture event-retained-bank --fixture event-frontend --fixture event-home --fixture event-subordinate --fixture event-fesvr --fixture event-vector
+	FIXTURES="event-runtime event-elastic" bash tools/testing/circt/run.sh
 
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(COMPILE_TESTS) $(BACKEND_TESTS)
@@ -242,7 +242,8 @@ riscv-udb-config:
 rv5stage-test: rv5stage-host-test
 	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed riscv-atomic riscv-csr riscv-zihpm-rv32 riscv-zihpm-rv64 bpred-btb cache-icache fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-divide' python3 tools/testing/rsim/run.py
 	FIXTURES='rv5stage-branch-prediction rv5stage-core rv5stage-zcb rv5stage-mop rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-dcache rv5stage-dcache-rv32' python3 tools/testing/rsim/run.py
-	FIXTURES='rv5stage-fetch rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-load-hit rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-multiply' bash tools/testing/circt/run.sh
+	FIXTURES='rv5stage-fetch rv5stage-fetch-source rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-multiply' python3 tools/testing/rsim/run.py
+	FIXTURES='rv5stage-retirement-trace rv5stage-load-hit rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-vector-config rv5stage-vector-memory rv5stage-vector-memory-one-slot' python3 tools/testing/rsim/run.py
 
 circt-test: check-example-verilog
 	bash tools/testing/circt/run.sh
@@ -275,32 +276,8 @@ ci-circt-core-components-test:
 ci-circt-core-execution-test:
 	bash tools/testing/circt/run.sh --group cores-execution
 
-ci-circt-core-execution-frontend-test:
-	bash tools/testing/circt/run.sh --group cores-execution-frontend
-
 ci-circt-core-execution-datapath-test:
 	bash tools/testing/circt/run.sh --group cores-execution-datapath
-
-ci-circt-core-vector-test:
-	bash tools/testing/circt/run.sh --group cores-vector
-
-ci-circt-core-vector-functional-test:
-	bash tools/testing/circt/run.sh --group cores-vector-functional
-
-ci-circt-core-vector-functional-1-test:
-	bash tools/testing/circt/run.sh --group cores-vector-functional-1
-
-ci-circt-core-vector-functional-2-test:
-	bash tools/testing/circt/run.sh --group cores-vector-functional-2
-
-ci-circt-core-vector-configurations-test:
-	bash tools/testing/circt/run.sh --group cores-vector-configurations
-
-ci-circt-core-memory-test:
-	bash tools/testing/circt/run.sh --group cores-memory
-
-ci-circt-core-cache-test:
-	bash tools/testing/circt/run.sh --group cores-cache
 
 verilog-golden-test: check-example-verilog
 	bash tools/testing/circt/run.sh --golden-only

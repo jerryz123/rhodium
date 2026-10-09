@@ -1,0 +1,39 @@
+#lang rhombus
+// Emits the traced RV64V core for architectural retirement and vector admission ownership tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "port-observers.rhm".port_observer_pass
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../riscv/isa/fp-profile.rhm" open
+  "../../../../riscv/isa/vector-profile.rhm" open
+  "../../../../cores/rv5stage/tests/core-fixture.rhdl" as core
+  "../../../../cores/rv5stage/profile.rhm" open
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = elaborate(core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0))
+fun site_header(manifest):
+  "\nnamespace vector_core_sites {\n" ++ String.join(
+    for List (label in ["core/s5.wb", "core/s4.memory", "core/s3.execute", "vector/s1.sequence"], name in ["wb", "mem", "ex", "sequence"]):
+      def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
+      unless matches.length() == 1 | error("expected one core/vector site: " ++ label)
+      "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
+    ""
+  ) ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
+  ["RV5StageVectorRegisterFile", "test_vector_write", [
+    ["write_in", "valid"],
+    ["write_in", "bits", "address"],
+    ["write_in", "bits", "data"],
+    ["write_in", "bits", "mask"]
+  ]],
+  ["RV5StageRegisterFile", "test_scalar_write", [
+    ["writes_0_in", "valid"],
+    ["writes_0_in", "bits", "address"],
+    ["writes_0_in", "bits", "data"]
+  ]]
+])])
+export program target

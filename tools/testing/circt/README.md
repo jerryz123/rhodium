@@ -68,15 +68,10 @@ bash tools/testing/circt/run.sh --group std
 ```
 
 The accepted groups are `language`, `std`, `protocols`, `cores`,
-`cores-components`, `cores-execution`, `cores-execution-frontend`,
-`cores-execution-datapath`, `cores-vector`,
-`cores-vector-functional`, `cores-vector-functional-1`,
-`cores-vector-functional-2`, `cores-vector-configurations`, `cores-memory`,
-`cores-cache`, `socs`, and `rfpl`. The `cores-vector-functional` group combines
-its two numbered CI shards; `cores-vector` adds the alternate-configuration
-shard, and `cores` combines the five subsystem groups. CI runs the leaf
-shards, the two core-execution leaves, and the rsim HardFloat suite independently so one
-heavyweight build cannot consume another owner's budget.
+`cores-components`, `cores-execution`, `cores-execution-datapath`, `socs`, and
+`rfpl`. `cores` combines component emission/ABI checks and execution co-sim;
+`cores-execution` selects the datapath group. Core, cache, and vector behavior
+runs in the independent rsim lanes.
 The `std` golden-reference selection includes both `rhodium/std` foundations and the root-level
 [`flow/` library](../../../flow/README.md).
 A group selects every declared fixture in that group, not just the curated
@@ -85,8 +80,8 @@ an unknown name fails before materialization.
 
 Use `--list-fixtures` with a group or explicit fixture selection to inspect
 the manifest without CIRCT, Racket elaboration, or Verilator. For example,
-`bash tools/testing/circt/run.sh --group cores-vector-functional-1 --list-fixtures`
-prints the first functional CI shard.
+`bash tools/testing/circt/run.sh --group cores-execution-datapath --list-fixtures`
+prints the retained core HDL integrations.
 
 `bash tools/testing/circt/run.sh --list-example-sources` lists the unique source
 paths for every example-backed fixture, also without external tools. CI uses

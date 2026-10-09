@@ -47,11 +47,21 @@ and instrumentation lanes remain independently selected. Language behavior
 includes arithmetic, aggregates, hierarchy, synchronous clocking, memories,
 and assertion enable/reset behavior; the same examples retain their HDL
 goldens. RV2Wide core/FP, cache, disabled-fetch, prediction, BHT, and MMU
-scoreboards belong to the core lane, while enabled-fetch retains its HDL
-trace/DPI oracle. RV5Stage composed behavior has separate frontend, control,
+scoreboards, enabled-fetch tracing, and RV32 integration belong to the core lane. RV5Stage composed behavior has separate frontend, control,
 datapath, vector, memory, and cache groups, preserving the previous workload
 split without HDL dependencies. Use the fixture inventory to select a group;
-traced/co-sim and internal-observer fixtures stay in their HDL lanes.
+named-core tracing and FP/vector internal-port observers also run directly on
+rsim; co-sim retains its separate HDL integration coverage. Hardware and instrumentation semantics belong on rsim;
+retain HDL simulation for emission-sensitive contracts, including DPI ABI/context
+and assertion/edge scheduling. Queue, pipeline, arbiter, demux, atomic-fork,
+broadcast, join, stall/offer, retained-owner/window, crossbar, feedback, branching,
+partial-tracing, OfferRegister, selected-parent, runtime-identity, and
+retained-bank event suites use the language rsim group with the production
+collector and exact public-transfer graph oracles. Traced Home/subordinate/FESVR, vector,
+fetch, cache, page-walk, and multiply workloads use their corresponding rsim
+protocol/core groups. Trace and collector changes select those groups as well.
+Their optional targets and
+link sources are declared in the same fixture inventory.
 
 The host/backend lane also runs the small standalone rsim C++ fixtures, using
 the runner's C++ compiler without HDL tools. The backend differential lane

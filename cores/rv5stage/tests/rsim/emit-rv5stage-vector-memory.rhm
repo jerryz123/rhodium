@@ -1,0 +1,33 @@
+#lang rhombus
+// Defines vector memory execution through the real scalar MMU, physical router, and L1D.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  "port-observers.rhm".port_observer_pass
+  "../../../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
+  "../../../../riscv/isa/vector-profile.rhm" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+def program = elaborate(RV5StageLoadHit(~vector: VectorProfile.V, ~vector_length: 128))
+def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["RV5StageVectorRegisterFile", "test_vector_write", [
+    ["write_in", "valid"],
+    ["write_in", "bits", "address"],
+    ["write_in", "bits", "data"],
+    ["write_in", "bits", "mask"]
+  ]],
+  ["RV5StageCoreFixture", "test_certificates", [
+    ["vector_fast_out", "pipeline_physical"],
+    ["pipeline_access_out", "request", "valid"],
+    ["pipeline_vector"],
+    ["vector_fast_in", "response", "valid"],
+    ["vector_fast_out", "request", "bits", "store"],
+    ["vector_fast_out", "request", "bits", "first"],
+    ["vector_fast_out", "request", "bits", "last"]
+  ]],
+  ["RV5StageVectorPipeline", "test_vector_lifetime", [
+    ["sequencing"],
+    ["certification_pending"]
+  ]]
+])])
+export program target

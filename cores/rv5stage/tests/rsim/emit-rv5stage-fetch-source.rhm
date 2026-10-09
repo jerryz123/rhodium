@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits fetch candidate selection and held-cursor instrumentation with its descriptor.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../cores/rv5stage/tests/fetch-source-trace-fixture.rhdl".traced_fetch_source
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = traced_fetch_source
+fun site_header(manifest):
+  def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

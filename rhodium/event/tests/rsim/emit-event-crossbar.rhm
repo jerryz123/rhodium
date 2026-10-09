@@ -1,0 +1,17 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../event-crossbar-fixture.rhdl".crossed
+  "trace-sites.rhm".traced_target
+
+def program = crossed
+fun site_header(manifest):
+  def indices = for List (lane in ["direct", "configured"]):
+    def sites = for List (label in ["input0", "input1", "input2", "output0", "output1"]):
+      def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label && manifest.sites[index].id.contains("/" ++ lane ++ "/"))
+      unless matches.length() == 1 | error("expected one crossbar site: " ++ lane ++ "/" ++ label)
+      to_string(matches[0])
+    "{" ++ String.join(sites, ",") ++ "}"
+  "\nconstexpr unsigned crossbar_sites[2][5] = {" ++ String.join(indices, ",") ++ "};\n"
+def target = traced_target(site_header)
+export program target

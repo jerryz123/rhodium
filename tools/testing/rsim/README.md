@@ -14,6 +14,7 @@ From the repository root:
 python3 tools/testing/rsim/run.py --fixture rv64i-alu
 python3 tools/testing/rsim/run.py --fixture queue --fixture sync-memory-masked
 python3 tools/testing/rsim/run.py --group std
+python3 tools/testing/rsim/run.py --fixture event-queue
 make rsim-component-test
 ```
 
@@ -27,9 +28,16 @@ Racket and Rhombus run through the repository's managed-cache wrapper.
 ## Driver contract
 
 [`fixtures.tsv`](fixtures.tsv) records the fixture name, group, program source,
-export, and package-owned C++ driver. The source exports an elaborated program;
-it does not select a compiler backend. [`emit.rhm`](emit.rhm) selects rsim,
-writes its artifacts, and creates `ports.hpp` bindings for the public ports.
+export, and package-owned C++ driver. Two optional trailing columns name a
+compilation-target export from that source and a whitespace-separated list of
+additional repository-relative C++ sources. An omitted target or `-` selects
+`rsim_target`; an instrumented fixture can export
+`rtl_pipeline_target(rsim_target, [event_trace_pass()])`. The target must emit a
+standalone rsim model with its logical public signature. Additional sources are
+linked into the test, and their parent directories are added to the header search
+path. This permits linking the production collector without an HDL bridge.
+[`emit.rhm`](emit.rhm) writes all compilation artifacts, including pass-produced
+descriptors, and creates `ports.hpp` bindings for the public ports.
 Authored port names alias typed model inputs and outputs in the `ports`
 namespace, so they do not redeclare host-library globals. Use `ports::name`
 when a port name conflicts with a host symbol (for example, `ports::select`).
@@ -62,32 +70,34 @@ and portable controller behavior. The `cores-components` group also includes
 RV5Stage register-file, FP pipeline, integer execution, writeback calendar,
 memory arbiter, divider workload, and three vector-sequencer configurations.
 RV2Wide core/FP, cache, disabled-fetch, assembly and frontend prediction, BHT,
-and MMU scoreboards also run in this group. Enabled-fetch remains an HDL test
-because it additionally checks trace/DPI events.
+MMU, enabled-fetch with retirement tracing, and RV32 integration also run in
+this group.
 RV5Stage composed core, control, vector, memory-routing, coherent-cache, and
 LR/SC workloads use separate `cores-execution-*`, `cores-vector-*`,
 `cores-memory`, and `cores-cache` groups. Each configuration keeps its complete
 scoreboard and parameter-specific workload.
 CIRCT and direct-SystemVerilog tests retain emitter diagnostics, exact Verilog
-references, backend differential checks, foreign ABI/event-runtime integration,
-and the remaining instrumented named-core/SoC harnesses. Those checks exercise a different boundary and are not copies of component benches.
+references, backend differential checks, and foreign ABI/context and HDL scheduling
+checks. Hardware and instrumentation semantics belong on rsim even when their
+implementation calls a foreign collector. The queue, pipeline, arbiter, demux,
+atomic-fork, broadcast, join, stall/offer, retained-owner/window, crossbar,
+feedback, branching, partial-tracing, OfferRegister, selected-parent,
+runtime-identity, and retained-bank event suites run the trace pass and production
+RHEG collector directly, preserving their independent graph oracles and reference
+lanes. Traced Home/subordinate/FESVR, vector milestones, fetch assembly/source/
+prediction/throughput, cache acknowledgement/copyback, page walks, and multiply
+also run directly on rsim in their owning protocol/core groups. Retirement and
+load-hit tracing, FP core integration, and vector configuration/memory observers
+use the same direct path. Test-only clocked instrumentation samples nested public
+component ports; it does not depend on generated C++ temporary names.
 When migrating a suite, preserve its independent oracle, reset/stall timing,
 parameter coverage, and expected assertion failures before retiring its SV
 bench and behavioral manifest entry. Example-owned Verilog goldens may remain.
 
 The protocol/controller migration has no remaining rsim feature blocker in the
 ported inventory. The standalone FESVR MMIO requester runs through rsim too.
-Remaining HDL owners are:
-
-| Remaining owner | Contract that keeps it on the HDL path |
-|---|---|
-| Event fixtures, including traced Home, FESVR, and page walks | Generated trace descriptors, DPI callbacks, and event ordering in the HDL runtime |
-| UART DPI and co-sim hooks | Foreign ABI and production host integration |
-| Compiler HDL/backend fixtures | Exact emission references, HDL assertions and DPI scheduling, and cross-backend/formal differential oracles |
-| RV5Stage core-rv32f/core-rv64d | Nested WB-FP issue, result, and authorization observations |
-| RV5Stage vector-memory and vector-memory-one-slot | Bound internal VRF-write and certificate-lifetime observers |
-| Remaining named-core event tests and SoC fixtures | HDL trace/runtime and system harness integration |
-
-An untraced rsim Home or FESVR driver does not replace the trace-runtime
-oracle. Their retained SV workload bodies live under the event test owner and
-are selected only through its instrumented fixtures.
+Remaining HDL workloads include runtime/elastic backend differential fixtures,
+co-sim, foreign ABI/context and assertion scheduling, and system harness
+integration. A foreign collector alone does not require HDL simulation.
+Preserve independent graph checks when migrating tracing; an untraced
+replacement does not cover a trace-runtime oracle.

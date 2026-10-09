@@ -1,0 +1,16 @@
+#lang rhombus
+// Emits the production walker with residency and caller-owned PTE/completion checkpoints.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../walk-trace-fixture.rhdl".RiscvWalkTrace
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = elaborate(RiscvWalkTrace())
+fun site_header(manifest):
+  def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "constexpr unsigned " ++ site.label.replace("/", "_") ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

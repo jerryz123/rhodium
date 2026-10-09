@@ -20,7 +20,7 @@ See the [package graph](../../../rhodium/DEVELOPING.md) for dependencies.
 
 Run `cores/rv5stage/tests/fetch-admission-test.rhm` through
 `tools/run-racket-tests.sh`. The `rv5stage-instruction-memory-router`,
-`rv5stage-fetch-throughput`, and `rv5stage-icache-coherence` CIRCT fixtures cover
+`rv5stage-fetch-throughput`, and `rv5stage-icache-coherence` rsim fixtures cover
 ordered uncached work, replay, lineage, and dirty-code visibility. Run the
 shared-cache fixtures for physical behavior, and `make check-boundaries` after
 ownership or import changes.

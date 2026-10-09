@@ -1,0 +1,15 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../event-feedback-fixture.rhdl".compared
+  "trace-sites.rhm".traced_target
+
+def program = compared
+fun site_header(manifest):
+  def indices = for List (label in ["start", "finish", "joined.left", "joined.right", "joined.finish"]):
+    def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
+    unless matches.length() == 1 | error("expected one feedback site: " ++ label)
+    to_string(matches[0])
+  "\nconstexpr unsigned feedback_sites[5] = {" ++ String.join(indices, ",") ++ "};\n"
+def target = traced_target(site_header)
+export program target

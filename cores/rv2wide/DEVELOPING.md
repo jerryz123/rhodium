@@ -145,7 +145,7 @@ Keep broader ISA qualification in the existing software suites.
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
 | `hart.rhdl` | Core-neutral SoC port adaptation and one reset-vector start per reset epoch |
 | `tests/rsim/` | Direct C++ architectural, memory, prediction, and ordering oracles |
-| `tests/circt/` | Enabled-fetch trace/DPI oracle and the RV32 integration fixture |
+| `tests/rsim/rv2wide-fetch.cpp`, `tests/rsim/rv2wide-rv32.cpp` | Production fetching/cache top, retirement tracing, and RV32 integration |
 
 ## Change workflow
 
@@ -756,7 +756,7 @@ atomics, CSR WARL behavior, and precise illegal/access traps. Run it alongside
 the existing RV64 core/fetch fixtures for XLEN or memory-adapter changes:
 
 ```sh
-FIXTURES='rv2wide-rv32 rv2wide-fetch' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='rv2wide-rv32 rv2wide-fetch' python3 tools/testing/rsim/run.py
 python3 tools/testing/rsim/run.py --fixture rv2wide-core
 tools/run-racket-tests.sh cores/rv2wide/tests/profile-test.rhm cores/rv2wide/tests/xlen-test.rhm
 ```
@@ -768,7 +768,7 @@ shape to check pass composition; ordinary core behavior is covered by the existi
 without adding software or CI config rows:
 
 ```sh
-FIXTURE=event-window bash tools/testing/circt/run.sh --simulate-only
+python3 tools/testing/rsim/run.py --fixture event-window
 make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2wide-mini.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
@@ -804,7 +804,7 @@ python3 tools/testing/rsim/run.py --fixture rv2wide-core --fixture rv2wide-core-
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetch-disabled
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
 python3 tools/testing/rsim/run.py --fixture rv2wide-mmu
-FIXTURE=rv2wide-fetch bash tools/testing/circt/run.sh --simulate-only
+python3 tools/testing/rsim/run.py --fixture rv2wide-fetch
 make check-boundaries
 ```
 
@@ -812,8 +812,9 @@ The rsim fixtures belong to `cores-components`. Their C++ scoreboards sample
 pre-edge outputs, tick the model, then publish registered host responses. The
 shared `tests/rsim/driver.hpp` makes those phases explicit and preserves
 old-response sampling; falling-edge drivers prepare the next cycle. The
-enabled-fetch fixture remains in `cores-execution-datapath` because it also
-checks generated trace descriptors and DPI event ordering.
+enabled-fetch fixture compiles with event tracing and links the production RHEG
+collector directly. Its independent instruction model and trace oracle check both
+retirement lanes after their clocked callbacks complete.
 
 The core fixture checks sustained dual
 retirement, packet coalescing, age-ordered same-destination pairing, RAW/WAW and x0, youngest-producer forwarding,
@@ -960,8 +961,7 @@ The fixture runner invokes the repository-managed Racket wrapper. Run host
 checks through `tools/run-racket-tests.sh` and other elaboration through
 `tools/run-racket.sh`; do not bypass the managed compiled root. After changing
 fixture ownership, confirm the rsim runner's `--group cores-components --list`
-includes `rv2wide-core`, and the HDL runner's
-`--group cores-execution-datapath --list-fixtures` includes `rv2wide-fetch`. Mini/Simple integration uses the existing shape harnesses
+includes `rv2wide-core`, `rv2wide-fetch`, and `rv2wide-rv32`. Mini/Simple integration uses the existing shape harnesses
 and their normal FESVR loading and BootROM path. Run `boot-test` and `isa-smoke`
 with `SOC=mini-rv2wide-rv64imacb` and `SOC=simple-rv2wide-rv64imacb` for platform
 changes. Keep CI enrollment in `sims/test-configs.txt` and workload selection

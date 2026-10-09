@@ -275,7 +275,7 @@ Run the MMU-owned host check from the repository root:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/mmu-test.rhm
 FIXTURES='rv5stage-mmu-replay' python3 tools/testing/rsim/run.py
-FIXTURE=riscv-walk-trace bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=riscv-walk-trace python3 tools/testing/rsim/run.py
 ```
 
 The instrumented walker fixture checks exact residency nodes, end cycles, and

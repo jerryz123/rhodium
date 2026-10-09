@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits production fetch stages and assembly with a traced instruction consumer.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  "../event-window-fixture.rhdl" as fixture
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = fixture.frontend
+fun site_header(manifest):
+  def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ String.join(site.label.replace("/", "_").split("."), "_") ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

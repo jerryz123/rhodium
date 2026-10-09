@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits the instrumented host fragmentation fixture and matching collector descriptor.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../sims/tests/fesvr-mmio-fixture.rhdl" as fixture
+  lib("rhodium/event/instrument.rhm").EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = fixture.traced()
+fun site_header(manifest):
+  def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig())
+export program target

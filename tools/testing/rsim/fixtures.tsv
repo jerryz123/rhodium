@@ -1,4 +1,4 @@
-# Defines the rsim component fixture, owner group, elaboration export, and C++ driver.
+# Defines rsim fixtures, owner groups, program exports, drivers, and optional targets/link sources.
 # SPDX-License-Identifier: Apache-2.0
 sync-memory-masked	language	examples/rtl/sync-memory-masked.rhdl	program	rhodium/backend/tests/rsim/sync-memory-masked.cpp
 counter	language	examples/rtl/counter.rhdl	program	rhodium/backend/tests/rsim/counter.cpp
@@ -239,3 +239,44 @@ rv5stage-lrsc-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-
 rv5stage-lrsc-core-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress.cpp
 rv5stage-lrsc-core-progress-predicted	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-predicted.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-predicted.cpp
 rv5stage-lrsc-core-progress-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-rv32.cpp
+event-queue	language	rhodium/event/tests/rsim/emit-event-queue.rhm	program	rhodium/event/tests/rsim/event-queue.cpp	target	rhodium/event/tests/rsim/event-queue-oracle.cpp rheg/runtime/rheg.cc
+event-pipeline	language	rhodium/event/tests/rsim/emit-event-pipeline.rhm	program	rhodium/event/tests/rsim/event-pipeline.cpp	target	rhodium/event/tests/rsim/event-pipeline-oracle.cpp rheg/runtime/rheg.cc
+event-arbiter	language	rhodium/event/tests/rsim/emit-event-arbiter.rhm	program	rhodium/event/tests/rsim/event-arbiter.cpp	target	rhodium/event/tests/rsim/event-arbiter-oracle.cpp rheg/runtime/rheg.cc
+event-demux	language	rhodium/event/tests/rsim/emit-event-demux.rhm	program	rhodium/event/tests/rsim/event-demux.cpp	target	rhodium/event/tests/rsim/event-demux-oracle.cpp rheg/runtime/rheg.cc
+event-atomic-fork	language	rhodium/event/tests/rsim/emit-event-atomic-fork.rhm	program	rhodium/event/tests/rsim/event-atomic-fork.cpp	target	rhodium/event/tests/rsim/event-atomic-fork-oracle.cpp rheg/runtime/rheg.cc
+event-broadcast	language	rhodium/event/tests/rsim/emit-event-broadcast.rhm	program	rhodium/event/tests/rsim/event-broadcast.cpp	target	rhodium/event/tests/rsim/event-broadcast-oracle.cpp rheg/runtime/rheg.cc
+event-join	language	rhodium/event/tests/rsim/emit-event-join.rhm	program	rhodium/event/tests/rsim/event-join.cpp	target	rhodium/event/tests/rsim/event-join-oracle.cpp rheg/runtime/rheg.cc
+event-stall	language	rhodium/event/tests/rsim/emit-event-stall.rhm	program	rhodium/event/tests/rsim/event-stall.cpp	target	rhodium/event/tests/rsim/event-stall-oracle.cpp rheg/runtime/rheg.cc
+event-offer	language	rhodium/event/tests/rsim/emit-event-offer.rhm	program	rhodium/event/tests/rsim/event-offer.cpp	target	rhodium/event/tests/rsim/event-offer-oracle.cpp rheg/runtime/rheg.cc
+event-retained	language	rhodium/event/tests/rsim/emit-event-retained.rhm	program	rhodium/event/tests/rsim/event-retained.cpp	target	rhodium/event/tests/rsim/event-retained-oracle.cpp rheg/runtime/rheg.cc
+event-window	language	rhodium/event/tests/rsim/emit-event-window.rhm	program	rhodium/event/tests/rsim/event-window.cpp	target	rhodium/event/tests/rsim/event-window-oracle.cpp rheg/runtime/rheg.cc
+event-crossbar	language	rhodium/event/tests/rsim/emit-event-crossbar.rhm	program	rhodium/event/tests/rsim/event-crossbar.cpp	target	rhodium/event/tests/rsim/event-crossbar-oracle.cpp rheg/runtime/rheg.cc
+event-feedback	language	rhodium/event/tests/rsim/emit-event-feedback.rhm	program	rhodium/event/tests/rsim/event-feedback.cpp	target	rhodium/event/tests/rsim/event-feedback-oracle.cpp rheg/runtime/rheg.cc
+event-branching	language	rhodium/event/tests/rsim/emit-event-branching.rhm	program	rhodium/event/tests/rsim/event-branching.cpp	target	rhodium/event/tests/rsim/event-branching-oracle.cpp rheg/runtime/rheg.cc
+event-partial	language	rhodium/event/tests/rsim/emit-event-partial.rhm	program	rhodium/event/tests/rsim/event-partial.cpp	target	rhodium/event/tests/rsim/event-partial-oracle.cpp rheg/runtime/rheg.cc
+event-offer-register	language	rhodium/event/tests/rsim/emit-event-offer-register.rhm	program	rhodium/event/tests/rsim/event-offer-register.cpp	target	rhodium/event/tests/rsim/event-offer-register-oracle.cpp rheg/runtime/rheg.cc
+event-parents	language	rhodium/event/tests/rsim/emit-event-parents.rhm	program	rhodium/event/tests/rsim/event-parents.cpp	target	rhodium/event/tests/rsim/event-parents-oracle.cpp rheg/runtime/rheg.cc
+event-instance	language	rhodium/event/tests/rsim/emit-event-instance.rhm	program	rhodium/event/tests/rsim/event-instance.cpp	target	rhodium/event/tests/rsim/event-instance-oracle.cpp rheg/runtime/rheg.cc
+event-retained-bank	language	rhodium/event/tests/rsim/emit-event-retained-bank.rhm	program	rhodium/event/tests/rsim/event-retained-bank.cpp	target	rhodium/event/tests/rsim/event-retained-bank-oracle.cpp rheg/runtime/rheg.cc
+event-frontend	cores-execution-frontend	rhodium/event/tests/rsim/emit-event-frontend.rhm	program	rhodium/event/tests/rsim/event-frontend.cpp	target	rhodium/event/tests/rsim/event-frontend-oracle.cpp rheg/runtime/rheg.cc
+event-home	protocols	rhodium/event/tests/rsim/emit-event-home.rhm	program	rhodium/event/tests/rsim/event-home.cpp	target	rhodium/event/tests/rsim/event-home-oracle.cpp rheg/runtime/rheg.cc
+event-subordinate	protocols	rhodium/event/tests/rsim/emit-event-subordinate.rhm	program	rhodium/event/tests/rsim/event-subordinate.cpp	target	rhodium/event/tests/rsim/event-subordinate-oracle.cpp rheg/runtime/rheg.cc
+event-fesvr	protocols	rhodium/event/tests/rsim/emit-event-fesvr.rhm	program	rhodium/event/tests/rsim/event-fesvr.cpp	target	rhodium/event/tests/rsim/event-fesvr-oracle.cpp rheg/runtime/rheg.cc
+event-vector	cores-vector-functional-1	rhodium/event/tests/rsim/emit-event-vector.rhm	program	rhodium/event/tests/rsim/event-vector.cpp	target	rhodium/event/tests/rsim/event-vector-oracle.cpp rheg/runtime/rheg.cc
+cache-compack	cores-cache	cores/cache/tests/rsim/emit-cache-compack.rhm	program	cores/cache/tests/rsim/cache-compack.cpp	target	cores/cache/tests/rsim/cache-compack-oracle.cpp rheg/runtime/rheg.cc
+cache-copyback	cores-cache	cores/cache/tests/rsim/emit-cache-copyback.rhm	program	cores/cache/tests/rsim/cache-copyback.cpp	target	cores/cache/tests/rsim/cache-copyback-oracle.cpp rheg/runtime/rheg.cc
+riscv-walk-trace	cores-components	cores/mmu/tests/rsim/emit-riscv-walk-trace.rhm	program	cores/mmu/tests/rsim/riscv-walk-trace.cpp	target	cores/mmu/tests/rsim/riscv-walk-trace-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-fetch-source	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-source.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-source.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-source-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-fetch	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch.cpp	-
+rv5stage-fetch-prediction	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-prediction.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-prediction.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-prediction-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-fetch-throughput	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-throughput.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-throughput.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-throughput-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-multiply	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-multiply.rhm	program	cores/rv5stage/tests/rsim/rv5stage-multiply.cpp	target	cores/rv5stage/tests/rsim/rv5stage-multiply-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-retirement-trace	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-retirement-trace.rhm	program	cores/rv5stage/tests/rsim/rv5stage-retirement-trace.cpp	target	cores/rv5stage/tests/rsim/rv5stage-retirement-trace-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-load-hit	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-load-hit.rhm	program	cores/rv5stage/tests/rsim/rv5stage-load-hit.cpp	target	cores/rv5stage/tests/rsim/rv5stage-load-hit-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-vector-config	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-config.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-config.cpp	target	cores/rv5stage/tests/rsim/rv5stage-vector-config-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-vector-memory	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-memory.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-memory.cpp	target
+rv5stage-vector-memory-one-slot	cores-vector-configurations	cores/rv5stage/tests/rsim/emit-rv5stage-vector-memory-one-slot.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-memory-one-slot.cpp	target
+rv2wide-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-rv32.rhm	program	cores/rv2wide/tests/rsim/rv2wide-rv32.cpp	-
+rv2wide-fetch	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fetch.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fetch.cpp	target	cores/rv2wide/tests/rsim/rv2wide-fetch-oracle.cpp rheg/runtime/rheg.cc
+rv5stage-core-rv32f	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv32f.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv32f.cpp	target
+rv5stage-core-rv64d	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv64d.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv64d.cpp	target

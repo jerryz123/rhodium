@@ -1,0 +1,21 @@
+#lang rhombus
+// Emits trained and fallback fetch prediction with exact event-lineage instrumentation.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  "../../../../cores/rv5stage/profile.rhm" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  "../../../../riscv/isa/c.rhm".CCompressedExtensions
+  "../../../../riscv/isa/fp-profile.rhm" open
+  "../../../../riscv/isa/xlen.rhm".XLen
+  "../../../../cores/rv5stage/tests/fetch-fixture.rhdl".RV5StageFetchFixture
+def logical = elaborate(RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)), ~btb_entries: 4))
+
+def program = logical
+fun site_header(manifest):
+  def site_constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "inline constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
+  "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

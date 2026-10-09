@@ -1,0 +1,40 @@
+#lang rhombus
+// Instruments vector milestones and selects oracle sites by their owning instance.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../cores/rv5stage/tests/vector-trace-fixture.rhdl" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+def program = elaborate(RV5StageVectorTrace(4))
+fun site_header(manifest):
+  when manifest.sites.find(fun (site): site.label == "vector/sequencer") != #false
+  | error("vector sequencer must not emit a duration event")
+  def sequence_path = manifest.sites.find(fun (site): site.label == "vector/s1.sequence").instance_path
+  def execution_path = sequence_path.take(sequence_path.length() - 1)
+  for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall"]):
+    def sites = manifest.sites.filter(~keep: fun (site): site.label == label)
+    def expected_paths = if label == "vector/complete" | [execution_path ++ ["completions"], execution_path ++ ["packed"]] | [execution_path]
+    unless sites.length() == expected_paths.length()
+    | error("expected unified vector issue and independently owned completion paths")
+    for (path in expected_paths):
+      unless sites.map(fun (site): site.instance_path).contains(path)
+      | error("unexpected vector event owner")
+    for (site in sites):
+      unless site.fields.map(fun (field): field.name).contains("packed")
+      | error("expected beat geometry metadata")
+  "\nnamespace vector_sites {\n" ++ String.join(
+    for List (label in ["s1.sequence", "s1.sequence.stall", "s2.issue", "complete", "s2.issue.stall"], name in ["sequence", "sequence_stall", "issue", "complete", "stall"]):
+      def path:
+        cond
+        | label == "s1.sequence" || label == "s1.sequence.stall": sequence_path
+        | label == "complete": execution_path ++ ["completions"]
+        | ~else: execution_path
+      def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == ("vector/" ++ label) && manifest.sites[index].instance_path == path)
+      unless matches.length() == 1 | error("expected one vector trace site: " ++ label)
+      "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
+    ""
+  ) ++ "}\n"
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target
