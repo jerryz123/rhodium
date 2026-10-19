@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../core.rhdl" open
   "../../fp/timing.rhdl" open
@@ -124,8 +125,8 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   if vector_translation
   | block:
       output pipeline_vector: Bool
-      interface vector_precheck(RV5StageVectorPrecheck(), ~role: requester)
-      interface vector_fast(RV5StageVectorFastCheck(xlen), ~role: requester)
+      interface vector_precheck(VectorPrecheck(), ~role: requester)
+      interface vector_fast(VectorFastCheck(xlen), ~role: requester)
       pipeline_vector <== core.pipeline_vector
       core.vector_precheck |> vector_precheck
       core.vector_fast |> vector_fast
@@ -134,7 +135,7 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
       // Reject the optimization and retain exact element execution.
       core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
       core.vector_fast.response.valid <== Bool(#false)
-      core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
+      core.vector_fast.response.bits <== dont_care(VectorFastCertificate(xlen))
       core.vector_fast.candidate_current <== Bool(#false)
   core.prefetch |> prefetch
   core.interrupts <== interrupts

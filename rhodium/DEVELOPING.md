@@ -214,7 +214,7 @@ use the public language; it imports no instruction catalog or named core.
 Its explicit `XLen` specialization prunes datapath width and element cases.
 `cores/vector-layout.rhm` is pure host physical-row geometry over
 `riscv/isa/vector.rhm`, with XLEN-derived word geometry from `riscv/isa/xlen.rhm`.
-RV5Stage storage, sequencing, packing, scanning, and completion consumers import
+Shared vector storage, sequencing, packing, scanning, and completion consumers import
 that layout explicitly and select `xlen.width` rows; architectural vector
 descriptors own no physical rows.
 
@@ -353,9 +353,9 @@ RV5Stage's MMU imports that bridge to describe translated physical-address taps;
 Neither import realizes hardware or introduces a simulator dependency.
 The scalar `fp/pipeline.rhdl` also imports that bridge for passive, post-boxing
 architectural load-write taps. It does not import the observer or host runtime.
-`cores/rv5stage/vector.rhdl` and `vector/pipeline.rhdl` import the same bridge
+`cores/rv5stage/vector.rhdl` and `cores/vector/pipeline.rhdl` import the same bridge
 for nested admission, retained-owner, and physical VRF-write observations.
-`vector/instructions.rhdl` uses it for actual owner reclamation, including
+`cores/vector/instructions.rhdl` uses it for actual owner reclamation, including
 faults that drain without successful retirement.
 `sims/cosim/rv5stage/vector.rhdl` consumes those typed taps through frontend `kernel.input`,
 the vector register-write/token/completion bundles, shared physical request/response and
@@ -499,12 +499,14 @@ The serialized composition lives under `cores/mmu/tests/translation-service.rhdl
 production never imports it. PTE reads retain the G-stage memory attribute for
 implicit VS reads. No implementation state moves into the RISC-V architecture package.
 RV5Stage's MMU imports the shared protocol, translation projections, TLB, and
-walker directly. Its local protocol imports only the shared host result shape
-for vector page probes; virtual request wrappers and completion ownership remain
-named-core policy. No compatibility module or reverse dependency is introduced.
+walker directly. Shared `cores/mmu/vector.rhdl` imports the host result shape,
+architectural XLEN/guest-context identity, and `std/ready-valid.rhdl` for vector
+range certificates and page probes. Virtual request wrappers, arbitration,
+context revalidation, and completion ownership remain named-core policy.
+No compatibility module or reverse dependency is introduced.
 The translation projection, TLB probes, MMU and physical router also import
 the public Svpbmt adapter for one attribute composition/resolution policy.
-`mmu/vector-window.rhdl` uses its enum to exclude overridden pages from fast
+`cores/mmu/vector-window.rhdl` uses its enum to exclude overridden pages from fast
 certificates. `uncached-protocol.rhdl` defines the physical request wrapper
 carrying PBMT alongside the shared physical request; the physical arbiter
 imports that wrapper and the router consumes it. No dependency direction changes.
@@ -512,15 +514,16 @@ imports that wrapper and the router consumes it. No dependency direction changes
 the CSR and privilege adapters and the hypervisor explicit-access enum. Its PMM encoding belongs to its hardware enum,
 not a duplicate host enum and integer converter.
 
-The `cores/rv5stage/vector/` package imports public `std/bits.rhdl` for
-mask expansion/merging, `std/ready-valid.rhdl` for authorized CSR events, and
+The shared `cores/vector/` package imports public `std/bits.rhdl` for
+mask expansion/merging and
 `flow/main.rhdl` for backpressured read requests, synchronous Valid read
 transactions, operand-fetch context storage, and credited issue buffering. Its pure geometry
 dependency is `riscv/isa/vector.rhm`; that module imports Rhombus metadata only
 and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
-`std/bits.rhdl`; `cores/rv5stage/decode/vector-ctrl.rhdl` imports public
+`std/bits.rhdl`; `cores/vector/decode.rhdl` imports public
 `std/decode.rhdl`, pure ISA descriptors, RISC-V adapters, the shared SIMD ALU,
-and the named vector mask-scan controls. `vector/mask.rhdl` imports public
+and shared vector mask-scan controls. Paths beginning with `vector/` in this
+inventory refer to `cores/vector/`. `vector/mask.rhdl` imports public
 `std/bits.rhdl` for bit reversal and first-set counting; it has no decode dependency.
 The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for WB allocation,
 compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
@@ -531,13 +534,13 @@ register-write and FP contracts, vector mask-scan controls, pointer normalizatio
 and pure FP profiles.
 `vector/slots.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
-`vector/sequencer.rhdl` imports vector bundles, destination-group dependency helpers, named decode controls,
+`vector/sequencer.rhdl` imports vector bundles, destination-group dependency helpers, shared decode controls,
 pure ISA geometry and instruction fields, the RISC-V
 vector and pointer-normalization RTL adapters, bit helpers, and Flow. `vector/operand-fetch.rhdl` additionally
 imports vector packing, shared SIMD contracts, the RISC-V FP unboxing adapter, and HardFloat formats;
 the sequencer does not depend on operand fetch. Both import the inline
 `vector/geometry.rhdl` helpers for beat geometry and operand requirements. Those
-helpers import descriptor and named decode/FP types, pure ISA geometry and
+helpers import descriptor and shared decode/FP types, pure ISA geometry and
 instruction fields, the instruction-field RTL adapter, and bit helpers; they
 introduce no payload or state. Their shared phase-specific types
 live in `vector/bundles.rhdl`. `vector/instructions.rhdl` imports those types,
@@ -559,24 +562,29 @@ Packed layouts depend only on pure XLEN/vector geometry and bit-width helpers. `
 common sequencer and operand-fetch path with independently retained packed response assembly
 and imports physical word geometry and the reusable load/store byte-mask helper. `vector/execute.rhdl`
 imports public ready-valid types for its shared SIMD alignment client.
-`vector/dependencies.rhdl` imports vector bundles, named decode controls, and
+`vector/dependencies.rhdl` imports vector bundles, shared decode controls, and
 the pure vector/XLEN models plus the RISC-V vector RTL adapter; the execution
 instruction tracker consumes its destination-group mask for pending row hazards.
-`vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
+`cores/rv5stage/vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
 shared cache protocols and memory operations, named completion context, and RISC-V trap/pointer-masking
 adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
 arbitration and tagged response routing, plus public `std/bits.rhdl` for
 completion geometry. No memory adapter imports a cache implementation.
-`vector/precheck.rhdl` imports vector descriptor/control types, the named MMU
+`vector/precheck.rhdl` imports vector descriptor/control types, the shared MMU
 precheck protocol, pure vector/XLEN geometry, and the public pointer-mask
-adapter. `mmu/vector-window.rhdl` imports that MMU protocol, public RISC-V PMA
+adapter. `cores/mmu/vector-window.rhdl` imports that MMU protocol, public RISC-V PMA
 descriptors, Sv39 mapping geometry, and Flow; it imports no vector implementation. The MMU protocol
 owns the range/probe interfaces, keeping dependency direction from vector to
 translation contracts rather than from translation into vector execution.
 `vector/fp.rhdl` imports the shared `cores/fp/` operand bundles and control
 types plus RISC-V FP boxing helpers and HardFloat types to adapt packed
 elements, without adding a reverse dependency from FP to vector. Scalar
-pipeline bundles do not import the vector package or carry its packed data.
+pipeline bundles may import descriptor/control types but never carry packed
+VRF operand data. Shared vector code never imports a named core.
+`cores/integer-execution.rhdl` defines opaque tagged arithmetic request/result
+payloads using the public language; `cores/register-write.rhdl` imports XLEN
+for the GPR destination/value payload. Named-core service adapters retain
+selection, launch authorization, and physical writeback policy.
 The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
 protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`

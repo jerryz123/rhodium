@@ -32,7 +32,7 @@ import:
   "../../../riscv/isa/zihintpause.rhm" open
   "../../../riscv/isa/zihintntl.rhm" open
   "../../fp/decode.rhdl" open
-  "vector-ctrl.rhdl" open
+  "../../vector/decode.rhdl" open
   "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/isa/zvbb.rhm" as vector_bitmanip
   "../../../riscv/isa/vector-profile.rhm" open
@@ -75,7 +75,7 @@ bundle RV5StageControl():
   hint: RV5StageHintOperation
   floating_point_valid: Bool
   floating_point: FloatingPointControl()
-  vector: RV5StageVectorControl()
+  vector: VectorControl()
 
 // Inactive resources constrain only the discriminator observed by the core.
 // Payload fields remain free behind that discriminator.

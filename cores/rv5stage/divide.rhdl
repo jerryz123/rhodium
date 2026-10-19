@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-execution.rhdl") open
   "../divider.rhdl" open
   "integer-execution.rhdl" open
   "decode/divide-ctrl.rhdl" open
@@ -37,9 +38,9 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
   interface completion(Irrevocable(RV5StageDivideCompletion(xlen)), ~role: producer)
   output available: Bool
 
-  def Request = RV5StageExecutionRequest(DividerRequest(width), RV5StageDivideTag())
+  def Request = IntegerExecutionRequest(DividerRequest(width), RV5StageDivideTag())
   interface execution_request(Decoupled(Request), ~role: producer)
-  interface execution_result(Irrevocable(RV5StageExecutionResult(DividerResponse(width), RV5StageDivideTag())), ~role: consumer)
+  interface execution_result(Irrevocable(IntegerExecutionResult(DividerResponse(width), RV5StageDivideTag())), ~role: consumer)
   inst authorized(Queue(Request, 1))
 
   def signed_dividend = if xlen == XLen.X64 | issue.bits.dividend[0..32].into(SInt(32)).sext(64).as_bits() | issue.bits.dividend
@@ -54,7 +55,7 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
   available <== authorized.ingress.ready
   (
     issue |> to_decoupled() |> map_flow(issued):
-      RV5StageExecutionRequest(DividerRequest(width), RV5StageDivideTag()):
+      IntegerExecutionRequest(DividerRequest(width), RV5StageDivideTag()):
         tag:
           RV5StageDivideTag():
             rd: issued.rd

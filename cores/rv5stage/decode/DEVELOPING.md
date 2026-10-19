@@ -36,7 +36,7 @@ execution and retirement behavior.
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |
 | [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
 | [`../../fp/decode.rhdl`](../../fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
-| [`vector-ctrl.rhdl`](vector-ctrl.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
+| [`../../vector/decode.rhdl`](../../vector/decode.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
 | [`../../../riscv/rtl/decode.rhdl`](../../../riscv/rtl/decode.rhdl) | Catalog-independent RISC-V case construction, exclusion, exact-pattern comparison, and component lookup helpers |
 | [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, scalar controls for FP rows, profile validation, and the integrated decoder circuit |
 

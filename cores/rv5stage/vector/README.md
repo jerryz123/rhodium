@@ -1,7 +1,11 @@
 <!-- Defines RV5Stage vector configuration, decode, storage, and execution-boundary contracts. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# XLEN-wide vector path
+# RV5Stage vector integration
+
+The execution engine lives in [`cores/vector`](../../vector/README.md).
+This guide describes RV5Stage's profile selection, WB admission, retirement,
+and LSU integration around that shared engine.
 
 The opt-in `RV5StageConfig(~vector: profile, ~vector_length: vlen)` enables one
 of the standard Zve profiles or V 1.0, vector CSR state, and vector memory
@@ -63,7 +67,7 @@ configuration, vector CSR writes, vector completion, fixed-point saturation, or
 a vector fault mark VS Dirty; reads do not, and SD combines the FP and vector
 dirty states. Software may manage VS through M/S status.
 
-The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
+The [vector control column](../../vector/decode.rhdl) describes same-width
 wrapping, reverse, saturating, averaging, and carry/borrow add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
 comparisons, min/max, compression, narrowing shifts,
 and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
@@ -152,7 +156,7 @@ attempt pipeline. Vector micro-ops never re-enter scalar Decode, EX, MEM, or WB.
 The memory path shares the scalar LSU through a fixed-cycle lookup arbiter and
 a separate transaction arbiter; returned union tags retain response ownership.
 
-`outcome: Valid(RV5StageVectorCommit(xlen, slots))` reports memory certification,
+`outcome: Valid(VectorCommit(xlen, slots))` reports memory certification,
 final conservative acceptance, a precise fault, or fault-only-first truncation
 to scalar retirement one cycle after the local decision. Non-memory macros
 retire through their ordinary scalar WB launch token and do not wait for result
@@ -283,12 +287,12 @@ ordered metadata reclamation after writeback; a smaller window can reduce memory
 The integrated core propagates the count through every LSU adapter. Standalone
 compositions must select the same count on their data interfaces and engines.
 
-[`bundles.rhdl`](bundles.rhdl) defines an instruction/configuration snapshot,
+[`../../vector/bundles.rhdl`](../../vector/bundles.rhdl) defines an instruction/configuration snapshot,
 XLEN-bit packed micro-ops, and memory acceptance/retry/fault feedback. Position
 is an exclusive architectural element range, independent of masked-off lanes;
 caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
-[`RV5StageVectorSequencer`](sequencer.rhdl) retains one macro descriptor and its
+[`VectorSequencer`](../../vector/sequencer.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
 MEM/WB without executing scalar side effects. EX forwarding resolves its scalar
 base and stride into a per-occurrence context carried beside the launch token;
@@ -298,7 +302,7 @@ Vector launch tokens may follow each other through the scalar stages. WB admits
 each into the two-entry descriptor FIFO or precisely replays it when full,
 without making WB elastic. Older scalar instructions can finish or squash the
 launch normally.
-[`RV5StageVectorOperandFetch`](operand-fetch.rhdl) owns three synchronous
+[`VectorOperandFetch`](../../vector/operand-fetch.rhdl) owns three synchronous
 general VRF reads supplying `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
 shadow supplies predication concurrently. The sequencer accepts a read only
@@ -402,7 +406,7 @@ when an integral source group occupies the highest-numbered part of the
 destination group.
 
 The vector pipeline's private execution stage uses
-[`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its fixed-latency
+[`VectorExecute`](../../vector/execute.rhdl) and the shared SIMD ALU. Its fixed-latency
 result maturity completes on the reserved write cycle without
 an external authorization round trip. An exclusive end position advances even for
 masked-off elements. Ordinary compute releases the sequencer at its final read
@@ -854,7 +858,7 @@ store's ordered LSU drain. Interrupt entry waits for vector completion.
 
 ## Register bank
 
-`RV5StageVectorRegisterFile(xlen :: XLen, vlen :: VectorLength)` has exactly
+`VectorRegisterFile(xlen :: XLen, vlen :: VectorLength)` has exactly
 `32 * VLEN / XLEN` general entries of `Bits(XLEN)`, with no reset value. VLEN is a host
 power of two from twice XLEN through 65536 bits. The flat address is
 `register_number * (VLEN / XLEN) + chunk_number`; chunk zero holds the lowest bits.
@@ -885,7 +889,7 @@ masked-write semantics without depending on an unspecified SRAM collision mode.
 
 ## Packing boundary
 
-`RV5StageVectorOperands(xlen, vlen)` takes two source chunks, one `v0` shadow chunk, a
+`VectorOperands(xlen, vlen)` takes two source chunks, one `v0` shadow chunk, a
 scalar, a six-bit immediate container, and `VectorPackingControl(vlen)`. It
 emits SIMD operands, element enables, and the first output element. Two-source
 operations therefore leave the third general read port free, and masked
@@ -923,7 +927,7 @@ captured with the macro descriptor, so later CSR changes cannot alter admitted
 work. Saturating operations report their result through accepted completion
 state before producing the sticky `vxsat` update.
 
-`RV5StageVectorResult(xlen, vlen)` converts a SIMD result into the bank write payload.
+`VectorResult(xlen, vlen)` converts a SIMD result into the bank write payload.
 Data destinations use the returned output element width; comparisons and
 carry/borrow results place one bit per element into the correct destination
 mask chunk. Disabled bytes/bits receive no write enable, preserving inactive

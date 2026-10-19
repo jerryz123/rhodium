@@ -3,6 +3,10 @@
 
 # Processor components and cores
 
+The shared [vector engine](vector/README.md) supplies sequencing, VRF storage,
+SIMD execution, and persistent completion ownership. Named cores retain
+admission, architectural retirement, and LSU integration policy.
+
 Use `cores/` for processor RTL, not for Rhodium's language internals. The
 similarly named [`rhodium/core/`](../rhodium/core/README.md) owns the
 frontend-independent hardware IR.

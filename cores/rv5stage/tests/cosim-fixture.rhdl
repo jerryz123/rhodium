@@ -2,6 +2,7 @@
 /* Compares observed and unobserved cores with controlled scalar/vector memory events. */
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../core.rhdl" open
   "../../../sims/cosim/events/transport.rhdl".capture_lane
@@ -69,7 +70,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   when (observed.pipeline_access.request.valid):
     lookup_mode <== pipeline_mode
     lookup_data <== pipeline_data[0..xlen.width]
-  def empty_certificate :: RV5StageVectorFastCertificate(xlen) = literal(RV5StageVectorFastCertificate(xlen), 0)
+  def empty_certificate :: VectorFastCertificate(xlen) = literal(VectorFastCertificate(xlen), 0)
   for (core in [observed, reference]):
     core.interrupts <== RiscvInterrupts():
       supervisor_software: Bool(#false)

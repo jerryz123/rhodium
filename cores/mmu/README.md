@@ -74,6 +74,22 @@ callers order the invalidation against their pipeline. The separate nonfaulting
 probe ignores A/D but requires a common access class permitted by both stages.
 Probe PBMT applies the G override followed by a non-PMA stage-one override.
 
+## Vector page certification
+
+`vector.rhdl` defines `VectorRange`, `VectorFastCertificate`, `VectorFastCheck`,
+`VectorPrecheck`, and `RiscvPageProbe`. These contracts do not depend on a named
+core. A fast certificate carries one page mapping and its context/epoch identity;
+the caller must revalidate it before nonspeculative use.
+
+`VectorWindow` in `vector-window.rhdl` checks a caller-provided range spanning
+at most two adjacent 4 KiB pages and retains its mappings until release. Its
+page-probe service may use TLB hits or walks. Certification requires ordinary
+cacheable, idempotent memory, the requested access permission, and PMA rather
+than an overriding page memory type. A covering superpage can satisfy both
+endpoints with one probe. A false response selects precise per-access execution;
+it is not an architectural exception. The caller owns footprint eligibility,
+probe arbitration, translation context stability, and retirement ordering.
+
 ## Walker and memory ownership
 
 One state machine handles ordinary Sv39 and nested translation. Guest walks

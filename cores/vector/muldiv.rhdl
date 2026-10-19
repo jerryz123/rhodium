@@ -1,0 +1,134 @@
+#lang rhodium
+/* Normalizes singleton SEW operands and selects tagged shared integer results. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/integer-execution.rhdl") open
+  "bundles.rhdl" open
+  "decode.rhdl".VectorMultiplyResult
+  "../simd-alu.rhdl".SimdRoundingMode
+  "../multiplier.rhdl" open
+  "../divider.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/vector.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+/* Retains completion slot, source SEW, product selection, and fractional rounding policy. */
+bundle VectorMultiplyTag(slots :: Pow2Int):
+  slot: Bits(index_width(slots))
+  sew: Bits(2)
+  result: VectorMultiplyResult
+  rounding_mode: SimdRoundingMode
+
+/* Retains completion slot, source SEW, and quotient/remainder selection. */
+bundle VectorDivideTag(slots :: Pow2Int):
+  slot: Bits(index_width(slots))
+  sew: Bits(2)
+  remainder: Bool
+
+/* Pairs selected product bits with fractional-multiply saturation. */
+bundle VectorMultiplyValue(xlen :: XLen):
+  data: Bits(xlen.width)
+  saturated: Bool
+
+/* Sign- or zero-extends one SEW element into the physical integer execution width. */
+fun vector_integer_operand(xlen :: XLen, value :: Bits(xlen.width), sew :: Bits(2), signed_mode :: Bool) :~ Bits(xlen.width):
+  def cases = for List (width in [8, 16, 32], code in 0..3):
+    [code, if width == xlen.width | value[0..width] | mux(signed_mode, value[0..width].into(SInt(width)).sext(xlen.width).as_bits(), value[0..width].zext(xlen.width))]
+  mux_lookup(sew, ~default: value[0..xlen.width], cases)
+
+/* Builds a tagged shared multiplier request, selecting old vd for destination-multiply forms. */
+fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), slot :: Bits(index_width(slots))) :~ IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)):
+  def sew = beat.element_width.into(Bits(2))
+  IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)):
+    tag:
+      VectorMultiplyTag(slots):
+        slot: slot
+        sew: sew
+        result: beat.control.multiply_result
+        rounding_mode: beat.rounding_mode
+    operands:
+      MultiplierRequest(xlen.width):
+        left: vector_integer_operand(xlen, mux(beat.control.multiply_accumulate & beat.control.multiply_destination, beat.destination_data, beat.left), sew, beat.control.left_signed)
+        right: vector_integer_operand(xlen, beat.right, sew, beat.control.right_signed)
+        mode:
+          MultiplierMode():
+            left_signed: beat.control.left_signed
+            right_signed: beat.control.right_signed
+
+/* Builds a tagged shared divider request from normalized singleton operands. */
+fun vector_divide_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), slot :: Bits(index_width(slots))) :~ IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots)):
+  def sew = beat.element_width.into(Bits(2))
+  IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots)):
+    tag:
+      VectorDivideTag(slots):
+        slot: slot
+        sew: sew
+        remainder: beat.control.remainder
+    operands:
+      DividerRequest(xlen.width):
+        dividend: vector_integer_operand(xlen, beat.left, sew, beat.control.left_signed)
+        divisor: vector_integer_operand(xlen, beat.right, sew, beat.control.left_signed)
+        signed_mode: beat.control.left_signed
+
+/* Rounds a signed fractional product according to vxrm and saturates overflow at source width. */
+fun fractional_multiply_value(xlen :: XLen, width :: PosInt, product :: Bits(width * 2), rounding_mode :: SimdRoundingMode) :~ VectorMultiplyValue(xlen):
+  def distance = width - 1
+  def round_bit = product[distance - 1].into(Bool)
+  def lower_nonzero = product[0..distance - 1].or_reduce()
+  def discarded_nonzero = product[0..distance].or_reduce()
+  def shifted = (product.into(SInt(width * 2)) >> distance).as_bits()
+  def increment = mux_lookup(rounding_mode, ~default: round_bit, [
+    [SimdRoundingMode.NearestEven, round_bit & (lower_nonzero ||| shifted[0].into(Bool))],
+    [SimdRoundingMode.Down, Bool(#false)],
+    [SimdRoundingMode.Odd, !shifted[0].into(Bool) & discarded_nonzero]
+  ])
+  def rounded = shifted + increment.as_bits().zext(width * 2)
+  def low = rounded[0..width]
+  def negative = rounded[width * 2 - 1].into(Bool)
+  def low_negative = low[width - 1].into(Bool)
+  def expected_high = mux(low_negative, !bits(0, width), bits(0, width))
+  def saturated = rounded[width..width * 2] =/= expected_high
+  def limit = mux(negative, bits(1 << (width - 1), width), bits((1 << (width - 1)) - 1, width))
+  def selected = mux(saturated, limit, low)
+  VectorMultiplyValue(xlen):
+    data: if width == xlen.width | selected | selected.zext(xlen.width)
+    saturated: saturated
+
+/* Selects SEW-relative low/high/widened/fractional products and applies a retained accumulate
+   addend. */
+fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), addend :: Bits(xlen.width), accumulate :: Bool, subtract :: Bool) :~ VectorMultiplyValue(xlen):
+  // High multiplication is relative to SEW, not to the physical multiplier width.
+  def widths = if xlen == XLen.X64 | [8, 16, 32, 64] | [8, 16, 32]
+  def cases = for List (width in widths, code in 0..widths.length()):
+    [code, if width == xlen.width | result.value[width..width * 2] | result.value[width..width * 2].zext(xlen.width)]
+  def widened_cases = for List (code in 0..(widths.length() - 1)):
+    def width = widths[code]
+    [code, if width * 2 == xlen.width | result.value[0..xlen.width] | result.value[0..width * 2].zext(xlen.width)]
+  def full_high = result.value[xlen.width..xlen.width * 2]
+  def low = result.value[0..xlen.width]
+  def high = mux_lookup(result.tag.sew, ~default: full_high, cases)
+  def ordinary = mux(result.tag.result === VectorMultiplyResult.High, high, low)
+  def widened = mux_lookup(result.tag.sew, ~default: low, widened_cases)
+  def fractional_cases = for List (width in widths, code in 0..widths.length()):
+    [code, fractional_multiply_value(xlen, width, result.value[0..width * 2], result.tag.rounding_mode)]
+  def fractional :: VectorMultiplyValue(xlen) = mux_lookup(result.tag.sew, ~default: fractional_cases[fractional_cases.length() - 1][1], fractional_cases)
+  def ordinary_result = VectorMultiplyValue(xlen):
+    data: mux(accumulate, mux(subtract, addend - widened, addend + widened), mux(result.tag.result === VectorMultiplyResult.Widened, widened, ordinary))
+    saturated: Bool(#false)
+  mux(!accumulate & (result.tag.result === VectorMultiplyResult.Fractional), fractional, ordinary_result)
+
+/* Selects quotient or remainder from the completed request's retained tag. */
+fun vector_divide_value(xlen :: XLen, slots :: Pow2Int, result :: IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))) :~ Bits(xlen.width):
+  def value = mux(result.tag.remainder, result.value.remainder, result.value.quotient)
+  value
+
+export:
+  VectorMultiplyTag
+  VectorDivideTag
+  VectorMultiplyValue
+  vector_integer_operand
+  vector_multiply_request
+  vector_divide_request
+  vector_multiply_value
+  vector_divide_value

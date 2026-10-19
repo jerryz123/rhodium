@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../vector/pipeline.rhdl" open
-  "../vector/bundles.rhdl" open
+  "../../vector/pipeline.rhdl" open
+  "../../vector/bundles.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -19,23 +19,23 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   input instruction: Bits(32)
   input(vl, vstart, vtype): Bits(64)
   input(request_valid, issue_ready, cancel, slow, response_valid): Bool
-  input disposition: RV5StageVectorDisposition
+  input disposition: VectorDisposition
   input response_tag: Bits(index_width(slots))
   output(request_ready, active, issued, committed, issue_done, enabled, memory, sequenced): Bool
   output response_ready: Bool
   output issue_tag: Bits(index_width(slots))
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
-  inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  inst vector(VectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
   vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
-  inst tokens(ValidPipe(RV5StageVectorToken(XLen.X64, Bits(64), slots), 3, ~flushable: #true))
+  inst tokens(ValidPipe(VectorToken(XLen.X64, Bits(64), slots), 3, ~flushable: #true))
   decode.instruction <== instruction
   vector.request.valid <== request_valid
-  vector.request.bits <== RV5StageVectorInstruction(xlen, Bits(64)):
+  vector.request.bits <== VectorInstruction(xlen, Bits(64)):
     context: bits(0x100, 64)
     descriptor:
-      RV5StageVectorDescriptor(xlen):
+      VectorDescriptor(xlen):
         pc: bits(0x100, 64)
         precertified: Bool(#false)
         certificate: dont_care(vector.request.bits.descriptor.certificate.type)
@@ -58,11 +58,11 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
   vector.issue |> to_valid() |> tokens.ingress
-  def recovering = cancel ||| (tokens.egress.valid & (disposition =/= RV5StageVectorDisposition.Authorized))
+  def recovering = cancel ||| (tokens.egress.valid & (disposition =/= VectorDisposition.Authorized))
   tokens.flush <== recovering
   vector.cancel.valid <== cancel
   (
-    tokens.egress |> filter_valid(token => token.memory & !cancel) |> map_valid(token => RV5StageVectorCommit(xlen, slots)):
+    tokens.egress |> filter_valid(token => token.memory & !cancel) |> map_valid(token => VectorCommit(xlen, slots)):
       tag: token.completion_tag
       pc: bits(0x100, 64)
       disposition: disposition
@@ -72,7 +72,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
       fault_address: bits(0, 64)
   ) |> vector.decision
   vector.completion.valid <== response_valid
-  vector.completion.bits <== RV5StageVectorCompletion(xlen, slots):
+  vector.completion.bits <== VectorCompletion(xlen, slots):
     tag: response_tag
     data: bits(0, 64)
   response_ready <== vector.completion.ready

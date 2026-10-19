@@ -23,7 +23,7 @@ expect_failure() {
 }
 check_shared_ownership() {
   audit
-  for directory in cores cores/csr cores/mmu/nested cores/cache/chi cores/fp cores/bpred; do
+  for directory in cores cores/csr cores/mmu/nested cores/cache/chi cores/fp cores/bpred cores/vector; do
     local probe="$fixture/$directory/shared-probe.rhdl"
     printf '  lib("riscv/rtl/csr.rhdl") open\n' > "$probe"
     audit

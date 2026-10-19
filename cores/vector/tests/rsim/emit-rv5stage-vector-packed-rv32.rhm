@@ -1,0 +1,9 @@
+#lang rhombus
+// Defines four-byte packed transport with native four-byte VRF rows and SIMD rotation.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../vector-packed-fixture.rhdl" open
+  "../../../../riscv/isa/xlen.rhm".XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate
+def program = elaborate(VectorPackedFixture(8, ~xlen: XLen.X32))
+export program

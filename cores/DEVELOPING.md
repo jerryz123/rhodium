@@ -21,6 +21,8 @@ Before adding a component, decide who owns its policy:
   [`csr/`](csr/DEVELOPING.md) owns CSR/trap state and
   [`mmu/`](mmu/DEVELOPING.md) owns translation contracts, TLBs, and PTW state;
   [`fp/`](fp/DEVELOPING.md) owns FP mappings, operand execution, and register storage.
+  [`vector/`](vector/DEVELOPING.md) owns vector control relations, sequencing,
+  register storage, packed execution, and persistent completion ownership.
   [`bpred/`](bpred/DEVELOPING.md) owns shared BTB/RAS state and prediction payloads;
   callers retain fetch geometry integration, redirect timing, and update qualification.
   Organize by responsibility, not by a second ISA namespace. Shared does not
@@ -62,6 +64,12 @@ flowchart LR
   State --> Riscv
   State --> Rhodium
   Named --> FP["shared floating point<br/>cores/fp/"]
+  Named --> Vector["shared vector execution<br/>cores/vector/"]
+  Vector --> FP
+  Vector --> State
+  Vector --> Reusable
+  Vector --> Riscv
+  Vector --> Rhodium
   FP --> Riscv
   FP --> Rhodium
   FP --> HardFloat["HardFloat numeric primitives"]
@@ -93,6 +101,11 @@ Small shared integration modules remain at the root:
 passive observation declarations. None selects a named core's profile or
 implements its retirement policy. Architectural encodings and stateless
 architectural policy stay under `riscv/isa/` and `riscv/rtl/`.
+
+`integer-execution.rhdl` supplies opaque arithmetic request/result ownership;
+`register-write.rhdl` supplies a GPR destination/value payload independent of
+physical register-file ports. Named-core adapters retain service selection,
+launch/authorization timing, and architectural writeback scheduling.
 
 Keep accepted split-access fragments irrevocable and retain their owner until
 the response. Translation/PMA checks, interrupt/drain policy, and retirement

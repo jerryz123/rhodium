@@ -17,7 +17,7 @@ import:
   "../../cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../../cache/operation.rhdl" open
-  "../decode/vector-ctrl.rhdl" open
+  "../../vector/decode.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
   "../../branch-decode.rhdl" open

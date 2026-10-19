@@ -1,0 +1,11 @@
+#lang rhombus
+// Defines the RV64 VLEN128 integer sequencer composition for behavioral validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../riscv/isa/xlen.rhm" open
+  "../vector-sequencer-fixture.rhdl" as fixture
+
+def program = elaborate(fixture.VectorSequencerFixture(XLen.X64, 128))
+export program

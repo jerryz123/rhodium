@@ -1,0 +1,105 @@
+#lang rhodium
+// Exercises internal compute maturity and memory decisions with controlled cancellation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/register-write.rhdl") open
+  "../../../riscv/isa/vector-profile.rhm" open
+  "../pipeline.rhdl" open
+  "../bundles.rhdl" open
+  "decode.rhdl" open
+  "../decode.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
+  lib("flow/main.rhdl") open
+
+sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
+  input instruction: Bits(32)
+  input(vtype, vl, vstart, scalar, load_data): Bits(xlen.width)
+  input(request_valid, issue_ready, cancel): Bool
+  output(active, request_ready, issued, compute_matured, memory_committed, retired, saturate): Bool
+  output wb_index: Bits(index_width(vlen + 1))
+  output store_data: Bits(xlen.width)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  inst decode(VectorTestDecoder())
+  inst vector(VectorExecution(xlen, vlen, Bits(32)))
+  vector.schedule_enable <== issue_ready
+  vector.scalar_writeback.ready <== Bool(#true)
+  vector.packed_memory <== Bool(#false)
+  inst tokens(ValidPipe(VectorToken(xlen, Bits(32), 8), 3, ~flushable: #true))
+  inst compute_maturity(ValidPipe(Bool, 1, ~flushable: #true))
+  reg index(~init: bits(0, index_width(vlen + 1)))
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== VectorInstruction(xlen, Bits(32)):
+    context: instruction
+    descriptor:
+      VectorDescriptor(xlen):
+        pc: bits(0x100, xlen.width)
+        precertified: Bool(#false)
+        certificate: dont_care(vector.request.bits.descriptor.certificate.type)
+        instruction: instruction
+        state:
+          RiscvVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: vstart
+            vxrm: bits(0, 2)
+            vxsat: Bool(#false)
+        control: decode.control
+        scalar: scalar
+        floating_scalar: bits(0, xlen.width)
+        stride: bits(0, xlen.width)
+        masked: !instruction[25].into(Bool)
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
+  vector.issue |> to_valid() |> tokens.ingress
+  tokens.flush <== cancel
+  compute_maturity.flush <== cancel
+  compute_maturity.ingress.valid <== vector.issue.fire() & !vector.issue.bits.memory
+  compute_maturity.ingress.bits <== Bool(#true)
+  vector.cancel.valid <== cancel
+  vector.decision.valid <== tokens.egress.valid & tokens.egress.bits.memory & !cancel
+  vector.decision.bits <== VectorCommit(xlen, 8):
+    tag: tokens.egress.bits.completion_tag
+    pc: bits(0x100, xlen.width)
+    disposition: VectorDisposition.Authorized
+    slow: Bool(#false)
+    data: load_data
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+  vector.completion.valid <== Bool(#false)
+  vector.completion.bits <== dont_care(VectorCompletion(xlen, 8))
+  vector.memory_drained <== Bool(#true)
+  vector.fp_request.ready <== Bool(#false)
+  vector.fp_result.valid <== Bool(#false)
+  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  vector.scalar_result |> scalar_result
+  request_ready <== vector.request.ready
+  active <== vector.active
+  issued <== vector.issue.fire()
+  compute_matured <== compute_maturity.egress.valid
+  memory_committed <== vector.decision.valid
+  retired <== vector.retire.valid
+  saturate <== vector.saturate.valid
+  wb_index <== index
+  store_data <== tokens.egress.bits.store_data
+  when (vector.request.fire()):
+    index <== bits(0, index_width(vlen + 1))
+  elsewhen memory_committed:
+    index <== index + bits(1, index_width(vlen + 1))
+
+export:
+  VectorReductionFixture

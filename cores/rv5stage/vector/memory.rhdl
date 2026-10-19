@@ -6,7 +6,7 @@
 import:
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
-  "bundles.rhdl" open
+  "../../vector/bundles.rhdl" open
   "../mmu/protocol.rhdl" open
   "../memory-context.rhdl" open
   "../../cache/operation.rhdl" open
@@ -25,7 +25,7 @@ import:
    Precertified requests become durable at capture and retry in a bounded physical
    request ring; faultable attempts instead return precise sequencer feedback. */
 sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: hypervisor :: Boolean = #false):
-  def Token = RV5StageVectorToken(xlen, Bits(xlen.width), slots)
+  def Token = VectorToken(xlen, Bits(xlen.width), slots)
   /* Captures one memory token with its physical/virtual request and alignment decision. */
   bundle Lookup():
     token: Token
@@ -43,9 +43,9 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   input request_fault_address: Bits(xlen.width)
   interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(slots))), ~role: consumer)
-  interface feedback(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
-  interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
-  interface completion(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~role: producer)
+  interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
   input store: Bool
   input pointer_masking: PointerMaskControl()
   output(pipeline_physical, request_physical, requests_idle): Bool
@@ -111,10 +111,10 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   when resolved:
     head <== head + bits(1, Cursor.width)
   // Capture resolves ownership at execute, independent of later cache retries.
-  def durable = capture_feedback |> valid_pipe(1) |> map_valid(operation => RV5StageVectorCommit(xlen, slots)):
+  def durable = capture_feedback |> valid_pipe(1) |> map_valid(operation => VectorCommit(xlen, slots)):
     tag: operation.completion_tag
     pc: operation.context
-    disposition: RV5StageVectorDisposition.Authorized
+    disposition: VectorDisposition.Authorized
     slow: Bool(#true)
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
@@ -206,10 +206,10 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   when (wb_context.valid & token.precertified):
     assert(!fault, "certified_vector_request_cannot_fault")
     assert(queued & (token.completion_tag === requests[request_index(head)].completion_tag), "vector_retry_resolves_oldest_request")
-  def disposition = priority_mux(~default: RV5StageVectorDisposition.Authorized):
-    precise_retry: RV5StageVectorDisposition.Retry
-    truncate: RV5StageVectorDisposition.Truncate
-    fault: RV5StageVectorDisposition.Fault
+  def disposition = priority_mux(~default: VectorDisposition.Authorized):
+    precise_retry: VectorDisposition.Retry
+    truncate: VectorDisposition.Truncate
+    fault: VectorDisposition.Fault
   def guest :: RiscvGuestException():
     if hypervisor | mux(slow, request_guest, operation.guest) | literal(RiscvGuestException(), 0)
   if hypervisor
@@ -231,7 +231,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     admitted: accepted
   def Array(request_path, decision_path, hit_path) = response_capture |> fork_valid(3)
   request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.request_context.request) |> offer_decoupled() |> memory.request
-  def decision = decision_path |> filter_valid(_operation => !split_capture) |> map_valid(operation => RV5StageVectorCommit(xlen, slots)):
+  def decision = decision_path |> filter_valid(_operation => !split_capture) |> map_valid(operation => VectorCommit(xlen, slots)):
     tag: operation.request_context.token.completion_tag
     pc: operation.request_context.token.context
     disposition: disposition
@@ -243,9 +243,9 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def precise_feedback = feedback_path |> filter_valid(_event => !token.precertified)
   Array(durable, precise_feedback) |> valid_arbiter() |> feedback
   assert(!(durable.valid & precise_feedback.valid), "vector_capture_and_precise_feedback_are_exclusive")
-  outcome_path |> filter_valid(event => !token.precertified & (event.disposition =/= RV5StageVectorDisposition.Retry) & (token.last ||| fault)) |> outcome
+  outcome_path |> filter_valid(event => !token.precertified & (event.disposition =/= VectorDisposition.Retry) & (token.last ||| fault)) |> outcome
   def Array(load_hit_path, store_hit_path) = hit_path |> fork_valid(2)
-  def hit_completion = load_hit_path |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(result => RV5StageVectorCompletion(xlen, slots)):
+  def hit_completion = load_hit_path |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(result => VectorCompletion(xlen, slots)):
     tag: result.request_context.token.completion_tag
     data: result.data
   def offered_hit = hit_completion |> offer_decoupled()
@@ -258,10 +258,10 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def ack_entries = for Array (slot in 0..slots):
     def index = bits(slot, index_width(slots))
     def capture = ack_captures[slot] |> filter_valid(result => result.request_context.token.completion_tag === index)
-    def ack_bits = RV5StageVectorCompletion(xlen, slots):
+    def ack_bits = VectorCompletion(xlen, slots):
       tag: index
       data: bits(0, xlen.width)
-    def offered = inject_interface(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~valid: acknowledgements[slot], ~bits: ack_bits, ~ready: acknowledgement_ready[slot])
+    def offered = inject_interface(Decoupled(VectorCompletion(xlen, slots)), ~valid: acknowledgements[slot], ~bits: ack_bits, ~ready: acknowledgement_ready[slot])
     def name = "ack-" ++ to_string(slot)
     describe_interface_retained_storage(capture.valid, offered.fire(), acknowledgements[slot], ~name: name)
     describe_interface_contract(capture, offered, name, ~trace_model: interface_trace_retained(~name: name))
@@ -274,14 +274,14 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     offered
   def ack = ack_entries |> arbiter()
   def slow_completion = (
-    memory.response |> map_flow(response => RV5StageVectorCompletion(xlen, slots)):
+    memory.response |> map_flow(response => VectorCompletion(xlen, slots)):
       tag: response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
       data: response.data
   )
   // Split results arrive outside the fixed write calendar. Authorize their
   // slot first, then use the ordinary arbitrated completion/writeback path.
   def split_result = split_completion |> filter_valid(result => !result.page_fault & !result.response.access_fault)
-    |> map_valid(result => RV5StageVectorCompletion(xlen, slots)):
+    |> map_valid(result => VectorCompletion(xlen, slots)):
          tag: result.response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
          data: result.response.data
   def deferred_split = split_result |> to_decoupled() |> queue(1)

@@ -4,23 +4,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/vector.rhdl") open
+  lib("cores/integer-execution.rhdl") open
+  lib("cores/register-write.rhdl") open
   "../fp/bundles.rhdl" open
   "../fp/timing.rhdl" open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
-  "vector/bundles.rhdl" open
-  "vector/pipeline.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../vector/pipeline.rhdl" open
   "vector/memory.rhdl" open
-  "vector/precheck.rhdl" open
-  "decode/vector-ctrl.rhdl".VectorMemoryAddressing
+  "../vector/precheck.rhdl" open
+  "../vector/decode.rhdl".VectorMemoryAddressing
   "mmu/protocol.rhdl" open
-  "vector/muldiv.rhdl" open
+  "../vector/muldiv.rhdl" open
   "integer-execution.rhdl" open
   "../multiplier.rhdl" open
   "../divider.rhdl" open
   "../fp/register-file.rhdl".FloatingPointRegisterWrite
-  "register-file.rhdl".RegisterFileWrite
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
@@ -36,20 +38,20 @@ import:
 sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~hypervisor: hypervisor :: Boolean = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
-  def MultiplyTag = RV5StageVectorMultiplyTag(slots)
-  def DivideTag = RV5StageVectorDivideTag(slots)
-  interface request(Decoupled(RV5StageVectorDescriptor(xlen)), ~role: consumer)
+  def MultiplyTag = VectorMultiplyTag(slots)
+  def DivideTag = VectorDivideTag(slots)
+  interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   output(pipeline_physical, request_physical): Bool
   interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
-  interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
-  interface precheck(RV5StageVectorPrecheck(), ~role: requester)
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface precheck(VectorPrecheck(), ~role: requester)
   interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
   interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
-  interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
-  interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
-  interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
+  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
+  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface truncate(Valid(Bits(xlen.width)), ~role: producer)
@@ -63,7 +65,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
-  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
+  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   execution.schedule_enable <== Bool(#true)
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
   input request_fault_address: Bits(xlen.width)
@@ -87,7 +89,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   reg certified(~init: Bool(#false))
   reg waiting_retirement(~init: Bool(#false))
   reg uncertified_memory(~init: Bool(#false))
-  inst instructions(Queue(RV5StageVectorDescriptor(xlen), 2, ~pipe: #true, ~flow: #true))
+  inst instructions(Queue(VectorDescriptor(xlen), 2, ~pipe: #true, ~flow: #true))
   def can_admit = !waiting_retirement
   request |> gate_flow(can_admit) |> instructions.ingress
   def queued_descriptor = instructions.egress
@@ -99,7 +101,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def immediate_certificate = !queued_descriptor.bits.control.memory ||| footprint.empty
   def head_certified = immediate_certificate ||| queued_descriptor.bits.precertified ||| (check_complete & certified)
   (
-    queued_descriptor |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
+    queued_descriptor |> map_flow(descriptor => VectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
       descriptor: descriptor
   ) |> gate_flow((!needs_check ||| check_complete) & (!queued_descriptor.bits.control.memory ||| queued_descriptor.bits.precertified ||| (access.requests_idle & !execution.sequencing & !execution.issue.valid))) |> execution.request
@@ -113,10 +115,10 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   precheck.release.valid <== execution.sequencing_done.valid & active_precheck
   def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: execution.request.fire() & queued_descriptor.bits.control.memory & footprint.empty, ~bits: queued_descriptor.bits.pc)
   def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
-  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen, slots)):
+  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => VectorCommit(xlen, slots)):
     tag: bits(0, index_width(slots))
     pc: pc
-    disposition: RV5StageVectorDisposition.Authorized
+    disposition: VectorDisposition.Authorized
     slow: Bool(#false)
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
@@ -129,12 +131,12 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def final_outcome = access.outcome |> filter_valid(_event => !execution_certified)
   /* Registers a macro outcome with its matching optional guest-fault provenance. */
   bundle Retirement():
-    value: RV5StageVectorCommit(xlen, slots)
+    value: VectorCommit(xlen, slots)
     if hypervisor:
       guest: RiscvGuestException()
   /* Pairs an early certified or final faultable macro outcome with the appropriate guest
      metadata. */
-  fun retirement(value :: RV5StageVectorCommit(xlen, slots), early :: Boolean) :~ Retirement():
+  fun retirement(value :: VectorCommit(xlen, slots), early :: Boolean) :~ Retirement():
     if hypervisor
     | Retirement():
         value: value
@@ -156,7 +158,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   // Keep vector admission serialized until that transfer independently.
   when (request.fire() & request.bits.control.memory):
     uncertified_memory <== !request.bits.precertified & !early_outcome.valid
-  elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === RV5StageVectorDisposition.Authorized)) ||| outcome.valid):
+  elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)) ||| outcome.valid):
     uncertified_memory <== Bool(#false)
   when (execution.request.fire()):
     check_started <== Bool(#false)
@@ -177,7 +179,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   when (precheck.response.fire()):
     assert(queued_descriptor.valid & needs_check, "vector_precheck_has_pending_descriptor")
   when (execution_certified & access.feedback.valid):
-    assert(access.feedback.bits.disposition.is_one_of(RV5StageVectorDisposition.Authorized, RV5StageVectorDisposition.Retry), "certified_vector_cannot_fault")
+    assert(access.feedback.bits.disposition.is_one_of(VectorDisposition.Authorized, VectorDisposition.Retry), "certified_vector_cannot_fault")
   access.pipeline <=> pipeline
   access.memory <=> memory
   pipeline_physical <== access.pipeline_physical
@@ -196,7 +198,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.fp_update |> fp_update
   execution.fault_start |> fault_start
   execution.truncate |> truncate
-  retire.valid <== outcome.valid & (outcome.bits.disposition =/= RV5StageVectorDisposition.Fault)
+  retire.valid <== outcome.valid & (outcome.bits.disposition =/= VectorDisposition.Fault)
   execution.retire |> execution_done
   execution.saturate |> saturate
   execution.scalar_result |> scalar_result
@@ -228,20 +230,20 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
 sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8, ~hypervisor: hypervisor :: Boolean = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
-  def MultiplyTag = RV5StageVectorMultiplyTag(slots)
-  def DivideTag = RV5StageVectorDivideTag(slots)
-  interface request(Decoupled(RV5StageVectorDescriptor(xlen)), ~role: consumer)
+  def MultiplyTag = VectorMultiplyTag(slots)
+  def DivideTag = VectorDivideTag(slots)
+  interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   output(pipeline_physical, request_physical): Bool
   interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
-  interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
-  interface precheck(RV5StageVectorPrecheck(), ~role: requester)
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface precheck(VectorPrecheck(), ~role: requester)
   interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
   interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
-  interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
-  interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
-  interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
+  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
+  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface truncate(Valid(Bits(xlen.width)), ~role: producer)
@@ -273,19 +275,19 @@ sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slo
   memory.request.bits <== dont_care(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)))
   memory.response.ready <== Bool(#true)
   outcome.valid <== Bool(#false)
-  outcome.bits <== dont_care(RV5StageVectorCommit(xlen, slots))
+  outcome.bits <== dont_care(VectorCommit(xlen, slots))
   precheck.request.valid <== Bool(#false)
-  precheck.request.bits <== dont_care(RV5StageVectorRange())
+  precheck.request.bits <== dont_care(VectorRange())
   precheck.response.ready <== Bool(#true)
   precheck.release.valid <== Bool(#false)
   fp_request.valid <== Bool(#false)
   fp_request.bits <== dont_care(FpExecutionRequest(xlen, fp_profile, Tag))
   fp_result.ready <== Bool(#true)
   multiply_request.valid <== Bool(#false)
-  multiply_request.bits <== dont_care(RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag))
+  multiply_request.bits <== dont_care(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag))
   multiply_result.ready <== Bool(#true)
   divide_request.valid <== Bool(#false)
-  divide_request.bits <== dont_care(RV5StageExecutionRequest(DividerRequest(xlen.width), DivideTag))
+  divide_request.bits <== dont_care(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag))
   divide_result.ready <== Bool(#true)
   fp_update.valid <== Bool(#false)
   fp_update.bits <== bits(0, 5)

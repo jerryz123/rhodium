@@ -1,0 +1,31 @@
+#lang rhodium
+/* Defines opaque tagged requests and returns for shared integer execution services. */
+// SPDX-License-Identifier: Apache-2.0
+
+/* Pairs physical arithmetic operands with a caller-defined completion owner. */
+bundle IntegerExecutionRequest(Operands :: DataType, Tag :: DataType):
+  tag: Tag
+  operands: Operands
+
+/* Returns the arithmetic value with the unchanged owner of its accepted request. */
+bundle IntegerExecutionResult(Value :: DataType, Tag :: DataType):
+  tag: Tag
+  value: Value
+
+/* Replaces a request's owner type and value without changing its arithmetic operands. */
+fun integer_request_with_tag(Operands :: DataType, From :: DataType, To :: DataType, request :: IntegerExecutionRequest(Operands, From), tag :: Hardware.of(To)) :~ IntegerExecutionRequest(Operands, To):
+  IntegerExecutionRequest(Operands, To):
+    tag: tag
+    operands: request.operands
+
+/* Replaces a result's owner type and value without changing its arithmetic result. */
+fun integer_result_with_tag(Value :: DataType, From :: DataType, To :: DataType, result :: IntegerExecutionResult(Value, From), tag :: Hardware.of(To)) :~ IntegerExecutionResult(Value, To):
+  IntegerExecutionResult(Value, To):
+    tag: tag
+    value: result.value
+
+export:
+  IntegerExecutionRequest
+  IntegerExecutionResult
+  integer_request_with_tag
+  integer_result_with_tag

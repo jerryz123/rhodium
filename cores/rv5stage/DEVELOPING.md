@@ -573,7 +573,8 @@ modules by name instead of flattening them.
 Standalone register-file, FP pipeline, integer execution, writeback calendar,
 memory arbiter, divider workload, and vector-sequencer fixtures drive emitted
 rsim C++ directly. Their sources and independent scoreboards live under
-`tests/rsim/` and run in the `cores-components` CI group. Select fixtures by name:
+`tests/rsim/`, except reusable vector fixtures under `../vector/tests/rsim/`,
+and run in the `cores-components` CI group. Select fixtures by name:
 
 ```sh
 python3 tools/testing/rsim/run.py --fixture rv5stage-integer-execution --fixture rv5stage-writeback
@@ -593,7 +594,7 @@ wide-mask boundaries at bits 63/64 and 511/512, scalar counts of 512,
 SEW8 prefix/index wrap, and representative multiword reductions and
 permutations with stalls, cancellation, and restart. Do not duplicate the
 full parameter sweep at the larger width.
-`tests/rsim/driver.hpp` settles host combinational responses, samples pre-edge
+`../tests/rsim/driver.hpp` settles host combinational responses, samples pre-edge
 transfers, ticks the DUT, and then publishes registered host updates. Keep this
 ordering when porting a scoreboard; a native record must be assigned by fields,
 not initialized from its former packed SV integer.

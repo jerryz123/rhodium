@@ -1,0 +1,100 @@
+#lang rhodium
+/* Probes vector pages on admission and retains certified cacheable translations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/mmu/vector.rhdl") open
+  "../../riscv/rtl/pma.rhdl" open
+  "../../riscv/rtl/svpbmt.rhdl".PageMemoryType
+  "../../riscv/rtl/sv39.rhdl".sv39_same_page
+  lib("flow/main.rhdl") open
+
+/* Probes the range endpoints, returns a certificate decision, then retains ownership until
+   release. */
+hardware_enum VectorWindowState:
+  Idle
+  Request
+  Response
+  Complete
+  Owned
+
+/* Certifies a whole physical page only in a cacheable, idempotent, nondevice address set. */
+fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits(64), store :: Bool) :~ Bool:
+  def mutable permitted = Bool(#false)
+  for (region in physical_map.regions):
+    def attributes = region.attributes
+    // Endpoint membership alone cannot certify a sparse physical address set.
+    if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
+    | permitted := permitted ||| (region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable)))
+    | #void
+  def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
+  permitted & fits
+
+/* Retains up to two endpoint-page mappings for one nonspeculative vector macro.
+   A failed check selects exact element execution; it does not raise an architectural fault. */
+sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
+  interface check(VectorPrecheck(), ~role: responder)
+  interface translation(RiscvPageProbe(), ~role: requester)
+  input addresses: Vec(2, Bits(64))
+  output physical_addresses: Vec(2, Bits(64))
+  output hits: Vec(2, Bool)
+  output owned: Bool
+  reg state(~init: VectorWindowState.Idle)
+  reg span(VectorRange())
+  reg second(~init: Bool(#false))
+  reg first_ppn(Bits(44))
+  reg last_ppn(Bits(44))
+  reg safe(~init: Bool(#false))
+  def admitting = state === VectorWindowState.Idle
+  def lookup_span = mux(admitting, check.request.bits, span)
+  def lookup_second = !admitting & second
+  def first_page = span.first[12..64]
+  def last_page = span.last[12..64]
+  def split = lookup_span.first[12..64] =/= lookup_span.last[12..64]
+  check.request.ready <== admitting
+  check.response.valid <== state === VectorWindowState.Complete
+  check.response.bits <== safe
+  translation.request.valid <== (state === VectorWindowState.Request) ||| (admitting & check.request.valid)
+  translation.request.bits <== RiscvPageProbeRequest():
+    address: mux(lookup_second, lookup_span.last, lookup_span.first)
+    store: lookup_span.store
+  owned <== (state === VectorWindowState.Owned) & safe
+  for (index in 0..2):
+    def address = addresses[index]
+    def page = address[12..64]
+    hits[index] <== owned & (address >= span.first) & (address <= span.last) & ((page === first_page) ||| (page === last_page))
+    physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..12]).zext(64)
+
+  def result = translation.response.bits
+  def same_leaf = sv39_same_page(lookup_span.first, lookup_span.last, result.page_size)
+  def result_page = (result.physical_address[12..56] ++ bits(0, 12)).zext(64)
+  def next_page = result_page + bits(4096, 64)
+  def success = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA) & vector_page_permitted(physical_map, result_page, lookup_span.store)
+  def needs_second = success & !lookup_second & split & !same_leaf
+  when (check.release.valid):
+    state <== VectorWindowState.Idle
+    safe <== Bool(#false)
+  elsewhen (translation.response.valid):
+    assert((state === VectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
+    when (check.request.fire()):
+      span <== check.request.bits
+    when (!lookup_second):
+      first_ppn <== result.physical_address[12..56]
+    safe <== success & (lookup_second ||| !split ||| (same_leaf & vector_page_permitted(physical_map, next_page, lookup_span.store)))
+    state <== mux(needs_second, VectorWindowState.Request, VectorWindowState.Complete)
+    when (lookup_second ||| (success & split & same_leaf)):
+      last_ppn <== mux(lookup_second, result.physical_address[12..56], next_page[12..56])
+    second <== needs_second
+  elsewhen (check.request.fire()):
+    span <== check.request.bits
+    second <== Bool(#false)
+    safe <== Bool(#false)
+    state <== mux(translation.request.fire(), VectorWindowState.Response, VectorWindowState.Request)
+  elsewhen (translation.request.fire()):
+    state <== VectorWindowState.Response
+  elsewhen (check.response.fire()):
+    state <== VectorWindowState.Owned
+
+export:
+  VectorWindow
+  vector_page_permitted

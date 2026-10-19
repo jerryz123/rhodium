@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-execution.rhdl") open
   "../integer-execution.rhdl" open
   "../multiply.rhdl" open
   "../profile.rhm".RV5StageMultiplierKind
@@ -12,10 +13,10 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageIntegerExecutionFixture():
-  interface multiply_request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(64), Bits(8))), ~role: consumer)
-  interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(128), Bits(8))), ~role: producer)
-  interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(64), Bits(8))), ~role: consumer)
-  interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(64), Bits(8))), ~role: producer)
+  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(64), Bits(8))), ~role: consumer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(128), Bits(8))), ~role: producer)
+  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(64), Bits(8))), ~role: consumer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(64), Bits(8))), ~role: producer)
   interface scalar_issue(Valid(RV5StageMultiplyIssue(XLen.X64)), ~role: consumer)
   interface scalar_authorize(Valid(Bits(5)), ~role: consumer)
   interface scalar_completion(Irrevocable(RV5StageMultiplyCompletion(XLen.X64)), ~role: producer)

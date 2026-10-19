@@ -1,0 +1,21 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../decode.rhdl" open
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/isa/v.rhm") open
+  lib("rhodium/std/decode.rhdl") open
+
+circuit VectorTestDecoder(profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+  input instruction: Bits(32)
+  output valid: Bool
+  output control: VectorControl()
+  def fp_rows = VectorFloatingPointCases ++ VectorFloatingPointMoveCases
+  def base = if vector_profile_supports_fp32(profile) | VectorControlCases | VectorControlCases.filter(~keep: fun (row): !fp_rows.contains(row))
+  def rows = base ++ (if vector_extensions_support_zvbb(extensions) | VectorZvbbCases | [])
+  def decoded :: DecodeResult(VectorControl()) = ValidDecodeGen(rows)(instruction)
+  valid <== decoded.valid
+  control <== decoded.value
+
+export VectorTestDecoder

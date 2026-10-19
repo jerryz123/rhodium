@@ -52,9 +52,10 @@ with `COSIM=1` instead of maintaining a separate cosim-only Sv39 program.
 
 | File | Ownership |
 |---|---|
-| [`protocol.rhdl`](protocol.rhdl) | Guest-aware virtual requests, split outcomes, vector certificates and page probes |
+| [`protocol.rhdl`](protocol.rhdl) | RV5Stage guest-aware virtual requests and split outcomes |
+| [`../../mmu/vector.rhdl`](../../mmu/vector.rhdl) | Shared vector certificates and page probes |
 | [`../../mmu/`](../../mmu/DEVELOPING.md) | Shared TLB/walker implementation, host/guest contracts, and direct fixture ownership |
-| [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
+| [`../../mmu/vector-window.rhdl`](../../mmu/vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, retained fragment demand translation, physical checks, and separate core/PTE physical offers |
 | [`cores/misaligned-access.rhdl`](../../misaligned-access.rhdl) | Shared one- or two-word virtual fragmentation, opaque owner retention, load assembly, and precise final split outcome |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
@@ -132,7 +133,7 @@ invalidate translations or cancel accepted page-table response ownership.
    from architectural invalidation and from clearing an already-latched fault.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
-   The explicit exception is a certified vector macro: `vector-window.rhdl`
+   The explicit exception is a certified vector macro: `../../mmu/vector-window.rhdl`
    retains its two translations and authorization under a stable architectural
    context until execution releases them. CSR/privilege changes, SFENCE, traps,
    and interrupts cannot pass this owner. DTLB replacement can proceed normally.

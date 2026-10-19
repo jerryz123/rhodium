@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines RV5Stage's guest-aware pipeline requests, split completions, and vector translation interfaces. */
+/* Defines RV5Stage's guest-aware pipeline requests and split completions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,7 +7,6 @@ import:
   "../../misaligned-access.rhdl".RiscvSplitResult
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  lib("cores/mmu/protocol.rhdl").RiscvTranslationResult
   "../memory-context.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
@@ -44,72 +43,8 @@ interface RV5StageGuestPipelineAccess(xlen :: XLen):
     response: Valid(CachePipelineResult(xlen))
     commit_ready: Bool
 
-/* Bounds one nonspeculative vector macro's virtual byte range and required permission.
-   A false check selects exact element execution, never an architectural fault. */
-bundle RV5StageVectorRange():
-  first: Bits(64)
-  last: Bits(64)
-  store: Bool
-
-/* Carries a speculative single-page mapping and exact context/epoch identity from MEM
-   for WB validation, independently of the retained fallback page window. */
-bundle RV5StageVectorFastCertificate(xlen :: XLen):
-  range: RV5StageVectorRange()
-  ppn: Bits(44)
-  virtualized: Bool
-  context: RiscvGuestTranslationContext()
-  invalidation_epoch: Bits(2)
-
-/* Checks and revalidates single-page vector certificates separately from the retained page
-   window. */
-interface RV5StageVectorFastCheck(xlen :: XLen):
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    request: Valid(RV5StageVectorRange())
-    candidate: RV5StageVectorFastCertificate(xlen)
-    pipeline_physical: Bool
-    request_physical: Bool
-  responder -> requester:
-    response: Valid(RV5StageVectorFastCertificate(xlen))
-    candidate_current: Bool
-
-/* Requests a page mapping with the vector macro's access direction. */
-bundle RV5StagePageProbeRequest():
-  address: Bits(64)
-  store: Bool
-
-/* Transfers a page lookup or walk and returns an unbackpressured host-shaped result. */
-interface RV5StagePageProbe():
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    request: Decoupled(RV5StagePageProbeRequest())
-  responder -> requester:
-    response: Valid(RiscvTranslationResult())
-
-/* Retains a macro's range check until its decision transfers, then owns the window until
-   release. */
-interface RV5StageVectorPrecheck():
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    request: Decoupled(RV5StageVectorRange())
-    release: Pulse()
-  responder -> requester:
-    response: Irrevocable(Bool)
-
 export:
   RiscvSplitResult
   RV5StageGuestMemoryReq
   RV5StageGuestDataAccess
   RV5StageGuestPipelineAccess
-  RV5StageVectorRange
-  RV5StageVectorFastCertificate
-  RV5StageVectorFastCheck
-  RV5StageVectorPrecheck
-  RV5StagePageProbeRequest
-  RV5StagePageProbe

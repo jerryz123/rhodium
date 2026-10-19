@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../mmu/mmu.rhdl" open
   "../mmu/protocol.rhdl" open
@@ -25,7 +26,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   interface pipeline(CachePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   input pipeline_physical: Bool
-  interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
@@ -59,8 +60,8 @@ sync_circuit RV5StageMmuDataPortFixture():
   pipeline |> mmu.pipeline
   vector_precheck |> mmu.vector_precheck
   mmu.vector_fast.request.valid <== Bool(#false)
-  mmu.vector_fast.request.bits <== dont_care(RV5StageVectorRange())
-  mmu.vector_fast.candidate <== dont_care(RV5StageVectorFastCertificate(xlen))
+  mmu.vector_fast.request.bits <== dont_care(VectorRange())
+  mmu.vector_fast.candidate <== dont_care(VectorFastCertificate(xlen))
   mmu.vector_fast.pipeline_physical <== pipeline_physical
   mmu.vector_fast.request_physical <== Bool(#false)
   mmu.pipeline_vector <== pipeline_vector

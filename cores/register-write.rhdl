@@ -1,0 +1,13 @@
+#lang rhodium
+/* Defines the architectural GPR write payload independently of register-file port geometry. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+
+/* Carries a destination index and XLEN-wide value for an architectural GPR write. */
+bundle RegisterFileWrite(xlen :: XLen):
+  address: Bits(5)
+  data: Bits(xlen.width)
+
+export RegisterFileWrite

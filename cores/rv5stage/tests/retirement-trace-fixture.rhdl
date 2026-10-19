@@ -2,6 +2,7 @@
 // Drives the real core's public packet and memory ports with explicit prediction and retirement cases.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../core.rhdl" open
   "../profile.rhm" open
@@ -54,7 +55,7 @@ sync_circuit RV5StageRetirementTrace():
   core.pipeline_access.commit_ready <== Bool(#false)
   core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
   core.vector_fast.response.valid <== Bool(#false)
-  core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(XLen.X64))
+  core.vector_fast.response.bits <== dont_care(VectorFastCertificate(XLen.X64))
   core.vector_fast.candidate_current <== Bool(#false)
   core.data_access.request.ready <== data_ready
   core.data_access.request_fault <== Bool(#false)

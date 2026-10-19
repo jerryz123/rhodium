@@ -6,8 +6,8 @@ import:
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
   "../events/transport.rhdl".capture_lane
-  "../../../cores/rv5stage/vector/register-file.rhdl".VectorRegisterWrite
-  "../../../cores/rv5stage/vector/bundles.rhdl" open
+  "../../../cores/vector/register-file.rhdl".VectorRegisterWrite
+  "../../../cores/vector/bundles.rhdl" open
   "../../../cores/rv5stage/memory-context.rhdl" open
 
 /* Captures actual vector queue admission, distinct from retained WB admission. */
@@ -103,10 +103,10 @@ fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, i
     lane("vector_execution_multiply_return"), lane("vector_execution_multiply_return_tag"),
     lane("vector_execution_divide_return"), lane("vector_execution_divide_return_tag"), ~enable: active
   )
-  def issued :: RV5StageVectorToken(profile.xlen, Bits(profile.xlen.width), slots) = taps["vector_execution_memory_token"]
+  def issued :: VectorToken(profile.xlen, Bits(profile.xlen.width), slots) = taps["vector_execution_memory_token"]
   def write :: VectorRegisterWrite(profile.xlen, profile.vector_length) = taps["vector_execution_write"]
-  def completion :: RV5StageVectorCompletion(profile.xlen, slots) = taps["vector_memory_completion"]
-  def decision :: RV5StageVectorCommit(profile.xlen, slots) = taps["vector_execution_memory_decision"]
+  def completion :: VectorCompletion(profile.xlen, slots) = taps["vector_memory_completion"]
+  def decision :: VectorCommit(profile.xlen, slots) = taps["vector_execution_memory_decision"]
   def pipeline_valid :: Bool = if types.has_key("mmu_pipeline_valid") | mmu["mmu_pipeline_valid"] | Bool(#false)
   def pipeline_address :: Bits(profile.xlen.width) = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | bits(0, profile.xlen.width)
   rhodium_rv5stage_vector_cycle.call(

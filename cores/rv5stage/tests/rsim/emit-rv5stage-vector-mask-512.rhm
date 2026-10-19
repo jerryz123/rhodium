@@ -1,9 +1,0 @@
-#lang rhombus
-// Defines the production vector pipeline with enough mask bits to exercise SEW8 prefix/index wrap.
-// SPDX-License-Identifier: Apache-2.0
-import:
-  lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../../../cores/rv5stage/tests/vector-reduction-fixture.rhdl" open
-  "../../../../riscv/isa/xlen.rhm" open
-def program = elaborate(RV5StageVectorReductionFixture(XLen.X64, 512))
-export program

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/vector.rhdl") open
   lib("cores/mmu/context.rhdl").riscv_translation_lookup
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
@@ -17,7 +18,7 @@ import:
   "../../misaligned-access.rhdl" open
   lib("cores/mmu/tlb.rhdl") open
   lib("cores/mmu/walker.rhdl") open
-  "vector-window.rhdl" open
+  "../../mmu/vector-window.rhdl" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../../cache/operation.rhdl" open
   "../icache/protocol.rhdl" open
@@ -54,8 +55,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(vector_completion_slots))), ~role: producer)
   interface pipeline(if hypervisor | RV5StageGuestPipelineAccess(xlen) | CachePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
-  interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
-  interface vector_fast(RV5StageVectorFastCheck(xlen), ~role: responder)
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
+  interface vector_fast(VectorFastCheck(xlen), ~role: responder)
   interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
@@ -93,7 +94,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg instruction_fault_lookup(RiscvTlbLookup())
   reg instruction_fault_mapping(RiscvTlbMapping())
   def dtlb_result = riscv_host_result(dtlb.translation)
-  inst vector_window(RV5StageVectorWindow(physical_map))
+  inst vector_window(VectorWindow(physical_map))
   inst misaligned(RiscvMisalignedEngine(xlen, RV5StageMemoryContext(vector_completion_slots)))
   reg split_mode(RiscvGuestMemoryAccess)
   reg split_physical(~init: Bool(#false))
@@ -181,7 +182,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   dtlb.invalidate_all <== invalidate_all
   def vector_fast_page = (dtlb_result.physical_address[12..56] ++ bits(0, 12)).zext(64)
   vector_fast.response.valid <== fast_selected & !invalidate_all & dtlb.hit & !dtlb_result.fault & !dtlb_result.access_fault & (dtlb_result.pbmt === PageMemoryType.PMA) & vector_page_permitted(physical_map, vector_fast_page, vector_fast.request.bits.store)
-  vector_fast.response.bits <== RV5StageVectorFastCertificate(xlen):
+  vector_fast.response.bits <== VectorFastCertificate(xlen):
     range: vector_fast.request.bits
     ppn: dtlb_result.physical_address[12..56]
     virtualized: vector_context.virtualized

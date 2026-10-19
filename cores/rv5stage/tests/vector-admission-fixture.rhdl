@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../vector.rhdl" open
-  "../vector/bundles.rhdl" open
+  "../../vector/bundles.rhdl" open
   "../../cache/operation.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../memory-context.rhdl" open
@@ -29,7 +30,7 @@ sync_circuit RV5StageVectorAdmission():
   input retry_last: Bool
   input retry_address: Bits(64)
   input slow_access: Bool
-  interface precheck(RV5StageVectorPrecheck(), ~role: requester)
+  interface precheck(VectorPrecheck(), ~role: requester)
   interface accesses(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface memory_requests(Valid(PhysicalMemoryReq(xlen, RV5StageMemoryContext(8))), ~role: producer)
   interface memory_responses(Valid(PhysicalMemoryResp(xlen, RV5StageMemoryContext(8))), ~role: consumer)
@@ -44,13 +45,13 @@ sync_circuit RV5StageVectorAdmission():
   vector.scalar_writeback.ready <== Bool(#true)
   decode.instruction <== instruction
   vector.request.valid <== request_valid
-  vector.request.bits <== RV5StageVectorDescriptor(xlen):
+  vector.request.bits <== VectorDescriptor(xlen):
     pc: scalar
     precertified: fast_valid
     certificate:
-      RV5StageVectorFastCertificate(xlen):
+      VectorFastCertificate(xlen):
         range:
-          RV5StageVectorRange():
+          VectorRange():
             first: scalar
             last: scalar ||| bits(4095, 64)
             store: decode.control.vector.store

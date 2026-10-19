@@ -1,0 +1,75 @@
+#lang rhodium
+/* Defines page-range certification and translation-probe contracts for vector clients. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl".RiscvTranslationResult
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestTranslationContext
+  lib("rhodium/std/ready-valid.rhdl") open
+
+/* Bounds one nonspeculative vector macro's virtual byte range and required permission.
+   A false check selects exact element execution, never an architectural fault. */
+bundle VectorRange():
+  first: Bits(64)
+  last: Bits(64)
+  store: Bool
+
+/* Carries a speculative single-page mapping and exact context/epoch identity from MEM
+   for WB validation, independently of the retained fallback page window. */
+bundle VectorFastCertificate(xlen :: XLen):
+  range: VectorRange()
+  ppn: Bits(44)
+  virtualized: Bool
+  context: RiscvGuestTranslationContext()
+  invalidation_epoch: Bits(2)
+
+/* Checks and revalidates single-page vector certificates separately from the retained page
+   window. */
+interface VectorFastCheck(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Valid(VectorRange())
+    candidate: VectorFastCertificate(xlen)
+    pipeline_physical: Bool
+    request_physical: Bool
+  responder -> requester:
+    response: Valid(VectorFastCertificate(xlen))
+    candidate_current: Bool
+
+/* Requests a page mapping with the vector macro's access direction. */
+bundle RiscvPageProbeRequest():
+  address: Bits(64)
+  store: Bool
+
+/* Transfers a page lookup or walk and returns an unbackpressured host-shaped result. */
+interface RiscvPageProbe():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(RiscvPageProbeRequest())
+  responder -> requester:
+    response: Valid(RiscvTranslationResult())
+
+/* Retains a macro's range check until its decision transfers, then owns the window until
+   release. */
+interface VectorPrecheck():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(VectorRange())
+    release: Pulse()
+  responder -> requester:
+    response: Irrevocable(Bool)
+
+export:
+  VectorRange
+  VectorFastCertificate
+  VectorFastCheck
+  VectorPrecheck
+  RiscvPageProbe
+  RiscvPageProbeRequest

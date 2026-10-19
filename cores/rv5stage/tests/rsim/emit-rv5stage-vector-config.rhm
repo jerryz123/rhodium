@@ -24,7 +24,7 @@ fun site_header(manifest):
     ""
   ) ++ "}\n"
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
-  ["RV5StageVectorRegisterFile", "test_vector_write", [
+  ["VectorRegisterFile", "test_vector_write", [
     ["write_in", "valid"],
     ["write_in", "bits", "address"],
     ["write_in", "bits", "data"],

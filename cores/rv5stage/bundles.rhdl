@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/vector.rhdl") open
+  lib("cores/register-write.rhdl") open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   lib("riscv/rtl/hypervisor.rhdl") open
@@ -16,7 +18,7 @@ import:
   "../branch-decode.rhdl" open
   "../multiply-decode.rhdl" open
   "../divide-decode.rhdl" open
-  "decode/vector-ctrl.rhdl" open
+  "../vector/decode.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../cache-prefetch.rhdl" open
@@ -32,7 +34,7 @@ import:
   "decode/hint-ctrl.rhdl" open
   "../fp/types.rhdl" open
   "mmu/protocol.rhdl" open
-  "vector/precheck.rhdl".RV5StageVectorFootprintGeometry
+  "../vector/precheck.rhdl".VectorFootprintGeometry
   "register-file.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
@@ -90,7 +92,7 @@ bundle RV5StageOperand(xlen :: XLen):
 bundle RV5StageVectorLaunchContext(xlen :: XLen):
   pointer_masking: PointerMaskControl()
   instruction: Bits(32)
-  control: RV5StageVectorControl()
+  control: VectorControl()
   state: RiscvVectorState(xlen)
   scalar: Bits(xlen.width)
   stride: Bits(xlen.width)
@@ -110,7 +112,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   predicted_next_pc: Bits(xlen.width)
   predicted_ras_action: RasAction
   alu_control: AluControl()
-  vector_control: RV5StageVectorControl()
+  vector_control: VectorControl()
   operand_left: OperandASelect
   operand_right: OperandBSelect
   branch_control: BranchResolverControl()
@@ -158,7 +160,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_first: Bits(xlen.width)
   vector_fast_no_wrap: Bool
-  vector_fast_geometry: RV5StageVectorFootprintGeometry()
+  vector_fast_geometry: VectorFootprintGeometry()
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
@@ -195,7 +197,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_valid: Bool
-  vector_fast: RV5StageVectorFastCertificate(xlen)
+  vector_fast: VectorFastCertificate(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   branch_prediction: RV5StageBranchPrediction

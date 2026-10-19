@@ -3,13 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../register-write.rhdl".RegisterFileWrite
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
-
-/* Carries a destination index and XLEN-wide value for an architectural GPR write. */
-bundle RegisterFileWrite(xlen :: XLen):
-  address: Bits(5)
-  data: Bits(xlen.width)
 
 /* Forwards same-cycle writes to reads and ignores writes to x0. The caller must exclude
    colliding writes. */
@@ -63,5 +59,4 @@ sync_circuit RV5StageRegisterFile(xlen :: XLen):
   )
 
 export:
-  RegisterFileWrite
   RV5StageRegisterFile

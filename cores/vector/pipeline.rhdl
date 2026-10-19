@@ -1,0 +1,605 @@
+#lang rhodium
+/* Composes vector admission, sequencing, operand capture, execution services, and persistent
+   completion. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/integer-execution.rhdl") open
+  lib("cores/register-write.rhdl") open
+  "../fp/bundles.rhdl" open
+  "../fp/timing.rhdl" open
+  "../cosim-source.rhm".describe_cosim_signals
+  lib("cores/vector-layout.rhm").vector_word_bytes
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  "bundles.rhdl" open
+  "geometry.rhdl".vector_zero_stride_load
+  "instructions.rhdl" open
+  "completion.rhdl" open
+  "operand-fetch.rhdl" open
+  "packed-load.rhdl" open
+  "packed-bundles.rhdl" open
+  "splat-load.rhdl" open
+  "fp.rhdl" open
+  "muldiv.rhdl" open
+  "../writeback-calendar.rhdl" open
+  "../fp/types.rhdl".FloatUnit
+  "../load-store.rhdl" open
+  "../multiplier.rhdl" open
+  "../divider.rhdl" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "sequencer.rhdl" open
+  "execute.rhdl" open
+  "mask.rhdl".VectorScanResult
+  "register-file.rhdl" open
+  "decode.rhdl".VectorMemoryMode
+  "decode.rhdl".VectorOperandMode
+  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../../riscv/isa/vector.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/rtl/pointer-masking.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Composes one sequencer with fixed operand capture, SIMD execution, and persistent owners.
+   Reserves future writes before nonstallable reads or fixed-service launches; owner-indexed
+   recurrences, packed carry, and splats survive replacement of the sequencing descriptor. */
+sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+  def tag_width = index_width(vector_completion_slots)
+  def InstructionId = Bits(tag_width)
+  def SlotId = Bits(tag_width)
+  /* Captures scalar context, instruction identity, and optional physical-page proof with
+     scheduled reads. */
+  bundle OwnedContext():
+    value: Context
+    owner: InstructionId
+    pc: Bits(xlen.width)
+    precertified: Bool
+    ppn: Bits(44)
+    pointer_masking: PointerMaskControl()
+  /* Carries a resolved operand beat and its separate instruction owner/completion slot through
+     execution. */
+  bundle OwnedBeat():
+    beat: VectorBeat(xlen, vlen)
+    tag: SlotId
+    owner: InstructionId
+    pc: Bits(xlen.width)
+    splat: Bool
+    precertified: Bool
+  def OwnedResult = VectorOwnedResult(xlen, vlen, vector_completion_slots)
+  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def FpRequest = FpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
+  def FpResult = FpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
+  interface fp_request(Decoupled(FpRequest), ~role: producer)
+  interface fp_result(Decoupled(FpResult), ~role: consumer)
+  interface fp_update(Valid(Bits(5)), ~role: producer)
+  def MultiplyTag = VectorMultiplyTag(vector_completion_slots)
+  def DivideTag = VectorDivideTag(vector_completion_slots)
+  def MultiplyRequest = IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)
+  def DivideRequest = IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag)
+  interface multiply_request(Decoupled(MultiplyRequest), ~role: producer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
+  interface divide_request(Decoupled(DivideRequest), ~role: producer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
+  interface request(Decoupled(VectorInstruction(xlen, Context)), ~role: consumer)
+  interface issue(Decoupled(VectorToken(xlen, Context, vector_completion_slots)), ~role: producer)
+  interface cancel(Pulse(), ~role: consumer)
+  // Only memory attempts require an external retry, fault, or authorization decision.
+  interface decision(Valid(VectorCommit(xlen, vector_completion_slots)), ~role: consumer)
+  interface completion(Decoupled(VectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
+  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
+  interface retire(Pulse(), ~role: producer)
+  interface issue_done(Pulse(), ~role: producer)
+  interface sequencing_done(Pulse(), ~role: producer)
+  interface saturate(Pulse(), ~role: producer)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
+  input packed_memory: Bool
+  input memory_drained: Bool
+  input schedule_enable: Bool
+  output active: Bool
+  output sequencing: Bool
+  output pending: Bool
+  output stores_pending: Bool
+  output(loads_pending, fp_pending, available): Bool
+
+  // State owners are independent of the currently retained descriptor.
+  inst instructions(VectorInstructions(xlen, vlen, vector_completion_slots))
+  active <== instructions.active
+  stores_pending <== instructions.stores_pending
+  loads_pending <== instructions.loads_pending
+  fp_pending <== instructions.fp_pending
+  def next_owner = instructions.allocate_id
+  def current_owner = instructions.sequencing_id
+  def foreign_rows = instructions.blocked_rows
+  inst splat(VectorSplatLoad(xlen, vlen, vector_completion_slots))
+  inst completions(VectorCompletionUnit(xlen, vlen, vector_completion_slots, ~fixed_multiply: multiply_latency != #false))
+  def calendar_span = math.max(8, fp_timing.maximum)
+  def calendar_width = index_width(calendar_span + 1)
+  inst writeback_calendar(WritebackCalendar(3, calendar_span))
+  def allocated = vec(for List (s in 0..vector_completion_slots): completions.state[s].allocated)
+  def authorized_slots = vec(for List (s in 0..vector_completion_slots): completions.state[s].accepted)
+  def entry_owner = vec(for List (s in 0..vector_completion_slots): completions.state[s].owner)
+  def entry_packed = vec(for List (s in 0..vector_completion_slots): completions.state[s].packed)
+  def drain_slot = completions.drain_slot
+  def allocate_slot = completions.allocate_slot
+  def drain = completions.drained.valid
+  def head_result = completions.drained.bits.beat
+  def drained_data = completions.drained.bits.data
+  inst ex_pipe(ValidPipe(OwnedBeat(), 1, ~flushable: #true))
+  inst execute(VectorExecute(xlen, vlen))
+  inst memory_pipe(ValidPipe(OwnedResult, 2, ~flushable: #true))
+  def decision_tag = decision.bits.tag
+  def feedback_packed = entry_packed[decision_tag]
+  def feedback_owner = entry_owner[decision_tag]
+  inst packed(VectorPackedLoad(xlen, vlen, vector_completion_slots, vector_completion_slots))
+  def Array(element_decision_input, packed_decision_input) = decision |> fork_valid(2)
+  def element_memory_decision = element_decision_input |> filter_valid(_event => !feedback_packed)
+  def packed_decision = packed_decision_input |> filter_valid(_event => feedback_packed)
+  packed_decision |> packed.commit
+  instructions.packed_finished.valid <== packed_decision.valid & (packed_decision.bits.disposition === VectorDisposition.Authorized) & packed.resolved.layout.last
+  instructions.packed_finished.bits <== packed.resolved.owner
+  def Array(local_completion, packed_completion_input) = completion |> demux_flow(2, event => entry_packed[event.tag])
+  packed_completion_input |> to_valid() |> packed.completion
+  inst sequencer(VectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
+  def current_packed = sequencer.packed
+  inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext()))
+  inst registers(VectorRegisterFile(xlen, vlen))
+  reg serial_fold_inflight(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg accumulators(Vec(vector_completion_slots, Bits(xlen.width)))
+  reg scan_carries(Vec(vector_completion_slots, Bits(xlen.width)))
+  def retry = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Retry)
+  def fault = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Fault)
+  def truncating = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Truncate)
+  def memory_accepted = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Authorized)
+  sequencer.sequencing_done |> sequencing_done
+  wire issue_tail: Bool
+  def current_detached = sequencer.retained.descriptor.precertified & !vector_zero_stride_load(xlen, sequencer.retained.descriptor)
+  def serialized_done = sequencer.sequencing_done.valid & ((!current_detached & instructions.memory[current_owner]) ||| instructions.serial[current_owner] ||| cancel.valid)
+  issue_done.valid <== issue_tail ||| serialized_done
+  def finished_owner = mux(issue_tail, operand_fetch.issue.bits.context.owner, current_owner)
+  def replay = cancel.valid ||| (decision.valid & (decision.bits.disposition =/= VectorDisposition.Authorized))
+
+  // Admission and the single registered sequencer.
+  // Checkpointed compute schedules wait for older operand preparation.
+  // Both memory geometries follow older scheduled reads: older compute beats
+  // issue before a younger memory beat can reach a replay decision.
+  def splat_request = vector_zero_stride_load(xlen, request.bits.descriptor) & !packed_memory
+  def stateful_request = request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
+  available <== sequencer.request.ready & instructions.available & (!splat_request ||| !splat.active) & (!stateful_request ||| !operand_fetch.active)
+  def admitted = request |> gate_flow(available)
+  describe_interface_retained_storage(admitted.fire(), sequencer.sequencing_done.valid, sequencer.active, ~name: "sequencer")
+  // The shared descriptor owner supplies both schedules and their lineage.
+  def Array(sequence_input, tracked_request, splat_launch) = admitted |> atomic_fork(3)
+  (
+    sequence_input |> map_flow(operation => VectorInstruction(xlen, OwnedContext())):
+      descriptor: operation.descriptor
+      context:
+        OwnedContext():
+          value: operation.context
+          owner: next_owner
+          pc: operation.descriptor.pc
+          precertified: operation.descriptor.precertified
+          ppn: operation.descriptor.certificate.ppn
+          pointer_masking: operation.descriptor.pointer_masking
+  ) |> sequencer.request
+  tracked_request |> to_valid() |> map_valid(operation => operation.descriptor) |> instructions.request
+  (
+    splat_launch |> filter_flow(_operation => splat_request) |> to_valid() |> map_valid(operation => VectorInstruction(xlen, InstructionId)):
+      context: next_owner
+      descriptor: operation.descriptor
+  ) |> splat.launch
+  instructions.packed_memory <== packed_memory
+  instructions.memory_drained <== memory_drained
+  instructions.slots <== completions.state
+  instructions.packed_rows <== packed.foreign_rows
+  instructions.packed_drain_blocked <== packed.drain_blocked
+  instructions.splat_active <== splat.active
+  instructions.splat_owner <== splat.owner
+  instructions.splat_rows <== splat.pending_rows
+  instructions.finished.valid <== issue_done.valid
+  instructions.finished.bits <== VectorIssueFinished(vector_completion_slots):
+    owner: finished_owner
+    fault: fault ||| cancel.valid
+  sequencer.packed_memory <== packed_memory
+  sequencer.blocked_rows <== foreign_rows
+  packed.owner <== current_owner
+  packed.closed_owners <== instructions.closed
+  packed.accepted_slots <== vec(for List (slot in 0..vector_completion_slots): authorized_slots[slot] & entry_packed[slot])
+  packed.head <== drain_slot
+  packed.drain_enable <== authorized_slots[drain_slot] & entry_packed[drain_slot]
+  packed.alignment_available <== !ex_pipe.egress.valid & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
+  packed.write_available <== !completions.compute_writeback
+
+  // A read commits only after its fixed-latency consumers have been granted.
+  cancel |> sequencer.cancel
+  def s1_control = sequencer.sequence_request.bits.context.instruction.descriptor.control
+  def s1_owner = sequencer.sequence_request.bits.context.instruction.context.owner
+  def s1_service = s1_control.fp_service ||| s1_control.multiply_divide
+  def s1_packed = sequencer.sequence_request.bits.context.packed
+  def s1_local_write = !s1_packed & !(s1_control.memory & sequencer.sequence_request.bits.context.instruction.descriptor.precertified) & (!s1_service ||| s1_control.memory ||| sequencer.sequence_request.bits.context.instruction.descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty)
+  def s1_write_delay = mux(s1_control.memory, bits(4, 4), bits(2, 4))
+  def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
+  def s1_next_slot = if vector_completion_slots == 1 | bits(0, tag_width) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
+  def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
+  def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().or_reduce() & !operand_fetch.scheduled_return))
+  def returning_control = operand_fetch.issue.bits.beat.control
+  // Consecutive integer reduction reads are safe: their results mature before
+  // the following beat consumes the owner accumulator at EX. FP folds and
+  // dependent scans still wait for their variable or serialized feedback.
+  def returning_serial_fold = operand_fetch.scheduled_return & ((returning_control.fp_service & returning_control.reduction) ||| (returning_control.integer & returning_control.scan & !returning_control.scan_control.index))
+  def s1_serial_fold_available = !serial_fold_inflight[s1_owner] & !(returning_serial_fold & (operand_fetch.issue.bits.context.owner === s1_owner))
+  def s1_alignment_ready = !s1_packed ||| !sequencer.sequence_request.bits.context.packed_store_read ||| !(operand_fetch.scheduled_return & !operand_fetch.issue.bits.packed)
+  // A faultable beat may wait for sequential fragment checks. Hold its issue
+  // frontier until the decision; preauthorized memory remains feed-forward.
+  reg checked_memory_pending(~init: Bool(#false))
+  def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
+  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & (!s1_local_write ||| writeback_calendar.probe_available) & !splat.probe_pending & (!s1_checked_memory ||| !checked_memory_pending)
+  def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
+  splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
+  s1_read |> operand_fetch.request
+  s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
+  when (replay ||| element_memory_decision.valid):
+    checked_memory_pending <== Bool(#false)
+  elsewhen (sequencer.sequence_request.fire() & s1_checked_memory):
+    checked_memory_pending <== Bool(#true)
+  operand_fetch.suffix |> sequencer.suffix
+  operand_fetch.flush <== sequencer.read_flush
+  operand_fetch.begin_macro <== request.fire()
+  reg read_element(~init: bits(0, 3))
+  reg mask_element(~init: Bool(#false))
+  read_element <== vec(for List (port in 0..3): operand_fetch.reads[port].valid).as_bits()
+  mask_element <== operand_fetch.mask_read.valid
+  for (port in 0..3):
+    assert(!(operand_fetch.reads[port].valid & sequencer.prepare_reads[port].valid), "vector_read_owners_exclusive")
+    Array(operand_fetch.reads[port], sequencer.prepare_reads[port]) |> valid_arbiter() |> registers.reads[port]
+    def Array(element_result, packed_result) = registers.results[port] |> fork_valid(2)
+    element_result |> filter_valid(_value => read_element[port].into(Bool)) |> operand_fetch.results[port]
+    packed_result |> filter_valid(_value => !read_element[port].into(Bool)) |> sequencer.prepare_results[port]
+  assert(!(splat.mask_read.valid & (operand_fetch.mask_read.valid ||| sequencer.prepare_mask_read.valid)), "vector_splat_mask_port_exclusive")
+  Array(operand_fetch.mask_read, sequencer.prepare_mask_read, splat.mask_read) |> valid_arbiter() |> registers.mask_read
+  reg splat_mask(~init: Bool(#false))
+  splat_mask <== splat.mask_read.valid
+  def Array(element_mask, packed_mask, splat_mask_result) = registers.mask_result |> fork_valid(3)
+  element_mask |> filter_valid(_value => mask_element) |> operand_fetch.mask_result
+  packed_mask |> filter_valid(_value => !mask_element & !splat_mask) |> sequencer.prepare_mask_result
+  splat_mask_result |> filter_valid(_value => splat_mask) |> splat.mask_result
+  // Packed pending rows are exact: younger overlapping writes cannot be
+  // accepted while the splat claims them. Other intents require an age query.
+  splat.blocked_rows <== (instructions.splat_blocked_rows.as_bits() ||| packed.busy_rows.as_bits()).as_vec(Bool)
+  splat.mask_read_available <== !operand_fetch.mask_read.valid & !sequencer.prepare_mask_read.valid
+  splat.write_available <== !completions.compute_writeback & !packed.write.valid
+  sequencer.alignment_available <== !ex_pipe.egress.valid & !operand_fetch.alignment.valid
+  Array(operand_fetch.alignment, sequencer.prepare_alignment, packed.alignment) |> valid_arbiter() |> execute.alignment
+  operand_fetch.aligned <== execute.aligned
+  sequencer.aligned <== execute.aligned
+  packed.aligned <== execute.aligned
+  assert(!(execute.alignment.valid & ex_pipe.egress.valid), "vector_simd_owners_exclusive")
+  assert(!(operand_fetch.alignment.valid & sequencer.prepare_alignment.valid), "vector_preparation_alignment_exclusive")
+  sequencing <== sequencer.active
+  pending <== authorized_slots.as_bits().or_reduce()
+  ex_pipe.flush <== replay
+  memory_pipe.flush <== replay
+
+
+  // Scheduled reads enter execution without another admission decision.
+  // Prepared compression suffixes use the same sequence-stage reservations.
+  def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
+  def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
+  writeback_calendar.probe_client <== bits(2, index_width(3))
+  writeback_calendar.probe_delay <== s1_calendar_delay
+  def Array(pending_issue, skipped_splat) = operand_fetch.issue |> demux_flow(2, operation => !operation.packed & splat.probing & !operation.beat.enabled.as_bits()[0].into(Bool) & !operation.beat.last & (operation.context.owner === splat.owner))
+  def splat_skip = skipped_splat |> to_valid()
+  def issued = pending_issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
+    packed: operation.packed
+    address: operation.beat.address
+    byte_mask: operation.byte_mask
+    memory_bytes(~format: "unsigned"): bits(vector_word_bytes(xlen), 4)
+    store: operation.beat.control.store
+    slot(~format: "unsigned"): allocate_slot
+    op_index(~format: "unsigned"): operation.beat.sequence
+    first(~format: "unsigned"): operation.beat.first
+    end(~format: "unsigned"): operation.beat.end
+    last: operation.beat.last
+    empty: operation.beat.empty
+  def issue_owner = operand_fetch.issue.bits.context.owner
+  def Array(token, operands, packed_reservation) = issued |> gate_flow(!replay) |> atomic_fork(3)
+  def scheduled_issue = (
+    token |> map_flow(operation => VectorToken(xlen, Context, vector_completion_slots)):
+      precertified: operation.context.precertified
+      physical_address: ((operation.context.ppn ++ apply_pointer_mask(xlen, operation.beat.address, operation.context.pointer_masking)[0..12]).zext(64))[0..xlen.width]
+      store: operation.beat.control.store
+      byte_mask: mux(operation.packed, operation.byte_mask, memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)))
+      context: operation.context.value
+      last: operation.beat.last ||| (!operation.packed & splat.probing & operation.beat.enabled.as_bits()[0].into(Bool) & (operation.context.owner === splat.owner))
+      truncate_on_fault: !operation.packed & (operation.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & operation.beat.first.or_reduce()
+      memory: operation.beat.control.memory
+      memory_width: mux(operation.packed, bits(if xlen == XLen.X64 | 3 | 2, 2), operation.beat.element_width.into(Bits(2)))
+      enabled: mux(operation.packed, operation.byte_mask.or_reduce(), operation.beat.enabled.as_bits()[0].into(Bool))
+      address: operation.beat.address
+      store_data: operation.beat.left
+      completion_tag: allocate_slot
+  )
+  scheduled_issue |> issue
+  (
+    packed_reservation |> filter_flow(operation => operation.packed) |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, vector_completion_slots, vector_completion_slots)):
+      tag: allocate_slot
+      entry:
+        VectorPackedEntry(xlen, vlen, vector_completion_slots):
+          sequence: operation.beat.sequence
+          layout: operation.packed_layout
+          mask: operation.byte_mask
+          store: operation.beat.control.store
+          segmented: operation.beat.control.memory_nf.or_reduce() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
+          owner: operation.context.owner
+  ) |> packed.reserve
+  writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & s1_local_write
+  writeback_calendar.reserve[2].bits <== s1_calendar_delay
+  when (operand_fetch.scheduled_return):
+    assert(slot_available, "vector_scheduled_read_has_completion_slot")
+    assert(!replay, "vector_replay_kills_scheduled_read")
+    assert(!serial_fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
+    assert(scheduled_issue.fire() ||| splat_skip.valid, "vector_scheduled_read_issues_without_stall")
+  def issued_splat = splat.active & (issue_owner === splat.owner)
+  issue_tail <== scheduled_issue.fire() & operand_fetch.issue.bits.beat.last & !((operand_fetch.issue.bits.beat.control.memory & (!operand_fetch.issue.bits.context.precertified ||| issued_splat)) ||| (operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index) ||| operand_fetch.issue.bits.beat.control.compress)
+  // All routes use one persistent allocation order, including immediate ALU
+  // results. No unbackpressurable write can collide with an older completion.
+  (
+    operands |> filter_flow(operation => !operation.packed) |> map_flow(operation => OwnedBeat()):
+      beat: operation.beat
+      tag: allocate_slot
+      owner: operation.context.owner
+      pc: operation.context.pc
+      splat: splat.probing & operation.beat.enabled.as_bits()[0].into(Bool) & (operation.context.owner === splat.owner)
+      precertified: operation.context.precertified
+  ) |> to_valid() |> ex_pipe.ingress
+  def ex_beat = ex_pipe.egress.bits.beat
+  def ex_owner = ex_pipe.egress.bits.owner
+  def ex_reduction = (ex_beat.control.integer ||| ex_beat.control.fp_service) & ex_beat.control.reduction
+  def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.or_reduce(), accumulators[ex_owner], ex_beat.right))
+  execute.beat <== ex_effective_beat
+  execute.scan_carry <== scan_carries[ex_owner]
+  def Array(ex_operands, ex_progress) = ex_pipe.egress |> fork_valid(2)
+  def executed = ex_operands |> map_valid(operation => VectorOwnedResult(xlen, vlen, vector_completion_slots)):
+    beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: bits(0, xlen.width))), execute.result)
+    tag: operation.tag
+    owner: operation.owner
+    pc: operation.pc
+    splat: operation.splat
+  def Array(compute_route, memory_route) = executed |> to_decoupled() |> demux_flow(2, result => result.beat.memory)
+  def compute_maturity = compute_route |> to_valid()
+  def Array(fp_compute, multiply_compute, divide_compute, completion_compute, instruction_compute, resolution_compute) = compute_maturity |> fork_valid(6)
+  def compute_result = compute_maturity.bits
+  def compute_beat = compute_result.beat
+  def compute_owner = compute_result.owner
+  def Array(early_memory, checked_memory) = memory_route |> demux_flow(2, _result => !ex_pipe.egress.bits.precertified)
+  checked_memory |> to_valid() |> memory_pipe.ingress
+  // Faultable memory retains its result metadata until the LSU's decision.
+  // Fall-through preserves ordinary fixed-latency decisions; split accesses
+  // can wait for additional translation/response cycles without losing owner.
+  def checked_memory_owner = memory_pipe.egress |> to_decoupled() |> shift_queue(1, ~flow: #true, ~flush: replay)
+  def checked_memory_maturity = checked_memory_owner |> gate_flow(element_memory_decision.valid) |> to_valid()
+  def memory_maturity = Array(early_memory |> to_valid(), checked_memory_maturity) |> valid_arbiter()
+  def Array(completion_memory, resolution_memory) = memory_maturity |> fork_valid(2)
+  def memory_result = memory_maturity.bits
+  def memory_beat = memory_result.beat
+
+  splat.decision.valid <== splat.probing & element_memory_decision.valid & (memory_result.owner === splat.owner)
+  splat.decision.bits <== element_memory_decision.bits
+  splat.decision_first <== memory_result.splat
+  splat.decision_last <== memory_beat.last
+  splat.completion.valid <== local_completion.fire()
+  splat.completion.bits <== local_completion.bits
+
+  // Empty FP and multiply request queues bypass directly into their shared
+  // services; occupied entries retain every accepted, nonstallable request.
+  inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
+  def Array(fp_launch, fp_reservation) = fp_authorized.egress |> atomic_fork(2)
+  fp_launch |> fp_request
+  fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => fp_timing.latency(operation.control.execution, ~width: calendar_width)) |> writeback_calendar.reserve[1]
+  reg fp_returns(~init: bits(0, fp_timing.maximum + 1))
+  def fp_return_reservation = mux(writeback_calendar.reserve[1].fire(), bits(1, fp_timing.maximum + 1) << writeback_calendar.reserve[1].bits, bits(0, fp_timing.maximum + 1))
+  fp_returns <== (fp_returns ||| fp_return_reservation) >> 1
+  completions.fixed_fp_return <== fp_returns[0].into(Bool)
+  completions.reserved_write <== writeback_calendar.occupied[0].into(Bool)
+  fp_result |> completions.fp_result
+  // Accepted service work survives cancellation and returns through its tag.
+  inst multiply_authorized(Queue(MultiplyRequest, vector_completion_slots, ~flow: #true))
+  inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
+  def Array(multiply_launch, multiply_reservation) = multiply_authorized.egress |> atomic_fork(2)
+  multiply_launch |> multiply_request
+  multiply_reservation |> filter_flow(_operation => Bool(multiply_latency != #false)) |> map_flow(_operation => bits(if multiply_latency | multiply_latency | 1, calendar_width)) |> writeback_calendar.reserve[0]
+  divide_authorized.egress |> divide_request
+  multiply_result |> completions.multiply_result
+  divide_result |> completions.divide_result
+  fp_compute |> filter_valid(result => result.beat.fp_execute) |> map_valid(result => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> fp_authorized.ingress
+  when (fp_authorized.ingress.valid):
+    assert(fp_authorized.ingress.ready, "vector_fp_execute_has_reserved_request_space")
+  multiply_compute |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
+  divide_compute |> filter_valid(result => result.beat.multiply_execute & result.beat.divide) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
+  when (multiply_authorized.ingress.valid):
+    assert(multiply_authorized.ingress.ready, "vector_multiply_execute_has_reserved_request_space")
+  when (divide_authorized.ingress.valid):
+    assert(divide_authorized.ingress.ready, "vector_divide_execute_has_reserved_request_space")
+
+  // External decisions align only with memory attempts. Every compute route
+  // becomes durable directly from the private execute stage.
+  when (element_memory_decision.valid):
+    assert(memory_maturity.valid & memory_beat.memory, "vector_memory_decision_has_aligned_attempt")
+    assert(memory_result.tag === decision_tag, "vector_memory_decision_matches_attempt")
+  assert(!(decision.valid & compute_maturity.valid), "vector_attempt_has_one_resolution")
+  // Keep each accumulator at its owner's resolved frontier. An overlapping
+  // destination is written only when that owner's final result drains.
+  for (owner in 0..vector_completion_slots):
+    def owner_tag = bits(owner, tag_width)
+    when (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.reduction & !compute_beat.floating_point):
+      accumulators[owner] <== compute_beat.write.data
+    elsewhen (drain & (completions.drained.bits.owner === owner_tag) & head_result.reduction & head_result.floating_point):
+      accumulators[owner] <== drained_data
+    when (request.fire() & (next_owner === owner_tag)):
+      scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, xlen.width), bits(0, xlen.width))
+    elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan):
+      scan_carries[owner] <== compute_beat.scan_carry
+    when ((request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag)) ||| ((retry ||| fault ||| truncating) & (feedback_owner === owner_tag)) ||| (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan) ||| (drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction)):
+      serial_fold_inflight[owner] <== Bool(#false)
+    elsewhen (scheduled_issue.fire() & (issue_owner === owner_tag) & ((operand_fetch.issue.bits.beat.control.fp_service & operand_fetch.issue.bits.beat.control.reduction) ||| (operand_fetch.issue.bits.beat.control.integer & operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index))):
+      serial_fold_inflight[owner] <== Bool(#true)
+
+  // Replay feedback restores only the unauthorized suffix.
+  fault_start.valid <== fault
+  fault_start.bits <== memory_beat.first.zext(xlen.width)
+  truncate.valid <== truncating
+  truncate.bits <== memory_beat.first.zext(xlen.width)
+  when truncating:
+    assert(!authorized_slots.as_bits().or_reduce(), "vector_truncate_has_no_older_completion")
+  // Early memory progress is registered input metadata, not shared ALU data.
+  def early_memory_progress = ex_pipe.egress.valid & ex_pipe.egress.bits.precertified
+  def checked_memory_beat = checked_memory_owner.bits.beat
+  def memory_feedback = element_memory_decision |> map_valid(event => VectorFeedback(xlen, vlen, Bits(xlen.width))):
+      context: event.pc
+      sequence: mux(early_memory_progress, ex_beat.sequence, checked_memory_beat.sequence)
+      first: mux(early_memory_progress, ex_beat.first, checked_memory_beat.first)
+      end: mux(early_memory_progress, ex_beat.end, checked_memory_beat.end)
+      disposition: event.disposition
+      cause: event.cause
+      fault_address: event.fault_address
+      last: mux(early_memory_progress, ex_beat.last ||| ex_pipe.egress.bits.splat, checked_memory_beat.last)
+      compress_state: mux(early_memory_progress, ex_beat.compress_state, checked_memory_beat.compress_state)
+      packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+  // Progress metadata comes directly from the registered beat, never through
+  // the shared ALU/alignment result and back into preparation's control path.
+  def compute_feedback = ex_progress |> filter_valid(operation => !operation.beat.control.memory & instructions.serial[operation.owner]) |> map_valid(operation => VectorFeedback(xlen, vlen, Bits(xlen.width))):
+    context: operation.pc
+    sequence: operation.beat.sequence
+    first: operation.beat.first
+    end: operation.beat.end
+    disposition: VectorDisposition.Authorized
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+    last: operation.beat.last
+    compress_state: operation.beat.compress_state
+    packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+  def relevant_memory_feedback = memory_feedback |> filter_valid(_event => (feedback_owner === current_owner) & (instructions.memory[feedback_owner] ||| instructions.serial[feedback_owner]) & (!sequencer.retained.descriptor.precertified ||| vector_zero_stride_load(xlen, sequencer.retained.descriptor)))
+  def splat_skip_feedback = splat_skip |> map_valid(operation => VectorFeedback(xlen, vlen, Bits(xlen.width))):
+    context: operation.context.pc
+    sequence: operation.beat.sequence
+    first: operation.beat.first
+    end: operation.beat.end
+    disposition: VectorDisposition.Authorized
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+    last: Bool(#false)
+    compress_state: operation.beat.compress_state
+    packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+  def delayed_splat_skip = splat_skip_feedback |> valid_pipe(1)
+  splat.skipped.valid <== delayed_splat_skip.valid
+  def packed_feedback = packed_decision |> map_valid(event => VectorFeedback(xlen, vlen, Bits(xlen.width))):
+    context: event.pc
+    sequence: packed.resolved.sequence
+    first: packed.resolved.layout.before.element
+    end: packed.resolved.layout.after.element
+    disposition: event.disposition
+    cause: event.cause
+    fault_address: event.fault_address
+    last: packed.resolved.layout.last
+    compress_state: literal(VectorCompressState(xlen, vlen), 0)
+    packed_layout: packed.resolved.layout
+  def ordinary_feedback = Array(relevant_memory_feedback, compute_feedback) |> valid_arbiter()
+  def Array(sequencer_ordinary_feedback, operand_feedback) = ordinary_feedback |> fork_valid(2)
+  assert(!(ordinary_feedback.valid & delayed_splat_skip.valid), "vector_splat_skip_has_unique_feedback")
+  def replayable_packed = packed_feedback |> filter_valid(_event => !sequencer.retained.descriptor.precertified & (feedback_owner === current_owner))
+  Array(sequencer_ordinary_feedback, delayed_splat_skip, replayable_packed) |> valid_arbiter() |> sequencer.feedback
+  operand_feedback |> filter_valid(_event => !cancel.valid) |> operand_fetch.feedback
+
+  when (decision.valid):
+    assert(decision_tag === completions.accept_slot, "vector_feedback_follows_acceptance_frontier")
+  when (issue_done.valid & !cancel.valid):
+    assert(active, "vector_issue_release_has_macro_owner")
+
+  // Completion storage persists across sequencer replacement and memory replay.
+  completion_compute |> completions.compute_maturity
+  completion_memory |> completions.memory_attempt
+  element_memory_decision |> completions.decision
+  local_completion |> completions.response
+  def variable_waiting = (completion.valid & !completion.ready) ||| (divide_result.valid & !divide_result.ready) ||| (Bool(multiply_latency == #false) & multiply_result.valid & !multiply_result.ready) ||| (!fp_returns[0].into(Bool) & fp_result.valid & !fp_result.ready)
+  reg variable_age(~init: bits(0, 3))
+  when (!variable_waiting):
+    variable_age <== bits(0, 3)
+  elsewhen (!variable_age.and_reduce()):
+    variable_age <== variable_age + bits(1, 3)
+  writeback_calendar.pause <== variable_age.and_reduce()
+  completions.replay.valid <== replay
+  completions.packed_release.valid <== packed.released.valid
+  completions.reserve.valid <== issue.fire()
+  completions.reserve.bits <== VectorSlotAllocation(vector_completion_slots):
+    owner: operand_fetch.issue.bits.context.owner
+    packed: operand_fetch.issue.bits.packed
+  decision |> filter_valid(event => feedback_packed & (event.disposition === VectorDisposition.Authorized)) |> map_valid(event => event.tag) |> completions.packed_accept
+  Array(completions.write, packed.write, splat.write) |> valid_arbiter() |> registers.write
+  assert(!(completions.write.valid & packed.write.valid) & !(splat.write.valid & (completions.write.valid ||| packed.write.valid)), "vector_write_owners_exclusive")
+  completions.fp_update |> fp_update
+  completions.saturate |> saturate
+  completions.scalar_result |> scalar_result
+  completions.floating_result |> floating_result
+
+  instruction_compute |> instructions.compute_maturity
+  def resolved_memory = resolution_memory |> filter_valid(_result => memory_accepted)
+  Array(resolution_compute, resolved_memory) |> valid_arbiter() |> instructions.resolved
+  cancel |> instructions.cancel
+  instructions.retire |> retire
+  // Export only when the compilation target realizes a hart observer. The write
+  // is the physical VRF port, not the mask shadow's duplicate storage update.
+  describe_cosim_signals({
+    "admitted": request.fire(),
+    "owner": next_owner,
+    "base": request.bits.descriptor.scalar,
+    "instruction": request.bits.descriptor.instruction,
+    "vtype": request.bits.descriptor.state.vtype,
+    "eew": mux(request.bits.descriptor.instruction[26].into(Bool), request.bits.descriptor.state.vtype[3..5], request.bits.descriptor.instruction[12..14]),
+    "write_valid": registers.write.valid,
+    "write": registers.write.bits,
+    "scalar_write_valid": scalar_result.valid,
+    "scalar_write_owner": compute_owner,
+    "scalar_write_rd": scalar_result.bits.address,
+    "scalar_write_data": scalar_result.bits.data,
+    "floating_write_valid": floating_result.valid,
+    "floating_write_rd": floating_result.bits.address,
+    "floating_write_data": floating_result.bits.data,
+    "write_owner": completions.drained.bits.owner,
+    "local_write": completions.write.valid,
+    "packed_write": packed.write.valid,
+    "splat_write": splat.write.valid,
+    "splat_owner": splat.owner,
+    "service_allocate": compute_maturity.valid & compute_beat.multiply_execute,
+    "service_owner": compute_owner,
+    "service_tag": compute_result.tag,
+    "service_divide": compute_beat.divide,
+    "multiply_launch": multiply_request.fire(),
+    "multiply_tag": multiply_request.bits.tag.slot,
+    "divide_launch": divide_request.fire(),
+    "divide_tag": divide_request.bits.tag.slot,
+    "multiply_return": multiply_result.fire(),
+    "multiply_return_tag": multiply_result.bits.tag.slot,
+    "divide_return": divide_result.fire(),
+    "divide_return_tag": divide_result.bits.tag.slot,
+    "fp_allocate": compute_maturity.valid & compute_beat.fp_execute,
+    "fp_launch": fp_request.fire(),
+    "fp_tag": fp_request.bits.tag,
+    "fp_return": fp_result.fire(),
+    "fp_return_tag": fp_result.bits.tag,
+    "fp_flags_valid": fp_result.bits.exception_flags_valid,
+    "fp_flags": fp_result.bits.exception_flags,
+    "memory_issue": issue.fire() & issue.bits.memory,
+    "memory_owner": issue_owner,
+    "memory_first": operand_fetch.issue.bits.beat.first.zext(xlen.width),
+    "memory_destination": operand_fetch.issue.bits.beat.destination,
+    "memory_packed": operand_fetch.issue.bits.packed,
+    "memory_token": issue.bits,
+    "memory_effective_address": apply_pointer_mask(xlen, issue.bits.address, operand_fetch.issue.bits.context.pointer_masking),
+    "memory_decision_valid": decision.valid,
+    "memory_decision": decision.bits,
+    "replay": replay
+  }, ~components: {"packed": packed, "instructions": instructions})
+
+export:
+  VectorExecution

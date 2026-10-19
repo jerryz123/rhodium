@@ -1,0 +1,39 @@
+#lang rhodium
+/* Keeps immediate memory outcomes and delayed nonstallable responses on independent completion
+   lanes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+/* Identifies an immediate hit value or a pending delayed result by persistent slot. */
+bundle VectorMemoryAcceptance(xlen :: XLen, slots :: Pow2Int):
+  tag: Bits(index_width(slots))
+  pending: Bool
+  data: Bits(xlen.width)
+
+/* Keeps immediate acceptance results and delayed responses on independent Valid lanes.
+   The completion owner supplies capacity; simultaneous distinct results are not arbitrated
+   away. */
+sync_circuit VectorLoadResponse(xlen :: XLen, slots :: Pow2Int):
+  interface accepted(Valid(VectorMemoryAcceptance(xlen, slots)), ~role: consumer)
+  interface response(Valid(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface completed[2](Valid(VectorCompletion(xlen, slots)), ~role: producer)
+  // Capacity and retained destination metadata belong to the completion owner.
+  // A hit may complete beside an older delayed load or store acknowledgement.
+  (
+    accepted |> filter_valid(operation => !operation.pending)
+      |> map_valid(operation => VectorCompletion(xlen, slots)):
+           tag: operation.tag
+           data: operation.data
+  ) |> completed[0]
+  response |> completed[1]
+  when (completed[0].valid & completed[1].valid):
+    assert(completed[0].bits.tag =/= completed[1].bits.tag, "vector_memory_completions_have_distinct_owners")
+
+export:
+  VectorMemoryAcceptance
+  VectorLoadResponse

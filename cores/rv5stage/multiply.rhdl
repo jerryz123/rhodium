@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-execution.rhdl") open
   "../multiplier.rhdl" open
   "integer-execution.rhdl" open
   "profile.rhm".RV5StageMultiplierKind
@@ -39,14 +40,14 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: B
   interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)
   output available: Bool
 
-  def Request = RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag())
+  def Request = IntegerExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag())
   interface execution_request(Decoupled(Request), ~role: producer)
-  interface execution_result(Irrevocable(RV5StageExecutionResult(Bits(product_width), RV5StageMultiplyTag())), ~role: consumer)
+  interface execution_result(Irrevocable(IntegerExecutionResult(Bits(product_width), RV5StageMultiplyTag())), ~role: consumer)
   wire result_authorized: Bool
   execution_result.ready <== !result_authorized ||| completion.ready
   def Array(operand_issue, authorization_issue) = issue |> fork_valid(2)
   def request = operand_issue |> map_valid(issued):
-    RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()):
+    IntegerExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()):
       tag:
         RV5StageMultiplyTag():
           rd: issued.rd

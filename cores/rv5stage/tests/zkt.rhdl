@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/register-write.rhdl") open
   "../../cache/protocol.rhdl" open
   "zkt-program.rhm" open
   "core-fixture.rhdl" open

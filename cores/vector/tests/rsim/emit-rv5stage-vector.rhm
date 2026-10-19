@@ -1,0 +1,10 @@
+#lang rhombus
+// Defines the composed vector bank and SIMD fixtures at three VLEN specializations.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../vector-fixture.rhdl" as fixture
+
+def program = elaborate(fixture.VectorFixture())
+export program

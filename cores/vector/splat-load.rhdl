@@ -1,0 +1,137 @@
+#lang rhodium
+/* Retains one faultable zero-stride load value and splats it through masked VRF row writes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/vector-layout.rhm") open
+  "bundles.rhdl" open
+  "register-file.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/vector.rhm" open
+  "../../riscv/model/formats.rhm" as riscv_fields
+  "../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Retains one encoded-zero-stride load value and its macro owner beyond sequencing.
+   Writes selected destination rows with cached mask words and publishes unfinished
+   row/mask claims so younger work cannot overwrite unread sources or pending writes. */
+sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def Owner = Bits(index_width(slots))
+  def Row = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1))
+  def MaskAddress = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))
+  interface launch(Valid(VectorInstruction(xlen, Owner)), ~role: consumer)
+  interface read_started(Pulse(), ~role: consumer)
+  interface skipped(Pulse(), ~role: consumer)
+  interface decision(Valid(VectorCommit(xlen, slots)), ~role: consumer)
+  input(decision_first, decision_last): Bool
+  interface completion(Valid(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface mask_read(Valid(MaskAddress), ~role: producer)
+  interface mask_result(Valid(Bits(xlen.width)), ~role: consumer)
+  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  input blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
+  input(write_available, mask_read_available): Bool
+  output pending_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
+  output(active, probing, probe_pending): Bool
+  output owner: Owner
+
+  reg occupied(~init: Bool(#false))
+  reg waiting(~init: Bool(#false))
+  reg value_valid(~init: Bool(#false))
+  reg lookup_pending(~init: Bool(#false))
+  reg response_tag(Bits(index_width(slots)))
+  reg instruction(VectorDescriptor(xlen))
+  reg instruction_owner(Owner)
+  reg value(Bits(xlen.width))
+  reg row(Row)
+  reg mask_cached(~init: Bool(#false))
+  reg mask_waiting(~init: Bool(#false))
+  reg mask_index(MaskAddress)
+  reg mask_word(Bits(xlen.width))
+  active <== occupied
+  probing <== occupied & !waiting & !value_valid
+  probe_pending <== lookup_pending
+  owner <== instruction_owner
+
+  def eew = instruction.control.memory_data_eew
+  def vd = instruction_field(riscv_fields.rd, instruction.instruction)
+  def start = instruction.state.vstart[0..index_width(vlen + 1)]
+  def limit = instruction.state.vl[0..index_width(vlen + 1)]
+  def row_limit = ((limit.zext(index_width(vlen + 1) + 4) << eew) + bits(vector_word_bytes(xlen) - 1, index_width(vlen + 1) + 4)) >> vector_byte_offset_width(xlen)
+  def first_element = row.zext(index_width(vlen + 1) + 1) << (bits(vector_byte_offset_width(xlen), 2) - eew)
+  def needed_mask = (first_element >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
+  def mask_ready = !instruction.masked ||| (mask_cached & (mask_index === needed_mask))
+  def address = (vd.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + row[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth)]
+  mask_read.valid <== value_valid & instruction.masked & !mask_ready & !mask_waiting & (row < row_limit[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)]) & !blocked_rows[needed_mask.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth))] & mask_read_available
+  mask_read.bits <== needed_mask
+  // Retain destination writes and unread mask words after sequencing releases.
+  // Younger work must not overwrite v0 while this owner still consumes it.
+  def destination_base = vd.zext(Row.width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
+  pending_rows <== vec(for List (r in 0..VectorRegisterLayout(vlen, xlen.width).depth):
+                        def offset = bits(r, Row.width) - destination_base
+                        def destination = (offset >= row) & (offset < row_limit[0..Row.width])
+                        def mask_source = instruction.masked & Bool(r < VectorRegisterLayout(vlen, xlen.width).rows_per_register)
+                        occupied & (destination ||| mask_source))
+
+  def replications = for List (format in 0..(vector_format_count(xlen) - 1)):
+    [format, vec(for List (_ in 0..(vector_word_bytes(xlen) >> format)): value[0..(8 << format)]).as_bits()]
+  def repeated = mux_lookup(eew, ~default: value, replications)
+  def byte_mask = vec(for List (byte in 0..vector_word_bytes(xlen)):
+                        def element = ((row.zext(index_width(vlen + 1) + 4) << vector_byte_offset_width(xlen)) + bits(byte, index_width(vlen + 1) + 4)) >> eew
+                        def enabled = (element >= start.zext(index_width(vlen + 1) + 4)) & (element < limit.zext(index_width(vlen + 1) + 4)) & (!instruction.masked ||| (mask_word >> element[0..vector_bit_offset_width(xlen)])[0].into(Bool))
+                        mux(enabled, !bits(0, 8), bits(0, 8))).as_bits()
+  def can_advance = value_valid & (row < row_limit[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)]) & mask_ready & !mask_waiting & !blocked_rows[address] & (!byte_mask.or_reduce() ||| write_available)
+  def next_row = row + bits(1, index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1))
+  def row_done = can_advance & (next_row === row_limit[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)])
+  write.valid <== can_advance & byte_mask.or_reduce()
+  write.bits <== VectorRegisterWrite(xlen, vlen):
+    address: address
+    data: repeated
+    mask: byte_mask
+
+  when (launch.valid):
+    occupied <== Bool(#true)
+    waiting <== Bool(#false)
+    value_valid <== Bool(#false)
+    lookup_pending <== Bool(#false)
+    instruction <== launch.bits.descriptor
+    instruction_owner <== launch.bits.context
+  elsewhen (decision.valid):
+    lookup_pending <== Bool(#false)
+    def authorized = decision.bits.disposition === VectorDisposition.Authorized
+    when (decision.bits.disposition.is_one_of(VectorDisposition.Fault, VectorDisposition.Truncate) ||| (authorized & !decision_first & decision_last)):
+      occupied <== Bool(#false)
+    when (authorized & decision_first & decision.bits.slow):
+      waiting <== Bool(#true)
+      response_tag <== decision.bits.tag
+    when (authorized & decision_first & !decision.bits.slow):
+      value <== decision.bits.data
+      value_valid <== Bool(#true)
+  elsewhen (completion.valid & waiting & (completion.bits.tag === response_tag)):
+    value <== completion.bits.data
+    value_valid <== Bool(#true)
+    waiting <== Bool(#false)
+  elsewhen (read_started.valid):
+    lookup_pending <== Bool(#true)
+  elsewhen (skipped.valid):
+    lookup_pending <== Bool(#false)
+  elsewhen row_done:
+    occupied <== Bool(#false)
+    value_valid <== Bool(#false)
+
+  when (launch.valid):
+    mask_waiting <== Bool(#false)
+    mask_cached <== Bool(#false)
+  elsewhen (mask_read.valid):
+    mask_waiting <== Bool(#true)
+    mask_index <== needed_mask
+  elsewhen (mask_result.valid & mask_waiting):
+    mask_word <== mask_result.bits
+    mask_cached <== Bool(#true)
+    mask_waiting <== Bool(#false)
+  when (launch.valid):
+    row <== ((launch.bits.descriptor.state.vstart[0..index_width(vlen + 1)].zext(index_width(vlen + 1) + 4) << launch.bits.descriptor.control.memory_data_eew) >> vector_byte_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)]
+  elsewhen can_advance:
+    row <== next_row
+
+export VectorSplatLoad

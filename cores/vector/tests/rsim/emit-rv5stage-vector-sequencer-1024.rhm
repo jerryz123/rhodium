@@ -1,0 +1,11 @@
+#lang rhombus
+// Defines a VLEN1024 sequencer to exercise valid gather indices beyond eight bits.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../riscv/isa/xlen.rhm" open
+  "../vector-sequencer-fixture.rhdl" as fixture
+
+def program = elaborate(fixture.VectorSequencerFixture(XLen.X64, 1024))
+export program

@@ -526,7 +526,7 @@ verify_fixture() {
     # WB commit readiness; MEM/WB recovery only gates the younger EX lookup.
     # The core fixture's memory bus also packs WB admission with an independent
     # response offer and the completion arbiter's response readiness.
-    if grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    if grep -Eq '^module (RV5StageFrontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then

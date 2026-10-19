@@ -1,0 +1,8 @@
+#lang rhombus
+// Defines packed vector memory with the production VRF and shared SIMD rotator.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../vector-packed-fixture.rhdl" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+def program = elaborate(VectorPackedFixture(8))
+export program
