@@ -16,12 +16,14 @@ they describe.
 Every layer builds the same small, verified hardware IR. Connectivity and
 priority are explicit, without last-connect semantics or competing drivers.
 That shared foundation supports protocol-aware flow composition, transaction
-tracing, clock-crossing checks, and validated network generation. For RTL
-generation, Rhodium lowers through CIRCT to SystemVerilog.
+tracing, clock-crossing checks, and validated network generation. Rhodium emits
+SystemVerilog directly or through CIRCT, and Rsim generates native C++ simulation
+models. Each backend has an explicit supported subset.
 
 The [comparison guide](docs/comparisons/README.md#core-principles-that-set-rhodium-apart)
 explains the principles that distinguish Rhodium, what its layers and libraries
 make possible, and how those choices compare with other hardware languages.
+Contributors should start with [`DEVELOPING.md`](DEVELOPING.md).
 
 ## Quick start
 
@@ -30,7 +32,10 @@ make possible, and how those choices compare with other hardware languages.
 - Racket 9.2 or a compatible current release
 - Rhombus 1.1
 - Device Tree Compiler for DTB interoperability tests and FESVR simulations
-- CIRCT and Verilator only for external backend integration tests
+- CIRCT for the CIRCT-to-SystemVerilog route; direct SystemVerilog emission
+  does not require it
+- Verilator and a C++ toolchain for Verilator-based simulations; standalone
+  Rsim models require a C++17 toolchain but neither CIRCT nor Verilator
 - Rosette only for optional equivalence, reachability, and output-property tests
 
 On a Homebrew-based macOS setup:
@@ -40,26 +45,27 @@ brew install minimal-racket dtc
 raco pkg install --auto rhombus
 ```
 
-On x86-64 Linux or Apple Silicon macOS, install the pinned CIRCT release into
-the ignored `.tools` directory:
+For the CIRCT route on x86-64 Linux or Apple Silicon macOS, install the pinned
+release into the ignored `.tools` directory:
 
 ```sh
 make setup-circt
 ```
 
-For simulation, build the pinned Verilator 5.048 (requires a C++ toolchain,
-Autoconf, Bison, Flex, Make, Perl, Python 3, and zlib/LZ4 development libraries):
+For Verilator-based simulation, build the pinned Verilator 5.048 (requires a C++
+toolchain, Autoconf, Bison, Flex, Make, Perl, Python 3, and zlib/LZ4 development
+libraries):
 
 ```sh
 make setup-verilator
 export PATH="$PWD/.tools/verilator/bin:$PATH"
 ```
 
-Root Make targets also prefer this installation automatically. CI uses the
-same installer and verifies the version on cache hits as well as fresh builds.
+Root Make targets also prefer this installation automatically.
 
 On other platforms, install CIRCT separately and set `CIRCT_OPT` to the path of
-`circt-opt` when running backend integration tests.
+`circt-opt` when using the CIRCT route. See the
+[backend guide](rhodium/backend/README.md) for route-specific coverage and usage.
 
 ### First circuit
 
@@ -84,7 +90,8 @@ Run the standard adder example from the checkout:
 tools/run-racket-tests.sh examples/lop/adder-standard.rhdl
 ```
 
-Run all canonical examples:
+Run all canonical examples, including CIRCT-backed SystemVerilog reference checks
+(requires the CIRCT setup above):
 
 ```sh
 make examples
@@ -122,7 +129,10 @@ hardware types. Selectable layers add notation, types, static information, and
 authoring policy. Ordinary standard and domain libraries build on the public
 language; they are not compiler layers.
 
-## Architecture
+## Hardware and compilation model
+
+This diagram illustrates the shared hardware model and available output routes;
+it is not the implementation dependency graph.
 
 ```mermaid
 flowchart TB
@@ -135,7 +145,10 @@ flowchart TB
     analysis["Analysis and diagrams"]
     formal["Formal engine"]
     circt["Optional CIRCT backend"]
+    direct["Direct SystemVerilog backend"]
+    rsim["Rsim backend"]
     sv["SystemVerilog"]
+    cpp["C++ simulation model"]
 
     standard --> frontend
     base --> frontend
@@ -145,7 +158,11 @@ flowchart TB
     core --> analysis
     core --> formal
     core --> circt
+    core --> direct
+    core --> rsim
     circt --> sv
+    direct --> sv
+    rsim --> cpp
 ```
 
 The architectural boundary is semantic rather than syntactic. A concept belongs
@@ -167,7 +184,8 @@ in [`rhodium/DEVELOPING.md`](rhodium/DEVELOPING.md).
 - Frontend-defined types and notation that reuse core semantics whenever
   possible.
 - Backends consume verified IR and never import frontend syntax.
-- CIRCT owns SystemVerilog generation.
+- Explicit compilation targets own lowering and emission, with documented
+  backend-specific coverage.
 
 The [Rhodium comparison guide](docs/comparisons/README.md) places these choices
 alongside construction languages, rule-based and functional HDLs, timing-typed
@@ -186,6 +204,8 @@ SystemVerilog.
   frontend feature and syntax guide
 - [`rhodium/std/README.md`](rhodium/std/README.md) — host utilities, protocols,
   and reusable circuit generators
+- [`rhodium/compile/README.md`](rhodium/compile/README.md) — target selection,
+  compilation results, and ordered RTL instrumentation
 
 ### Inspect or extend the implementation
 
@@ -197,15 +217,15 @@ SystemVerilog.
   [`rhodium/core/DEVELOPING.md`](rhodium/core/DEVELOPING.md) — public IR
   semantics and core implementation guidance
 - [`rhodium/analysis/README.md`](rhodium/analysis/README.md) — clock/reset
-  inventory and temporal provenance
+  inventory, temporal provenance, and CDC diagnostics
 - [`rhodium/diagram/README.md`](rhodium/diagram/README.md) — logical hierarchy,
   interface, and flow diagrams
 - [`rhodium/event/README.md`](rhodium/event/README.md) — event dependency
   inference and compiler instrumentation
 - [`rheg/README.md`](rheg/README.md) — C++ event collection and streaming or
   standalone Perfetto export
-- [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering and
-  SystemVerilog generation
+- [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering,
+  direct SystemVerilog emission, and Rsim C++ simulation
 - [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence,
   reachability, and output properties
 - [`tools/testing/README.md`](tools/testing/README.md) and
@@ -266,7 +286,7 @@ applicable licenses and notices.
 
 ## Current status
 
-The current vertical slice includes:
+Current capabilities include:
 
 - A public, backend-independent IR with explicit-width types, structural
   aggregates, state, memories, assertions, DPI simulation operations,
@@ -274,29 +294,33 @@ The current vertical slice includes:
 - Standard and compositional profiles with host-only generation,
   frontend-defined scalar and aggregate types, combinational and sequential
   constructs, hierarchy, directional interfaces, and reusable protocols.
-- Deterministic CIRCT lowering, example-owned SystemVerilog references, and
-  Verilator simulations.
+- CIRCT and direct SystemVerilog routes, Rsim C++ simulation models, and
+  Verilator-based simulation harnesses, within each backend's supported subset.
+- Ordered RTL instrumentation passes, including event tracing, with verified
+  output graphs and preserved top-level interfaces and instance paths.
 - Optional Rosette-backed equivalence, reachability, and universal output
   properties over verified IR.
-- Backend-independent clock/reset inventory, temporal-provenance reports, and
-  durable crossing evidence.
+- Backend-independent clock/reset inventory, temporal-provenance reports, CDC
+  violations, and structurally verified stable-level crossing evidence.
 - Logical diagrams plus RFPL physical annotations that leave logical IR and
   generated RTL unchanged.
-- RV5Stage, a five-stage RV32/RV64 processor with floating point, privilege and
-  trap state, private coherent L1 caches, and CHI integration. See
+- RV5Stage, a five-stage RV32/RV64 processor with floating point, optional vector
+  support, privilege and trap state, coherent L1 caches, CHI integration, and
+  experimental RV64 hypervisor support. See
   [`cores/rv5stage/README.md`](cores/rv5stage/README.md) for its current contract.
 
 ## Deferred work
 
 - Memory initialization, masks on asynchronous-read memories, general
   multi-port synchronous memories, and defined inter-port collisions
-- Asynchronous reset, reset-polarity metadata, and policy/approval semantics
-  for crossings identified by multi-domain temporal analysis
+- Asynchronous reset, reset-polarity metadata, and reset-domain crossing analysis
 - Runtime-loaded operation dialects
 - Multi-role protocols, optional interface fields, and generated protocol
   assertions
-- User-authored IR mutation and rewriting before a concrete transformation
-  defines transaction and handle-validity requirements
+- Unrestricted user-authored IR mutation and rewriting; the supported
+  [instrumentation pipeline](rhodium/compile/README.md#ordered-rtl-instrumentation)
+  requires preservation of functional behavior, top-level interfaces, existing
+  instance paths, and metadata
 
 Contributor-facing hardening priorities are tracked in
 [`DEVELOPING.md`](DEVELOPING.md#maintain-compatibility-and-generated-artifacts).
