@@ -15,7 +15,7 @@ struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled; };
 struct Owner { Attempt attempt; bool done; std::uint64_t due; };
 struct IssueOwner { MacroId id; unsigned next_index=0, authorized_index=0; };
 struct MacroInfo { std::uint64_t admitted; unsigned instruction, length; };
-std::array<std::optional<Attempt>,3> pipe;
+std::array<std::optional<Attempt>,3> attempt_pipeline;
 std::deque<Owner> owners;
 std::deque<IssueOwner> issue_owners;
 std::optional<MacroId> macro;
@@ -94,8 +94,8 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     unsigned response_tag, unsigned cancel, unsigned issue_done, unsigned sequenced) {
   resetting=reset; expected.clear(); have_issue=false; expected_issue_macro.reset();
   if(reset) {
-    if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
-    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_sequence_macro.reset(); reorder_pair_pending=false;
+    if(!owners.empty() || attempt_pipeline[0] || attempt_pipeline[1] || attempt_pipeline[2]) ++reset_pending;
+    attempt_pipeline={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_sequence_macro.reset(); reorder_pair_pending=false;
     macros.clear(); releases.clear(); sequence_owners.clear(); resident=false;
     cycle=launches=issues=completions=0;
     return;
@@ -138,27 +138,27 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   while(!owners.empty() && owners.front().done) owners.pop_front();
   // Non-memory compute becomes durable directly from the one-stage private
   // execute path, on the cycle reserved before issue.
-  if(pipe[0] && !pipe[0]->memory) {
+  if(attempt_pipeline[0] && !attempt_pipeline[0]->memory) {
     if(response) fail("slow response collided with fixed compute write");
-    expect(vector_sites::complete,completions++,pipe[0]->ref);
+    expect(vector_sites::complete,completions++,attempt_pipeline[0]->ref);
     ++complete_count;
   }
-  if(bool(pipe[2])!=bool(commit || (cancel && pipe[2]))) fail("feedback latency changed");
+  if(bool(attempt_pipeline[2])!=bool(commit || (cancel && attempt_pipeline[2]))) fail("feedback latency changed");
   if(commit) {
-    if(!pipe[2]) fail("feedback without issue");
-    if(!pipe[2]->memory) {
+    if(!attempt_pipeline[2]) fail("feedback without issue");
+    if(!attempt_pipeline[2]->memory) {
       if(disposition!=0) fail("compute received a memory disposition");
     } else if(disposition==0) {
-      for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
-      const bool immediate=!slow || !pipe[2]->enabled;
-      owners.push_back({*pipe[2],immediate,cycle+10});
+      for(const auto& owner:owners) if(owner.attempt.tag==attempt_pipeline[2]->tag) fail("live slot reused");
+      const bool immediate=!slow || !attempt_pipeline[2]->enabled;
+      owners.push_back({*attempt_pipeline[2],immediate,cycle+10});
       if(immediate) {
         if(response) fail("slow response collided with fixed memory write");
-        expect(vector_sites::complete,completions++,pipe[2]->ref);
+        expect(vector_sites::complete,completions++,attempt_pipeline[2]->ref);
         ++complete_count;
       }
       while(!owners.empty() && owners.front().done) owners.pop_front();
-      if(!issue_owners.empty()) issue_owners.front().authorized_index=pipe[2]->index+1;
+      if(!issue_owners.empty()) issue_owners.front().authorized_index=attempt_pipeline[2]->index+1;
     } else if(disposition==1) {
       if(issue_owners.empty()) fail("retry without issue owner");
       ++retry_count; issue_owners.front().next_index=issue_owners.front().authorized_index;
@@ -179,8 +179,8 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     if(!issuing_macro) fail("issue completion without owner");
     issue_owners.pop_front();
   }
-  if(cancel || (commit && disposition!=0)) pipe={};
-  else { pipe[2]=pipe[1]; pipe[1]=pipe[0]; pipe[0]=incoming; }
+  if(cancel || (commit && disposition!=0)) attempt_pipeline={};
+  else { attempt_pipeline[2]=attempt_pipeline[1]; attempt_pipeline[1]=attempt_pipeline[0]; attempt_pipeline[0]=incoming; }
 }
 extern "C" void vector_trace_check() {
   auto& graph=rheg::graph();

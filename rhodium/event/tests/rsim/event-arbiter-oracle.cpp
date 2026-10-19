@@ -81,7 +81,7 @@ extern "C" void event_arbiter_sample(unsigned lane, unsigned reset, unsigned val
     auto parent = pop(state.output);
     if (parent.payload != out_payload) fail("arbiter payload/order mismatch");
     auto child = node(lane, 3, out_payload);
-    expected.edges.insert({{parent.site, parent.sequence}, {child.site, child.sequence}});
+    expected.edges.emplace(rheg::Ref{parent.site, parent.sequence}, rheg::Ref{child.site, child.sequence});
   }
 }
 

@@ -85,7 +85,7 @@ extern "C" void event_broadcast_sample(unsigned lane, unsigned reset, unsigned i
       const auto out_payload = (payloads >> (8 * branch)) & 255;
       if (parent.payload != out_payload) fail("broadcast branch payload/order mismatch");
       auto child = node(lane, branch + 1, out_payload);
-      expected.edges.insert({{parent.site, parent.sequence}, {child.site, child.sequence}});
+      expected.edges.emplace(rheg::Ref{parent.site, parent.sequence}, rheg::Ref{child.site, child.sequence});
     }
   }
 }

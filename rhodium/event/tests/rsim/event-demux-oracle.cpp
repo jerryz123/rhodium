@@ -75,7 +75,7 @@ extern "C" void event_demux_sample(unsigned lane, unsigned reset, unsigned in_va
       if (lane > 0 && branch == 1 && routing_valid && routing_ready &&
           selected == branch && state.branches[branch].empty()) ++c.bypass;
       auto child = node(lane, branch + 1, out_payload);
-      expected.edges.insert({{parent.site, parent.sequence}, {child.site, child.sequence}});
+      expected.edges.emplace(rheg::Ref{parent.site, parent.sequence}, rheg::Ref{child.site, child.sequence});
     }
   }
 }
