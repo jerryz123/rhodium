@@ -771,8 +771,13 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   // of register reset; statement order only chooses unspecified collision results.
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "before.write" ++ to_string(index)
-    // Widen compact addresses before comparison, including a full 256-entry
-    // byte-indexed memory where the guard would otherwise warn as tautological.
-    source.add("  if (" ++ prefix ++ "_enable && static_cast<std::uint64_t>(" ++ prefix ++ "_address) < " ++ to_string(plan.memories[write.memory].depth) ++ ") {\n    memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;\n" ++ invalidate(RsimCacheSource("memory", write.memory)) ++ "\n  }")
+    // Normalized addresses need a bound only when their hardware range can
+    // exceed the memory depth; a full-range check warns even after widening.
+    def depth = plan.memories[write.memory].depth
+    def bounds:
+      if depth < 2 ** scalar_width(plan.steps[write.address].type)
+      | " && static_cast<std::uint64_t>(" ++ prefix ++ "_address) < " ++ to_string(depth)
+      | ""
+    source.add("  if (" ++ prefix ++ "_enable" ++ bounds ++ ") {\n    memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;\n" ++ invalidate(RsimCacheSource("memory", write.memory)) ++ "\n  }")
   source.add("  eval();\n}\n}")
   [String.join(header.snapshot(), "\n") ++ "\n", String.join(source.snapshot(), "\n") ++ "\n"] ++ (if types.wide | [rkt.#{string->immutable-string}(file.#{file->string}(bits_header))] | [])

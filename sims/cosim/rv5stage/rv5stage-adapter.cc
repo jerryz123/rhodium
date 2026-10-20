@@ -1,4 +1,4 @@
-// Reconstructs RV5Stage identities and scalar/FP effects without observer RTL state.
+// Reconstructs RV5Stage identities and scalar/FP effects from passive observations.
 // SPDX-License-Identifier: Apache-2.0
 #include "adapter.h"
 #include "../events/atomic.h"

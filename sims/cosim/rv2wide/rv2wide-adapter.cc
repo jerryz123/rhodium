@@ -1,4 +1,4 @@
-// Orders RV2Wide WB admissions, three deferred services, and precise split/trap outcomes.
+// Reconstructs RV2Wide WB admissions, deferred services, and precise split/trap outcomes.
 // SPDX-License-Identifier: Apache-2.0
 #include "adapter.h"
 #include "../events/atomic.h"

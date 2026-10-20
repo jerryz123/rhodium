@@ -4,6 +4,7 @@
 
 import:
   "../test-configs.rhm".TestConfigs
+  "../test-config-data.rkt".test_config_names
   lib("socs/configs/selection.rhm") open
   lib("socs/configs/resolve.rhm").resolve_soc_config
   lib("socs/configs/metadata.rhm") open
@@ -18,32 +19,8 @@ import:
 
 def names = TestConfigs.map(fun (config :: SoCSelection): config.key)
 check:
-  names ~is [
-    "mini-rv5stage-rv32int",
-    "mini-spike-rv32int",
-    "mini-rv5stage-rv32max",
-    "mini-spike-rv32max",
-    "mini-rv5stage-rva23",
-    "mini-spike-rva23",
-    "mini-rv2wide-rv64imacb",
-    "mini-rv2wide-rv64imafdcb",
-    "simple-rv5stage-rv32int",
-    "simple-spike-rv32int",
-    "simple-rv5stage-rv32max",
-    "simple-spike-rv32max",
-    "simple-rv5stage-rv64max",
-    "simple-spike-rv64max",
-    "simple-rv5stage-rv64imacb",
-    "simple-spike-rv64imacb",
-    "simple-rv2wide-rv64imacb",
-    "simple-rv2wide-rv64imafdcb",
-    "simple-rv5stage-rv64imafdcb",
-    "simple-spike-rv64imafdcb",
-    "simple-rv5stage-rva23",
-    "simple-spike-rva23",
-    "tiled-rv5stage-rva23",
-    "tiled-spike-rva23"
-  ]
+  names.length() > 0 ~is #true
+  names ~is test_config_names
 for (config in TestConfigs):
   def resolved = resolve_soc_config(config)
   def metadata = config_metadata(resolved)

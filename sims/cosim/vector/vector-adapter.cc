@@ -1,4 +1,4 @@
-// Reconstructs shared vector ownership and architectural effects from passive cycle events.
+// Reconstructs shared vector ownership and architectural effects from passive observations.
 // SPDX-License-Identifier: Apache-2.0
 #include "adapter.h"
 #include <algorithm>

@@ -50,7 +50,7 @@ contribution. Preserve integer x0 suppression without suppressing FP register ze
 The binding first flushes hart adapters to establish instruction identities,
 then calls `finish_sample` on shared execution adapters. This ordering is
 independent of callback order and native type-map order. `vector/capture.rhdl`
-and `vector/adapter.*` own common vector taps and reconstruction; named-core
+and `vector/adapter.h` / `vector/vector-adapter.cc` own common vector taps and reconstruction; named-core
 capture modules supply translated physical request/fragment provenance.
 
 `SailChecker::check` captures reference pre-state, prepares environmental inputs,
@@ -126,9 +126,9 @@ to help the checker. Warm reset requires resetting both reference and collection
 |---|---|
 | Compilation | `pass.rhm`: occurrence selection, tap export/remapping, adapter lookup, descriptor emission |
 | Generic events | `events/record.h`: event schema; `collector.*`: delayed assembly; `dpi.*`: binding/error barrier; `hooks.rhdl`: typed producer; `transport.rhdl`: lane widening |
-| RV5Stage | `rv5stage/capture.rhdl`, `vector.rhdl`: raw capture and physical provenance; `adapter.*`: hart reconstruction |
-| RV2Wide | `rv2wide/capture.rhdl`: stateless dual-slot capture; `adapter.*`: WB age, deferred services, and split-prefix ownership |
-| Shared vector | `vector/capture.rhdl`: passive execution taps; `vector/adapter.*`: owner, service, VRF, and memory-effect reconstruction |
+| RV5Stage | `rv5stage/capture.rhdl`, `vector.rhdl`: raw capture and physical provenance; `rv5stage/rv5stage-adapter.cc`, `adapter.h`: hart reconstruction |
+| RV2Wide | `rv2wide/capture.rhdl`: stateless dual-slot capture; `rv2wide/rv2wide-adapter.cc`, `adapter.h`: WB age, deferred services, and split-prefix ownership |
+| Shared vector | `vector/capture.rhdl`: passive execution taps; `vector/vector-adapter.cc`, `adapter.h`: owner, service, VRF, and memory-effect reconstruction |
 | Sail | `sail/reference.*`: embedding; `checker.*`: ordered comparison; `memory.*`, `vector.*`: comparison helpers; `diagnostic.h`: record-scoped errors |
 | Simulator session | `runtime/session.*`: lifecycle; `write-config.rhm`, `configure.py`: exact environment and embedded configuration |
 | Tests | `tests/events`, `rv5stage`, `rv2wide`, `sail`, `runtime`, `pass`: owning contracts; `tests/circt`: transport integration following repository fixture discovery |
@@ -156,6 +156,9 @@ Shared architectural projection and `SailModelConfig.cmake` belong in
 own environment. Sail patches remain under `riscv/sail-riscv-patches/`.
 
 ## Change workflow
+
+Native adapter translation units use distinct basenames so Verilator can link
+several adapters without collapsing them into the same object-file target.
 
 1. Change the owner of a semantic boundary. Keep raw callback interpretation in
    its hart adapter and architectural comparison in Sail helpers.
