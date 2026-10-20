@@ -55,8 +55,8 @@ for (core in ["rv5stage", "spike"]):
     for (name in ["D", "V", "Zfh", "Zfa", "Zvfh", "H", "Sha", "Smstateen", "Ssstateen", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
       check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 
-for (core in ["rv5stage", "spike"]):
-  for (shape in ["mini", "simple", "tiled"]):
+for (core in ["rv5stage", "spike", "rv2wide"]):
+  for (shape in (if core == "rv2wide" | ["mini", "simple"] | ["mini", "simple", "tiled"])):
     def config = resolve_soc_config(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
     def configuration = config.udb()
     def hart = config.description.hart

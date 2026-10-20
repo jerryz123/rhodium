@@ -815,15 +815,34 @@ int main() {
     offer_wb(UINT64_C(0x16008));
     reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
     reply(UINT64_C(0x11000), (UINT64_C(18) << 10) | 1);
-    reply(UINT64_C(0x120b0), (UINT64_C(22) << 10) | UINT64_C(0xd7));
+    reply(UINT64_C(0x120b0), (UINT64_C(23) << 10) | UINT64_C(0xd7));
     for (unsigned repeat_index = 0; repeat_index < (5); ++repeat_index)
       tick_model();
     falling();
     address = UINT64_C(0x16008);
     wb_valid = 1;
     eval();
-    CHECK(physical_valid && physical_address == UINT64_C(0x16008) && !wb_fault);
+    CHECK(physical_valid && physical_address == UINT64_C(0x17008) && !wb_fault);
     wb_valid = 0;
+    // Vector certification in VS must pin the G-stage result, not the GPA.
+    vector_precheck_in.prequest = {1, {0x16000, 0x1600f, 0}};
+    vector_precheck_in.presponse.pready = 0;
+    eval();
+    CHECK(vector_precheck_out.prequest.pready);
+    tick_model();
+    vector_precheck_in.prequest.pvalid = 0;
+    for (unsigned wait = 0; !vector_precheck_out.presponse.pvalid && wait < 40; ++wait)
+      tick_model();
+    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_access = 1;
+    data_hit(0x16008, 0x17008);
+    vector_access = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
     guest_state.pvirtualized = 0;
     guest_state.phstatus = UINT64_C(0x100);
     guest_access = 2;

@@ -10,7 +10,7 @@ import:
   "../../profile.rhm".RV2WideConfig
 
 // Scalar Zfhmin plus full Zvfh exercises the wider execution capability without scalar Zfh.
-def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb])))
+def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true)))
 def rv32_program = elaborate(RV2WideCore(RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)))
 export:
   program

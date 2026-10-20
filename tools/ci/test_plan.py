@@ -396,9 +396,9 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual([entry["suite"] for entry in entries
                                   if entry["soc"] == f"simple-{core}-{isa}"], ["isa"])
 
-    def test_rv2wide_rv32_reuses_shape_policy_and_cosim(self):
+    def test_rv2wide_full_presets_reuse_shape_policy_and_cosim(self):
         plan = self.plan("sims/Makefile")
-        for isa in ("rv32int", "rv32max"):
+        for isa in ("rv32int", "rv32max", "rva23"):
             for shape in ("mini", "simple"):
                 soc = f"{shape}-rv2wide-{isa}"
                 entries = [entry for entry in plan["simulator_matrix"]["include"]
@@ -408,6 +408,10 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(entries[0]["software_tests"], " ".join(SOFTWARE_TESTS[(shape, isa)]))
             self.assertIn(f"simple-rv2wide-{isa}",
                           {entry["configuration"] for entry in plan["arch_run_matrix"]["include"]})
+        self.assertIn("simple-rv2wide-rva23",
+                      {entry["soc"] for entry in platform_configs() if entry["suite"] == "opensbi"})
+        for suite in NATIVE_SUITES:
+            self.assertIn("simple-rv2wide-rva23", native_configs(suite))
 
     def test_rv64_smoke_presets_are_paired_isa_smoke_only(self):
         plan = self.plan("socs/configs/isa-profiles.rhm")

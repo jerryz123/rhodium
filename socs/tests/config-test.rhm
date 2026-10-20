@@ -22,7 +22,7 @@ import:
 
 def rv32 = soc_architecture(IsaPreset.RV32Int)
 // Every supported RV2Wide selection retains the exact architecture and shape-owned resources.
-for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv32max", "simple-rv2wide-rv32max", "mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb", "mini-rv2wide-rv64imafdcb", "simple-rv2wide-rv64imafdcb", "mini-rv2wide-rv64max", "simple-rv2wide-rv64max"]):
+for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv32max", "simple-rv2wide-rv32max", "mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb", "mini-rv2wide-rv64imafdcb", "simple-rv2wide-rv64imafdcb", "mini-rv2wide-rv64max", "simple-rv2wide-rv64max", "mini-rv2wide-rva23", "simple-rv2wide-rva23"]):
   def selection = named_soc_selection(key)
   def shape = selection.shape
   def isa = selection.isa
@@ -48,15 +48,15 @@ for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv3
       resolved.description.hart.vector.elen ~is 32
       resolved.udb().to_yaml().contains("  VLEN: 64") ~is #true
       resolved.udb().to_yaml().contains("  PHYS_ADDR_WIDTH: 32") ~is #true
-  when isa == IsaPreset.RV64Max
+  when isa == IsaPreset.RV64Max || isa == IsaPreset.RVA23
   | check:
       resolved.description.hart.vector.vlen ~is 128
       resolved.description.hart.vector.elen ~is 64
       resolved.description.hart.isa_profile.isa_extensions.contains("zvfh") ~is #true
-      resolved.description.hart.isa_profile.isa_extensions.contains("h") ~is #false
+      resolved.description.hart.isa_profile.isa_extensions.contains("h") ~is (isa == IsaPreset.RVA23)
+      resolved.description.hart.isa_profile.isa_extensions.contains("sha") ~is (isa == IsaPreset.RVA23)
       resolved.udb().to_yaml().contains("  VLEN: 128") ~is #true
 check:
-  rv2wide_soc_profile(SoCShape.Mini, IsaPreset.RVA23) ~throws "supports Mini/Simple"
   rv2wide_soc_profile(SoCShape.Tiled, IsaPreset.RV64IMACB) ~throws "supports Mini/Simple"
 
 def rv32_compiler = gnu_isa_target(rv32.isa.xlen, rv32.isa.isa_extensions)

@@ -37,6 +37,8 @@ profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
 Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
 scalar F and Zve32f while retaining the same Bare platform and vector geometry.
 `rv64max` projects the complete non-H RV64 preset with VLEN128 and Sv39.
+`rva23` adds H/Sha to the same preset. Keep the SoC/UDB mandatory-requirement
+checks and ordinary Mini/Simple cosim lanes aligned with that exact selection.
 `profile.execution_half_precision` selects shared FP hardware for the union of
 scalar and vector capabilities; scalar decode must continue to use
 `profile.half_precision`. The core-vector fixture exercises scalar Zfhmin with
@@ -805,6 +807,9 @@ delayed certified loads feeding scalar extraction. These are service tests, not
 evidence of vector instruction execution by `RV2WideCore`. The core-vector
 fixtures additionally exercise real decode/vset/CSR state, shared arithmetic,
 packed and precise memory, two-port scalar writeback, and fault/vstart reporting.
+The RV64 fixture combines H with V/FP, checking both host/guest FS/VS gates,
+guest-fault CSR provenance, and draining accepted vector loads before trap entry.
+The MMU fixture certifies and reuses a nonidentity G-stage vector page mapping.
 Run the scalar core and late-FP fixtures when changing the shared service
 reservations; retain their existing EX-to-WB timing checks.
 

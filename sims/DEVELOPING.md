@@ -20,10 +20,13 @@ the simulation-only `SpikeCore` DPI boundary while retaining the selected
 SoC shape's coherent fabric and platform contract.
 
 RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
-`rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb`. The RV64 configs run
+`rva23`, `rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb`. The non-RVA23 RV64 configs run
 only capability-filtered ISA smoke; both RV32 presets follow the shared
 shape/ISA software policy (platform tests, plus Simple's native ISA and ACT),
 with ordinary BootROM/FESVR loading and target-selected Sail cosimulation.
+RVA23 uses the same shape/ISA policy as RV5Stage and Spike: Mini runs platform
+tests and ISA smoke; Simple additionally enrolls the full native suites, ACT,
+OpenSBI, and the focused platform workloads. Its ACT run uses 16 shards.
 Their optional flow tracing uses the same event pass and RHEG exporter. The SoC resolver owns
 their fixed ISA and cache resources, not this harness.
 
@@ -41,7 +44,7 @@ target descriptor for each build variant. All enrolled configs use rsim with
 their existing workload selection. One Simple RVA23 CIRCT variant runs smoke,
 boot, host MMIO, UART, and ISA smoke; the direct-SV variant runs smoke, host MMIO,
 and UART. Backend variants stay outside the architectural inventory.
-Software-only changes still build the six full-suite Simple configs; simulation
+Software-only changes still build the enrolled full-suite Simple configs; simulation
 changes build every enrolled config and both HDL variants. Every selection
 emits the same `SoCHarness` top contract.
 

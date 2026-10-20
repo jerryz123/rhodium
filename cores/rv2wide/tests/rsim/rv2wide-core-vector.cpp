@@ -9,6 +9,7 @@ using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
 constexpr unsigned bytes = sizeof(memory_in.presponse.pbits);
 Request lookup{}, commit_owner{};
 bool lookup_live = false, proof_pending = false, slow = false, safe = true;
+bool guest_fault = false;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 std::uint64_t next_pc = 0x8000, replay_pc = 0, fault_at = 0;
 std::array<std::uint64_t, 32> gprs{};
@@ -61,6 +62,10 @@ void settle() {
     memory_in.pfault.pvalid = 1;
     memory_in.pfault.pbits.pdisposition = 1;
     memory_in.pfault.pbits.pcause = memory_out.prequest.pbits.paccess == 2 ? 15 : 13;
+    if (guest_fault) {
+      memory_in.pfault.pbits.pcause += 8;
+      memory_in.pfault.pbits.pguest = {1, 0x23450, 0};
+    }
     memory_in.pfault.pbits.pvalue = fault_at;
     eval();
   }
@@ -144,6 +149,20 @@ void send(std::uint32_t instruction, bool fault = false) {
 void setvl(unsigned sew, unsigned vl = 16) {
   send(0xc0007057 | (vl << 15) | (sew << 23) | (5 << 7));
   CHECK(gprs[5] == vl);
+}
+void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) {
+  send(addi(2, 0, guest_status >> 8));
+  send((8 << 20) | (2 << 15) | (1 << 12) | (2 << 7) | 0x13); // slli x2,x2,8
+  send(0x20011073); // csrw vsstatus,x2
+  send(addi(2, 0, (host_status | 0x800) >> 8)); // MPP=S
+  send((8 << 20) | (2 << 15) | (1 << 12) | (2 << 7) | 0x13);
+  send(addi(1, 0, 1));
+  send((39 << 20) | (1 << 15) | (1 << 12) | (1 << 7) | 0x13); // MPV
+  send((2 << 20) | (1 << 15) | (6 << 12) | (1 << 7) | 0x33); // or x1,x1,x2
+  send(0x30009073); // csrw mstatus,x1
+  send(addi(1, 0, 0x500));
+  send(0x34109073); // mepc
+  send(0x30200073); // mret into VS
 }
 void scalar_burst() {
   constexpr unsigned packets = 128;
@@ -253,10 +272,49 @@ int main() {
       extract(14, 7, 0x7c00, true);
       send(0x001023f3); // csrr x7,fflags waits for vector flags
       CHECK(gprs[7] == 8); // DZ
+      // Guest vector loads use ordinary VS translation state; accepted work
+      // must finish before an ECALL changes privilege or a CSR can expose it.
+      enter_guest();
+      setvl(1, 8);
+      send(addi(1, 0, 0x100));
+      slow = true;
+      send(0x02005007 | (1 << 15) | (16 << 7)); // vle16.v v16,(x1)
+      for (unsigned wait = 0; responses.empty() && wait < 100; ++wait) step();
+      CHECK(!responses.empty()); // delayed accepted work really is outstanding
+      send(0x00000073, true); // VS ecall drains the vector load, then enters M
+      CHECK(last_cause == 10 && responses.empty());
+      slow = false;
+      extract(16, 7, 0x1515);
+
+      // Both host and guest FS/VS gates apply to guest vector instructions.
+      for (const auto status : {0x6000u, 0x0600u}) {
+        for (bool host : {false, true}) {
+          enter_guest(host ? status : 0x6600, host ? 0x6600 : status);
+          send(status == 0x6000 ? vi(23, 0, 0, 4, 17) : vi(0, 8, 8, 1, 17), true);
+          CHECK(last_cause == 2);
+        }
+      }
+      enter_guest();
+      setvl(1, 8);
+      send(vi(0, 8, 8, 1, 17)); // enabled VS FP arithmetic
+      extract(17, 7, 0x4000, true);
+      safe = false;
+      fault_at = 0x100;
+      guest_fault = true;
+      send(addi(1, 0, 0x100));
+      slow = true;
+      send(0x02005007 | (1 << 15) | (18 << 7), true);
+      CHECK(last_cause == 21 && last_tval == 0x100);
+      fault_at = 0;
+      guest_fault = false;
+      send(0x34b023f3); // mtval2 preserves the guest physical address >> 2
+      CHECK(gprs[7] == (0x23450 >> 2));
+      send(0x008023f3); // faulting vector element remains restartable
+      CHECK(gprs[7] == 0);
     }
     CHECK(proof_count >= 3);
     CHECK(deferred_count >= 5);
     CHECK(stores >= 2);
-    CHECK(fault_count == 1);
+    CHECK(fault_count == (bytes == 8 ? 7 : 1));
   });
 }

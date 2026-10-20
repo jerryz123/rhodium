@@ -37,7 +37,9 @@ and Zve32f with 32-bit FPRs, keeping VLEN64 and the same integer/system features
 The `mini-rv2wide-rv64max` and `simple-rv2wide-rv64max` selections enable the
 maximal RV64 preset: F/D, full V with VLEN128, Zfh/Zvfh, Zvbb/Zvkt, and the
 preset's scalar and supervisor extensions with Sv39.
-No H-enabled or Tiled SoC selection is provided.
+The corresponding `mini-rv2wide-rva23` and `simple-rv2wide-rva23` selections
+add H/Sha and the guest-supervisor guarantees to that same architecture.
+No Tiled RV2Wide selection is provided.
 
 ## Entry point
 
@@ -255,9 +257,9 @@ the existing lean SoC presets:
 | `~hypervisor: #true` | H: VS/VU execution, Sv39/Sv39x4 two-stage translation, virtual interrupts, guest CSRs, HLV/HLVX/HSV, and HFENCE |
 
 Selecting both hypervisor and state-enable support publishes Sha and the
-shared bank's guest supervisor guarantees. This is supervisor/hypervisor
-capability parity, not full RV5Stage ISA parity: RV2Wide does not publish
-RV5Stage's complete RVA23 profile.
+shared bank's guest supervisor guarantees. The Mini/Simple `rva23` presets
+combine these with full V, half-precision FP, and the maximal scalar and
+supervisor configuration; `rv64max` retains the same features except H/Sha.
 
 HLVX uses execute permission at both translation stages while retaining load
 fault classification, and bypasses pointer masking. With H and Svinval enabled,
@@ -989,9 +991,9 @@ not cancel vector work already accepted at WB.
 
 Optional FP supports F/D, Zfhmin/Zfh, and Zfa.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
-The SoC bindings publish lean RV64IMACB or RV64IMAFDCB presets, not RVA23. Mini/Simple
+The SoC bindings support the lean scalar, RV32 vector, RV64Max, and RVA23 presets. Mini/Simple
 bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)
-with `COSIM=1`; CI enables it on their existing ISA-smoke rows. Shared ISA
+with `COSIM=1`; CI enables it on their ordinary shape/ISA-selected workloads. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
 
 The MMU checks the CHI physical map before physical tag resolution; the data-cache
