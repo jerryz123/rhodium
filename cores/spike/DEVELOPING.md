@@ -83,6 +83,12 @@ The downstream Spike patch keeps `medeleg` page-fault bits 12, 13, and 15
 writable on S-mode harts even when only Bare is implemented. Project that CSR
 readback independently of supported translation modes; the ACT/Sail mask must
 not remove those bits from Bare configurations.
+The DPI adapter keys each model by enclosing simulator scope and the explicit
+hart ID. Hart IDs must remain stable and unique within one simulator scope;
+flattened rsim harts share that scope. Reset clears only the selected hart.
+`spike-dpi-test` interleaves two real Spike models under one scope, resets one
+independently, and checks a separate scope reusing the same hart ID.
+
 The pinned MMU raises an alignment exception for misaligned AMO and LR/SC when
 misaligned scalar accesses are disabled, but an access fault when Zicclsm
 enables its misaligned-access path; project those choices independently through
@@ -129,6 +135,7 @@ tools/run-racket-tests.sh cores/spike/tests/udb-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/elaboration-test.rhm
 make -C sims spike-core-test
 FIXTURE=spike-attributes python3 tools/testing/rsim/run.py
+make -C sims spike-dpi-test VERILATOR_ROOT=/path/to/verilator/share
 make -C sims spike-dpi-compile-check VERILATOR_ROOT=/path/to/verilator/share
 make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
 ```

@@ -138,14 +138,17 @@ the [clocking plan](CLOCKING_PLAN.md).
 `compile/program.rhm` imports compile contracts and core `DesignElaboration`;
 `compile/rtl.rhm` alone adds the graph materializer to ordinary RTL preparation.
 The `backend/rsim-target.rhm` adapter imports compile contracts and shared `RTLTarget` preparation,
-and its local scheduler, scalar CSE and array-update passes, and emitter.
+and its local scheduler, decode specialization/table planning, scalar CSE and
+array-update passes, evaluation liveness, and emitter.
 `backend/rsim/plan.rhm` imports core IR/types and dependency identity lookup. `backend/rsim/cse.rhm`
 imports core types and local schedule descriptors for exact expression sharing
-and value remapping. `backend/rsim/array-updates.rhm` imports core types, local
+and value remapping. `backend/rsim/decode.rhm` imports core types and local
+schedule descriptors for canonical known-bit specialization and bounded lookup
+table planning. `backend/rsim/array-updates.rhm` imports core types, local
 schedule descriptors, and evaluation dependencies for exact update recognition
 and removal of unused value cones. `backend/rsim/evaluation.rhm` imports the
 local schedule and register-array assignment descriptors for value/storage
-dependencies and evaluation planning. `backend/rsim/register-arrays.rhm` imports
+dependencies, shared schedule pruning, and evaluation planning. `backend/rsim/register-arrays.rhm` imports
 core types and local schedule descriptors to fold exclusive array update trees
 into register destinations.
 `backend/rsim/regions.rhm` imports core types and local schedule/evaluation

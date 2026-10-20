@@ -22,10 +22,10 @@ fun mask(width :: PosInt) :: String:
 fun scalar_carrier_width(type :: HardwareType) :: PosInt:
   if reset_type(type) | 1 | scalar_width(type)
 
-/* Extract a leaf from an arbitrary-width host constant; generated literals
-   remain machine words even when their enclosing aggregate is wider. */
+/* Extract a leaf with bounded bit operations instead of dividing large host
+   integers. Generated literals remain machine words for arbitrarily wide aggregates. */
 fun packed_slice(value :: Nat, offset :: Nat, width :: PosInt) :: Nat:
-  (value mod (2 ** (offset + width)) - value mod (2 ** offset)) / (2 ** offset)
+  (value bits.(>>) offset) bits.and (2 ** width - 1)
 
 /* Identify C++ representation shapes independently of preferred names and IR IDs.
    Hardware scalar identities remain in the schedule; equal-width scalar carriers
@@ -42,6 +42,7 @@ fun shape(type :: HardwareType) :: String:
 class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList = MutableList[],
                constant_names :: MutableMap = MutableMap{}, constant_declarations :: MutableList = MutableList[],
                equality_names :: MutableMap = MutableMap{}, equality_declarations :: MutableList = MutableList[],
+               decode_names :: MutableMap = MutableMap{},
                mutable wide :: Boolean = #false):
   /* Intern canonical typed constants by physical representation. Collect all
      references before emitting the pool; every object has static lifetime. */
@@ -53,6 +54,26 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
       constant_names[key] := name
       constant_declarations.add("[[maybe_unused]] static constexpr " ++ this.name(type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
     constant_names[key]
+
+  /* Intern bounded tables as compact row IDs and pointers to pooled typed
+     constants. Selected aggregates remain immutable lvalues with static lifetime. */
+  method decode_reference(type :: HardwareType, entries :: List) :: String:
+    def key = [this.name(type), entries]
+    unless decode_names.has_key(key)
+    | block:
+        def name = "decode_table" ++ to_string(decode_names.length())
+        def rows = MutableMap{}
+        def pointers = MutableList[]
+        def ids = for List (value in entries):
+          unless rows.has_key(value)
+          | rows[value] := rows.length()
+            pointers.add("&" ++ this.constant_reference(type, value))
+          to_string(rows[value])
+        def carrier = if rows.length() <= 256 | "std::uint8_t" | "std::uint16_t"
+        constant_declarations.add("static constexpr std::array<const " ++ this.name(type) ++ "*, " ++ to_string(rows.length()) ++ "> " ++ name ++ "_rows{{" ++ String.join(pointers.snapshot(), ", ") ++ "}};")
+        constant_declarations.add("static constexpr std::array<" ++ carrier ++ ", " ++ to_string(entries.length()) ++ "> " ++ name ++ "{{" ++ String.join(ids, ", ") ++ "}};")
+        decode_names[key] := name
+    decode_names[key]
 
   /* Compare semantic members without reading C++ padding. Demand-generated
      aggregate helpers use loops for arrays, keeping large state checks compact. */

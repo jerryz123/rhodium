@@ -280,3 +280,5 @@ rv2wide-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-rv32.rhm	pro
 rv2wide-fetch	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fetch.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fetch.cpp	target	cores/rv2wide/tests/rsim/rv2wide-fetch-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-core-rv32f	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv32f.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv32f.cpp	target
 rv5stage-core-rv64d	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv64d.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv64d.cpp	target
+tiled-distribution	protocols	socs/tests/tiled-distribution-fixture.rhdl	distribution_program	socs/tests/rsim/tiled-distribution.cpp
+tiled-time	protocols	socs/tests/tiled-distribution-fixture.rhdl	time_program	socs/tests/rsim/tiled-time.cpp

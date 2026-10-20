@@ -511,9 +511,9 @@ class ConfigSelectionTest(unittest.TestCase):
 
     def test_backend_selection_isolates_models_and_attests_emitted_rtl(self):
         with tempfile.TemporaryDirectory() as directory:
-            for backend, suffix, artifact in (('circt', '', 'soc_harness.mlir'),
+            for backend, suffix, artifact in (('circt', '-circt', 'soc_harness.mlir'),
                                                ('verilog', '-verilog', 'SoCHarness.sv'),
-                                               ('rsim', '-rsim', 'SoCHarness.sv')):
+                                               ('rsim', '', 'SoCHarness.sv')):
                 with self.subTest(backend=backend):
                     result = self.dry_run('SOC=simple-rv5stage-rva23', f'RTL_BACKEND={backend}',
                                           f'BUILD_ROOT={directory}', target='simulator')
@@ -560,11 +560,11 @@ class ConfigSelectionTest(unittest.TestCase):
 
     def test_trace_emission_writes_compilation_sidecars(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = f'{directory}/simple-rv5stage-rva23-trace'
-            result = self.dry_run('SOC=simple-rv5stage-rva23', 'TRACE=1',
+            root = f'{directory}/simple-rv5stage-rva23-circt-trace'
+            result = self.dry_run('SOC=simple-rv5stage-rva23', 'TRACE=1', 'RTL_BACKEND=circt',
                                   f'BUILD_ROOT={directory}', target=f'{root}/soc_harness.mlir')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(f'emit-soc-harness.rhm --trace "{root}" simple rv5stage rva23', result.stdout)
+            self.assertIn(f'emit-soc-harness.rhm --backend circt --trace "{root}" simple rv5stage rva23', result.stdout)
             self.assertIn(f'> {root}/soc_harness.mlir', result.stdout)
 
     def test_requires_complete_consistent_selection(self):
@@ -636,18 +636,18 @@ class ConfigSelectionTest(unittest.TestCase):
 
     def test_traced_configs_retain_the_explicit_isa(self):
         for shape in ('simple', 'tiled'):
-            result = self.dry_run(f'SOC={shape}-rv5stage-rva23', 'TRACE=1')
+            result = self.dry_run(f'SOC={shape}-rv5stage-rva23', 'TRACE=1', 'RTL_BACKEND=circt')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(f'/{shape}-rv5stage-rva23-trace/obj/program-target.json', result.stdout)
+            self.assertIn(f'/{shape}-rv5stage-rva23-circt-trace/obj/program-target.json', result.stdout)
 
     def test_rv2wide_tracing_and_cosim_share_the_existing_config(self):
         for shape in ('mini', 'simple'):
             for cosim in (0, 1):
                 config = f'{shape}-rv2wide-rv64imacb'
-                result = self.dry_run(f'SOC={config}', 'TRACE=1', f'COSIM={cosim}')
+                result = self.dry_run(f'SOC={config}', 'TRACE=1', 'RTL_BACKEND=circt', f'COSIM={cosim}')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 variant = 'trace-cosim' if cosim else 'trace'
-                self.assertIn(f'/{config}-{variant}/obj/program-target.json', result.stdout)
+                self.assertIn(f'/{config}-circt-{variant}/obj/program-target.json', result.stdout)
 
     def test_simple_ntl_architectural_test_accepts_both_cores(self):
         for core in ('rv5stage', 'spike'):
@@ -664,7 +664,7 @@ class ConfigSelectionTest(unittest.TestCase):
         self.assertIn('test "simple-rv5stage-rva23" = "simple-rv5stage-rva23"', result.stdout)
 
 
-def artifact_inputs(binary, target=None, variant='normal', backend='circt'):
+def artifact_inputs(binary, target=None, variant='normal', backend='rsim'):
     target = target or program_target()
     target_path = binary.parent / 'program-target.json'
     target_path.write_text(json.dumps(target))
@@ -702,9 +702,9 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'cosim binary')
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
-            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23', '--backend', 'circt']
             for variant in ('cosim', 'trace-cosim'):
-                subprocess.run(command + ['record'] + options + ['--variant', variant] + artifact_inputs(binary, variant=variant), check=True)
+                subprocess.run(command + ['record'] + options + ['--variant', variant] + artifact_inputs(binary, backend='circt', variant=variant), check=True)
                 subprocess.run(command + ['verify'] + options + ['--variant', variant], check=True)
                 for other in ('normal', 'trace', 'cosim', 'trace-cosim'):
                     if other != variant:
@@ -764,8 +764,8 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'traced binary')
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
-            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
-            subprocess.run(command + ['record'] + options + ['--variant', 'trace'] + artifact_inputs(binary, variant='trace'), check=True)
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23', '--backend', 'circt']
+            subprocess.run(command + ['record'] + options + ['--variant', 'trace'] + artifact_inputs(binary, backend='circt', variant='trace'), check=True)
             subprocess.run(command + ['verify'] + options + ['--variant', 'trace'], check=True)
             self.assertNotEqual(subprocess.run(command + ['verify'] + options, capture_output=True).returncode, 0)
 

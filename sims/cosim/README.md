@@ -42,7 +42,9 @@ make -C sims run SOC=mini-rv5stage-rv64imacb COSIM=1 BINARY=/absolute/path/to/pr
 
 `COSIM=1` selects the observation pass and native checker, not an HDL-generator
 parameter. Builds live in separate `-cosim` directories; Simple can also select
-`TRACE=1` with its required `TRACE_FILE`, producing a `-trace-cosim` build.
+`RTL_BACKEND=circt TRACE=1` with its required `TRACE_FILE`, producing a
+`-circt-trace-cosim` build. Ordinary `COSIM=1` builds use rsim by default;
+explicit `circt` and `verilog` backends use the same checker contract.
 Ordinary simulators contain neither the observer nor the Sail runtime.
 The executable embeds its exact config, boot ROM/DTB, and hart
 descriptor, so running it does not require the build directory's JSON files.
@@ -131,10 +133,10 @@ Device and external-memory atomics, hardware A/D updates, HPM event/filter
 behavior remain outside runtime support.
 
 `cosim-smoke` also injects deliberate GPR corruption to confirm mismatch detection.
-CI enables cosim on every enrolled Mini/Simple RV5Stage and RV2Wide config, including the
-existing direct-SystemVerilog variant; the experimental Rsim backend is not
-instrumented. They retain their ordinary shape/ISA-selected
-workloads, including native software, ACT, and OpenSBI where selected. There are
+CI enables cosim on every enrolled Mini/Simple RV5Stage and RV2Wide rsim config,
+preserving ordinary shape/ISA-selected workloads, including native software, ACT,
+and OpenSBI where selected. The explicit CIRCT and direct-SystemVerilog smoke
+variants also enable cosim. There are
 no additional cosim configs, duplicate simulator builds, or test exclusions.
 Enablement is not a claim that all workloads pass; incomplete comparison paths
 remain visible as failures in those existing lanes.

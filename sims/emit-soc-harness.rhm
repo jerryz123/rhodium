@@ -19,7 +19,7 @@ def arguments = current_command_line()
 def backend_option = arguments.length() > 0 && arguments[0] == "--backend"
 when backend_option && arguments.length() < 2
 | error(~who: #'emit_soc_harness, "--backend requires circt, verilog, or rsim")
-def backend = if backend_option | arguments[1] | "circt"
+def backend = if backend_option | arguments[1] | "rsim"
 unless backend in ["circt", "verilog", "rsim"] | error(~who: #'emit_soc_harness, "backend must be circt, verilog, or rsim")
 def backend_args = if backend_option | arguments.drop(2) | arguments
 def output_option = backend_args.length() > 0 && backend_args[0] == "--output-directory"
@@ -89,7 +89,7 @@ when instrumented
     unless frequency is_a PosInt && frequency < 2 ** 64
     | error(~who: #'emit_soc_harness, "clock frequency must fit a positive uint64")
     for (artifact in compiled.artifacts):
-      when artifact.media_type != "text/x-mlir" && artifact.media_type != "text/x-systemverilog"
+      when artifact.media_type != "text/x-mlir" && artifact.media_type != "text/x-systemverilog" && !artifact.name.starts_with("SoCHarness.") && artifact.name != "SoCHarness_bridge.cpp" && artifact.name != "rsim-bits.hpp"
       | block:
           def content = if artifact.name == "events.h"
           | artifact.content ++ "\nnamespace rheg_generated {\ninline constexpr std::uint64_t clock_frequency_hz = " ++ to_string(frequency) ++ "ULL;\n}\n"

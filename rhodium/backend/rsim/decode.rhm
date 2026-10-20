@@ -1,0 +1,196 @@
+#lang rhombus
+/* Specializes decode selectors using proven packed bits and plans bounded native lookup tables. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/types.rhm" open
+  "plan.rhm" open
+
+export specialize_decodes plan_decode_tables
+
+/* Restrict host bit operations to the hardware width, including wide aggregates. */
+fun bit_mask(width :: Nat) :: Nat: 2 ** width - 1
+
+/* Locate a field in the canonical layout: records put their first field high. */
+fun field_offset(type :: HardwareType, name :: String) :: Nat:
+  def mutable offset = type.packed_width()
+  def mutable found = 0
+  for (field in type.fields):
+    offset := offset - field.type.packed_width()
+    when field.name == name | found := offset
+  found
+
+/* Describe constructor pieces in high-to-low order as operand, low bit, width. */
+fun pieces(step :: RsimStep, steps :: MutableList) :: List:
+  def operands = if step.opcode == "rtl.vector_create" | step.operands.reverse() | step.operands
+  def mutable offset = step.type.packed_width()
+  for List (operand in operands):
+    def width = steps[operand].type.packed_width()
+    offset := offset - width
+    [operand, offset, width]
+
+/* Transfer only proven bits. Mutable roots and unsupported operations remain
+   unknown; this never infers a register's value from reset or observed traffic. */
+fun known_bits(step :: RsimStep, steps :: MutableList, known :: MutableList) :: List:
+  def width = step.type.packed_width()
+  def full = bit_mask(width)
+  def args = step.operands.map(fun (operand): known[operand])
+  match step.opcode
+  | "rtl.constant": [full, step.attributes["value"] bits.and full]
+  | "rtl.record_create" || "rtl.vector_create" || "rtl.concat":
+      def mutable care = 0
+      def mutable value = 0
+      for (part in pieces(step, steps)):
+        care := care bits.or (known[part[0]][0] bits.(<<) part[1])
+        value := value bits.or (known[part[0]][1] bits.(<<) part[1])
+      [care, value]
+  | "rtl.cast" || "rtl.trunc" || "rtl.extract" || "rtl.record_get" || "rtl.vector_get":
+      def offset = match step.opcode
+      | "rtl.extract": step.attributes["low"]
+      | "rtl.record_get": field_offset(steps[step.operands[0]].type, step.attributes["field"])
+      | "rtl.vector_get": width * step.attributes["index"]
+      | ~else: 0
+      [(args[0][0] bits.(>>) offset) bits.and full, (args[0][1] bits.(>>) offset) bits.and full]
+  | "rtl.zext" || "rtl.sext":
+      def old_width = steps[step.operands[0]].type.packed_width()
+      def extension = full bits.xor bit_mask(old_width)
+      def sign = 2 ** (old_width - 1)
+      if step.opcode == "rtl.zext"
+      | [args[0][0] bits.or extension, args[0][1]]
+      | if (args[0][0] bits.and sign) == 0
+        | args[0]
+        | [args[0][0] bits.or extension, args[0][1] bits.or (if (args[0][1] bits.and sign) == 0 | 0 | extension)]
+  | "rtl.not": [args[0][0], args[0][0] bits.xor args[0][1]]
+  | "rtl.and" || "rtl.or" || "rtl.xor":
+      def a = args[0]
+      def b = args[1]
+      def both = a[0] bits.and b[0]
+      match step.opcode
+      | "rtl.and":
+          def zero = (a[0] bits.xor a[1]) bits.or (b[0] bits.xor b[1])
+          [zero bits.or both, a[1] bits.and b[1]]
+      | "rtl.or":
+          def one = a[1] bits.or b[1]
+          [one bits.or both, one]
+      | ~else: [both, (a[1] bits.xor b[1]) bits.and both]
+  | ~else: [0, 0]
+
+/* Retain the selected canonical bits densely, low bit first, on the host. */
+fun compress_bits(value :: Nat, positions :: List) :: Nat:
+  def mutable result = 0
+  for (position in positions, index in 0..positions.length()):
+    when (value bits.and (2 ** position)) != 0 | result := result bits.or (2 ** index)
+  result
+
+/* Rewrite each decode after its producers, then remap every state/effect sink.
+   Newly extracted selectors refer directly to constructor leaves, so unused
+   fields and impossible tables can disappear in the ordinary liveness pass. */
+fun specialize_decodes(schedule :: RsimSchedule) :: RsimSchedule:
+  def steps = MutableList[]
+  def known = MutableList[]
+  def refs = MutableMap{}
+  def mutable changed = #false
+  /* Add a dependency-ordered producer and its conservative known-bit fact. */
+  fun add(step :: RsimStep) :: Nat:
+    def index = steps.length()
+    def fact = known_bits(step, steps, known)
+    steps.add(step)
+    known.add(fact)
+    index
+  /* Resolve old indices only after their producer has been rewritten. */
+  fun remap(index :: Nat) :: Nat: refs[index]
+  /* Extract a packed slice without keeping unrelated constructor fields live.
+     Opaque aggregates use the existing canonical cast rather than C++ layout. */
+  fun slice(index :: Nat, low :: Nat, width :: PosInt, occurrence :: Nat) :: Nat:
+    def step = steps[index]
+    cond
+    | step.opcode in ["rtl.record_create", "rtl.vector_create", "rtl.concat"]:
+        def parts = MutableList[]
+        for (part in pieces(step, steps)):
+          def begin = if low > part[1] | low | part[1]
+          def end = if low + width < part[1] + part[2] | low + width | part[1] + part[2]
+          when begin < end | parts.add(slice(part[0], begin - part[1], end - begin, occurrence))
+        if parts.length() == 1 | parts[0] | add(RsimStep("rtl.concat", Bits(width), parts.snapshot(), {}, occurrence))
+    | step.opcode in ["rtl.cast", "rtl.trunc", "rtl.extract", "rtl.record_get", "rtl.vector_get"]:
+        def offset = match step.opcode
+        | "rtl.extract": step.attributes["low"]
+        | "rtl.record_get": field_offset(steps[step.operands[0]].type, step.attributes["field"])
+        | "rtl.vector_get": step.type.packed_width() * step.attributes["index"]
+        | ~else: 0
+        slice(step.operands[0], low + offset, width, occurrence)
+    | ~else:
+        def scalar = if scalar_width(step.type) != #false | index | add(RsimStep("rtl.cast", Bits(step.type.packed_width()), [index], {}, occurrence))
+        if low == 0 && width == steps[scalar].type.packed_width()
+        | scalar
+        | add(RsimStep("rtl.extract", Bits(width), [scalar], {"low": low}, occurrence))
+  for (original in schedule.steps, index in 0..schedule.steps.length()):
+    def step = RsimStep(original.opcode, original.type, original.operands.map(remap), original.attributes, original.occurrence)
+    if step.opcode != "rtl.decode"
+    | refs[index] := add(step)
+    | block:
+        def selector = step.operands[0]
+        def full = bit_mask(steps[selector].type.packed_width())
+        def fact = known[selector]
+        def rows = step.attributes["cases"].filter(~keep: fun (row): ((row[0] bits.xor fact[1]) bits.and row[1] bits.and fact[0]) == 0)
+        def default = step.attributes["default_value"] bits.and step.attributes["default_care"]
+        def mutable relevant = 0
+        for (row in rows): relevant := relevant bits.or (row[1] bits.and (full bits.xor fact[0]))
+        def constant = cond
+        | rows.length() == 0: default
+        | relevant == 0: rows[0][2] bits.and rows[0][3]
+        | (for all (row in rows): (row[2] bits.and row[3]) == default): default
+        | ~else: #false
+        if constant != #false
+        | refs[index] := add(RsimStep("rtl.constant", step.type, [], {"value": constant}, step.occurrence))
+          changed := #true
+        | if relevant == full && rows == step.attributes["cases"]
+          | refs[index] := add(step)
+          | block:
+              def positions = (for List (bit in 0..steps[selector].type.packed_width()): bit).filter(~keep: fun (bit): (relevant bits.and (2 ** bit)) != 0)
+              def chunks = MutableList[]
+              def mutable cursor = 0
+              while cursor < positions.length():
+                def start = cursor
+                cursor := cursor + 1
+                while cursor < positions.length() && positions[cursor] == positions[cursor - 1] + 1:
+                  cursor := cursor + 1
+                chunks.add(slice(selector, positions[start], cursor - start, step.occurrence))
+              def selected = if chunks.length() == 1 | chunks[0] | add(RsimStep("rtl.concat", Bits(positions.length()), chunks.snapshot().reverse(), {}, step.occurrence))
+              def attrs = step.attributes ++ {"cases": rows.map(fun (row): [compress_bits(row[0], positions), compress_bits(row[1], positions), row[2], row[3]])}
+              refs[index] := add(RsimStep("rtl.decode", step.type, [selected], attrs, step.occurrence))
+              changed := #true
+  if changed | remap_schedule(schedule, steps.snapshot(), remap) | schedule
+
+/* Select tables only for small scalar residual domains. Bound enumeration work,
+   per-table bytes and total bytes; equivalent tables reuse one immutable plan.
+   Result care bits are concretized to zero exactly as the existing simulator.
+   Small chains and exact Boolean membership keep their existing renderers. */
+fun plan_decode_tables(schedule :: RsimSchedule) :: RsimSchedule:
+  def tables = MutableMap{}
+  def mutable remaining_bytes = 1024 * 1024
+  def steps = for List (step in schedule.steps):
+    if step.opcode != "rtl.decode" || step.attributes["cases"].length() < 4 || step.type.packed_width() == 1
+    | step
+    | block:
+        def width = scalar_width(schedule.steps[step.operands[0]].type)
+        def rows = step.attributes["cases"]
+        if width == #false || width > 12 || (2 ** width) * rows.length() > 262144
+        | step
+        | block:
+            def default = step.attributes["default_value"] bits.and step.attributes["default_care"]
+            def key = [step.type, width, rows, default]
+            unless tables.has_key(key)
+            | block:
+                def entries = for List (input in 0..(2 ** width)):
+                  def found = rows.find(fun (row): (input bits.and row[1]) == (row[0] bits.and row[1]))
+                  if found == #false | default | found[2] bits.and found[3]
+                def unique = (for Set (value in entries): value).length()
+                def bytes = entries.length() * (if unique <= 256 | 1 | 2) + unique * 8
+                if bytes <= 65536 && bytes <= remaining_bytes
+                | tables[key] := entries
+                  remaining_bytes := remaining_bytes - bytes
+                | tables[key] := #false
+            def table = tables[key]
+            if table == #false
+            | step
+            | RsimStep(step.opcode, step.type, step.operands, step.attributes ++ {"rsim_table": table}, step.occurrence)
+  remap_schedule(schedule, steps, fun (value): value)

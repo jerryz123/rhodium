@@ -6,8 +6,6 @@ import:
   "../../../compile/rtl.rhm" open
   "../../rsim-target.rhm" as production
   "../../rsim/plan.rhm" open
-  "../../rsim/cse.rhm".share_scalar_expressions
-  "../../rsim/array-updates.rhm".compact_array_updates
   "../../rsim/emit.rhm".emit_rsim
 
 export rsim_target
@@ -18,7 +16,7 @@ class RegionTestPlan(prepared :: PreparedRTL, budget :: PosInt):
   implements TargetPlan
   override method manifest(): prepared.manifest
   override method emit():
-    def schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl)))
+    def schedule = production.rsim_target.plan(prepared).schedule
     def contents = emit_rsim(schedule, ~region_budget: budget, ~cache_regions: rkt.getenv("RHODIUM_RSIM_TEST_CACHE") != #false,
                              ~module_cuts: rkt.getenv("RHODIUM_RSIM_TEST_MODULE_CUTS") != #false)
     [Artifact(schedule.name ++ ".hpp", "text/x-c++hdr", contents[0]),

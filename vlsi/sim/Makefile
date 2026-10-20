@@ -94,7 +94,7 @@ $(MEMORY_SITE_PLUGIN): $(SRAM_DIR)/circt/CMakeLists.txt $(SRAM_DIR)/circt/Memory
 
 $(SOC_MLIR): $(SIMULATOR_SOURCES) | $(BUILD_DIR)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-		sims/emit-soc-harness.rhm $(HARNESS_SOURCE) > $@
+		sims/emit-soc-harness.rhm --backend circt $(HARNESS_SOURCE) > $@
 
 # Scope the design-relative policy through SoCHarness.soc without changing logical wrapper identities.
 $(MAPPING_SELECTION_STAMP): $(SOC_MLIR) $(MEMORY_SITE_PLUGIN) $(MEMORY_POLICY)

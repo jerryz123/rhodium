@@ -16,6 +16,7 @@ import memory
 import sync_memory
 import selection
 import membership
+import decode
 import mask_index
 import assertions
 import branches
@@ -296,6 +297,8 @@ def main():
         sync_count = sync_memory.run_suite(work, run, compare, args.differential)
         selection_count = selection.run_suite(work, run, compare, args.differential)
         membership_count = membership.run_suite(work, run, compare, args.differential)
+        decode_count = decode.run_suite(work, run)
+        print(f"rsim: {decode_count} specialized decode observations passed")
         print(f"rsim: {membership_count} authored membership observations passed" + (" with SV comparison" if args.differential else ""))
         mask_count = mask_index.run_suite(work, run, compare, args.differential)
         print(f"rsim: {mask_count} authored mask indexing observations passed" + (" with SV comparison" if args.differential else ""))

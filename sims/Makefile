@@ -11,7 +11,7 @@ PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
 SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
 include config.mk
-RTL_BACKEND ?= circt
+RTL_BACKEND ?= rsim
 ifneq ($(RTL_BACKEND),circt)
 ifneq ($(RTL_BACKEND),verilog)
 ifneq ($(RTL_BACKEND),rsim)
@@ -60,8 +60,8 @@ CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 SPIKE_LIBRARY := $(FESVR_PREFIX)/lib/libriscv.so
-# Direct RTL must never reuse CIRCT model objects or emitted-artifact timestamps.
-SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)$(if $(filter-out circt,$(RTL_BACKEND)),-$(RTL_BACKEND))
+# Default rsim and explicit HDL backends keep separate generated models and objects.
+SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)$(if $(filter-out rsim,$(RTL_BACKEND)),-$(RTL_BACKEND))
 ifeq ($(TRACE),1)
 ifneq ($(RTL_BACKEND),circt)
 $(error TRACE=1 currently requires RTL_BACKEND=circt)
@@ -205,14 +205,14 @@ trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
 	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required" >&2; exit 2)
 ifeq ($(SOC_CORE),rv2wide)
-	$(MAKE) "$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf" SOC=$(SOC_ID) TRACE=1
-	$(MAKE) run SOC=$(SOC_ID) TRACE=1 BINARY="$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf"
+	$(MAKE) "$(BUILD_ROOT)/$(SOC_ID)-circt-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf" SOC=$(SOC_ID) RTL_BACKEND=circt TRACE=1
+	$(MAKE) run SOC=$(SOC_ID) RTL_BACKEND=circt TRACE=1 BINARY="$(BUILD_ROOT)/$(SOC_ID)-circt-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf"
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-rv2wide-trace.sh "$(TRACE_FILE)"
 else
 	@test "$(SOC_ID)" = simple-rv5stage-rva23
-	$(MAKE) smoke SOC=$(SOC_ID) TRACE=1
+	$(MAKE) smoke SOC=$(SOC_ID) RTL_BACKEND=circt TRACE=1
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-trace.sh "$(TRACE_FILE)"
-	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/obj/VTestDriver" "$(BUILD_ROOT)/$(SOC_ID)-trace$(if $(filter 1,$(COSIM)),-cosim)/smoke.elf"
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/$(SOC_ID)-circt-trace$(if $(filter 1,$(COSIM)),-cosim)/obj/VTestDriver" "$(BUILD_ROOT)/$(SOC_ID)-circt-trace$(if $(filter 1,$(COSIM)),-cosim)/smoke.elf"
 endif
 
 boot-test: $(BOOT_BINARIES) simulator
@@ -273,6 +273,16 @@ spike-dpi-compile-check: spike-core-compile-check
 	  (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) -I$(VERILATOR_ROOT)/include/vltstd \
 	  -c $(SPIKE_DPI_DIR)/spike_dpi.cc -o $(DPI_BUILD_DIR)/spike_dpi.o
+
+# Exercise flattened hart identity through the actual DPI shim and Spike models.
+.PHONY: spike-dpi-test
+spike-dpi-test: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
+	@test -n "$(VERILATOR_ROOT)" || (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) -I$(VERILATOR_ROOT)/include/vltstd \
+	  $(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc $(REPO_DIR)/cores/spike/tests/spike_dpi_test.cc \
+	  -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib -lriscv -lfesvr -ldisasm -lsoftfloat -pthread \
+	  -o $(DPI_BUILD_DIR)/spike_dpi_test
+	$(DPI_BUILD_DIR)/spike_dpi_test
 
 spike-core-test: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) \
@@ -358,12 +368,12 @@ $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR
 	@test -n "$(HARNESS_SELECTOR)" || \
 	  (echo "expected a complete SoC/core/ISA selection" >&2; exit 2)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_MLIR)
+	  $(HARNESS_EMITTER) --backend circt $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_MLIR)
 
 ifeq ($(TRACE),1)
 $(TRACE_HEADER): $(SOC_MLIR)
 	@test -f $@ || (cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_MLIR))
+	  $(HARNESS_EMITTER) --backend circt $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_MLIR))
 
 $(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/* $(REPO_DIR)/riscv/riscv-isa-sim-patches/*.patch) $(REPO_DIR)/riscv/riscv-isa-sim-patches/series $(PATCHED_SUBMODULE_TOOL)
 	$(MAKE) -C $(REPO_DIR)/rheg/perfetto BUILD_DIR=$(TRACE_BUILD_DIR) PYTHON=$(PYTHON) CXX=$(CXX) \

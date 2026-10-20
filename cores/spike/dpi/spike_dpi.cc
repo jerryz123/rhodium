@@ -1,4 +1,4 @@
-/* Implements the stable DPI shim that owns one Spike model per SystemVerilog scope. */
+/* Implements the stable DPI shim that owns one Spike model per enclosing DPI scope and explicit hart ID. */
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_dpi.h"
 
@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <stdexcept>
 
 #include "spike_core.h"
@@ -18,9 +19,10 @@ using rhodium::spike::Inputs;
 using rhodium::spike::Outputs;
 using rhodium::spike::SpikeCoreModel;
 
-/* Own one independent native hart per SystemVerilog DPI scope. */
-std::map<std::string, std::unique_ptr<SpikeCoreModel>>& models() {
-  static std::map<std::string, std::unique_ptr<SpikeCoreModel>> instances;
+/* Hart IDs distinguish flattened rsim instances within one enclosing DPI scope. */
+using ModelKey = std::pair<std::string, std::uint64_t>;
+std::map<ModelKey, std::unique_ptr<SpikeCoreModel>>& models() {
+  static std::map<ModelKey, std::unique_ptr<SpikeCoreModel>> instances;
   return instances;
 }
 
@@ -77,7 +79,7 @@ void store(T* target, T value) {
 }  // namespace
 
 /*
- * Reset or create the current scope's model, decode sampled inputs, advance one tick, and encode
+ * Reset or create the current scope and hart's model, decode sampled inputs, advance one tick, and encode
  * all outputs; return uncached-response readiness.
  */
 extern "C" unsigned char rhodium_spike_tick(
@@ -155,10 +157,10 @@ extern "C" unsigned char rhodium_spike_tick(
     long long* uncached_request_data,
     char* uncached_request_mask,
     unsigned char* uncached_request_device) {
-  const std::string scope = scope_name();
+  const ModelKey key{scope_name(), static_cast<std::uint64_t>(hart_id)};
   if (reset != 0) {
-    models().erase(scope);
-  } else if (!models().contains(scope)) {
+    models().erase(key);
+  } else if (!models().contains(key)) {
     Configuration configuration;
     configuration.hart_id = static_cast<std::uint64_t>(hart_id);
     configuration.reset_vector = static_cast<std::uint64_t>(reset_vector);
@@ -176,7 +178,7 @@ extern "C" unsigned char rhodium_spike_tick(
     configuration.instruction_cache_ways = static_cast<std::uint16_t>(instruction_cache_ways);
     configuration.data_cache_sets = static_cast<std::uint16_t>(data_cache_sets);
     configuration.data_cache_ways = static_cast<std::uint16_t>(data_cache_ways);
-    models().emplace(scope, std::make_unique<SpikeCoreModel>(std::move(configuration)));
+    models().emplace(key, std::make_unique<SpikeCoreModel>(std::move(configuration)));
   }
 
   Outputs outputs;
@@ -222,7 +224,7 @@ extern "C" unsigned char rhodium_spike_tick(
     inputs.uncached_response_valid = uncached_response_valid != 0;
     inputs.uncached_response_data = static_cast<std::uint64_t>(uncached_response_data);
     inputs.uncached_response_fault = uncached_response_fault != 0;
-    outputs = models().at(scope)->tick(inputs);
+    outputs = models().at(key)->tick(inputs);
   }
 
   store(address_request_valid, static_cast<unsigned char>(outputs.address_request_valid));

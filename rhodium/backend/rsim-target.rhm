@@ -6,6 +6,8 @@ import:
   "../compile/rtl.rhm" open
   "rsim/plan.rhm" open
   "rsim/cse.rhm".share_scalar_expressions
+  "rsim/decode.rhm" open
+  "rsim/evaluation.rhm".prune_schedule
   "rsim/array-updates.rhm".compact_array_updates
   "rsim/emit.rhm".emit_rsim
   "rsim/sv-binding.rhm" open
@@ -31,7 +33,11 @@ class RsimPlan(compiled_manifest :: CompileManifest, schedule :: RsimSchedule, p
 /* Lower already-verified RTL without copying or repeating certification; retain the
    selected partition policy for emission through either preparation path. */
 fun plan_rtl(prepared :: PreparedRTL, partitioning :: String) :: RsimPlan:
-  RsimPlan(prepared.manifest, compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl))), partitioning)
+  def original = build_schedule(prepared.rtl)
+  def specialized = specialize_decodes(original)
+  def optimized = compact_array_updates(share_scalar_expressions(specialized))
+  def live = if specialized === original | optimized | prune_schedule(optimized)
+  RsimPlan(prepared.manifest, plan_decode_tables(live), partitioning)
 
 /* Add simulator-host bindings to the same model plan without preparing or
    scheduling the circuit a second time. The manifest remains the logical RTL boundary. */

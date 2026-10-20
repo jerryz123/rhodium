@@ -4,7 +4,7 @@
 import:
   "../../core/types.rhm" open
   "plan.rhm" open
-  "evaluation.rhm".pre_edge_sinks
+  "evaluation.rhm".prune_schedule
 
 export compact_array_updates
 
@@ -235,22 +235,4 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
   def interim = forward_array_reads(recovered)
   if interim === schedule
   | schedule
-  | def needed = MutableSet{}
-    // All interfaces and effect operands remain roots, including unused foreign
-    // arguments and assertion predicates. Storage resources are never pruned.
-    for (port in interim.inputs ++ interim.outputs): needed.add(port.value)
-    for (sink in pre_edge_sinks(interim)):
-      for (value in sink.dependencies.values): needed.add(value)
-    for (offset in 0..interim.steps.length()):
-      def index = interim.steps.length() - 1 - offset
-      when index in needed
-      | for (operand in interim.steps[index].operands): needed.add(operand)
-    def refs = MutableMap{}
-    def steps = MutableList[]
-    /* Resolve a live predecessor or sink after dependency-ordered compaction. */
-    fun remap(value :: Nat) :: Nat: refs[value]
-    for (step in interim.steps, index in 0..interim.steps.length()):
-      when index in needed
-      | refs[index] := steps.length()
-        steps.add(RsimStep(step.opcode, step.type, step.operands.map(remap), step.attributes, step.occurrence))
-    remap_schedule(interim, steps.snapshot(), remap)
+  | prune_schedule(interim)

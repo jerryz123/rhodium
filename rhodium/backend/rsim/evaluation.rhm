@@ -14,6 +14,7 @@ export:
   RsimEvaluationPlan
   pre_edge_sinks
   build_evaluation_plan
+  prune_schedule
 
 /* Identifies current storage without following its future updates. Slots are
    occurrence-specific; foreign results additionally retain their result index. */
@@ -138,3 +139,26 @@ fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
     when !(index in absorbed) | remaining_steps.add(index)
   RsimEvaluationPlan(dependencies, materialized_constants(schedule.steps), RsimEvaluation(remaining_steps.snapshot(), fused_sinks),
                      RsimEvaluation(dependency_closure(dependencies, outputs), outputs))
+
+/* Remove unused pure producers while retaining every public input and ordered
+   effect operand. Resource slots and occurrence identities remain unchanged. */
+fun prune_schedule(schedule :: RsimSchedule) :: RsimSchedule:
+  def needed = MutableSet{}
+  // All interfaces and effect operands remain roots, including unused foreign
+  // arguments and assertion predicates. Storage resources are never pruned.
+  for (port in schedule.inputs ++ schedule.outputs): needed.add(port.value)
+  for (sink in pre_edge_sinks(schedule)):
+    for (value in sink.dependencies.values): needed.add(value)
+  for (offset in 0..schedule.steps.length()):
+    def index = schedule.steps.length() - 1 - offset
+    when index in needed
+    | for (operand in schedule.steps[index].operands): needed.add(operand)
+  def refs = MutableMap{}
+  def steps = MutableList[]
+  /* Resolve a live predecessor or sink after dependency-ordered compaction. */
+  fun remap(value :: Nat) :: Nat: refs[value]
+  for (step in schedule.steps, index in 0..schedule.steps.length()):
+    when index in needed
+    | refs[index] := steps.length()
+      steps.add(RsimStep(step.opcode, step.type, step.operands.map(remap), step.attributes, step.occurrence))
+  remap_schedule(schedule, steps.snapshot(), remap)

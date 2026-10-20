@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
+from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
 
 
 def matches(path, *patterns):
@@ -83,7 +83,7 @@ class Selection:
         elif not documentation and matches(path, "examples/std/*", "examples/rtl/*", "examples/clocking/*",
                                                 "rhodium/event/*", "rhodium/diagram/*", "rheg/*"):
             self.add_checks("rsim-std")
-        elif not documentation and matches(path, "chi/*", "noc/*", "devices/*", "examples/chi/*", "examples/noc/*"):
+        elif not documentation and matches(path, "chi/*", "noc/*", "devices/*", "socs/*", "examples/chi/*", "examples/noc/*"):
             self.add_checks("rsim-protocols")
         elif not documentation and matches(path, "cores/*", "riscv/*", "hardfloat/*", "examples/cores/*", "examples/riscv/*"):
             self.add_checks(*RSIM_CORE_CHECKS)
@@ -256,9 +256,9 @@ class Selection:
         for suite in NATIVE_SUITES:
             if suite not in self.native_suites:
                 continue
-            suites["include"].extend({"soc": soc, "suite": suite, "cosim": soc in COSIM_CONFIGS} for soc in native_configs(suite))
+            suites["include"].extend({"soc": soc, "suite": suite, "cosim": soc in COSIM_CONFIGS, "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
             if suite == "coremark":
-                suites["include"].extend({"soc": soc, "suite": "coremark_scalar", "cosim": soc in COSIM_CONFIGS} for soc in native_configs(suite))
+                suites["include"].extend({"soc": soc, "suite": "coremark_scalar", "cosim": soc in COSIM_CONFIGS, "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch
@@ -267,7 +267,7 @@ class Selection:
         entry = simulation_entry if self.simulation else simulator_entry
         builds = [entry(*config) for config in configs] if run_simulator else []
         if self.simulation:
-            builds.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend)
+            builds.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend, smoke_variant=True)
                           for backend in BACKEND_SMOKE_VARIANTS)
         return {
             "run_compile": run_checks or run_simulator,

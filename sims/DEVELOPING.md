@@ -32,21 +32,16 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE, ISA)` selection has an isolated build directory; direct SV
-adds a `-verilog` suffix and SV-hosted rsim adds `-rsim`, so backend artifacts
-cannot be reused accidentally.
-CI names its enrolled configs explicitly and publishes an exact-commit simulator and target
-descriptor for each selected build variant. The additional
-`simple-rv5stage-rva23-verilog` variant reuses its architectural config and runs
-only `smoke`, `host-mmio-test`, and `uart-pty-test`. The
-`simple-rv5stage-rva23-rsim` variant reuses the same config and runs only `smoke`.
-Software-only changes build
-the six full-suite Single configs; simulation changes build all enrolled configs,
-including all four Mini RV32 bindings, plus the direct-SV and rsim variants. The host emitter
-selects a hart binding and specializes one of three shape-owned harnesses;
-test-only module paths remain available for focused fixtures. Every selection
-emits the same `SoCHarness` top contract. Preserve config-keyed artifact and
-target identities so switching any axis cannot reuse another simulator.
+Each `(SOC, CORE, ISA)` selection has an isolated default rsim build directory.
+Explicit CIRCT and direct SV append `-circt` and `-verilog`; instrumentation
+adds its existing suffix afterward. CI publishes an exact-commit simulator and
+target descriptor for each build variant. All enrolled configs use rsim with
+their existing workload selection. One Simple RVA23 CIRCT variant runs smoke,
+boot, host MMIO, UART, and ISA smoke; the direct-SV variant runs smoke, host MMIO,
+and UART. Backend variants stay outside the architectural inventory.
+Software-only changes still build the six full-suite Simple configs; simulation
+changes build every enrolled config and both HDL variants. Every selection
+emits the same `SoCHarness` top contract.
 
 The configured host emitter calls `elaborate` once and passes the resulting
 program, including retained providers and its explicit top, to `compile_program`.
@@ -55,10 +50,10 @@ constructs before generating its wrapper. Selected trace/co-sim RTL passes
 explicitly require concrete preparation. Do not prepare the configured source
 before target selection or reconstruct a program from only its design/top.
 
-All enrolled Mini/Simple RV5Stage and RV2Wide CIRCT rows build with `COSIM=1`,
-as does the RV5Stage direct SystemVerilog variant. Each instrumented row publishes one
+All enrolled Mini/Simple RV5Stage and RV2Wide rsim rows build with `COSIM=1`,
+as do the RV5Stage CIRCT and direct SystemVerilog variants. Each instrumented row publishes one
 simulator under its unchanged config artifact name; its local build directory
-retains the `-cosim` suffix. The experimental Rsim backend stays uninstrumented.
+retains the `-cosim` suffix.
 The shared Sail job publishes the model and config-independent cosim archives;
 simulator builds verify these archives and compile only their config-specific
 session binding. Execution consumers need only native runtime dependencies and verify the
@@ -93,8 +88,7 @@ target descriptor. ACT's generated UDB and payload archive carry the same config
 execution rejects a mismatch before running a shard. Keep these descriptors in
 artifact uploads and cache identities, never as checked-in generated catalogs.
 
-`RTL_BACKEND` selects `circt`, `verilog`, or experimental `rsim`, with CIRCT
-remaining the default.
+`RTL_BACKEND` selects `rsim` (default), `circt`, or `verilog`.
 The harness emitter loads only the selected compile target and gives it the
 same `DesignElaboration` and explicit top. Direct builds emit `SoCHarness.sv`
 without an intermediate MLIR target; `SOC_EMITTED` routes the actual source
@@ -102,21 +96,23 @@ artifact to attestation. Keep compiler/backend imports in the host emitter,
 never in circuit definitions. CI uses `simulator_id` for artifact identity and base build paths (instrumentation may add a local suffix),
 `soc` for the unchanged hardware/software target, and `backend` to select
 backend-specific tests. Backend variants stay out of architectural
-config, ACT, benchmark, and OpenSBI inventories. Direct event tracing is not
+config, ACT, benchmark, and OpenSBI inventories. Every software, ACT, and platform
+consumer carries the default backend explicitly through attestation and Make;
+changing the default must not silently alter its workload or co-sim selection. Direct event tracing is not
 supported.
 Direct RTL can retain unsigned comparisons against zero and type bounds after
 parameter specialization. Permit the additional `UNSIGNED` and `CMPCONST`
 Verilator warnings for that route, retaining the existing simulator lint policy
 and runtime assertions.
 
-The experimental `RTL_BACKEND=rsim` route selects `rsim_sv_target` without
+The default `RTL_BACKEND=rsim` route selects `rsim_sv_target` without
 changing harness elaboration. `emit-soc-harness.rhm --backend rsim` requires
 `--output-directory <dir>` for `SoCHarness.hpp`, `SoCHarness.cpp`,
 `SoCHarness_bridge.cpp`, and optional `rsim-bits.hpp`; stdout remains the SV
 wrapper with config provenance. The Make rule passes both generated C++
 sources to Verilator alongside the unchanged `TestDriver.v` and native adapters.
 Missing required model/bridge companions trigger a fresh emission. Tracing
-remains CIRCT-only. CI enrolls rsim only as a bounded smoke variant.
+remains CIRCT-only. CI keeps the full existing workload selection on rsim.
 
 Keep build wiring validation separate from execution qualification. Simulator
 adapter tests cover backend directories, source arguments, and provenance.
@@ -129,7 +125,7 @@ bridge into the unchanged driver and run that same ELF. Keep native compile time
 Racket elaboration/emission time, and simulator runtime separate. Compare identical
 compiler flags when attributing a change to partitioning; a comparison between an
 optimized region model and an unoptimized monolithic model includes both effects.
-The [simulator guide](README.md#select-rtl-emission) records qualified settings.
+The [simulator guide](README.md#select-rtl-emission) records backend selection.
 Use a fresh build root or object directory when changing optimization flags,
 since object timestamps do not encode those flags. Broader workloads and other
 compiler/optimization configurations require separate execution validation.
@@ -140,7 +136,7 @@ all three settings explicitly to Verilator's generated Makefile, which otherwise
 sets its own defaults. Preserve command-line overrides, including flags with spaces.
 
 `tools/ci/policy.py` owns the shared simulator `opt_fast` setting and backend smoke
-variants, including rsim's `smoke_max_cycles` and `harness_timeout_minutes`.
+variants, including per-variant cycle and wall-clock bounds.
 The simulator workflow passes the optimization override explicitly to Make; the harness workflow uses the
 attested prebuilt binary, bounds execution, and uploads per-target logs even on
 failure. Keep these variants outside `test-configs.txt` and the ACT, benchmark,

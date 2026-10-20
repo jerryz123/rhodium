@@ -75,7 +75,9 @@ describes that behavior rather than claiming a no-op implementation.
 
 [`spike.rhdl`](spike.rhdl) exposes the same architectural inputs and independent
 instruction, coherent-data, and uncached CHI ports used by a RISC-V hart. The
-core contains a typed DPI boundary, RTL-owned PMA classification, and
+hart ID must remain stable and unique within its enclosing simulator scope.
+This keeps flattened rsim harts independent; resetting one hart does not reset
+its peers. The core contains a typed DPI boundary, RTL-owned PMA classification, and
 Spike-owned CHI transaction engines. The C++ model under [`dpi/`](dpi/) runs one
 Spike `processor_t` in a coroutine, models private instruction and data caches,
 handles coherent snoops and victim releases, and stalls Spike while accepted

@@ -1,0 +1,188 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../rsim/plan.rhm" open
+  "../rsim/decode.rhm" open
+  "../rsim/evaluation.rhm".prune_schedule
+  "../rsim/emit.rhm".emit_rsim
+  rhombus/cmdline open
+  lib("racket/file.rkt").#{display-to-file} as write_file
+  lib("racket/base.rkt").#{build-path} as build_path
+
+def key_type = RecordType([RecordField("site", Bits(5)), RecordField("route", Bits(8)), RecordField("origin", Bits(3))])
+def result_type = RecordType([RecordField("valid", Bits(1)), RecordField("mask", Bits(8))])
+def cases = for List (key in 0..32):
+  [((1 + (key - key mod 16) / 16) bits.(<<) 11) + ((key mod 16) bits.(<<) 3), 65535, 256 + key, 511 bits.xor 2]
+
+fun fixture(site :: Nat) :: RsimSchedule:
+  def steps = [RsimStep("input", Bits(8), [], {"name": "route"}),
+               RsimStep("rtl.constant", Bits(5), [], {"value": site}),
+               RsimStep("rtl.constant", Bits(3), [], {"value": 0}),
+               RsimStep("rtl.record_create", key_type, [1, 0, 2], {}),
+               RsimStep("rtl.decode", result_type, [3], {"cases": cases, "default_value": 7, "default_care": 509})]
+  RsimSchedule("Decode" ++ to_string(site), [RsimPort("route", Bits(8), 0)], [RsimPort("result", result_type, 4)], steps, [], [], [], [], [], [])
+
+// Evaluate canonical integers independently of specialization or C++ rendering.
+fun evaluate(schedule :: RsimSchedule, input :: Nat) :: Nat:
+  def entries = MutableList[]
+  for (step in schedule.steps):
+    def args = step.operands.map(fun (operand): entries[operand])
+    def value = match step.opcode
+    | "input" || "state": input
+    | "rtl.constant": step.attributes["value"]
+    | "rtl.record_create" || "rtl.concat":
+        def mutable result = 0
+        for (operand in step.operands, arg in args): result := (result bits.(<<) schedule.steps[operand].type.packed_width()) bits.or arg
+        result
+    | "rtl.vector_create":
+        def mutable result = 0
+        for (arg in args, index in 0..args.length()): result := result bits.or (arg bits.(<<) (index * step.type.element_type.packed_width()))
+        result
+    | "rtl.cast" || "rtl.trunc" || "rtl.zext": args[0]
+    | "rtl.extract": args[0] bits.(>>) step.attributes["low"]
+    | "rtl.sext":
+        def old_width = schedule.steps[step.operands[0]].type.packed_width()
+        if (args[0] bits.and (2 ** (old_width - 1))) == 0
+        | args[0]
+        | args[0] + 2 ** step.type.packed_width() - 2 ** old_width
+    | "rtl.vector_get": args[0] bits.(>>) (step.type.packed_width() * step.attributes["index"])
+    | "rtl.record_get":
+        def mutable offset = schedule.steps[step.operands[0]].type.packed_width()
+        def mutable result = 0
+        for (field in schedule.steps[step.operands[0]].type.fields):
+          offset := offset - field.type.packed_width()
+          when field.name == step.attributes["field"] | result := args[0] bits.(>>) offset
+        result
+    | "rtl.not": (2 ** step.type.packed_width() - 1) bits.xor args[0]
+    | "rtl.and": args[0] bits.and args[1]
+    | "rtl.or": args[0] bits.or args[1]
+    | "rtl.xor": args[0] bits.xor args[1]
+    | "rtl.decode":
+        def row = step.attributes["cases"].find(fun (row): (args[0] bits.and row[1]) == (row[0] bits.and row[1]))
+        if row == #false | step.attributes["default_value"] bits.and step.attributes["default_care"] | row[2] bits.and row[3]
+    | ~else: error("oracle opcode " ++ step.opcode)
+    entries.add(value bits.and (2 ** step.type.packed_width() - 1))
+  entries[schedule.outputs[0].value]
+
+for (site in [1, 2, 16]):
+  def raw = fixture(site)
+  def specialized = prune_schedule(specialize_decodes(raw))
+  def planned = plan_decode_tables(specialized)
+  for (route in 0..256):
+    check: evaluate(planned, route) ~is evaluate(raw, route)
+  check:
+    raw ~is fixture(site)
+    specialize_decodes(specialized) ~is specialized
+  if site == 16
+  | check: specialized.steps[specialized.outputs[0].value].opcode ~is "rtl.constant"
+  | block:
+      def decoded = specialized.steps[specialized.outputs[0].value]
+      check:
+        specialized.steps.length() ~is 2
+        decoded.operands ~is [0]
+        decoded.attributes["cases"].length() ~is 16
+        planned.steps[planned.outputs[0].value].attributes["rsim_table"].length() ~is 256
+      for (route in 0..256):
+        check: planned.steps[planned.outputs[0].value].attributes["rsim_table"][route] ~is evaluate(raw, route)
+  when current_command_line().length() == 1
+  | block:
+      def output = emit_rsim(planned, ~region_budget: 4)
+      write_file(output[0], build_path(current_command_line()[0], raw.name ++ ".hpp"), ~exists: #'#{truncate/replace})
+      write_file(output[1], build_path(current_command_line()[0], raw.name ++ ".cpp"), ~exists: #'#{truncate/replace})
+
+// Exercise canonical vector ordering, wide casts, noncontiguous masks and
+// boolean transfer functions with every dynamic byte. No state assumptions.
+for (op in ["rtl.and", "rtl.or", "rtl.xor"]):
+  def steps = [RsimStep("input", Bits(8), [], {"name": "x"}),
+               RsimStep("rtl.constant", Bits(8), [], {"value": 0x53}),
+               RsimStep(op, Bits(8), [0, 1], {}),
+               RsimStep("rtl.not", Bits(8), [2], {}),
+               RsimStep("rtl.constant", Bits(8), [], {"value": 0xa5}),
+               RsimStep("rtl.vector_create", VectorType(2, Bits(8)), [3, 4], {}),
+               RsimStep("rtl.cast", Bits(16), [5], {}),
+               RsimStep("rtl.zext", Bits(129), [6], {}),
+               RsimStep("rtl.decode", Bits(9), [7], {"cases": for List (x in [0, 1, 4, 5]): [0xa500 + x, 2 ** 128 + 0xff05, x + 256, 509], "default_value": 17, "default_care": 511})]
+  def raw = RsimSchedule("Transfer", [RsimPort("x", Bits(8), 0)], [RsimPort("result", Bits(9), 8)], steps, [], [], [], [], [], [])
+  def optimized = prune_schedule(specialize_decodes(raw))
+  for (x in 0..256):
+    check: evaluate(optimized, x) ~is evaluate(raw, x)
+
+// Static projections and signed extension must preserve canonical bit positions.
+for (sign in [0, 128]):
+  def steps = [RsimStep("input", Bits(8), [], {"name": "x"}),
+               RsimStep("rtl.constant", Bits(8), [], {"value": 127}),
+               RsimStep("rtl.and", Bits(8), [0, 1], {}),
+               RsimStep("rtl.constant", Bits(8), [], {"value": sign}),
+               RsimStep("rtl.or", Bits(8), [2, 3], {}),
+               RsimStep("rtl.sext", Bits(129), [4], {}),
+               RsimStep("rtl.vector_create", VectorType(2, Bits(129)), [5, 5], {}),
+               RsimStep("rtl.vector_get", Bits(129), [6], {"index": 1}),
+               RsimStep("rtl.decode", Bits(8), [7], {"cases": [[0, 2 ** 128 + 0x55, 17, 255], [1, 2 ** 128 + 0x55, 19, 255]], "default_value": 42, "default_care": 255})]
+  def raw = RsimSchedule("Signed", [RsimPort("x", Bits(8), 0)], [RsimPort("y", Bits(8), 8)], steps, [], [], [], [], [], [])
+  def optimized = prune_schedule(specialize_decodes(raw))
+  for (x in 0..256):
+    check: evaluate(optimized, x) ~is evaluate(raw, x)
+
+// Sparse wide selectors stay bounded; table planning never enumerates their domain.
+for (width in [13, 64, 129]):
+  def rows = for List (value in [0, 1, 2, 2 ** (width - 1)]): [value, 2 ** width - 1, value mod 256, 255]
+  def steps = [RsimStep("input", Bits(width), [], {"name": "x"}),
+               RsimStep("rtl.decode", Bits(8), [0], {"cases": rows, "default_value": 77, "default_care": 255})]
+  def raw = RsimSchedule("Wide", [RsimPort("x", Bits(width), 0)], [RsimPort("y", Bits(8), 1)], steps, [], [], [], [], [], [])
+  def optimized = plan_decode_tables(specialize_decodes(raw))
+  check: optimized ~is raw
+  for (x in [0, 1, 2, 3, 2 ** (width - 1), 2 ** width - 1]):
+    check: evaluate(optimized, x) ~is evaluate(raw, x)
+
+// A reset value supplies no fact about current state: every byte remains possible.
+def raw_state = fixture(1)
+def state_steps = [RsimStep("state", Bits(8), [], {"slot": 0})] ++ raw_state.steps.drop(1) ++ [RsimStep("rtl.constant", Bits(1), [], {"value": 1}), RsimStep("rtl.constant", Bits(8), [], {"value": 0})]
+def state_schedule = RsimSchedule("State", [], raw_state.outputs, state_steps, [RsimRegister(["q"], "q", Bits(8), 0, 5, 6)], [], [], [], [], [])
+def specialized_state = prune_schedule(specialize_decodes(state_schedule))
+check: specialized_state.steps[specialized_state.outputs[0].value].opcode ~is "rtl.decode"
+for (x in 0..256):
+  check: evaluate(specialized_state, x) ~is evaluate(state_schedule, x)
+
+// Constant decode pruning remaps all sinks while retaining resources, effect
+// order and occurrence identities, including consumers outside the output cone.
+def raw = fixture(16)
+def effect_steps = raw.steps ++ [RsimStep("rtl.constant", Bits(1), [], {"value": 1}), RsimStep("rtl.constant", Bits(8), [], {"value": 0})]
+def imp = Builder(Design()).dpi_import_results("decode_observe", ["arg"], [Bits(8)], [])
+def effects = RsimSchedule("Effects", raw.inputs, raw.outputs, effect_steps,
+                           [RsimRegister(["q"], "q", Bits(8), 0, 5, 6)], [RsimMemory(["ram"], "ram", 256, Bits(8))],
+                           [RsimWrite(0, 0, 0, 5, #false, 5, 8)], [RsimRead(0, 0, 5, #false)],
+                           [RsimAssertion(["one"], "a", "a:1", 5, 5, 5), RsimAssertion(["two"], "b", "b:2", 5, 5, 5)],
+                           [RsimForeign(imp, 5, [0]), RsimForeign(imp, 5, [6])])
+def optimized_effects = prune_schedule(specialize_decodes(effects))
+check:
+  optimized_effects.steps.length() ~is 4
+  optimized_effects.registers ~is [RsimRegister(["q"], "q", Bits(8), 0, 2, 3)]
+  optimized_effects.memories === effects.memories ~is #true
+  optimized_effects.writes ~is [RsimWrite(0, 0, 0, 2, #false, 2, 8)]
+  optimized_effects.reads ~is [RsimRead(0, 0, 2, #false)]
+  optimized_effects.assertions ~is [RsimAssertion(["one"], "a", "a:1", 2, 2, 2), RsimAssertion(["two"], "b", "b:2", 2, 2, 2)]
+  optimized_effects.foreign_calls ~is [RsimForeign(imp, 2, [0]), RsimForeign(imp, 2, [3])]
+
+// More than 256 distinct rows exercises the 16-bit row-ID representation and
+// repeated tables share one plan and one emitted constant-pool declaration.
+def dense_rows = for List (x in 0..512): [x, 511, x * 17, 65535]
+def dense_steps = [RsimStep("input", Bits(9), [], {"name": "x"}),
+                   RsimStep("rtl.decode", Bits(16), [0], {"cases": dense_rows, "default_value": 0, "default_care": 65535}),
+                   RsimStep("rtl.decode", Bits(16), [0], {"cases": dense_rows, "default_value": 0, "default_care": 65535})]
+def dense = plan_decode_tables(RsimSchedule("Dense", [RsimPort("x", Bits(9), 0)], [RsimPort("y", Bits(16), 1), RsimPort("z", Bits(16), 2)], dense_steps, [], [], [], [], [], []))
+check: dense.steps[1].attributes["rsim_table"] === dense.steps[2].attributes["rsim_table"] ~is #true
+for (x in 0..512):
+  check: dense.steps[1].attributes["rsim_table"][x] ~is x * 17
+when current_command_line().length() == 1
+| block:
+    def output = emit_rsim(dense, ~region_budget: 4)
+    write_file(output[0], build_path(current_command_line()[0], "Dense.hpp"), ~exists: #'#{truncate/replace})
+    write_file(output[1], build_path(current_command_line()[0], "Dense.cpp"), ~exists: #'#{truncate/replace})
+
+// Even a bounded selector can exceed the planning-work budget.
+def costly_rows = for List (x in 0..65): [x, 4095, x, 255]
+def costly_steps = [RsimStep("input", Bits(12), [], {"name": "x"}),
+                    RsimStep("rtl.decode", Bits(8), [0], {"cases": costly_rows, "default_value": 77, "default_care": 255})]
+def costly = RsimSchedule("Costly", [RsimPort("x", Bits(12), 0)], [RsimPort("y", Bits(8), 1)], costly_steps, [], [], [], [], [], [])
+check: plan_decode_tables(costly) ~is costly

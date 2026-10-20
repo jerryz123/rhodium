@@ -68,7 +68,7 @@ bash tools/testing/circt/run.sh --group std
 ```
 
 The accepted groups are `language`, `std`, `protocols`, `cores`,
-`cores-components`, `cores-execution`, `cores-execution-datapath`, `socs`, and
+`cores-components`, `cores-execution`, `cores-execution-datapath`, and
 `rfpl`. `cores` combines component emission/ABI checks and execution co-sim;
 `cores-execution` selects the datapath group. Core, cache, and vector behavior
 runs in the independent rsim lanes.

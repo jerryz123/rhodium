@@ -24,7 +24,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-datapath|socs|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-datapath|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -84,7 +84,7 @@ if [[ -n "$fixture_group" && ( -n "${FIXTURE:-}" || -n "${FIXTURES:-}" ) ]]; the
   exit 2
 fi
 case "$fixture_group" in
-  ""|language|std|protocols|cores|cores-components|cores-execution|cores-execution-datapath|socs|rfpl) ;;
+  ""|language|std|protocols|cores|cores-components|cores-execution|cores-execution-datapath|rfpl) ;;
   *)
     echo "unknown CIRCT fixture group: $fixture_group" >&2
     exit 2
@@ -100,7 +100,6 @@ integration_fixtures=(
   vector-update vec-shift-register-param
   async-read-memory
   clocked-dpi assertions hierarchy bundle interface-array
-  tiled-time tiled-distribution
   dont-care
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   uart-dpi chi-full-flits chi-router-composition
@@ -224,7 +223,7 @@ fixture_in_group() {
     IFS='|' read -r fixture top example program_export reference_export <<< "$spec"
     if [[ "$fixture" == "$wanted" ]]; then
       case "$group:$example" in
-        language:examples/rtl/*|language:examples/lop/*|language:examples/clocking/*|std:examples/std/*|protocols:examples/noc/*|protocols:examples/chi/*|cores-components:examples/riscv/*|cores-components:examples/cores/decoded-alu.rhdl|cores-execution-datapath:examples/cores/rv5stage.rhdl|socs:socs/tests/*|rfpl:examples/rfpl/*)
+        language:examples/rtl/*|language:examples/lop/*|language:examples/clocking/*|std:examples/std/*|protocols:examples/noc/*|protocols:examples/chi/*|cores-components:examples/riscv/*|cores-components:examples/cores/decoded-alu.rhdl|cores-execution-datapath:examples/cores/rv5stage.rhdl|rfpl:examples/rfpl/*)
           return 0
           ;;
         *)
@@ -673,8 +672,6 @@ fixture_specs=(
   'credited-monitor||examples/std/credited-transport.rhdl|monitor_program|monitor_verilog_reference'
   'flit-formats||examples/std/flit-formats.rhdl|program|verilog_reference'
   'state-flow||examples/std/state-flow.rhdl|program|-'
-  'tiled-distribution|tiled_distribution_tb|socs/tests/tiled-distribution-fixture.rhdl|distribution_design|-'
-  'tiled-time|tiled_time_tb|socs/tests/tiled-distribution-fixture.rhdl|time_design|-'
   'scoreboard||examples/std/scoreboard.rhdl|program|verilog_reference'
   'full-adder||examples/rtl/full-adder.rhdl|program|verilog_reference'
   'adder-core||examples/lop/adder-core.rhm|program|verilog_reference'
@@ -808,7 +805,7 @@ if [[ "$mode" == --list-fixtures ]]; then
   exit 0
 fi
 
-fixture_groups=(language std protocols cores-components cores-execution-datapath socs rfpl)
+fixture_groups=(language std protocols cores-components cores-execution-datapath rfpl)
 for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
   IFS='|' read -r fixture _ <<< "$spec"
   group_count=0

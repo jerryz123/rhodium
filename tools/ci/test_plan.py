@@ -207,7 +207,7 @@ class PlanTest(unittest.TestCase):
     def test_simulation_builds_and_runs_all_configs(self):
         plan = self.plan("sims/Makefile")
         expected = [simulation_entry(*config) for config in SIMULATOR_CONFIGS]
-        expected.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend)
+        expected.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend, smoke_variant=True)
                         for backend in BACKEND_SMOKE_VARIANTS)
         self.assertEqual(plan["simulator_matrix"]["include"], expected)
         for path in ("sw/build/build.py", "sw/build/isa.mk", "sw/riscv-isa-tests"):
@@ -229,27 +229,29 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(direct[0]['software_tests'].split(), ['smoke', 'host-mmio-test', 'uart-pty-test'])
                 self.assertEqual({row['configuration'] for row in plan['arch_build_matrix']['include']}, set(SINGLE_CORE_SOCS))
 
-    def test_rsim_is_an_isolated_bounded_smoke_variant(self):
-        for path in ('rhodium/backend/rsim/emit.rhm', 'rhodium/compile/rtl.rhm',
-                     'cores/rv5stage/core.rhdl', 'sims/TestDriver.v', '.github/workflows/ci.yml'):
+    def test_rsim_defaults_preserve_workloads_and_circt_is_a_bounded_variant(self):
+        for path in ('rhodium/backend/rsim/emit.rhm', 'cores/rv5stage/core.rhdl',
+                     'sims/TestDriver.v', '.github/workflows/ci.yml'):
             with self.subTest(path=path):
                 plan = self.plan(path)
                 entries = plan['simulator_matrix']['include']
-                self.assertEqual(len({entry['simulator_id'] for entry in entries}), len(entries))
-                rsim = [entry for entry in entries if entry['backend'] == 'rsim']
-                self.assertEqual(len(rsim), 1)
-                self.assertEqual(rsim[0]['simulator_id'], 'simple-rv5stage-rva23-rsim')
-                self.assertEqual(rsim[0]['soc'], 'simple-rv5stage-rva23')
-                self.assertEqual(rsim[0]['software_tests'], 'smoke')
-                self.assertTrue(all(row['opt_fast'] for row in entries))
-                self.assertGreater(rsim[0]['smoke_max_cycles'], 0)
-                self.assertGreater(rsim[0]['harness_timeout_minutes'], 0)
-                self.assertEqual({row['configuration'] for row in plan['arch_build_matrix']['include']}, set(SINGLE_CORE_SOCS))
-                self.assertTrue(all(row['soc'] in SINGLE_CORE_SOCS for row in plan['program_matrix']['include']))
-        # Software-only builds still use the ordinary simulator inventory.
-        self.assertTrue(all(row['backend'] == 'circt' for row in
+                self.assertEqual(len({row['simulator_id'] for row in entries}), len(entries))
+                rsim = [row for row in entries if row['backend'] == 'rsim']
+                self.assertEqual({row['soc'] for row in rsim}, {c[0] for c in SIMULATOR_CONFIGS})
+                for row in rsim:
+                    self.assertEqual(row['simulator_id'], row['soc'])
+                    self.assertEqual(row['software_tests'].split(), list(SOFTWARE_TESTS[row['shape'], row['isa']]))
+                    self.assertEqual(row['cosim'], row['soc'] in COSIM_CONFIGS)
+                circt, = [row for row in entries if row['backend'] == 'circt']
+                self.assertEqual(circt['simulator_id'], 'simple-rv5stage-rva23-circt')
+                self.assertEqual(circt['software_tests'].split(), ['smoke', 'boot-test', 'host-mmio-test', 'uart-pty-test', 'isa-smoke'])
+                self.assertTrue(circt['cosim'])
+                self.assertTrue(all(row['opt_fast'] == '-O2' for row in entries))
+                for matrix in ('program_matrix', 'arch_run_matrix'):
+                    self.assertTrue(all(row['backend'] == 'rsim' for row in plan[matrix]['include']))
+        self.assertTrue(all(row['backend'] == 'rsim' for row in
                             self.plan('sw/build/build-coremark.py')['simulator_matrix']['include']))
-        self.assertTrue({row['soc'] for row in platform_configs()} <= {c[0] for c in SIMULATOR_CONFIGS})
+        self.assertTrue(all(row['backend'] == 'rsim' for row in platform_configs()))
 
     def test_backend_workflow_commands_propagate_settings_and_failures(self):
         def script(workflow, marker):
@@ -286,7 +288,7 @@ class PlanTest(unittest.TestCase):
                 tool.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        CALL_LOG=str(calls), RUNNER_TEMP=str(root), SOC='simple-rv5stage-rva23',
-                       RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23-rsim',
+                       RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23',
                        SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000',
                        COSIM='0', GITHUB_OUTPUT=str(root / 'github-output'))
             (root / 'targets').mkdir()
@@ -322,8 +324,8 @@ class PlanTest(unittest.TestCase):
                         self.assertEqual(len(commands), 1)
                         self.assertEqual(commands[0][3], 'smoke')
                         self.assertIn('HTIF_ARGS=+max-cycles=100000', commands[0])
-                        self.assertIn(f'PREBUILT_SIMULATOR={root}/simple-rv5stage-rva23-rsim/VTestDriver', commands[0])
-                        self.assertIn('tool transcript', (root / 'simple-rv5stage-rva23-rsim-smoke.log').read_text())
+                        self.assertIn(f'PREBUILT_SIMULATOR={root}/simple-rv5stage-rva23/VTestDriver', commands[0])
+                        self.assertIn('tool transcript', (root / 'simple-rv5stage-rva23-smoke.log').read_text())
 
     def test_shared_harness_binds_before_execution_and_preserves_later_attempts(self):
         workflow = (REPO / ".github/workflows/ci-harness.yml").read_text()
@@ -381,7 +383,7 @@ class PlanTest(unittest.TestCase):
     def test_software_selection_is_identical_for_matching_shape_and_isa(self):
         entries = self.plan("sims/Makefile")["simulator_matrix"]["include"]
         for (shape, isa), tests in SOFTWARE_TESTS.items():
-            configs = [entry for entry in entries if entry["backend"] == 'circt' and (entry["shape"], entry["isa"]) == (shape, isa)]
+            configs = [entry for entry in entries if entry["backend"] == 'rsim' and (entry["shape"], entry["isa"]) == (shape, isa)]
             self.assertEqual({entry["core"] for entry in configs},
                              {core for soc, candidate_shape, core in SIMULATOR_CONFIGS
                               if (candidate_shape, soc.rsplit('-', 1)[1]) == (shape, isa)})
@@ -714,7 +716,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual({row['soc'] for row in builds if row['cosim']}, expected)
         self.assertEqual(len(builds), len(SIMULATOR_CONFIGS) + len(BACKEND_SMOKE_VARIANTS))
         for soc in expected:
-            build, = [row for row in builds if row['soc'] == soc and row['backend'] == 'circt']
+            build, = [row for row in builds if row['soc'] == soc and row['backend'] == 'rsim']
             self.assertEqual(build['simulator_id'], soc)
             self.assertEqual(build['software_tests'].split(), list(SOFTWARE_TESTS[build['shape'], build['isa']]))
         for matrix, key in (('program_matrix', 'soc'), ('arch_run_matrix', 'configuration')):

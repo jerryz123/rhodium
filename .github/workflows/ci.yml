@@ -321,7 +321,7 @@ jobs:
         if: fromJSON(needs.plan.outputs.plan).run_spike_tests
         run: |
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
+          make -C sims spike-core-test spike-dpi-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
 
   checks:
     name: Checks

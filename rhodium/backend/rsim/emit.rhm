@@ -84,6 +84,9 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def cases = for List (value in args.drop(1), index in 0..(args.length() - 1)):
         types.bit_test(selector_type, args[0], index) ++ " ? " ++ value ++ " : "
       String.join(cases, "") ++ types.name(step.type) ++ "{}"
+  | step.opcode == "rtl.decode" && step.attributes.has_key("rsim_table"):
+      def table = types.decode_reference(step.type, step.attributes["rsim_table"])
+      "*" ++ table ++ "_rows[" ++ table ++ "[" ++ args[0] ++ "]]"
   | step.opcode == "rtl.decode" && membership_decode(step, steps[step.operands[0]].type):
       def keys = step.attributes["cases"].map(fun (row): "case " ++ literal(row[0]) ++ ":")
       "([&]() -> std::uint64_t { switch (" ++ args[0] ++ ") { " ++ String.join(keys, " ") ++ " return UINT64_C(1); default: return UINT64_C(0); } }())"
@@ -163,6 +166,8 @@ fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: 
   for (step in steps, index in 0..steps.length()):
     when constant_values.has_key(index)
     | bindings[index] := types.constant_reference(step.type, constant_values[index])
+    when step.attributes.has_key("rsim_table")
+    | types.decode_reference(step.type, step.attributes["rsim_table"])
     when aggregate_decode(step)
     | for (row in step.attributes["cases"]): types.constant_reference(step.type, row[2] bits.and row[3])
       types.constant_reference(step.type, step.attributes["default_value"] bits.and step.attributes["default_care"])

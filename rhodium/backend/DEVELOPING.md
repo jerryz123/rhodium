@@ -43,16 +43,17 @@ a shared semantic responsibility actually belongs in core.
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Rsim configuration and scheduling over shared RTL preparation, with optional SV binding |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
-| `rsim/array-updates.rhm` | Exact array-update recovery, read forwarding, and unused-value pruning |
+| `rsim/decode.rhm` | Proven selector-bit specialization and bounded native decode table planning |
+| `rsim/array-updates.rhm` | Exact array-update recovery and read forwarding, using shared liveness pruning |
 | `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
-| `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
+| `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, shared schedule pruning, and ordered final consumers |
 | `rsim/conditional.rhm` | Bounded exclusive pure producers placed beneath mux selections and explicit consumer guards in each evaluation phase |
 | `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/cache.rhm` | Experimental cache eligibility by backing lifetime and logical-resource invalidation masks |
 | `rsim/layout.rhm` | Structured backing references, aggregate borrowing, and typed scratch allocation for each evaluation body |
 | `rsim/arrays.rhm` | Element, fill, and affine-gather runs for existing vector constructors |
-| `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
+| `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons, constants, and indexed tables |
 | `rsim/emit.rhm` | C++ rendering of expressions, storage and array plans, bounded helpers, evaluation frames, and simultaneous commits |
 | `rsim/rsim-bits.hpp` | Portable wide scalar carrier and explicit bit conversions |
 | `rsim/sv-binding.rhm` | Scalar boundary validation, state-only output dependencies, SV wrapper, and C++ DPI bridge |
@@ -104,8 +105,20 @@ must never turn a byte/halfword shift into signed arithmetic or truncate a
 enable, index, and element carriers independently. These representation choices
 do not change evaluation, borrowing, bank selection, or commit ordering.
 
-Both rsim targets apply `share_scalar_expressions` after scheduling and before
-binding validation or evaluation planning. It retains the first matching pure
+Both rsim targets specialize `rtl.decode` selectors immediately after scheduling.
+`specialize_decodes` propagates conservative known bits through constants,
+canonical aggregate construction/projection, casts, slices, extensions, and
+bitwise operations. Mutable state, memory, foreign results, and unsupported
+operations remain unknown. It rejects impossible rows, folds constant results,
+and gathers only residual care bits into a compact scalar selector. Record
+fields pack high-first and vector elements low-first; native C++ layout never
+defines this analysis. Input cubes remain disjoint after restriction. Uncared
+output bits retain rsim's deterministic zero choice, and runtime inputs never
+become don't-cares. The pass changes only the private schedule, preserving the
+prepared RTL and compilation manifest.
+
+Both rsim targets then apply `share_scalar_expressions` before binding validation
+or evaluation planning. It retains the first matching pure
 scalar expression in dependency order, matching opcode, ordered remapped operands,
 semantic attributes, and hardware type equality. Only the diagnostic value `name`
 is excluded from attribute comparison; the retained step keeps its original
@@ -173,6 +186,24 @@ occurrence paths, labels, locations, and effect ordering do not change. Derive
 evaluation bodies, dependencies, regions, and storage from this returned schedule;
 never carry old step indices across the rewrite. Schedule liveness uses the
 original `pre_edge_sinks` inventory, before array assignments absorb producers.
+After graph rewrites, shared `prune_schedule` removes unused pure producers while
+retaining public inputs and every state/effect operand. Resource slots, occurrence
+identities, reset sampling, assertion/DPI order and failed-edge retry semantics
+remain unchanged. Regions and dependencies are rebuilt from that live schedule.
+
+`plan_decode_tables` selects dense lookup tables for residual scalar selectors of
+at most 12 bits with at least four rows and non-Boolean results. It bounds planning
+work to 262,144 row probes per candidate, each table to 64 KiB and the schedule's
+table budget to 1 MiB. These byte estimates cover row IDs and 64-bit row pointers;
+typed result constants continue to use the existing constant pool. Equivalent
+plans share a budget charge. Rendering interns tables by physical result type and
+contents, with 8- or 16-bit row IDs indexing pointers to immutable typed constants.
+Aggregate results retain static backing without copying a row or borrowing a
+model's scratch. Regions charge lookup cost rather than the original row count.
+Small relations, Boolean membership, and unsuitable sparse/wide domains retain
+their existing renderers. This is bounded backend representation selection; it
+introduces no frontend API, semantic annotation, Boolean minimizer or scheduler.
+
 The emitter renders evaluation/assignment plans derived from its supplied
 schedule. The forced-region fixture target
 uses the same two passes before applying its smaller partition budget.
@@ -347,9 +378,10 @@ reference locally or a const-pointer slot across regions; nested projections
 borrow the selected row through the ordinary backing map. Every arm has the
 same physical type and static lifetime, including empty-table defaults.
 Row selection runs anew in each evaluation; this is not a cache or conditional
-dependency scheduling. State/output consumers still copy values, and scalar
-decodes retain their existing expression form. Region costs charge selection
-instead of constructing each row's aggregate leaves.
+dependency scheduling. State/output consumers still copy values. Scalar results
+remain ordinary scalar values whether selected by an indexed table or a fallback
+expression. Region costs charge selection instead of constructing each row's
+aggregate leaves.
 Nonconstant vector constructors with boundary slots write each normalized operand
 directly into its indexed element before binding the result alias. The destination
 is unique and cannot alias any earlier operand, including a borrowed mux result;
@@ -531,7 +563,9 @@ outputs with `CppTypes.constant`. Host-side slicing of arbitrary-width constants
 keeps every emitted integer literal within a scalar carrier; wide scalar masks
 and lookup keys use the same limb constants as ordinary data. Evaluation planning
 propagates canonical constant bits through casts; the emitter renders their
-destination leaves directly. Equal rendered values of the same C++ type share
+destination leaves directly. Host leaf extraction uses shifts and masks, avoiding
+large-integer division while decomposing ROMs and decode constants. Equal rendered
+values of the same C++ type share
 namespace-level
 `static constexpr` storage with internal linkage. Each constant step aliases its
 canonical object directly, so rendering a step does not require another step's
@@ -770,7 +804,8 @@ sets, duplicate and empty alternatives, signed/nominal types, dynamic mixtures,
 The native build uses ASan/UBSan. Both ordinary and forced-region runners include
 it; run `python3 rhodium/backend/tests/rsim/membership.py --differential` for
 focused coverage. Exact Boolean decode relations with scalar selectors up to
-64 bits use a C++ switch; other decode shapes keep their existing typed lowering.
+64 bits use a C++ switch; other shapes use the bounded table selection described
+above or their existing typed fallback.
 
 `tests/rsim/mask_index.py` checks authored hardware mask indexing and scoreboard
 reads against an integer oracle. It covers widths 1/3/31/32/63/64/65/129,
@@ -927,6 +962,16 @@ The ordinary and forced-region native runners both include these fixtures.
 storage dependencies, shared output computation, and occurrence identity with
 Builder fixtures. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
+`tests/rsim-decode-test.rhm` compares specialized schedules against an independent
+canonical-integer interpreter, exhaustively covering dynamic bytes with constant
+record fields, noncontiguous cubes, bitwise facts, vector packing, wide extensions,
+partial outputs and defaults. Sparse wide relations retain bounded fallback;
+state remains unknown despite reset values. Effect-root checks cover registers,
+memory, assertions and ordered foreign calls after pruning. `tests/rsim/decode.py`
+executes generated aggregate-table models with AddressSanitizer and UBSan,
+including model copying, dirty input padding, shared tables, and 16-bit row IDs.
+The native runner includes this fixture, and forced
+region fixtures use the production target's optimized schedule.
 `tests/rsim-cse-test.rhm` checks transitive expression sharing, operand order,
 type/attribute distinctions, deterministic and idempotent rewriting, complete
 consumer remapping (including optional value zero), and preserved effect/resource

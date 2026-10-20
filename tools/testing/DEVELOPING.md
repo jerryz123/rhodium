@@ -119,23 +119,23 @@ integrity belong to their owning adapter tests, not workflow-text snapshots.
 The config rows come from the single
 [`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
 by shape and ISA, independently of core. Simulator matrices additionally carry
-backend, cosim selection, and artifact identity. `BACKEND_SMOKE_VARIANTS` in `policy.py` adds
-`simple-rv5stage-rva23-verilog` with three smoke tests and
-`simple-rv5stage-rva23-rsim` with only `smoke`. Both reuse the same architectural
-config/target without expanding the architectural or software test inventories.
+backend, cosim selection, and artifact identity. rsim is the default for every
+enrolled config; the full shape/ISA workloads remain unchanged.
+`BACKEND_SMOKE_VARIANTS` in `policy.py` adds `simple-rv5stage-rva23-verilog`
+with three smoke tests and `simple-rv5stage-rva23-circt` with smoke, boot,
+host MMIO, UART, and ISA smoke. Only these explicit variants use narrowed
+workload policy; ordinary backend selection never reduces coverage.
 All simulator rows select `OPT_FAST=-O2`; initialization and Verilator runtime
-compilation inherit the same level through the simulator Makefile. Rsim retains
-a 100,000-cycle limit and a five-minute harness step.
-Both build jobs omit CIRCT, and prebuilt consumers verify backend provenance.
-Workflow tests exercise optimization propagation, bounded smoke arguments, and
-nonzero status through log capture. CI retains build and harness logs.
+compilation inherit it. Prebuilt consumers carry backend provenance explicitly
+through software, ACT, platform, and harness jobs. Workflow tests exercise
+optimization propagation, bounded arguments, and nonzero status through log
+capture. CI retains build and harness logs.
 
-All Mini/Simple RV5Stage and RV2Wide CIRCT rows, plus the RV5Stage direct-SystemVerilog row, publish one
-cosim-enabled simulator under the unchanged config artifact name. Propagate
+All Mini/Simple RV5Stage and RV2Wide rsim rows, plus the two RV5Stage HDL
+variants, publish a cosim-enabled simulator under their config artifact name. Propagate
 that selection to native ISA, ACT, and firmware consumers; verify the variant
 and install GMP. Native and ACT runners require nonempty successful checking.
-The experimental Rsim backend remains uninstrumented. This does not add matrix
-rows or change workload selection. The planner unit tests also reject tracked executable
+Cosim enrollment does not add matrix rows or change workload selection. The planner unit tests also reject tracked executable
 inputs that select no lane. When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects

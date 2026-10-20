@@ -122,49 +122,37 @@ All simulator backends default to native C++ `-O2`, locally and in CI.
 Use a fresh build root or object directory when changing flags, because object
 timestamps do not encode them.
 
-`RTL_BACKEND=circt` is the default simulator build route. Opt into direct
-SystemVerilog emission with:
+`RTL_BACKEND=rsim` is the default. It emits a C++ model under the existing
+SV/DPI wrapper and `TestDriver.v`; Verilator still hosts clock/reset, FESVR,
+UART, and lifecycle callbacks. Builds live under `$(BUILD_ROOT)/<config>/`.
+`COSIM=1` enables the same Sail checking used by the HDL backends and adds
+`-cosim` to the build directory.
 
 ```sh
+make -C sims smoke SOC=simple-rv5stage-rva23 COSIM=1
+make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=circt COSIM=1
 make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=verilog
 ```
 
-The direct route uses the same circuit, Verilator driver, FESVR transport, DPI
-models, and payload. It does not invoke CIRCT. Builds live under
-`$(BUILD_ROOT)/<config>-verilog/`, separate from the default CIRCT objects;
-configuration attestation reads the emitted `SoCHarness.sv` and records the
-backend. Prebuilt reuse must request the same `RTL_BACKEND`; a backend mismatch
-is rejected before execution. CI validates the additional
-`simple-rv5stage-rva23-verilog` build with `smoke`, `host-mmio-test`, and
-`uart-pty-test`, reusing the existing architectural configuration. The direct route
-currently supports untraced builds (`TRACE=0`). Use the default CIRCT route
-for event tracing. Other configs and broader workloads require their own
-execution validation before claiming parity.
+Explicit CIRCT and direct SystemVerilog builds use `<config>-circt/` and
+`<config>-verilog/`. Every artifact records its backend, target, and
+instrumentation variant; prebuilt reuse rejects mismatches before execution.
+Backend selection does not change the architectural config or its software
+workloads. rsim uses bounded evaluation helpers within one C++ translation unit.
+See the [rsim contract](../rhodium/backend/README.md#systemverilog-hosted-rsim)
+for supported semantics and binding limits.
 
-`RTL_BACKEND=rsim` selects the experimental C++ model with an SV/DPI wrapper
-under the same `TestDriver.v`. Its artifacts live in `<config>-rsim/`; it
-accepts `TRACE=0` and records `rsim` in backend provenance. Production CHI memory
-has focused differential coverage. Simple RV5Stage RVA23 passes the existing
-smoke workload, including boot, UART/PLIC, and integer/floating-point vector
-checks:
+CI runs the enrolled architectural configurations through rsim, preserving
+shape/ISA workload selection and Sail checking for supported Mini/Simple RTL
+cores. One additional `simple-rv5stage-rva23-circt` variant covers smoke, boot,
+host MMIO, UART, and bounded ISA execution with Sail checking. The existing
+`simple-rv5stage-rva23-verilog` variant covers smoke, host MMIO, and UART.
+These suffixed names are build identities; use the base `SOC` plus
+`RTL_BACKEND` in local commands.
 
-```sh
-make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=rsim \
-  HTIF_ARGS=+max-cycles=100000
-```
-
-CI selects `simple-rv5stage-rva23-rsim` as an additional simulator variant of
-`simple-rv5stage-rva23`, using the shared `-O2` default, `TRACE=0`, and `COSIM=0`.
-It runs only `smoke`, bounded to 100,000 cycles and five minutes. The suffixed name is
-the CI/artifact identity; local commands use the base `SOC` and `RTL_BACKEND`
-shown above.
-
-This checks compilation, linking, loader startup, and that bounded workload.
-The generated model uses bounded evaluation helpers within one C++ translation
-unit. Both rsim and CIRCT/Verilator pass this smoke at `-O2` with Apple Clang 17 on
-arm64 macOS. The smoke CI lane owns Linux/GCC validation. These results do not
-establish broader ISA/workload parity or a general performance advantage. See the
-[rsim contract](../rhodium/backend/README.md#systemverilog-hosted-rsim).
+Event tracing still requires explicit `RTL_BACKEND=circt TRACE=1`; `trace-smoke`
+selects that backend itself. Mapped SRAM and VLSI simulation retain their CIRCT
+pipeline independently of the functional simulator default.
 
 The host emitters require an explicit third architectural selector:
 
@@ -173,11 +161,13 @@ tools/run-racket.sh -S "$PWD" sims/program-test/write-target.rhm simple rv5stage
 ```
 
 Run this command from the repository root. The same three selectors are
-accepted by `emit-soc-harness.rhm`; it emits MLIR to standard output. A custom
+accepted by `emit-soc-harness.rhm`. Its default rsim route also requires
+`--output-directory <dir>` for C++ companions and emits the SV wrapper to stdout;
+`--backend circt` explicitly selects MLIR output. A custom
 fixture path instead exports `program`, a `DesignElaboration` whose explicit
 top is `SoCHarness`. It is passed directly to the selected compilation target.
 Both use the [shared config resolver](../socs/README.md#typed-config-selection).
-The [paired-config inventory](test-configs.rhm) describes the twenty test
+The [paired-config inventory](test-configs.rhm) describes the enrolled test
 configs. Workload selection depends on shape and ISA, not core implementation.
 Make, software targets, simulator
 attestations, and ACT configurations include ISA in their config keys.
@@ -362,13 +352,13 @@ Tracing is opt-in on the normal simulator and run targets. It supports Simple/Ti
 RV5Stage and Mini/Simple RV2Wide, with an explicit supported ISA selection:
 
 ```sh
-make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
-make -C sims run SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
+make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
+make -C sims run SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
   BINARY=/absolute/path/to/multihart.elf \
   HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
-make -C sims run SOC=mini-rv2wide-rv64imacb TRACE=1 TRACE_FILE=/tmp/rv2wide.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=mini-rv2wide-rv64imacb RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/rv2wide.pftrace BINARY=/absolute/path/to/program.elf
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-smoke.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
@@ -420,7 +410,7 @@ window, totals, and ranked PCs.
 
 ### Trace emission and display
 
-For host emission, `emit-soc-harness.rhm --trace OUTPUT_DIRECTORY shape core ISA`
+For host emission, `emit-soc-harness.rhm --backend circt --trace OUTPUT_DIRECTORY shape core ISA`
 prints MLIR and writes `soc_events.json` and `soc_events.h` into an existing
 output directory. RTL and descriptors come from one compilation result; the
 header additionally includes the selected SoC clock frequency.

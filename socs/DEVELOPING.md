@@ -230,7 +230,7 @@ make -C socs config-test
 For tiled streaming adapters, run the focused behavioral fixtures:
 
 ```sh
-FIXTURES='tiled-time tiled-distribution' bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='tiled-time tiled-distribution' python3 tools/testing/rsim/run.py
 ```
 
 These cover stalled time packets, latest-snapshot coalescing, complete timestamp

@@ -8,7 +8,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
 
-/* Advance the per-scope native hart using sampled handshake inputs and return its next registered transaction outputs. */
+/* Advance the native hart identified by the enclosing DPI scope and hart ID using sampled handshake inputs and return its next registered transaction outputs. */
 dpi_import function rhodium_spike_tick(
   reset: Bool,
   hart_id: Bits(64),
@@ -102,7 +102,7 @@ dpi_import function rhodium_spike_tick(
 
 /*
  * Advance the native model on clock edges and register its typed transaction outputs; reset
- * destroys the per-scope native hart.
+ * destroys only the native hart identified by the enclosing DPI scope and hart ID.
  */
 sync_circuit SpikeDPI(config :: SpikeConfig):
   input hart_id: Bits(64)

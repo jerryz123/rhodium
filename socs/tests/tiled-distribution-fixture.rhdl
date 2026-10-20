@@ -36,7 +36,8 @@ sync_circuit TiledDistributionFixture():
   network.interrupt_egress <=> interrupt_egress
   network.external_interrupt_egress <=> external_interrupt_egress
 
-def distribution_design = compile_program(elaborate(TiledDistributionFixture()), rtl_target).report.design
+def distribution_program = elaborate(TiledDistributionFixture())
+def distribution_design = compile_program(distribution_program, rtl_target).report.design
 
 sync_circuit TiledTimeFixture():
   interface update(Valid(Bits(64)), ~role: consumer)
@@ -57,7 +58,8 @@ sync_circuit TiledTimeFixture():
     hart_time[index] <== receiver.value
   transferred <== sweeper.egress.fire()
 
-def time_design = compile_program(elaborate(TiledTimeFixture()), rtl_target).report.design
+def time_program = elaborate(TiledTimeFixture())
+def time_design = compile_program(time_program, rtl_target).report.design
 
 export:
   DistributionHartCount
@@ -66,3 +68,5 @@ export:
   TiledDistributionFixture
   distribution_design
   time_design
+  distribution_program
+  time_program

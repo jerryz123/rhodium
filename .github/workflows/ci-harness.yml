@@ -140,8 +140,8 @@ jobs:
           done
           exit "$status"
       - name: Verify RV5Stage-specific NTL cache timing
-        if: fromJSON(inputs.config).backend == 'circt' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'
-        run: make -C sims zihintntl-policy-test COSIM=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
+        if: fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'
+        run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
         if: fromJSON(inputs.config).soc == 'mini-rv5stage-rva23'
         run: make -C vlsi/sim smoke

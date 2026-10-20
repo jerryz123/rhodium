@@ -106,7 +106,7 @@ def platform_configs():
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
               'tiled': ('litmus', 'litmus-smoke-run', 90)}
     return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2],
-                 cosim=soc in COSIM_CONFIGS)
+                 cosim=soc in COSIM_CONFIGS, backend=DEFAULT_BACKEND)
             for soc, shape, _core in SIMULATOR_CONFIGS
             if shape in suites and SELECTIONS[soc][2] == 'rva23']
 
@@ -119,10 +119,11 @@ def native_configs(suite):
 # Backend variants reuse the architectural config and software target descriptor.
 # Only simulator build/run matrices include this additional backend test.
 BACKEND_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
+DEFAULT_BACKEND = 'rsim'
 BACKEND_SMOKE_VARIANTS = {
     'verilog': dict(software_tests=('smoke', 'host-mmio-test', 'uart-pty-test')),
-    'rsim': dict(software_tests=('smoke',),
-                 smoke_max_cycles=100000, harness_timeout_minutes=5),
+    'circt': dict(software_tests=('smoke', 'boot-test', 'host-mmio-test', 'uart-pty-test', 'isa-smoke'),
+                  harness_timeout_minutes=60),
 }
 
 # These existing configs publish one cosim-enabled simulator, not another lane.
@@ -131,16 +132,16 @@ COSIM_CONFIGS = frozenset(soc for soc, shape, core in SIMULATOR_CONFIGS
                            if core in ('rv5stage', 'rv2wide') and shape in ('mini', 'simple'))
 
 
-def simulator_entry(soc, shape, core, backend='circt'):
+def simulator_entry(soc, shape, core, backend=DEFAULT_BACKEND):
     return dict(soc=soc, shape=shape, core=core, backend=backend,
-                cosim=soc in COSIM_CONFIGS and backend != 'rsim',
-                simulator_id=soc + ('' if backend == 'circt' else '-' + backend),
+                cosim=soc in COSIM_CONFIGS,
+                simulator_id=soc + ('' if backend == DEFAULT_BACKEND else '-' + backend),
                 opt_fast='-O2')
 
 
-def simulation_entry(soc, shape, core, backend='circt'):
+def simulation_entry(soc, shape, core, backend=DEFAULT_BACKEND, *, smoke_variant=False):
     isa = SELECTIONS[soc][2]
-    policy = BACKEND_SMOKE_VARIANTS.get(backend, {})
+    policy = BACKEND_SMOKE_VARIANTS[backend] if smoke_variant else {}
     tests = policy.get('software_tests', SOFTWARE_TESTS[shape, isa])
     return dict(**simulator_entry(soc, shape, core, backend), isa=isa,
                 software_tests=" ".join(tests),
@@ -166,7 +167,7 @@ ARCH_SHARD_COUNTS = {
 
 def arch_shards():
     return tuple(dict(**config, shard=shard, shard_count=count,
-                      cosim=config['configuration'] in COSIM_CONFIGS)
+                      cosim=config['configuration'] in COSIM_CONFIGS, backend=DEFAULT_BACKEND)
                  for config in arch_configs()
                  for count in (ARCH_SHARD_COUNTS[config['configuration']],)
                  for shard in range(count))
