@@ -30,17 +30,23 @@ Both ACT and cosim apply the same policy. Unsupported HPM event IDs become
 zero according to UDB's `HPM_EVENTS`, preserving overflow and filter fields;
 absent counters and their selectors remain read-only zero. This models selector
 WARL behavior only, not HPM event counting or generated overflow.
-Our no-trigger harts set `base.tselect_present` false so optional selector accesses
-trap, including OpenSBI's trigger probe. The patched model retains its legacy
-placeholder by default; this control does not implement or advertise Sdtrig.
+Numeric UDB event IDs do not identify Sail's native event semantics, so the
+shared projection clears the native event-selector map. Co-simulation supplies
+the implementation's raw counter inputs. ACT alone maps selector 1 to its synthetic fence
+workload, replacing the DUT cycle-counting workload through upstream's reference
+macros. This tests overflow/filter behavior without equating model events with
+hardware cycles; ACT records this reference-only counting difference.
+Our no-trigger harts disable Sail's native Sdtrig extension so optional selector
+accesses trap, including OpenSBI's trigger probe. MISA mutability is projected
+per extension, and Stateen fields use native writable/read-only choices.
 For H profiles, the current supported transformed-instruction policy is the
 UDB's always-zero choice; other policies fail instead of inheriting Sail defaults.
 
 `soc_config.config_architecture` checks the selected config and any separate UDB
 export against canonical configuration metadata. `soc_config.model_defaults` checks
 the pinned Sail release and required configuration controls, then obtains its
-XLEN-specific defaults. The release string alone cannot distinguish the current
-master pin from the older 0.14.1 tag.
+XLEN-specific defaults. Both consumers use model version 0.16, built from the
+pinned development revision with compiler 0.20.3.
 
 ## Architecture versus environment
 
@@ -61,3 +67,7 @@ including vector reserved behavior and HPM event counting. Both consumers
 publish these differences without changing the config's UDB or disabling
 extensions. A future comparison engine must explicitly handle or reject each
 difference; configuration acceptance alone is not full-profile validation.
+
+The current Spike projection also leaves Stateen `CONTEXT` read-only zero,
+although Spike exposes writable context state. Full ACT walking-bit checks
+report this mismatch; disabling Sdtrig is not a complete context-CSR model.

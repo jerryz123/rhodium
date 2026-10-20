@@ -46,7 +46,7 @@ VECTOR_PARAMETERS = {
 def sail_default():
     return {
         "extensions": {
-            "F": {"supported": False}, "D": {"supported": False},
+            "F": {"supported": False, "mutable_misa": True}, "D": {"supported": False, "mutable_misa": True},
             "H": {"supported": False, "vsatp_modes": {"Sv39": True, "Sv48": True, "Sv57": True},
                   "hgatp_modes": {"Sv39x4": True, "Sv48x4": True, "Sv57x4": True},
                   "transformed_instruction": {}},
@@ -69,10 +69,11 @@ def sail_default():
             "Zicbom": {"supported": False}, "Zicbop": {"supported": False},
             "Ssnpm": {"supported": False, "supported_pmlen_7": False,
                        "supported_pmlen_16": False},
-            "Stateen": {"Smstateen": {"supported": False}, "Ssstateen": {"supported": False}},
+            "Stateen": {"Smstateen": {"supported": False}, "Ssstateen": {"supported": False},
+                        "mstateen0": {}, "hstateen0": {}, "sstateen0": {}},
+            "Sdtrig": {"supported": True}, "Sscofpmf": {"supported": False},
         },
         "base": {
-            "tselect_present": True,
             "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xcb1ff"}},
             "hpm_events": {"restricted": False, "supported": []},
             "pmm_unsupported_write_to_disabled": False,
@@ -534,6 +535,24 @@ class ArchTestConfigTest(unittest.TestCase):
         ):
             self.assertIn(definition, macros)
 
+    def test_sscofpmf_uses_reference_only_fence_workload(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        udb = vector_udb()
+        udb["implemented_extensions"].extend([
+            {"name": "Zihpm", "version": "= 2.0"}, {"name": "Sscofpmf", "version": "= 1.0"},
+        ])
+        udb["params"]["HPM_COUNTER_EN"][3] = True
+        udb["params"].update(HPM_COUNTER3_WIDTH=64, HPM_EVENTS=[0, 1, 2],
+                             MCOUNTINHIBIT_IMPLEMENTED=True, COUNTINHIBIT_EN=udb["params"]["HPM_COUNTER_EN"].copy())
+        model = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+        self.assertEqual(model["platform"]["event_selectors"], [
+            {"event": "EV_FENCE", "selector": {"len": 64, "value": "0x1"}},
+        ])
+        macros = RVMODEL_MACROS.read_text()
+        self.assertIn("#define RVMODEL_HPM_COUNTER 3", macros)
+        self.assertIn("#define RVMODEL_MHPMEVENT_VAL 1", macros)
+        self.assertIn("#define RVMODEL_MHPMEVENT_CODE(_R1, _R2) nop", macros)
+
     def test_vector_projection_rejects_inconsistent_profiles(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
         project = configure["sail_config"]
@@ -672,7 +691,7 @@ class ArchTestGenerationTest(unittest.TestCase):
 
     def test_entry_point_preserves_upstream_sail_version_check(self):
         config = ModuleType("act.config")
-        config.REQUIRED_SAIL_VERSION = "0.14.1"
+        config.REQUIRED_SAIL_VERSION = "0.16"
         config.check_ref_model_version = Mock()
         version_check = config.check_ref_model_version
         act = ModuleType("act")
@@ -681,7 +700,7 @@ class ArchTestGenerationTest(unittest.TestCase):
         cli.main = Mock()
         with patch.dict(sys.modules, {"act": act, "act.config": config, "act.act": cli}):
             runpy.run_path(str(RUNNER.with_name("build.py")), run_name="__main__")
-        self.assertEqual(config.REQUIRED_SAIL_VERSION, "0.14.1")
+        self.assertEqual(config.REQUIRED_SAIL_VERSION, "0.16")
         self.assertIs(config.check_ref_model_version, version_check)
         cli.main.assert_called_once_with()
 

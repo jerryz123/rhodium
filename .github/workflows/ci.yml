@@ -131,7 +131,7 @@ jobs:
         with:
           path: |
             .tools/sail-compiler-0.20.3
-            .tools/sail-riscv-0.14.1-sail-0.20.3-*
+            .tools/sail-riscv-0.16-sail-0.20.3-*
           key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/sail/SailModelConfig.cmake') }}"
       - name: Build or verify patched Sail model
         run: make -C sims arch-test-sail-setup
@@ -141,13 +141,13 @@ jobs:
         with:
           path: |
             .tools/sail-compiler-0.20.3
-            .tools/sail-riscv-0.14.1-sail-0.20.3-*
+            .tools/sail-riscv-0.16-sail-0.20.3-*
           key: ${{ steps.sail-cache.outputs.cache-primary-key }}
       - name: Package patched Sail model
         run: |
           identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
           mkdir -p "$RUNNER_TEMP/sail-riscv"
-          tar -czf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools "sail-riscv-0.14.1-sail-0.20.3-$identity"
+          tar -czf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools "sail-riscv-0.16-sail-0.20.3-$identity"
       - name: Build and package shared cosim runtime libraries
         if: fromJSON(needs.plan.outputs.plan).run_cosim
         run: |

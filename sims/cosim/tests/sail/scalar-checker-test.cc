@@ -231,7 +231,9 @@ void mailbox_case(unsigned xlen, bool observed_new, unsigned mutation = 0) {
 
 void absent_tselect_case(unsigned xlen, unsigned mutation = 0) {
   auto config = jsoncons::json::parse(configuration(xlen));
-  config["base"]["tselect_present"] = false;
+  config["extensions"]["Sdtrig"]["supported"] = false;
+  config["extensions"]["Stateen"]["mstateen0"]["CONTEXT"] = "CSRBit_ReadOnlyZero";
+  config["extensions"]["Stateen"]["hstateen0"]["CONTEXT"] = "CSRBit_ReadOnlyZero";
   SailChecker checker(config.to_string(), base, {{base, 4096}});
   const unsigned encoding = 0x7a0027f3; // csrr a5, tselect, as used by OpenSBI.
   std::array<std::uint8_t, 4> code{};

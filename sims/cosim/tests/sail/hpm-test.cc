@@ -57,6 +57,16 @@ void rmw(unsigned xlen) {
   CHECK(model.step(inputs).retired && model.csr(0xb03)==0); // CSRRW rd=x0 suppresses the read.
   CHECK(model.step(inputs).retired && model.integer_register(13)==0); // Unimplemented stays zero.
 }
+void host_counter_does_not_count_native_events(unsigned xlen) {
+  SailReference model(config(xlen),base,backing);
+  model.load(base,bytes({csr(0x323,5,0,1),csr(0xb03),0x0000000f,0x0000000f}));
+  StepInputs inputs; inputs.hpm_counters[3]=42;
+  CHECK(model.step(inputs).retired);
+  CHECK(model.step(inputs).retired && model.integer_register(13)==42);
+  CHECK(model.step(inputs).retired && model.csr(0xb03)==42);
+  // An instruction without a counter sample does not invent a DUT event.
+  CHECK(model.step().retired && model.csr(0xb03)==42);
+}
 void permissions(unsigned xlen) {
   for (bool user : {false,true}) {
     SailReference model(config(xlen),base,backing);
@@ -125,7 +135,8 @@ void checker(unsigned xlen, bool corrupt) {
 int main() {
   for (unsigned xlen : {32,64}) {
     for (unsigned index : {3,31}) reads(xlen,index);
-    rmw(xlen); permissions(xlen); overflow(xlen); checker(xlen,false);
+    rmw(xlen); host_counter_does_not_count_native_events(xlen);
+    permissions(xlen); overflow(xlen); checker(xlen,false);
     for (bool enabled : {false,true}) supervisor_visibility(xlen,enabled);
     bool rejected=false;
     try { checker(xlen,true); } catch (const std::runtime_error&) { rejected=true; }

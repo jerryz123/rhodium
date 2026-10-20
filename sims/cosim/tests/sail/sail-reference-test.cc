@@ -177,14 +177,16 @@ void check_external_replay_failures() {
 
 void check_tselect(unsigned xlen) {
   auto config = jsoncons::json::parse(configuration(xlen));
-  CHECK(config["base"]["tselect_present"].as<bool>());
+  config["extensions"]["Sdtrig"]["supported"] = true;
   {
     SailReference model(config.to_string(), ram, backing);
     program(model, ram, {csrw(0x7a0, 0), 0x7a0020f3});
     CHECK(model.step().retired);
-    CHECK(written(model.step(), 1, xlen == 32 ? UINT32_MAX : UINT64_MAX));
+    CHECK(written(model.step(), 1, 0));
   }
-  config["base"]["tselect_present"] = false;
+  config["extensions"]["Sdtrig"]["supported"] = false;
+  config["extensions"]["Stateen"]["mstateen0"]["CONTEXT"] = "CSRBit_ReadOnlyZero";
+  config["extensions"]["Stateen"]["hstateen0"]["CONTEXT"] = "CSRBit_ReadOnlyZero";
   for (unsigned encoding : {0x7a0020f3U, csrw(0x7a0, 0), 0x7a0060f3U}) {
     SailReference model(config.to_string(), ram, backing);
     program(model, ram, {encoding});

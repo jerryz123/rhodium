@@ -155,6 +155,8 @@ class SpikeCoreModel::Implementation final : public simif_t {
       throw std::invalid_argument("Spike adapter supports only Bare and Sv39 translation");
     processor_->set_max_vaddr_bits(configuration_.max_vaddr_bits);
     processor_->reset();
+    // The published vector profile permits restarting arithmetic at any element.
+    processor_->VU.vstart_alu = true;
     processor_->get_state()->pc = configuration_.reset_vector;
     harts_.emplace(static_cast<std::size_t>(configuration_.hart_id), processor_.get());
     target_.init(&Implementation::run_trampoline, this);

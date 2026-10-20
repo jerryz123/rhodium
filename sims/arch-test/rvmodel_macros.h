@@ -45,7 +45,7 @@
   fence rw, rw; \
   4:
 
-// SingleCoreRV5StageSoC's ACLINT exposes hart 0's timer compare and the shared time counter.
+// Single-core SoCs expose hart 0's ACLINT timer compare and the shared time counter.
 // Its architectural timebase advances every clock cycle.
 #define RVMODEL_INTERRUPT_LATENCY 1
 #define RVMODEL_MTIMECMP_ADDRESS 0x02004000
@@ -81,12 +81,20 @@
 
 #define RVMODEL_SET_MEXT_INT(_R1, _R2) \
   RHODIUM_SET_EXT_INT(_R1, _R2, RHODIUM_PLIC_M_ENABLE, RHODIUM_PLIC_S_ENABLE, RHODIUM_PLIC_M_THRESHOLD)
+#define RVMODEL_SET_MEXT_INT_M(_R1, _R2) RVMODEL_SET_MEXT_INT(_R1, _R2)
 #define RVMODEL_CLR_MEXT_INT(_R1, _R2) RHODIUM_CLR_EXT_INT(_R1, _R2, RHODIUM_PLIC_M_CLAIM)
 #define RVMODEL_CLR_MEXT_INT_M(_R1, _R2) RVMODEL_CLR_MEXT_INT(_R1, _R2)
 #define RVMODEL_SET_SEXT_INT(_R1, _R2) \
   RHODIUM_SET_EXT_INT(_R1, _R2, RHODIUM_PLIC_S_ENABLE, RHODIUM_PLIC_M_ENABLE, RHODIUM_PLIC_S_THRESHOLD)
+#define RVMODEL_SET_SEXT_INT_M(_R1, _R2) RVMODEL_SET_SEXT_INT(_R1, _R2)
 #define RVMODEL_CLR_SEXT_INT(_R1, _R2) RHODIUM_CLR_EXT_INT(_R1, _R2, RHODIUM_PLIC_S_CLAIM)
 #define RVMODEL_CLR_SEXT_INT_M(_R1, _R2) RVMODEL_CLR_SEXT_INT(_R1, _R2)
 
 #define RVMODEL_MSIP_ADDRESS 0x02000000
+
+// The supported cores implement counter 3: selector 1 counts execution cycles.
+// ACT overrides the workload with a fence in its synthetic Sail reference.
+#define RVMODEL_HPM_COUNTER 3
+#define RVMODEL_MHPMEVENT_VAL 1
+#define RVMODEL_MHPMEVENT_CODE(_R1, _R2) nop
 #endif

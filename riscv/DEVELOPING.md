@@ -101,14 +101,19 @@ patch contents. Keep native consumers on C++20, including the independently
 compiled RHEG parser. Remove a patch only when upstream implements its contract,
 and retain regression coverage for that behavior.
 
-At pin `609dbe0b9994154833039209fa37151e7c05e9d4`, upstream supplies RV32
-`medelegh`, CSRIND state-enable gating, and HS overflow-interrupt priority;
-their former downstream patches are retired. The 21-patch series preserves
-the embedding hooks and advertised architectural contracts, including an XLEN
-guard for P1P13, whose controlled
-[`hedelegh` CSR](https://docs.riscv.org/reference/isa/priv/hypervisor) is RV32-only.
+At pin `5a760667bf0d0ab893173b9eeff9c109c8d7dd9a`, upstream supplies ISA-profile
+properties, RV32 `medelegh`, CSRIND state-enable gating, the RV32-only P1P13
+guard, and HS overflow-interrupt priority. Their downstream patches are retired.
+The 16-patch series preserves embedding hooks and advertised architectural
+contracts. P1P13 controls the
+[`hedelegh` CSR](https://docs.riscv.org/reference/isa/priv/hypervisor), which is RV32-only.
 Keep native regression coverage for RV32/RV64 with and without H, and for
 `hedelegh` permission checks.
+Spike selects a naturally aligned 64-byte reservation region with Za64rs,
+otherwise 128 bytes with Za128rs, otherwise exact-address matching. Keep its
+UDB reservation strategy and the Sail projection aligned with that selection.
+The native LR/SC regression checks region boundaries and physical permissions
+before matching a failed reservation in both execution paths and XLENs.
 The H-mandated `hedeleg` software-check and hardware-error bits remain writable
 independently of optional exception sources; `spike_arch_test.cc` exercises
 their set/clear behavior without CFI or counters.
@@ -125,16 +130,16 @@ The pinned `sail-riscv` submodule is likewise a host-side reference dependency,
 not a pure-model import. Keep it pristine and build the adjacent patch series
 through the shared materializer. Its compiler and emulator installation belong
 to the ACT flow under `sims/arch-test/`.
-At pin `5482c232c826131e88c047d373cd3e86a88d0f2b`, the model requires Sail
-compiler 0.20.3 but still reports release version 0.14.1. Upstream supplies the
-GEILEN=0 interrupt mask and explicit v2 memory-access classification, so their
-former standalone patches are retired. The remaining patches provide
+At pin `cd3f185e3a40cd402632d78a2bc213d62ae6f753`, the model reports version
+0.16 and still requires Sail compiler 0.20.3. Native fault-address reporting
+uses `memory.invalid_physical_address`; `None` preserves full transformed
+addresses. Native Sdtrig support makes trigger CSRs absent when disabled.
+Their former downstream patches are retired. The nine remaining patches provide
 default-disabled host memory/interrupt hooks, host time, exact subpage device
-PMAs, effective fault addresses above the implemented physical width, explicit
-interrupt boundaries, empty whole-register memory `vstart` cleanup, and optional
-`tselect` presence. The selector patch preserves Sail's default placeholder;
-shared UDB projection disables it for our no-trigger harts. RV32/RV64 embedded
-regressions check absent read/write traps and the preserved default behavior.
+PMAs, explicit interrupt boundaries, empty whole-register memory `vstart`
+cleanup, and external HPM inputs. Shared UDB projection disables Sdtrig for
+no-trigger harts; RV32/RV64 embedded regressions check absent read/write traps
+and native selector access when Sdtrig is enabled.
 The CSR-WARL patch adds configurable `hedeleg`, HPM selector event IDs, and
 unsupported PMM normalization with legacy defaults. Resolved static policy,
 not observed DUT state, selects each implementation's behavior. The Sstc patch
@@ -142,9 +147,11 @@ uses architectural host time without enabling a duplicate CLINT device.
 The WRS hook permits early completion of an already-waiting instruction without
 clearing reservations; standalone behavior and timeout exception checks remain
 unchanged. Embedded callers distinguish early release from timeout explicitly.
+Native event counting remains enabled for standalone execution; host-supplied
+counters bypass native event increments without bypassing CSR or overflow policy.
+PTW callbacks include translation stage and level. Adapt these signatures in
+the embedding without inferring guest state from a host physical address.
 Keep the executable and embedded library in one identity-scoped package.
-The fault-address patch includes a Sail unit test for positive, negative, and
-XLEN-wrapped offsets; run the upstream `unit_tests` target when building the model.
 Validate `arch-test-sail-test`, `sail-cosim-test`, representative
 `sail-cosim-config-test` configs, both supported scalar `cosim-smoke` configs,
 and freshly generated full ACT inventories after changing the pin or patch stack.

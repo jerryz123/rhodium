@@ -27,16 +27,16 @@ def model_defaults(sail, xlen):
     import pyjson5
     from .configuration import TRANSFORMED_INSTRUCTION_PARAMETERS
     version = subprocess.check_output([str(sail), "--version"], text=True).strip()
-    if version != "0.14.1":
-        raise ValueError(f"expected Sail 0.14.1, got {version}")
+    if version != "0.16":
+        raise ValueError(f"expected Sail 0.16, got {version}")
     width = ["--rv32"] if xlen == 32 else []
     default = pyjson5.decode(subprocess.check_output([str(sail), *width, "--print-default-config"], text=True))
-    # Master retains the 0.14.1 release string; an older release lacks these controls.
+    # The embedding patches add controls absent from the unpatched release.
     inhibit = default.get("base", {}).get("mcountinhibit", {})
     transformed = default.get("extensions", {}).get("H", {}).get("transformed_instruction", {})
     if (not {"supported", "writable_bits"} <= inhibit.keys()
             or not TRANSFORMED_INSTRUCTION_PARAMETERS.keys() <= transformed.keys()
-            or type(default.get("base", {}).get("tselect_present")) is not bool
+            or "Sdtrig" not in default.get("extensions", {})
             or "delegatable_bits" not in default.get("base", {}).get("hedeleg", {})
             or not {"restricted", "supported"} <= default.get("base", {}).get("hpm_events", {}).keys()
             or type(default.get("base", {}).get("pmm_unsupported_write_to_disabled")) is not bool):

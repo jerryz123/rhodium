@@ -447,14 +447,14 @@ applies the ordered series under
 the shared RISC-V patched-submodule materializer.
 `arch-test-sail-setup` uses the same materializer for the pristine
 [`../riscv/sail-riscv/`](../riscv/sail-riscv/) gitlink and its
-[`patch series`](../riscv/sail-riscv-patches/series). The Sail 0.14.1 emulator
+[`patch series`](../riscv/sail-riscv-patches/series). The Sail 0.16 emulator
 is built locally with compiler 0.20.3 and installed under an identity-keyed
 `.tools/` path. Linux downloads that compiler from a checksum-pinned release;
 macOS requires an explicit local compiler. The model build never edits the
 submodule, and changing its gitlink or patch bytes changes the emulator path.
-The pinned master revision still reports release version 0.14.1; cache and
-package identity must use the gitlink, ordered patches, and compiler version,
-not the emulator's release string alone.
+Cache and package identity use the gitlink, ordered patches, and compiler
+version, not the emulator's release string alone. The installed executable and
+embedded library must come from the same source identity.
 `arch-test-tests` copies the handwritten inventory from that materialized tree
 and populates it with the canonical `testgen` command. Vector assembly is not
 checked into the upstream test tree, so it must be generated through this same
@@ -485,7 +485,7 @@ missing implication rather than silently synthesize one.
 
 `arch-test/build.py` invokes the upstream CLI without replacing its required
 Sail version. Keep the setup pin synchronized with that native check whenever
-the ACT submodule advances. The Sail 0.14.1 projection also uses the
+the ACT submodule advances. The Sail 0.16 projection also uses the
 optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
 Upstream Sail gates writes through both `mie.SGEIE` and its `hie.SGEIE` alias
@@ -495,7 +495,11 @@ and checks both configurations against the patched model; the RVA23 ACT shards
 then exercise generated reference signatures against the DUT.
 The shared projection now maps `MCOUNTINHIBIT_IMPLEMENTED` and the exact
 `COUNTINHIBIT_EN` mask to Sail's native configuration; these are no longer
-reference-model differences. Keep HPM event-counting differences explicit.
+reference-model differences. ACT's required Sscofpmf hooks select counter 3 and
+execution-cycle event 1, with a `nop` workload on the DUT. Upstream replaces it
+with a fence in the reference build, so only the ACT adapter maps selector 1 to
+`EV_FENCE`. Keep this synthetic event-counting difference explicit; the shared
+cosim projection leaves native event selectors empty and uses host observations.
 
 For H profiles, also project guest translation modes, VMID width, GEILEN,
 H counter enables, VS trap-vector modes, guest-fault reporting, and the nested
@@ -519,7 +523,9 @@ and DUT reporting choices stay intact.
 
 `Za64rs` and `Za128rs` are reservation bounds, not Sail extension switches.
 Validate their versions and bounds against Sail's naturally aligned reservation
-size without enlarging it. The pinned default is eight bytes: a conforming
+size without enlarging it merely because a bound is advertised. A concrete UDB
+64/128-byte region strategy instead selects that exact size. The pinned default
+for other strategies is eight bytes: a conforming
 reference choice, not an assertion that it exactly reproduces the DUT's
 access-sized LR.W reservation. `Zic64b` projects and checks a 64-byte cache block
 even when CBO instruction extensions are disabled. Keep these cases in the
@@ -534,14 +540,18 @@ and header/runner contracts together. The shared linker layout keeps test data
 addresses equal between Sail signature payloads and self-checking DUT payloads;
 model-specific text and HTIF mailboxes follow test data and stack.
 
-At ACT pin `fa1debda686aa035dfb7bcd5c333c86dafcd1004`, native vector-FP
+At ACT pin `e82b786d52145315338c5aca0499d556fafcfb7d`, native vector-FP
 generation supplies operand widths and separate scalar/broadcast register
 groups. Native privileged generators use record-counted trap signature storage,
 UDB counter guards, and bounded LR/SC retries. Do not restore the retired
 replacement FP generators, word-count sizing, or zeroed LR/SC result patches.
-The seven remaining patches add canonical crypto/bitmanip expansion, legal
-whole-register vill setup, ordered-index alignment, base delegation coverage,
-and direct S/U timer programming.
+Native generators also supply vector crypto/bitmanip, valid SEW expansion,
+and ordered-index alignment. The three remaining patches add legal whole-register
+vill setup, base delegation coverage, and direct S/U timer programming.
+Generated UDB headers live in `work/<config>/env`. Keep the native all-suite
+selection and required Sail 0.16 check unchanged; refresh dependencies against
+ACT's lockfile before generation. The platform provides both external-interrupt
+macro aliases used by the native M-mode helpers.
 
 Run `make -C sims arch-test-adapter-test program-test-adapter-test` for generation,
 completion, deadlines, artifact identity, and complete-result checks using system
@@ -785,7 +795,7 @@ Supervisor payloads open PMP where present before using MPRV or S-mode; absent
 PMP CSRs are handled by a local startup continuation, not core-name dispatch.
 ACT retains exact ISA and implementation parameters, and emits
 `reference-model-differences.json` for legal DUT choices not configurable in
-Sail 0.14.1. These differences neither rewrite the DUT nor suppress test cases.
+Sail 0.16. These differences neither rewrite the DUT nor suppress test cases.
 The opcode-free `Ssu64xl` declaration maps to Sail's fixed RV64 user execution,
 not an extension switch. The adapter checks its version, MXLEN, and UXLEN before
 accepting that mapping. Other supervisor guarantees retain their modeled

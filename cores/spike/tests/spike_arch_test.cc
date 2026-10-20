@@ -15,10 +15,18 @@ class ArchMemory final : public simif_t {
   std::map<size_t, processor_t*> harts;
   std::array<char, 0x4000> memory{};
   unsigned instruction_synchronizations = 0;
+  bool allow_lrsc = true;
+  size_t lrsc_width = 0;
+  bool lrsc_write = false;
   char* addr_to_mem(reg_t address) override {
     return address >= 0x1000 && address < 0x5000 ? memory.data() + address - 0x1000 : nullptr;
   }
   bool mmio_load(reg_t, size_t, uint8_t*) override { return false; }
+  bool lrsc_accessible(reg_t address, size_t width, bool write) override {
+    lrsc_width = width;
+    lrsc_write = write;
+    return allow_lrsc && addr_to_mem(address) && addr_to_mem(address + width - 1);
+  }
   bool mmio_store(reg_t, size_t, const uint8_t*) override { return false; }
   void sync_instruction_cache() override { ++instruction_synchronizations; }
   void proc_reset(unsigned) override {}
@@ -227,7 +235,56 @@ static void check_stateen_p1p13(unsigned xlen, bool hypervisor, bool logged) {
   std::fclose(log);
 }
 
+static void check_reservation_sets(unsigned xlen, bool logged, unsigned reservation_bytes) {
+  ArchMemory memory;
+  memory.cfg.pmpregions = 0;
+  const auto isa = "rv" + std::to_string(xlen) + "ima_zicsr" +
+                   (reservation_bytes == 64 ? "_za64rs" : reservation_bytes == 128 ? "_za128rs" : "");
+  FILE* log = std::tmpfile();
+  assert(log);
+  processor_t cpu(isa.c_str(), "msu", &memory.cfg, &memory, 0, false, log, std::cerr);
+  memory.harts[0] = &cpu;
+  cpu.reset();
+  if (logged) cpu.enable_log_commits();
+  cpu.put_csr(CSR_MTVEC, 0x3000);
+  auto* state = cpu.get_state();
+  auto run = [&](uint32_t instruction) {
+    std::memcpy(memory.memory.data(), &instruction, sizeof(instruction));
+    cpu.get_mmu()->flush_icache();
+    state->pc = 0x1000;
+    cpu.step(1);
+  };
+  constexpr uint32_t lr = (2U << 27) | (1 << 15) | (2 << 12) | (3 << 7) | 0x2f;
+  constexpr uint32_t sc = (3U << 27) | (2 << 20) | (1 << 15) | (2 << 12) | (3 << 7) | 0x2f;
+  for (unsigned offset : {0u, 4u, 60u, 64u, 124u, 128u}) {
+    uint32_t value = 19;
+    std::memcpy(memory.memory.data() + 0x1000 + offset, &value, sizeof(value));
+    state->XPR.write(1, 0x2000);
+    run(lr);
+    assert(state->pc == 0x1004 && memory.lrsc_width == 4 && !memory.lrsc_write);
+    state->XPR.write(1, 0x2000 + offset);
+    state->XPR.write(2, 77);
+    run(sc);
+    assert(state->pc == 0x1004 && memory.lrsc_width == 4 && memory.lrsc_write);
+    assert(state->XPR[3] == (offset < reservation_bytes ? 0 : 1));
+    std::memcpy(&value, memory.memory.data() + 0x1000 + offset, sizeof(value));
+    assert(value == (offset < reservation_bytes ? 77u : 19u));
+  }
+  // Physical permission checks must run even when no reservation exists.
+  cpu.get_mmu()->yield_load_reservation();
+  memory.allow_lrsc = false;
+  state->XPR.write(1, 0x2000);
+  run(sc);
+  assert(state->pc == 0x3000 && cpu.get_csr(CSR_MCAUSE) == CAUSE_STORE_ACCESS);
+  assert(cpu.get_csr(CSR_MTVAL) == 0x2000 && memory.lrsc_width == 4 && memory.lrsc_write);
+  std::fclose(log);
+}
+
 int main() {
+  for (unsigned xlen : {32u, 64u})
+    for (bool logged : {false, true})
+      for (unsigned bytes : {1u, 64u, 128u})
+        check_reservation_sets(xlen, logged, bytes);
   for (unsigned xlen : {32u, 64u})
     for (bool hypervisor : {false, true})
       for (bool logged : {false, true})

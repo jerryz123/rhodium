@@ -26,13 +26,14 @@ diff --git a/riscv/mmu.h b/riscv/mmu.h
 index a169b0fb..fa50b602 100644
 --- a/riscv/mmu.h
 +++ b/riscv/mmu.h
-@@ -284,7 +284,7 @@ public:
+@@ -287,8 +287,8 @@ public:
      if (!tlb_hit)
-       paddr = translate(generate_access_info(vaddr, STORE, {}), 1);
+       paddr = translate(generate_access_info(vaddr, STORE, {}), size);
  
 -    if (sim->reservable(paddr))
 +    if (sim->lrsc_accessible(paddr, size, true))
-       return load_reservation_address == paddr;
+       // Checked reservation set subsumes paddr
+       return !((load_reservation_address ^ paddr) & load_reservation_set_mask);
  
      // SC to non-reservable region: report the PMM-masked effective vaddr.
 diff --git a/riscv/simif.h b/riscv/simif.h

@@ -109,7 +109,10 @@ with S mode even without F, as in Spike's `sstatus_csr_t` implementation.
 Keep extension/version mapping fail-closed and expand only architectural
 implications; do not import RV5Stage policy. Vector parameters follow the pinned
 `vector_unit.cc` and `v_ext_macros.h`, including reserved vset choices and
-inactive NaN canonicalization. `sims/arch-test/configure.py` records fixed Sail
+inactive NaN canonicalization. The embedding enables `VU.vstart_alu` to match
+its published `LEGAL_VSTART=1_stride` arithmetic restart policy; keep the native
+RV32/RV64 coroutine regression alongside that initialization.
+`sims/arch-test/configure.py` records fixed Sail
 behavior differences separately in `reference-model-differences.json`; it must
 not rewrite the DUT's parameters or filter tests to hide them. Validate actual
 Sail configuration generation as well as UDB serialization.

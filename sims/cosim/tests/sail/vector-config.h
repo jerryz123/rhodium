@@ -3,6 +3,9 @@
 #include "config_utils.h"
 inline std::string vector_configuration() {
   auto config=jsoncons::json::parse(get_default_config());
+  config["extensions"]["Sdtrig"]["supported"]=false;
+  config["extensions"]["Stateen"]["mstateen0"]["CONTEXT"]="CSRBit_ReadOnlyZero";
+  config["extensions"]["Stateen"]["hstateen0"]["CONTEXT"]="CSRBit_ReadOnlyZero";
   config["platform"]["clint"]["supported"]=false;
   config["platform"]["simple_interrupt_generator"]["supported"]=false;
   // The fixture has no guest state or supervisor timer compare. Do not inherit

@@ -54,34 +54,56 @@ class SailConfigurationTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 checked(changed, configuration["config"])
 
-    def test_model_defaults_check_schema_even_with_unchanged_release_string(self):
+    def test_model_defaults_check_release_and_embedding_schema(self):
         default = self.default()
         default["extensions"]["H"]["transformed_instruction"] = dict.fromkeys(TRANSFORMED_INSTRUCTION_PARAMETERS, True)
         with patch.dict("sys.modules", {"pyjson5": Mock(decode=json.loads)}):
             for xlen in (32, 64):
-                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.14.1", json.dumps(default)]) as invoke:
+                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.16", json.dumps(default)]) as invoke:
                     self.assertEqual(model_defaults("sail", xlen), default)
                     args = invoke.call_args.args[0]
                     self.assertEqual("--rv32" in args, xlen == 32)
-            for key in ("mcountinhibit", "transformed_instruction", "tselect_present", "hedeleg", "hpm_events", "pmm_unsupported_write_to_disabled"):
+            for key in ("mcountinhibit", "transformed_instruction", "Sdtrig", "hedeleg", "hpm_events", "pmm_unsupported_write_to_disabled"):
                 old = copy.deepcopy(default)
-                del (old["extensions"]["H"] if key == "transformed_instruction" else old["base"])[key]
-                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.14.1", json.dumps(old)]):
+                target = old["extensions"]["H"] if key == "transformed_instruction" else old["extensions"] if key == "Sdtrig" else old["base"]
+                del target[key]
+                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.16", json.dumps(old)]):
                     with self.assertRaisesRegex(ValueError, "rebuild with arch-test-sail-setup"):
                         model_defaults("old-sail", 64)
             with patch("sail.soc_config.subprocess.check_output", return_value="0.14.2"):
-                with self.assertRaisesRegex(ValueError, "expected Sail 0.14.1"):
+                with self.assertRaisesRegex(ValueError, "expected Sail 0.16"):
                     model_defaults("other-sail", 64)
 
     def test_no_trigger_harts_omit_tselect_in_both_projections(self):
         for xlen in (32, 64):
             udb = vector_udb()
             udb["params"]["MXLEN"] = xlen
-            self.assertFalse(project_architecture(self.default(), udb)["base"]["tselect_present"])
+            self.assertFalse(project_architecture(self.default(), udb)["extensions"]["Sdtrig"]["supported"])
+
+    def test_misa_mutability_is_per_extension_and_stateen_matches_features(self):
         udb = vector_udb()
-        udb["implemented_extensions"].append({"name": "Sdtrig", "version": "1.0.0"})
-        with self.assertRaisesRegex(ValueError, "Sdtrig"):
-            project_architecture(self.default(), udb)
+        udb["params"].update(MUTABLE_MISA_F=True, MUTABLE_MISA_D=False)
+        default = self.default()
+        default["platform"]["event_selectors"] = [{"event": "EV_FENCE", "selector": {"len": 64, "value": "0x1"}}]
+        model = project_architecture(default, udb)
+        self.assertEqual(model["platform"]["event_selectors"], [])
+        self.assertTrue(model["extensions"]["F"]["mutable_misa"])
+        self.assertFalse(model["extensions"]["D"]["mutable_misa"])
+        stateen = model["extensions"]["Stateen"]
+        self.assertEqual(stateen["mstateen0"]["CONTEXT"], "CSRBit_ReadOnlyZero")
+        self.assertEqual(stateen["mstateen0"]["P1P13"], "CSRBit_ReadOnlyZero")
+        self.assertEqual(stateen["mstateen0"]["SRMCFG"], "CSRBit_ReadOnlyZero")
+        self.assertEqual(stateen["mstateen0"]["ENVCFG"], "CSRBit_ReadOnlyZero")
+
+    def test_fixed_reservation_regions_follow_the_udb_strategy(self):
+        for size in (64, 128):
+            udb = vector_udb()
+            udb["implemented_extensions"].append({"name": f"Za{size}rs", "version": "1.0.0"})
+            udb["params"]["LRSC_RESERVATION_STRATEGY"] = f"reserve naturally-aligned {size}-byte region"
+            udb["params"]["LRSC_FAIL_ON_NON_EXACT_LRSC"] = False
+            reservation = project_architecture(self.default(), udb)["platform"]["reservation"]
+            self.assertEqual(reservation["reservation_set_size_exp"], size.bit_length() - 1)
+            self.assertFalse(reservation["require_exact_reservation_addr"])
 
     def test_explicit_csr_warl_is_shared_by_act_and_cosim(self):
         udb = vector_udb()

@@ -50,7 +50,61 @@ static void stall_transaction(SpikeCoreModel& model, bool Outputs::*request_vali
   assert(outputs.*response_ready);
 }
 
+static std::unique_ptr<SpikeCoreModel> check_vector_restart(bool rv64) {
+  Configuration configuration;
+  configuration.reset_vector = 0x1000;
+  configuration.xlen_is_64 = rv64;
+  configuration.privilege = "msu";
+  configuration.isa = rv64 ? "rv64gcv_zvl256b" : "rv32imac_zicsr_zve32x_zvl64b";
+  configuration.vector_length = rv64 ? 256 : 64;
+  configuration.vector_element_width = rv64 ? 64 : 32;
+  auto model = std::make_unique<SpikeCoreModel>(configuration);
+  const std::array<std::uint32_t, 11> program = {
+      0x60000093,  // li x1, 0x600 (mstatus.VS)
+      0x3000a073,  // csrs mstatus, x1
+      0x00400093,  // li x1, 4
+      0x0000f057,  // vsetvli x0, x1, e8, m1
+      0x0080d073,  // csrwi vstart, 1
+      0x020000d7,  // vadd.vv v1, v0, v0: must restart rather than trap
+      0x00802173,  // csrr x2, vstart: must now be zero
+      0x02a10113,  // addi x2, x2, 42
+      0x000020b7,  // lui x1, 2
+      rv64 ? 0x0020b023u : 0x0020a023u,  // sd/sw x2, 0(x1)
+      0x0000006f,  // j .
+  };
+  Inputs inputs;
+  bool stored = false;
+  for (unsigned cycle = 0; cycle < 128; ++cycle) {
+    const Outputs outputs = model->tick(inputs);
+    inputs = Inputs{};
+    if (outputs.address_request_valid) {
+      inputs.address_request_ready = true;
+      inputs.address_response_valid = true;
+      inputs.address_response_cacheable = outputs.address_request_execute;
+      inputs.address_response_instruction_cacheable = true;
+    }
+    if (outputs.instruction_request_valid) {
+      assert(outputs.instruction_request_address == 0x1000);
+      inputs.instruction_request_ready = true;
+      inputs.instruction_response_valid = true;
+      std::memcpy(inputs.instruction_response_line.data(), program.data(), sizeof(program));
+    }
+    if (outputs.uncached_request_valid) {
+      assert(outputs.uncached_request_address == 0x2000);
+      assert(outputs.uncached_request_write);
+      assert(outputs.uncached_request_data == 42);
+      stored = true;
+      inputs.uncached_request_ready = true;
+      inputs.uncached_response_valid = true;
+    }
+  }
+  assert(stored && "vector restart did not reach the result store");
+  return model;
+}
+
 int main() {
+  const auto restart32 = check_vector_restart(false);
+  const auto restart64 = check_vector_restart(true);
   Configuration configuration;
   assert(configuration.max_retired_instructions_per_cycle == 64);
   configuration.reset_vector = 0x1000;

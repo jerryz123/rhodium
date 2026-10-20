@@ -225,8 +225,8 @@ source, and the Perfetto Makefile builds the three disassembler sources into the
 archive, not the simulator or FESVR.
 The ordered patch series under
 [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/)
-replaces the parser's two abort sites with exceptions and registers opcode-free
-properties absent from the pinned parser. The shared
+replaces the parser's two abort sites with exceptions. Opcode-free profile
+properties are supported natively by the pinned parser. The shared
 [`patched_submodule.py`](../riscv/patched_submodule.py) tool applies it to a
 build-local copy; leave the pinned submodule and its
 license unchanged.

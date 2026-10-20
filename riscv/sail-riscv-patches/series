@@ -3,10 +3,8 @@
 0002-add-embedded-platform-providers.patch
 0003-add-embedded-time-source.patch
 0004-allow-subpage-device-pmas.patch
-0005-preserve-effective-trap-address.patch
 0006-embedded-interrupt-boundaries.patch
 0007-clear-vstart-after-empty-whole-register-memory.patch
-0008-configure-tselect-presence.patch
 0009-configure-csr-warl.patch
 0010-sstc-host-time.patch
 0011-embedded-wrs-early-wake.patch

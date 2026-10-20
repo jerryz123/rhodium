@@ -869,7 +869,7 @@ differences without filtering affected tests; see the [Spike guide](../cores/spi
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
 initializes the pinned `sw/riscv-arch-test` and `riscv/sail-riscv` submodules,
 installs Python and Ruby dependencies under `.tools/`, and builds the Sail
-0.14.1 model from the pristine submodule plus its ordered
+0.16 model from the pristine submodule plus its ordered
 [`patch series`](../riscv/sail-riscv-patches/series). The model lives in an
 identity-keyed `.tools/` directory, not in the submodule checkout. Normal
 simulator dependencies are still required; see [Build a simulator](#build-a-simulator).

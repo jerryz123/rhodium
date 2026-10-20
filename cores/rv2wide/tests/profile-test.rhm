@@ -171,6 +171,8 @@ for (profile in [single, vector32fp, vector32, vector64, vector_half_min, vector
     configuration.parameters.filter(~keep: fun (parameter): parameter.name == "MXLEN").map(fun (parameter): parameter.value.to_yaml()) ~is [to_string(profile.xlen.width)]
     extensions.contains("Sv39") ~is (profile.mmu_type == RiscvMmuType.Sv39)
     extensions.contains("Svade") ~is (profile.mmu_type != RiscvMmuType.Bare)
+    configuration.parameters.filter(~keep: fun (parameter): parameter.name == "TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY").map(fun (parameter): parameter.value.to_yaml()) ~is (if profile.mmu_type == RiscvMmuType.Bare | ["false"] | [])
+    configuration.parameters.filter(~keep: fun (parameter): parameter.name == "FORCE_UPGRADE_CBO_INVAL_TO_FLUSH").map(fun (parameter): parameter.value.to_yaml()) ~is (if profile.zicbom | ["false"] | [])
     extensions.contains("Ssnpm") ~is profile.ssnpm
     extensions.contains("Supm") ~is profile.supm
     extensions.contains("Sscofpmf") ~is profile.sscofpmf

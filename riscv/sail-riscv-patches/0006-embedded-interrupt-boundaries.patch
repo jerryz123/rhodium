@@ -7,29 +7,62 @@ Default hooks preserve standalone instruction-by-instruction arbitration. The
 host provides input pins, never a selected cause or trap target. Platform pins
 remain separate from writable mip state, including CSR read-modify-write.
 
+diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
+index 0ce5f6b4..7b93f52c 100644
+--- a/c_emulator/riscv_platform_if.cpp
++++ b/c_emulator/riscv_platform_if.cpp
+@@ -17,6 +17,7 @@ bool PlatformInterface::host_memory_write(fbits, int64_t, lbits) { return false;
+ fbits PlatformInterface::host_external_interrupts(unit) { return 0; }
+ bool PlatformInterface::host_time_enabled(unit) { return false; }
+ fbits PlatformInterface::host_time(unit) { return 0; }
++bool PlatformInterface::host_interrupt_boundary(unit) { return true; }
+ 
+ // We must provide default implementations so the automatically generated
+ // model_test() function can instantiate hart::Model.
 diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
+index d0b37b12..f9e8a3d7 100644
 --- a/c_emulator/riscv_platform_if.h
 +++ b/c_emulator/riscv_platform_if.h
-@@ -36,5 +36,6 @@
+@@ -38,6 +38,7 @@ public:
+   virtual fbits host_external_interrupts(unit);
    virtual bool host_time_enabled(unit);
    virtual fbits host_time(unit);
 +  virtual bool host_interrupt_boundary(unit);
  
    virtual unit fetch_callback(sbits opcode);
  
-diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
---- a/c_emulator/riscv_platform_if.cpp
-+++ b/c_emulator/riscv_platform_if.cpp
-@@ -18,4 +18,5 @@
- fbits PlatformInterface::host_time(unit) { return 0; }
-+bool PlatformInterface::host_interrupt_boundary(unit) { return true; }
+diff --git a/model/postlude/step.sail b/model/postlude/step.sail
+index 14daa916..07a0c213 100644
+--- a/model/postlude/step.sail
++++ b/model/postlude/step.sail
+@@ -112,6 +112,10 @@ private function run_hart_waiting(_step_no : nat, wr: WaitReason, instr_info : i
+   }
+ }
  
- // We must provide default implementations so the automatically generated
- // model_test() function can instantiate hart::Model.
++// An embedding may defer asynchronous arbitration until a drained boundary.
++val host_interrupt_boundary = pure {cpp: "host_interrupt_boundary"} : unit -> bool
++function host_interrupt_boundary() = true
++
+ private function run_hart_active(step_no: nat) -> Step = {
+   // The Sdtrig extension does not define the priority of triggers
+   // with respect to pending interrupts. See however:
+@@ -127,7 +131,7 @@ private function run_hart_active(step_no: nat) -> Step = {
+     None() => (),
+   };
+ 
+-  match dispatchInterrupt(cur_privilege) {
++  if host_interrupt_boundary() then match dispatchInterrupt(cur_privilege) {
+     Some(intr, priv) => return Step_Pending_Interrupt(intr, priv),
+     None() => (),
+   };
 diff --git a/model/sys/interrupt_implementation.sail b/model/sys/interrupt_implementation.sail
+index 3637c017..c00db745 100644
 --- a/model/sys/interrupt_implementation.sail
 +++ b/model/sys/interrupt_implementation.sail
-@@ -21,4 +21,10 @@
+@@ -17,7 +17,13 @@ function external_interrupts_pending(hgeie_val : xlenbits) -> Minterrupts = {
+   // The CLINT doesn't deal with external interrupts.
+   let pending = if plat_have_sig then sig_external_interrupts_pending(hgeie_val) else Mk_Minterrupts(zeros());
+   let pins = host_external_interrupts();
 -  [pending with MEI = pending[MEI] | pins[11], SEI = pending[SEI] | (if currentlyEnabled(Ext_S) then pins[9] else 0b0)]
 +  [pending with
 +    MEI = pending[MEI] | pins[11],
@@ -41,23 +74,12 @@ diff --git a/model/sys/interrupt_implementation.sail b/model/sys/interrupt_imple
  }
  
  function machine_software_interrupt_pending() -> bits(1) =
-@@ -30,4 +36,4 @@
+@@ -25,7 +31,7 @@ function machine_software_interrupt_pending() -> bits(1) =
+   | (if plat_have_sig then sig_machine_software_interrupt_pending() else 0b0)
+ 
+ function supervisor_software_interrupt_pending() -> bits(1) =
 -  if plat_have_sig then sig_supervisor_software_interrupt_pending() else 0b0
 +  (if plat_have_sig then sig_supervisor_software_interrupt_pending() else 0b0) | host_external_interrupts()[1]
  
  // Embedded systems can supply time without creating a second CLINT device.
  val host_time_enabled = pure {cpp: "host_time_enabled"} : unit -> bool
-diff --git a/model/postlude/step.sail b/model/postlude/step.sail
---- a/model/postlude/step.sail
-+++ b/model/postlude/step.sail
-@@ -113,5 +113,9 @@
-+// An embedding may defer asynchronous arbitration until a drained boundary.
-+val host_interrupt_boundary = pure {cpp: "host_interrupt_boundary"} : unit -> bool
-+function host_interrupt_boundary() = true
-+
- private function run_hart_active(step_no: nat) -> Step = {
--  match dispatchInterrupt(cur_privilege) {
-+  if host_interrupt_boundary() then match dispatchInterrupt(cur_privilege) {
-     Some(intr, priv) => return Step_Pending_Interrupt(intr, priv),
-     None() => (),
-   };

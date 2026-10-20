@@ -87,6 +87,10 @@ def sail_config(default, udb, origin, size, csr_warl=None):
         io["attributes"].setdefault("misaligned_exceptions", {})[kind] = {"Some": "AccessFault"}
     memory["regions"] = [io, ram]
     memory["dtb_address"] = bits(origin)
+    # ACT replaces the DUT's cycle-counting workload with a fence. This
+    # reference-only selector must not leak into DUT-driven co-simulation.
+    if "Sscofpmf" in extensions:
+        default["platform"]["event_selectors"] = [{"event": "EV_FENCE", "selector": bits(1)}]
     return default
 
 
@@ -141,6 +145,8 @@ def main():
     (args.output / "rvmodel_macros.h").write_text(macros)
     (args.output / "sail.json").write_text(f"// Rhodium configuration SHA-256: {configuration_fingerprint}\n" + json.dumps(config, indent=2) + "\n")
     differences = reference_model_differences(udb["params"])
+    if "HPM_EVENTS" in differences:
+        differences["HPM_EVENTS"]["sail"] = "ACT synthetic selector 1 counts fences, not DUT execution cycles"
     (args.output / "reference-model-differences.json").write_text(json.dumps(differences, indent=2) + "\n")
     if differences:
         print("ACT reference-model differences (tests remain enabled): " + json.dumps(differences, sort_keys=True))

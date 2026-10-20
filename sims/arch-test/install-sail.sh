@@ -10,13 +10,13 @@ materializer="$repo_dir/riscv/patched_submodule.py"
 python="${PYTHON:-python3}"
 compiler_version=0.20.3
 identity="$("$python" "$materializer" identity --repository "$repo_dir" --submodule riscv/sail-riscv --series "$series")"
-install_dir="$repo_dir/.tools/sail-riscv-0.14.1-sail-$compiler_version-$identity"
+install_dir="$repo_dir/.tools/sail-riscv-0.16-sail-$compiler_version-$identity"
 
 if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]] && \
    [[ -x "$install_dir/bin/sail_riscv_sim" ]] && \
    [[ -f "$install_dir/lib/cmake/SailModel/SailModelConfig.cmake" ]] && \
    [[ -f "$install_dir/lib/libsail_riscv_model.a" ]] && \
-   [[ "$("$install_dir/bin/sail_riscv_sim" --version)" == 0.14.1 ]]; then
+   [[ "$("$install_dir/bin/sail_riscv_sim" --version)" == 0.16 ]]; then
   echo "Patched Sail RISC-V $identity is already installed at $install_dir"
   exit 0
 fi
@@ -106,7 +106,7 @@ while IFS= read -r licence; do
   mkdir -p "$work_dir/install/licences/$(dirname "$relative")"
   install -m 644 "$licence" "$work_dir/install/licences/$relative"
 done < <(find "$source_dir/dependencies" -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' \))
-[[ "$("$work_dir/install/bin/sail_riscv_sim" --version)" == 0.14.1 ]]
+[[ "$("$work_dir/install/bin/sail_riscv_sim" --version)" == 0.16 ]]
 printf '%s\n' "$identity" > "$work_dir/install/.complete"
 mv "$work_dir/install" "$install_dir"
 echo "Installed patched Sail RISC-V $identity at $install_dir"

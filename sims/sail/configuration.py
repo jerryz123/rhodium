@@ -61,7 +61,7 @@ TRANSFORMED_INSTRUCTION_PARAMETERS = {
 
 
 def reference_model_differences(params):
-    """Report legal DUT choices that Sail 0.14.1 cannot configure exactly.
+    """Report legal DUT choices that Sail 0.16 cannot configure exactly.
 
     These do not change the selected ISA or suppress tests. Preserve the DUT's
     UDB parameters and expose reference-model differences with every reference configuration.
@@ -80,7 +80,7 @@ def reference_model_differences(params):
 
 
 def validate_reservation_bounds(reservation, extensions, xlen):
-    # Sail 0.14.1 has naturally aligned, fixed-size reservation sets, not switches
+    # Sail 0.16 has naturally aligned, fixed-size reservation sets, not switches
     # for these guarantees. Retain its chosen size; the extensions are bounds,
     # not requests to enlarge reservations to a cache line.
     for name, maximum_exp in RESERVATION_BOUNDS.items():
@@ -285,14 +285,21 @@ def project_architecture(default, udb, csr_warl=None):
             raise ValueError("Sail state-enable projection requires writable MSTATEEN.ENVCFG")
         if "H" in extensions and params.get("HSTATEEN_ENVCFG_TYPE") != "rw":
             raise ValueError("Sail state-enable projection requires writable HSTATEEN.ENVCFG")
-        model_extensions["Stateen"]["SE0_readonly_zero"] = False
+    stateen = model_extensions["Stateen"]
+    writable = "CSRBit_Writable"
+    zero = "CSRBit_ReadOnlyZero"
+    stateen["mstateen0"].update(SE0=writable, ENVCFG=writable if "S" in extensions else zero,
+                              CONTEXT=zero, P1P13=writable if "H" in extensions and params["MXLEN"] == 32 else zero,
+                              SRMCFG=writable if "Ssqosid" in extensions else zero, FCSR=zero, C=zero)
+    stateen["hstateen0"].update(ENVCFG=writable if "S" in extensions else zero, CONTEXT=zero, FCSR=zero, C=zero)
+    stateen["sstateen0"].update(FCSR=zero, C=zero)
     base = default["base"]
-    # Our harts have no triggers and omit the optional selector CSR. Sail's
-    # legacy tselect placeholder is not an implementation of Sdtrig.
-    base["tselect_present"] = False
+    # Sdtrig is disabled above for harts without triggers, including tselect.
     base["xlen"] = params["MXLEN"]
     base["E"] = False
-    base["writable_misa"] = any(value for key, value in params.items() if key.startswith("MUTABLE_MISA_"))
+    for name, options in model_extensions.items():
+        if "mutable_misa" in options:
+            options["mutable_misa"] = params.get("MUTABLE_MISA_" + name, False)
     base["privileged_isa_version"] = "Privileged_ISA_" + "_".join(str(extensions["Sm"]).split(".")[:2])
     inhibit_supported = params["MCOUNTINHIBIT_IMPLEMENTED"]
     inhibit_bits = params.get("COUNTINHIBIT_EN", None if inhibit_supported else [False] * 32)
@@ -384,9 +391,15 @@ def project_architecture(default, udb, csr_warl=None):
             raise ValueError("Zic64b requires CACHE_BLOCK_SIZE=64")
         default["platform"]["cache_block_size_exp"] = block_size.bit_length() - 1
     platform = default["platform"]
+    # Numeric HPM IDs do not identify these cores' event semantics. ACT adds its
+    # synthetic workload mapping separately; cosim supplies raw DUT counters.
+    platform["event_selectors"] = []
     platform["archid"] = params.get("ARCH_ID_VALUE", 0) if params.get("MARCHID_IMPLEMENTED", False) else 0
     platform["impid"] = params.get("IMP_ID_VALUE", 0) if params.get("MIMPID_IMPLEMENTED", False) else 0
     platform["vendorid"] = (params.get("VENDOR_ID_BANK", 0) << 7) | params.get("VENDOR_ID_OFFSET", 0)
     platform["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]
+    strategy = params.get("LRSC_RESERVATION_STRATEGY")
+    if strategy in ("reserve naturally-aligned 64-byte region", "reserve naturally-aligned 128-byte region"):
+        platform["reservation"]["reservation_set_size_exp"] = 6 if "64-byte" in strategy else 7
     validate_reservation_bounds(platform["reservation"], extensions, params["MXLEN"])
     return default

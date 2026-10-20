@@ -141,11 +141,14 @@ the new gitlink before `make -C sims arch-test-setup`, which initializes the
 index-recorded revision. Keep its checkout pristine. Rebase only the remaining
 downstream contracts in `riscv-arch-test-patches/`; prefer landed upstream
 generators and fixes over retaining a second implementation.
-At pin `fa1debda686aa035dfb7bcd5c333c86dafcd1004`, ACT requires Sail model
-0.14.1 and bundles UDB 0.1.17. Refresh its isolated Python and Ruby dependencies
+At pin `e82b786d52145315338c5aca0499d556fafcfb7d`, ACT requires Sail model
+0.16 and bundles UDB 0.1.17. Refresh its isolated Python and Ruby dependencies
 with the ordinary setup target, then generate all canonical suites in a fresh
 ACT build root. Preserve each core's own UDB configuration and reference
 signatures; never weaken profiles or exclude failed tests during validation.
+Native vector-crypto generation and index-overlap alignment replace the former
+downstream generators. Generated DUT headers now live under `work/<config>/env`;
+do not assume that an older cached build directory has the current layout.
 The [simulator guide](../sims/DEVELOPING.md#other-simulation-contracts) owns
 platform hooks, schema overlays, and full generation/execution checks.
 

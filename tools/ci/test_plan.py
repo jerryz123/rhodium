@@ -781,14 +781,14 @@ class PlanTest(unittest.TestCase):
                 "python3", "riscv/patched_submodule.py", "identity", "--repository", ".",
                 "--submodule", "riscv/sail-riscv", "--series", "riscv/sail-riscv-patches/series"],
                 cwd=producer, text=True).strip()
-            prefix = f"sail-riscv-0.14.1-sail-0.20.3-{identity}"
+            prefix = f"sail-riscv-0.16-sail-0.20.3-{identity}"
             model = producer / ".tools" / prefix
             (model / "bin").mkdir(parents=True)
             (model / "lib").mkdir()
             (model / ".complete").write_text(identity + "\n")
             (model / "lib/libsail_riscv_model.a").write_bytes(b"model library")
             executable = model / "bin/sail_riscv_sim"
-            executable.write_text("#!/bin/sh\necho 0.14.1\n")
+            executable.write_text("#!/bin/sh\necho 0.16\n")
             executable.chmod(0o755)
             env = {**os.environ, "RUNNER_TEMP": str(root / "artifacts")}
             subprocess.run(["bash", "-euo", "pipefail", "-c",
@@ -810,7 +810,7 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual((installed / ".complete").read_text(), identity + "\n")
                 self.assertEqual((installed / "lib/libsail_riscv_model.a").read_bytes(), b"model library")
                 self.assertEqual(subprocess.check_output([str(installed / "bin/sail_riscv_sim"),
-                                                         "--version"], text=True), "0.14.1\n")
+                                                         "--version"], text=True), "0.16\n")
                 if workflow == "ci-simulator.yml":
                     self.assertEqual((consumer / runtime_relative / "libsail_checker.a").read_bytes(),
                                      b"checker library")

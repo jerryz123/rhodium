@@ -251,13 +251,13 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
   }
 
   bool host_memory_enabled(unit) override { return true; }
-  unit ptw_start_callback(std::uint64_t, hart::zMemoryAccessTypezIEmem_payloadz5zK,
+  unit ptw_start_callback(hart::zTranslationStage, std::int64_t, std::uint64_t, hart::zMemoryAccessTypezIEmem_payloadz5zK,
                           hart::zPrivilege) override {
     page_table_ = true;
     return UNIT;
   }
-  unit ptw_success_callback(std::uint64_t, std::int64_t) override { page_table_ = false; return UNIT; }
-  unit ptw_fail_callback(hart::zPTW_Error, std::int64_t, sbits) override { page_table_ = false; return UNIT; }
+  unit ptw_success_callback(hart::zTranslationStage, std::int64_t, std::uint64_t) override { page_table_ = false; return UNIT; }
+  unit ptw_fail_callback(hart::zTranslationStage, std::int64_t, hart::zPTW_Error, sbits) override { page_table_ = false; return UNIT; }
   void host_memory_read(lbits* output, fbits address, int64_t width, bool instruction) override {
     const bool device = !backed(address, width);
     std::vector<std::uint8_t> bytes;
