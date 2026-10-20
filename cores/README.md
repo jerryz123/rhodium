@@ -36,6 +36,17 @@ architectural result selection.
 | [`PipelinedMultiplier(width)`](multiplier.rhdl) | Power-of-two width of at least two; `Valid(MultiplierRequest)` to a `Valid` double-width product | Three feed-forward stages; accepts and advances one request per cycle with fixed latency and no backpressure | Four raw half-width products, signed corrections, carry-save reduction, and one final sum | Write-cycle reservations or elastic return credits, low/high/word projection, and architectural destination |
 | [`IterativeDivider(width)`](divider.rhdl) | `Decoupled(DividerRequest)` to an `Irrevocable(DividerResponse)` | One request at a time; trivial operands complete directly, otherwise leading-zero quotient work is skipped before resolving one remaining bit per cycle and finalizing signs; response stays stable until accepted; may replace a response as it is consumed | Quotient, remainder, divide-by-zero, and fixed-width signed-overflow behavior | Quotient/remainder/word projection and architectural destination |
 
+### Tagged integer services
+
+[`integer-service.rhdl`](integer-service.rhdl) carries opaque caller tags through
+the shared multiplier and divider. `TaggedPipelinedMultiplier` is feed-forward
+Valid input/output with no completion storage. `IterativeMultiplyService` and
+`DivideService` retain an accepted tag until their held result is consumed.
+`PipelinedMultiplyService` explicitly selects buffered returns or scheduled
+writeback, where every result must be consumed on its return cycle.
+Callers retain launch arbitration, scalar authorization, result projection,
+and destination/write-port scheduling.
+
 ### Shared memory decode
 
 `memory-decode.rhdl` supplies `scalar_memory_cases(Control, ~double: enabled)`,

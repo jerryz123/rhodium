@@ -58,6 +58,9 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   mmu.split_guest_access <== core.split_guest_access
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush
+  core.vector_precheck <=> mmu.vector_precheck
+  mmu.pipeline_vector <== core.pipeline_vector
+  mmu.request_vector <== core.request_vector
   frontend.translation <=> mmu.instruction
   start |> frontend.start
   frontend.instructions |> core.instructions

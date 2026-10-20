@@ -1,0 +1,97 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector.rhdl" open
+  "../bundles.rhdl" open
+  lib("cores/vector/bundles.rhdl") open
+  lib("cores/vector/tests/decode.rhdl") open
+  lib("cores/mmu/vector.rhdl") open
+  lib("cores/misaligned-access.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/rtl/vector.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  lib("hardfloat/main.rhdl").RoundingMode
+  lib("flow/main.rhdl") open
+
+sync_circuit RV2WideVectorFixture():
+  def xlen = XLen.X64
+  input instruction: Bits(32)
+  input(vl, vtype, scalar, pc): Bits(64)
+  input(request_valid, certificate_valid, precheck_safe): Bool
+  interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)
+  interface memory(RV2WideMemory(xlen, 64), ~role: requester)
+  interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
+  output(request_ready, active, sequencing, loads_pending, stores_pending, checking, released, done): Bool
+  output(outcome_valid, fault_start_valid): Bool
+  output(outcome_pc, fault_address, fault_cause, fault_start): Bits(64)
+  output disposition: VectorDisposition
+  output(scalar_valid, scalar_reserve): Bool
+  output scalar_delay: Bits(4)
+  output scalar_rd: Bits(5)
+  output scalar_data: Bits(64)
+  inst decode(VectorTestDecoder())
+  inst vector(RV2WideVectorPipeline(xlen, 128, ~vector_completion_slots: 4))
+  def empty_certificate :: VectorFastCertificate(xlen) = literal(VectorFastCertificate(xlen), 0)
+  def certified_range = VectorRange():
+    first: scalar & !bits(0xfff, 64)
+    last: scalar ||| bits(0xfff, 64)
+    store: decode.control.store
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== VectorDescriptor(xlen):
+    pc: pc
+    precertified: certificate_valid
+    certificate: empty_certificate.updated(~ppn: scalar[12..56], ~range: certified_range)
+    instruction: instruction
+    state:
+      RiscvVectorState(xlen):
+        vl: vl
+        vtype: vtype
+        vstart: bits(0, 64)
+        vxrm: bits(0, 2)
+        vxsat: Bool(#false)
+    control: decode.control
+    scalar: scalar
+    floating_scalar: bits(0, 64)
+    stride: bits(8, 64)
+    masked: !instruction[25].into(Bool)
+    rounding_mode: RoundingMode.NearEven
+    pointer_masking: literal(PointerMaskControl(), 0)
+  vector.pipeline <=> pipeline
+  vector.memory <=> memory
+  vector.split <=> split
+  def proof = vector.precheck.request |> to_valid() |> map_valid(_range => precheck_safe) |> valid_pipe(1) |> to_decoupled() |> queue(1)
+  proof |> vector.precheck.response
+  vector.scalar_writeback.ready <== Bool(#true)
+  vector.fp_request.ready <== Bool(#false)
+  vector.fp_result.valid <== Bool(#false)
+  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  request_ready <== vector.request.ready
+  active <== vector.active
+  sequencing <== vector.sequencing
+  loads_pending <== vector.loads_pending
+  stores_pending <== vector.stores_pending
+  checking <== vector.precheck.request.fire()
+  released <== vector.precheck.release.valid
+  done <== vector.execution_done.valid
+  outcome_valid <== vector.outcome.valid
+  outcome_pc <== vector.outcome.bits.pc
+  disposition <== vector.outcome.bits.disposition
+  fault_address <== vector.outcome.bits.fault_address
+  fault_cause <== vector.outcome.bits.cause
+  fault_start_valid <== vector.fault_start.valid
+  fault_start <== vector.fault_start.bits
+  scalar_valid <== vector.scalar_result.valid
+  scalar_data <== vector.scalar_result.bits.data
+  scalar_rd <== vector.scalar_result.bits.address
+  scalar_reserve <== vector.scalar_writeback.fire()
+  scalar_delay <== vector.scalar_writeback.bits
+
+export RV2WideVectorFixture

@@ -1,0 +1,40 @@
+#lang rhodium
+/* Books next-cycle scalar FP launches and arbitrates return-cycle reservations with vector work. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "types.rhdl" open
+  "timing.rhdl" open
+  "../writeback-calendar.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Reserves a scalar's next-cycle launch and fixed return together. An admitted scalar gives
+   a waiting vector client the next booking turn; caller arbitration and completion storage
+   remain outside this component. Vector bookings occur atomically with actual launch. */
+sync_circuit FpLaunchCalendar(timing :: FpExecutionTiming, span :: PosInt):
+  input probe: FloatExecutionControl()
+  interface book(Valid(FloatExecutionControl()), ~role: consumer)
+  interface vector_book(Decoupled(FloatExecutionControl()), ~role: consumer)
+  input(vector_waiting, vector_accepted, fixed_available): Bool
+  output(available, reserved): Bool
+  def delay_width = index_width(span + 1)
+  inst calendar(WritebackCalendar(2, span))
+  calendar.pause <== Bool(#false)
+  calendar.probe_client <== bits(1, 1)
+  calendar.probe_delay <== timing.latency(probe, ~width: delay_width) + bits(1, delay_width)
+  book |> map_valid(control => timing.latency(control, ~width: delay_width) + bits(1, delay_width)) |> to_decoupled() |> calendar.reserve[1]
+  vector_book |> map_flow(control => timing.latency(control, ~width: delay_width)) |> calendar.reserve[0]
+  reg booked(~init: Bool(#false))
+  reg vector_turn(~init: Bool(#false))
+  booked <== book.valid
+  reserved <== booked
+  available <== calendar.probe_available & fixed_available & !(vector_turn & vector_waiting)
+  when (!vector_waiting ||| vector_accepted):
+    vector_turn <== Bool(#false)
+  elsewhen (book.valid):
+    vector_turn <== Bool(#true)
+  when (book.valid):
+    assert(calendar.reserve[1].ready, "fp_booked_return")
+
+export:
+  FpLaunchCalendar

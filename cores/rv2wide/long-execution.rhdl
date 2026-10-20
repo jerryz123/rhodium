@@ -10,6 +10,10 @@ import:
   lib("cores/multiply-decode.rhdl").RiscvMultiplyControl
   lib("cores/divide-decode.rhdl").RiscvDivideControl
   lib("flow/main.rhdl") open
+  lib("cores/integer-execution.rhdl") open
+  lib("cores/integer-service.rhdl") open
+  lib("cores/vector/muldiv.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
 
 /* Attaches architectural identity and projection controls to the EX multiply operands. */
 bundle RV2WideMultiplyIssue(xlen :: XLen):
@@ -24,20 +28,51 @@ bundle RV2WideDivideIssue(xlen :: XLen):
   owner: RV2WideRetirement(xlen)
 
 /* Launches a feed-forward multiply in EX and gates its aligned owner at WB two cycles later.
-   The core reserves its RF write cycle before issue; numerical results never wait in storage.
+   RR books the EX slot and RF write cycle; a squash cannot change vector admission combinationally.
+   Scalar numerical results never wait in storage.
    Rejected WB owners drain without publishing the still-running product. */
-sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64):
+sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
+  interface book(Pulse(), ~role: consumer)
   interface issue(Valid(RV2WideMultiplyIssue(xlen)), ~role: consumer)
   input authorize: Bool
   interface completed(Valid(RV2WideRetirement(xlen)), ~role: producer)
   output drained: Bool
+  interface vector_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots))), ~role: consumer)
+  interface vector_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))), ~role: producer)
 
-  inst execution(PipelinedMultiplier(xlen.width))
-  issue |> map_valid(operation => operation.request) |> execution.request
+  /* Identifies vector returns without putting scalar WB policy in the arithmetic service. */
+  bundle MultiplyOwner():
+    vector: Bool
+    tag: VectorMultiplyTag(slots)
+  inst execution(TaggedPipelinedMultiplier(xlen.width, MultiplyOwner()))
+  inst vector_returns(CompletionQueue(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)), IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), slots, ~pipe: #false))
+  reg reserved(~init: Bool(#false))
+  reserved <== book.valid
+  vector_request |> gate_flow(!reserved) |> vector_returns.request
+  when (issue.valid):
+    assert(reserved, "rv2wide_multiply_ex_launch_reserved")
+  def scalar = issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
+    tag:
+      MultiplyOwner():
+        vector: Bool(#false)
+        tag: dont_care(VectorMultiplyTag(slots))
+    operands: operation.request
+  def vector = vector_returns.issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
+    tag:
+      MultiplyOwner():
+        vector: Bool(#true)
+        tag: operation.tag
+    operands: operation.operands
+  Array(scalar, vector) |> valid_arbiter() |> execution.request
+  (execution.result |> filter_valid(result => result.tag.vector) |> map_valid(result => IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))):
+    tag: result.tag.tag
+    value: result.value
+  ) |> vector_returns.completion
+  vector_returns.response |> vector_result
   def wb_owner :: Endpoint = issue |> valid_pipe(2)
   def returned :: Endpoint = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(operation):
-    def product = execution.response.bits
+    def product = execution.result.bits.value
     def value = mux(operation.control.high_result, product[xlen.width..2 * xlen.width], product[0..xlen.width])
     def result = if xlen == XLen.X32 | value | mux(operation.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     operation.owner.updated(~data: result, ~deferred: Bool(#false))
@@ -49,27 +84,42 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64):
   drained <== !outstanding.or_reduce()
   assert(outstanding <= bits(PipelinedMultiplierStages, count_width), "rv2wide_multiply_inflight_capacity")
   when (completed.valid):
-    assert(execution.response.valid, "rv2wide_multiply_scheduled_result")
+    assert(execution.result.valid, "rv2wide_multiply_scheduled_result")
   when authorize:
     assert(wb_owner.valid, "rv2wide_multiply_wb_owner")
 
 /* Holds one authorized divider owner until its backpressured result enters the completion arbiter. */
-sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64):
+sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
   interface issue(Decoupled(RV2WideDivideIssue(xlen)), ~role: consumer)
   interface completed(Decoupled(RV2WideRetirement(xlen)), ~role: producer)
   output drained: Bool
+  interface vector_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots))), ~role: consumer)
+  interface vector_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))), ~role: producer)
 
-  inst execution(IterativeDivider(xlen.width))
-  issue |> map_flow(operation => operation.request) |> execution.request
-  reg owner(RV2WideDivideIssue(xlen))
+  /* Retains the selected client across arbitrary arithmetic and response latency. */
+  tagged_union Owner():
+    Scalar(RV2WideDivideIssue(xlen))
+    Vector(VectorDivideTag(slots))
+  inst execution(DivideService(xlen.width, Owner()))
+  def scalar = issue |> map_flow(operation => IntegerExecutionRequest(DividerRequest(xlen.width), Owner())):
+    operands: operation.request
+    tag: Owner().Scalar(operation)
+  def vector = vector_request |> map_flow(operation => integer_request_with_tag(DividerRequest(xlen.width), VectorDivideTag(slots), Owner(), operation, Owner().Vector(operation.tag)))
+  def selected = Array(scalar, vector) |> rr_arbiter()
+  selected |> execution.request
+  def Array(scalar_response, vector_response) = execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(Owner().Vector).into(Bool))
+  (vector_response |> map_flow(~stable: #true, result => IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))):
+      tag: result.tag.view(Owner().Vector).payload
+      value: result.value
+  ) |> vector_result
   reg occupied(~init: Bool(#false))
-  (execution.response |> map_flow(response):
-    def value = mux(owner.control.remainder, response.remainder, response.quotient)
+  (scalar_response |> map_flow(response):
+    def owner = response.tag.view(Owner().Scalar).payload
+    def value = mux(owner.control.remainder, response.value.remainder, response.value.quotient)
     def result = if xlen == XLen.X32 | value | mux(owner.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     owner.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
   when (issue.fire()):
-    owner <== issue.bits
     occupied <== Bool(#true)
   elsewhen (completed.fire()):
     occupied <== Bool(#false)

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-service.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/integer-execution.rhdl") open
   lib("cores/register-write.rhdl") open
@@ -375,7 +376,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   tagged_union DivideOwner():
     Scalar(RV5StageDivideTag())
     Vector(wb_vector_divide_tag)
-  inst wb_divide_execution(RV5StageDivideService(width, DivideOwner()))
+  inst wb_divide_execution(DivideService(width, DivideOwner()))
   Array(
     wb_divider.execution_request |> map_flow(request => integer_request_with_tag(DividerRequest(width), RV5StageDivideTag(), DivideOwner(), request, DivideOwner().Scalar(request.tag))),
     wb_vector_divide_request_link.right |> map_flow(request => integer_request_with_tag(DividerRequest(width), wb_vector_divide_tag, DivideOwner(), request, DivideOwner().Vector(request.tag)))

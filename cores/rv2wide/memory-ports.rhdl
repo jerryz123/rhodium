@@ -1,0 +1,87 @@
+#lang rhodium
+/* Arbitrates scalar/vector LSU attempts while retaining accepted response and store-candidate ownership. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  lib("cores/misaligned-access.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Gives fixed scalar EX attempts priority and fairly arbitrates irrevocable WB requests.
+   Neither speculative redirects nor live requester changes affect accepted reply routing. */
+sync_circuit RV2WideMemoryPorts(xlen :: XLen):
+  interface scalar_pipeline(RV2WidePipelineAccess(xlen), ~role: responder)
+  interface vector_pipeline(RV2WidePipelineAccess(xlen), ~role: responder)
+  interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)
+  interface scalar_memory(RV2WideMemory(xlen, xlen.width), ~role: responder)
+  interface vector_memory(RV2WideMemory(xlen, xlen.width), ~role: responder)
+  interface memory(RV2WideMemory(xlen, xlen.width), ~role: requester)
+  interface scalar_split(RiscvSplitAccess(xlen, Bool), ~role: responder)
+  interface vector_split(RiscvSplitAccess(xlen, Bool), ~role: responder)
+  interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
+  input scalar_guest_access: RiscvGuestMemoryAccess
+  output split_guest_access: RiscvGuestMemoryAccess
+  output(pipeline_vector, request_vector): Bool
+
+  pipeline_vector <== !scalar_pipeline.request.valid
+  Array(scalar_pipeline.request, vector_pipeline.request) |> valid_arbiter() |> pipeline.request
+  reg mem_vector(~init: Bool(#false))
+  reg wb_vector(~init: Bool(#false))
+  reg mem_valid(~init: Bool(#false))
+  reg wb_valid(~init: Bool(#false))
+  mem_vector <== pipeline_vector
+  wb_vector <== mem_vector
+  mem_valid <== pipeline.request.valid
+  wb_valid <== mem_valid
+  pipeline.response |> filter_valid(_response => mem_valid & !mem_vector) |> scalar_pipeline.response
+  pipeline.response |> filter_valid(_response => mem_valid & mem_vector) |> vector_pipeline.response
+  pipeline.commit <== wb_valid & mux(wb_vector, vector_pipeline.commit, scalar_pipeline.commit)
+  scalar_pipeline.commit_ready <== wb_valid & !wb_vector & pipeline.commit_ready
+  vector_pipeline.commit_ready <== wb_valid & wb_vector & pipeline.commit_ready
+
+  inst requests(RRArbiter(RV2WideMemoryReq(xlen, xlen.width), 2))
+  inst owners(Queue(Bool, 16))
+  Array(scalar_memory.request, vector_memory.request) <=> requests.ingress
+  request_vector <== requests.chosen.into(Bool)
+  def Array(request, owner) = requests.egress |> atomic_fork(2)
+  request |> memory.request
+  owner |> map_flow(_request => request_vector) |> owners.ingress
+  memory.fault |> filter_valid(_fault => !request_vector) |> scalar_memory.fault
+  memory.fault |> filter_valid(_fault => request_vector) |> vector_memory.fault
+  /* Keeps each raw beat paired with the client selected at acceptance. */
+  bundle Response():
+    data: Bits(xlen.width)
+    vector: Bool
+  (
+    Array(memory.response, owners.egress) |> zip_flow(data, vector):
+      Response():
+        data: data
+        vector: vector
+  ) |> demux_flow(2, response => response.vector) |> parallel(
+    (Decoupled(Response()) |> map_flow(response => response.data)) |> scalar_memory.response,
+    (Decoupled(Response()) |> map_flow(response => response.data)) |> vector_memory.response
+  )
+  for (client in [scalar_memory, vector_memory]):
+    client.drained <== memory.drained & !owners.count.or_reduce()
+    client.ordered_busy <== memory.ordered_busy
+    client.reservation_valid <== memory.reservation_valid
+
+  inst fragments(RRArbiter(split.request.bits.type, 2))
+  Array(scalar_split.request, vector_split.request) <=> fragments.ingress
+  reg split_busy(~init: Bool(#false))
+  reg split_vector(Bool)
+  fragments.egress |> gate_flow(!split_busy) |> split.request
+  split_guest_access <== mux(fragments.chosen.into(Bool), RiscvGuestMemoryAccess.Normal, scalar_guest_access)
+  split.response |> filter_valid(_response => !split_vector) |> scalar_split.response
+  split.response |> filter_valid(_response => split_vector) |> vector_split.response
+  when (split.request.fire()):
+    split_busy <== Bool(#true)
+    split_vector <== fragments.chosen.into(Bool)
+  elsewhen (split.response.valid):
+    split_busy <== Bool(#false)
+  when (split.response.valid):
+    assert(split_busy, "rv2wide_split_response_retains_client")
+
+export RV2WideMemoryPorts

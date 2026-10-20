@@ -141,6 +141,9 @@ Keep broader ISA qualification in the existing software suites.
 | `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
+| `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
+| `vector-memory.rhdl` | Vector lookup timing, shared replay retention, precise split outcomes and ordered raw-word extraction |
+| `memory-ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
 | `hart.rhdl` | Core-neutral SoC port adaptation and one reset-vector start per reset epoch |
@@ -747,7 +750,51 @@ adapter tests shuffle callbacks while closing out-of-order fixed FP, variable
 FP, and concurrent load/arithmetic owners. Keep wider software coverage in the
 existing ISA-smoke lanes, not a separate FP qualification matrix.
 
+## Vector integration
+
+Keep architectural admission, retirement, and scalar hazards in `core.rhdl`;
+`vector.rhdl` adapts the reusable engine rather than importing RV5Stage policy.
+WB admission consumes registered descriptor credit, never downstream LSU
+readiness. Memory admission checks retained scalar load owners and a sampled
+quiet memory boundary: live drain signals can depend on current admission.
+Faultable descriptors retain their WB owner until certification or precise
+execution produces an outcome. Traps and CSR changes drain accepted work.
+
+`memory-ports.rhdl` retains fixed-stage lookup ownership, queues every accepted
+raw-response owner, and latches the selected split client. These owners survive
+scalar recovery. The MMU prioritizes WB demand over page-window probes and
+speculative lookups, while keeping accepted PTW response ownership unchanged.
+Translation-context changes must wait until the vector page window is released.
+
+Scalar multiply and fixed FP reserve their EX slots at RR; squashing an EX
+request must not combinationally change vector shared-service admission.
+The GPR calendar includes ordinary younger-slot writes as well as deferred
+returns; a vector scalar-result reservation must not overwrite a slot already
+promised to a scalar instruction. A waiting vector return pauses new bookings
+long enough to create a free slot, while aged scalar completions retain bounded
+priority. FPR scalar moves keep their reservation until the shared load-write
+port actually writes them, not merely until the vector engine produces them.
+
 ## Validation
+
+Validate the real shared engine, adapters, and integrated core with:
+
+```sh
+python3 tools/testing/rsim/run.py --fixture rv2wide-vector-memory --fixture rv2wide-vector-memory-rv32 --fixture rv2wide-vector
+python3 tools/testing/rsim/run.py --fixture rv2wide-core-vector --fixture rv2wide-core-vector-rv32 --fixture rv2wide-mmu
+```
+
+The LSU checks cover raw-word extraction, rejected requests and store commits,
+accepted-response backpressure, split fault addresses and guest provenance,
+certified local replay, and store acknowledgements in RV64/four-slot and
+RV32/one-slot configurations. The engine fixture exercises dependent SIMD/store
+handoff, page-proof success/fallback, packed versus elementwise accesses, and
+delayed certified loads feeding scalar extraction. These are service tests, not
+evidence of vector instruction execution by `RV2WideCore`. The core-vector
+fixtures additionally exercise real decode/vset/CSR state, shared arithmetic,
+packed and precise memory, two-port scalar writeback, and fault/vstart reporting.
+Run the scalar core and late-FP fixtures when changing the shared service
+reservations; retain their existing EX-to-WB timing checks.
 
 `rv2wide-rv32` executes the production fetching/cache top in Bare mode. Its
 public-retirement and CHI oracle covers RV32 arithmetic and high products,

@@ -1,0 +1,120 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector-memory.rhdl" open
+  "../bundles.rhdl" open
+  lib("cores/vector/bundles.rhdl") open
+  lib("cores/cache/protocol.rhdl") open
+  lib("cores/load-store.rhdl") open
+  lib("cores/misaligned-access.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
+  input(issue_valid, certified, is_store, enabled, last, truncate): Bool
+  input tag: Bits(index_width(slots))
+  input(address, physical_address, store_data, pc): Bits(xlen.width)
+  input byte_mask: Bits(xlen.width / 8)
+  input width: Bits(2)
+  output issue_ready: Bool
+  input(lookup_valid, commit_ready): Bool
+  input lookup_outcome: RV2WideCacheOutcome
+  input lookup_data: Bits(xlen.width)
+  input(request_ready, response_valid, completion_ready, ordered_busy, request_fault): Bool
+  input response_data: Bits(xlen.width)
+  input(fault_cause, fault_address): Bits(xlen.width)
+  input(split_ready, split_valid, split_page_fault, split_access_fault, split_guest_fault): Bool
+  input(split_data, split_fault_address): Bits(xlen.width)
+  output(lookup, lookup_physical, committed, requested, request_physical, response_ready, split_requested): Bool
+  output(lookup_address, lookup_store, request_address, request_store, split_store): Bits(xlen.width)
+  output request_mask: Bits(xlen.width / 8)
+  output(feedback_valid, outcome_valid, completion_valid, idle): Bool
+  output feedback: VectorCommit(xlen, slots)
+  output completed: VectorCompletion(xlen, slots)
+  output guest: RiscvGuestFault()
+  output word_bytes: Bits(4)
+  output capacity: Bits(4)
+
+  inst dut(RV2WideVectorMemory(xlen, slots))
+  dut.issue.valid <== issue_valid
+  dut.issue.bits <== VectorToken(xlen, Bits(xlen.width), slots):
+    precertified: certified
+    physical_address: physical_address
+    store: is_store
+    byte_mask: byte_mask
+    context: pc
+    last: last
+    truncate_on_fault: truncate
+    memory: Bool(#true)
+    memory_width: width
+    enabled: enabled
+    address: address
+    store_data: store_data
+    completion_tag: tag
+  dut.pointer_masking <== literal(PointerMaskControl(), 0)
+  issue_ready <== dut.issue.ready
+  lookup <== dut.pipeline.request.valid
+  lookup_physical <== dut.pipeline_physical
+  lookup_address <== dut.pipeline.request.bits.address
+  lookup_store <== dut.pipeline.request.bits.data
+  dut.pipeline.response.valid <== lookup_valid
+  dut.pipeline.response.bits <== RV2WideLookupResult(xlen):
+    outcome: lookup_outcome
+    data: lookup_data
+    guest: literal(RiscvGuestFault(), 0)
+  dut.pipeline.commit_ready <== commit_ready
+  committed <== dut.pipeline.commit
+  dut.memory.request.ready <== request_ready & !request_fault
+  dut.memory.fault.valid <== request_fault
+  dut.memory.fault.bits <== RV2WideResolution(xlen):
+    disposition: RV2WideDisposition.Fault
+    cause: fault_cause
+    value: fault_address
+    guest: literal(RiscvGuestFault(), 0)
+  dut.memory.response.valid <== response_valid
+  dut.memory.response.bits <== response_data
+  dut.memory.drained <== Bool(#true)
+  dut.memory.ordered_busy <== ordered_busy
+  dut.memory.reservation_valid <== Bool(#false)
+  requested <== dut.memory.request.valid
+  request_physical <== dut.request_physical
+  request_address <== dut.memory.request.bits.address
+  request_store <== dut.memory.request.bits.data
+  request_mask <== dut.memory.request.bits.mask
+  response_ready <== dut.memory.response.ready
+  dut.split.request.ready <== split_ready
+  dut.split.response.valid <== split_valid
+  dut.split.response.bits <== RiscvSplitResult(xlen, Bool):
+    response:
+      PhysicalMemoryResp(xlen, Bool):
+        data: split_data
+        access_fault: split_access_fault
+        context: Bool(#false)
+    page_fault: split_page_fault
+    fault_address: split_fault_address
+    guest:
+      RiscvGuestException():
+        page_fault: split_guest_fault
+        details:
+          RiscvGuestFault():
+            guest_virtual_address: split_guest_fault
+            guest_physical_address: bits(0x2345, 64)
+            access: RiscvGuestFaultAccess.Explicit
+  split_requested <== dut.split.request.valid
+  split_store <== dut.split.request.bits.data
+  feedback_valid <== dut.feedback.valid
+  feedback <== dut.feedback.bits
+  outcome_valid <== dut.outcome.valid
+  guest <== dut.outcome_guest
+  completion_valid <== dut.completion.valid
+  completed <== dut.completion.bits
+  dut.completion.ready <== completion_ready
+  idle <== dut.idle
+  word_bytes <== bits(xlen.width / 8, 4)
+  capacity <== bits(slots, 4)
+
+export RV2WideVectorMemoryFixture

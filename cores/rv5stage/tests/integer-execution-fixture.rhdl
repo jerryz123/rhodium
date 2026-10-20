@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-service.rhdl") open
   lib("cores/integer-execution.rhdl") open
   "../integer-execution.rhdl" open
   "../multiply.rhdl" open
@@ -22,7 +23,7 @@ sync_circuit RV5StageIntegerExecutionFixture():
   interface scalar_completion(Irrevocable(RV5StageMultiplyCompletion(XLen.X64)), ~role: producer)
   output scalar_available: Bool
   inst multiply(RV5StageMultiplyService(RV5StageMultiplierKind.Pipelined, 64, Bits(8)))
-  inst divide(RV5StageDivideService(64, Bits(8)))
+  inst divide(DivideService(64, Bits(8)))
   multiply_request |> multiply.request
   multiply.result |> multiply_result
   divide_request |> divide.request

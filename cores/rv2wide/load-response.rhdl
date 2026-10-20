@@ -17,13 +17,16 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
   interface completed(Decoupled(RV2WideRetirement(xlen)), ~role: producer)
   interface fp_completed(Decoupled(RV2WideFpLoad(xlen)), ~role: producer)
   output available: Bool
+  output pending: Bool
   output drained: Bool
   interface ordered_completed(Pulse(), ~role: producer)
 
   inst owners(Queue(RV2WideResult(xlen), 4))
   allocate |> to_decoupled() |> owners.ingress
   available <== owners.ingress.ready
-  drained <== !owners.count.or_reduce() & !allocate.valid
+  // Admission queries retained owners; drain also covers this cycle's allocation.
+  pending <== owners.count.or_reduce()
+  drained <== !pending & !allocate.valid
   def joined :: Endpoint = Array(response, owners.egress) |> zip_flow(data, owner):
     owner.updated(~data: data)
   def result :: RV2WideResult(xlen) = joined.bits

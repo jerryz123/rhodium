@@ -1,0 +1,109 @@
+#lang rhodium
+/* Carries opaque ownership through the selected shared integer execution services. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "integer-execution.rhdl" open
+  "multiplier.rhdl" open
+  "divider.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Carries an opaque tag beside a feed-forward product without admission or result storage. */
+sync_circuit TaggedPipelinedMultiplier(width :: PosInt, Tag :: DataType):
+  interface request(Valid(IntegerExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
+  interface result(Valid(IntegerExecutionResult(Bits(width * 2), Tag)), ~role: producer)
+  inst execution(PipelinedMultiplier(width))
+  def Array(operands, tags) = request |> fork_valid(2)
+  operands |> map_valid(operation => operation.operands) |> execution.request
+  def owner = tags |> map_valid(operation => operation.tag) |> valid_pipe(PipelinedMultiplierStages)
+  (execution.response |> map_valid(value => IntegerExecutionResult(Bits(width * 2), Tag)):
+    tag: owner.bits
+    value: value
+  ) |> result
+  assert(execution.response.valid === owner.valid)
+
+/* Retains one accepted owner until the iterative multiplier's held result is consumed. */
+sync_circuit IterativeMultiplyService(width :: PosInt, Tag :: DataType):
+  interface request(Decoupled(IntegerExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(IntegerExecutionResult(Bits(width * 2), Tag)), ~role: producer)
+  inst execution(IterativeMultiplier(width))
+  reg owner(Tag)
+  request |> map_flow(operation => operation.operands) |> execution.request
+  when (request.fire()):
+    owner <== request.bits.tag
+  (
+    execution.response |> map_flow(~stable: #true, value => IntegerExecutionResult(Bits(width * 2), Tag)):
+      tag: owner
+      value: value
+  ) |> result
+
+/* Publishes a reserved product on its return cycle without completion storage. */
+sync_circuit ScheduledMultiplyReturns(Result :: DataType):
+  interface launched(Pulse(), ~role: consumer)
+  interface completion(Valid(Result), ~role: consumer)
+  interface result(Irrevocable(Result), ~role: producer)
+  output capacity_available: Bool
+  // The caller reserves the physical destination before accepting launch.
+  // The Irrevocable response never stalls in this stronger timing contract.
+  capacity_available <== Bool(#true)
+  result.valid <== completion.valid
+  result.bits <== completion.bits
+  assert(!result.valid ||| result.ready, "scheduled_multiply_writes_on_return")
+  describe_interface_contract(completion, result, "data", ~kind: "scheduled-writeback", ~trace_model: interface_trace_combinational())
+
+/* Counts accepted products until delivery and buffers returns under sink backpressure. */
+sync_circuit BufferedMultiplyReturns(Result :: DataType, capacity :: PosInt):
+  interface launched(Pulse(), ~role: consumer)
+  interface completion(Valid(Result), ~role: consumer)
+  interface result(Irrevocable(Result), ~role: producer)
+  output capacity_available: Bool
+  def count_width = index_width(capacity + 1)
+  // Standalone clients with arbitrary sink backpressure use the elastic
+  // adapter. The integrated core selects scheduled writeback instead.
+  inst completed(Queue(Result, capacity))
+  reg outstanding(~init: bits(0, count_width))
+  completed.egress |> result
+  completion |> to_decoupled() |> completed.ingress
+  capacity_available <== (outstanding =/= bits(capacity, count_width)) ||| result.fire()
+  when (launched.valid & !result.fire()):
+    outstanding <== outstanding + bits(1, count_width)
+  elsewhen (result.fire() & !launched.valid):
+    outstanding <== outstanding - bits(1, count_width)
+
+/* Delays tags alongside fixed-latency products; either guarantees immediate writeback
+   or bounds in-flight launches so every return fits the elastic completion queue. */
+sync_circuit PipelinedMultiplyService(width :: PosInt, Tag :: DataType, ~scheduled_writeback: scheduled_writeback :: Boolean = #false):
+  def capacity = PipelinedMultiplierStages + 1
+  def Result = IntegerExecutionResult(Bits(width * 2), Tag)
+  interface request(Decoupled(IntegerExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(Result), ~role: producer)
+  inst execution(TaggedPipelinedMultiplier(width, Tag))
+  wire capacity_available: Bool
+  def launched = request |> gate_flow(capacity_available) |> to_valid()
+  launched |> execution.request
+  inst returns(if scheduled_writeback | ScheduledMultiplyReturns(Result) | BufferedMultiplyReturns(Result, capacity))
+  returns.launched.valid <== launched.valid
+  execution.result |> returns.completion
+  returns.result |> result
+  capacity_available <== returns.capacity_available
+
+/* Retains one accepted owner across iterative division and result backpressure. */
+sync_circuit DivideService(width :: PosInt, Tag :: DataType):
+  interface request(Decoupled(IntegerExecutionRequest(DividerRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(IntegerExecutionResult(DividerResponse(width), Tag)), ~role: producer)
+  inst execution(IterativeDivider(width))
+  reg owner(Tag)
+  request |> map_flow(operation => operation.operands) |> execution.request
+  when (request.fire()):
+    owner <== request.bits.tag
+  (
+    execution.response |> map_flow(~stable: #true, value => IntegerExecutionResult(DividerResponse(width), Tag)):
+      tag: owner
+      value: value
+  ) |> result
+
+export:
+  TaggedPipelinedMultiplier
+  IterativeMultiplyService
+  PipelinedMultiplyService
+  DivideService

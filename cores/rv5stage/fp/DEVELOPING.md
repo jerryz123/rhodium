@@ -18,7 +18,7 @@ tests. No shared FP component imports this wrapper. See the repository
 
 `core.rhdl` owns WB authorization, the GPR write calendar, memory requests, and
 integer-result retirement. Its named `service.rhdl` owns scalar/vector issue
-arbitration and the FP return calendar. The scalar wrapper owns FPR
+arbitration and consumes the shared `FpLaunchCalendar` for return bookings. The scalar wrapper owns FPR
 reservations/hazards, load boxing, operand snapshots, completion adaptation,
 and architectural-state update events. Canonical FP instruction mappings live
 in [`cores/fp/decode.rhdl`](../../fp/decode.rhdl); the named

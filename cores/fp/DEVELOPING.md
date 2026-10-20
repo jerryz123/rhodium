@@ -34,6 +34,7 @@ the caller rather than adding a dependency back toward a core.
 | [`div-sqrt.rhdl`](div-sqrt.rhdl) | One active variable operation with retained terminal state/tag |
 | [`timing.rhdl`](timing.rhdl) | Shared fixed-operation return-delay descriptor |
 | [`authorization.rhdl`](authorization.rhdl) | Opaque Valid-owner alignment to fixed returns, without admission or retirement policy |
+| [`launch-calendar.rhdl`](launch-calendar.rhdl) | Next-cycle launch bookings, fixed-return reservations, and vector booking fairness |
 | [`execute.rhdl`](execute.rhdl) | Lane routing and fixed-return timing, with separate scheduled and buffered return adapters |
 | [`tests/`](tests/) | Shared decode contracts and standalone behavioral fixtures |
 
@@ -59,6 +60,12 @@ on this shared descriptor; do not repeat a literal latency in callers.
 Both cores use `align_fp_authorization` for the delay mechanism, retaining their
 own authorization, cancellation, and owner/result checks. Cover latency diversity
 with `rv2wide-core-fp-late` and `rv5stage-core-rv64d` when changing this helper.
+
+Both cores also use `FpLaunchCalendar`. Its book event reserves the next scalar
+launch and matching return; vector return bookings are atomic with launch.
+Callers supply their readiness/fairness observations and retain client arbitration
+and result buffering. Do not collapse RV2Wide's separate fixed/variable scalar
+paths into RV5Stage's combined scalar port merely to share wiring.
 
 `FpExecutionService` selects `FpScheduledReturns` or `FpBufferedReturns` while
 sharing the numeric lanes and timing pipeline. The scheduled adapter owns

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/vector/instruction-metadata.rhm") open
   lib("cores/memory-decode.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../riscv/isa/h.rhm" open
@@ -312,28 +313,27 @@ def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_rea
 fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
                               vector_controls :: List.of(DecodeCase)):
   for List (instruction in instructions):
-    def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
-    def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
-    def store = vector_isa.VectorStoreInstructions.contains(instruction)
-    def strided = vector_isa.VectorStridedMemoryInstructions.contains(instruction) || vector_isa.VectorStridedSegmentMemoryInstructions.contains(instruction)
-    def scalar_destination = [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction)
+    def metadata = vector_scalar_metadata(instruction)
+    def configuration = metadata.configuration
+    def memory = metadata.memory
+    def store = metadata.store
+    def scalar_destination = metadata.scalar_destination
     def memory_width = cond
     | [vector_isa.VLE8_V, vector_isa.VSE8_V, vector_isa.VLSE8_V, vector_isa.VSSE8_V].contains(instruction): MemoryWidth.Byte
     | [vector_isa.VLE16_V, vector_isa.VSE16_V, vector_isa.VLSE16_V, vector_isa.VSSE16_V].contains(instruction): MemoryWidth.Half
     | [vector_isa.VLE32_V, vector_isa.VSE32_V, vector_isa.VLSE32_V, vector_isa.VSSE32_V].contains(instruction): MemoryWidth.Word
     | ~else: MemoryWidth.Double
-    def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
     def input = instruction_pattern(instruction)
     def operand_control:
       if memory
       | partial_pattern(RV5StageOperandControl()):
           uses_rs1: Bool(#true)
-          uses_rs2: Bool(strided)
+          uses_rs2: Bool(metadata.uses_rs2)
           left: OperandASelect.Register
           right: OperandBSelect.Immediate
       | partial_pattern(RV5StageOperandControl()):
-          uses_rs1: Bool(!sources.is_empty())
-          uses_rs2: Bool(instruction == vector_isa.VSETVL)
+          uses_rs1: Bool(metadata.uses_rs1)
+          uses_rs2: Bool(metadata.uses_rs2)
     def memory_control:
       cond
       | !memory: inactive_memory_control
@@ -380,7 +380,7 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
         vector: component_output(vector_controls, input)
     )
 def VectorCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions, VectorControlCases)
-def VectorIntegerCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions.filter(~keep: fun (instruction): !vector_isa.VectorFloatingPointInstructions.contains(instruction)), VectorControlCases)
+def VectorIntegerCoreControlCases = vector_core_control_cases(vector_base_instructions(VectorProfile.Zve32x), VectorControlCases)
 def VectorZvbbCoreControlCases = vector_core_control_cases(vector_bitmanip.ZvbbInstructions, VectorZvbbCases)
 def ZihintntlCoreControlCases = [
   hint_control_case(NTL_P1, RV5StageHintOperation.NtlP1),

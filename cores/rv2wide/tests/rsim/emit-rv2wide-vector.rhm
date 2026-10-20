@@ -1,0 +1,7 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../vector-fixture.rhdl" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+def program = elaborate(RV2WideVectorFixture())
+export program

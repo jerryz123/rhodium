@@ -38,13 +38,19 @@ introduce buffering or lossy arbitration on a nonstallable return.
 | `register-file.rhdl`, `packing.rhdl`, `mask.rhdl`, `execute.rhdl` | VRF/mask shadow and packed SIMD operand/result shaping |
 | `packed-prepare.rhdl`, `packed-load.rhdl`, `splat-load.rhdl`, `load-response.rhdl` | Packed and splat transport preparation, response assembly, and retained carry |
 | `geometry.rhdl`, `precheck.rhdl` | Beat geometry and conservative certification footprints |
+| `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
+| `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
+| `instruction-metadata.rhm` | Canonical base decode domains and scalar operand/destination metadata |
 | `fp.rhdl`, `muldiv.rhdl` | Shared arithmetic operands and tagged result conversion |
 
 `../mmu/vector.rhdl` owns certification/probe contracts and
 `../mmu/vector-window.rhdl` owns the pinned two-page window. The named MMU owns
-lookups, walks, permissions context, and invalidation. RV5Stage retains
-`../rv5stage/vector.rhdl` for descriptor admission/certification outcomes and
-`../rv5stage/vector/memory.rhdl` for its LSU timing and destination-union adapter.
+lookups, walks, permissions context, and invalidation. Named vector wrappers
+compose `VectorAdmission` with execution and their LSU adapter. They retain WB
+policy, fault-provenance types, drain qualification, and descriptor queue timing.
+The memory adapters retain fixed lookup stages, fault interpretation, split
+ownership, and cache response shaping; `VectorReplay` owns only durable request
+storage and its ordered attempt/release cursors.
 
 ## Change workflow
 
@@ -53,6 +59,13 @@ component decode relations, but compose scalar decode columns in that caller.
 Do not add compatibility re-exports through the old named-core paths.
 Preserve trace event labels and passive observation fields when moving code;
 instrumentation consumers depend on ownership and timing, not source location.
+
+`VectorReplay.skip` resumes attempts after an oldest owner accepted by a split
+transaction; `retry` instead rewinds to that owner. Neither event deletes
+accepted response ownership. Recovery suppresses attempts while still allowing
+durable capture. Keep acknowledgement readiness independent of cache commit.
+Preserve caller-selected pipelined versus registered descriptor credit: changing
+it can introduce a combinational cycle through WB and LSU readiness.
 
 Move direct behavioral fixtures with their implementation. Shared fixtures
 decode vector controls directly rather than instantiating a named core decoder.
@@ -78,3 +91,9 @@ RV5Stage admission fixture checks the caller boundary. Add its vector-memory
 and MMU replay fixtures for translation/LSU behavior changes, FP/muldiv fixtures
 for shared arithmetic changes, and cosim/event fixtures for observation changes.
 Use the managed Racket wrappers and keep generated HDL/native builds untracked.
+
+For admission/replay extractions, cover both callers with
+`rv2wide-core-vector`, `rv2wide-core-vector-rv32`, `rv2wide-vector-memory`,
+`rv5stage-vector-admission`, `rv5stage-vector-memory`, and
+`rv5stage-vector-memory-one-slot`. These preserve registered WB credit,
+precise versus certified outcomes, split ownership, and depth-one ring indexing.

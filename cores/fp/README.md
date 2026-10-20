@@ -87,6 +87,13 @@ control projection returns `FloatExecutionControl()`. The caller must authorize 
 or before every fixed return and reserve collision-free return cycles; the
 helper does not grant issue or retirement permission.
 
+[`FpLaunchCalendar`](launch-calendar.rhdl) shares the booking mechanism for
+next-cycle scalar launches and fixed-return cycles. Scalar `book` is a Valid
+event after admission; vector bookings transfer atomically with launch.
+It exposes the registered launch reservation and prevents repeated scalar
+bookings from starving a waiting vector client. Callers still choose arbitration,
+completion buffering, architectural authorization, and physical register ports.
+
 Results may reorder across fixed latencies and variable paths. Use
 [`fp_request_with_tag` and `fp_result_with_tag`](bundles.rhdl) with ordinary
 Flow arbitration and tag-based routing to share the service. Tags remain

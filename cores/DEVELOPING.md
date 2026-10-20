@@ -103,6 +103,8 @@ implements its retirement policy. Architectural encodings and stateless
 architectural policy stay under `riscv/isa/` and `riscv/rtl/`.
 
 `integer-execution.rhdl` supplies opaque arithmetic request/result ownership;
+`integer-service.rhdl` carries those tags through iterative multiply/divide and
+feed-forward multiplication, with explicit scheduled or buffered return adapters.
 `register-write.rhdl` supplies a GPR destination/value payload independent of
 physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
@@ -205,6 +207,9 @@ Use both cores\' composed decode checks when changing these mappings.
 
 Shared instruction mappings and row geometry use
 `cores/tests/{alu-decode,multiply-decode,divide-decode,vector-layout}-test.rhm`.
+Tagged integer service changes use `rv5stage-integer-execution` for held
+results and scheduled returns, and `rv2wide-core-vector` for shared-client
+ownership and scalar WB authorization.
 CSR, translation, and floating-point checks are routed by their respective
 [CSR](csr/DEVELOPING.md#change-workflow-and-validation) and
 [MMU](mmu/DEVELOPING.md#validation) and [FP](fp/DEVELOPING.md#validation) guides. For shared split-engine changes,

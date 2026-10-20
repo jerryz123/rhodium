@@ -17,6 +17,7 @@ import:
   "../../load-store.rhdl" open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/isa/xlen.rhm") open
+  lib("cores/mmu/vector.rhdl") open
 
 sync_circuit RV2WideMmuFixture():
   input privilege: Bits(2)
@@ -25,6 +26,8 @@ sync_circuit RV2WideMmuFixture():
   input pbmte: Bool
   input guest_state: RiscvHypervisorTranslation()
   input guest_access: RiscvGuestMemoryAccess
+  input vector_access: Bool
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   input fetch_valid: Bool
@@ -63,6 +66,9 @@ sync_circuit RV2WideMmuFixture():
   output completed: Bool
   output completed_data: Bits(64)
   inst mmu(RV2WideMmu(test_fetch_chi, ~svnapot: #true))
+  mmu.pipeline_vector <== vector_access
+  mmu.request_vector <== vector_access
+  vector_precheck <=> mmu.vector_precheck
   mmu.split_guest_access <== guest_access
   mmu.state <== RV2WideTranslationState(XLen.X64):
     pointer_masking: literal(PointerMaskControl(), 0)

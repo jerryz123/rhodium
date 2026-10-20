@@ -1,0 +1,128 @@
+#lang rhodium
+/* Retains admitted vector descriptors, certifies their memory footprint, and orders architectural outcomes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "precheck.rhdl" open
+  "decode.rhdl".VectorMemoryAddressing
+  lib("cores/mmu/vector.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/vector.rhm") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Accepts only nonspeculative descriptors. The caller owns WB admission and LSU timing;
+   this controller owns head certification, pinned-window release, and registered outcomes.
+   Fault is opaque provenance; early certified outcomes carry its zero value. */
+sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, Fault :: DataType, ~pipe: pipe :: Boolean):
+  interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
+  interface dispatch(Decoupled(VectorInstruction(xlen, Bits(xlen.width))), ~role: producer)
+  interface precheck(VectorPrecheck(), ~role: requester)
+  interface sequencing_done(Pulse(), ~role: consumer)
+  interface precise(Valid(VectorCommit(xlen, slots)), ~role: consumer)
+  input precise_fault: Fault
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  output outcome_fault: Fault
+  input(requests_idle, sequencing, issue_valid): Bool
+  output(available, active, certification_pending, loads_pending, stores_pending, fp_pending): Bool
+  output(packed_memory, execution_certified, store): Bool
+  output pointer_masking: PointerMaskControl()
+
+  inst descriptors(Queue(VectorDescriptor(xlen), 2, ~pipe: pipe, ~flow: #true))
+  reg waiting_retirement(~init: Bool(#false))
+  reg uncertified_memory(~init: Bool(#false))
+  reg check_started(~init: Bool(#false))
+  reg check_complete(~init: Bool(#false))
+  reg certified(~init: Bool(#false))
+  reg active_precheck(~init: Bool(#false))
+  reg captured_certificate(~init: Bool(#false))
+  reg captured_pointer_masking(PointerMaskControl())
+  reg captured_store(~init: Bool(#false))
+  request |> gate_flow(!waiting_retirement) |> descriptors.ingress
+  available <== !waiting_retirement & descriptors.ingress.ready
+  def head = descriptors.egress
+  def footprint = vector_footprint(xlen, vlen, head.bits, head.bits.pointer_masking)
+  def needs_check = head.bits.control.memory & !footprint.empty & footprint.eligible & !head.bits.precertified
+  def head_certified = !head.bits.control.memory ||| footprint.empty ||| head.bits.precertified ||| (check_complete & certified)
+  (
+    head |> map_flow(descriptor => VectorInstruction(xlen, Bits(xlen.width))):
+      context: descriptor.pc
+      descriptor: descriptor
+  ) |> gate_flow((!needs_check ||| check_complete) & (!head.bits.control.memory ||| head.bits.precertified ||| (requests_idle & !sequencing & !issue_valid))) |> dispatch
+  packed_memory <== head_certified & head.bits.control.memory & (head.bits.control.memory_addressing === VectorMemoryAddressing.UnitStride)
+  precheck.request.valid <== head.valid & needs_check & !check_started
+  precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))
+  def checked = precheck.response |> gate_flow(check_started & !check_complete) |> to_valid()
+  precheck.release.valid <== sequencing_done.valid & active_precheck
+  def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: dispatch.fire() & head.bits.control.memory & footprint.empty, ~bits: head.bits.pc)
+  def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => head.bits.pc)
+  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => VectorCommit(xlen, slots)):
+    tag: bits(0, index_width(slots))
+    pc: pc
+    disposition: VectorDisposition.Authorized
+    slow: Bool(#false)
+    data: bits(0, xlen.width)
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+  /* Keeps precise fault provenance attached to its registered architectural outcome. */
+  bundle Retirement():
+    value: VectorCommit(xlen, slots)
+    fault: Fault
+  def early = early_outcome |> map_valid(value => Retirement()):
+    value: value
+    fault: literal(Fault, 0)
+  def final_outcome = precise |> filter_valid(_event => !captured_certificate)
+  def final_retirement = final_outcome |> map_valid(value => Retirement()):
+    value: value
+    fault: precise_fault
+  def retirement = Array(early, final_retirement) |> valid_arbiter() |> valid_pipe(1)
+  retirement |> map_valid(event => event.value) |> outcome
+  outcome_fault <== retirement.bits.fault
+  when (request.fire() & request.bits.control.memory & !request.bits.precertified):
+    waiting_retirement <== Bool(#true)
+  elsewhen (outcome.valid):
+    waiting_retirement <== Bool(#false)
+  when (request.fire() & request.bits.control.memory):
+    uncertified_memory <== !request.bits.precertified & !early_outcome.valid
+  elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)) ||| outcome.valid):
+    uncertified_memory <== Bool(#false)
+  when (dispatch.fire()):
+    check_started <== Bool(#false)
+    check_complete <== Bool(#false)
+    certified <== Bool(#false)
+  elsewhen (precheck.request.fire()):
+    check_started <== Bool(#true)
+  elsewhen (checked.valid):
+    check_complete <== Bool(#true)
+    certified <== checked.bits
+  when (dispatch.fire()):
+    captured_pointer_masking <== head.bits.pointer_masking
+    captured_certificate <== head_certified
+    captured_store <== head.bits.control.store & head.bits.control.memory
+    active_precheck <== needs_check
+  elsewhen (precheck.release.valid):
+    active_precheck <== Bool(#false)
+  when (precheck.response.fire()):
+    assert(head.valid & needs_check, "vector_precheck_has_pending_descriptor")
+  reg queued_loads(~init: bits(0, 2))
+  reg queued_stores(~init: bits(0, 2))
+  reg queued_fp(~init: bits(0, 2))
+  def incoming = descriptors.ingress.bits.control
+  def outgoing = head.bits.control
+  queued_loads <== queued_loads + (descriptors.ingress.fire() & incoming.memory & !incoming.store).as_bits().zext(2) - (head.fire() & outgoing.memory & !outgoing.store).as_bits().zext(2)
+  queued_stores <== queued_stores + (descriptors.ingress.fire() & incoming.memory & incoming.store).as_bits().zext(2) - (head.fire() & outgoing.memory & outgoing.store).as_bits().zext(2)
+  queued_fp <== queued_fp + (descriptors.ingress.fire() & incoming.floating_point).as_bits().zext(2) - (head.fire() & outgoing.floating_point).as_bits().zext(2)
+  assert((queued_loads <= descriptors.count) & (queued_stores <= descriptors.count) & (queued_fp <= descriptors.count), "vector_queued_kinds_match_occupancy")
+  active <== waiting_retirement ||| head.valid
+  certification_pending <== uncertified_memory
+  loads_pending <== queued_loads.or_reduce()
+  stores_pending <== queued_stores.or_reduce()
+  fp_pending <== queued_fp.or_reduce()
+  execution_certified <== captured_certificate
+  pointer_masking <== captured_pointer_masking
+  store <== captured_store
+
+export:
+  VectorAdmission

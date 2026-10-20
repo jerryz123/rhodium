@@ -29,7 +29,7 @@ private-cache geometry; `RV2WideHart` starts once at the platform reset vector
 after reset. The shared SoC BootROM performs normal FESVR entry publication and
 ACLINT release. The corresponding `mini-rv2wide-rv64imafdcb` and
 `simple-rv2wide-rv64imafdcb` selections add F/D and compressed FP loads/stores.
-No RV32 SoC preset, vector, H-enabled SoC preset, or Tiled selection is provided.
+No RV32, vector-enabled, H-enabled, or Tiled SoC selection is provided.
 
 ## Entry point
 
@@ -44,8 +44,8 @@ inst core(RV2WideCore())
 Select `RV2WideConfig(~xlen: XLen.X32)` for scalar RV32 with Bare translation.
 The default remains RV64/Sv39; `~mmu_type: RiscvMmuType.Bare` also selects
 Bare-only RV64. RV32 currently excludes FP, H, and pointer masking. Translation
-extensions require Sv39. This scalar specialization is not the repository's
-`rv32int` preset, which additionally requires integer vectors.
+extensions require Sv39. Add `~vector: VectorProfile.Zve32x,
+~vector_length: 64` for integer vectors; SoC preset selection remains separate.
 
 Pipeline and retirement payload constructors take `xlen`; architectural PCs,
 GPRs, arithmetic, and scalar memory beats use that width. Fetch blocks and the
@@ -245,8 +245,8 @@ the existing lean SoC presets:
 
 Selecting both hypervisor and state-enable support publishes Sha and the
 shared bank's guest supervisor guarantees. This is supervisor/hypervisor
-capability parity, not full RV5Stage ISA parity: RV2Wide has no vector or RV32
-execution configuration, and does not publish RV5Stage's complete RVA23 profile.
+capability parity, not full RV5Stage ISA parity: RV2Wide does not publish
+RV5Stage's complete RVA23 profile.
 
 HLVX uses execute permission at both translation stages while retaining load
 fault classification, and bypasses pointer masking. With H and Svinval enabled,
@@ -912,9 +912,67 @@ Shared cache/CHI events retain their existing annotations. Partial tracing still
 reports unmodeled fetch-cursor and external response provenance; it does not
 invent ancestry from equal PCs or reused transaction IDs.
 
+## Vector execution
+
+`RV2WideConfig` selects optional `vector`, `vector_length`, and
+`vector_completion_slots` parameters. The default remains `VectorProfile.None`.
+RV32 supports integer Zve32x; RV64 additionally supports the embedded
+64-bit profiles and V, with scalar D required for vector floating point.
+VLEN must provide at least two XLEN-wide rows per register.
+For example, `RV2WideConfig(~floating_point: FloatingPointProfile.D,
+~vector: VectorProfile.V)` selects VLEN=128 and eight completion slots.
+This is a core specialization, not a new SoC or CI preset. Vector-specific
+cosimulation observation is not connected by this integration.
+
+`vector.rhdl` also exposes `RV2WideVectorPipeline(xlen, vlen)` as an independently
+usable service. It composes the shared sequencer, VRF, SIMD datapath, and
+completion scoreboard with RV2Wide lookup, ordered-memory, and split-access
+interfaces. `RV2WideCore` supplies the architectural integration:
+
+- Vector instructions issue singly, snapshot CSR/scalar operands, and enter
+  the descriptor queue only through successful WB dispatch.
+- Faultable memory instructions retain their architectural owner until page
+  certification or precise execution determines the outcome. Successful page
+  certification permits younger independent scalar work while execution drains.
+- Younger scalar memory waits for older vector stores; younger scalar stores
+  also wait for older vector loads. CSR changes and traps drain accepted work.
+- Scalar EX multiply and fixed-FP reservations remain feed-forward. Vector
+  operations share the same arithmetic units with retained completion tags.
+- Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
+  retain their destination until the shared load-write port accepts the result.
+
+Standalone callers supply WB-authorized, nonspeculative `VectorDescriptor` requests, page-window
+certification, shared FP/multiply/divide services, and scalar write reservations.
+Only the caller may retire an instruction, publish a fault, or grant a scalar
+register write. A scalar redirect must not cancel an accepted descriptor.
+
+```text
+WB-authorized descriptors -> queue -> shared vector execution
+                            |              |
+                     page certification   +-> RV2Wide lookup -> WB admission
+                                           |                     |
+                                           +<- feedback    retained response tags
+                                                                  |
+                                                        vector completion slots
+```
+
+Faultable attempts replay before memory acceptance. Split accesses retain the
+attempt through the final outcome and report the faulting fragment address.
+Certified beats instead acknowledge durable capture, retain their physical
+request through cache retries, and complete through tagged responses. The
+sequencer may advance to a successor while older responses remain outstanding.
+Ordinary subword returns are extracted from raw XLEN words using the retained
+byte offset. Store-hit acknowledgements cannot backpressure a committed store.
+
+`outcome` reports fault certainty separately from `execution_done`; `active`
+includes retained LSU work. Pending-load/store summaries include queued
+descriptors. The scalar integration uses these distinctions for memory
+ordering, two-slot retirement, interrupts, and CSR changes. Scalar redirects do
+not cancel vector work already accepted at WB.
+
 ## Deliberate limits
 
-There is no guest translation. Optional FP supports F/D, Zfhmin/Zfh, and Zfa.
+Optional FP supports F/D, Zfhmin/Zfh, and Zfa.
 Misaligned accesses to devices or uncached memory are deliberately unsupported.
 The SoC bindings publish lean RV64IMACB or RV64IMAFDCB presets, not RVA23. Mini/Simple
 bindings support target-selected [Sail cosimulation](../../sims/cosim/README.md)

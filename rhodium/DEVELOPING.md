@@ -285,6 +285,20 @@ and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports
 the physical cache protocol, cache operations, load/store shaping, architectural
 XLEN/guest-fault types, Bits helpers, and Flow, never a named core's payload.
+RV2Wide's `vector.rhdl`/`vector-memory.rhdl` adapters consume shared
+`cores/vector/`, `cores/mmu/vector.rhdl`, integer/FP service contracts, and the
+public Flow and `std/bits.rhdl` APIs. The adapters use architectural XLEN,
+vector-state, pointer-mask, trap, guest-fault, PBMT, atomic, and locality helpers
+from `riscv/`, plus HardFloat rounding types through shared FP descriptors.
+They do not import RV5Stage. Scalar WB admission and translation arbitration
+remain RV2Wide-owned, not dependencies of the shared vector package.
+Its core and pipeline bundles consume the shared vector descriptor/control
+types; its decoder joins the canonical V catalog into the ordinary decode
+relation. The host profile consumes vector-profile and VLEN descriptors and
+`std/bits.rhdl` capacity annotations. `memory-ports.rhdl` uses Flow to retain
+scalar/vector response ownership; the Bare and Sv39 adapters consume the shared
+MMU vector-window contract. The scalar arithmetic adapters consume opaque
+integer-service and vector completion tags, without importing another core.
 RV2Wide bundles
 also consume the architectural privilege type, and its core selects Sv39 through
 the shared hart MMU-type descriptor.
@@ -528,8 +542,15 @@ and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 and shared vector mask-scan controls. Paths beginning with `vector/` in this
 inventory refer to `cores/vector/`. `vector/mask.rhdl` imports public
 `std/bits.rhdl` for bit reversal and first-set counting; it has no decode dependency.
-The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for WB allocation,
-compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
+The named vector wrappers import `vector/admission.rhdl` for descriptor credit,
+certification, and registered macro outcomes. That shared component imports
+vector bundles/precheck/decode, shared MMU protocols, architectural XLEN/vector
+and pointer-masking types, public bit helpers, and Flow.
+`vector/replay.rhdl` imports vector bundles, XLEN, bit helpers, and Flow for
+durable requests and retained acknowledgement ownership. Both named vector
+memory adapters consume it while retaining their LSU timing and split protocols.
+`vector/instruction-metadata.rhm` imports pure instruction/vector profiles only;
+both named decoders consume its scalar integration metadata.
 `vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand storage,
 and accepted shared-service request queues; it additionally imports the shared
 writeback calendar, integer
@@ -594,8 +615,10 @@ protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`
 operation; memory engines retain the specialized union opaquely.
 
-`cores/rv5stage/integer-execution.rhdl` imports the reusable multiplier/divider
-and `flow/main.rhdl` for typed, owner-retaining execution services. Scalar
+`cores/integer-service.rhdl` imports integer contracts, the reusable
+multiplier/divider, and `flow/main.rhdl` for owner-retaining execution services.
+RV5Stage's `integer-execution.rhdl` retains only profile-based service selection;
+RV2Wide consumes the shared tagged multiplier and divider directly. Scalar
 `multiply.rhdl` and `divide.rhdl` use Flow queues for WB admission reservations;
 the core uses Flow arbitration and stable demultiplexing to share those services.
 `vector/muldiv.rhdl` imports the integer contracts, pure ISA geometry/XLEN, and
@@ -621,9 +644,12 @@ wrapper, using shared `cores/fp/register-file.rhdl` storage.
 implementation depends on the vector package or on test/backend code.
 `cores/rv5stage/core.rhdl` imports its named `fp/service.rhdl` and HardFloat
 rounding types. The named service imports shared FP bundles, execution, timing,
-and controls, the reusable writeback calendar, architectural XLEN/FP profiles,
+and controls, shared `fp/launch-calendar.rhdl`, architectural XLEN/FP profiles,
 and Flow to arbitrate scalar/vector clients and reserve fixed returns.
 Generic request/result retagging remains in the FP bundles.
+`cores/fp/launch-calendar.rhdl` imports FP timing/control, the shared writeback
+calendar, and Flow. Both named FP adapters consume its booking/fairness state;
+arbitration, architectural authorization, and completion buffering stay local.
 `cores/fp/authorization.rhdl` imports timing and `flow/main.rhdl` to align opaque
 Valid owners; named wrappers retain issue permission, authorization, and collision checks.
 `cores/fp/timing.rhdl` imports only shared FP control types. The execution

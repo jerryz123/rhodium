@@ -874,5 +874,46 @@ int main() {
     wb_valid = 0;
     guest_state = {};
     guest_access = 0;
+    // Admission probes two distinct pages through the ordinary DTLB/walker.
+    // Once certified, vector attempts use the pinned mappings without another walk.
+    satp = UINT64_C(0x8000000000000010);
+    fence();
+    vector_precheck_in.prequest.pvalid = 1;
+    vector_precheck_in.prequest.pbits = {UINT64_C(0x500ff8), UINT64_C(0x501007), 0};
+    vector_precheck_in.presponse.pready = 0;
+    eval();
+    CHECK(vector_precheck_out.prequest.pready);
+    tick_model();
+    vector_precheck_in.prequest.pvalid = 0;
+    walk_at(0x500ff8, (UINT64_C(22) << 10) | 0xcf);
+    walk_at(0x501007, (UINT64_C(23) << 10) | 0xcf);
+    eval();
+    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_access = 1;
+    data_hit(0x500ff8, 0x16ff8);
+    data_hit(0x501000, 0x17000);
+    vector_access = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
+    // A rejected page proof is a fallback decision, not a speculative trap.
+    fence();
+    vector_precheck_in.prequest.pvalid = 1;
+    vector_precheck_in.prequest.pbits = {UINT64_C(0x600000), UINT64_C(0x600007), 0};
+    tick_model();
+    vector_precheck_in.prequest.pvalid = 0;
+    walk_at(0x600000, 0);
+    eval();
+    CHECK(vector_precheck_out.presponse.pvalid && !vector_precheck_out.presponse.pbits);
+    CHECK(!wb_fault);
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
   });
 }

@@ -32,6 +32,8 @@ import:
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
+  lib("cores/mmu/vector.rhdl") open
+  lib("cores/mmu/vector-window.rhdl").VectorWindow
 
 /* Distinguishes physical response owners independently of live translation and fragment state. */
 hardware_enum RV2WidePhysicalOwner:
@@ -52,6 +54,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   input state: RV2WideTranslationState(XLen.X64)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
+  input(pipeline_vector, request_vector): Bool
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(RV2WideInstructionTranslation(XLen.X64), ~role: responder)
@@ -69,6 +73,11 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   inst dtlb(RiscvTranslationTlb())
   inst walker(RiscvTranslationWalker(~svnapot: svnapot))
   inst misaligned(RiscvMisalignedEngine(XLen.X64, Bool))
+  inst vector_window(VectorWindow(config.physical_map))
+  vector_precheck <=> vector_window.check
+  reg mem_vector(~init: Bool(#false))
+  mem_vector <== pipeline_vector
+  assert(!(invalidate & vector_window.owned), "rv2wide_vector_window_drained_before_invalidation")
   split.request |> misaligned.start
   reg split_mode(RiscvGuestMemoryAccess)
 
@@ -134,6 +143,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     memory.request.valid: memory.request.bits
   def data_virtual_address = mux(split_request.valid, split_fault_address, data_request.address)
   def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
+  def vector_probe = vector_window.translation.request.valid & !data_demand & !misaligned.busy
+  vector_window.addresses <== vec(mem.address, memory.request.bits.address)
+  def window_hit = !split_request.valid & !vector_probe & mux(memory.request.valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
+  def window_address = mux(memory.request.valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
   def explicit_guest = data_request.guest_access =/= RiscvGuestMemoryAccess.Normal
   def execute_read = data_request.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead
   def data_guest = explicit_guest ||| normal_data_guest
@@ -142,7 +155,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     data_request.access.store_fault_class(): Sv39Access.Store
   def explicit_guest_privilege = mux(csr_flag(guest_state.hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User)
   def selected_data_privilege = mux(explicit_guest, explicit_guest_privilege, data_privilege)
-  def data_lookup = lookup(data_virtual_address, data_access, selected_data_privilege, data_guest).updated(~execute_read: execute_read)
+  def normal_lookup = lookup(data_virtual_address, data_access, selected_data_privilege, data_guest).updated(~execute_read: execute_read)
+  def data_lookup = mux(vector_probe, lookup(vector_window.translation.request.bits.address, mux(vector_window.translation.request.bits.store, Sv39Access.Store, Sv39Access.Load), data_privilege, normal_data_guest), normal_lookup)
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
 
@@ -192,12 +206,16 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
   def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
   def instruction_known = itlb.hit ||| instruction_failed
-  def data_known = dtlb.hit ||| data_failed
+  def data_known = dtlb.hit ||| data_failed ||| window_hit
   def instruction_result = mux(instruction_failed, instruction_fault.result, itlb.translation)
-  def data_result = mux(data_failed, data_fault.result, dtlb.translation)
+  def translated_result = mux(data_failed, data_fault.result, dtlb.translation)
+  def data_result = mux(window_hit, translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None), translated_result)
   def data_ok = data_known & (data_result.fault === RiscvTranslationFault.None)
   def data_guest_fault = data_result.fault_details.updated(~guest_virtual_address: data_guest)
-  def data_pbmt = riscv_host_result(data_result).pbmt
+  def data_pbmt = mux(window_hit, PageMemoryType.PMA, riscv_host_result(data_result).pbmt)
+  vector_window.translation.request.ready <== vector_probe & data_known & !invalidate
+  vector_window.translation.response.valid <== vector_window.translation.request.fire()
+  vector_window.translation.response.bits <== riscv_host_result(data_result)
   instruction.pbmt <== riscv_host_result(instruction_result).pbmt
   instruction.address <== instruction_result.physical_address.zext(64)
   instruction.resolution <== RV2WideResolution(XLen.X64):
@@ -225,14 +243,14 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def zero_permission = !zero_block ||| region.cache_block_zero
   def ordinary_permission = region.mapped & access_permission & atomic_permission & zero_permission
   def permitted = (!execute_read ||| region.executable) & mux(mem.access.is_cache_management(), cbo_management_physical_permission(region), ordinary_permission)
-  def speculative_ok = !data_demand & !misaligned.busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
+  def speculative_ok = !data_demand & !vector_probe & !misaligned.busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
   (mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request).updated(~address: mem_address.align_down(8)))) |> physical_pipeline.request
   def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: RV2WideCacheOutcome.Replay):
     CachePipelineOutcome.Slow: RV2WideCacheOutcome.Slow
     CachePipelineOutcome.LoadHit: RV2WideCacheOutcome.LoadHit
     CachePipelineOutcome.StoreHit: RV2WideCacheOutcome.StoreHit
   wire outcome: RV2WideCacheOutcome
-  when (data_demand ||| misaligned.busy):
+  when (data_demand ||| vector_probe ||| misaligned.busy):
     outcome <== RV2WideCacheOutcome.Replay
   elsewhen mem_misaligned:
     outcome <== RV2WideCacheOutcome.Slow
@@ -265,7 +283,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   reg walk_live(~init: Bool(#false))
   reg walk_data(Bool)
   reg walk_lookup(RiscvTlbLookup())
-  def data_miss = data_demand & !data_known
+  def data_miss = (data_demand ||| vector_probe) & !data_known
   def same_active_data = walk_live & walk_data & (walk_lookup.as_bits() === data_lookup.as_bits())
   def instruction_miss = instruction.request.valid & !instruction_known
   def choose_data = pending_data ||| data_miss

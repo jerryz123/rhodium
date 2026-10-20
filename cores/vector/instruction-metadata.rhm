@@ -1,0 +1,35 @@
+#lang rhombus
+/* Derives scalar integration metadata from canonical vector instruction descriptors. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/v.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/model/main.rhm") open
+
+/* Records scalar source use and destination/configuration roles without choosing core controls. */
+class VectorScalarMetadata(configuration :: Boolean, memory :: Boolean, store :: Boolean,
+                           uses_rs1 :: Boolean, uses_rs2 :: Boolean, scalar_destination :: Boolean)
+
+/* Selects the base vector decode domain; runtime legality enforces element-width restrictions. */
+fun vector_base_instructions(profile :: VectorProfile) :: List.of(InstructionSpec):
+  if !vector_profile_enabled(profile)
+  | []
+  | VectorVInstructions.filter(~keep: fun (instruction): vector_profile_supports_fp32(profile) || !VectorFloatingPointInstructions.contains(instruction))
+
+/* Derives scalar operands, including stride and vsetvl's register-sourced configuration. */
+fun vector_scalar_metadata(instruction :: InstructionSpec) :: VectorScalarMetadata:
+  def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
+  VectorScalarMetadata(
+    VectorConfigInstructions.contains(instruction),
+    VectorMemoryInstructions.contains(instruction),
+    VectorStoreInstructions.contains(instruction),
+    !sources.is_empty(),
+    VectorStridedMemoryInstructions.contains(instruction) || VectorStridedSegmentMemoryInstructions.contains(instruction) || instruction == VSETVL,
+    [VMV_X_S, VCPOP_M, VFIRST_M].contains(instruction)
+  )
+
+export:
+  VectorScalarMetadata
+  vector_base_instructions
+  vector_scalar_metadata

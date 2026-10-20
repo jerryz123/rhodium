@@ -1,0 +1,225 @@
+#lang rhodium
+/* Adapts sequenced vector beats to RV2Wide's fixed lookup, WB admission, and ordered returns. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/vector/replay.rhdl") open
+  "bundles.rhdl" open
+  lib("cores/vector/bundles.rhdl") open
+  lib("cores/cache/operation.rhdl") open
+  lib("cores/cache/protocol.rhdl") open
+  lib("cores/load-store.rhdl") open
+  lib("cores/misaligned-access.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/trap.rhm") open
+  lib("riscv/rtl/trap.rhdl") open
+  lib("riscv/rtl/atomic.rhdl") open
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("riscv/rtl/zihintntl.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+/* Resolves each attempt after the EX/MEM lookup and reserves accepted response tags.
+   A retry flushes only unaccepted attempts. Split requests retain their token until
+   the final fault or response, while previously accepted ordinary returns drain. */
+sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
+  def Token = VectorToken(xlen, Bits(xlen.width), slots)
+  def Tag = Bits(index_width(slots))
+  /* Keeps the original beat and exact masked address beside its fixed-cycle lookup. */
+  bundle Attempt():
+    token: Token
+    request: RV2WideMemoryReq(xlen, xlen.width)
+    misaligned: Bool
+  /* Retains the MEM outcome until its WB authorization edge. */
+  bundle Decision():
+    attempt: Attempt()
+    response: RV2WideLookupResult(xlen)
+  /* Retains extraction geometry with each accepted, ordered raw memory response. */
+  bundle ReturnOwner():
+    tag: Tag
+    offset: Bits(index_width(xlen.width / 8))
+    width: MemoryWidth
+  interface issue(Decoupled(Token), ~role: consumer)
+  interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)
+  interface memory(RV2WideMemory(xlen, xlen.width), ~role: requester)
+  interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
+  interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
+  input pointer_masking: PointerMaskControl()
+  output outcome_guest: RiscvGuestFault()
+  output(idle, requests_idle, pipeline_physical, request_physical): Bool
+
+  wire recover: Bool
+  wire retry: Bool
+  wire resolved: Bool
+  reg split_pending(~init: Bool(#false))
+  reg split_token(Attempt())
+  inst owners(Queue(ReturnOwner(), slots))
+  inst split_returns(Queue(VectorCompletion(xlen, slots), 1))
+  inst replay(VectorReplay(Token, slots))
+  replay.blocked <== split_pending
+  replay.recover <== recover
+  replay.retry <== retry
+  replay.skip <== Bool(#false)
+  replay.release <== resolved
+  def queued = replay.occupied
+  def Array(certified_input, faultable_input) = issue |> demux_flow(2, token => !token.precertified)
+  certified_input |> replay.request
+  def captured = replay.captured
+  def direct = faultable_input |> gate_flow(!queued & !recover & !split_pending) |> to_valid()
+  def ex = Array(replay.attempt, direct) |> valid_arbiter() |> valid_pipe(1, ~flush: recover)
+  def durable = captured |> valid_pipe(1) |> map_valid(token => VectorCommit(xlen, slots)):
+    tag: token.completion_tag
+    pc: token.context
+    disposition: VectorDisposition.Authorized
+    slow: Bool(#true)
+    data: bits(0, xlen.width)
+    cause: bits(0, xlen.width)
+    fault_address: token.address
+  def address = mux(ex.bits.precertified, ex.bits.physical_address, apply_pointer_mask(xlen, ex.bits.address, pointer_masking))
+  pipeline_physical <== ex.bits.precertified
+  def width = ex.bits.memory_width.into(MemoryWidth)
+  inst store_data(StoreGen(xlen, xlen.width / 8))
+  store_data.address <== address
+  store_data.width <== width
+  store_data.value <== ex.bits.store_data
+  def request = RV2WideMemoryReq(xlen, xlen.width):
+    address: address
+    access: mux(ex.bits.store, CacheOperation.Store, CacheOperation.Load)
+    atomic: RiscvAtomicOperation.Swap
+    width: width
+    data: store_data.data
+    mask: ex.bits.byte_mask
+    locality: RiscvMemoryLocality.Default
+    pbmt: PageMemoryType.PMA
+    guest_access: RiscvGuestMemoryAccess.Normal
+  def misaligned = ex.bits.enabled & !width.is_aligned(address)
+  ex |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
+  def mem = (
+    ex |> map_valid(token => Attempt()):
+      token: token
+      request: request
+      misaligned: misaligned
+  ) |> valid_pipe(1, ~flush: recover)
+  def wb = (
+    mem |> map_valid(attempt => Decision()):
+      attempt: attempt
+      response: pipeline.response.bits.updated(~outcome: mux(pipeline.response.valid & !attempt.misaligned, pipeline.response.bits.outcome, RV2WideCacheOutcome.Slow))
+  ) |> valid_pipe(1, ~flush: recover)
+  def attempt = wb.bits.attempt
+  def token = attempt.token
+  request_physical <== token.precertified
+  def access = wb.valid & token.enabled
+  def slow = access & (wb.bits.response.outcome === RV2WideCacheOutcome.Slow)
+  def split_attempt = slow & attempt.misaligned
+  def ordinary = slow & !attempt.misaligned
+  def store_hit = access & (wb.bits.response.outcome === RV2WideCacheOutcome.StoreHit)
+  def store_commit = store_hit & !memory.ordered_busy
+  pipeline.commit <== store_commit
+  wb |> filter_valid(_decision => ordinary & owners.ingress.ready & !memory.ordered_busy) |> map_valid(decision => decision.attempt.request) |> offer_decoupled() |> memory.request
+  (wb |> filter_valid(_decision => split_attempt & !memory.ordered_busy & split_returns.ingress.ready) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
+    address: decision.attempt.request.address
+    access: decision.attempt.request.access
+    atomic: decision.attempt.request.atomic
+    width: decision.attempt.request.width
+    unsigned: Bool(#true)
+    data: decision.attempt.token.store_data
+    byte_mask: decision.attempt.request.mask
+    context: Bool(#false)
+    locality: decision.attempt.request.locality
+  ) |> offer_decoupled() |> split.request
+  def accepted = memory.request.fire()
+  owners.ingress.valid <== accepted
+  owners.ingress.bits <== ReturnOwner():
+    tag: token.completion_tag
+    offset: attempt.request.address[0..index_width(xlen.width / 8)]
+    width: attempt.request.width
+  inst returned_data(LoadGen(xlen, xlen.width / 8))
+  returned_data.address <== owners.egress.bits.offset.zext(xlen.width)
+  returned_data.width <== owners.egress.bits.width
+  returned_data.unsigned_load <== Bool(#true)
+  returned_data.data <== memory.response.bits
+  def delayed = Array(memory.response, owners.egress) |> zip_flow(_data, owner):
+    VectorCompletion(xlen, slots):
+      tag: owner.tag
+      data: returned_data.value
+  def returned_split = split.response.valid & split_pending
+  def split_fault = split.response.bits.page_fault ||| split.response.bits.guest.page_fault ||| split.response.bits.response.access_fault
+  split_returns.ingress.valid <== returned_split & !split_fault
+  split_returns.ingress.bits <== VectorCompletion(xlen, slots):
+    tag: split_token.token.completion_tag
+    data: split.response.bits.response.data
+  when (split.response.valid):
+    assert(split_pending, "rv2wide_vector_split_has_owner")
+    assert(split_fault ||| split_returns.ingress.ready, "rv2wide_vector_split_return_reserved")
+  when (split.request.fire()):
+    split_pending <== Bool(#true)
+    split_token <== attempt
+  elsewhen returned_split:
+    split_pending <== Bool(#false)
+  def lookup_fault = access & wb.bits.response.outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.GuestPageFault, RV2WideCacheOutcome.AccessFault)
+  def admission_fault = memory.request.valid & memory.fault.valid
+  def fault = lookup_fault ||| admission_fault
+  def access_retry = access & !fault & (memory.ordered_busy ||| (wb.bits.response.outcome === RV2WideCacheOutcome.Replay) ||| (ordinary & !accepted) ||| (store_hit & !store_commit) ||| (store_commit & !pipeline.commit_ready) ||| (split_attempt & !split.request.fire()))
+  def hit = wb.valid & !slow & !fault & !access_retry
+  inst hit_data(LoadGen(xlen, xlen.width / 8))
+  hit_data.address <== attempt.request.address
+  hit_data.width <== attempt.request.width
+  hit_data.unsigned_load <== Bool(#true)
+  hit_data.data <== wb.bits.response.data
+  def hit_value = hit_data.value
+  def hit_return = wb |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(_operation => VectorCompletion(xlen, slots)):
+    tag: token.completion_tag
+    data: hit_value
+  def offered_hit = hit_return |> offer_decoupled()
+  // Only the retained certified ring depends on completion readiness. Precise
+  // feedback itself controls that readiness in the shared completion engine.
+  retry <== access_retry ||| (hit_return.valid & !offered_hit.ready)
+  recover <== retry ||| fault ||| split.request.fire()
+  resolved <== wb.valid & token.precertified & !recover
+  // A store must not wait for completion readiness after it has mutated the
+  // cache. Retain only its acknowledgement bit in the already allocated slot.
+  inst store_ack(VectorStoreAcknowledgements(xlen, slots))
+  wb |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_ack.capture
+  Array(offered_hit, store_ack.completion, delayed, split_returns.egress) |> arbiter() |> completion
+  when (wb.valid & token.precertified):
+    assert(!fault & !attempt.misaligned, "rv2wide_certified_vector_request_is_aligned_and_nonfaulting")
+    assert(queued & (token.completion_tag === replay.oldest.completion_tag), "rv2wide_vector_retry_resolves_oldest_request")
+  def page_fault = wb.bits.response.outcome === RV2WideCacheOutcome.PageFault
+  def guest_page_fault = wb.bits.response.outcome === RV2WideCacheOutcome.GuestPageFault
+  /* Selects the architectural fault class using the retained operation, never live scalar state. */
+  fun fault_cause(store :: Bool, page :: Bool, guest :: Bool) :~ Bits(xlen.width):
+    priority_mux(~default: mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))):
+      guest: mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
+      page: mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
+  def lookup_cause = fault_cause(token.store, page_fault, guest_page_fault)
+  def immediate = wb |> filter_valid(_decision => !token.precertified & !split.request.fire()) |> map_valid(decision => VectorCommit(xlen, slots)):
+    tag: decision.attempt.token.completion_tag
+    pc: decision.attempt.token.context
+    disposition: mux(access_retry, VectorDisposition.Retry, mux(fault, mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault), VectorDisposition.Authorized))
+    slow: accepted
+    data: hit_value
+    cause: mux(admission_fault, memory.fault.bits.cause, lookup_cause)
+    fault_address: mux(admission_fault, memory.fault.bits.value, decision.attempt.request.address)
+  def split_cause = fault_cause(split_token.token.store, split.response.bits.page_fault, split.response.bits.guest.page_fault)
+  def split_decision = split.response |> filter_valid(_result => split_pending) |> map_valid(result => VectorCommit(xlen, slots)):
+    tag: split_token.token.completion_tag
+    pc: split_token.token.context
+    disposition: mux(split_fault, mux(split_token.token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault), VectorDisposition.Authorized)
+    slow: !split_fault
+    data: result.response.data
+    cause: split_cause
+    fault_address: result.fault_address
+  def Array(decision, retirement) = Array(immediate, split_decision) |> valid_arbiter() |> fork_valid(2)
+  Array(durable, decision) |> valid_arbiter() |> feedback
+  assert(!(durable.valid & decision.valid), "rv2wide_vector_capture_and_precise_feedback_are_exclusive")
+  retirement |> filter_valid(event => (event.disposition =/= VectorDisposition.Retry) & (mux(returned_split, split_token.token.last, token.last) ||| event.disposition.is_one_of(VectorDisposition.Fault, VectorDisposition.Truncate))) |> outcome
+  outcome_guest <== mux(returned_split, split.response.bits.guest.details, mux(admission_fault, memory.fault.bits.guest, wb.bits.response.guest))
+  requests_idle <== !queued & !ex.valid & !mem.valid & !wb.valid & !split_pending
+  idle <== requests_idle & !owners.count.or_reduce() & !split_returns.count.or_reduce() & !store_ack.pending
+  assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")
+
+export RV2WideVectorMemory

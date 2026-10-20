@@ -62,6 +62,9 @@ sync_circuit RV2WideCacheFixture():
   core.time_counter <== bits(0, 64)
   inst data(RV2WideL1D(test_cache, ~chi: test_fetch_chi))
   inst mmu(RV2WideMmu(test_fetch_chi))
+  core.vector_precheck <=> mmu.vector_precheck
+  mmu.pipeline_vector <== core.pipeline_vector
+  mmu.request_vector <== core.request_vector
   mmu.split_guest_access <== core.split_guest_access
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush

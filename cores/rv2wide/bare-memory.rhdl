@@ -19,6 +19,9 @@ import:
   lib("riscv/rtl/pointer-masking.rhdl").apply_pointer_mask
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
+  lib("cores/mmu/vector.rhdl") open
+  lib("cores/mmu/vector-window.rhdl").VectorWindow
+  lib("cores/mmu/protocol.rhdl").RiscvTranslationResult
 
 /* Preserves EX/MEM lookup timing and WB authority with physical PMA checks.
    Split fragments are checked independently and accepted replies survive invalidation. */
@@ -27,6 +30,8 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   input state: RV2WideTranslationState(xlen)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
+  input(pipeline_vector, request_vector): Bool
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(RV2WideInstructionTranslation(xlen), ~role: responder)
@@ -36,6 +41,15 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface physical_memory(RV2WideMemory(xlen, 64), ~role: requester)
+
+  inst vector_window(VectorWindow(config.physical_map))
+  vector_precheck <=> vector_window.check
+  vector_window.addresses <== literal(Vec(2, Bits(64)), 0)
+  vector_window.translation.request.ready <== !invalidate
+  vector_window.translation.response.valid <== vector_window.translation.request.fire()
+  def empty_translation :: RiscvTranslationResult() = literal(RiscvTranslationResult(), 0)
+  vector_window.translation.response.bits <== empty_translation.updated(~physical_address: vector_window.translation.request.bits.address[0..56])
+  assert(!(invalidate & vector_window.owned), "rv2wide_bare_vector_window_drained_before_invalidation")
 
 
   /* Bare instruction translation.

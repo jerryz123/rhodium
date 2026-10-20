@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-service.rhdl") open
   lib("cores/integer-execution.rhdl") open
   "../divider.rhdl" open
-  "integer-execution.rhdl" open
   "decode/divide-ctrl.rhdl" open
   "../divide-decode.rhdl" open
   "../../riscv/isa/xlen.rhm" open
@@ -89,7 +89,7 @@ sync_circuit RV5StageDivider(xlen :: XLen):
   interface completion(Irrevocable(RV5StageDivideCompletion(xlen)), ~role: producer)
   output available: Bool
   inst scalar(RV5StageDivideScalar(xlen))
-  inst execution(RV5StageDivideService(xlen.width, RV5StageDivideTag()))
+  inst execution(DivideService(xlen.width, RV5StageDivideTag()))
   issue |> scalar.issue
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result

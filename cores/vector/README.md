@@ -23,13 +23,16 @@ inst execution(VectorExecution(xlen, vlen, Context, ~vector_completion_slots: 8)
 `Context` is caller-owned metadata carried with memory attempts. The caller
 connects decoded descriptor admission, memory decisions and completions, shared
 FP/multiply/divide services, scalar write reservations, and architectural update
-outputs. [RV5Stage's adapter](../rv5stage/vector.rhdl) is the current integration;
-RV2Wide is not connected yet.
+outputs. [RV5Stage's adapter](../rv5stage/vector.rhdl) and
+[RV2Wide's adapter](../rv2wide/vector.rhdl) connect this service to their
+respective scalar WB and LSU boundaries.
 
 `decode.rhdl` provides `VectorControl`, authored decode relations, and
 `VectorOperationLegality`. A named core composes those relations with its scalar
 source, writeback, and system columns. `register-file.rhdl`, `packing.rhdl`, and
 `execute.rhdl` can also be used independently.
+`instruction-metadata.rhm` provides the selected base vector instruction domain
+and scalar source/configuration/destination roles without choosing core controls.
 
 ## Ownership and timing
 
@@ -61,6 +64,16 @@ must not cancel a descriptor that has already become nonspeculative.
 [MMU contracts](../mmu/vector.rhdl) and [page window](../mmu/vector-window.rhdl)
 support certification. The caller owns the DTLB/PTW arbitration and WB context
 revalidation. A failed certificate selects precise execution, not an exception.
+
+[`VectorAdmission`](admission.rhdl) supplies a two-descriptor queue, head
+certification, pinned-window release, and registered early/precise outcomes.
+Its explicit `~pipe` option selects whether admission credit can depend on
+same-cycle dequeue. Fault provenance is an opaque caller-supplied type.
+[`VectorReplay`](replay.rhdl) retains certified requests through local retries;
+attempts may run ahead, but release remains ordered. A split takeover can move
+the attempt cursor past the oldest retained request without releasing its owner.
+`VectorStoreAcknowledgements` retains one acknowledgement per completion slot,
+independently of cache commit readiness.
 
 Fixed shared services must honor their declared return latency and reserved
 write cycle. Variable services retain tagged results until accepted. Scalar
