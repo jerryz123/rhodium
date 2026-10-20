@@ -25,9 +25,9 @@ struct Sample {
     return l;
   }
 };
-std::vector<Record> sample(Collector& c, DpiBinding& binding, Word cycle, const Sample& s, std::mt19937& random) {
+std::vector<Record> sample(Collector& c, DpiBinding& binding, Word cycle, const Sample& s, std::mt19937& random,
+                           std::vector<std::function<void()>> calls = {}) {
   c.begin_sample(cycle);
-  std::vector<std::function<void()>> calls;
   auto add=[&](auto event) { calls.push_back([&,event] {
     dpi_receive_adapter<HartAdapter>([&](HartAdapter& a, Collector&) { a.capture(cycle,0,c.epoch(0),event); });
   }); };
@@ -38,6 +38,82 @@ std::vector<Record> sample(Collector& c, DpiBinding& binding, Word cycle, const 
   std::shuffle(calls.begin(),calls.end(),random);
   for (auto& call:calls) call();
   binding.check(); return c.end_sample();
+}
+void vector_owners(unsigned seed) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},32,64}); DpiBinding binding(c); std::mt19937 random(seed);
+  std::vector<Record> records;
+  constexpr Word instruction = 0x02000457; // vadd.vv v8,v0,v0
+  for (Word cycle=0;cycle<4;++cycle) {
+    Sample s;
+    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,0,0,0,1,0); }};
+    if (cycle==0) {
+      auto& lane=s.retire(0,0x8000); lane.vector=1; lane.encoding=instruction;
+      s.retire(1,0x8004,1,7);
+      calls.push_back([]{ rhodium_vector_admission(0); });
+    }
+    if (cycle==1) calls.push_back([]{ rhodium_vector_dispatch(0,0,0,0,instruction,0); });
+    if (cycle==2) calls.push_back([]{ rhodium_vector_write(0,16,15,0x44332211,1,0,0,0,0,0); });
+    if (cycle==3) calls.push_back([]{ rhodium_vector_drain(0,0); });
+    auto emitted=sample(c,binding,cycle,s,random,std::move(calls));
+    if (cycle<3) require(emitted.empty());
+    records.insert(records.end(),emitted.begin(),emitted.end());
+  }
+  require(records.size()==2 && records[0].id.order==0 && records[1].id.order==1);
+  const auto& write=std::get<RegisterWrite>(records[0].effects.at({5,0}));
+  require(write.bank==Bank::Vector && write.index==8 && write.value==0x44332211);
+  require(std::get<RegisterWrite>(records[1].effects.at({0,0})).value==7);
+  c.finish();
+}
+void rv32_boundaries() {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},32,0}); DpiBinding binding(c); std::mt19937 random(0);
+  Sample s; s.boundary.interrupt=1; s.boundary.cause=(Word{1}<<31)|7;
+  s.boundary.epc=0x8000; s.boundary.target=0x9000;
+  auto records=sample(c,binding,0,s,random);
+  require(records.size()==1 && std::get<Interrupt>(records[0].event).trap.cause==7);
+  s=Sample(); s.lanes[0].split=1; s.lanes[0].pc=0x9000;
+  s.lanes[0].memory=1; s.lanes[0].access=2; s.lanes[0].width=2; s.lanes[0].address=0xfffffffd;
+  require(sample(c,binding,1,s,random).empty());
+  s=Sample(); s.physical.fragment_valid=1; s.physical.fragment_address=0xfffffffc;
+  s.physical.fragment_virtual=0xfffffffd; s.physical.fragment_mask=14; s.physical.fragment_data=0x33221100;
+  sample(c,binding,2,s,random);
+  s=Sample(); s.physical.fragment_response=1; sample(c,binding,3,s,random);
+  s=Sample(); s.lanes[2].pc=0x9000; s.boundary.trap=1; s.boundary.cause=7;
+  s.boundary.epc=0x9000; s.boundary.tval=0;
+  records=sample(c,binding,4,s,random);
+  require(records.size()==1);
+  const auto& fault=std::get<MemoryEffect>(records[0].effects.at({1,1}));
+  require(fault.virtual_address==0 && fault.fragment_offset==3 && fault.byte_mask==1);
+  c.finish();
+}
+void vector_fault(unsigned seed) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},32,64}); DpiBinding binding(c); std::mt19937 random(seed);
+  std::vector<Record> records;
+  constexpr Word instruction=(1U<<25)|(6<<15)|(8<<7)|7; // vle8.v v8,(x6)
+  for (Word cycle=0;cycle<5;++cycle) {
+    Sample s;
+    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,0,0,0,1,0); }};
+    if (cycle==0) {
+      auto& lane=s.lanes[0]; lane.split=1; lane.vector=1; lane.encoding=instruction; lane.pc=0x8000;
+      calls.push_back([]{ rhodium_vector_admission(0); });
+    }
+    if (cycle==1) calls.push_back([]{ rhodium_vector_dispatch(0,0,0x1000,0,instruction,0); });
+    if (cycle==2) calls.push_back([]{ rhodium_vector_issue(0,0,0,0,8,0,1,0,0x1000,0x1000,0,0,1,0); });
+    if (cycle==3) {
+      calls.push_back([]{ rhodium_vector_fault(0,0,0x1000); });
+      calls.push_back([]{ rhodium_vector_drain(0,0); });
+    }
+    if (cycle==4) {
+      s.lanes[2].pc=0x8000; s.boundary.trap=1; s.boundary.cause=5;
+      s.boundary.epc=0x8000; s.boundary.tval=0x1000; s.boundary.target=0x9000;
+    }
+    auto emitted=sample(c,binding,cycle,s,random,std::move(calls));
+    if (cycle<4) require(emitted.empty());
+    records.insert(records.end(),emitted.begin(),emitted.end());
+  }
+  require(records.size()==1 && std::get<Trap>(records[0].outcome).tval==0x1000);
+  const auto& fault=std::get<MemoryEffect>(records[0].effects.at({5,0}));
+  require(fault.virtual_address==0x1000 && fault.result==AccessResult::Fault);
+  c.finish();
 }
 std::string run(unsigned seed) {
   Collector c; c.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(c);
@@ -228,6 +304,9 @@ void guest_context_and_hpm() {
   c.finish();
 }
 int main() {
+  rv32_boundaries();
+  for (unsigned seed=0;seed<100;++seed) vector_owners(seed);
+  for (unsigned seed=0;seed<100;++seed) vector_fault(seed);
   guest_context_and_hpm();
   block_zero(false); block_zero(true);
   const auto expected=run(0);

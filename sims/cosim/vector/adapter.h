@@ -1,11 +1,11 @@
-// Captures RV5Stage vector microarchitectural events for settled-sample reconstruction.
+// Captures shared vector microarchitectural events for settled-sample reconstruction.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "../events/dpi.h"
 #include <deque>
 #include <tuple>
 
-namespace rhodium::cosim::rv5stage {
+namespace rhodium::cosim::vector {
 using observation::Word;
 using observation::Id;
 struct Cycle { Word xlen, vlen, slots, pipeline_valid, pipeline_address, split, has_fragments, replay; };
@@ -28,8 +28,8 @@ struct Decision { Word tag, disposition; };
 struct Drain { Word owner; };
 
 // All event payloads describe pre-edge signals. Callback order is immaterial;
-// flush resolves old effects before installing this edge's new owners/slots.
-class VectorAdapter final {
+// finish_sample resolves old effects before installing this edge's new owners/slots.
+class VectorAdapter final : public observation::DpiAdapter {
  public:
   template<class Event> void capture(Word sample, Word instance, Word epoch, Event event) {
     auto& frame = frames_[instance];
@@ -39,7 +39,9 @@ class VectorAdapter final {
     require(!field, "duplicate vector callback");
     field = event;
   }
-  void flush(observation::Collector& collector);
+  void flush(observation::Collector&) override {}
+  void finish_sample(observation::Collector& collector) override;
+
   bool admitted(Word instance) const;
 
  private:
@@ -66,23 +68,25 @@ class VectorAdapter final {
   static Slot& slot(Hart& hart, Word index);
   void resolve(observation::Collector& collector, Word instance, Hart& hart, const Frame& frame);
 };
+// Shares vector captures with hart adapters; finalization follows every hart's allocation phase.
+VectorAdapter& vector_adapter();
 }
 
 extern "C" {
-void rhodium_rv5stage_vector_scalar_write(std::int64_t instance, std::int64_t owner, std::int64_t floating, std::int64_t rd, std::int64_t data) noexcept;
-void rhodium_rv5stage_vector_fp(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t launch, std::int64_t launch_tag, std::int64_t returned, std::int64_t return_tag, std::int64_t flags_valid, std::int64_t flags) noexcept;
-void rhodium_rv5stage_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag) noexcept;
-void rhodium_rv5stage_vector_admission(std::int64_t instance) noexcept;
-void rhodium_rv5stage_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept;
-void rhodium_rv5stage_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept;
-void rhodium_rv5stage_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t effective_address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept;
-void rhodium_rv5stage_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept;
-void rhodium_rv5stage_vector_direct(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
-void rhodium_rv5stage_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
-void rhodium_rv5stage_vector_translation(std::int64_t instance, std::int64_t tag, std::int64_t physical) noexcept;
-void rhodium_rv5stage_vector_fragment_start(std::int64_t instance, std::int64_t physical) noexcept;
-void rhodium_rv5stage_vector_fragment(std::int64_t instance, std::int64_t tag, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t store_data) noexcept;
-void rhodium_rv5stage_vector_fault(std::int64_t instance, std::int64_t tag, std::int64_t address) noexcept;
-void rhodium_rv5stage_vector_decision(std::int64_t instance, std::int64_t tag, std::int64_t disposition) noexcept;
-void rhodium_rv5stage_vector_drain(std::int64_t instance, std::int64_t owner) noexcept;
+void rhodium_vector_scalar_write(std::int64_t instance, std::int64_t owner, std::int64_t floating, std::int64_t rd, std::int64_t data) noexcept;
+void rhodium_vector_fp(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t launch, std::int64_t launch_tag, std::int64_t returned, std::int64_t return_tag, std::int64_t flags_valid, std::int64_t flags) noexcept;
+void rhodium_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag) noexcept;
+void rhodium_vector_admission(std::int64_t instance) noexcept;
+void rhodium_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept;
+void rhodium_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept;
+void rhodium_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t effective_address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept;
+void rhodium_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept;
+void rhodium_vector_direct(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
+void rhodium_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
+void rhodium_vector_translation(std::int64_t instance, std::int64_t tag, std::int64_t physical) noexcept;
+void rhodium_vector_fragment_start(std::int64_t instance, std::int64_t physical) noexcept;
+void rhodium_vector_fragment(std::int64_t instance, std::int64_t tag, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t store_data) noexcept;
+void rhodium_vector_fault(std::int64_t instance, std::int64_t tag, std::int64_t address) noexcept;
+void rhodium_vector_decision(std::int64_t instance, std::int64_t tag, std::int64_t disposition) noexcept;
+void rhodium_vector_drain(std::int64_t instance, std::int64_t owner) noexcept;
 }

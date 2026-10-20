@@ -1,8 +1,9 @@
 #lang rhombus
-/* Projects RV2Wide's selected scalar architecture and shared CSR/MMU behavior into UDB. */
+/* Projects RV2Wide's selected architecture and shared CSR, vector, and MMU behavior into UDB. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../vector/udb.rhm".vector_udb_parameters
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "../csr/udb.rhm".riscv_csr_udb_parameters
   lib("riscv/udb-profile.rhm").riscv_udb_extensions
@@ -127,7 +128,7 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
         hypervisor_parameters := hypervisor_parameters ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
       when profile.smstateen
       | hypervisor_parameters := hypervisor_parameters ++ [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")]
-  UdbConfiguration(name, description, extensions, parameters ++ riscv_csr_udb_parameters(profile.csr_config) ++ fp_parameters ++ wait_parameters ++ supervisor_parameters ++ hypervisor_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
+  UdbConfiguration(name, description, extensions, parameters ++ riscv_csr_udb_parameters(profile.csr_config) ++ vector_udb_parameters(profile.vector, profile.vector_length, profile.hypervisor) ++ fp_parameters ++ wait_parameters ++ supervisor_parameters ++ hypervisor_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
 
 export:
   rv2wide_udb_configuration

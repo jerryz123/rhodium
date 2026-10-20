@@ -45,6 +45,7 @@ void Collector::begin_sample(Word sample) {
   for (auto& [instance, h] : harts_) { (void)instance; h.sampled_environment.reset(); }
 }
 Word Collector::epoch(Word instance) { return hart(instance).epoch; }
+ResetState Collector::reset_state(Word instance) { return hart(instance).state; }
 Word Collector::sample() { usable(); check(sample_.has_value(), "callback outside sample"); return *sample_; }
 void Collector::environment(Word instance, Environment inputs) {
   auto& h = hart(instance);

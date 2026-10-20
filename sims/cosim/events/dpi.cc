@@ -43,7 +43,10 @@ DpiBinding::DpiBinding(Collector& collector) {
 }
 DpiBinding::~DpiBinding() { active = nullptr; }
 void DpiBinding::check() const {
-  receive([&](Collector& collector) { for (auto& [type, adapter] : state_->adapters) { (void)type; adapter->flush(collector); } });
+  receive([&](Collector& collector) {
+    for (auto& [type, adapter] : state_->adapters) { (void)type; adapter->flush(collector); }
+    for (auto& [type, adapter] : state_->adapters) { (void)type; adapter->finish_sample(collector); }
+  });
   if (!state_->failure.empty()) throw std::runtime_error(state_->failure);
 }
 }

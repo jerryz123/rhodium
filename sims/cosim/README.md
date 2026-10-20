@@ -143,7 +143,7 @@ remain visible as failures in those existing lanes.
 
 ### Dual-issue RV2Wide checking
 
-Mini/Simple RV2Wide's `rv64imacb` and `rv64imafdcb` configurations reuse the same Sail
+Mini/Simple RV2Wide's `rv32int`, `rv64imacb`, and `rv64imafdcb` configurations reuse the same Sail
 configuration, collector, and FESVR lifecycle. Enable a local checked build with
 `make -C sims boot-test isa-smoke SOC=mini-rv2wide-rv64imacb COSIM=1`.
 The observer admits both successful WB slots in age order. Accepted load,
@@ -157,7 +157,10 @@ FPR/GPR writes and exception-flag contributions close the original instruction,
 including f0 and flag-only results. Speculative FP results create no records.
 Misaligned stores report completed physical prefixes even if a later fragment
 faults. No observation state, backpressure, or reference-state repair is added
-to the functional core. The existing RV2Wide CI rows remain ISA-smoke-only.
+to the functional core. Scalar RV64 presets remain ISA-smoke-only; RV32Int uses
+the existing shape/ISA policy, including Simple's ISA suite and ACT lane.
+Vector execution uses the same shared observer as RV5Stage, with named-core
+adapters supplying WB identity and physical memory provenance.
 
 ### Vector checking
 

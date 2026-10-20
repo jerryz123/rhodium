@@ -17,6 +17,7 @@ import:
   lib("cores/fp/decode.rhdl") open
   lib("cores/vector/decode.rhdl") open
   lib("riscv/isa/v.rhm") as vector_isa
+  lib("riscv/isa/zvbb.rhm").ZvbbInstructions
   lib("riscv/isa/vector-profile.rhm") open
   lib("cores/load-store.rhdl").MemoryWidth
   lib("cores/cache/operation.rhdl").CacheOperation
@@ -76,7 +77,7 @@ bundle RV2WideControl():
 
 /* Selects canonical vector rows; runtime legality checks enforce the selected ELEN and FP widths. */
 fun rv2wide_vector_instructions(profile :: RV2WideConfig) :: List.of(InstructionSpec):
-  vector_base_instructions(profile.vector)
+  vector_base_instructions(profile.vector) ++ (if vector_extensions_support_zvbb(profile.vector_extensions) | ZvbbInstructions | [])
 
 /* Adds vector columns to the same composed decoder without enabling the scalar LSU. */
 fun rv2wide_vector_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
@@ -108,7 +109,7 @@ fun rv2wide_vector_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
           wait: RV2WideWait.None
       muldiv: inactive_long
       fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
-      vector: component_output(VectorControlCases, instruction_pattern(instruction))
+      vector: component_output(VectorControlCases ++ VectorZvbbCases, instruction_pattern(instruction))
     DecodeCase(instruction_pattern(instruction), output)
 
 /* Inactive controls care only about the enable/valid discriminator.

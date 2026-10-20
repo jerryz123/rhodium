@@ -153,15 +153,15 @@ void vector_identity(unsigned seed) {
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls;
     capture(calls,s,0,0,cycle);
-    calls.push_back([] { rhodium_rv5stage_vector_cycle(0,64,128,2,0,0,0,0,0); });
+    calls.push_back([] { rhodium_vector_cycle(0,64,128,2,0,0,0,0,0); });
     if(cycle==1) {
       // Fast vector enqueue is not the retained-memory WB admission signal.
-      calls.push_back([] { rhodium_rv5stage_vector_admission(0); });
-      calls.push_back([] { rhodium_rv5stage_vector_dispatch(0,0,0,0,0x57,0); });
+      calls.push_back([] { rhodium_vector_admission(0); });
+      calls.push_back([] { rhodium_vector_dispatch(0,0,0,0,0x57,0); });
     }
     if(cycle==2) {
-      calls.push_back([] { rhodium_rv5stage_vector_write(0,0,UINT64_MAX,9,1,0,0,0,0,0); });
-      calls.push_back([] { rhodium_rv5stage_vector_drain(0,0); });
+      calls.push_back([] { rhodium_vector_write(0,0,UINT64_MAX,9,1,0,0,0,0,0); });
+      calls.push_back([] { rhodium_vector_drain(0,0); });
     }
     std::shuffle(calls.begin(),calls.end(),random);
     for(auto& call:calls) call();
@@ -186,14 +186,14 @@ void vector_scalar_return(unsigned xlen, bool floating) {
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls; capture(calls,s,0,0,cycle);
     for(auto& call:calls) call();
-    rhodium_rv5stage_vector_cycle(0,xlen,64,2,0,0,0,0,0);
+    rhodium_vector_cycle(0,xlen,64,2,0,0,0,0,0);
     if(cycle==0) {
-      rhodium_rv5stage_vector_admission(0);
-      rhodium_rv5stage_vector_dispatch(0,0,0,0,s.header.instruction,0);
+      rhodium_vector_admission(0);
+      rhodium_vector_dispatch(0,0,0,0,s.header.instruction,0);
     }
     if(cycle==1) {
-      rhodium_rv5stage_vector_scalar_write(0,0,floating,floating ? 0 : 5,15);
-      rhodium_rv5stage_vector_drain(0,0);
+      rhodium_vector_scalar_write(0,0,floating,floating ? 0 : 5,15);
+      rhodium_vector_drain(0,0);
     }
     binding.check();
     for(const auto& record:collector.end_sample()) {
@@ -224,15 +224,15 @@ void vector_fp_flags(unsigned seed) {
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls;
     capture(calls,s,0,0,cycle);
-    calls.push_back([]{rhodium_rv5stage_vector_cycle(0,64,128,2,0,0,0,0,0);});
-    calls.push_back([&]{rhodium_rv5stage_vector_fp(0,cycle==0,0,0,cycle==0,0,cycle==2,0,1,16);});
+    calls.push_back([]{rhodium_vector_cycle(0,64,128,2,0,0,0,0,0);});
+    calls.push_back([&]{rhodium_vector_fp(0,cycle==0,0,0,cycle==0,0,cycle==2,0,1,16);});
     if(cycle==0) {
-      calls.push_back([]{rhodium_rv5stage_vector_admission(0);});
-      calls.push_back([]{rhodium_rv5stage_vector_dispatch(0,0,0,0,code,16);});
+      calls.push_back([]{rhodium_vector_admission(0);});
+      calls.push_back([]{rhodium_vector_dispatch(0,0,0,0,code,16);});
     }
     if(cycle==2) {
-      calls.push_back([]{rhodium_rv5stage_vector_write(0,32,UINT64_MAX,9,1,0,0,0,0,0);});
-      calls.push_back([]{rhodium_rv5stage_vector_drain(0,0);});
+      calls.push_back([]{rhodium_vector_write(0,32,UINT64_MAX,9,1,0,0,0,0,0);});
+      calls.push_back([]{rhodium_vector_drain(0,0);});
     }
     std::shuffle(calls.begin(),calls.end(),random);
     for(auto& call:calls) call();

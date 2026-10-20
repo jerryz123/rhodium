@@ -1,44 +1,44 @@
-// Reconstructs RV5Stage vector ownership and architectural effects from passive cycle events.
+// Reconstructs shared vector ownership and architectural effects from passive cycle events.
 // SPDX-License-Identifier: Apache-2.0
 #include "adapter.h"
 #include <algorithm>
 #include <bit>
 #include <stdexcept>
 using namespace rhodium::cosim;
-using namespace rhodium::cosim::rv5stage;
+using namespace rhodium::cosim::vector;
 
-extern "C" void rhodium_rv5stage_vector_scalar_write(std::int64_t instance, std::int64_t owner, std::int64_t floating, std::int64_t rd, std::int64_t data) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), ScalarWrite{Word(owner), Word(floating), Word(rd), Word(data)});
+extern "C" void rhodium_vector_scalar_write(std::int64_t instance, std::int64_t owner, std::int64_t floating, std::int64_t rd, std::int64_t data) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), ScalarWrite{Word(owner), Word(floating), Word(rd), Word(data)});
   });
 }
 
-extern "C" void rhodium_rv5stage_vector_fp(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t launch, std::int64_t launch_tag, std::int64_t returned, std::int64_t return_tag, std::int64_t flags_valid, std::int64_t flags) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), FpService{
+extern "C" void rhodium_vector_fp(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t launch, std::int64_t launch_tag, std::int64_t returned, std::int64_t return_tag, std::int64_t flags_valid, std::int64_t flags) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), FpService{
         Word(allocated), Word(owner), Word(tag), Word(launch), Word(launch_tag), Word(returned), Word(return_tag), Word(flags_valid), Word(flags)});
   });
 }
 
-extern "C" void rhodium_rv5stage_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Service{
+extern "C" void rhodium_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Service{
         Word(allocated), Word(owner), Word(tag), Word(divide), Word(multiply_launch), Word(multiply_tag), Word(divide_launch), Word(divide_tag),
         Word(multiply_return), Word(multiply_return_tag), Word(divide_return), Word(divide_return_tag)});
   });
 }
 
 void VectorAdapter::require(bool condition, const char* message) {
-  if (!condition) throw std::runtime_error(std::string("RV5Stage vector cosim: ") + message);
+  if (!condition) throw std::runtime_error(std::string("shared vector cosim: ") + message);
 }
 bool VectorAdapter::admitted(Word instance) const {
   const auto found = frames_.find(instance);
   require(found != frames_.end(), "missing vector cycle capture");
   return std::get<std::optional<Admission>>(found->second.events).has_value();
 }
-extern "C" void rhodium_rv5stage_vector_admission(std::int64_t instance) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(),Word(instance),collector.epoch(Word(instance)),Admission{});
+extern "C" void rhodium_vector_admission(std::int64_t instance) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(),Word(instance),collector.epoch(Word(instance)),Admission{});
   });
 }
 VectorAdapter::Owner& VectorAdapter::owner(Hart& hart, Word index) {
@@ -51,7 +51,7 @@ VectorAdapter::Slot& VectorAdapter::slot(Hart& hart, Word index) {
   require(owner(hart, result.issue.owner).id == result.owner_id, "completion belongs to a reclaimed owner generation");
   return result;
 }
-void VectorAdapter::flush(observation::Collector& collector) {
+void VectorAdapter::finish_sample(observation::Collector& collector) {
   for (const auto& [instance, frame] : frames_) {
     require(collector.sample() == *frame.sample && collector.epoch(instance) == frame.epoch, "stale sample or epoch");
     const auto& cycle = std::get<std::optional<Cycle>>(frame.events);
@@ -260,63 +260,67 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
   hart.hit_physical = cycle.pipeline_address;
 }
 
-extern "C" void rhodium_rv5stage_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Cycle{Word(xlen), Word(vlen), Word(slots), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
+extern "C" void rhodium_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Cycle{Word(xlen), Word(vlen), Word(slots), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Dispatch{Word(owner), Word(base), Word(eew), Word(instruction), Word(vtype)});
+extern "C" void rhodium_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Dispatch{Word(owner), Word(base), Word(eew), Word(instruction), Word(vtype)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t effective_address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(effective_address), Word(physical), Word(precertified), Word(mask), Word(data)});
+extern "C" void rhodium_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_t tag, std::int64_t first, std::int64_t destination, std::int64_t packed, std::int64_t enabled, std::int64_t store, std::int64_t address, std::int64_t effective_address, std::int64_t physical, std::int64_t precertified, std::int64_t mask, std::int64_t data) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(effective_address), Word(physical), Word(precertified), Word(mask), Word(data)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Write{Word(address), Word(mask), Word(data), Word(local), Word(packed), Word(splat), Word(local_owner), Word(packed_owner), Word(splat_owner)});
+extern "C" void rhodium_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Write{Word(address), Word(mask), Word(data), Word(local), Word(packed), Word(splat), Word(local_owner), Word(packed_owner), Word(splat_owner)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_direct(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Direct{Word(tag), Word(data)});
+extern "C" void rhodium_vector_direct(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Direct{Word(tag), Word(data)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Complete{Word(tag), Word(data)});
+extern "C" void rhodium_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Complete{Word(tag), Word(data)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_translation(std::int64_t instance, std::int64_t tag, std::int64_t physical) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Translation{Word(tag), Word(physical)});
+extern "C" void rhodium_vector_translation(std::int64_t instance, std::int64_t tag, std::int64_t physical) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Translation{Word(tag), Word(physical)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_fragment_start(std::int64_t instance, std::int64_t physical) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), FragmentStart{Word(physical)});
+extern "C" void rhodium_vector_fragment_start(std::int64_t instance, std::int64_t physical) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), FragmentStart{Word(physical)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_fragment(std::int64_t instance, std::int64_t tag, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t store_data) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Fragment{Word(tag), Word(address), Word(mask), Word(data), Word(store_data)});
+extern "C" void rhodium_vector_fragment(std::int64_t instance, std::int64_t tag, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t store_data) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Fragment{Word(tag), Word(address), Word(mask), Word(data), Word(store_data)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_fault(std::int64_t instance, std::int64_t tag, std::int64_t address) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Fault{Word(tag), Word(address)});
+extern "C" void rhodium_vector_fault(std::int64_t instance, std::int64_t tag, std::int64_t address) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Fault{Word(tag), Word(address)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_decision(std::int64_t instance, std::int64_t tag, std::int64_t disposition) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Decision{Word(tag), Word(disposition)});
+extern "C" void rhodium_vector_decision(std::int64_t instance, std::int64_t tag, std::int64_t disposition) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Decision{Word(tag), Word(disposition)});
   });
 }
-extern "C" void rhodium_rv5stage_vector_drain(std::int64_t instance, std::int64_t owner) noexcept {
-  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Drain{Word(owner)});
+extern "C" void rhodium_vector_drain(std::int64_t instance, std::int64_t owner) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Drain{Word(owner)});
   });
+}
+
+rhodium::cosim::vector::VectorAdapter& rhodium::cosim::vector::vector_adapter() {
+  return static_cast<VectorAdapter&>(observation::dpi_adapter(typeid(VectorAdapter), [] { return std::make_unique<VectorAdapter>(); }));
 }

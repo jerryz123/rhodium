@@ -499,7 +499,7 @@ verify_fixture() {
       dpi_sources+=("$repo_dir/sims/cosim/events/collector.cc" "$repo_dir/sims/cosim/events/dpi.cc")
       verilator_args+=(-CFLAGS "-std=c++20")
       if [[ "$fixture" == rv5stage-cosim* ]]; then
-        dpi_sources+=("$repo_dir/sims/cosim/rv5stage/adapter.cc" "$repo_dir/sims/cosim/rv5stage/vector.cc")
+        dpi_sources+=("$repo_dir/sims/cosim/rv5stage/adapter.cc" "$repo_dir/sims/cosim/vector/adapter.cc")
         verilator_args+=(--Wno-UNOPTFLAT "-I$repo_dir/cores/rv5stage/tests/circt/verilog")
       fi
     fi

@@ -22,7 +22,7 @@ import:
 
 def rv32 = soc_architecture(IsaPreset.RV32Int)
 // A third hart binding retains the exact lean architecture and shape-owned resources.
-for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB)]):
+for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV32Int), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV32Int)]):
   def shape = selection.shape
   def isa = selection.isa
   def resolved = resolve_soc_config(selection)
@@ -33,14 +33,20 @@ for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64I
     named_soc_selection(selection.key) ~is selection
     resolved.description.hart.isa_profile ~is expected.isa
     resolved.description.hart.mmu_type ~is expected.mmu
-    resolved.description.hart.vector ~is #false
+    (resolved.description.hart.vector != #false) ~is (isa == IsaPreset.RV32Int)
     resolved.description.hart.instruction_cache.sets ~is cache_sets
     resolved.description.hart.data_cache.ways ~is cache_ways
     resolved.description.to_device_tree().to_dtb().length() > 0 ~is #true
-    resolved.udb().to_yaml().contains("  MXLEN: 64") ~is #true
+    resolved.udb().to_yaml().contains("  MXLEN: " ++ to_string(expected.isa.xlen.width)) ~is #true
     resolved.udb().to_yaml().contains("  MUTABLE_MISA_C: false") ~is #true
     simulator_soc_description(selection.key) ~is resolved.description
-    gnu_isa_target(expected.isa.xlen, expected.isa.isa_extensions).mabi ~is (if isa == IsaPreset.RV64IMACB | "lp64" | "lp64d")
+    gnu_isa_target(expected.isa.xlen, expected.isa.isa_extensions).mabi ~is (if isa == IsaPreset.RV32Int | "ilp32" | (if isa == IsaPreset.RV64IMACB | "lp64" | "lp64d"))
+  when isa == IsaPreset.RV32Int
+  | check:
+      resolved.description.hart.vector.vlen ~is 64
+      resolved.description.hart.vector.elen ~is 32
+      resolved.udb().to_yaml().contains("  VLEN: 64") ~is #true
+      resolved.udb().to_yaml().contains("  PHYS_ADDR_WIDTH: 32") ~is #true
 check:
   rv2wide_soc_profile(SoCShape.Mini, IsaPreset.RVA23) ~throws "supports Mini/Simple"
   rv2wide_soc_profile(SoCShape.Tiled, IsaPreset.RV64IMACB) ~throws "supports Mini/Simple"
@@ -135,7 +141,7 @@ check:
   riscv_soc_boot_config(~payload_address: 0x100000000).image_for(rv32_description) ~throws "XLEN"
 
 // Simple keeps its full external memory and fabric widths with either RV32 hart.
-for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+for (core in [CoreKind.RV5Stage, CoreKind.Spike, CoreKind.RV2Wide]):
   def selection = SoCSelection(SoCShape.Simple, core, IsaPreset.RV32Int)
   def resolved = resolve_soc_config(selection)
   def config = resolved.configuration()

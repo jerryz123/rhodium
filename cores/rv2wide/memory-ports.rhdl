@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/cosim-source.rhm").describe_cosim_signals
   "bundles.rhdl" open
   lib("cores/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
@@ -83,5 +84,10 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
     split_busy <== Bool(#false)
   when (split.response.valid):
     assert(split_busy, "rv2wide_split_response_retains_client")
+  describe_cosim_signals({
+    "pipeline_vector": mem_vector,
+    "request_vector": request_vector,
+    "split_vector": split_busy & split_vector
+  })
 
 export RV2WideMemoryPorts

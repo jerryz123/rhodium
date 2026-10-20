@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/cosim-source.rhm").describe_cosim_signals
   lib("cores/vector/replay.rhdl") open
   "bundles.rhdl" open
   lib("cores/vector/bundles.rhdl") open
@@ -221,5 +222,21 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   requests_idle <== !queued & !ex.valid & !mem.valid & !wb.valid & !split_pending
   idle <== requests_idle & !owners.count.or_reduce() & !split_returns.count.or_reduce() & !store_ack.pending
   assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")
+
+  /* Observe actual completion and retained split ownership without changing LSU timing. */
+
+  describe_cosim_signals({
+    "direct": hit & !token.precertified & !split_pending,
+    "direct_tag": token.completion_tag,
+    "direct_data": hit_value,
+    "completed": completion.fire(),
+    "completion": completion.bits,
+    "fault": fault ||| (returned_split & split_fault),
+    "fault_tag": mux(returned_split, split_token.token.completion_tag, token.completion_tag),
+    "fault_address": mux(returned_split, split.response.bits.fault_address, immediate.bits.fault_address),
+    "split": split.request.fire(),
+    "split_tag": split_token.token.completion_tag,
+    "request_tag": token.completion_tag
+  })
 
 export RV2WideVectorMemory

@@ -343,7 +343,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def control = rr_controls[lane].vector
     control.integer ||| control.memory ||| control.floating_point ||| control.multiply_divide
   def rr_vector_illegal = for List (lane in 0..2):
-    inst legality(VectorOperationLegality(xlen, profile.vector_length, if vector_enabled | profile.vector | VectorProfile.Zve32x))
+    inst legality(VectorOperationLegality(xlen, profile.vector_length, if vector_enabled | profile.vector | VectorProfile.Zve32x, profile.vector_extensions))
     legality.instruction <== rr_head.entries[lane].instruction
     legality.control <== rr_controls[lane].vector
     legality.vtype <== wb_csrs.vector_state.vtype
@@ -1479,6 +1479,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     "wb_retirement": vec(retired[0].bits, retired[1].bits),
     "wb_writes": wb_writes,
     "wb_split_capture": wb_split_capture,
+    "wb_vector_capture": wb_vector_capture,
+    "wb_vector_lane": wb_vector_lane,
     "wb_memory_lane": wb_memory_lane,
     "wb_multiply_accepted": wb_multiply_accepted,
     "fp_valid": fp.completion.valid,
@@ -1486,9 +1488,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     "fp_load_valid": fp.load_write.valid,
     "fp_load": fp.load_write.bits,
     "wb_command": wb_command,
-    "completion_fire": vec(wb_load_response.completed.fire(), ex_multiply.completed.valid, wb_divide.completed.fire(), completed.valid),
+    "completion_fire": vec(wb_load_response.completed.fire(), ex_multiply.completed.valid, wb_divide.completed.fire(), completed.valid & !wb_vector_return.valid),
     "completion": vec(wb_load_response.completed.bits, ex_multiply.completed.bits, wb_divide.completed.bits, completed.bits)
-  }, {"csr": wb_csrs})
+  }, (if vector_enabled | {"csr": wb_csrs, "vector": vector, "lsu": memory_ports} | {"csr": wb_csrs}))
 
 export:
   RV2WideCore

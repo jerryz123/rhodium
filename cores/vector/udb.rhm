@@ -1,0 +1,46 @@
+#lang rhombus
+/* Projects the shared vector engine geometry and architectural choices into UDB parameters. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/udb.rhm") open
+
+/* Describes restart, tail, misalignment, and reduction behavior shared by callers of VectorExecution. */
+fun vector_udb_parameters(profile :: VectorProfile, vlen :: VectorLength, hypervisor :: Boolean) :: List.of(UdbParameter):
+  def mutable result = []
+  when vector_profile_enabled(profile)
+  | result := result ++ [
+      natural_parameter("VLEN", vlen),
+      natural_parameter("ELEN", vector_profile_elen_bits(profile)),
+      natural_parameter("SEW_MIN", 8),
+      boolean_parameter("FOLLOW_VTYPE_RESET_RECOMMENDATION", #true),
+      boolean_parameter("IMPRECISE_VECTOR_TRAP_SETTABLE", #false),
+      string_parameter("LEGAL_VSTART", "1_stride"),
+      string_parameter("RESERVED_VSET_X0X0_VILL_SET", "never"),
+      string_parameter("RESERVED_VSET_X0X0_VLMAX_CHANGE", "never"),
+      string_parameter("RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX", "VLMAX"),
+      string_parameter("SUPPORT_FRACTIONAL_LMUL_BEYOND_REQUIRED", "no_unrequired_supported"),
+      boolean_parameter("VILL_SET_ON_RESERVED_VTYPE", #true),
+      string_parameter("HW_MSTATUS_VS_DIRTY_UPDATE", "precise"),
+      boolean_parameter("VECTOR_FF_NO_EXCEPTION_TRIM", #false),
+      string_parameter("VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD", "custom"),
+      string_parameter("VECTOR_FF_UPDATE_PAST_TRIM", "update_none"),
+      boolean_parameter("VECTOR_LOAD_PAST_TRAP", #false),
+      string_parameter("VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT", "no_overwrite"),
+      string_parameter("VECTOR_LS_INDEX_MAX_EEW", to_string(vector_profile_elen_bits(profile))),
+      boolean_parameter("VECTOR_LS_MISALIGNED_LEGAL", #true),
+      boolean_parameter("VECTOR_LS_SEG_PARTIAL_ACCESS", #true),
+      boolean_parameter("VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL", #false),
+      string_parameter("VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR", "copy"),
+      string_parameter("VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR", "copy"),
+      string_parameter("VFREDUSUM_NAN", "no_change"),
+      string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
+      boolean_parameter("VSSTATUS_VS_EXISTS", hypervisor)
+    ]
+  when vector_profile_is_v(profile)
+  | result := result ++ [boolean_parameter("MUTABLE_MISA_V", #false)]
+  result
+
+export vector_udb_parameters

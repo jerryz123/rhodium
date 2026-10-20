@@ -22,7 +22,7 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
 )
 
 /* Selects implementation resources and optional scalar, supervisor, and hypervisor features with RV32/RV64 scalar widths, mandatory C, and Bare or RV64 Sv39 translation. */
-class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_length :: VectorLength, vector_completion_slots :: Pow2Int):
+class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int):
   implements StableCircuitParam
 
   /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and a 4K-counter BHT. */
@@ -53,6 +53,10 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
                ~smstateen: smstateen :: Boolean = #false,
                ~hypervisor: hypervisor :: Boolean = #false,
                ~vector: vector :: VectorProfile = VectorProfile.None,
+               ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
+               ~ziccif: ziccif :: Boolean = #false,
+               ~ziccamoa: ziccamoa :: Boolean = #false,
+               ~ziccrse: ziccrse :: Boolean = #false,
                ~vector_length: vector_length :: VectorLength = 128,
                ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
     unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
@@ -78,19 +82,29 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     | error(~who: #'RV2WideConfig, "vector FP requires scalar FP")
     when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
     | error(~who: #'RV2WideConfig, "64-bit vector FP requires scalar D")
-    super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_length, vector_completion_slots)
+    validate_vector_extensions(vector, vector_extensions)
+    unless for all (extension in vector_extensions): extension == VectorExtension.Zvbb
+    | error(~who: #'RV2WideConfig, "RV2Wide's optional vector decode currently supports Zvbb")
+    super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots)
 
   property isa_profile :: RiscvIsaProfile:
     def half_extensions = match half_precision
     | HalfPrecisionProfile.None: []
     | HalfPrecisionProfile.Zfhmin: ["zfhmin"]
     | HalfPrecisionProfile.Zfh: ["zfh"]
-    def base = if floating_point == FloatingPointProfile.None
-    | RV2WideIsaProfile
-    | RiscvIsaProfile(XLen.X64, ["i", "m", "a", "f", "d"] ++ RV2WideIsaProfile.isa_extensions.drop(3) ++ (if zfa | ["zfa"] | []) ++ half_extensions, RV2WideIsaProfile.misa_extensions.take(6) ++ [MisaExtension.F, MisaExtension.D, MisaExtension.C])
+    def fp = if floating_point == FloatingPointProfile.None | [] | ["f", "d"]
+    def scalar = ["i", "m", "a"] ++ fp ++ ["c", "b"] ++ (if hypervisor | ["h"] | []) ++ ["za64rs", "zba", "zbb", "zbs"]
     def compressed_additions = (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | []) ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
-    def base_extensions = base.isa_extensions.filter(~keep: fun (name): (xlen == XLen.X64 || name != "ssu64xl") && (mmu_type != RiscvMmuType.Bare || name != "ssccptr"))
-    RiscvIsaProfile(xlen, base_extensions ++ vector_profile_isa_extensions(vector, vector_length) ++ compressed_additions ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if zicbop | ["zicbop"] | []) ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ (if sstc | ["sstc"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svinval | ["svinval"] | []) ++ (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | []) ++ (if sscofpmf | ["sscofpmf"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | []) ++ (if hypervisor | ["h", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | []), base.misa_extensions ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | []) ++ (if hypervisor | [MisaExtension.H] | []))
+    def memory = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ ["zicclsm"] ++ (if ziccrse | ["ziccrse"] | [])
+    def hints = (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | [])
+    def system = ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
+    def masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
+    def privileged = (if sstc | ["sstc"] | []) ++ (if svinval | ["svinval"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | [])
+    def guest = (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
+    def supervisor = if xlen == XLen.X64 | (if mmu_type != RiscvMmuType.Bare | ["ssccptr"] | []) ++ ["sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
+    def names = scalar ++ compressed_additions ++ (if zfa | ["zfa"] | []) ++ half_extensions ++ memory ++ masking ++ hints ++ system ++ privileged ++ guest ++ (if sscofpmf | ["sscofpmf"] | []) ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
+    def misa = RV2WideIsaProfile.misa_extensions.take(6) ++ (if floating_point == FloatingPointProfile.None | [] | [MisaExtension.F, MisaExtension.D]) ++ [MisaExtension.C] ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | []) ++ (if hypervisor | [MisaExtension.H] | [])
+    RiscvIsaProfile(xlen, names, misa)
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
   property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: mmu_type, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom, ~sstc: sstc, ~svpbmt: svpbmt, ~ssnpm: ssnpm, ~sscofpmf: sscofpmf, ~smstateen: smstateen, ~hypervisor: hypervisor, ~vector: vector, ~vector_length: vector_length)
   property hart_description :: RiscvHartDescription:
@@ -98,7 +112,8 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
       isa_profile, mmu_type,
       RiscvCacheDescription(CacheLineBytes, instruction_cache.sets, instruction_cache.capacity_bytes),
       RiscvCacheDescription(CacheLineBytes, data_cache.sets, data_cache.capacity_bytes),
-      ~cbo_block_bytes: CacheLineBytes
+      ~cbo_block_bytes: CacheLineBytes,
+      ~vector: if vector_profile_enabled(vector) | RiscvVectorDescription(vector_length, vector_profile_elen_bits(vector)) | #false
     )
 
 export:

@@ -44,12 +44,14 @@ def napot = RV2WideConfig(~svnapot: #true)
 def napot_fp = RV2WideConfig(~svnapot: #true, ~floating_point: FloatingPointProfile.D)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
 def vector64 = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V)
-def vector32 = RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)
+def vector32 = RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64, ~vector_extensions: [VectorExtension.Zvbb])
 check:
   vector64.isa_profile.isa_extensions.contains("v") ~is #true
   vector64.csr_config.vector ~is VectorProfile.V
   vector32.isa_profile.isa_extensions.contains("zve32x") ~is #true
   vector32.csr_config.vector_length ~is 64
+  vector32.isa_profile.isa_extensions.contains("zvbb") ~is #true
+  vector32.isa_profile.isa_extensions.contains("zvkt") ~is #true
   RV2WideConfig(~vector: VectorProfile.V) ~throws "vector FP requires scalar FP"
   RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve64x) ~throws "64-bit vector elements require RV64"
   RV2WideConfig(~vector: VectorProfile.Zve64x, ~vector_length: 64) ~throws "two XLEN rows"
@@ -66,50 +68,50 @@ check:
   supervisor.csr_config.smstateen ~is #true
   sha.csr_config.hypervisor ~is #true
   RV2WideConfig(~supm: #true) ~throws "Supm requires Ssnpm"
-  supervisor.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["ssnpm", "supm", "sscofpmf", "smstateen", "ssstateen"]
+  supervisor.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["ssnpm", "supm", "sscofpmf", "smstateen", "ssstateen"]).sort()
   hypervisor.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits + 128
   sha.isa_profile.isa_extensions.contains("sha") ~is #true
   integer.svinval ~is #false
-  invalidation.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["svinval"]
-  invalidation_fp.isa_profile.isa_extensions ~is pbmt_napot.isa_profile.isa_extensions ++ ["svinval"]
+  invalidation.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["svinval"]).sort()
+  invalidation_fp.isa_profile.isa_extensions.sort() ~is (pbmt_napot.isa_profile.isa_extensions ++ ["svinval"]).sort()
   invalidation.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   invalidation.hart_description.isa_profile ~is invalidation.isa_profile
   invalidation.csr_config.isa_profile ~is invalidation.isa_profile
   integer.svpbmt ~is #false
   integer.csr_config.svpbmt ~is #false
   pbmt.csr_config.svpbmt ~is #true
-  pbmt.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["svpbmt"]
-  pbmt_napot.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["svnapot", "svpbmt"]
+  pbmt.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["svpbmt"]).sort()
+  pbmt_napot.isa_profile.isa_extensions.sort() ~is (double.isa_profile.isa_extensions ++ ["svnapot", "svpbmt"]).sort()
   pbmt.hart_description.isa_profile ~is pbmt.isa_profile
   pbmt.csr_config.isa_profile ~is pbmt.isa_profile
   pbmt.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   integer.svnapot ~is #false
-  napot.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["svnapot"]
-  napot_fp.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["svnapot"]
+  napot.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["svnapot"]).sort()
+  napot_fp.isa_profile.isa_extensions.sort() ~is (double.isa_profile.isa_extensions ++ ["svnapot"]).sort()
   napot.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   napot.hart_description.isa_profile ~is napot.isa_profile
   napot.csr_config.isa_profile ~is napot.isa_profile
-  timer.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["sstc"]
+  timer.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["sstc"]).sort()
   timer.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   timer.csr_config.sstc ~is #true
   integer.csr_config.sstc ~is #false
-  locality.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zihintntl"]
+  locality.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zihintntl"]).sort()
   locality.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
-  pause.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zihintpause"]
+  pause.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zihintpause"]).sort()
   pause.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
-  wait.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zawrs"]
+  wait.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zawrs"]).sort()
   wait.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   integer.bht ~is #true
   RV2WideConfig(~bht: #false).bht ~is #false
   RV2WideConfig(~bht: #false).isa_profile ~is integer.isa_profile
-  prefetch.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicbop"]
+  prefetch.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zicbop"]).sort()
   prefetch.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
-  management.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicbom"]
+  management.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zicbom"]).sort()
   management.csr_config.zicbom ~is #true
   management.csr_config.zicboz ~is #false
   management.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
-  cmo.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicboz", "zicbom"]
-  zero.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zicboz"]
+  cmo.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zicboz", "zicbom"]).sort()
+  zero.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zicboz"]).sort()
   zero.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   zero.csr_config.zicboz ~is #true
   zero.hart_description.cbo_block_bytes ~is 64
@@ -117,21 +119,21 @@ check:
   double.zfa ~is #false
   integer.isa_profile.isa_extensions.contains("zfa") ~is #false
   double.isa_profile.isa_extensions.contains("zfa") ~is #false
-  zfa.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["zfa"]
+  zfa.isa_profile.isa_extensions.sort() ~is (double.isa_profile.isa_extensions ++ ["zfa"]).sort()
   zfa.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
   zfa.hart_description.isa_profile ~is zfa.isa_profile
   RV2WideConfig(~zfa: #true) ~throws "Zfa requires floating-point support"
   double.half_precision ~is HalfPrecisionProfile.None
-  half_min.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["zfhmin"]
-  half.isa_profile.isa_extensions ~is zfa.isa_profile.isa_extensions ++ ["zfh"]
+  half_min.isa_profile.isa_extensions.sort() ~is (double.isa_profile.isa_extensions ++ ["zfhmin"]).sort()
+  half.isa_profile.isa_extensions.sort() ~is (zfa.isa_profile.isa_extensions ++ ["zfh"]).sort()
   half.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
   half.hart_description.isa_profile ~is half.isa_profile
   RV2WideConfig(~half_precision: HalfPrecisionProfile.Zfhmin) ~throws "require a base F or D"
   RV2WideConfig(~half_precision: HalfPrecisionProfile.Zfh) ~throws "require a base F or D"
   integer.compressed ~is CCompressedExtensions
-  zcb.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zcb"]
-  zcmop.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions ++ ["zcmop"]
-  compressed_fp.isa_profile.isa_extensions ~is double.isa_profile.isa_extensions ++ ["zcb", "zcmop"]
+  zcb.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zcb"]).sort()
+  zcmop.isa_profile.isa_extensions.sort() ~is (integer.isa_profile.isa_extensions ++ ["zcmop"]).sort()
+  compressed_fp.isa_profile.isa_extensions.sort() ~is (double.isa_profile.isa_extensions ++ ["zcb", "zcmop"]).sort()
   zcb.isa_profile.misa_extension_bits ~is integer.isa_profile.misa_extension_bits
   compressed_fp.isa_profile.misa_extension_bits ~is double.isa_profile.misa_extension_bits
   compressed_fp.csr_config.compressed ~is compressed_fp.compressed
@@ -142,7 +144,7 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [vector32, vector64, integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", if profile.xlen == XLen.X32 | 32 | 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:

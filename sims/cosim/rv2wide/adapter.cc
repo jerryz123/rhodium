@@ -12,7 +12,8 @@ void HartAdapter::require(bool condition, const char* message) {
 }
 void HartAdapter::gpr(Collector& c, Word instance, Id id, bool write, Word rd, Word data) {
   const bool actual = write && rd;
-  if (actual) c.effect(instance,id,{0,0},RegisterWrite{Bank::Integer,rd,0,UINT64_MAX,data});
+  const Word mask = c.reset_state(instance).xlen == 32 ? UINT32_MAX : UINT64_MAX;
+  if (actual) c.effect(instance,id,{0,0},RegisterWrite{Bank::Integer,rd,0,mask,data & mask});
   c.seal(instance,id,0,actual);
 }
 void HartAdapter::memory(Collector& c, Word instance, const Owner& owner, Word value, bool fault) {
@@ -46,17 +47,18 @@ void HartAdapter::split_memory(Collector& c, Word instance, const Hart& h, bool 
   require(h.split.has_value(), "split outcome has no WB owner");
   const auto& owner = *h.split;
   const bool store = owner.lane.access == 2;
+  const Word address_mask = c.reset_state(instance).xlen == 32 ? UINT32_MAX : UINT64_MAX;
   Word index = 0;
   for (const auto& fragment : h.fragments) {
     require(fragment.response.has_value() && fragment.mask, "split prefix did not complete");
     const unsigned offset = std::countr_zero(fragment.mask);
     c.effect(instance,owner.id,{1,index++},MemoryEffect{
-      0,fragment.virtual_address-owner.lane.address,store ? AccessKind::Store : AccessKind::Load,
+      0,(fragment.virtual_address-owner.lane.address) & address_mask,store ? AccessKind::Store : AccessKind::Load,
       fragment.virtual_address,true,fragment.address+offset,fragment.mask >> offset,!store,store,
       *fragment.response >> (8*offset),fragment.data >> (8*offset),AccessResult::Success});
   }
   if (fault) {
-    const Word offset = fault_address-owner.lane.address, bytes = Word{1} << owner.lane.width;
+    const Word offset = (fault_address-owner.lane.address) & address_mask, bytes = Word{1} << owner.lane.width;
     require(offset < bytes, "split fault outside the architectural access");
     c.effect(instance,owner.id,{1,index++},MemoryEffect{
       0,offset,store ? AccessKind::Store : AccessKind::Load,fault_address,false,0,
@@ -138,7 +140,13 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     require(h.next != UINT64_MAX, "instruction order wrapped");
     const Id id{h.epoch,h.next++};
     const Word bytes = lane.fetch_fault ? 0 : (lane.encoding & 3) == 3 ? 4 : 2;
-    c.instruction(instance,id,{lane.pc,lane.encoding,bytes,bytes,{b.privilege,bool(b.virtualized)},3});
+    c.instruction(instance,id,{lane.pc,lane.encoding,bytes,bytes,{b.privilege,bool(b.virtualized)},Word(3 + (lane.vector ? 32 : 0))});
+    if (lane.vector) {
+      vector.capture(*f.sample,instance,h.epoch,vector::Allocate{id.order,1,Word(vector.admitted(instance)),lane.encoding});
+      // The shared vector producer owns VRF, scalar-result and memory effects.
+      gpr(c,instance,id,false,0,0);
+      c.seal(instance,id,1,0);
+    }
     return Owner{id,lane,false,0};
   };
   std::optional<Owner> inline_fp_load;
@@ -154,7 +162,9 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     require(!split || (slot == 0 && h.split->lane.pc == lane.pc), "retirement bypassed a split owner");
     auto owner = split ? *h.split : allocate(lane);
     c.retire(instance,owner.id,{lane.next_pc,{b.next_privilege,bool(b.next_virtualized)}});
-    if (lane.fp == 1) {
+    if (owner.lane.vector) {
+      if (split) { h.split.reset(); h.fragments.clear(); }
+    } else if (lane.fp == 1) {
       require(!split, "arithmetic retained as split access");
       c.seal(instance,owner.id,1,0);
       h.fp.push_back({owner,h.cycle+lane.fp_delay,lane.fp_delay==UINT64_MAX});
@@ -199,24 +209,31 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     }
     require(owner.lane.pc==value.pc && owner.lane.rd==value.rd && owner.lane.fp_destination==value.destination,"FP completion owner mismatch");
     Word effects=0;
-    if (value.destination==2 || (value.destination==1 && value.rd))
-      c.effect(instance,owner.id,{0,effects++},RegisterWrite{value.destination==2 ? Bank::FloatingPoint : Bank::Integer,value.rd,0,UINT64_MAX,value.value});
+    if (value.destination==2 || (value.destination==1 && value.rd)) {
+      const Word mask = value.destination==2 || c.reset_state(instance).xlen==64 ? UINT64_MAX : UINT32_MAX;
+      c.effect(instance,owner.id,{0,effects++},RegisterWrite{value.destination==2 ? Bank::FloatingPoint : Bank::Integer,value.rd,0,mask,value.value & mask});
+    }
     if (value.flags_valid)
       c.effect(instance,owner.id,{0,effects++},CsrUpdate{1,CsrOperation::SetBits,31,value.flags});
     c.seal(instance,owner.id,0,effects);
   }
   require(!inline_fp_load,"FP hit omitted its architectural write");
   for (const auto& owner:h.fp) require(owner.variable || owner.due>h.cycle,"missing fixed FP completion");
-  const Trap trap{b.cause & (UINT64_MAX >> 1),b.epc,b.tval,b.target,{b.target_privilege,bool(b.target_virtualized)},bool(b.guest_valid),b.htval,b.htinst};
+  const Word cause_mask = (Word{1} << (c.reset_state(instance).xlen-1))-1;
+  const Trap trap{b.cause & cause_mask,b.epc,b.tval,b.target,{b.target_privilege,bool(b.target_virtualized)},bool(b.guest_valid),b.htval,b.htinst};
   require(!(b.interrupt && b.trap), "interrupt and synchronous trap coincide");
   if (b.trap) {
     const auto& fault = *f.lanes[2];
     require(!h.split || h.split->lane.pc == fault.pc, "trap bypassed a split owner");
     const auto owner = h.split ? *h.split : allocate(fault);
-    c.exception(instance,owner.id,trap); gpr(c,instance,owner.id,false,0,0);
-    if (h.split) { split_memory(c,instance,h,true,b.tval); h.split.reset(); h.fragments.clear(); }
-    else if (fault.memory) memory(c,instance,owner,0,true);
-    else c.seal(instance,owner.id,1,0);
+    c.exception(instance,owner.id,trap);
+    if (owner.lane.vector) { h.split.reset(); h.fragments.clear(); }
+    else {
+      gpr(c,instance,owner.id,false,0,0);
+      if (h.split) { split_memory(c,instance,h,true,b.tval); h.split.reset(); h.fragments.clear(); }
+      else if (fault.memory) memory(c,instance,owner,0,true);
+      else c.seal(instance,owner.id,1,0);
+    }
   }
   if (b.interrupt) {
     require(!h.split, "interrupt bypassed a split owner");
@@ -239,9 +256,9 @@ extern "C" void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, st
     adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),rhodium::cosim::rv2wide::FpSample{Word(index),Word(valid),Word(pc),Word(rd),Word(destination),Word(value),Word(flags_valid),Word(flags)});
   });
 }
-extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data, std::int64_t fp, std::int64_t fp_destination, std::int64_t fp_delay) noexcept {
+extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data, std::int64_t fp, std::int64_t fp_destination, std::int64_t fp_delay, std::int64_t vector) noexcept {
   dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& c) {
-    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),LaneSample{Word(index),Word(retired),Word(split),Word(pc),Word(encoding),Word(next_pc),Word(fetch_fault),Word(rd),Word(write),Word(data),Word(deferred),Word(service),Word(memory),Word(address),Word(access),Word(width),Word(atomic),Word(store_data),Word(fp),Word(fp_destination),Word(fp_delay)});
+    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),LaneSample{Word(index),Word(retired),Word(split),Word(pc),Word(encoding),Word(next_pc),Word(fetch_fault),Word(rd),Word(write),Word(data),Word(deferred),Word(service),Word(memory),Word(address),Word(access),Word(width),Word(atomic),Word(store_data),Word(fp),Word(fp_destination),Word(fp_delay),Word(vector)});
   });
 }
 extern "C" void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary, std::int64_t virtualized, std::int64_t next_virtualized, std::int64_t target_virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst, std::int64_t hpm_enabled, std::int64_t hpm_counter, std::int64_t hpm_overflow) noexcept {

@@ -57,7 +57,7 @@ class ResolvedSoCConfig(selection :: SoCSelection, hart :: RiscvHartImplementati
         spike_udb_configuration(profile, name, "Rhodium " ++ key)
     | CoreKind.RV2Wide:
         def profile :: RV2WideConfig = hart.profile
-        rv2wide_udb_configuration(profile, name, "Rhodium " ++ key, rhodium_soc_flit.request_address_width)
+        rv2wide_udb_configuration(profile, name, "Rhodium " ++ key, math.min(profile.xlen.width, rhodium_soc_flit.request_address_width))
 
 /* Creates the common resolved config used by hardware and architecture-facing consumers. */
 fun resolve_soc_config(selection :: SoCSelection) :: ResolvedSoCConfig:

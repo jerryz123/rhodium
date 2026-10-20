@@ -17,6 +17,7 @@ pass.rhm -> rv5stage/*.rhdl / rv2wide/capture.rhdl -> core observation contracts
 runtime/session -> events/DPI + Sail checker
 rv5stage/adapter -> events/DPI + collector
 rv2wide/adapter -> events/DPI + collector
+rv5stage/adapter + rv2wide/adapter -> vector/adapter -> events/DPI + collector
 Sail checker -> event records + Sail reference
 collector -> event records
 ```
@@ -46,6 +47,11 @@ export bank snapshots solely to compare deterministic state.
 Vector scalar-result ports carry their compute-maturity owner into the vector
 effect stream, including FPR writes that dirty FS without an arithmetic flag
 contribution. Preserve integer x0 suppression without suppressing FP register zero.
+The binding first flushes hart adapters to establish instruction identities,
+then calls `finish_sample` on shared execution adapters. This ordering is
+independent of callback order and native type-map order. `vector/capture.rhdl`
+and `vector/adapter.*` own common vector taps and reconstruction; named-core
+capture modules supply translated physical request/fragment provenance.
 
 `SailChecker::check` captures reference pre-state, prepares environmental inputs,
 steps Sail, then compares control flow, traps, registers, reported FP flag effects,
@@ -120,8 +126,9 @@ to help the checker. Warm reset requires resetting both reference and collection
 |---|---|
 | Compilation | `pass.rhm`: occurrence selection, tap export/remapping, adapter lookup, descriptor emission |
 | Generic events | `events/record.h`: event schema; `collector.*`: delayed assembly; `dpi.*`: binding/error barrier; `hooks.rhdl`: typed producer; `transport.rhdl`: lane widening |
-| RV5Stage | `rv5stage/capture.rhdl`, `vector.rhdl`: raw capture; `adapter.*`, `vector.*`: settled-cycle reconstruction |
+| RV5Stage | `rv5stage/capture.rhdl`, `vector.rhdl`: raw capture and physical provenance; `adapter.*`: hart reconstruction |
 | RV2Wide | `rv2wide/capture.rhdl`: stateless dual-slot capture; `adapter.*`: WB age, deferred services, and split-prefix ownership |
+| Shared vector | `vector/capture.rhdl`: passive execution taps; `vector/adapter.*`: owner, service, VRF, and memory-effect reconstruction |
 | Sail | `sail/reference.*`: embedding; `checker.*`: ordered comparison; `memory.*`, `vector.*`: comparison helpers; `diagnostic.h`: record-scoped errors |
 | Simulator session | `runtime/session.*`: lifecycle; `write-config.rhm`, `configure.py`: exact environment and embedded configuration |
 | Tests | `tests/events`, `rv5stage`, `rv2wide`, `sail`, `runtime`, `pass`: owning contracts; `tests/circt`: transport integration following repository fixture discovery |
@@ -132,9 +139,9 @@ retains a split owner through its final retirement/trap, including completed
 store prefixes. Three native service FIFOs correspond to accepted memory,
 WB-authorized multiply, and divide. Variable-return arbitration schedules load
 and divide owners through three feed-forward stages; multiply writes directly
-on its authorized WB+1 edge. The versioned `rv2wide.v5` source contract consumes
-grouped branch payloads and compact FP scheduling tags without changing the
-native callback ABI. It samples
+on its authorized WB+1 edge. The versioned `rv2wide.v6` source contract consumes
+grouped branch payloads, compact FP scheduling tags, and vector admission/
+execution ownership. It samples
 virtual entry/return context, guest trap provenance, and counter-3 timing as well
 as both the direct source and RF destination on that edge, independently of
 same-cycle variable-return admission. Only the actual RF-write edge seals its GPR

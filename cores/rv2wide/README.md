@@ -29,7 +29,10 @@ private-cache geometry; `RV2WideHart` starts once at the platform reset vector
 after reset. The shared SoC BootROM performs normal FESVR entry publication and
 ACLINT release. The corresponding `mini-rv2wide-rv64imafdcb` and
 `simple-rv2wide-rv64imafdcb` selections add F/D and compressed FP loads/stores.
-No RV32, vector-enabled, H-enabled, or Tiled SoC selection is provided.
+`mini-rv2wide-rv32int` and `simple-rv2wide-rv32int` select the existing RV32
+integer preset with Bare translation, Zve32x, VLEN64, Zvbb, and Zvkt. They use
+the same shape/ISA-selected software policy as the other core implementations.
+No H-enabled or Tiled SoC selection is provided.
 
 ## Entry point
 
@@ -915,14 +918,15 @@ invent ancestry from equal PCs or reused transaction IDs.
 ## Vector execution
 
 `RV2WideConfig` selects optional `vector`, `vector_length`, and
-`vector_completion_slots` parameters. The default remains `VectorProfile.None`.
+`vector_completion_slots` parameters, plus `vector_extensions` for optional
+Zvbb operations. The default remains `VectorProfile.None`.
 RV32 supports integer Zve32x; RV64 additionally supports the embedded
 64-bit profiles and V, with scalar D required for vector floating point.
 VLEN must provide at least two XLEN-wide rows per register.
 For example, `RV2WideConfig(~floating_point: FloatingPointProfile.D,
 ~vector: VectorProfile.V)` selects VLEN=128 and eight completion slots.
-This is a core specialization, not a new SoC or CI preset. Vector-specific
-cosimulation observation is not connected by this integration.
+The RV64 vector specialization remains a core-level selection. The Mini/Simple
+`rv32int` presets enable vector execution and the shared vector cosim observer.
 
 `vector.rhdl` also exposes `RV2WideVectorPipeline(xlen, vlen)` as an independently
 usable service. It composes the shared sequencer, VRF, SIMD datapath, and

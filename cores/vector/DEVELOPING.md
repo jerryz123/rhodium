@@ -41,6 +41,7 @@ introduce buffering or lossy arbitration on a nonstallable return.
 | `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
 | `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
 | `instruction-metadata.rhm` | Canonical base decode domains and scalar operand/destination metadata |
+| `udb.rhm` | Shared execution geometry and architectural policy for named-core UDB projections |
 | `fp.rhdl`, `muldiv.rhdl` | Shared arithmetic operands and tagged result conversion |
 
 `../mmu/vector.rhdl` owns certification/probe contracts and

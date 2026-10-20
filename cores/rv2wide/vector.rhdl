@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/cosim-source.rhm").describe_cosim_signals
   lib("cores/vector/admission.rhdl") open
   "bundles.rhdl" open
   "vector-memory.rhdl" open
@@ -109,6 +110,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   loads_pending <== execution.loads_pending ||| admission.loads_pending
   fp_pending <== execution.fp_pending ||| admission.fp_pending
   certification_pending <== admission.certification_pending
+  describe_cosim_signals({"admitted": request.fire()}, ~components: {"execution": execution, "memory": access})
 
 /* Terminates the optional vector client without allocating a sequencer, VRF, or execution state. */
 sync_circuit RV2WideVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8):

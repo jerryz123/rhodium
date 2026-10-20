@@ -374,12 +374,12 @@ architectural load-write taps. It does not import the observer or host runtime.
 for nested admission, retained-owner, and physical VRF-write observations.
 `cores/vector/instructions.rhdl` uses it for actual owner reclamation, including
 faults that drain without successful retirement.
-`sims/cosim/rv5stage/vector.rhdl` consumes those typed taps through frontend `kernel.input`,
+`sims/cosim/vector/capture.rhdl` consumes those typed taps through frontend `kernel.input`,
 the vector register-write/token/completion bundles, shared physical request/response and
 writeback-tag protocols and fixed-lane widening.
-It declares RV5Stage-specific passive DPI events without observer registers or
-ownership queues. `sims/cosim/rv5stage/vector.*` interprets those events in C++,
-as a child of the common native `rv5stage/adapter.*` hart adapter;
+It declares shared passive DPI events without observer registers or
+ownership queues. `sims/cosim/vector/adapter.*` interprets those events in C++,
+consumed by both native hart adapters;
 the generic DPI binding owns its lifetime and settled-sample flush, without
 depending on a named core. The native adapter consumes generic collector types,
 not Sail or generated RTL. Its separate native library is linked by simulator
@@ -411,11 +411,13 @@ functional handshakes, and no named core imports the simulator receiver.
 
 RV2Wide's core, MMU, and composition import the same passive metadata bridge
 for dual WB slots, CSR command context, deferred return ownership, and physical
-request/fragment provenance. `cores/rv2wide/observation.rhdl` declares `rv2wide.v5`
+request/fragment provenance. Its vector and memory-port adapters also import
+the passive metadata bridge. `cores/rv2wide/observation.rhdl` declares `rv2wide.v6`
 without imports. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
 RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing helpers,
 architectural privilege/interrupt/XLEN/FP-profile descriptors,
-and the common transport widening helper; it adds no observer state or outputs.
+the shared vector capture module, and the common transport widening helper;
+it adds no observer state or outputs.
 Its native adapter depends only on generic event/DPI contracts. The cosim pass
 imports both named-core observation identities and simulation-owned capture
 adapters for its default registry. Both native adapters share
@@ -530,6 +532,11 @@ imports that wrapper and the router consumes it. No dependency direction changes
 `riscv/rtl/pointer-masking.rhdl` imports the pure CSR fields and XLEN plus
 the CSR and privilege adapters and the hypervisor explicit-access enum. Its PMM encoding belongs to its hardware enum,
 not a duplicate host enum and integer converter.
+
+`cores/vector/udb.rhm` projects shared execution geometry and architectural
+choices using only pure RISC-V vector and UDB descriptors. Both named-core UDB
+projections consume it. RV2Wide's decode also consumes `riscv/isa/zvbb.rhm`
+to select the shared optional vector control relations.
 
 The shared `cores/vector/` package imports public `std/bits.rhdl` for
 mask expansion/merging and

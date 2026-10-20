@@ -33,7 +33,8 @@ inside the pipeline merely to match CHI transport.
 storage. It owns PMA qualification and core/split response routing; accepted
 responses survive invalidation. `mmu.rhdl` remains the RV64 Sv39/guest adapter.
 The top selects one implementation from `profile.mmu_type`. Keep exact SoC
-profile checks unchanged: scalar RV32 alone does not implement `rv32int`.
+profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
+Zvbb/Zvkt and the preset's optional scalar/system guarantees.
 
 Keep stage logic in one pipeline-ordered `core.rhdl`. Flow owns feed-forward
 storage; the issue window owns prefix admission, retention, and coalescing.
@@ -820,7 +821,7 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v5` contract. Its typed tokens
+`observation.rhdl` names the passive `rv2wide.v6` contract. Its typed tokens
 use grouped branch state and compact FP scheduling tags; the native callbacks
 retain their existing architectural fields and timing. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
@@ -828,6 +829,9 @@ WB slots, split capture, CSR commands, and accepted service returns through
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.
 The simulation-owned [adapter](../../sims/cosim/DEVELOPING.md) assigns age IDs,
 retains deferred owners, and resolves both slots at a settled sample barrier.
+Vector capture and physical provenance remain simulation-owned. The shared
+vector observer resolves execution effects after the hart adapter allocates
+WB identities; retained memory instructions keep that identity through faults.
 Keep replay and speculative EX multiply launch out of architectural admission.
 The completion adapter follows the three unflushable RR-to-WB stages for load
 and divide, but matches multiply directly to its authorized WB+1 RF-write edge.

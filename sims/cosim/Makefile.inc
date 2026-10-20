@@ -67,7 +67,7 @@ $(COSIM_RUNTIME_DEPENDENCIES):
 	@echo "Prebuilt cosim runtime file is missing: $@" >&2; exit 2
 else
 COSIM_RUNTIME_DEPENDENCIES := $(COSIM_BUILD_DIR)/runtime.stamp
-$(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/rv2wide/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt
+$(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/rv2wide/*.[ch]* $(CURDIR)/cosim/vector/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt
 	$(MAKE) sail-cosim-build SOC=$(SOC_ID)
 	touch "$@"
 endif

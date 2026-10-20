@@ -246,8 +246,8 @@ std::string fp_services(unsigned seed,unsigned mutation=0,bool reduction=false) 
   const Word code=(reduction?3U<<26:0)|(1U<<25)|(8<<20)|(12<<15)|(1<<12)|(16<<7)|0x57;
   auto frame=[&](FpService fp,std::vector<std::function<void()>> calls) {
     collector.begin_sample(cycle++);
-    calls.push_back([]{rhodium_rv5stage_vector_cycle(0,64,128,2,0,0,0,0,1);});
-    calls.push_back([&]{rhodium_rv5stage_vector_fp(0,fp.allocated,fp.owner,fp.tag,fp.launch,fp.launch_tag,fp.returned,fp.return_tag,fp.flags_valid,fp.flags);});
+    calls.push_back([]{rhodium_vector_cycle(0,64,128,2,0,0,0,0,1);});
+    calls.push_back([&]{rhodium_vector_fp(0,fp.allocated,fp.owner,fp.tag,fp.launch,fp.launch_tag,fp.returned,fp.return_tag,fp.flags_valid,fp.flags);});
     std::shuffle(calls.begin(),calls.end(),random);
     for(auto& call:calls) call();
     binding.check();
@@ -262,32 +262,32 @@ std::string fp_services(unsigned seed,unsigned mutation=0,bool reduction=false) 
     collector.instruction(0,{epoch,order},instruction(0x8000+4*order,code));
     collector.retire(0,{epoch,order},{0x8004+4*order,{3,false}});
     test_rv5stage_vector_allocate(0,epoch,order,1,1,code);
-    rhodium_rv5stage_vector_dispatch(0,owner,0,0,code,16);
+    rhodium_vector_dispatch(0,owner,0,0,code,16);
   };
   frame({1,0,0,0,0,0,0,0,0},{[&]{allocate(0,0);}});
   frame({1,1,1,mutation==1?0U:1U,0,0,0,0,0},{[&]{allocate(1,1);}});
   frame({0,0,0,1,1,0,0,0,0},{});
   if(mutation==2) frame({1,0,0,0,0,0,0,0,0},{});
-  if(mutation==3) frame({},{[]{rhodium_rv5stage_vector_drain(0,0);}});
+  if(mutation==3) frame({},{[]{rhodium_vector_drain(0,0);}});
   if(mutation==4) frame({0,0,0,1,0,0,0,0,0},{});
   // Younger service returns first; older flags are ORed across two results.
   frame({0,0,0,0,0,1,1,1,8},{
-    []{rhodium_rv5stage_vector_write(0,48,UINT64_MAX,9,1,0,0,1,0,0);},
-    []{rhodium_rv5stage_vector_drain(0,1);}});
+    []{rhodium_vector_write(0,48,UINT64_MAX,9,1,0,0,1,0,0);},
+    []{rhodium_vector_drain(0,1);}});
   frame({1,0,0,1,0,1,mutation==5?1U:0U,1,16},{
-    [&]{if(!reduction && mutation!=8) rhodium_rv5stage_vector_write(0,32,UINT32_MAX,7,1,0,0,mutation==9?1:0,0,0);}});
+    [&]{if(!reduction && mutation!=8) rhodium_vector_write(0,32,UINT32_MAX,7,1,0,0,mutation==9?1:0,0,0);}});
   frame({0,0,0,0,0,1,0,1,1},{
-    [&]{rhodium_rv5stage_vector_write(0,32,reduction?UINT32_MAX:UINT64_MAX-UINT32_MAX,reduction?11:11ULL<<32,1,0,0,0,0,0);},
-    []{rhodium_rv5stage_vector_drain(0,0);}});
+    [&]{rhodium_vector_write(0,32,reduction?UINT32_MAX:UINT64_MAX-UINT32_MAX,reduction?11:11ULL<<32,1,0,0,0,0,0);},
+    []{rhodium_vector_drain(0,0);}});
   if(mutation==10) frame({0,0,0,0,0,1,0,1,1},{});
   frame({1,0,0,1,0,0,0,0,0},{[&]{allocate(2,0);}});
   // Reset drops an in-flight result and previously accumulated macro flags.
-  frame({1,0,0,1,0,1,0,1,16},{[&]{if(!reduction) rhodium_rv5stage_vector_write(0,32,UINT32_MAX,1,1,0,0,0,0,0);}});
+  frame({1,0,0,1,0,1,0,1,16},{[&]{if(!reduction) rhodium_vector_write(0,32,UINT32_MAX,1,1,0,0,0,0,0);}});
   collector.reset(0,++epoch,reset_state());
   frame({1,0,0,1,0,0,0,0,0},{[&]{allocate(0,0);}});
   frame({0,0,0,0,0,1,0,1,4},{
-    []{rhodium_rv5stage_vector_write(0,32,UINT32_MAX,2,1,0,0,0,0,0);},
-    []{rhodium_rv5stage_vector_drain(0,0);}});
+    []{rhodium_vector_write(0,32,UINT32_MAX,2,1,0,0,0,0,0);},
+    []{rhodium_vector_drain(0,0);}});
   collector.finish(); return output.str();
 }
 void address_domains(Word raw_base, Word effective_base, bool packed, bool fault,
@@ -307,7 +307,7 @@ void address_domains(Word raw_base, Word effective_base, bool packed, bool fault
   end();
   const Word offset = fault ? 7 : 8;
   begin();
-  rhodium_rv5stage_vector_issue(0,0,0,2,8,packed,1,store,raw_base+offset,
+  rhodium_vector_issue(0,0,0,2,8,packed,1,store,raw_base+offset,
                               effective_base+offset,0x2000+offset,!fault,packed ? 255 : 15,0x8877665544332211);
   test_rv5stage_vector_decision(0,0,0,0);
   if (fault) test_rv5stage_vector_fragment_start(0,0,0x2007);

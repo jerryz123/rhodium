@@ -1,11 +1,12 @@
 // Reconstructs one RV5Stage hart's ordered scalar, FP, and vector observations.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-#include "vector.h"
+#include "../vector/adapter.h"
 #include <array>
 #include <type_traits>
 
 namespace rhodium::cosim::rv5stage {
+using namespace rhodium::cosim::vector;
 struct ScalarCycle { Word xlen, flen, vector, wb_retained_memory_accepted, wb_reservation_wait_accept, wb_vector_admission, wb_vector_return, wb_commit_valid, wb_memory_pending, wb_reservation_wait_pending, wb_pending_exception_valid, wb_current_exception_wait, wb_memory_accepted, wb_attempt, wb_data_fault, wb_split_accepted, wb_split_done, wb_commit_has_multiply, wb_commit_has_divide, response_fire, write_valid, fault_address, commit_rd, commit_value, write_rd, write_data, offer_request_valid; };
 struct HeaderSample { Word pc, instruction, exception, cause; };
 struct BoundarySample { Word csr_interrupt_take, csr_synchronous_trap, csr_commit, csr_retired, privilege, virtualized, cause, epc, tval, target_pc, target_privilege, target_virtualized, guest_valid, htval, htinst, next_pc, next_privilege, next_virtualized, interrupts, time, interrupt_boundary, hpm_enabled, hpm_counter, hpm_overflow; };
@@ -19,7 +20,7 @@ struct FpSample { Word issued, completed, issue_fp, issue_integer, issue_rd, com
 // events; no callback can allocate identities or depend on callback order.
 class HartAdapter final : public observation::DpiAdapter {
  public:
-  VectorAdapter vector;
+  VectorAdapter& vector = vector_adapter();
   template<class Event> void capture(Word sample, Word instance, Word epoch, Event event) {
     auto& frame = frames_[instance];
     if (!frame.sample) { frame.sample = sample; frame.epoch = epoch; }

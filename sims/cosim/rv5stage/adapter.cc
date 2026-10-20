@@ -72,7 +72,6 @@ void HartAdapter::flush(Collector& collector) {
   frames_.clear();
   // Scalar WB allocation supplies vector identities before vector resolution.
   // This order is explicit, not dependent on registry or DPI callback ordering.
-  vector.flush(collector);
 }
 void HartAdapter::resolve(Collector& collector, Word instance, Hart& h, const Frame& frame) {
   auto event = [&]<class T>() -> const T& {

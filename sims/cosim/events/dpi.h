@@ -15,6 +15,9 @@ class DpiAdapter {
  public:
   virtual ~DpiAdapter() = default;
   virtual void flush(Collector& collector) = 0;
+  // Hart adapters assign architectural identities before shared execution
+  // observers resolve effects. Neither phase depends on callback ordering.
+  virtual void finish_sample(Collector&) {}
 };
 void dpi_receive(const std::function<void(Collector&)>& call) noexcept;
 DpiAdapter& dpi_adapter(std::type_index type, const std::function<std::unique_ptr<DpiAdapter>()>& create);
