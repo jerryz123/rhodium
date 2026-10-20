@@ -50,6 +50,11 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   output fault_address: Bits(width)
   output busy: Bool
 
+
+  /* Retained architectural owner and fragment progress.
+     An accepted fragment keeps its reply owner until the response arrives;
+     the original request survives until one final completion. */
+
   reg state(RiscvMisalignedState, ~init: RiscvMisalignedState.Idle)
   reg saved(PhysicalMemoryReq(xlen, Context))
   reg second(~init: Bool(#false))
@@ -61,6 +66,11 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   busy <== state =/= RiscvMisalignedState.Idle
   start.ready <== !busy
   def capture = start.fire()
+
+
+  /* Fragment geometry and physical request construction.
+     Stores split data and byte enables; each fragment is independently checked
+     before acceptance, without reissuing a completed prefix. */
 
   def offset = saved.address[0..alignment_bits(word_bytes)]
   def shift = offset ++ bits(0, 3)
@@ -88,6 +98,11 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   def rejected = request.valid & (request_fault ||| request_access_fault)
   def physical_fire = request.fire() & !rejected
 
+
+  /* Fragment response capture and final load assembly.
+     The retained second flag routes replies; live upstream requests cannot
+     alter the fragment's context or assembly offsets. */
+
   def Array(first_responses, second_responses) = physical_response |> demux_flow(2, _response => second.as_bits())
   def first_response = first_responses |> to_valid()
   def second_response = second_responses |> to_valid()
@@ -114,6 +129,12 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   describe_interface_retained_storage(capture, completion_fire, busy, ~name: "split_owner")
   describe_interface_contract(start, request, "split_owner", ~trace_model: interface_trace_retained(~name: "split_owner"))
 
+
+  /* Ownership transitions.
+     Admission faults finish without a physical transfer. A successful first
+     reply alone can advance to fragment two; completion finally releases busy. */
+
+  def continue_second = crosses_word & !first_response.bits.access_fault
   when capture:
     saved <== start.bits
     second <== Bool(#false)
@@ -130,8 +151,8 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
     state <== RiscvMisalignedState.Response
   elsewhen (first_response.valid):
     access_fault <== first_response.bits.access_fault
-    state <== mux(crosses_word & !first_response.bits.access_fault, RiscvMisalignedState.Request, RiscvMisalignedState.Complete)
-    when (crosses_word & !first_response.bits.access_fault):
+    state <== mux(continue_second, RiscvMisalignedState.Request, RiscvMisalignedState.Complete)
+    when continue_second:
       second <== Bool(#true)
   elsewhen (second_response.valid):
     access_fault <== second_response.bits.access_fault

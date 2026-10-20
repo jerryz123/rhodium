@@ -201,9 +201,17 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
   interface read_response(Irrevocable(Completion), ~role: producer)
   interface write_response(Irrevocable(Completion), ~role: producer)
 
+
+  /* Independent registered completion reservations.
+     Read DAT stalls cannot consume the write lane's reserved RSP capacity. */
+
   inst read_completions(CompletionQueue(Operation, Completion, depth, ~pipe: #false))
   inst write_completions(CompletionQueue(Operation, Completion, depth, ~pipe: #false))
   reg prefer_write(~init: Bool(#false))
+
+
+  /* Fair issue arbitration over requests with reserved return capacity.
+     Only one selected lane can issue a backend operation in a cycle. */
 
   def read_eligible = read_request.valid & read_completions.request.ready
   def write_eligible = write_request.valid & write_completions.request.ready
@@ -220,10 +228,13 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
   elsewhen select_write:
     prefer_write <== Bool(#false)
 
+
+  /* Nonstallable backend issue and operation-tagged completion routing.
+     The completion's retained write flag, not live request selection,
+     determines which reservation lane receives it. */
+
   issue.valid <== read_completions.issue.valid ||| write_completions.issue.valid
-  issue.bits <== mux(write_completions.issue.valid,
-                     write_completions.issue.bits,
-                     read_completions.issue.bits)
+  issue.bits <== mux(write_completions.issue.valid, write_completions.issue.bits, read_completions.issue.bits)
   def completion_is_write = completion.bits.memory_operation.write
   read_completions.completion.valid <== completion.valid & !completion_is_write
   read_completions.completion.bits <== completion.bits
@@ -246,26 +257,27 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
   interface read_completed(Valid(Bits(slot_width)), ~role: producer)
   interface write_completed(Valid(Bits(slot_width)), ~role: producer)
 
+
+  /* Read DAT completion: hold the packet and slot until output transfer.
+     Only the last packet releases the transaction slot. */
+
   def read = read_completion.bits
   def read_operation = read.memory_operation
   read_completion.ready <== read_response.ready
   read_response.valid <== read_completion.valid
-  read_response.bits <== chi_sn_read_completion(p,
-                                                node_id,
-                                                read_operation.request,
-                                                read_operation.data_id,
-                                                read.data)
+  read_response.bits <== chi_sn_read_completion(p, node_id, read_operation.request, read_operation.data_id, read.data)
   read_completed.valid <== read_completion.fire() & read_operation.last
   read_completed.bits <== read_operation.slot
+
+
+  /* Write RSP completion: intermediate backend packets drain without RSP;
+     the last packet retains its slot until the final response transfers. */
 
   def write = write_completion.bits
   def write_operation = write.memory_operation
   write_completion.ready <== !write_operation.last ||| write_response.ready
   write_response.valid <== write_completion.valid & write_operation.last
-  write_response.bits <== chi_sn_write_completion(p,
-                                                  node_id,
-                                                  write_operation.request,
-                                                  write_operation.slot)
+  write_response.bits <== chi_sn_write_completion(p, node_id, write_operation.request, write_operation.slot)
   write_completed.valid <== write_completion.fire() & write_operation.last
   write_completed.bits <== write_operation.slot
 
@@ -284,6 +296,11 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   def slot_width = index_width(limit)
   def MemoryOperation = CHIRamMemoryOperation(p, slot_width)
 
+
+  /* Transaction queues and backend capacity owners.
+     Non-pipelined queues separate CHI admission from response readiness;
+     the backend factory owns storage and its issue/completion binding. */
+
   inst dbid_responses(Queue(CHIRspFlit(p), limit))
   inst read_operations(Queue(MemoryOperation, limit))
   inst write_operations(Queue(MemoryOperation, limit))
@@ -293,6 +310,11 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   completion_router.node_id <== identity.node_id
   inst response_arbiter(RRArbiter(CHIRspFlit(p), 2))
   inst transaction_slots(CHISNTransactionSlots(p, limit))
+
+
+  /* Supported REQ admission and slot allocation.
+     Reads retain a packet-expansion owner; writes retain their request in
+     transaction_slots until associated DAT and final RSP complete. */
 
   def supported_requests = port.req |> filter_flow(request):
     def request_opcode :: CHIReqOpcode = request.opcode
@@ -309,6 +331,12 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
     allocated.write.as_bits()
   def allocated_reads :: Endpoint = allocated_request_paths[0]
   def allocated_writes :: Endpoint = allocated_request_paths[1]
+
+
+  /* Read expansion into backend packet operations.
+     One captured allocation owns the remaining DataIDs; progress advances
+     only when its selected packet enters the operation queue. */
+
   reg read_active(~init: Bool(#false))
   reg read_allocation(CHISNAllocatedTransaction(p, slot_width))
   reg pending_read_data_ids(~init: bits(0, 4))
@@ -330,20 +358,19 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   when allocated_read_fire:
     read_active <== Bool(#true)
     read_allocation <== allocated_reads.bits
-    pending_read_data_ids <== chi_transfer_data_ids(
-      allocated_reads.bits.request.address,
-      chi_req_size(p, allocated_reads.bits.request),
-      p
-    )
+    pending_read_data_ids <== chi_transfer_data_ids(allocated_reads.bits.request.address, chi_req_size(p, allocated_reads.bits.request), p)
   elsewhen read_operation_fire:
     read_active <== !final_read_data
     pending_read_data_ids <== pending_read_data_ids & !selected_read_data_id_mask
+
+
+  /* Write association and packet operations.
+     DBID visibility is recorded only when its RSP transfers; incoming DAT
+     uses the retained slot request rather than the live REQ channel. */
+
   dbid_responses.ingress <=> (
     allocated_writes |> map_flow(allocated):
-      chi_sn_dbid_response(p,
-                           identity.node_id,
-                           allocated.request,
-                           allocated.slot)
+      chi_sn_dbid_response(p, identity.node_id, allocated.request, allocated.slot)
   )
 
   port.dat.request <=> transaction_slots.write_data
@@ -359,12 +386,21 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
         mask: matched.data.byte_enable.into(Mask(p.data_bytes))
   )
 
+
+  /* Shared backend issue and independent completion lanes. */
+
   read_operations.egress <=> memory_operations.read_request
   write_operations.egress <=> memory_operations.write_request
   connect_backend(memory_operations.issue, memory_operations.completion)
 
   memory_operations.read_response <=> completion_router.read_completion
   memory_operations.write_response <=> completion_router.write_completion
+
+
+  /* CHI response arbitration and slot retirement.
+     DBID and final write Comp share RSP; reads use DAT independently.
+     Transaction retirement follows the corresponding final output transfer. */
+
   def dbid_response_paths = dbid_responses.egress |> atomic_fork(2)
   dbid_response_paths[0] <=> response_arbiter.ingress[0]
   transaction_slots.dbid_sent <=> (
@@ -377,11 +413,11 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   completion_router.read_completed <=> transaction_slots.read_completed
   completion_router.write_completed <=> transaction_slots.write_completed
 
+
+  /* Runtime protocol checks retain offer-time gating and assertion labels. */
+
   monitor_chi_ram_request(config, identity.base_address, port.req.valid, port.req.bits)
-  monitor_chi_ram_write_data(p,
-                             transaction_slots.matched_write.valid,
-                             transaction_slots.matched_write.bits.data,
-                             transaction_slots.matched_write.bits.request)
+  monitor_chi_ram_write_data(p, transaction_slots.matched_write.valid, transaction_slots.matched_write.bits.data, transaction_slots.matched_write.bits.request)
 
 export:
   CHIRamMemoryOperation

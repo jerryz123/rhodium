@@ -45,7 +45,9 @@ fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: Vec
   def eew = mux(mask, bits(0, 2), control.memory_data_eew)
   def start = state.vstart.zext(68)
   def whole_limit = vector_field_extent(bits(vlen / 8, 68), control.memory_nf) >> eew
-  def limit = mux(whole, whole_limit, mux(mask, (state.vl.zext(68) + bits(7, 68)) >> 3, state.vl.zext(68)))
+  def limit = priority_mux(~default: state.vl.zext(68)):
+    whole: whole_limit
+    mask: (state.vl.zext(68) + bits(7, 68)) >> 3
   def nf = mux(whole ||| mask, bits(0, 3), control.memory_nf)
   VectorFootprintGeometry():
     eligible: control.memory & ((control.memory_addressing === VectorMemoryAddressing.UnitStride) ||| zero_stride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
@@ -67,8 +69,12 @@ fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: 
   def distance = mux(small.or_reduce(), steps.zext(68) << exponent, bits(0, 68))
   def eew = control.memory_data_eew
   def alignment_mask = (bits(1, xlen.width) << eew) - bits(1, xlen.width)
+  def supported_mode = control.memory & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
+  def starts_at_zero = !state.vstart.or_reduce()
+  def stride_fits = !magnitude[12..xlen.width].or_reduce() ||| !steps.or_reduce()
+  def stride_aligned = !(stride & alignment_mask).or_reduce()
   VectorFootprintGeometry():
-    eligible: control.memory & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst) & !state.vstart.or_reduce() & (!magnitude[12..xlen.width].or_reduce() ||| !steps.or_reduce()) & !(stride & alignment_mask).or_reduce()
+    eligible: supported_mode & starts_at_zero & stride_fits & stride_aligned
     empty: !length.or_reduce()
     start_offset: mux(stride[xlen.width - 1].into(Bool), distance, bits(0, 68))
     span_bytes: distance + (bits(1, 68) << eew)
@@ -92,7 +98,9 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDes
   def last_address = apply_pointer_mask(xlen, last_raw[0..xlen.width], masking)
   def first = if xlen == XLen.X32 | first_address.zext(64) | first_address
   def last = if xlen == XLen.X32 | last_address.zext(64) | last_address
-  def no_wrap = !first_raw[xlen.width..68].or_reduce() & !last_raw[xlen.width..68].or_reduce() & (first <= last) & ((last - first).zext(68) === (last_raw - first_raw))
+  def endpoints_fit = !first_raw[xlen.width..68].or_reduce() & !last_raw[xlen.width..68].or_reduce()
+  def normalized_span_unchanged = (last - first).zext(68) === (last_raw - first_raw)
+  def no_wrap = endpoints_fit & (first <= last) & normalized_span_unchanged
   def aligned = (first & ((bits(1, 64) << geometry.eew) - bits(1, 64))) === bits(0, 64)
   def two_pages = (last[12..64] === first[12..64]) ||| (last[12..64] === (first[12..64] + bits(1, 52)))
   VectorFootprint():

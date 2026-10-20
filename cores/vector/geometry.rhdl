@@ -56,7 +56,9 @@ fun vector_destination_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits
 
 /* Selects indexed-memory or EI16-gather index EEW independently of data width. */
 fun vector_index_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits(2):
-  mux(vector_indexed_memory(control), control.memory_index_eew, mux(control.gather_index16, bits(1, 2), sew))
+  priority_mux(~default: sew):
+    vector_indexed_memory(control): control.memory_index_eew
+    control.gather_index16: bits(1, 2)
 
 /* Computes exclusive element progress, including VL-independent whole-register and byte-based
    mask modes. */
@@ -73,18 +75,26 @@ fun vector_beat_limit(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDe
   def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
   def mask_memory_limit = (descriptor.state.vl[0..index_width(vlen + 1)] + bits(7, index_width(vlen + 1))) >> 3
   // Element moves have one bookkeeping beat, not a VL-sized iteration space.
-  mux(control.element_move, bits(1, index_width(vlen + 1)), mux(whole_register_move, whole_register_move_limit, mux(whole_register_memory, whole_register_limit, mux(mask_memory, mask_memory_limit, descriptor.state.vl[0..index_width(vlen + 1)]))))
+  priority_mux(~default: descriptor.state.vl[0..index_width(vlen + 1)]):
+    control.element_move: bits(1, index_width(vlen + 1))
+    whole_register_move: whole_register_move_limit
+    whole_register_memory: whole_register_limit
+    mask_memory: mask_memory_limit
 
 /* Selects physical packed, half-row, mask-bit, or singleton progress for one beat. */
 fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), sew :: Bits(2)) :~ Bits(index_width(vlen + 1)):
   def width_change = control.integer & (control.widening ||| control.narrowing)
   def packed = mux(width_change, bits(vector_word_bytes(xlen) / 2, index_width(vlen + 1)), bits(vector_word_bytes(xlen), index_width(vlen + 1))) >> sew
-  mux(vector_mask_word(control), bits(xlen.width, index_width(vlen + 1)), mux(vector_single_element(control), bits(1, index_width(vlen + 1)), packed))
+  priority_mux(~default: packed):
+    vector_mask_word(control): bits(xlen.width, index_width(vlen + 1))
+    vector_single_element(control): bits(1, index_width(vlen + 1))
 
 /* Selects full-XLEN scalar, immediate, or fixed-one slide displacement before bounds checking. */
 fun vector_slide_distance(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bits(xlen.width):
   def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
-  mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, immediate.zext(xlen.width), descriptor.scalar))
+  priority_mux(~default: descriptor.scalar):
+    descriptor.control.slide_one: bits(1, xlen.width)
+    descriptor.control.operand === VectorOperandMode.Immediate: immediate.zext(xlen.width)
 
 /* Selects an unsigned immediate or full-XLEN scalar gather index. */
 fun vector_scalar_index(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bits(xlen.width):

@@ -39,12 +39,22 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   output physical_addresses: Vec(2, Bits(64))
   output hits: Vec(2, Bool)
   output owned: Bool
+
+  /* Captured range and pinned endpoint mappings.
+     The two-page proof is a fallback decision, not an architectural fault. */
+
   reg state(~init: VectorWindowState.Idle)
   reg span(VectorRange())
   reg second(~init: Bool(#false))
   reg first_ppn(Bits(44))
   reg last_ppn(Bits(44))
   reg safe(~init: Bool(#false))
+
+
+  /* Probe admission and owned-address lookup.
+     The first translation can issue in the same cycle as range admission;
+     subsequent probes use the captured span and endpoint selector. */
+
   def admitting = state === VectorWindowState.Idle
   def lookup_span = mux(admitting, check.request.bits, span)
   def lookup_second = !admitting & second
@@ -65,12 +75,26 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
     hits[index] <== owned & (address >= span.first) & (address <= span.last) & ((page === first_page) ||| (page === last_page))
     physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..12]).zext(64)
 
+
+  /* Translation proof and endpoint-page permissions.
+     A common superpage leaf can supply both endpoint PPNs without a second
+     translation, but both physical pages still require permitted PMAs. */
+
   def result = translation.response.bits
   def same_leaf = sv39_same_page(lookup_span.first, lookup_span.last, result.page_size)
   def result_page = (result.physical_address[12..56] ++ bits(0, 12)).zext(64)
   def next_page = result_page + bits(4096, 64)
-  def success = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA) & vector_page_permitted(physical_map, result_page, lookup_span.store)
+  def translation_permitted = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA)
+  def first_page_permitted = vector_page_permitted(physical_map, result_page, lookup_span.store)
+  def success = translation_permitted & first_page_permitted
   def needs_second = success & !lookup_second & split & !same_leaf
+  def shared_leaf_permitted = same_leaf & vector_page_permitted(physical_map, next_page, lookup_span.store)
+
+
+  /* Range lifetime: release, response, admission, probe transfer, decision.
+     Release wins. A zero-latency response may coincide with admission, so
+     response handling must capture the span before ordinary admission logic. */
+
   when (check.release.valid):
     state <== VectorWindowState.Idle
     safe <== Bool(#false)
@@ -80,7 +104,7 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
       span <== check.request.bits
     when (!lookup_second):
       first_ppn <== result.physical_address[12..56]
-    safe <== success & (lookup_second ||| !split ||| (same_leaf & vector_page_permitted(physical_map, next_page, lookup_span.store)))
+    safe <== success & (lookup_second ||| !split ||| shared_leaf_permitted)
     state <== mux(needs_second, VectorWindowState.Request, VectorWindowState.Complete)
     when (lookup_second ||| (success & split & same_leaf)):
       last_ppn <== mux(lookup_second, result.physical_address[12..56], next_page[12..56])

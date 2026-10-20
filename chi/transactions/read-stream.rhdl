@@ -55,6 +55,11 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   output underflow: Bool
   output starved: Bool
 
+
+  /* Stream cursor and outstanding/reorder ownership.
+     Occupied slots can outlive a command restart; current marks only the
+     new stream, while completed marks buffered lines ready for ordered output. */
+
   reg stream_active(~init: Bool(#false))
   reg starvation_seen(~init: Bool(#false))
   reg next_address(~init: bits(0, p.request_address_width))
@@ -89,6 +94,11 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
            "chi_read_stream_start_aligned")
     assert(command.bits.stride.is_aligned(64),
            "chi_read_stream_stride_aligned")
+
+
+  /* Fixed TxnID readers and channel routing.
+     A new command pauses new-line launch and reader-completion collection;
+     already issued CHI transactions retain their TxnIDs and keep draining. */
 
   inst command_demux(Demux(ReadCommand, slots))
   inst request_arbiter(RRArbiter(CHIReqFlit(p), slots))
@@ -138,6 +148,10 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   when (chi.dat.response.valid):
     assert(data_in_range, "chi_read_stream_data_txn_in_range")
 
+
+  /* Completed-line collection and ordered consumer output.
+     Completion order is arbitrary; only output_slot can retire to the consumer. */
+
   completion_arbiter.egress.ready <== !command.valid
   def completion_fire = completion_arbiter.egress.fire()
   def completion = completion_arbiter.egress.bits
@@ -157,6 +171,11 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   done <== line_fire & line.bits.last
   underflow <== stream_active & line.ready & !line.valid & !command.valid
   starved <== starvation_seen
+
+
+  /* Stream-level updates.
+     Restart wins each command-owned field. Keep the different alternatives
+     separate: line retirement, issue progress, and starvation can coincide. */
 
   when command_fire:
     stream_active <== command.bits.byte_count.or_reduce()
@@ -183,6 +202,11 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
     output_slot <== issue_slot
   elsewhen line_fire:
     output_slot <== following_slot(output_slot)
+
+
+  /* Per-slot lifetime: restart, output, completion, then issue.
+     Restart frees only buffered completions. Old in-flight slots remain
+     occupied until their late completion drains without becoming output. */
 
   for (index in 0..slots):
     def index_tag = bits(index, index_width(slots))
@@ -211,6 +235,9 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
       addresses[index] <== next_address
       byte_counts[index] <== issued_byte_count[0..7]
       final_lines[index] <== final_issue
+
+
+  /* Reader instances keep their fixed TxnIDs across stream replacement. */
 
   for (index in 0..slots):
     inst reader(CHIReadOnce(p, Bits(index_width(slots))))

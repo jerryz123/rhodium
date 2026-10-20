@@ -13,10 +13,9 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Reserves packet capacity from registered queue/S1/S2 occupancy, pairs fixed-cycle memory
-   outcomes,
-   and queues scanned packets. Recovery clears the epoch; replay/late repair kill only younger
-   attempts. */
+/* Reserves capacity from registered queue/S1/S2 occupancy and pairs fixed-cycle
+   memory outcomes with scanned packets. Recovery clears the epoch; replay and
+   late repair discard only younger attempts. */
 sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
@@ -25,6 +24,11 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   interface memory(RV5StageFetchAccess(xlen, hypervisor), ~role: requester)
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
 
+
+  /* Recovery and delayed redirect owners.
+     Architectural recovery supersedes repair; repair supersedes the delayed
+     fallback redirect. Neither path introduces another packet buffer. */
+
   def recovery = control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
   inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
   def command = recovery ||| repair.egress.valid
@@ -32,11 +36,21 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   def fallback_redirect = late_return.egress |> filter_valid(_prediction => !command)
   repair.flush <== recovery ||| fallback_redirect.valid
   late_return.flush <== command
+
+
+  /* Fixed S1/S2 attempts and reserved packet queue.
+     Only architectural recovery flushes older queued packets. */
+
   inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries))
   inst scan(RV5StageFetchScan(core_profile))
   inst queue(ShiftQueue(RV5StageFetchPacket(xlen, hypervisor), packet_capacity, ~flow: #true, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   queue.flush <== recovery
+
+
+  /* Predictor repair and fallback feedback.
+     Repair discards younger attempts, retaining the corrected S2 packet and
+     older queue/residual contents. Full recovery also restores the RAS. */
 
   scan.repair |> repair.ingress
   def Array(repair_restart, repair_invalidate) = repair.egress |> fork_valid(2)
@@ -47,8 +61,6 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   source.ras_restore.valid <== recovery
   source.clear.valid <== command
   source.active <== control.active
-  // Prediction repair discards only younger attempts. The corrected S2 packet
-  // and all older queue/residual contents remain part of the instruction stream.
   scan.clear.valid <== recovery ||| fallback_redirect.valid
   scan.ras_head_valid <== source.ras_head_valid
   scan.ras_head <== source.ras_head
@@ -60,6 +72,10 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   fallback_discovery |> source.btb_discover
   s2.flush <== command ||| fallback_redirect.valid
 
+
+  /* S0 reservation and physical fetch requests.
+     Capacity uses registered occupancy, not same-cycle queue admission. */
+
   def occupied = queue.count.zext(4) + source.stage1.valid.as_bits().zext(4) + s2.egress.valid.as_bits().zext(4)
   assert(occupied <= bits(packet_capacity, 4), "fetch_packet_reservations_in_range")
   source.space <== occupied < bits(packet_capacity, 4)
@@ -67,7 +83,13 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
     address: attempt.pc.align_down(4)
   ) |> memory.request
 
-  def admitted = !command & !fallback_redirect.valid & memory.response.valid & !memory.response.bits.replay
+
+  /* S2 outcome and younger S1 cancellation.
+     Memory outcomes remain paired with the captured attempt; a replay
+     redirects the source without entering the packet queue. */
+
+  def redirects_clear_attempt = command ||| fallback_redirect.valid
+  def admitted = !redirects_clear_attempt & memory.response.valid & !memory.response.bits.replay
   def outcome = s2.egress |> trace_valid_event("frontend/s2.outcome", ~fields: attempt):
     pc: attempt.pc
     replay: memory.response.bits.replay
@@ -80,12 +102,20 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   def lookup = source.stage1 |> trace_valid_event("frontend/s1.lookup", ~fields: attempt):
     pc: attempt.pc
   lookup |> filter_valid(_attempt => !command & !replays.valid & !fallback_redirect.valid) |> s2.ingress
+
+
+  /* Admitted packet construction and scanner handoff.
+     A continuation contains only its low halfword; a normal upper-halfword
+     entry excludes the preceding instruction. */
+
   (packet_outcomes |> filter_valid(_attempt => admitted)
     |> map_valid(attempt):
          wire packet: RV5StageFetchPacket(xlen, hypervisor)
          packet.pc <== attempt.pc
          packet.word <== memory.response.bits.response.word
-         packet.mask <== mux(attempt.continuation, bits(1, 2), mux(attempt.pc[1].into(Bool), bits(2, 2), bits(3, 2)))
+         packet.mask <== priority_mux(~default: bits(3, 2)):
+           attempt.continuation: bits(1, 2)
+           attempt.pc[1].into(Bool): bits(2, 2)
          packet.page_fault <== memory.response.bits.response.page_fault
          packet.access_fault <== memory.response.bits.response.access_fault
          packet.prediction <== attempt.prediction
@@ -95,6 +125,11 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
          packet
   ) |> scan.ingress
   scan.egress |> to_decoupled() |> queue.ingress
+
+
+  /* Speculative RAS updates and memory-side cancellation.
+     Apply hints only when the nonfaulting scanned packet can enter the queue. */
+
   (scan.egress
     |> filter_valid(packet => queue.ingress.ready & !packet.page_fault & !packet.access_fault & packet.prediction.valid & (packet.prediction.ras_action =/= RasAction.None))
     |> map_valid(packet => RasUpdate(xlen)):

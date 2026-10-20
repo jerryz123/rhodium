@@ -166,9 +166,10 @@ circuit SimdALU(xlen :: XLen):
   input select_right: Mask(width / 8)
   output result: SimdAluResult(xlen)
 
-  // Insert one guard bit below each byte. Inside an element, 1+0 propagates
-  // carry. At a boundary, 0+0 kills carry for addition and 1+1 forces the
-  // independent carry-in for subtraction. One guarded adder serves every supported element width.
+
+  /* Element boundaries and bitwise logic.
+     Guard bits propagate carry within elements and isolate adjacent elements. */
+
   def boundaries = for List (index in 0..(width / 8)):
     def boundary = cond
     | index == 0: Bool(#true)
@@ -179,8 +180,11 @@ circuit SimdALU(xlen :: XLen):
   def logic_right = mux(control.invert_right, !right, right)
   def logic_value = mux_lookup(control.logic_select, ~default: left & logic_right, [[SimdLogicSelect.Or, left ||| logic_right], [SimdLogicSelect.Xor, left ^ logic_right]])
 
-  // Byte reversal is wiring shared by the permutation and trailing-zero paths.
-  // Count trees reuse each byte result for every larger element width.
+
+  /* Shared byte-count tree.
+     Each level reuses the previous level for wider elements; byte reversal
+     is wiring shared with the permutation path. */
+
   def reversed_bytes = for List (byte in 0..(width / 8)): reverse_bits(left[byte * 8..(byte + 1) * 8])
   def trailing = control.count_select === SimdCountSelect.TrailingZeros
   def mutable count_nodes = for List (byte in 0..(width / 8)):
@@ -208,8 +212,11 @@ circuit SimdALU(xlen :: XLen):
     count_nodes := nodes
     nodes
 
-  // Byte comparisons feed a shared pairwise tree. Wider elements reuse
-  // the lower levels; signedness only corrects the selected element's sign.
+
+  /* Shared comparison tree.
+     Byte predicates combine low/high halves in significance order. Signedness
+     is applied only after choosing the element width, not at every tree level. */
+
   def mutable compare_nodes = for List (byte in 0..(width / 8)):
     def a = left[byte * 8..(byte + 1) * 8]
     def b = right[byte * 8..(byte + 1) * 8]
@@ -228,8 +235,11 @@ circuit SimdALU(xlen :: XLen):
     compare_nodes := nodes
     nodes
 
-  // A tapered bank is 32/16/8/8 or 64/32/16/16/8/8/8/8. Slot i accepts element i
-  // at every supported width, instead of instantiating a full bank per width.
+
+  /* Tapered shifter bank: 32/16/8/8 or 64/32/16/16/8/8/8/8.
+     Slot i serves element i at every supported width instead of replicating
+     a complete bank per format. Each slice retains its ordered barrel stages. */
+
   def widths = SimdElementWidth.values()
   def shifts = for List (slot in 0..(width / 8)):
     def formats = [0, 1, 2, 3].take(format_count).filter(~keep: fun (format :: Nat): slot < ((width / 8) div (2 ** format)))
@@ -259,8 +269,26 @@ circuit SimdALU(xlen :: XLen):
     shifter.rotate <== control.rotate
     if slice_width == width | shifter.result | shifter.result.zext(width)
 
-  // Width-specific work below is only routing and packing: no adders,
-  // comparators, or variable shifters are instantiated here.
+
+  /* Format-dependent byte routing.
+     This selects existing comparison/count/shifter results; it does not
+     replicate their arithmetic or variable-shift resources. */
+
+  /* Names one element's signed-order and selected comparison predicates. */
+  bundle ElementPredicates():
+    less: Bool
+    comparison: Bool
+
+  /* Names each byte's enables and resource outputs before word concatenation. */
+  bundle ByteRouting():
+    enabled: Bool
+    select_right: Bool
+    select_left: Bool
+    compare_data: Bits(8)
+    shift_data: Bits(8)
+    permutation_data: Bits(8)
+    count_data: Bits(8)
+
   def packed = for List (format in 0..format_count):
     def element_bytes = 2 ** format
     def element_bits = 8 * element_bytes
@@ -272,17 +300,21 @@ circuit SimdALU(xlen :: XLen):
       def sign_bit = (lane + 1) * element_bits - 1
       def less = mux(control.signed_compare & (left[sign_bit] ^ right[sign_bit]).into(Bool), left[sign_bit].into(Bool), unsigned_less)
       def comparison = mux_lookup(control.comparison_select, ~default: equal, [[SimdComparisonSelect.Less, less], [SimdComparisonSelect.LessEqual, less ||| equal]])
-      [less, comparison]
+      ElementPredicates():
+        less: less
+        comparison: comparison
     def lane_comparisons = for List (lane in 0..(width / 8)):
       if lane < count
       | block:
-          def predicate :: Bool = predicates[lane][1]
+          def selected :: ElementPredicates() = predicates[lane]
+          def predicate = selected.comparison
           (enabled[lane] & predicate).as_bits()
       | bits(0, 1)
     def bytes = for List (byte in 0..(width / 8)):
       def lane = byte div element_bytes
-      def less :: Bool = predicates[lane][0]
-      def predicate :: Bool = predicates[lane][1]
+      def selected :: ElementPredicates() = predicates[lane]
+      def less = selected.less
+      def predicate = selected.comparison
       def shifted :: Bits(width) = shifts[lane]
       def shift_low = (byte mod element_bytes) * 8
       def reverse_byte = lane * element_bytes + element_bytes - 1 - (byte mod element_bytes)
@@ -292,22 +324,30 @@ circuit SimdALU(xlen :: XLen):
       def zero_count :: Bits(4 + format) = count_levels[format][lane][1]
       def population :: Bits(4 + format) = count_levels[format][lane][2]
       def count = mux(control.count_select === SimdCountSelect.Population, population, zero_count)
-      [enabled[lane].as_bits(), select_right[lane].as_bits(), (less ^ control.maximum).as_bits(),
-       (if byte mod element_bytes == 0 | predicate.as_bits().zext(8) | bits(0, 8)), shifted[shift_low..shift_low + 8],
-       permutation, (if byte mod element_bytes == 0 | count.zext(8) | bits(0, 8))]
+      ByteRouting():
+        enabled: enabled[lane]
+        select_right: select_right[lane]
+        select_left: less ^ control.maximum
+        compare_data: if byte mod element_bytes == 0 | predicate.as_bits().zext(8) | bits(0, 8)
+        shift_data: shifted[shift_low..shift_low + 8]
+        permutation_data: permutation
+        count_data: if byte mod element_bytes == 0 | count.zext(8) | bits(0, 8)
     SimdRouting(xlen):
       comparison: concat(lane_comparisons.reverse()).into(Mask(width / 8))
-      enabled: concat(bytes.map(fun (byte :: List): byte[0]).reverse()).into(Mask(width / 8))
-      select_right: concat(bytes.map(fun (byte :: List): byte[1]).reverse()).into(Mask(width / 8))
-      select_left: concat(bytes.map(fun (byte :: List): byte[2]).reverse()).into(Mask(width / 8))
-      compare_data: concat(bytes.map(fun (byte :: List): byte[3]).reverse())
-      shift_data: concat(bytes.map(fun (byte :: List): byte[4]).reverse())
-      permutation_data: concat(bytes.map(fun (byte :: List): byte[5]).reverse())
-      count_data: concat(bytes.map(fun (byte :: List): byte[6]).reverse())
+      enabled: concat(bytes.map(fun (byte :: ByteRouting()): byte.enabled.as_bits()).reverse()).into(Mask(width / 8))
+      select_right: concat(bytes.map(fun (byte :: ByteRouting()): byte.select_right.as_bits()).reverse()).into(Mask(width / 8))
+      select_left: concat(bytes.map(fun (byte :: ByteRouting()): byte.select_left.as_bits()).reverse()).into(Mask(width / 8))
+      compare_data: concat(bytes.map(fun (byte :: ByteRouting()): byte.compare_data).reverse())
+      shift_data: concat(bytes.map(fun (byte :: ByteRouting()): byte.shift_data).reverse())
+      permutation_data: concat(bytes.map(fun (byte :: ByteRouting()): byte.permutation_data).reverse())
+      count_data: concat(bytes.map(fun (byte :: ByteRouting()): byte.count_data).reverse())
   def routing :: SimdRouting(xlen) = mux_lookup(element_width, ~default: packed[0], for List (format in 1..format_count): [widths[format], packed[format]])
-  // Fixed-point shifts reuse the selected tapered shifter and the ordinary
-  // lane-isolated adder. The only extra arithmetic input is one rounding bit
-  // per element; discarded-bit selection is a width-specialized mux network.
+
+
+  /* Fixed-point shift rounding.
+     Discarded-bit selection supplies one increment per element to the same
+     guarded adder used by ordinary arithmetic. */
+
   def rounding_alternatives = for List (format in 0..format_count):
     def element_bits = 8 * (2 ** format)
     def count = (width / 8) div (2 ** format)
@@ -329,6 +369,12 @@ circuit SimdALU(xlen :: XLen):
     if count == 1 | increments[0] | concat(increments.reverse())
   def rounding_increment :: Bits(width) = mux_lookup(element_width, ~default: rounding_alternatives[0], for List (format in 1..format_count): [widths[format], rounding_alternatives[format]])
   def shift_rounding = rounding & (control.result_select === SimdResultSelect.Shift)
+
+
+  /* Lane-isolated shared adder.
+     The byte guard below each boundary supplies carry-in or subtraction's
+     complemented borrow-in; interior 1+0 guard pairs propagate carry. */
+
   def adder_left = mux(shift_rounding, routing.shift_data, left)
   def adder_right = mux(shift_rounding, rounding_increment, right)
   def subtract = control.subtract & !shift_rounding
@@ -347,6 +393,20 @@ circuit SimdALU(xlen :: XLen):
   def sum = concat(left_chunks.reverse()).zext((width / 8) * 9 + 1) + concat(right_chunks.reverse()).zext((width / 8) * 9 + 1)
   def sum_bytes = for List (byte in 0..(width / 8)): sum[byte * 9 + 1..byte * 9 + 9]
   def added = concat(sum_bytes.reverse())
+
+
+  /* Saturation and averaging from the extended per-element sums.
+     Retain each element's carry/sign extension until rounding and clipping;
+     lane enables gate status, not the shared arithmetic itself. */
+
+  /* Keeps one element's average, increment, clipped value, and status together. */
+  bundle FixedLane(element_bits :: PosInt):
+    average: Bits(element_bits)
+    increment: Bits(element_bits)
+    saturated: Bits(element_bits)
+    saturation: Bool
+    carry_borrow: Bool
+
   def saturating_unsigned = control.arithmetic_mode === SimdArithmeticMode.SaturateUnsigned
   def saturating_signed = control.arithmetic_mode === SimdArithmeticMode.SaturateSigned
   def average_unsigned = control.arithmetic_mode === SimdArithmeticMode.AverageUnsigned
@@ -385,12 +445,18 @@ circuit SimdALU(xlen :: XLen):
         [SimdRoundingMode.Down, Bool(#false)],
         [SimdRoundingMode.Odd, !average_base[0].into(Bool) & discarded]
       ])
-      [average_base, increment.as_bits().zext(element_bits), saturated_value, (enabled[lane] & saturating & overflow).as_bits(), (enabled[lane] & mux(control.subtract, !carry, carry)).as_bits()]
-    def average_data = if count == 1 | lanes[0][0] | concat(lanes.map(fun (lane :: List): lane[0]).reverse())
-    def increments = if count == 1 | lanes[0][1] | concat(lanes.map(fun (lane :: List): lane[1]).reverse())
-    def saturated_data = if count == 1 | lanes[0][2] | concat(lanes.map(fun (lane :: List): lane[2]).reverse())
-    def saturation_bits :: Bits(count) = if count == 1 | lanes[0][3] | concat(lanes.map(fun (lane :: List): lane[3]).reverse())
-    def carries :: Bits(count) = if count == 1 | lanes[0][4] | concat(lanes.map(fun (lane :: List): lane[4]).reverse())
+      FixedLane(element_bits):
+        average: average_base
+        increment: increment.as_bits().zext(element_bits)
+        saturated: saturated_value
+        saturation: enabled[lane] & saturating & overflow
+        carry_borrow: enabled[lane] & mux(control.subtract, !carry, carry)
+    def first_lane :: FixedLane(element_bits) = lanes[0]
+    def average_data = if count == 1 | first_lane.average | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.average).reverse())
+    def increments = if count == 1 | first_lane.increment | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.increment).reverse())
+    def saturated_data = if count == 1 | first_lane.saturated | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.saturated).reverse())
+    def saturation_bits :: Bits(count) = if count == 1 | first_lane.saturation.as_bits() | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.saturation.as_bits()).reverse())
+    def carries :: Bits(count) = if count == 1 | first_lane.carry_borrow.as_bits() | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.carry_borrow.as_bits()).reverse())
     def carry_borrow_bits = if count == width / 8 | carries | carries.zext(width / 8)
     SimdFixedArithmetic(xlen):
       average: average_data
@@ -406,10 +472,23 @@ circuit SimdALU(xlen :: XLen):
   def average_sum = concat(average_left_chunks.reverse()) + concat(average_right_chunks.reverse())
   def average_bytes = for List (byte in 0..(width / 8)): average_sum[byte * 9 + 1..byte * 9 + 9]
   def averaged = concat(average_bytes.reverse())
-  def arithmetic_value = mux(averaging, averaged, mux(saturating, fixed.saturated, added))
+
+
+  /* Final resource selection and enabled-byte masking. */
+
+  def arithmetic_value = priority_mux(~default: added):
+    averaging: averaged
+    saturating: fixed.saturated
   def minmax_bytes = for List (byte in 0..(width / 8)): mux(routing.select_left[byte], left[byte * 8..(byte + 1) * 8], right[byte * 8..(byte + 1) * 8])
   def select_bytes = for List (byte in 0..(width / 8)): mux(routing.select_right[byte], right[byte * 8..(byte + 1) * 8], left[byte * 8..(byte + 1) * 8])
-  def value = mux_lookup(control.result_select, ~default: arithmetic_value, [[SimdResultSelect.Logic, logic_value], [SimdResultSelect.Shift, mux(shift_rounding, added, routing.shift_data)], [SimdResultSelect.Compare, routing.compare_data], [SimdResultSelect.MinMax, concat(minmax_bytes.reverse())], [SimdResultSelect.Select, concat(select_bytes.reverse())], [SimdResultSelect.Permute, routing.permutation_data], [SimdResultSelect.Count, routing.count_data]])
+  def value = mux_lookup(control.result_select, ~default: arithmetic_value):
+    SimdResultSelect.Logic: logic_value
+    SimdResultSelect.Shift: mux(shift_rounding, added, routing.shift_data)
+    SimdResultSelect.Compare: routing.compare_data
+    SimdResultSelect.MinMax: concat(minmax_bytes.reverse())
+    SimdResultSelect.Select: concat(select_bytes.reverse())
+    SimdResultSelect.Permute: routing.permutation_data
+    SimdResultSelect.Count: routing.count_data
   def enabled_bytes = for List (byte in 0..(width / 8)): mux(routing.enabled[byte], value[byte * 8..(byte + 1) * 8], bits(0, 8))
   result <== SimdAluResult(xlen):
     data: concat(enabled_bytes.reverse())
