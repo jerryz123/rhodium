@@ -13,6 +13,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
   lib("flow/main.rhdl") open
 
 /* Retains accepted packed words and drains them in request order through shared byte alignment.
@@ -202,18 +203,20 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
 
   /* Exact pending-row claims.
-     Accepted load words and retained carry block younger accesses until their writes drain. */
+     Accepted load words and retained carry block younger accesses until their writes drain.
+     Lane and slot contributions are unordered sets, so each union is a balanced OR tree. */
 
   def carry_rows = mux(carry_valid, bits(1, row_count) << carry.address, bits(0, row_count))
-  def mutable busy :: Bits(row_count) = carry_rows
-  def mutable foreign :: Bits(row_count) = mux(carry_owner =/= owner, carry_rows, bits(0, row_count))
-  for (s in 0..slots):
-    def mutable rows :: Bits(row_count) = bits(0, row_count)
-    for (lane in 0..bytes):
-      rows := rows ||| mux(entries[s].mask[lane].into(Bool), bits(1, row_count) << entries[s].layout.rows[lane], bits(0, row_count))
-    def owned_rows = mux(accepted_slots[s] & !entries[s].store, rows, bits(0, row_count))
-    busy := busy ||| owned_rows
-    foreign := foreign ||| mux(entries[s].owner =/= owner, owned_rows, bits(0, row_count))
+  def slot_rows = for List (slot in 0..slots):
+    def lane_rows = for List (lane in 0..bytes):
+      mux(entries[slot].mask[lane].into(Bool), bits(1, row_count) << entries[slot].layout.rows[lane], bits(0, row_count))
+    def rows = tree_reduce(lane_rows, fun (left, right): left ||| right)
+    mux(accepted_slots[slot] & !entries[slot].store, rows, bits(0, row_count))
+  def foreign_slot_rows = for List (slot in 0..slots):
+    mux(entries[slot].owner =/= owner, slot_rows[slot], bits(0, row_count))
+  def foreign_carry_rows = mux(carry_owner =/= owner, carry_rows, bits(0, row_count))
+  def busy :: Bits(row_count) = tree_reduce([carry_rows] ++ slot_rows, fun (left, right): left ||| right)
+  def foreign :: Bits(row_count) = tree_reduce([foreign_carry_rows] ++ foreign_slot_rows, fun (left, right): left ||| right)
   busy_rows <== busy.as_vec(Bool)
   foreign_rows <== foreign.as_vec(Bool)
   when (commit.valid):

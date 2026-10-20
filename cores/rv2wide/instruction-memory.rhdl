@@ -14,6 +14,12 @@ sync_circuit RV2WideInstructionMemory():
   interface core(RV2WideInstructionLookup(), ~role: responder)
   interface cache(InstructionCacheLookup(64, 64), ~role: requester)
   interface uncached(RV2WideUncachedInstruction(), ~role: requester)
+
+
+  /* Fixed-cycle cached lookup
+     The S1 attempt advances into S2 without waiting for a cache response;
+     unavailable results request replay instead of holding S2. */
+
   def flush = core.flush ||| core.invalidate_all
   inst s2(ValidPipeAlwaysCapture(RV2WidePhysicalInstructionReq(), 1), ~reset_when: flush)
   core.request |> filter_valid(_request => !core.s1_kill & !flush) |> s2.ingress
@@ -24,6 +30,12 @@ sync_circuit RV2WideInstructionMemory():
     |> map_valid(request => InstructionCacheReq(64)):
       address: request.address
   ) |> cache.request
+
+
+  /* Retained uncached owner
+     One issued block remains pending or completed until a retry consumes it.
+     Architectural flush detaches this owner, not an accepted bus transaction. */
+
   reg pending(~init: Bool(#false))
   reg completed(~init: Bool(#false))
   reg request(RV2WidePhysicalInstructionReq())
@@ -33,13 +45,27 @@ sync_circuit RV2WideInstructionMemory():
   uncached.flush <== flush
   s2.egress |> filter_valid(request => !request.cacheable & !flush & !pending & !completed) |> offer_decoupled() |> uncached.request
   def returned = uncached.response |> gate_flow(pending & !flush) |> to_valid()
+
+
+  /* S2 response selection
+     Cached availability and the retained uncached match are independent;
+     the attempt's cacheability chooses between their replay-qualified results. */
+
   def unavailable = InstructionCacheResult(64):
     data: bits(0, 64)
     access_fault: Bool(#false)
     replay: Bool(#true)
+  def cached_result = mux(cache.response.valid, cache.response.bits, unavailable)
+  def uncached_result = mux(completed_match, response, unavailable)
   s2.egress |> filter_valid(_request => !flush)
-    |> map_valid(request => mux(request.cacheable, mux(cache.response.valid, cache.response.bits, unavailable), mux(completed_match, response, unavailable)))
+    |> map_valid(request => mux(request.cacheable, cached_result, uncached_result))
     |> core.response
+
+
+  /* Uncached progress priority
+     Flush wins; otherwise issue precedes return, then a retry consumes or
+     discards a completed block. No speculative event cancels the bus owner. */
+
   when flush:
     pending <== Bool(#false)
     completed <== Bool(#false)

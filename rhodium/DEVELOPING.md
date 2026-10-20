@@ -558,7 +558,8 @@ footprint arithmetic, vector decode/ISA geometry, public bit helpers, and Flow;
 the sequencer owns its cursor and preparation phase. Vector bundles import the
 dependency-neutral packed layout contracts. `vector/packed-load.rhdl` imports shared
 `vector/packed-bundles.rhdl` layouts, the load-response adapter, VRF contracts,
-pure geometry, bit helpers, and Flow.
+pure geometry, bit helpers, public `std/reduction.rhdl` for balanced pending-row
+set unions, and Flow.
 The packed-load and vector-memory owners also import `cores/cosim-source.rhm`
 for passive write-owner and accepted-memory metadata; no simulator dependency is introduced.
 Packed layouts depend only on pure XLEN/vector geometry and bit-width helpers. `vector/pipeline.rhdl` composes the

@@ -131,13 +131,16 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def beat_last = empty ||| ((end === limit) & last_field)
 
 
-  /* Gather index preparation precedes the common scheduled data read. */
+  /* Scheduled VRF address geometry
+     Register bases and cursor chunks are separate; only the row offsets are
+     truncated to the physical bank address width before addition. */
 
   def source_chunk = mux(mask_logic ||| scan, cursor >> vector_bit_offset_width(xlen), cursor >> (bits(vector_byte_offset_width(xlen), 2) - sew))
   def extension_source_chunk = cursor >> (bits(vector_byte_offset_width(xlen), 2) - source_sew)
   def wide_source_chunk = cursor >> (bits(vector_byte_offset_width(xlen) - 1, 2) - sew)
   def destination_chunk = cursor >> (bits(vector_byte_offset_width(xlen), 2) - destination_width)
   def row_base_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth)
+  def register_row_shift = bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
   def memory_emul = geometry.lmul.into(SInt(3)).sext(5) + memory_data_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
   def memory_group_shift = mux(memory_emul < SInt(5)(0), bits(0, 3), memory_emul.into(Bits(5))[0..3])
   def memory_register = vd + (field.zext(5) << memory_group_shift)
@@ -153,22 +156,41 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def slide_valid = vec(for List (byte in 0..vector_slide_bytes(xlen)):
                           def element = slide_first + (bits(byte, xlen.width + 2) >> sew)
                           element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
-  def slide_base = vs2.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
+  def slide_base = vs2.zext(row_base_width) << register_row_shift
   def slide_address = slide_base + slide_chunk[0..row_base_width]
   def index_chunk = cursor >> (bits(vector_byte_offset_width(xlen), 2) - index_sew)
   def scalar_in_range = scalar_index < geometry.vlmax.zext(xlen.width)
   def scalar_address = slide_base + (scalar_index >> (bits(vector_byte_offset_width(xlen), 2) - sew))[0..row_base_width]
-  def first_source_chunk = mux(extension, extension_source_chunk, mux(wide_vs2 ||| fp_narrowing, wide_source_chunk, source_chunk))
-  def ordinary_first_address = (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + first_source_chunk[0..row_base_width]
+
+  /* First read chooses extension width before wide VS2, then applies the
+     gather/slide address overrides to the ordinary register-and-chunk path. */
+
+  def first_source_chunk = priority_mux(~default: source_chunk):
+    extension: extension_source_chunk
+    wide_vs2 ||| fp_narrowing: wide_source_chunk
+  def first_source_register = mux(descriptor.control.memory, memory_register, vs2)
+  def first_source_base = first_source_register.zext(row_base_width) << register_row_shift
+  def ordinary_first_address = first_source_base + first_source_chunk[0..row_base_width]
   def first_address = priority_mux(~default: ordinary_first_address):
     gather: mux(!gather_vector & scalar_in_range, scalar_address, slide_base)
     slide: mux(slide_valid[0..vector_word_bytes(xlen)].or_reduce(), slide_address, slide_base)
-  def ordinary_second_address = (mux(indexed_memory, vs2, vs1).zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])
-  def compress_address = (vs1.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + (cursor >> vector_bit_offset_width(xlen))[0..row_base_width]
+
+  /* Second read uses VS2 for memory indices and VS1 otherwise. Reduction
+     pins its row offset to zero; compression and slide retain higher priority. */
+
+  def second_source_register = mux(indexed_memory, vs2, vs1)
+  def second_source_base = second_source_register.zext(row_base_width) << register_row_shift
+  def second_source_chunk = mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)
+  def second_source_offset = mux(reduction, bits(0, row_base_width), second_source_chunk[0..row_base_width])
+  def ordinary_second_address = second_source_base + second_source_offset
+  def compress_base = vs1.zext(row_base_width) << register_row_shift
+  def compress_offset = (cursor >> vector_bit_offset_width(xlen))[0..row_base_width]
+  def compress_address = compress_base + compress_offset
   def second_address = priority_mux(~default: ordinary_second_address):
     compress: compress_address
     slide: mux(slide_valid[vector_word_bytes(xlen)..vector_slide_bytes(xlen)].or_reduce(), slide_address + bits(1, row_base_width), slide_base)
-  def destination_address = (vd.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + destination_chunk[0..row_base_width]
+  def destination_base = vd.zext(row_base_width) << register_row_shift
+  def destination_address = destination_base + destination_chunk[0..row_base_width]
 
 
   /* Writes may now finish independently of older unrelated instructions.
@@ -176,8 +198,12 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   def writing = !scalar_destination & !(descriptor.control.memory & descriptor.control.store) & !empty
   def write_width = sew + ((descriptor.control.integer ||| descriptor.control.multiply_divide ||| descriptor.control.fp_service) & descriptor.control.widening & !reduction).as_bits().zext(2)
-  def write_chunk = mux(reduction ||| element_move, bits(0, index_width(vlen + 1)), mux(descriptor.control.mask_destination ||| mask_logic, cursor >> vector_bit_offset_width(xlen), cursor >> (bits(vector_byte_offset_width(xlen), 2) - write_width)))
-  def write_address = (mux(segmented_memory, memory_register, vd).zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + write_chunk[0..row_base_width]
+  def write_chunk = priority_mux(~default: cursor >> (bits(vector_byte_offset_width(xlen), 2) - write_width)):
+    reduction ||| element_move: bits(0, index_width(vlen + 1))
+    descriptor.control.mask_destination ||| mask_logic: cursor >> vector_bit_offset_width(xlen)
+  def write_register = mux(segmented_memory, memory_register, vd)
+  def write_base = write_register.zext(row_base_width) << register_row_shift
+  def write_address = write_base + write_chunk[0..row_base_width]
   def destination_group = vector_destination_registers(xlen, vlen, descriptor)
   def compressed_write_wait = vec(for List (row in 0..VectorRegisterLayout(vlen, xlen.width).depth): blocked_rows[row] & destination_group[row div VectorRegisterLayout(vlen, xlen.width).rows_per_register].into(Bool)).as_bits().or_reduce()
   def write_wait = writing & mux(compress, compressed_write_wait, blocked_rows[write_address])

@@ -37,6 +37,9 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
 
   reg x(~init: bits(0, x_width))
   reg y(~init: bits(t.vertical_active, y_width))
+
+  /* Frame validity and row ownership outlive individual pixel enables. */
+
   reg armed(~init: Bool(#false))
   reg dropped(~init: Bool(#true))
   reg starvation(~init: Bool(#false))
@@ -47,6 +50,9 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
   reg fill_word(~init: bits(0, word_width))
   reg fill_row(~init: bits(0, index_width(t.vertical_active)))
   reg frame_filled(~init: Bool(#false))
+
+  /* These controls retain the bank, lane, and video timing of one SRAM read. */
+
   reg sample_bank(~init: bits(0, bank_width))
   reg sample_lane(~init: bits(0, 4))
   reg sample_show(~init: Bool(#false))
@@ -54,6 +60,11 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
   reg sample_de(~init: Bool(#false))
   reg sample_hs(~init: Bool(!t.horizontal_sync_positive))
   reg sample_vs(~init: Bool(!t.vertical_sync_positive))
+
+
+  /* Admission and raster events
+     Accepted lines fill free banks; only visible pixels consume a full bank.
+     Restart discards the old frame before another line can be accepted. */
 
   def active_pixel = (x < bits(t.horizontal_active, x_width)) & (y < bits(t.vertical_active, y_width))
   def row_last = x === bits(t.horizontal_active - 1, x_width)
@@ -74,10 +85,12 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     assert(line.bits.row_end === last_word, "hdmi_scanout_row_marker")
     assert(line.bits.frame_end === (last_word & last_row), "hdmi_scanout_frame_marker")
 
-  def mutable returned :: Bits(512) = bits(0, 512)
-  // A bank changes from fill-owned to scan-owned only after its last line.
-  // Releasing the last pixel makes it writable again after the read edge.
-  for (bank in 0..rows):
+
+  /* Synchronous row banks
+     The last fill word transfers ownership to scanout. Releasing the last
+     pixel frees the bank after its read edge; reads and writes never overlap. */
+
+  def bank_words = for List (bank in 0..rows):
     inst storage(SyncRam1RW(mode.fetch_lines_per_row, Bits(512), 1))
     def writing = writes & (fill_bank === bits(bank, bank_width))
     def reading = reads & (read_bank === bits(bank, bank_width))
@@ -86,7 +99,6 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     storage.port.request.bits.address <== mux(writing, fill_word, x[4..(4 + word_width)])
     storage.port.request.bits.data <== vec([line.bits.data])
     storage.port.request.bits.mask <== bits(1, 1).into(Mask(1))
-    returned := mux(sample_bank === bits(bank, bank_width), storage.port.response.bits[0], returned)
     when (restart ||| !enable):
       full[bank] <== Bool(#false)
     elsewhen (releases & (read_bank === bits(bank, bank_width))):
@@ -95,11 +107,22 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
       full[bank] <== Bool(#true)
     when (writing):
       assert(!reading, "hdmi_scanout_bank_ownership")
+    storage.port.response.bits[0]
+
+
+  /* Raster advance
+     Pixel-enable gaps hold both coordinates, independently of CHI filling. */
 
   when pixel_enable:
     x <== mux(line_last, bits(0, x_width), x + bits(1, x_width))
     when line_last:
       y <== mux(frame_last, bits(0, y_width), y + bits(1, y_width))
+
+
+  /* Frame recovery and sticky status
+     Disable clears errors; vertical-blank restart rearms pixels. A missing
+     row or bad accepted line blacks the remainder of the current frame. */
+
   when (!enable):
     armed <== Bool(#false)
     dropped <== Bool(#true)
@@ -112,6 +135,11 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     dropped <== Bool(#true)
     starvation <== starvation ||| missing
     failure <== failure ||| bad_line
+
+
+  /* Fill and scan cursors
+     Restart wins over both paths. Otherwise fill and release can advance
+     independently on the same edge, without borrowing bank capacity early. */
 
   when restart:
     fill_bank <== bits(0, bank_width)
@@ -129,15 +157,26 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     when releases:
       read_bank <== mux(read_bank === bits(rows - 1, bank_width), bits(0, bank_width), read_bank + bits(1, bank_width))
 
-  // SRAM data and these timing/lane registers describe the same launch edge.
+
+  /* Pixel return alignment
+     SRAM data and registered bank/lane/timing describe the same launch edge.
+     Unmatched bank encodings select zero. */
+
+  def horizontal_sync_start = t.horizontal_active + t.horizontal_front_porch
+  def horizontal_sync_end = horizontal_sync_start + t.horizontal_sync
+  def vertical_sync_start = t.vertical_active + t.vertical_front_porch
+  def vertical_sync_end = vertical_sync_start + t.vertical_sync
+  def horizontal_sync_active = (x >= bits(horizontal_sync_start, x_width)) & (x < bits(horizontal_sync_end, x_width))
+  def vertical_sync_active = (y >= bits(vertical_sync_start, y_width)) & (y < bits(vertical_sync_end, y_width))
   sample_valid <== pixel_enable
   when pixel_enable:
     sample_bank <== read_bank
     sample_lane <== x[0..4]
     sample_show <== reads
     sample_de <== active_pixel
-    sample_hs <== ((x >= bits(t.horizontal_active + t.horizontal_front_porch, x_width)) & (x < bits(t.horizontal_active + t.horizontal_front_porch + t.horizontal_sync, x_width))) === Bool(t.horizontal_sync_positive)
-    sample_vs <== ((y >= bits(t.vertical_active + t.vertical_front_porch, y_width)) & (y < bits(t.vertical_active + t.vertical_front_porch + t.vertical_sync, y_width))) === Bool(t.vertical_sync_positive)
+    sample_hs <== horizontal_sync_active === Bool(t.horizontal_sync_positive)
+    sample_vs <== vertical_sync_active === Bool(t.vertical_sync_positive)
+  def returned = mux_lookup(sample_bank, ~default: bits(0, 512), for List (bank in 0..rows): [bank, bank_words[bank]])
   def pixel = returned.as_vec(Bits(32))[sample_lane]
   video <== HDMIVideo():
     rgb: mux(sample_show, pixel[0..24], bits(0, 24))

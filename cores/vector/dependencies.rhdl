@@ -21,10 +21,19 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
   def mask = memory & (control.memory_mode === VectorMemoryMode.Mask)
   def indexed = control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedOrdered, VectorMemoryAddressing.IndexedUnordered)
   def memory_eew = mux(indexed, geometry.sew, control.memory_data_eew)
+
+  /* Destination group geometry keeps signed EMUL arithmetic separate from
+     the nonnegative register-count shift. Fractional groups claim one register. */
+
   def widened = (control.integer ||| control.multiply_divide ||| fp_service) & control.widening
-  def exponent = geometry.lmul.into(SInt(3)).sext(5) + mux(memory, memory_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5)), widened.as_bits().zext(5).into(SInt(5)))
-  def group = bits(1, 6) << mux(exponent < SInt(5)(0), bits(0, 3), exponent.as_bits()[0..3])
+  def memory_emul_adjustment = memory_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
+  def widening_adjustment = widened.as_bits().zext(5).into(SInt(5))
+  def emul_adjustment = mux(memory, memory_emul_adjustment, widening_adjustment)
+  def exponent = geometry.lmul.into(SInt(3)).sext(5) + emul_adjustment
+  def group_shift = mux(exponent < SInt(5)(0), bits(0, 3), exponent.as_bits()[0..3])
+  def group = bits(1, 6) << group_shift
   def fields = control.memory_nf.zext(6) + bits(1, 6)
+
   /* Forms a selected field-count extent using constant elaboration-time repeated additions. */
   fun extent_for(n :: Nat) :~ Bits(6):
     def mutable total :: Bits(6) = group
@@ -32,8 +41,20 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
       total := total + group
     total
   def extent = mux_lookup(control.memory_nf, ~default: group, for List (n in 1..8): [n, extent_for(n)])
-  def singleton = mask ||| (control.integer & (control.mask_destination ||| control.reduction ||| control.element_move)) ||| (fp_service & (control.mask_destination ||| control.reduction)) ||| (control.floating_point & !control.fp_service & control.element_move)
-  def count = mux(whole, fields, mux(control.integer & control.whole_register_move, control.whole_register_count.zext(6), mux(singleton, bits(1, 6), mux(memory, extent, group))))
+
+
+  /* Register coverage follows whole-register, move, and singleton overrides
+     before ordinary memory extent or compute group size. */
+
+  def integer_singleton = control.integer & (control.mask_destination ||| control.reduction ||| control.element_move)
+  def fp_service_singleton = fp_service & (control.mask_destination ||| control.reduction)
+  def fp_move_singleton = control.floating_point & !control.fp_service & control.element_move
+  def singleton = mask ||| integer_singleton ||| fp_service_singleton ||| fp_move_singleton
+  def count = priority_mux(~default: group):
+    whole: fields
+    control.integer & control.whole_register_move: control.whole_register_count.zext(6)
+    singleton: bits(1, 6)
+    memory: extent
   def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
   vec(for List (r in 0..32): writes & (bits(r, 6) >= vd.zext(6)) & (bits(r, 6) < vd.zext(6) + count)).as_bits()

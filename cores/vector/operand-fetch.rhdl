@@ -264,11 +264,16 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def remainder_count = mux(compress_full, total_count - lane_count, total_count)[0..vector_lane_count_width(xlen)]
   def source_final = beat_control.end === limit
   def needs_flush = source_final & compress_full & remainder_count.or_reduce()
-  def emitted_count = mux(compress_full, lane_count, mux(source_final, total_count, bits(0, vector_lane_count_width(xlen) + 1)))[0..vector_lane_count_width(xlen)]
+  def emitted_count_wide = priority_mux(~default: bits(0, vector_lane_count_width(xlen) + 1)):
+    compress_full: lane_count
+    source_final: total_count
+  def emitted_count = emitted_count_wide[0..vector_lane_count_width(xlen)]
   def emits_write = compress_full ||| (source_final & total_count.or_reduce())
+  def compression_finished = source_final & !needs_flush
+  def remainder_data = mux(compress_full, combined[xlen.width..2 * xlen.width], combined[0..xlen.width])
   def post_compress_state = VectorCompressState(xlen, vlen):
-    data: mux(source_final & !needs_flush, bits(0, xlen.width), mux(compress_full, combined[xlen.width..2 * xlen.width], combined[0..xlen.width]))
-    count: mux(source_final & !needs_flush, bits(0, vector_lane_count_width(xlen)), remainder_count)
+    data: mux(compression_finished, bits(0, xlen.width), remainder_data)
+    count: mux(compression_finished, bits(0, vector_lane_count_width(xlen)), remainder_count)
     destination: compress_destination + emitted_count.zext(index_width(vlen + 1))
   def compress_beat = operands.updated(
     ~address: beat_control.address,
@@ -334,9 +339,19 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     data: packed_source
     bytes: packed_rotation
   def packed_operands = operands.updated(~left: mux(read_context.packed_store_read, aligned, read_context.packed_data), ~enabled: read_context.packed_mask.into(Mask(vector_word_bytes(xlen))))
+
+
+  /* Scheduled result selection
+     A retained suffix wins over packed metadata, then compression, then
+     ordinary compute operands; selection introduces no post-read storage. */
+
+  def selected_beat = priority_mux(~default: operands):
+    read_context.suffix: compression_flush_beat(read_context.suffix_state)
+    packed: packed_operands
+    compress: compress_beat
   def direct = direct_response |> filter_valid(_context => !clear) |> map_valid(context => VectorMicroOp(xlen, vlen, Context)):
     context: context.instruction.context
-    beat: mux(read_context.suffix, compression_flush_beat(read_context.suffix_state), mux(packed, packed_operands, mux(compress, compress_beat, operands)))
+    beat: selected_beat
     packed: packed
     packed_layout: read_context.packed_layout
     byte_mask: read_context.packed_mask

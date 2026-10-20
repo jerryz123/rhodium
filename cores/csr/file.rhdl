@@ -380,7 +380,10 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def virtual_timer_mask = bits(interrupt_mask([InterruptCause.VirtualSupervisorTimer]), width)
   def supervisor_timer_pending = if sstc | sstc_pending(time_counter, bits(0, 64), state.stimecmp) | Bool(#false)
   def guest_timer_pending = if sstc && hypervisor | guest_timer_enabled & sstc_pending(time_counter, state.htimedelta, state.vstimecmp) | Bool(#false)
-  def interrupt_pending = (legacy_pending & mux(machine_timer_enabled, !supervisor_timer_mask, !zero)) ||| mux(machine_timer_enabled & supervisor_timer_pending, supervisor_timer_mask, zero) ||| mux(guest_timer_pending, virtual_timer_mask, zero)
+  def retained_pending = legacy_pending & mux(machine_timer_enabled, !supervisor_timer_mask, !zero)
+  def supervisor_timer_pending_bits = mux(machine_timer_enabled & supervisor_timer_pending, supervisor_timer_mask, zero)
+  def guest_timer_pending_bits = mux(guest_timer_pending, virtual_timer_mask, zero)
+  def interrupt_pending = retained_pending ||| supervisor_timer_pending_bits ||| guest_timer_pending_bits
   def interrupt_delegation = state.mideleg ||| guest_interrupt_mask
   def supervisor_visible_mask = state.mideleg & supervisor_interrupt_mask
   def csr = commit.bits.csr_address
@@ -678,8 +681,9 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
             read SupervisorStateEnableIds[index]: zero
 
 
-  /* CSR bank selection and access policy
-     State-enable, timer, and hypervisor banks override the base bank in that order. */
+  /* CSR implementation availability and read-bank selection
+     State-enable, timer, and hypervisor banks override the base bank in that
+     order. Absent encodings and disabled extension state remain unrecognized. */
 
   def mutable stateen_selected = Bool(#false)
   def mutable stateen_read_value = zero
@@ -692,7 +696,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     | literal(RiscvStateEnableAccess(), 0)
   def timer_selected = Bool(sstc) & timer_bank.recognized
   def hypervisor_selected = Bool(hypervisor) & hypervisor_bank.recognized
-  def rv32_counter_halves = if xlen == XLen.X32 | Bool(#true) | Bool(#false)
+  def rv32_counter_halves = Bool(xlen == XLen.X32)
   def high_counter_ids = [CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth, CsrId.Mcycleh, CsrId.Minstreth] ++ HpmCounterHighIds ++ MachineHpmCounterHighIds ++ MachineHpmEventHighIds
   def high_counter_unavailable = !rv32_counter_halves & csr.is_one_of(high_counter_ids.map(csr_bits))
   def fp_csr = csr.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Frm), csr_bits(CsrId.Fcsr))
@@ -702,11 +706,20 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def vector_csr = csr.is_one_of([CsrId.Vstart, CsrId.Vxrm, CsrId.Vxsat, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_bits))
   def vector_access_enabled = vector_csrs.status.or_reduce() & (!virtualized ||| guest_vector_status.or_reduce())
   def hpm_extension_unavailable = Bool(!sscofpmf) & csr.is_one_of(([CsrId.Scountovf, CsrId.Mcountinhibit] ++ MachineHpmEventHighIds).map(csr_bits))
-  def csr_recognized = (bank.recognized ||| hypervisor_selected ||| timer_selected ||| stateen_selected) & !hpm_extension_unavailable & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
+  def bank_recognized = bank.recognized ||| hypervisor_selected ||| timer_selected ||| stateen_selected
+  def csr_encoding_available = !hpm_extension_unavailable & !high_counter_unavailable & !high_machine_csr_unavailable
+  def csr_extension_state_enabled = (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
+  def csr_recognized = bank_recognized & csr_encoding_available & csr_extension_state_enabled
   def csr_read_value :: Bits(width) = priority_mux(~default: bank.read_value):
     stateen_selected: stateen_read_value
     timer_selected: timer_bank.read_value
     hypervisor_selected: hypervisor_bank.read_value
+
+
+  /* Privilege, write intent, and counter permissions
+     Decode the original CSR address even when guest aliases select another
+     storage bank. Counter enables retain their machine/host/guest hierarchy. */
+
   def csr_source_specifier = instruction_field(riscv_fields.rs1, commit.bits.instruction)
   def write_requested = riscv_csr_write_requested(commit.bits.csr_operation, csr_source_specifier)
   def csr_read_only = csr_field(csr, CsrAddressReadOnly) === bits(3, CsrAddressReadOnly.width)
@@ -738,16 +751,28 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     ]
   )
   def hypervisor_counter_enabled = if hypervisor | counter_enabled(state.hcounteren) | Bool(#true)
+  def counter_permission = !counter_csr ||| (counter_access_enabled & (!virtualized ||| hypervisor_counter_enabled))
+
+
+  /* Illegal versus virtual-instruction denial
+     Unknown CSRs, read-only writes, and machine-level timer/state-enable
+     denial suppress virtual faults. Guest-only restrictions are tested only
+     after those checks, independently of ordinary privilege sufficiency. */
+
   def guest_counter_restricted = virtualized & counter_csr & machine_counter_enabled & (!hypervisor_counter_enabled ||| ((privilege_state === PrivilegeMode.User) & !supervisor_counter_enabled))
   def virtual_satp_restricted = if hypervisor | virtualized & (privilege_state === PrivilegeMode.Supervisor) & (csr === csr_bits(CsrId.Satp)) & csr_flag(state.hstatus, HstatusVTVM) | Bool(#false)
   def hypervisor_privilege = required_privilege === bits(2, 2)
   def timer_access = sstc_access(context, machine_timer_enabled, csr_flag(state.mcounteren, CounterenTM), guest_timer_enabled, if hypervisor | csr_flag(state.hcounteren, CounterenTM) | Bool(#false))
   def timer_illegal = timer_selected & timer_access.illegal
-  def virtual_csr = virtualized & csr_recognized & !timer_illegal & !stateen_access.illegal & !(write_requested & csr_read_only) & (
-    hypervisor_privilege ||| ((required_privilege === bits(1, 2)) & (privilege_state === PrivilegeMode.User)) ||| guest_counter_restricted ||| virtual_satp_restricted ||| (timer_selected & timer_access.virtual_instruction) ||| stateen_access.virtual_instruction
-  )
+  def csr_write_allowed = !(write_requested & csr_read_only)
+  def base_access_allowed = !timer_illegal & !stateen_access.illegal & csr_write_allowed
+  def virtual_privilege_restricted = hypervisor_privilege ||| ((required_privilege === bits(1, 2)) & (privilege_state === PrivilegeMode.User))
+  def virtual_extension_restricted = (timer_selected & timer_access.virtual_instruction) ||| stateen_access.virtual_instruction
+  def virtual_only_denial = virtual_privilege_restricted ||| guest_counter_restricted ||| virtual_satp_restricted ||| virtual_extension_restricted
+  def virtual_csr = virtualized & csr_recognized & base_access_allowed & virtual_only_denial
   def privilege_sufficient = !(privilege_bits < required_privilege) ||| (Bool(hypervisor) & !virtualized & (privilege_state === PrivilegeMode.Supervisor) & hypervisor_privilege)
-  def csr_access_legal = csr_recognized & privilege_sufficient & !(write_requested & csr_read_only) & !satp_restricted & !hgatp_restricted & !timer_illegal & !stateen_access.illegal & !virtual_csr & (!counter_csr ||| (counter_access_enabled & (!virtualized ||| hypervisor_counter_enabled)))
+  def host_translation_allowed = !satp_restricted & !hgatp_restricted
+  def csr_access_legal = csr_recognized & privilege_sufficient & base_access_allowed & host_translation_allowed & !virtual_csr & counter_permission
 
 
   /* Commit validation and trap arbitration
