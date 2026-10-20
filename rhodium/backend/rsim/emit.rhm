@@ -196,6 +196,16 @@ fun storage_reference(binding :: StorageRef, constants :: Map) :: String:
     value := "(" ++ value ++ ")" ++ (if member is_a String | "." ++ cpp_name(member) | "[" ++ to_string(member) ++ "]")
   value
 
+/* Load compact scalar backing into the unsigned arithmetic carrier before any
+   operation can apply C++ integer promotion. Aggregate and wide values retain
+   references to their evaluation-long backing without introducing copies. */
+fun backing_declaration(index :: Nat, type :: HardwareType, value :: String, types :: CppTypes) :: String:
+  def carrier:
+    if !record_type(type) && !vector_type(type) && scalar_carrier_width(type) <= 64
+    | types.name(type) ++ " "
+    | "auto& "
+  "  [[maybe_unused]] const " ++ carrier ++ ref(index) ++ " = " ++ value ++ ";"
+
 /* Render one original schedule index with its usual leaf normalization.
    Constant aliases bind namespace storage, never another evaluator's locals;
    callers choose the dependency-ordered indices without renumbering operands. */
@@ -218,7 +228,7 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
         | rendered
       cond
       | aggregate_state_read(step) || aggregate_decode(step) || (aggregate_projection(step) && !destination): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
-      | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
+      | destination: "  " ++ destination ++ " = " ++ value ++ ";\n" ++ backing_declaration(index, step.type, destination, types)
       | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
 /* Emit each private producer once within its planned lexical branch path.
@@ -262,7 +272,7 @@ fun emit_conditional_step(value :: Nat, conditional :: RsimConditional, destinat
                           plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
   unless destination | source.add("  [[maybe_unused]] " ++ types.name(plan.steps[value].type) ++ " " ++ ref(value) ++ ";")
   emit_branch_assignment(value, conditional.steps, destination || ref(value), plan.steps, types, constants, source, "  ", MutableSet{})
-  when destination | source.add("  [[maybe_unused]] const auto& " ++ ref(value) ++ " = " ++ destination ++ ";")
+  when destination | source.add(backing_declaration(value, plan.steps[value].type, destination, types))
 
 /* Render one planned final consumer without executing effects or publishing
    staged state. The planner owns its value/storage uses and sampling order; this
@@ -446,7 +456,7 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
       def consumer = region.sinks.length() > 0
       source.add("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(index) ++ "([[maybe_unused]] " ++ (if consumer | "const " | "") ++ phase ++ "Scratch& scratch, [[maybe_unused]] const State& current" ++ (if consumer | ", [[maybe_unused]] " ++ destination | "") ++ ") const {")
       for (input in region.inputs):
-        source.add("  [[maybe_unused]] const auto& " ++ ref(input) ++ " = " ++ storage_reference(layout.bindings[input], constants) ++ ";")
+        source.add(backing_declaration(input, plan.steps[input].type, storage_reference(layout.bindings[input], constants), types))
       for (constant in region.constants):
         source.add(step_declaration(constant, plan.steps, types, constants))
       for (step in region.steps):

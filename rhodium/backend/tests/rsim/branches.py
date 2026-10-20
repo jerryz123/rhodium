@@ -234,7 +234,7 @@ def run_conditional_suite(work, run, compare, differential):
         port = re.escape('inputs.p' + name.replace('_', '_u'))
         ids = set(re.findall(r'v(\d+) = \(' + port + r'\)', original))
         crossing = (r'(scratch\.g\d+\[\d+\]) = \(' + port +
-                    r'\)[^\n]*;\n\s*\[\[maybe_unused\]\] const auto& v(\d+) = \1;')
+                    r'\)[^\n]*;\n\s*\[\[maybe_unused\]\] const std::uint64_t v(\d+) = \1;')
         ids.update(value for _, value in re.findall(crossing, original))
         if len(ids) != 1:
             raise AssertionError(f'cannot identify input producer for {name}: {ids}')

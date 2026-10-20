@@ -304,6 +304,37 @@ check:
 
 // Protect the emitted compilation boundary and storage contract in addition to
 // the planner's liveness checks. Native fixtures test the resulting semantics.
+for (width in [1, 5, 8, 9, 16, 17, 32, 33, 63, 64, 65]):
+  def storage_design = Design()
+  def storage_builder = Builder(storage_design)
+  def storage_top = storage_builder.module("ScalarStorage" ++ to_string(width))
+  def left = storage_builder.input(storage_top, "left", Bits(width))
+  def right = storage_builder.input(storage_top, "right", Bits(width))
+  def product = storage_builder.mul(storage_top, left, right)
+  storage_builder.drive(storage_builder.output(storage_top, "product", Bits(width)), product)
+  storage_builder.finish(storage_top)
+  def planned = build_schedule(prepare_rtl(DesignElaboration(storage_design, storage_top)).rtl)
+  def evaluated = plan_conditionals(planned, build_evaluation_plan(planned))
+  def regions = build_regions(planned, evaluated, evaluated.outputs, ~budget: 1)
+  def layout = boundary_layout(regions, planned, CppTypes(), evaluated.constants)
+  def expected:
+    cond
+    | width <= 8: "std::uint8_t"
+    | width <= 16: "std::uint16_t"
+    | width <= 32: "std::uint32_t"
+    | width <= 64: "std::uint64_t"
+    | ~else: "rhodium_rsim::WideBits<65>"
+  check:
+    layout.groups.length() ~is 1
+    layout.groups[0].carrier ~is expected
+    layout.groups[0].indirect ~is #false
+    layout.groups[0].count >= 2 ~is #true
+  def emitted = emit_rsim(planned, ~region_budget: 1)
+  check: emitted[0].contains("std::array<" ++ expected ++ ", ") ~is #true
+  for (region in regions):
+    for (value in region.inputs ++ region.outputs):
+      check: emitted[1].contains("const " ++ (if width <= 64 | "std::uint64_t " | "auto& ") ++ "v" ++ to_string(value) ++ " = scratch.") ~is #true
+
 def emission_evaluation = plan_conditionals(schedule, evaluation)
 for (budget in [1, 24, 4096]):
   def contents = emit_rsim(schedule, ~region_budget: budget)
@@ -324,7 +355,7 @@ for (budget in [1, 24, 4096]):
           signature.contains(if phase == "pre" | "State& next" | "Outputs& next_outputs") ~is consumer
           signature.contains("Frame& frame") ~is (consumer && phase == "pre")
         for (value in region.outputs):
-          check: helper.contains("const auto& v" ++ to_string(value) ++ " = scratch.") ~is #true
+          check: helper.contains("const std::uint64_t v" ++ to_string(value) ++ " = scratch.") ~is #true
         for (value in region.steps):
           unless value in region.outputs || evaluation.constants.has_key(value)
           | check: helper.contains(" v" ++ to_string(value) ++ " = scratch.") ~is #false

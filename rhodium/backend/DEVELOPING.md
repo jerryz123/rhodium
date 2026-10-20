@@ -91,8 +91,8 @@ ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
 
-`CppTypes.name` keeps standalone scalar expressions, registers, and boundary
-slots in uint64_t through 64 hardware bits. `storage_name` narrows scalar leaves
+`CppTypes.name` keeps standalone scalar expressions and registers in uint64_t
+through 64 hardware bits. `storage_name` narrows scalar boundary slots and leaves
 of records, vectors, and persistent memory arrays to unsigned 8/16/32/64-bit
 words; wider leaves retain the wide carrier. Public aggregate ports use that
 same recursive representation. Keep named records and native alignment; no
@@ -364,7 +364,11 @@ symbols before layout so projected consumers need no undeclared ancestor aliases
 External input normalization, dynamic/asynchronous reads, and scalar projections
 keep their existing materialization. Other nonconstant values consumed in later regions
 receive scratch slots. Slots are grouped in typed arrays by C++
-carrier; a producer writes its slot directly, and consumers bind const references.
+carrier; a producer writes its slot directly. Scalar reads through 64 bits widen
+to unsigned 64-bit arithmetic values, both after producer writes and at helper
+imports, including conditional results. Aggregate and wide reads retain const
+references. Keep exact hardware-width normalization before storing; compact
+storage must not introduce signed integer promotion or narrow shifts.
 Aggregate lookup-mux results use const-pointer slots when every branch already
 has evaluation-long backing storage: an immutable constant or an earlier boundary
 value, including a direct state binding or another borrowed mux. Selection takes the chosen lvalue's address
@@ -960,7 +964,9 @@ The ordinary and forced-region native runners both include these fixtures.
 
 `tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,
 storage dependencies, shared output computation, and occurrence identity with
-Builder fixtures. Small forced budgets check region boundaries against an
+Builder fixtures. Scalar scratch checks cross the 8/16/32/64-bit storage
+boundaries and require arithmetic-carrier loads at producer aliases and helper
+imports. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
 `tests/rsim-decode-test.rhm` compares specialized schedules against an independent
 canonical-integer interpreter, exhaustively covering dynamic bytes with constant
