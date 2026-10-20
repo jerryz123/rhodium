@@ -95,6 +95,32 @@ def typed = RsimSchedule("Types", [], for List (step in typed_steps, index in 0.
                          typed_steps, [], [], [], [], [], [])
 check: share_scalar_expressions(typed).outputs.map(fun (port): port.value) ~is [0, 1, 0, 2]
 
+// Verified casts erase representation work, not nominal type distinctions
+// between independently computed values. Public boundary types survive chains.
+for (width in [1, 8, 32, 64, 65, 129]):
+  def bits = Bits(width)
+  def vector = VectorType(1, bits)
+  def alias_steps = [
+    RsimStep("input", bits, [], {"name": "input"}),
+    RsimStep("rtl.cast", bits, [0], {}),
+    RsimStep("rtl.cast", bits, [1], {}),
+    RsimStep("rtl.cast", vector, [2], {}),
+    RsimStep("rtl.cast", bits, [3], {})
+  ]
+  def aliases = RsimSchedule("Aliases", [RsimPort("input", bits, 0)],
+                             [RsimPort("aliased", bits, 2), RsimPort("packed", bits, 4)],
+                             alias_steps, [], [], [], [], [], [])
+  def result = share_scalar_expressions(aliases)
+  check:
+    result.steps.length() ~is 3
+    result.outputs.map(fun (port): port.value) ~is [0, 2]
+    result.inputs ~is aliases.inputs
+    result ~is share_scalar_expressions(result)
+def nominal_aliases = RsimSchedule("NominalAliases", [], [RsimPort("token", Token("second"), 2)], [typed_steps[0], RsimStep("rtl.cast", Token("second"), [0], {}), RsimStep("rtl.cast", Token("second"), [1], {})], [], [], [], [], [], [])
+check:
+  share_scalar_expressions(nominal_aliases).outputs ~is [RsimPort("token", Token("second"), 0)]
+  share_scalar_expressions(nominal_aliases).steps.length() ~is 1
+
 // The production target exposes the optimized schedule and rebuilds dependency
 // planning from it; separately authored additions feed independent consumers.
 def prepared = prepare_rtl(make_scalar(5))

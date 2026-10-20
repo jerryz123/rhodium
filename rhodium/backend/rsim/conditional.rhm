@@ -8,6 +8,26 @@ import:
 
 export plan_conditionals
 
+/* Describe exact authored guard identities, including polarity. Only adjacent
+   consumers with equal lists can share a lexical scope; array assignments and
+   resetless registers retain their independent destination plans. */
+fun sink_guard(sink :: RsimSink, schedule :: RsimSchedule) :: List:
+  match sink.kind
+  | "register":
+      def reg = schedule.registers[sink.index]
+      if !sink.array && reg.reset != #false | [[reg.reset, #false]] | []
+  | "foreign": [[schedule.foreign_calls[sink.index].enable, #true]]
+  | "assertion":
+      def assertion = schedule.assertions[sink.index]
+      [[assertion.guard, #true], [assertion.reset, #false]]
+  | "sync_read":
+      def read = schedule.reads[sink.index]
+      [[read.enable, #true]] ++ (if read.write_mode == #false | [] | [[read.write_mode, #false]])
+  | "write":
+      def write = schedule.writes[sink.index]
+      [[write.enable, #true]] ++ (if write.write_mode == #false | [] | [[write.write_mode, #true]])
+  | ~else: []
+
 /* Identify data roots demanded only by a consumer's explicit guard. Register
    selection trees also qualify without reset; reset values and all controls
    stay unconditional. Fused array destinations retain their existing owner. */
@@ -26,6 +46,26 @@ fun guarded_roots(sink :: RsimSink, schedule :: RsimSchedule) :: List.of(Nat):
       [write.address, write.data] ++ (if write.mask_value == #false | [] | [write.mask_value])
   | ~else: []
 
+/* Find bounded shared pure cones before considering a group. Grouping unrelated
+   consumers would spend one conditional budget on previously independent cones.
+   This is only a candidate search: ordinary all-use/path checks still decide
+   whether any shared computation can actually move under the common guard. */
+fun shared_candidates(members :: List.of(RsimSink), schedule :: RsimSchedule) :: Set:
+  def seen = MutableSet{}
+  def shared = MutableSet{}
+  for (member in members):
+    def visited = MutableSet{}
+    /* Visit each pure producer at most once per consumer, stopping at roots. */
+    fun visit(value :: Nat):
+      when visited.length() < 128 && !(value in visited)
+            && pure_computation(schedule.steps[value])
+      | visited.add(value)
+        when value in seen | shared.add(value)
+        for (operand in schedule.steps[value].operands): visit(operand)
+    for (value in guarded_roots(member, schedule)): visit(value)
+    for (value in visited): seen.add(value)
+  shared.snapshot()
+
 /* Plan one invocation independently: a value used by another phase need not
    stay eager here. A shared producer moves only when every use requests the
    same lexical path. Each original value has one owner; processing outer muxes
@@ -40,12 +80,12 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
   for (sink in body.sinks):
     for (value in sink.dependencies.values): uses[value] := uses.get(value, 0) + 1
   def removed = MutableSet{}
-  /* Scheduled rtl.* values are pure; storage roots and effects have separate
-     descriptors. Admit a producer only when all its use edges arrive from one
+  /* The schedule explicitly classifies pure computations separately from roots
+     and effects. Admit a producer only when all its use edges arrive from one
      branch path. This closes bounded dependency graphs without duplicating work
      or inferring equivalence between separately authored guards. */
   fun plan(roots :: List.of(Nat), dependencies :: RsimDependencies,
-           retained :: maybe(Nat) = #false) :: maybe(RsimConditional):
+           retained :: maybe(Nat) = #false, ~shared: shared :: maybe(Set) = #false) :: maybe(RsimConditional):
     def absorbed = MutableSet{}
     def requests = MutableMap{}
     def mutable cost = 0
@@ -57,7 +97,7 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
     fun request(value :: Nat, path :: Nat):
       def step = schedule.steps[value]
       when value in available && !(value in removed) && !(value in absorbed)
-            && step.opcode.starts_with("rtl.") && !evaluation.constants.has_key(value)
+            && pure_computation(step) && !evaluation.constants.has_key(value)
       | def previous = requests.get(value, [path, 0])
         def scope = if previous[0] == path | path | #false
         def count = previous[1] + 1
@@ -74,6 +114,7 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
             | for (operand in step.operands): request(operand, path)
     for (value in roots): request(value, 0)
     if absorbed.length() <= (if retained == #false | 0 | 1)
+         || (shared != #false && !(for any (value in absorbed): value in shared))
     | #false
     | def leaves = MutableSet{}
       for (value in absorbed):
@@ -84,18 +125,44 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
         unless value in absorbed | leaves.add(value)
       def ordered = for List (value in leaves): value
       RsimConditional(absorbed.snapshot(), RsimDependencies(ordered.sort(), dependencies.storage), cost)
-  def sinks = for List (sink in body.sinks):
-    def selected = plan(guarded_roots(sink, schedule), sink.dependencies)
-    if selected
-    | RsimSink(sink.kind, sink.index, selected.dependencies, sink.array, selected)
-    | sink
+  def sinks = MutableList[]
+  def mutable position = 0
+  while position < body.sinks.length():
+    def first = body.sinks[position]
+    def guard = sink_guard(first, schedule)
+    def mutable end = position + 1
+    // Bound grouping independently of graph size and keep original sink order.
+    while guard.length() > 0 && end < body.sinks.length() && end - position < 16
+          && sink_guard(body.sinks[end], schedule) == guard:
+      end := end + 1
+    def members = body.sinks.drop(position).take(end - position)
+    def roots = MutableList[]
+    def dependencies = MutableList[]
+    def storage = MutableList[]
+    for (sink in members):
+      for (value in guarded_roots(sink, schedule)): roots.add(value)
+      for (value in sink.dependencies.values): dependencies.add(value)
+      for (read in sink.dependencies.storage): storage.add(read)
+    def selected:
+      if members.length() > 1
+      | plan(roots.snapshot(), RsimDependencies(dependencies.snapshot(), storage.snapshot()),
+             ~shared: shared_candidates(members, schedule))
+      | #false
+    cond
+    | selected:
+        sinks.add(RsimSink("group", first.index, selected.dependencies, #false, selected, members, guard))
+    | ~else:
+        for (sink in members):
+          def individual = plan(guarded_roots(sink, schedule), sink.dependencies)
+          sinks.add(if individual | RsimSink(sink.kind, sink.index, individual.dependencies, sink.array, individual) | sink)
+    position := end
   def conditionals = MutableMap{}
   for (offset in 0..body.steps.length()):
     def value = body.steps[body.steps.length() - 1 - offset]
     when !(value in removed) && schedule.steps[value].opcode == "rtl.mux_lookup"
     | def selected = plan([value], evaluation.dependencies[value], value)
       when selected | conditionals[value] := selected
-  RsimEvaluation(body.steps.filter(~keep: fun (value): !(value in removed)), sinks, conditionals.snapshot())
+  RsimEvaluation(body.steps.filter(~keep: fun (value): !(value in removed)), sinks.snapshot(), conditionals.snapshot())
 
 /* Use the same bounded ownership rule for muxes, registers, and guarded effect
    operands. Only pure computations move; effect ordering and output publication

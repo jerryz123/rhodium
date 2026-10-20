@@ -37,8 +37,8 @@ class ScratchGroup(carrier :: String, indirect :: Boolean, count :: PosInt)
    Scratch ownership and borrowing are derived from each structured reference. */
 class BoundaryStorage(bindings :: Map, groups :: List.of(ScratchGroup))
 
-/* Aggregate state roots remain normalized and stable until every frame consumer
-   finishes. External inputs and computed memory reads require materialization. */
+/* Aggregate state roots permit reference-valued local loads. Scalar roots use
+   the same stable backing but must load into unsigned arithmetic carriers. */
 fun aggregate_state_read(step :: RsimStep) :: Boolean:
   step.opcode in ["state", "sync_read", "foreign_result"] && (record_type(step.type) || vector_type(step.type))
 
@@ -54,16 +54,17 @@ fun aggregate_decode(step :: RsimStep) :: Boolean:
 
 /* Resolve evaluation-long backing through static subobjects only. The immutable
    steps list was checked by RsimSchedule; :~ avoids rescanning it on each walk.
+   Scalars resolve the same normalized backing but load into arithmetic carriers.
    Constants take precedence so consumers need no local ancestor aliases. A
    helper-local computed parent has no backing and its crossing projection copies. */
 fun backed_reference(index :: Nat, steps :~ List.of(RsimStep), constants :: Map, bindings :: ReadableMap) :: maybe(StorageRef):
   cond
   | constants.has_key(index): StorageRef(ConstantStorage(index))
   | bindings.has_key(index): bindings[index]
-  | aggregate_state_read(steps[index]):
+  | steps[index].opcode in ["state", "sync_read", "foreign_result"]:
       def step = steps[index]
       StorageRef(StateStorage(step.opcode, step.attributes["slot"], step.attributes.get("result", 0)))
-  | aggregate_projection(steps[index]):
+  | steps[index].opcode in ["rtl.record_get", "rtl.vector_get"]:
       def step = steps[index]
       def parent = backed_reference(step.operands[0], steps, constants, bindings)
       if parent
@@ -83,14 +84,25 @@ fun scratch_slot(binding :: maybe(StorageRef)) :: maybe(ScratchSlot):
    only by physical carrier and indirection. Scalar slots use compact storage;
    the emitter reloads them into arithmetic carriers. Borrow mux branches only when they
    already have stable backing; conditional branch locals cannot escape this way.
-   Decode rows always have stable backing. Never recycle slots. State and
-   backed projections keep their original roots without extra payload/pointers. */
-fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map) :: BoundaryStorage:
+   Decode rows always have stable backing. Eager scalar slots may be reused after
+   their last consuming region, never within it. Cached evaluation retains unique
+   slots. Aggregate/wide backing is never recycled because references can escape
+   through projections or borrowed muxes. State and static projections alias
+   their original roots without extra payload or pointers. */
+fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map,
+                    ~reuse_scalars: reuse_scalars :: Boolean = #true) :: BoundaryStorage:
   def bindings = MutableMap{}
   def carriers = MutableList[]
   def groups = MutableMap{}
   def counts = MutableMap{}
-  for (region in regions):
+  def last_uses = MutableMap{}
+  for (region in regions, number in 0..regions.length()):
+    for (value in region.inputs): last_uses[value] := number
+  def expirations = MutableMap{}
+  def free = MutableMap{}
+  for (region in regions, number in 0..regions.length()):
+    for (entry in expirations.get(number, [])):
+      free[entry[0]] := [entry[1], free.get(entry[0], [])]
     for (index in region.outputs):
       def step = plan.steps[index]
       def direct = backed_reference(index, plan.steps, constants, bindings)
@@ -106,6 +118,16 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
         | groups[carrier] := carriers.length()
           counts[carrier] := 0
           carriers.add(carrier)
-        bindings[index] := StorageRef(ScratchSlot(groups[carrier], counts[carrier], borrow))
-        counts[carrier] := counts[carrier] + 1
+        def width = scalar_width(step.type)
+        def reusable = reuse_scalars && !borrow && width != #false && width <= 64
+        def available = if reusable | free.get(carrier, []) | []
+        def slot = if available.length() > 0 | available[0] | counts[carrier]
+        if available.length() > 0
+        | free[carrier] := available[1]
+        | counts[carrier] := counts[carrier] + 1
+        bindings[index] := StorageRef(ScratchSlot(groups[carrier], slot, borrow))
+        when reusable
+        | def expiry = last_uses[index] + 1
+          unless expirations.has_key(expiry) | expirations[expiry] := MutableList[]
+          expirations[expiry].add([carrier, slot])
   BoundaryStorage(bindings.snapshot(), for List (carrier in carriers): ScratchGroup(carrier[0], carrier[1], counts[carrier]))

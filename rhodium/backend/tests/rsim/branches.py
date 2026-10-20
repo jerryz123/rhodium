@@ -132,25 +132,28 @@ def conditional_stimuli():
     mask = (1 << 32) - 1
     rows, expected = [], []
     memory = [None] * 4
-    captured = call_result = 0
+    captured = call_result = call_peer = group_a = group_b = 0
     read_result = (0, 0)
     # Initialize all words before probing synchronous old-state reads.
-    cases = [(1, 0, 0, 1, 0, 0, 0, index, *([index + 10] * 8)) for index in range(4)]
-    cases += [(tick, reset, select, we, re, ce, ae, 0, *([0xffffffff] * 8))
+    cases = [(1, 0, 0, 1, 0, 0, 0, index, *([index + 10] * 9)) for index in range(4)]
+    cases += [(tick, reset, select, we, re, ce, ae, 0, *([0xffffffff] * 9))
               for tick in (0, 1) for reset in (0, 1) for select in range(4)
               for we, re, ce, ae in ((0, 0, 0, 0), (1, 1, 1, 1), (1, 0, 1, 0), (0, 1, 0, 1))]
     cases += [(rng.randrange(2), int(rng.randrange(9) == 0), rng.randrange(4),
                *(rng.randrange(2) for _ in range(4)), rng.randrange(4),
-               *(rng.getrandbits(32) for _ in range(8))) for _ in range(400)]
+               *(rng.getrandbits(32) for _ in range(9))) for _ in range(400)]
     for row in cases:
         tick, reset, select, we, re, ce, ae, index, *raw = row
         values = [(v * 3) & mask for v in raw]
         selected = values[0] if select == 1 else values[2] if select == 2 else values[1]
         if tick:
             captured = 17 if reset else (~selected & mask)
+            group_a = 17 if reset else values[8]
+            group_b = 19 if reset else (values[8] + 1) & mask
             if ce:
                 argument = raw[4] if select == 1 else values[4]
                 call_result = (2 * argument + 5) & mask
+                call_peer = (2 * argument + 7) & mask
             read_result = memory[values[6] & 3] if re else None
             if read_result is None:
                 read_result = (0, 0)
@@ -158,14 +161,15 @@ def conditional_stimuli():
                 memory[index] = values[3]
         rows.append([*row, raw[4], values[5]])
         expected.append([(selected + values[2]) & mask, ~selected & mask, values[2],
-                         captured, read_result, call_result, ~values[7] & mask if select == 1 else (values[7] + 1) & mask])
+                         captured, read_result, call_result, ~values[7] & mask if select == 1 else (values[7] + 1) & mask,
+                         read_result, call_peer, group_a, group_b])
     return '\n'.join(' '.join(f'{v:x}' for v in row) for row in rows) + '\n', expected
 
 
 CONDITIONAL_INPUTS = ['reset', 'select', 'write_enable', 'read_enable', 'call_enable', 'check_enable',
                       'index', 'comb_data', 'default_data', 'shared_data', 'write_data',
-                      'call_data', 'check_data', 'read_index', 'sibling_data', 'raw_call', 'expected']
-CONDITIONAL_PROBES = ['comb_data', 'default_data', 'shared_data', 'write_data', 'call_data', 'check_data', 'read_index', 'sibling_data']
+                      'call_data', 'check_data', 'read_index', 'sibling_data', 'group_data', 'raw_call', 'expected']
+CONDITIONAL_PROBES = ['comb_data', 'default_data', 'shared_data', 'write_data', 'call_data', 'check_data', 'read_index', 'sibling_data', 'group_data']
 
 
 def conditional_driver(native):
@@ -174,20 +178,20 @@ def conditional_driver(native):
     def out(name):
         return 'dut.outputs().p' + name.replace('_', '_u') if native else 'dut.' + name
     assignments = ' '.join(f'{inp(name)} = {name};' for name in CONDITIONAL_INPUTS)
-    outputs = ['combined', 'inverted', 'shared', 'captured', 'read_data', 'call_result', 'sibling']
+    outputs = ['combined', 'inverted', 'shared', 'captured', 'read_data', 'call_result', 'sibling', 'read_peer', 'call_peer', 'group_a', 'group_b']
     observes = " << ' ' << ".join(out(name) for name in outputs)
     checks = '''
     const unsigned evals = 2 + 2 * unsigned(tick);
-    const std::array<unsigned, 8> expected_counts = {evals * (select == 1), evals * (select != 1 && select != 2), evals,
+    const std::array<unsigned, 9> expected_counts = {evals * (select == 1), evals * (select != 1 && select != 2), evals,
       unsigned(tick && write_enable), unsigned(tick && call_enable && select != 1), unsigned(tick && check_enable && !reset),
-      unsigned(tick && read_enable), evals};
+      unsigned(tick && read_enable), evals, unsigned(tick && !reset)};
     if (rsim_conditional_evaluations != expected_counts) throw std::logic_error("conditional execution count");
-    if (foreign_calls - calls_before != unsigned(tick && call_enable)) throw std::logic_error("DPI enable");
+    if (foreign_calls - calls_before != 2 * unsigned(tick && call_enable)) throw std::logic_error("DPI enable");
 ''' if native else ''
     if native and os.environ.get('RHODIUM_RSIM_TEST_CACHE'):
         # Cached pure mux owners may skip work; eager effects retain exact counts.
         checks = checks.replace('rsim_conditional_evaluations != expected_counts',
-            '([&] { for (unsigned i = 0; i < 8; ++i) if (i >= 3 && i <= 6 ? rsim_conditional_evaluations[i] != expected_counts[i] : rsim_conditional_evaluations[i] > expected_counts[i]) return true; return false; }())')
+            '([&] { for (unsigned i = 0; i < 9; ++i) if ((i >= 3 && i <= 6) || i == 8 ? rsim_conditional_evaluations[i] != expected_counts[i] : rsim_conditional_evaluations[i] > expected_counts[i]) return true; return false; }())')
     retry = '''
   dut.inputs.preset = 0; dut.inputs.pcheck_uenable = 1;
   dut.inputs.pcheck_udata = 1; dut.inputs.pexpected = 0;
@@ -207,7 +211,7 @@ def conditional_driver(native):
 #include <iostream>
 #include <stdexcept>
 #include <cstdint>
-{'std::array<unsigned, 8> rsim_conditional_evaluations{};' if native else ''}
+{'std::array<unsigned, 9> rsim_conditional_evaluations{};' if native else ''}
 static unsigned foreign_calls = 0;
 extern "C" unsigned rsim_conditional_call(unsigned value, unsigned again) {{ ++foreign_calls; return value + again + 5; }}
 int main() {{
@@ -244,7 +248,7 @@ def run_conditional_suite(work, run, compare, differential):
         if count == 0:
             raise AssertionError(f'no computation probe for {name}')
     source = work / 'conditionals-instrumented.cpp'
-    source.write_text('#include <array>\nextern std::array<unsigned, 8> rsim_conditional_evaluations;\n' + original)
+    source.write_text('#include <array>\nextern std::array<unsigned, 9> rsim_conditional_evaluations;\n' + original)
     main = work / 'conditionals-main.cpp'
     main.write_text(conditional_driver(True))
     run(shlex.split(os.environ.get('CXX', 'c++')) +

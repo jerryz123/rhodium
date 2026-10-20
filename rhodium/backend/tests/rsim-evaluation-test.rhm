@@ -86,6 +86,18 @@ check:
   storage(sink("foreign").dependencies.storage) ~is [["foreign", 0, 0], ["foreign", 0, 1]]
   sink("sync_read").dependencies.values ~is [input("address"), input("enable"), input("mode")]
 
+// Input and storage observations remain unconditional roots, even though they
+// have no side effects. Arithmetic over their sampled values can move under a
+// guard; its operands must still be supplied by the surrounding evaluation.
+for (port in schedule.inputs):
+  check: pure_computation(schedule.steps[port.value]) ~is #false
+for (step in schedule.steps):
+  when step.opcode in ["state", "sync_read", "foreign_result", "memory_read"]
+  | check: pure_computation(step) ~is #false
+check:
+  pure_computation(schedule.steps[schedule.registers[0].next_value]) ~is #true
+  pure_computation(schedule.steps[schedule.assertions[0].condition]) ~is #true
+
 def memory_slots = for Map (memory in schedule.memories, index in 0..schedule.memories.length()):
   values(memory.name, index)
 def writes = evaluation.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "write")
@@ -110,6 +122,12 @@ for (budget in [1, 1000000]):
     state_fields.contains("{}") ~is #false
     frame_fields.contains("{}") ~is #false
     sampling.contains("Frame frame;") ~is #true
+    state_fields.contains("std::uint8_t s0;") ~is #true
+    state_fields.contains("std::uint8_t r0;") ~is #true
+    state_fields.contains("std::uint8_t f0_0;") ~is #true
+    frame_fields.contains("std::uint8_t call0_arg0;") ~is #true
+    frame_fields.contains("std::uint8_t write0_data;") ~is #true
+    frame_fields.contains("std::uint8_t write0_address;") ~is #true
   for (field in ["call0_enable", "call0_arg0", "assertion0_failed",
                  "write0_address", "write0_data", "write0_enable",
                  "write1_address", "write1_enable"]):
@@ -355,7 +373,9 @@ for (budget in [1, 24, 4096]):
           signature.contains(if phase == "pre" | "State& next" | "Outputs& next_outputs") ~is consumer
           signature.contains("Frame& frame") ~is (consumer && phase == "pre")
         for (value in region.outputs):
-          check: helper.contains("const std::uint64_t v" ++ to_string(value) ++ " = scratch.") ~is #true
+          def layout = boundary_layout(regions, schedule, CppTypes(), evaluation.constants)
+          when scratch_slot(layout.bindings[value])
+          | check: helper.contains("const std::uint64_t v" ++ to_string(value) ++ " = scratch.") ~is #true
         for (value in region.steps):
           unless value in region.outputs || evaluation.constants.has_key(value)
           | check: helper.contains(" v" ++ to_string(value) ++ " = scratch.") ~is #false
@@ -455,31 +475,31 @@ def kernel_schedule = build_schedule(prepare_rtl(DesignElaboration(kernel_design
 check:
   (for any (line in emit_rsim(kernel_schedule, ~region_budget: 1)[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = *scratch.")) ~is #true
 
-// Aggregate register and synchronous-read roots bind the current model directly
-// in both producers and consumers. The same roots remain local references when
-// the whole body fits the inline budget, including nested records with wide leaves.
+// Aggregate register and synchronous-read roots resolve to current storage at
+// either budget, including nested records with wide leaves. Inspect backing
+// identity directly instead of reconstructing it from emitted helper bodies.
 for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
   def planned = build_schedule(prepare_rtl(program).rtl)
   def evaluated = plan_conditionals(planned, build_evaluation_plan(planned))
   def roots = MutableMap{}
   for (step in planned.steps, index in 0..planned.steps.length()):
     when step.opcode in ["state", "sync_read"] && (record_type(step.type) || vector_type(step.type))
-    | roots[index] := "current." ++ (if step.opcode == "state" | "s" | "r") ++ to_string(step.attributes["slot"])
+    | roots[index] := StorageRef(StateStorage(step.opcode, step.attributes["slot"]))
   check: roots.length() > 0 ~is #true
   for (budget in [1, 1000000]):
-    def emitted = emit_rsim(planned, ~region_budget: budget)
-    for (body in [evaluated.pre_edge, evaluated.outputs], phase in ["pre", "output"]):
+    for (body in [evaluated.pre_edge, evaluated.outputs]):
       def regions = build_regions(planned, evaluated, body, ~budget: budget)
-      for (region in regions, number in 0..regions.length()):
-        def scope:
-          if emitted[0].contains("struct " ++ phase ++ "Scratch")
-          | emitted[1].split("void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
-          | emitted[1].split(if phase == "pre" | "Model::Frame Model::evaluate(" | "void Model::eval()")[1].split("\n}")[0]
+      def layout = boundary_layout(regions, planned, CppTypes(), evaluated.constants)
+      for (region in regions):
         for (index in region.steps ++ region.inputs):
           when roots.has_key(index)
-          | check: scope.contains("const auto& v" ++ to_string(index) ++ " = " ++ roots[index] ++ ";") ~is #true
-    for ((index, binding) in roots):
-      check: emitted[1].contains(" = " ++ binding ++ ";\n  [[maybe_unused]] const auto& v" ++ to_string(index) ++ " = scratch.") ~is #false
+          | def binding = backed_reference(index, planned.steps, evaluated.constants, layout.bindings)
+            check:
+              binding ~is roots[index]
+              scratch_slot(binding) ~is #false
+        for (index in region.outputs):
+          when roots.has_key(index)
+          | check: layout.bindings[index] ~is roots[index]
 
 // A state-only boundary needs no payload or pointer slot at all. Its frame and
 // output consumers still own snapshots instead of references into live state.
@@ -492,10 +512,15 @@ root_builder.drive(root_reg.next, root_reg.current)
 root_builder.drive(root_builder.output(root_top, "result", borrow_type), root_reg.current)
 root_builder.finish(root_top)
 def root_schedule = build_schedule(prepare_rtl(DesignElaboration(root_design, root_top)).rtl)
+def root_plan = plan_conditionals(root_schedule, build_evaluation_plan(root_schedule))
+for (body in [root_plan.pre_edge, root_plan.outputs]):
+  def regions = build_regions(root_schedule, root_plan, body, ~budget: 1)
+  def layout = boundary_layout(regions, root_schedule, CppTypes(), root_plan.constants)
+  check:
+    layout.groups ~is []
+    layout.bindings[root_schedule.outputs[0].value] ~is StorageRef(StateStorage("state", 0))
 def root_emission = emit_rsim(root_schedule, ~region_budget: 1)
 check:
-  root_emission[0].contains("struct preScratch {\n\n  };") ~is #true
-  root_emission[0].contains("struct outputScratch {\n\n  };") ~is #true
   root_emission[1].contains("next.s0 = v0;") ~is #true
   root_emission[1].contains("next_outputs.presult = v0;") ~is #true
 
@@ -623,6 +648,12 @@ for (program in [make_branches(), make_conditionals()]):
       conditional.dependencies ~is base.dependencies
       conditional.pre_edge.sinks.filter(~keep: fun (sink): sink.conditional != #false).length() > 0 ~is #true
     for (body in [conditional.pre_edge, conditional.outputs]):
+      def flattened = MutableList[]
+      for (sink in body.sinks):
+        for (member in (if sink.kind == "group" | sink.members | [sink])):
+          flattened.add([member.kind, member.index])
+      def original_body = if body === conditional.pre_edge | base.pre_edge | base.outputs
+      check: flattened.snapshot() ~is original_body.sinks.map(fun (sink): [sink.kind, sink.index])
       def owners = MutableSet{}
       def available = for Set (value in body.steps): value
       def mutable plans = body.sinks.filter(~keep: fun (sink): sink.conditional != #false).map(fun (sink): sink.conditional)
@@ -635,6 +666,8 @@ for (program in [make_branches(), make_conditionals()]):
           check: value in available ~is #true
         for (value in owner.steps):
           check:
+            pure_computation(planned.steps[value]) ~is #true
+            base.dependencies[value].storage ~is []
             (value in available) ~is body.conditionals.has_key(value)
             value in owners ~is #false
           owners.add(value)
@@ -731,3 +764,41 @@ def read_owners = for Map (step in repeated.steps.filter(~keep: fun (step): step
 check:
   read_owners[sampled_slots[0]] != read_owners[sampled_slots[1]] ~is #true
   repeated.steps.map(fun (step): step.occurrence) ~is build_schedule(prepare_rtl(make_memory(3, #false)).rtl).steps.map(fun (step): step.occurrence)
+
+// Scalar slots can overlap only across disjoint full-region lifetimes. Cached
+// evaluation keeps unique slots, and every state/projection binding uses the
+// current bank rather than a retained scalar copy.
+def reuse_schedule = share_scalar_expressions(build_schedule(prepare_rtl(make_scalar(17)).rtl))
+def reuse_eval = plan_conditionals(reuse_schedule, build_evaluation_plan(reuse_schedule))
+def reuse_regions = build_regions(reuse_schedule, reuse_eval, reuse_eval.outputs, ~budget: 1)
+def eager_layout = boundary_layout(reuse_regions, reuse_schedule, CppTypes(), reuse_eval.constants)
+def unique_layout = boundary_layout(reuse_regions, reuse_schedule, CppTypes(), reuse_eval.constants, ~reuse_scalars: #false)
+fun slot_count(layout :: BoundaryStorage):
+  def mutable count = 0
+  for (group in layout.groups): count := count + group.count
+  count
+check: slot_count(eager_layout) < slot_count(unique_layout) ~is #true
+for (region in reuse_regions):
+  def seen = MutableSet{}
+  for (value in region.inputs ++ region.outputs):
+    def slot = scratch_slot(eager_layout.bindings[value])
+    when slot
+    | check: slot in seen ~is #false
+      seen.add(slot)
+for (phase in [evaluation.pre_edge, evaluation.outputs]):
+  def regions = build_regions(schedule, evaluation, phase, ~budget: 1)
+  def layout = boundary_layout(regions, schedule, CppTypes(), evaluation.constants)
+  for ((value, binding) in layout.bindings):
+    when schedule.steps[value].opcode in ["state", "sync_read", "foreign_result"]
+    | check: binding.root is_a StateStorage ~is #true
+
+// Guard equality alone must not consume independent cones' budgets. Grouping
+// must absorb actual cross-consumer work, with each original sink still ordered.
+def independent = share_scalar_expressions(build_schedule(prepare_rtl(make_branches()).rtl))
+def independent_eval = plan_conditionals(independent, build_evaluation_plan(independent))
+check: independent_eval.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "group").length() ~is 0
+def grouped = share_scalar_expressions(build_schedule(prepare_rtl(make_conditionals()).rtl))
+def grouped_eval = plan_conditionals(grouped, build_evaluation_plan(grouped))
+def group_kinds = for Set (sink in grouped_eval.pre_edge.sinks):
+  if sink.kind == "group" | sink.members[0].kind | #false
+check: group_kinds ~is Set{"register", "foreign", "sync_read", "write", "assertion"}

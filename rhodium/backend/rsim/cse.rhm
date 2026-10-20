@@ -34,9 +34,18 @@ fun expression_attributes(attributes :: Map) :: Map:
     unless key == "name" | result[key] := value
   result.snapshot()
 
+/* Recognize scalar bit-preserving casts after verification. Nominal scalar
+   types share the same runtime bit representation, including wide carriers;
+   aggregate packing casts and all width-changing operations remain explicit. */
+fun scalar_alias(step :: RsimStep, steps :~ List.of(RsimStep)) :: Boolean:
+  step.opcode == "rtl.cast" && scalar_width(step.type) != #false
+    && scalar_width(step.type) == scalar_width(steps[step.operands[0]].type)
+
 /* Retain the first exact expression in dependency order. Width/opcode/operand/
    attribute keys locate candidates, but hardware type_equal decides sharing:
    carrier width and descriptive names must not conflate nominal scalar types.
+   Verified scalar casts instead alias their source representation explicitly;
+   port/resource types remain intact and unrelated typed expressions stay distinct.
    This is per-compilation value sharing, never a cache across evaluations.
    Resource indices, diagnostic identity, and ordered effects remain unchanged. */
 fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
@@ -51,9 +60,11 @@ fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
     def key = if shareable(step, schedule.steps) | [step.opcode, scalar_width(step.type), operands, expression_attributes(step.attributes)] | #false
     def candidates = if key | expressions.get(key, []) | []
     def found = candidates.find(fun (candidate): type_equal(step.type, steps[candidate].type))
-    if found != #false
-    | refs[index] := found
-    | refs[index] := steps.length()
-      when key | expressions[key] := candidates ++ [steps.length()]
-      steps.add(RsimStep(step.opcode, step.type, operands, step.attributes, step.occurrence))
+    cond
+    | scalar_alias(step, schedule.steps): refs[index] := operands[0]
+    | found != #false: refs[index] := found
+    | ~else:
+        refs[index] := steps.length()
+        when key | expressions[key] := candidates ++ [steps.length()]
+        steps.add(RsimStep(step.opcode, step.type, operands, step.attributes, step.occurrence))
   remap_schedule(schedule, steps.snapshot(), remap)

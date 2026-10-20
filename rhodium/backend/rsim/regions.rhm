@@ -66,8 +66,10 @@ fun storage_cost(read :: RsimStorageRead, schedule :: RsimSchedule) :: Nat:
    Conditional consumers include the cost of their deferred producers. */
 fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
   def mutable cost = 1 + (if sink.conditional | sink.conditional.cost | 0)
-  for (value in sink.dependencies.values): cost := cost + type_cost(schedule.steps[value].type)
-  for (read in sink.dependencies.storage): cost := cost + storage_cost(read, schedule)
+  if sink.kind == "group"
+  | for (member in sink.members): cost := cost + sink_cost(member, schedule)
+  | for (value in sink.dependencies.values): cost := cost + type_cost(schedule.steps[value].type)
+    for (read in sink.dependencies.storage): cost := cost + storage_cost(read, schedule)
   when sink.array
   | for (index in sink.array.steps):
       def step = schedule.steps[index]

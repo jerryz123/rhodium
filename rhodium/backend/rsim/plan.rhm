@@ -16,6 +16,7 @@ export:
   RsimForeign
   RsimSchedule
   build_schedule remap_schedule
+  pure_computation
 
 /* Describes one typed value in dependency order; operand indices
    refer only to earlier steps. Input and state steps are evaluation roots.
@@ -86,18 +87,33 @@ fun remap_schedule(schedule :: RsimSchedule, steps :: List.of(RsimStep), remap :
 class Occurrence(module_def :: Module, path :: List.of(String), bindings :: Map,
                  children :: MutableMap)
 
-def supported = ["rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive", "rtl.instance",
-                 "rtl.constant", "rtl.dont_care", "rtl.onehot_mux", "rtl.decode",
-                 "rtl.not", "rtl.and", "rtl.or", "rtl.xor",
-                 "rtl.add", "rtl.sub", "rtl.mul", "rtl.eq", "rtl.ult", "rtl.mux_lookup",
-                 "rtl.slt", "rtl.shl", "rtl.shru", "rtl.shrs", "rtl.concat", "rtl.extract",
-                 "rtl.zext", "rtl.sext", "rtl.trunc",
-                 "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",
-                 "rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set",
-                 "rtl.memory", "rtl.memory_read_async", "rtl.memory_write",
-                 "rtl.sync_memory", "verif.assert", "sim.dpi_call", "sim.dpi_register",
-                 "cdc.sync_level",
-                 "rtl.cast", "rtl.register", "rtl.register_reset"]
+// Only these computations depend entirely on scheduled operands and attributes.
+// Storage observations and ordered effects are represented separately. Reuse
+// this inventory for capability admission so a new RTL operation must explicitly
+// choose whether conditional planning may move it beneath a consumer guard.
+def pure_operations = [
+  "rtl.constant", "rtl.dont_care", "rtl.onehot_mux", "rtl.decode",
+  "rtl.not", "rtl.and", "rtl.or", "rtl.xor",
+  "rtl.add", "rtl.sub", "rtl.mul", "rtl.eq", "rtl.ult", "rtl.mux_lookup",
+  "rtl.slt", "rtl.shl", "rtl.shru", "rtl.shrs", "rtl.concat", "rtl.extract",
+  "rtl.zext", "rtl.sext", "rtl.trunc",
+  "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",
+  "rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set", "rtl.cast"
+]
+def pure_opcodes = for Set (opcode in pure_operations): opcode
+
+/* Classify computations with no implicit input, storage, or effect dependency.
+   This permits conditional placement, not arbitrary sharing or caching: partial
+   values retain their existing semantics, and all-use/lifetime checks still apply. */
+fun pure_computation(step :: RsimStep) :: Boolean:
+  step.opcode in pure_opcodes
+
+def supported = pure_operations ++ [
+  "rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive", "rtl.instance",
+  "rtl.memory", "rtl.memory_read_async", "rtl.memory_write",
+  "rtl.sync_memory", "verif.assert", "sim.dpi_call", "sim.dpi_register",
+  "cdc.sync_level", "rtl.register", "rtl.register_reset"
+]
 
 /* Attribute unsupported representations to the exact source occurrence. */
 fun fail(path :: List.of(String), operation :: Operation, message :: String):

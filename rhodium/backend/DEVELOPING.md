@@ -45,7 +45,7 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
 | `rsim/decode.rhm` | Proven selector-bit specialization and bounded native decode table planning |
 | `rsim/array-updates.rhm` | Exact array-update recovery and read forwarding, using shared liveness pruning |
-| `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
+| `rsim/cse.rhm` | Scalar cast aliasing, exact expression sharing, and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, shared schedule pruning, and ordered final consumers |
 | `rsim/conditional.rhm` | Bounded exclusive pure producers placed beneath mux selections and explicit consumer guards in each evaluation phase |
 | `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
@@ -90,9 +90,18 @@ Verified `cdc.sync_level` metadata has no separate simulation action: keep its
 ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
+`plan.rhm` owns the explicit pure-computation inventory used by capability
+admission and conditional placement. Opcode namespaces do not imply purity.
+Inputs and current-storage observations remain roots; ordered effects remain
+separate consumers. Purity alone does not authorize expression sharing,
+cross-evaluation caching, or moving a value across its users' lexical scopes.
+Test dependency, ownership, and storage-allocation decisions on the structured
+plans; reserve generated-text assertions for C++ representation and rendering
+contracts, with executable oracles covering behavior.
 
-`CppTypes.name` keeps standalone scalar expressions and registers in uint64_t
-through 64 hardware bits. `storage_name` narrows scalar boundary slots and leaves
+`CppTypes.name` keeps standalone scalar expressions and public scalar ports in
+uint64_t through 64 hardware bits. `storage_name` narrows private registers,
+held read/foreign results, frame payloads, scalar boundary slots, and leaves
 of records, vectors, and persistent memory arrays to unsigned 8/16/32/64-bit
 words; wider leaves retain the wide carrier. Public aggregate ports use that
 same recursive representation. Keep named records and native alignment; no
@@ -104,6 +113,10 @@ must never turn a byte/halfword shift into signed arithmetic or truncate a
 32-bit member shifted into a 64-bit packed result. Vector-write helpers infer
 enable, index, and element carriers independently. These representation choices
 do not change evaluation, borrowing, bank selection, or commit ordering.
+Frame addresses use their authored index width, not the memory depth: truncating
+an out-of-bounds address could turn a skipped write into a valid write. Arithmetic
+and imported scalar backing explicitly widen to uint64_t before operations;
+functional DPI and the SV bridge retain their existing ABI.
 
 Both rsim targets specialize `rtl.decode` selectors immediately after scheduling.
 `specialize_decodes` propagates conservative known bits through constants,
@@ -118,7 +131,10 @@ become don't-cares. The pass changes only the private schedule, preserving the
 prepared RTL and compilation manifest.
 
 Both rsim targets then apply `share_scalar_expressions` before binding validation
-or evaluation planning. It retains the first matching pure
+or evaluation planning. Verified equal-width scalar casts alias their source
+representation, including nominal and wide scalars. Aggregate packing casts remain
+explicit. This removes work before partitioning without weakening hardware
+type equality or changing port/resource descriptors. The pass retains the first matching pure
 scalar expression in dependency order, matching opcode, ordered remapped operands,
 semantic attributes, and hardware type equality. Only the diagnostic value `name`
 is excluded from attribute comparison; the retained step keeps its original
@@ -239,7 +255,15 @@ operands and arguments. Admission waits until every use edge requests the same
 lexical path from already admitted consumers. This allows shared computations
 within a branch; the renderer declares each producer once. Different mux arms
 have distinct paths, and sharing across paths or consumers outside the owner
-stays unconditional. Selectors, constants, input/storage roots, and existing
+stays unconditional. Up to 16 adjacent consumers with identical explicit guard
+identities and polarities can share one scope and its bounded pure cone. This
+requires moving at least one producer shared between consumers; otherwise each
+consumer retains its own conditional budget. Candidate walks visit at most 128
+pure steps per member. This does not reorder consumers or infer Boolean equivalence. Each group is an atomic
+region item. Its disabled path initializes frame fields and completes every
+inactive-bank destination, including reset values and held foreign results.
+Separate mux arms still have distinct scopes; grouping does not speculate
+across their selections. Selectors, constants, input/storage roots, and existing
 fused array assignments retain their ordinary scheduling. This is conditional
 evaluation within one invocation. Cross-cycle reuse belongs to the separate
 experimental region cache.
@@ -331,6 +355,17 @@ scratch ownership and borrowing are derived from these references, not parallel
 maps of rendered expressions. `emit.rhm` owns C++ names, dereferences, projection
 parentheses, and declarations. Keep allocation deterministic and independent of
 rendering; this is private backend storage policy, not a new RTL representation.
+Normalized scalar state and static aggregate projections resolve directly to
+their existing backing, just like aggregate views. External input values and
+computed memory reads still require normalization/materialization.
+
+Eager scalar scratch uses full-region live intervals. A slot becomes reusable
+only after its final consuming helper has returned, so inputs and outputs of
+the same helper never overlap. Allocation uses deterministic carrier-specific
+free lists. Aggregates, wide values, and pointer slots keep unique storage
+because projections/borrows can retain references. The experimental persistent
+cache disables scalar slot reuse entirely; values retained across evaluations
+must not be overwritten by another producer.
 
 The emitter renders bodies exceeding the budget as private C++ helpers. Bodies
 whose total cost fits the budget, or which consist of a single oversized item, stay
@@ -361,8 +396,10 @@ projections need no additional slots. A computed helper-local parent cannot back
 a crossing reference: materialize the projection without promoting its parent.
 Local projections may reference earlier locals in the same helper. Resolve constant
 symbols before layout so projected consumers need no undeclared ancestor aliases.
-External input normalization, dynamic/asynchronous reads, and scalar projections
-keep their existing materialization. Other nonconstant values consumed in later regions
+Scalar roots and static projections also use this backing map, loading values
+into arithmetic carriers instead of retaining references. External input
+normalization and dynamic/asynchronous reads keep their materialization.
+Other nonconstant values consumed in later regions
 receive scratch slots. Slots are grouped in typed arrays by C++
 carrier; a producer writes its slot directly. Scalar reads through 64 bits widen
 to unsigned 64-bit arithmetic values, both after producer writes and at helper
@@ -374,8 +411,8 @@ has evaluation-long backing storage: an immutable constant or an earlier boundar
 value, including a direct state binding or another borrowed mux. Selection takes the chosen lvalue's address
 without copying its aggregate. Helper-local branches retain materialized results;
 do not promote extra values merely to enable borrowing. Scalar results keep their
-ordinary normalization and materialization. Boundary slots are never recycled
-within an evaluation, so later consumers can safely follow borrowed chains.
+ordinary normalization and materialization. Aggregate and pointer slots are never
+recycled within an evaluation, so later consumers can safely follow borrowed chains.
 Aggregate decode rows and their default share the immutable constant pool,
 with uncared bits still deterministically zero. Each decode selects a const
 reference locally or a const-pointer slot across regions; nested projections
@@ -960,13 +997,18 @@ producers and mux results, datapath-derived enables, resetless state, model
 copying, and failed-edge retries retain their behavior. Repeated arithmetic uses
 and DPI arguments check that shared branch producers execute once; a producer
 used in alternative mux arms checks that sharing cannot escape branch scope.
+Paired consumers check shared-guard computation counts for registers, calls,
+assertions, reads, and writes. A 256-entry peer memory checks byte-sized frame
+addresses at the carrier limit.
 The ordinary and forced-region native runners both include these fixtures.
 
 `tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,
 storage dependencies, shared output computation, and occurrence identity with
 Builder fixtures. Scalar scratch checks cross the 8/16/32/64-bit storage
 boundaries and require arithmetic-carrier loads at producer aliases and helper
-imports. Small forced budgets check region boundaries against an
+imports. Reused scalar slots must have disjoint full-region live intervals, while
+cached layouts retain unique slots. Compact state/frame fields and direct state
+bindings are checked separately. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
 `tests/rsim-decode-test.rhm` compares specialized schedules against an independent
 canonical-integer interpreter, exhaustively covering dynamic bytes with constant
@@ -979,7 +1021,8 @@ including model copying, dirty input padding, shared tables, and 16-bit row IDs.
 The native runner includes this fixture, and forced
 region fixtures use the production target's optimized schedule.
 `tests/rsim-cse-test.rhm` checks transitive expression sharing, operand order,
-type/attribute distinctions, deterministic and idempotent rewriting, complete
+type/attribute distinctions, scalar cast chains with preserved public types,
+retained aggregate packing casts, deterministic and idempotent rewriting, complete
 consumer remapping (including optional value zero), and preserved effect/resource
 identity. Native and direct-SV scoreboards exercise the optimized target with
 independently authored duplicate arithmetic and existing state, memory, assertion,

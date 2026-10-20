@@ -281,6 +281,18 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
   def index = sink.index
   def emitted = MutableSet{}
   match sink.kind
+  | "group":
+      def active = String.join(for List (term in sink.guard): ref(term[0]) ++ (if term[1] | " != 0" | " == 0"), " && ")
+      source.add("  if (" ++ active ++ ") {")
+      for (member in sink.members):
+        // Emit shared roots in this single scope before ordinary sink sampling.
+        // External dependencies and selectors were imported by the helper.
+        for (value in member.dependencies.values):
+          emit_branch_producer(value, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
+        emit_sink(member, plan, types, constants, source)
+      source.add("  } else {")
+      for (member in sink.members): emit_disabled_sink(member, plan, source)
+      source.add("  }")
   | "foreign":
       def call = plan.foreign_calls[index]
       def slot = to_string(index)
@@ -364,6 +376,29 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
       def port = plan.outputs[index]
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
   | ~else: error(~who: #'rsim, "unknown evaluation sink: " ++ sink.kind)
+
+/* Complete all destinations when a grouped guard is false. The inactive bank
+   may contain a rejected attempt, so holds/reset/read results must be assigned
+   again. Disabled frame payloads are deterministic but never reach an effect. */
+fun emit_disabled_sink(sink :: RsimSink, plan :: RsimSchedule, source :: MutableList):
+  def index = sink.index
+  match sink.kind
+  | "register":
+      source.add("    next.s" ++ to_string(index) ++ " = " ++ ref(plan.registers[index].reset_value) ++ ";")
+  | "foreign":
+      def call = plan.foreign_calls[index]
+      def prefix = "frame.call" ++ to_string(index)
+      source.add("    " ++ prefix ++ "_enable = false;")
+      for (arg in 0..call.arguments.length()): source.add("    " ++ prefix ++ "_arg" ++ to_string(arg) ++ " = {};")
+      for (result in 0..call.import_decl.results.length()):
+        def name = foreign_slot(index, result)
+        source.add("    next." ++ name ++ " = current." ++ name ++ ";")
+  | "assertion": source.add("    frame.assertion" ++ to_string(index) ++ "_failed = false;")
+  | "sync_read": source.add("    next.r" ++ to_string(index) ++ " = {};")
+  | "write":
+      def prefix = "frame.write" ++ to_string(index)
+      source.add("    " ++ prefix ++ "_enable = false;\n    " ++ prefix ++ "_address = 0;\n    " ++ prefix ++ "_data = {};")
+  | ~else: error(~who: #'rsim, "unsupported grouped consumer: " ++ sink.kind)
 
 /* Assign one exclusive array tree into inactive state. Each selected path
    copies one immutable leaf, then applies updates from base to outermost value.
@@ -526,8 +561,8 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   // Resolve shared constant symbols before layout so projected bindings can
   // name them even in consumers whose original operands were only projections.
   def constants = emit_constants(plan.steps, evaluation.constants, types)
-  def pre_layout = boundary_layout(pre_regions, plan, types, constants)
-  def output_layout = boundary_layout(output_regions, plan, types, constants)
+  def pre_layout = boundary_layout(pre_regions, plan, types, constants, ~reuse_scalars: !cache_regions)
+  def output_layout = boundary_layout(output_regions, plan, types, constants, ~reuse_scalars: !cache_regions)
   def empty_cache = RsimRegionCache(Set{}, {}, 0)
   def pre_cache = if cache_regions && pre_helpers | plan_region_cache(plan, evaluation, pre_regions, pre_layout) | empty_cache
   def output_cache = if cache_regions && output_helpers | plan_region_cache(plan, evaluation, output_regions, output_layout) | empty_cache
@@ -573,12 +608,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   // Both owned banks start initialized. Each tick overwrites the inactive bank
   // completely; publishing its index avoids copying state or retaining self-pointers.
   for (reg in plan.registers, index in 0..plan.registers.length()):
-    header.add("    " ++ types.name(reg.type) ++ " s" ++ to_string(index) ++ "; // " ++ String.join(reg.path ++ [reg.name], "/"))
+    header.add("    " ++ types.storage_name(reg.type) ++ " s" ++ to_string(index) ++ "; // " ++ String.join(reg.path ++ [reg.name], "/"))
   for (read in plan.reads, index in 0..plan.reads.length()):
-    header.add("    " ++ types.name(plan.memories[read.memory].type) ++ " r" ++ to_string(index) ++ "; // synchronous read result")
+    header.add("    " ++ types.storage_name(plan.memories[read.memory].type) ++ " r" ++ to_string(index) ++ "; // synchronous read result")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     for (result_index in 0..call.import_decl.results.length()):
-      header.add("    " ++ types.name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "; // held foreign result")
+      header.add("    " ++ types.storage_name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "; // held foreign result")
   header.add("  };\n  State states_[2]{};\n  unsigned active_state_ = 0;")
   for (memory in plan.memories, index in 0..plan.memories.length()):
     header.add("  std::array<" ++ types.storage_name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
@@ -587,12 +622,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     def prefix = "call" ++ to_string(index)
     header.add("    bool " ++ prefix ++ "_enable;")
     for (arg in 0..call.arguments.length()):
-      header.add("    " ++ types.name(call.import_decl.input_types[arg]) ++ " " ++ prefix ++ "_arg" ++ to_string(arg) ++ ";")
+      header.add("    " ++ types.storage_name(call.import_decl.input_types[arg]) ++ " " ++ prefix ++ "_arg" ++ to_string(arg) ++ ";")
   for (index in 0..plan.assertions.length()):
     header.add("    bool assertion" ++ to_string(index) ++ "_failed;")
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "write" ++ to_string(index)
-    header.add("    std::uint64_t " ++ prefix ++ "_address;\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data;\n    bool " ++ prefix ++ "_enable;")
+    header.add("    " ++ types.storage_name(plan.steps[write.address].type) ++ " " ++ prefix ++ "_address;\n    " ++ types.storage_name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data;\n    bool " ++ prefix ++ "_enable;")
   header.add("  };\n  Outputs outputs_;\n  Frame evaluate(const State& current, State& next) const;")
   for (entry in caches):
     def cache :: RsimRegionCache = entry[1]
@@ -724,6 +759,8 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   // of register reset; statement order only chooses unspecified collision results.
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "before.write" ++ to_string(index)
-    source.add("  if (" ++ prefix ++ "_enable && " ++ prefix ++ "_address < " ++ to_string(plan.memories[write.memory].depth) ++ ") {\n    memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;\n" ++ invalidate(RsimCacheSource("memory", write.memory)) ++ "\n  }")
+    // Widen compact addresses before comparison, including a full 256-entry
+    // byte-indexed memory where the guard would otherwise warn as tautological.
+    source.add("  if (" ++ prefix ++ "_enable && static_cast<std::uint64_t>(" ++ prefix ++ "_address) < " ++ to_string(plan.memories[write.memory].depth) ++ ") {\n    memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;\n" ++ invalidate(RsimCacheSource("memory", write.memory)) ++ "\n  }")
   source.add("  eval();\n}\n}")
   [String.join(header.snapshot(), "\n") ++ "\n", String.join(source.snapshot(), "\n") ++ "\n"] ++ (if types.wide | [rkt.#{string->immutable-string}(file.#{file->string}(bits_header))] | [])

@@ -32,10 +32,13 @@ class RsimConditional(steps :: Set, dependencies :: RsimDependencies, cost :: Po
    Dependencies include pending-state and frame reads without a standalone value
    step. An optional register-array or conditional branch plan replaces exclusive
    intermediate values with a destination assignment; its external leaves are
-   the sink's value uses. These two assignment plans never share ownership. */
+   the sink's value uses. These two assignment plans never share ownership.
+   A grouped sink owns adjacent consumers with identical explicit guards;
+   members retain their original identities and effects remain in tick(). */
 class RsimSink(kind :: String, index :: Nat, dependencies :: RsimDependencies,
                array :: maybe(RsimArrayAssignment) = #false,
-               conditional :: maybe(RsimConditional) = #false)
+               conditional :: maybe(RsimConditional) = #false,
+               members :: List = [], guard :: List = [])
 
 /* Select original step IDs and ordered consumers for one storage snapshot.
    Conditional step owners replace their ordinary operands with external leaves;

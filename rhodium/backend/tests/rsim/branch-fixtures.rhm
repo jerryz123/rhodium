@@ -63,7 +63,7 @@ fun make_conditionals():
   def expected = b.input(top, "expected", Bits(32))
   def index = b.input(top, "index", Bits(2))
   def raw_call = b.input(top, "raw_call", Bits(32))
-  def products = for List (name in ["comb_data", "default_data", "shared_data", "write_data", "call_data", "check_data", "read_index", "sibling_data"]):
+  def products = for List (name in ["comb_data", "default_data", "shared_data", "write_data", "call_data", "check_data", "read_index", "sibling_data", "group_data"]):
     b.mul(top, b.input(top, name, Bits(32)), b.constant(top, Bits(32), 3))
   // Both arms compute; default must also be lazy. Multiple uses of the mux
   // result must not duplicate or eagerly evaluate its exclusive producers.
@@ -79,6 +79,12 @@ fun make_conditionals():
   def captured = b.register(top, "capture_state", Bits(32), clock, reset, b.constant(top, Bits(32), 17))
   b.drive(captured.next, b.bit_not(top, selected))
   b.drive(b.output(top, "captured", Bits(32)), captured.current)
+  // Adjacent consumers share work only within an identical explicit guard.
+  // Registers must still initialize the inactive bank on every reset/retry.
+  for (name in ["group_a", "group_b"], index in 0..2):
+    def reg = b.register(top, name ++ "_state", Bits(32), clock, reset, b.constant(top, Bits(32), 17 + index * 2))
+    b.drive(reg.next, if index == 0 | products[8] | b.add(top, products[8], b.constant(top, Bits(32), 1)))
+    b.drive(b.output(top, name, Bits(32)), reg.current)
   def memory = b.sync_memory(top, "memory", 4, Bits(32), clock, #true, #true, #false)
   def read = memory.read_ports[0]
   b.drive(read.address, b.trunc(top, products[6], 2))
@@ -88,12 +94,24 @@ fun make_conditionals():
   b.drive(write.enable, write_enable)
   b.drive(write.data, products[3])
   b.drive(b.output(top, "read_data", Bits(32)), read.data)
+  // A full byte-indexed memory also checks compact frame addresses at the
+  // carrier bound; these stimuli intentionally access the same four words.
+  def peer_memory = b.sync_memory(top, "peer_memory", 256, Bits(32), clock, #true, #true, #false)
+  b.drive(peer_memory.read_ports[0].address, b.zext(top, b.trunc(top, products[6], 2), 8))
+  b.drive(peer_memory.read_ports[0].enable, read_enable)
+  b.drive(peer_memory.write_ports[0].address, b.zext(top, index, 8))
+  b.drive(peer_memory.write_ports[0].enable, write_enable)
+  b.drive(peer_memory.write_ports[0].data, products[3])
+  b.drive(b.output(top, "read_peer", Bits(32)), peer_memory.read_ports[0].data)
   def imp = b.dpi_import("rsim_conditional_call", ["arg", "again"], [Bits(32), Bits(32)], "result", Bits(32))
   // A shared mux result is declared once in the call guard, and its private
   // branch work remains lazy inside that declaration.
   def call_arg = b.mux_lookup(top, select, products[4], [[1, raw_call]])
   def result = b.dpi_register(top, "held_call", imp, [call_arg, call_arg], clock, call_enable)
   b.drive(b.output(top, "call_result", Bits(32)), result)
+  def peer_result = b.dpi_register(top, "held_peer", imp, [call_arg, b.add(top, call_arg, b.constant(top, Bits(32), 2))], clock, call_enable)
+  b.drive(b.output(top, "call_peer", Bits(32)), peer_result)
   b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_check")
+  b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_peer")
   b.finish(top)
   DesignElaboration(design, top)
