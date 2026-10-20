@@ -41,6 +41,10 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   interface feedback(Valid(VectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   input(flush, begin_macro): Bool
   output(active, scheduled_return): Bool
+
+
+  /* Fixed-latency read context and compression checkpoints */
+
   inst context_pipe(ValidPipe(SequenceContext, 1, ~flushable: #true))
   inst packing(VectorOperands(xlen, vlen))
   reg compress_data(~init: bits(0, xlen.width))
@@ -55,6 +59,10 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   reg flush_sequence(Bits(vector_sequence_width(vlen)))
   reg authorized_sequence(~init: bits(0, vector_sequence_width(vlen)))
   reg authorized_end(~init: bits(0, index_width(vlen + 1)))
+
+
+  /* Returned descriptor and operand geometry */
+
   def clear = flush
   def retry = feedback.valid & (feedback.bits.disposition === VectorDisposition.Retry)
   def response = context_pipe.egress
@@ -124,6 +132,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   // scalar gathers rotate to slot zero, then use width-selected replication.
   def gather_offset = mux(gather_vector, read_context.gather_offset - (beat_control.first[0..vector_byte_offset_width(xlen)] << sew), gather_index[0..vector_byte_offset_width(xlen)] << sew)
   def gather_in_range = mux(gather_vector, read_context.gather_in_range, gather_index < geometry.vlmax.zext(xlen.width))
+
+
+  /* Scheduled VRF reads and ordinary operand packing
+     Admission reserves the return cycle; this stage has no post-read stall queue. */
+
   def can_read = !clear & (!compress_flush ||| request.bits.context.suffix)
   request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context) |> context_pipe.ingress
   context_pipe.flush <== clear
@@ -159,8 +172,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   packing.mask_word <== mask_result.bits
   packing.scalar <== mux(floating_scalar_operand, floating_scalar, descriptor.scalar)
   packing.immediate <== concat(descriptor.instruction[26], vs1)
-  // Premerge bytes before the ALU's full-word rotate-right. Scalar insert
-  // bytes keep their element-local position because the offset is SEW-aligned.
+
+
+  /* Premerge bytes before the ALU's full-word rotate-right. Scalar insert
+     bytes keep their element-local position because the offset is SEW-aligned. */
+
   def slide_source = vec(for List (byte in 0..vector_word_bytes(xlen)):
                            def high = bits(byte, vector_byte_offset_width(xlen)) < slide_offset
                            def valid = mux(high, response.bits.slide_valid[byte + vector_word_bytes(xlen)], response.bits.slide_valid[byte]).into(Bool)
@@ -172,6 +188,10 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
                            mux(insert, scalar_byte, source)).as_bits()
   def slide_enabled = vec(for List (lane in 0..vector_word_bytes(xlen)):
                             !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((beat_control.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
+
+
+  /* Element placement and compute operand selection */
+
   def memory_shift_width = mux(descriptor.control.fp_service, fp_source_width.into(Bits(2)), sew)
   def memory_shift = ((beat_control.first[0..vector_byte_offset_width(xlen)] << memory_shift_width) ++ bits(0, 3))
   def first_shift_width = mux(descriptor.control.fp_service & descriptor.control.wide_vs2, fp_result_width.into(Bits(2)), memory_shift_width)
@@ -179,10 +199,25 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def indexed_address = beat_control.address + vector_index
   def destination_shift = ((beat_control.first[0..vector_byte_offset_width(xlen)] << destination_width) ++ bits(0, 3))
   def memory_enabled = !beat_control.empty & (!descriptor.masked ||| (mask_result.bits >> beat_control.first[0..vector_bit_offset_width(xlen)])[0].into(Bool))
+  def left_operand = priority_mux(~default: packing.operands.left):
+    gather: mux(gather_in_range, results[0].bits, bits(0, xlen.width))
+    slide: slide_source
+    scan: results[0].bits >> beat_control.first[0..vector_bit_offset_width(xlen)]
+    singleton: results[0].bits >> first_shift
+  def right_operand = priority_mux(~default: packing.operands.right):
+    gather: (gather_offset ++ bits(0, 3)).zext(xlen.width)
+    slide: (slide_offset ++ bits(0, 3)).zext(xlen.width)
+    mask_logic ||| reduction: results[1].bits
+    fp_service_scalar_operand: floating_scalar
+    singleton & (descriptor.control.operand === VectorOperandMode.Vector): results[1].bits >> memory_shift
+  def packed_enabled = (mux(beat_control.empty, bits(0, vector_word_bytes(xlen)), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, vector_word_bytes(xlen)))).into(Mask(vector_word_bytes(xlen)))
+  def enabled_lanes = priority_mux(~default: packed_enabled):
+    mask_logic: beat_control.mask_enabled.or_reduce().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
+    singleton: memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
   def operands = VectorBeat(xlen, vlen):
     address: mux(indexed_memory, indexed_address, beat_control.address)
-    left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, xlen.width)), mux(slide, slide_source, mux(scan, results[0].bits >> beat_control.first[0..vector_bit_offset_width(xlen)], mux(singleton, results[0].bits >> first_shift, packing.operands.left))))
-    right: mux(gather, (gather_offset ++ bits(0, 3)).zext(xlen.width), mux(slide, (slide_offset ++ bits(0, 3)).zext(xlen.width), mux(mask_logic ||| reduction, results[1].bits, mux(fp_service_scalar_operand, floating_scalar, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))))
+    left: left_operand
+    right: right_operand
     destination_data: results[2].bits >> destination_shift
     carry_in: mux(carry_input, (mask_result.bits >> beat_control.first[0..vector_bit_offset_width(xlen)])[0..vector_word_bytes(xlen)], bits(0, vector_word_bytes(xlen))).into(Mask(vector_word_bytes(xlen)))
     select_right: mux(mask_select, (mask_result.bits >> beat_control.first[0..vector_bit_offset_width(xlen)])[0..vector_word_bytes(xlen)], mux(extension ||| whole_register_move, bits(0, vector_word_bytes(xlen)), !bits(0, vector_word_bytes(xlen)))).into(Mask(vector_word_bytes(xlen)))
@@ -191,7 +226,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     element_width: packing.operands.element_width
     // One full-word logic lane computes the mask; mask_enabled controls its
     // independently writable architectural elements at the result port.
-    enabled: mux(mask_logic, beat_control.mask_enabled.or_reduce().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen))), mux(singleton, memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen))), (mux(beat_control.empty, bits(0, vector_word_bytes(xlen)), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, vector_word_bytes(xlen)))).into(Mask(vector_word_bytes(xlen)))))
+    enabled: enabled_lanes
     sequence: beat_control.sequence
     first: beat_control.first
     end: beat_control.end
@@ -208,6 +243,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
         data: bits(0, xlen.width)
         count: bits(0, vector_lane_count_width(xlen))
         destination: beat_control.first
+
+
+  /* Compression accumulation and suffix formation
+     Speculative packed data and authorized checkpoints have separate lifetimes. */
+
   inst compactor(SimdCompress(xlen))
   def compress_mask = results[1].bits >> beat_control.first[0..vector_bit_offset_width(xlen)]
   def compress_selected = vec(for List (lane in 0..vector_word_bytes(xlen)):
@@ -245,6 +285,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     ~select_right: bits(0, vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen))),
     ~compress_state: post_compress_state
   )
+
   /* Forms the final partial compression write from its retained suffix without new VRF reads. */
   fun compression_flush_beat(state :: VectorCompressState(xlen, vlen)) :~ VectorBeat(xlen, vlen):
     VectorBeat(xlen, vlen):
@@ -276,8 +317,10 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
           destination: state.destination + state.count.zext(index_width(vlen + 1))
   def Array(direct_response, compression_response) = response |> fork_valid(2)
 
-  // A packed load carries metadata through this stage with every read disabled.
-  // A direct store consumes the two scheduled rows and the shared alignment slot.
+
+  /* A packed load carries metadata through this stage with every read disabled.
+     A direct store consumes the two scheduled rows and the shared alignment slot. */
+
   def packed_layout = read_context.packed_layout
   def packed_first_lane = priority_encoder(packed_layout.live)
   def packed_rotation = packed_layout.offsets[packed_first_lane] - packed_first_lane
@@ -297,6 +340,10 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     packed: packed
     packed_layout: read_context.packed_layout
     byte_mask: read_context.packed_mask
+
+
+  /* Suffix handoff and scheduled-return checks */
+
   def flush_state = VectorCompressState(xlen, vlen):
     data: compress_data
     count: compress_count
@@ -323,6 +370,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     assert(singleton ||| mask_word ||| beat_control.empty ||| packing.legal, "vector_packed_read_is_legal")
   when (response.valid & !clear & packed & read_context.packed_store_read):
     assert(results[0].valid & results[1].valid, "vector_packed_store_matches_scheduled_rows")
+
+
+  /* Compression checkpoint updates
+     Retry restores the authorized frontier; fresh macro admission clears prior state. */
+
   when discard_compression:
     compress_context_valid <== Bool(#false)
   elsewhen capture_compression:

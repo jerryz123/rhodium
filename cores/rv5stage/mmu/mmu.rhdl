@@ -128,9 +128,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_translation_enabled = (satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)) ||| data_guest
   def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
+
   /* Captures host or guest translation roots, privilege, permission controls, and PBMT enables. */
   fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RiscvTlbLookup():
     riscv_translation_lookup(address, access, effective_privilege, enabled, root_ppn, sum, mxr, pbmte, guest, guest_state)
+
+
+  /* Vector certificate context
+     Physical certificates are independent of the retained fallback page window. */
+
   reg vector_invalidation_epoch(~init: bits(0, 2))
   when invalidate_all:
     vector_invalidation_epoch <== vector_invalidation_epoch + bits(1, 2)
@@ -138,6 +144,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // Certified vector requests carry their own physical address thereafter.
   def vector_context = lookup(bits(0, 64), Sv39Access.Load, normal_data_privilege, satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine) & !normal_data_guest, normal_data_guest)
   vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.virtualized === vector_context.virtualized) & (vector_fast.candidate.context.as_bits() === vector_context.context.as_bits())
+
+
+  /* Instruction S0 admission and S1 ownership */
+
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
@@ -150,6 +160,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // the old S1 context; a flush without a transfer clears S1 normally.
   instruction_s1.flush <== instruction.flush & !instruction_admission.valid
   def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
+
+
+  /* Authorized data demand and split-fragment ownership */
+
   def data_requests = data.request |> map_flow(request => if hypervisor | request.memory | request)
   def incoming_request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = data_requests.bits
   def split_busy = misaligned.busy
@@ -165,6 +179,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_pinned = data_window ||| data_physical
   def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
 
+
+  /* Translation-port arbitration
+     Authorized WB demand precedes page probes, MEM lookup, and vector fast certification. */
+
   itlb.lookup <== lookup(instruction_virtual_address, Sv39Access.Fetch, privilege, instruction_translation_enabled & !instruction_guest, instruction_guest)
   itlb.invalidate_all <== invalidate_all
   // Authorized WB requests own the DTLB on contention. Younger MEM loads then
@@ -175,9 +193,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_pinned = load_window ||| physical_owner.bits
   def probe_selected = page_probe.request.valid & !data.request.valid & !split_busy
   def fast_selected = vector_fast.request.valid & !data.request.valid & !split_busy & !page_probe.request.valid & !load_request.egress.valid
-  def demand_address = mux(data_demand, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, mux(load_request.egress.valid, load_virtual_address, vector_fast.request.bits.first)))
+  def demand_address = priority_mux(~default: vector_fast.request.bits.first):
+    data_demand: data_virtual_address
+    probe_selected: page_probe.request.bits.address
+    load_request.egress.valid: load_virtual_address
   def pipeline_is_store = load_request.egress.bits.access === CacheOperation.Store
-  def demand_access = mux(data_demand, data_access_kind, mux(mux(probe_selected, page_probe.request.bits.store, mux(load_request.egress.valid, pipeline_is_store, vector_fast.request.bits.store)), Sv39Access.Store, Sv39Access.Load))
+  def speculative_store = priority_mux(~default: vector_fast.request.bits.store):
+    probe_selected: page_probe.request.bits.store
+    load_request.egress.valid: pipeline_is_store
+  def demand_access = mux(data_demand, data_access_kind, mux(speculative_store, Sv39Access.Store, Sv39Access.Load))
   dtlb.lookup <== lookup(demand_address, demand_access, data_privilege, data_translation_enabled & !data_guest, data_guest).updated(~execute_read: execute_read)
   dtlb.invalidate_all <== invalidate_all
   def vector_fast_page = (dtlb_result.physical_address[12..56] ++ bits(0, 12)).zext(64)
@@ -190,6 +214,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     invalidation_epoch: vector_invalidation_epoch
   when (vector_fast.request.valid):
     assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "vector_fast_range_is_one_page")
+
+
+  /* Prefetch translation
+     Context changes cancel the two probe pipes without feeding demand admission. */
 
   reg prefetch_previous_privilege(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg prefetch_previous_satp(~init: bits(0, width))
@@ -241,6 +269,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // Cancel at the clock edge without reconnecting demand squash to cache admission.
   physical_prefetch_pipe.egress |> physical_prefetch
 
+
+  /* Retained walker and fault state */
+
   reg walk_active(~init: Bool(#false))
   reg walk_is_data(~init: Bool(#false))
   reg walk_is_probe(~init: Bool(#false))
@@ -252,7 +283,18 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg fault_mapping(RiscvTlbMapping())
   reg walker_memory_pending(~init: Bool(#false))
 
-  def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(physical_owner.bits, load_request.egress.bits.address, mux(load_window, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), load_request.egress.bits.address)))
+
+  /* MEM pipeline translation and local replay
+     Contention and ordered accesses fall back without entering cache miss service. */
+
+  def load_address :: Bits(width):
+    if xlen == XLen.X32
+    | load_request.egress.bits.address
+    | block:
+        priority_mux(~default: load_request.egress.bits.address):
+          physical_owner.bits: load_request.egress.bits.address
+          load_window: vector_window.physical_addresses[1]
+          data_translation_enabled: dtlb.translation.physical_address.zext(64)
   def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: bits(7, width), [[MemoryWidth.Byte, bits(0, width)], [MemoryWidth.Half, bits(1, width)], [MemoryWidth.Word, bits(3, width)]])
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
   def load_attributes = resolve_memory_attributes(load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
@@ -292,9 +334,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     pipeline_outcome <== pipeline_memory.response.bits.outcome
   otherwise:
     pipeline_outcome <== CachePipelineOutcome.Replay
+  def pipeline_reason = priority_mux(~default: pipeline_memory.response.bits.reason):
+    pipeline_blocked: mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation)
+    !load_translation_hit: CachePipelineReason.Translation
+    !pipeline_cacheable: CachePipelineReason.Ordered
   def pipeline_result = CachePipelineResult(xlen):
     outcome: pipeline_outcome
-    reason: mux(pipeline_blocked, mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation), mux(!load_translation_hit, CachePipelineReason.Translation, mux(!pipeline_cacheable, CachePipelineReason.Ordered, pipeline_memory.response.bits.reason)))
+    reason: pipeline_reason
     data: pipeline_memory.response.bits.data
   def use_cache_result = cache_eligible & pipeline_memory.response.valid
   def cache_result = pipeline_memory.response |> filter_valid(_response => cache_eligible & load_request.egress.valid)
@@ -302,6 +348,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def translation_result = local_result |> filter_valid(_request => !use_cache_result)
     |> map_valid(_request => pipeline_result)
   Array(cache_result, translation_result) |> valid_arbiter() |> pipeline.response
+
+
+  /* Page-walk admission
+     Page probes precede instruction misses, then authorized data misses. */
+
   def can_start_walk = !walk_active & !fault_valid
   def instruction_fault_cache_hit = instruction_fault_cached & (instruction_fault_lookup.as_bits() === itlb.lookup.as_bits())
   // A replaying older instruction may need its own fetch (including a
@@ -334,6 +385,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   walker_cancel <== invalidate_all
   walker.cancel <== walker_cancel
 
+
+  /* Walker completion and TLB fills
+     A discarded fetch consumer does not discard an accepted PTE reply. */
+
   def walker_completed = walker.completion |> gate_flow(!fault_valid) |> to_valid()
   def walker_completion_fire = walker_completed.valid
   def probe_walk_result = walker_completed |> filter_valid(_result => walk_is_probe) |> map_valid(result => riscv_host_result(result))
@@ -353,17 +408,17 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     instruction_fault_lookup <== walk_lookup
     instruction_fault_mapping <== walker.completion.bits
 
+
+  /* Fault selection and instruction PMA checks */
+
   def latched_instruction_fault = fault_valid & !fault_is_data & (fault_address === instruction_virtual_address)
   def latched_data_fault = fault_valid & fault_is_data & (fault_address === data_virtual_address)
-  def instruction_page_fault = instruction_translation_enabled & (
-    (itlb.hit & itlb_result.fault) ||| instruction_fault_cache_hit ||| (latched_instruction_fault & !fault_is_access)
-  )
-  def data_page_fault = !data_pinned & data_translation_enabled & (
-    (dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access)
-  )
+  def instruction_page_fault = instruction_translation_enabled & ((itlb.hit & itlb_result.fault) ||| instruction_fault_cache_hit ||| (latched_instruction_fault & !fault_is_access))
+  def data_page_fault = !data_pinned & data_translation_enabled & ((dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access))
   def instruction_walk_access_fault = (latched_instruction_fault & fault_is_access) ||| (itlb.hit & itlb_result.access_fault)
   def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault))
   def request_fault_mapping = mux(latched_data_fault, fault_mapping, dtlb.translation)
+
   /* Projects a selected fragment's mapping fault into guest trap metadata. */
   fun guest_exception(mapping :: RiscvTlbMapping(), guest :: Bool) :~ RiscvGuestException():
     RiscvGuestException():
@@ -378,24 +433,17 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       pipeline_guest_fault <== guest_exception(dtlb.translation, normal_data_guest ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
   | #void
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| instruction_fault_cache_hit ||| latched_instruction_fault
-  def instruction_physical_address = if xlen == XLen.X32 | instruction_address | mux(
-    instruction_translation_enabled,
-    itlb.translation.physical_address.zext(64),
-    instruction_address
-  )
-  def instruction_physical = physical_map.lookup(
-    instruction_physical_address,
-    instruction_physical_address +& bits(3, width)
-  )
+  def instruction_physical_address = if xlen == XLen.X32 | instruction_address | mux(instruction_translation_enabled, itlb.translation.physical_address.zext(64), instruction_address)
+  def instruction_physical = physical_map.lookup(instruction_physical_address, instruction_physical_address +& bits(3, width))
   def instruction_has_physical_address = !instruction_translation_enabled ||| itlb.hit
   def instruction_attributes = resolve_memory_attributes(instruction_physical, itlb_result.pbmt)
-  def instruction_access_fault = instruction_walk_access_fault ||| (
-    instruction_has_physical_address & !instruction_page_fault & !instruction_physical.executable
-  )
+  def instruction_access_fault = instruction_walk_access_fault ||| (instruction_has_physical_address & !instruction_page_fault & !instruction_physical.executable)
   def instruction_local_fault = instruction_page_fault ||| instruction_access_fault
 
-  // Local S1 translation/PMA decisions are registered beside physical lookup.
-  // An ITLB miss starts at most one walk; the frontend regenerates the attempt.
+
+  /* Local S1 translation/PMA decisions are registered beside physical lookup.
+     An ITLB miss starts at most one walk; the frontend regenerates the attempt. */
+
   def Array(instruction_physical_path, instruction_result_path) = instruction_head
     |> filter_valid(_request => !instruction.flush & !instruction.s1_kill) |> fork_valid(2)
   (instruction_physical_path |> filter_valid(_request => instruction_lookup_ready & !instruction_local_fault)
@@ -432,10 +480,19 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     selected
   resolved |> instruction.response
 
-  // Core and PTE traffic independently offer physical requests. The outer
-  // arbiter tags each accepted transaction and returns it to its origin.
+
+  /* Core and PTE traffic independently offer physical requests. The outer
+     arbiter tags each accepted transaction and returns it to its origin. */
+
   def word_bytes = memory_word_bytes(xlen)
-  def translated_fragment_address = if xlen == XLen.X32 | data_request.address | mux(data_physical, data_request.address, mux(data_window, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_request.address)))
+  def translated_fragment_address :: Bits(width):
+    if xlen == XLen.X32
+    | data_request.address
+    | block:
+        priority_mux(~default: data_request.address):
+          data_physical: data_request.address
+          data_window: vector_window.physical_addresses[0]
+          data_translation_enabled: dtlb.translation.physical_address.zext(64)
   def data_physical_address = mux(split_busy, translated_fragment_address.align_down(word_bytes), translated_fragment_address)
   def data_translated_address = mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_virtual_address)
   def data_last_offset = mux_lookup(data_request.width, ~default: bits(7, 64), [[MemoryWidth.Byte, bits(0, 64)], [MemoryWidth.Half, bits(1, 64)], [MemoryWidth.Word, bits(3, 64)]])
@@ -468,6 +525,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   misaligned.request_fault <== data_page_fault
   misaligned.request_access_fault <== !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
   misaligned.request_guest <== guest_exception(request_fault_mapping, normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+
+
+  /* PTE physical requests and response routing */
+
   def walker_memory_request = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> trace_event("mmu/pte.request")
   walker_lookup.valid <== walker_memory_request.valid
   walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
@@ -508,6 +569,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // for its replay here would deadlock a WB trap/interrupt draining the LSU.
   data.drained <== !walk_active & !split_busy & !split_capture & core_memory.drained
   data.reservation_valid <== core_memory.reservation_valid
+
+
+  /* Walker, fault, and accepted-PTE ownership updates */
 
   def fault_latch_reset = invalidate_all ||| (instruction.flush & fault_valid & !fault_is_data)
   def latched_instruction_fault_accepted = instruction_s1_valid & instruction_translation_enabled & latched_instruction_fault
@@ -553,7 +617,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   when (load_request.egress.valid & load_window):
     assert(vector_window.hits[1], "vector_lookup_inside_certified_range")
 
-  // Passive physical-address taps follow the same MEM and accepted-WB owners.
+
+  /* Passive physical-address taps follow the same MEM and accepted-WB owners. */
+
   describe_cosim_signals({
     "pipeline_valid": pipeline.response.valid & pipeline_outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit),
     "pipeline_address": load_address,

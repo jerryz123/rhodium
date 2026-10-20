@@ -44,6 +44,10 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   interface lookup_result(Valid(CacheDataSnoopLookupResult()), ~role: consumer)
   interface update(Valid(CacheDataSnoopUpdate(address_width)), ~role: producer)
 
+
+  /* Retained snoop and paired-DVM admission.
+     Ordinary snoops capture a cache lookup; a second DVM packet needs only a control response. */
+
   reg active_state(~init: Bool(#false))
   reg uses_lookup(~init: Bool(#false))
   reg request(CHISnpFlit(p))
@@ -66,8 +70,11 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   def dvm_first_fire = snoop_fire & incoming_dvm & !dvm_first_pending
   def dvm_second_fire = snoop_fire & incoming_dvm & dvm_first_pending
 
-  // Expose the prospective address before readiness so the cache can drain
-  // matching committed stores without a ready/address combinational cycle.
+
+  /* Prospective address and cache lookup.
+     Expose the address before readiness so matching committed stores can drain
+     without feeding readiness back into the address. */
+
   address <== mux(active_state,
                   cache_chi_snoop_address(p, address_width, request.address),
                   cache_chi_snoop_address(p, address_width, incoming_snoop.address))
@@ -75,30 +82,27 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   lookup.bits <== address
   def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid
 
+
+  /* Clean response and retained cache-state selection.
+     Dirty-preserving snoops use DAT instead; discard policy can finish through RSP. */
+
   def dirty_hit = uses_lookup & line_hit & line_state.is_dirty() & !chi_snoop_discards_dirty(request.opcode)
   def shares_state = cache_snoop_shares_cache_state(request.opcode)
   def invalidates_state = cache_snoop_invalidates_cache_state(request.opcode)
   def discards_clean_line = invalidates_state ||| request.ret_to_src
-  def cached_clean_state = mux(line_state.is_shared(),
-                               CHIResponseState.SharedClean,
-                               CHIResponseState.Unique)
-  def clean_response_state = mux(
-    uses_lookup & line_hit,
-    mux(discards_clean_line,
-        CHIResponseState.Invalid,
-        mux(shares_state, CHIResponseState.SharedClean, cached_clean_state)),
-    CHIResponseState.Invalid
-  )
+  def cached_clean_state = mux(line_state.is_shared(), CHIResponseState.SharedClean, CHIResponseState.Unique)
+  def clean_hit_retained = uses_lookup & line_hit & !discards_clean_line
+  def clean_response_state :: CHIResponseState = priority_mux(~default: CHIResponseState.Invalid):
+    clean_hit_retained & shares_state: CHIResponseState.SharedClean
+    clean_hit_retained: cached_clean_state
   responses.valid <== active_state & (!uses_lookup ||| lookup_complete) & !dirty_hit
-  responses.bits <== cache_chi_response(
-    p,
-    node_id,
-    request.src_id,
-    request.txn_id,
-    CHIRspOpcode.SnpResp,
-    ~resp: clean_response_state.as_bits().zext(3)
-  )
+  responses.bits <== cache_chi_response(p, node_id, request.src_id, request.txn_id, CHIRspOpcode.SnpResp,
+                                        ~resp: clean_response_state.as_bits().zext(3))
   def response_fire = responses.fire()
+
+
+  /* Dirty packet stream and final cache update.
+     Hand off every dirty packet before invalidation; clean state changes also wait for transfer. */
 
   def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
   def packet_beat = if packet_index_width == 2 | packet_index | packet_index.zext(2)
@@ -131,14 +135,17 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   def snoop_complete = response_fire ||| (data_fire & final_packet)
   completed <== snoop_complete
 
-  update.valid <== snoop_complete & uses_lookup & line_hit & (
-    dirty_hit ||| discards_clean_line ||| shares_state
-  )
+  def cache_state_changes = dirty_hit ||| discards_clean_line ||| shares_state
+  update.valid <== snoop_complete & uses_lookup & line_hit & cache_state_changes
   update.bits <== CacheDataSnoopUpdate(address_width):
     address: cache_chi_snoop_address(p, address_width, request.address)
     invalidate: dirty_hit ||| discards_clean_line
     state: CHICacheState.SharedClean
   pending <== (snoops.valid & ordinary_snoop) ||| active_state ||| dvm_first_pending
+
+
+  /* Snoop progress and independent DVM-pair retention.
+     Lookup capture precedes packet progress; the first DVM packet keeps its own pending lifetime. */
 
   when (lookup_start ||| dvm_second_fire):
     active_state <== Bool(#true)

@@ -37,6 +37,10 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface physical_memory(RV2WideMemory(xlen, 64), ~role: requester)
 
+
+  /* Bare instruction translation.
+     Preserve the architectural PC while reporting identity translation and PMA attributes. */
+
   instruction.address <== (if xlen == XLen.X64 | instruction.request.bits | instruction.request.bits.zext(64))
   instruction.pbmt <== PageMemoryType.PMA
   instruction.resolution <== RV2WideResolution(xlen):
@@ -44,6 +48,10 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
     cause: dont_care(Bits(xlen.width))
     value: instruction.request.bits
     guest: literal(RiscvGuestFault(), 0)
+
+
+  /* Split owner and EX cache indexing.
+     The split engine retains architectural context; EX indexes independently of PMA resolution. */
 
   inst misaligned(RiscvMisalignedEngine(xlen, Bool))
   split.request |> misaligned.start
@@ -61,6 +69,11 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
       data: request.data
   def Array(index, context) = pipeline.request |> fork_valid(2)
   index |> map_valid(request => cache_request(request)) |> pipeline_lookup
+
+
+  /* MEM physical permissions and speculative lookup result.
+     Only ordinary cacheable/idempotent accesses use the fast path; WB owns slow acceptance. */
+
   def mem = context |> valid_pipe(1)
   def request :: RV2WideMemoryReq(xlen, xlen.width) = mem.bits
   def block = request.access.is_cache_block()
@@ -69,10 +82,16 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def last = first +& mux(block, bits(CacheLineBytes - 1, 64), memory_access_bytes(XLen.X64, request.width) - bits(1, 64))
   def region = config.physical_map.lookup(first, last)
   def atomic = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
-  def permitted = mux(request.access.is_cache_management(), cbo_management_physical_permission(region), region.mapped & mux(request.access.store_fault_class(), region.writable, region.readable) & (!atomic ||| (region.cacheable & region.atomic & region.readable)) & (!request.access.is_cache_block_zero() ||| region.cache_block_zero))
+  def access_permitted = mux(request.access.store_fault_class(), region.writable, region.readable)
+  def atomic_permitted = !atomic ||| (region.cacheable & region.atomic & region.readable)
+  def zero_permitted = !request.access.is_cache_block_zero() ||| region.cache_block_zero
+  def ordinary_permitted = region.mapped & access_permitted & atomic_permitted & zero_permitted
+  def permitted = mux(request.access.is_cache_management(), cbo_management_physical_permission(region), ordinary_permitted)
   def split_access = request.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !request.width.is_aligned(request.address)
   def busy = misaligned.busy ||| memory.request.valid
-  def fast = !busy & !split_access & permitted & region.cacheable & region.read_idempotent & !region.device & !atomic & !block & !physical_memory.ordered_busy
+  def fast_region = region.cacheable & region.read_idempotent & !region.device
+  def ordinary_access = !atomic & !block
+  def fast = !busy & !split_access & permitted & fast_region & ordinary_access & !physical_memory.ordered_busy
   mem |> filter_valid(_request => fast) |> map_valid(request => cache_request(request)) |> physical_pipeline.request
   def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: RV2WideCacheOutcome.Replay):
     CachePipelineOutcome.Slow: RV2WideCacheOutcome.Slow
@@ -91,13 +110,21 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   physical_pipeline.commit <== pipeline.commit & !misaligned.busy
   pipeline.commit_ready <== physical_pipeline.commit_ready & !misaligned.busy
 
+
+  /* Committed core/split requests and noncancelable response owners.
+     Each accepted physical request atomically records its route in the owner FIFO. */
+
   def masked_address :: Bits(xlen.width) = apply_pointer_mask(xlen, misaligned.request.bits.address, state.pointer_masking)
   def fragment_address = if xlen == XLen.X64 | masked_address | masked_address.zext(64)
   def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& bits(bytes - 1, 64))
-  def fragment_permitted = fragment_region.mapped & fragment_region.cacheable & fragment_region.read_idempotent & !fragment_region.device & mux(misaligned.request.bits.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
+  def fragment_access_permitted = mux(misaligned.request.bits.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
+  def fragment_normal_memory = fragment_region.cacheable & fragment_region.read_idempotent & !fragment_region.device
+  def fragment_permitted = fragment_region.mapped & fragment_normal_memory & fragment_access_permitted
   inst requests(Arbiter(RV2WideMemoryReq(xlen, 64), 2))
   inst owners(Queue(Bool, 8))
-  memory.request |> gate_flow(!misaligned.busy) |> map_flow(request => rv2wide_physical_request(xlen, request, (if xlen == XLen.X64 | request.address | request.address.zext(64)), PageMemoryType.PMA)) |> requests.ingress[0]
+  memory.request |> gate_flow(!misaligned.busy) |> map_flow(request => rv2wide_physical_request(
+    xlen, request, (if xlen == XLen.X64 | request.address | request.address.zext(64)), PageMemoryType.PMA
+  )) |> requests.ingress[0]
   (misaligned.request |> gate_flow(fragment_permitted) |> map_flow(fragment => RV2WideMemoryReq(xlen, 64)):
     address: fragment_address
     access: fragment.access
@@ -136,6 +163,10 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   memory.ordered_busy <== physical_memory.ordered_busy
   memory.reservation_valid <== physical_memory.reservation_valid
 
+
+  /* Best-effort prefetch under the current physical context.
+     Context changes cancel hints, never accepted demand or split-response ownership. */
+
   reg previous(RV2WideTranslationState(xlen), ~init: literal(RV2WideTranslationState(xlen), 0))
   previous <== state
   def flush = invalidate ||| (previous.as_bits() =/= state.as_bits())
@@ -149,7 +180,13 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
     CachePrefetchOperation.Instruction: hint_region.executable
     CachePrefetchOperation.Read: hint_region.readable
     CachePrefetchOperation.Write: hint_region.writable
-  hints.egress |> filter_valid(_hint => !flush & hint_region.mapped & hint_region.cacheable & hint_region.read_idempotent & !hint_region.device & hint_permission) |> map_valid(hint => hint.updated(~address: hint_address)) |> physical_prefetch
+  def hint_normal_memory = hint_region.cacheable & hint_region.read_idempotent & !hint_region.device
+  def hint_permitted = hint_region.mapped & hint_normal_memory & hint_permission
+  hints.egress |> filter_valid(_hint => !flush & hint_permitted) |> map_valid(hint => hint.updated(~address: hint_address)) |> physical_prefetch
+
+
+  /* Passive physical-request and fragment observations. */
+
   describe_cosim_signals({
     "pipeline_valid": physical_pipeline.request.valid,
     "pipeline_address": physical_address,

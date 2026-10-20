@@ -36,11 +36,10 @@ fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ 
   // changing it conservatively rewalks instead of reusing that lost proof.
   def host_page = request.virtual_address.sv39_canonical() & sv39_same_page(entry.vpn[0..27] ++ bits(0, 12), request.virtual_address[0..39], entry.page_size)
   def same_page = mux(entry.virtualized, entry.vpn === request.virtual_address[12..64], host_page)
-  entry.valid & (entry.virtualized === request.virtualized) & same_page & (
-    left.vs_mode === right.vs_mode
-  ) & (left.g_mode === right.g_mode) & (left.vs_root_ppn === right.vs_root_ppn) & (
-    left.g_root_ppn === right.g_root_ppn
-  ) & (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
+  def same_modes = (left.vs_mode === right.vs_mode) & (left.g_mode === right.g_mode)
+  def same_roots = (left.vs_root_ppn === right.vs_root_ppn) & (left.g_root_ppn === right.g_root_ppn)
+  def same_controls = (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
+  entry.valid & (entry.virtualized === request.virtualized) & same_page & same_modes & same_roots & same_controls
 
 /* Provides combinational demand and nonfaulting probe lookups over one associative bank.
    Successful fills replace round-robin; invalidation wins over a simultaneous fill. */
@@ -59,11 +58,19 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   output probe_physical_address: Bits(56)
   output probe_pbmt: PageMemoryType
 
+
+  /* Associative storage and demand match */
+
   def index_bits = index_width(entry_count)
   reg entries(Vec(entry_count, RiscvTlbEntry()), ~init: literal(Vec(entry_count, RiscvTlbEntry()), 0))
   reg replacement(~init: bits(0, index_bits))
   def matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], lookup))
   def selected = entries[priority_encoder(matches)]
+
+
+  /* Demand permissions and fault provenance
+     Recheck current controls against the captured stage leaves on every hit. */
+
   def vs_enabled = lookup.context.vs_mode === RiscvVSMode.Sv39
   def g_enabled = lookup.virtualized & (lookup.context.g_mode === RiscvGMode.Sv39x4)
   def vs_fault = vs_enabled & !sv39_permission_valid(selected.vs_leaf, lookup.access, lookup.context.privilege === PrivilegeMode.User, lookup.context.privilege === PrivilegeMode.Supervisor, lookup.context.vs_sum, lookup.context.vs_mxr ||| lookup.context.hs_mxr, lookup.execute_read)
@@ -75,6 +82,10 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     guest_virtual_address: lookup.virtualized
     guest_physical_address: mux(vs_fault, bits(0, 64), guest_address)
     access: RiscvGuestFaultAccess.Explicit
+  def demand_fault = priority_mux(~default: RiscvTranslationFault.None):
+    bare & lookup.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
+    vs_fault: RiscvTranslationFault.PageFault
+    g_fault: RiscvTranslationFault.GuestPageFault
   // Invalidation wins at the state-update edge. Do not feed a WB-owned fence
   // back through hit/readiness into the retirement decision that creates it.
   hit <== bare ||| matches.or_reduce()
@@ -86,10 +97,12 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     guest_physical_address: mux(bare, lookup.virtual_address, guest_address)
     vs_leaf: mux(vs_enabled, selected.vs_leaf, literal(Sv39Pte(), 0))
     g_leaf: mux(g_enabled, selected.g_leaf, literal(Sv39Pte(), 0))
-    fault: mux(bare & lookup.virtual_address[56..64].or_reduce(), RiscvTranslationFault.AccessFault, mux(vs_fault, RiscvTranslationFault.PageFault, mux(g_fault, RiscvTranslationFault.GuestPageFault, RiscvTranslationFault.None)))
+    fault: demand_fault
     fault_details: details
 
-  // Prefetch shares the bank but deliberately does not require A/D bits.
+
+  /* Prefetch shares the bank but deliberately does not require A/D bits. */
+
   def probe_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], probe))
   def probe_entry = entries[priority_encoder(probe_matches)]
   def probe_vs = probe.context.vs_mode === RiscvVSMode.Sv39
@@ -97,6 +110,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   def probe_bare = !probe_vs & !probe_g
   def probe_vs_pte :: Sv39Pte() = probe_entry.vs_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
   def probe_g_pte :: Sv39Pte() = probe_entry.g_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
+
   /* Checks the same access class against both stages while ignoring A/D bits for prefetch. */
   fun probe_allowed(kind :: Sv39Access) :~ Bool:
     def stage_one = probe_vs_pte.sv39_permission_valid(kind, probe.context.privilege === PrivilegeMode.User, probe.context.privilege === PrivilegeMode.Supervisor, probe.context.vs_sum, probe.context.vs_mxr ||| probe.context.hs_mxr)
@@ -108,6 +122,11 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   probe_raw_hit <== probe_bare ||| probe_matches.or_reduce()
   probe_hit <== probe_raw_hit & !invalidate_all
   probe_fault <== probe_hit & !probe_permissions.or_reduce()
+
+
+  /* Demand-accurate probe metadata
+     The nonfaulting prefetch union is separate from the requested access class's architectural fault. */
+
   def probe_vs_demand_fault = probe_vs & !sv39_permission_valid(probe_entry.vs_leaf, probe.access, probe.context.privilege === PrivilegeMode.User, probe.context.privilege === PrivilegeMode.Supervisor, probe.context.vs_sum, probe.context.vs_mxr ||| probe.context.hs_mxr, probe.execute_read)
   def probe_g_demand_fault = probe_g & !sv39_permission_valid(probe_entry.g_leaf, probe.access, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr, probe.execute_read)
   probe_demand_fault <== probe_hit & (probe_vs_demand_fault ||| probe_g_demand_fault)
@@ -117,6 +136,10 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     guest_virtual_address: probe.virtualized
     guest_physical_address: mux(probe_vs_demand_fault, bits(0, 64), probe_guest_address)
     access: RiscvGuestFaultAccess.Explicit
+  def probe_mapping_fault = priority_mux(~default: RiscvTranslationFault.None):
+    probe_bare & probe.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
+    probe_vs_demand_fault: RiscvTranslationFault.PageFault
+    probe_g_demand_fault: RiscvTranslationFault.GuestPageFault
   probe_translation <== RiscvTlbMapping():
     virtual_address: probe.virtual_address
     access: probe.access
@@ -125,12 +148,16 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     guest_physical_address: mux(probe_bare, probe.virtual_address, probe_guest_address)
     vs_leaf: mux(probe_vs, probe_entry.vs_leaf, literal(Sv39Pte(), 0))
     g_leaf: mux(probe_g, probe_entry.g_leaf, literal(Sv39Pte(), 0))
-    fault: mux(probe_bare & probe.virtual_address[56..64].or_reduce(), RiscvTranslationFault.AccessFault, mux(probe_vs_demand_fault, RiscvTranslationFault.PageFault, mux(probe_g_demand_fault, RiscvTranslationFault.GuestPageFault, RiscvTranslationFault.None)))
+    fault: probe_mapping_fault
     fault_details: probe_fault_details
   probe_physical_address <== probe_physical
   // Svpbmt applies the G override first, then a non-PMA stage-one override.
   def probe_intermediate_pbmt = mux(probe_g, probe_entry.g_leaf.pbmt, PageMemoryType.PMA)
   probe_pbmt <== compose_page_memory_type(mux(probe_vs, probe_entry.vs_leaf.pbmt, PageMemoryType.PMA), probe_intermediate_pbmt)
+
+
+  /* Fill replacement and invalidation
+     Only successful mappings enter the bank; invalidation wins at the state-update edge. */
 
   def fill_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], fill.bits.request))
   def fill_index = mux(fill_matches.or_reduce(), priority_encoder(fill_matches), replacement)
@@ -178,6 +205,7 @@ sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
   output probe_pbmt: PageMemoryType
 
   inst bank(RiscvTranslationTlb(entry_count))
+
   /* Builds the host adapter's lookup context with zero root identity and PBMT disabled. */
   fun host_lookup(address :: Bits(64), kind :: Sv39Access, mode :: PrivilegeMode, allow_user :: Bool, allow_execute :: Bool, paged :: Bool) :~ RiscvTlbLookup():
     def request = RiscvTranslationRequest():

@@ -42,10 +42,16 @@ import:
 /* Composes one sequencer with fixed operand capture, SIMD execution, and persistent owners.
    Reserves future writes before nonstallable reads or fixed-service launches; owner-indexed
    recurrences, packed carry, and splats survive replacement of the sequencing descriptor. */
-sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType,
+                             ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
+                             ~trace_isa: trace_isa :: maybe(String) = #false,
+                             ~multiply_latency: multiply_latency :: maybe(PosInt) = #false,
+                             ~fixed_fp: fixed_fp :: Boolean = #false,
+                             ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def tag_width = index_width(vector_completion_slots)
   def InstructionId = Bits(tag_width)
   def SlotId = Bits(tag_width)
+
   /* Captures scalar context, instruction identity, and optional physical-page proof with
      scheduled reads. */
   bundle OwnedContext():
@@ -55,6 +61,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     precertified: Bool
     ppn: Bits(44)
     pointer_masking: PointerMaskControl()
+
   /* Carries a resolved operand beat and its separate instruction owner/completion slot through
      execution. */
   bundle OwnedBeat():
@@ -103,7 +110,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   output stores_pending: Bool
   output(loads_pending, fp_pending, available): Bool
 
-  // State owners are independent of the currently retained descriptor.
+
+  /* State owners are independent of the currently retained descriptor. */
+
   inst instructions(VectorInstructions(xlen, vlen, vector_completion_slots))
   active <== instructions.active
   stores_pending <== instructions.stores_pending
@@ -126,12 +135,20 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def drain = completions.drained.valid
   def head_result = completions.drained.bits.beat
   def drained_data = completions.drained.bits.data
+
+
+  /* Fixed execute and memory-result stages */
+
   inst ex_pipe(ValidPipe(OwnedBeat(), 1, ~flushable: #true))
   inst execute(VectorExecute(xlen, vlen))
   inst memory_pipe(ValidPipe(OwnedResult, 2, ~flushable: #true))
   def decision_tag = decision.bits.tag
   def feedback_packed = entry_packed[decision_tag]
   def feedback_owner = entry_owner[decision_tag]
+
+
+  /* Packed-memory completion routing */
+
   inst packed(VectorPackedLoad(xlen, vlen, vector_completion_slots, vector_completion_slots))
   def Array(element_decision_input, packed_decision_input) = decision |> fork_valid(2)
   def element_memory_decision = element_decision_input |> filter_valid(_event => !feedback_packed)
@@ -141,6 +158,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   instructions.packed_finished.bits <== packed.resolved.owner
   def Array(local_completion, packed_completion_input) = completion |> demux_flow(2, event => entry_packed[event.tag])
   packed_completion_input |> to_valid() |> packed.completion
+
+
+  /* Sequencing, operand capture, and owner-indexed recurrence state */
+
   inst sequencer(VectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
   def current_packed = sequencer.packed
   inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext()))
@@ -160,10 +181,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def finished_owner = mux(issue_tail, operand_fetch.issue.bits.context.owner, current_owner)
   def replay = cancel.valid ||| (decision.valid & (decision.bits.disposition =/= VectorDisposition.Authorized))
 
-  // Admission and the single registered sequencer.
-  // Checkpointed compute schedules wait for older operand preparation.
-  // Both memory geometries follow older scheduled reads: older compute beats
-  // issue before a younger memory beat can reach a replay decision.
+
+  /* Admission and the single registered sequencer.
+     Checkpointed compute schedules wait for older operand preparation.
+     Both memory geometries follow older scheduled reads: older compute beats
+     issue before a younger memory beat can reach a replay decision. */
+
   def splat_request = vector_zero_stride_load(xlen, request.bits.descriptor) & !packed_memory
   def stateful_request = request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
   available <== sequencer.request.ready & instructions.available & (!splat_request ||| !splat.active) & (!stateful_request ||| !operand_fetch.active)
@@ -211,13 +234,17 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   packed.alignment_available <== !ex_pipe.egress.valid & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
   packed.write_available <== !completions.compute_writeback
 
-  // A read commits only after its fixed-latency consumers have been granted.
+
+  /* A read commits only after its fixed-latency consumers have been granted. */
+
   cancel |> sequencer.cancel
   def s1_control = sequencer.sequence_request.bits.context.instruction.descriptor.control
   def s1_owner = sequencer.sequence_request.bits.context.instruction.context.owner
   def s1_service = s1_control.fp_service ||| s1_control.multiply_divide
   def s1_packed = sequencer.sequence_request.bits.context.packed
-  def s1_local_write = !s1_packed & !(s1_control.memory & sequencer.sequence_request.bits.context.instruction.descriptor.precertified) & (!s1_service ||| s1_control.memory ||| sequencer.sequence_request.bits.context.instruction.descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty)
+  def s1_descriptor = sequencer.sequence_request.bits.context.instruction.descriptor
+  def s1_local_result = !s1_service ||| s1_control.memory ||| s1_descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty
+  def s1_local_write = !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
   def s1_write_delay = mux(s1_control.memory, bits(4, 4), bits(2, 4))
   def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
   def s1_next_slot = if vector_completion_slots == 1 | bits(0, tag_width) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
@@ -234,7 +261,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   // frontier until the decision; preauthorized memory remains feed-forward.
   reg checked_memory_pending(~init: Bool(#false))
   def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
-  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & (!s1_local_write ||| writeback_calendar.probe_available) & !splat.probe_pending & (!s1_checked_memory ||| !checked_memory_pending)
+  def s1_write_available = !s1_local_write ||| writeback_calendar.probe_available
+  def s1_memory_available = !s1_checked_memory ||| !checked_memory_pending
+  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
   splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
   s1_read |> operand_fetch.request
@@ -246,6 +275,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   operand_fetch.suffix |> sequencer.suffix
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.begin_macro <== request.fire()
+
+
+  /* VRF response ownership and shared alignment port */
+
   reg read_element(~init: bits(0, 3))
   reg mask_element(~init: Bool(#false))
   read_element <== vec(for List (port in 0..3): operand_fetch.reads[port].valid).as_bits()
@@ -282,8 +315,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   memory_pipe.flush <== replay
 
 
-  // Scheduled reads enter execution without another admission decision.
-  // Prepared compression suffixes use the same sequence-stage reservations.
+  /* Scheduled reads enter execution without another admission decision.
+     Prepared compression suffixes use the same sequence-stage reservations. */
+
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
   writeback_calendar.probe_client <== bits(2, index_width(3))
@@ -341,9 +375,16 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     assert(!serial_fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
     assert(scheduled_issue.fire() ||| splat_skip.valid, "vector_scheduled_read_issues_without_stall")
   def issued_splat = splat.active & (issue_owner === splat.owner)
-  issue_tail <== scheduled_issue.fire() & operand_fetch.issue.bits.beat.last & !((operand_fetch.issue.bits.beat.control.memory & (!operand_fetch.issue.bits.context.precertified ||| issued_splat)) ||| (operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index) ||| operand_fetch.issue.bits.beat.control.compress)
-  // All routes use one persistent allocation order, including immediate ALU
-  // results. No unbackpressurable write can collide with an older completion.
+  def issued_control = operand_fetch.issue.bits.beat.control
+  def issued_memory_checkpoint = issued_control.memory & (!operand_fetch.issue.bits.context.precertified ||| issued_splat)
+  def issued_recurrence_checkpoint = (issued_control.scan & !issued_control.scan_control.index) ||| issued_control.compress
+  def issued_serial_fold = (issued_control.fp_service & issued_control.reduction) ||| (issued_control.integer & issued_control.scan & !issued_control.scan_control.index)
+  issue_tail <== scheduled_issue.fire() & operand_fetch.issue.bits.beat.last & !(issued_memory_checkpoint ||| issued_recurrence_checkpoint)
+
+
+  /* All routes use one persistent allocation order, including immediate ALU
+     results. No unbackpressurable write can collide with an older completion. */
+
   (
     operands |> filter_flow(operation => !operation.packed) |> map_flow(operation => OwnedBeat()):
       beat: operation.beat
@@ -391,8 +432,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   splat.completion.valid <== local_completion.fire()
   splat.completion.bits <== local_completion.bits
 
-  // Empty FP and multiply request queues bypass directly into their shared
-  // services; occupied entries retain every accepted, nonstallable request.
+
+  /* Empty FP and multiply request queues bypass directly into their shared
+     services; occupied entries retain every accepted, nonstallable request. */
+
   inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
   def Array(fp_launch, fp_reservation) = fp_authorized.egress |> atomic_fork(2)
   fp_launch |> fp_request
@@ -422,8 +465,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   when (divide_authorized.ingress.valid):
     assert(divide_authorized.ingress.ready, "vector_divide_execute_has_reserved_request_space")
 
-  // External decisions align only with memory attempts. Every compute route
-  // becomes durable directly from the private execute stage.
+
+  /* External decisions align only with memory attempts. Every compute route
+     becomes durable directly from the private execute stage. */
+
   when (element_memory_decision.valid):
     assert(memory_maturity.valid & memory_beat.memory, "vector_memory_decision_has_aligned_attempt")
     assert(memory_result.tag === decision_tag, "vector_memory_decision_matches_attempt")
@@ -440,12 +485,18 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, xlen.width), bits(0, xlen.width))
     elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan):
       scan_carries[owner] <== compute_beat.scan_carry
-    when ((request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag)) ||| ((retry ||| fault ||| truncating) & (feedback_owner === owner_tag)) ||| (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan) ||| (drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction)):
+    def owner_replaced = (request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag))
+    def owner_replayed = (retry ||| fault ||| truncating) & (feedback_owner === owner_tag)
+    def scan_resolved = compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan
+    def fp_fold_drained = drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction
+    when (owner_replaced ||| owner_replayed ||| scan_resolved ||| fp_fold_drained):
       serial_fold_inflight[owner] <== Bool(#false)
-    elsewhen (scheduled_issue.fire() & (issue_owner === owner_tag) & ((operand_fetch.issue.bits.beat.control.fp_service & operand_fetch.issue.bits.beat.control.reduction) ||| (operand_fetch.issue.bits.beat.control.integer & operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index))):
+    elsewhen (scheduled_issue.fire() & (issue_owner === owner_tag) & issued_serial_fold):
       serial_fold_inflight[owner] <== Bool(#true)
 
-  // Replay feedback restores only the unauthorized suffix.
+
+  /* Replay feedback restores only the unauthorized suffix. */
+
   fault_start.valid <== fault
   fault_start.bits <== memory_beat.first.zext(xlen.width)
   truncate.valid <== truncating
@@ -479,7 +530,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     last: operation.beat.last
     compress_state: operation.beat.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
-  def relevant_memory_feedback = memory_feedback |> filter_valid(_event => (feedback_owner === current_owner) & (instructions.memory[feedback_owner] ||| instructions.serial[feedback_owner]) & (!sequencer.retained.descriptor.precertified ||| vector_zero_stride_load(xlen, sequencer.retained.descriptor)))
+  def feedback_matches_current = (feedback_owner === current_owner) & (instructions.memory[feedback_owner] ||| instructions.serial[feedback_owner])
+  def current_needs_feedback = !sequencer.retained.descriptor.precertified ||| vector_zero_stride_load(xlen, sequencer.retained.descriptor)
+  def relevant_memory_feedback = memory_feedback |> filter_valid(_event => feedback_matches_current & current_needs_feedback)
   def splat_skip_feedback = splat_skip |> map_valid(operation => VectorFeedback(xlen, vlen, Bits(xlen.width))):
     context: operation.context.pc
     sequence: operation.beat.sequence
@@ -516,7 +569,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   when (issue_done.valid & !cancel.valid):
     assert(active, "vector_issue_release_has_macro_owner")
 
-  // Completion storage persists across sequencer replacement and memory replay.
+
+  /* Persistent completion storage and VRF writeback
+     Slots and variable-service replies survive sequencing replacement and memory replay. */
+
   completion_compute |> completions.compute_maturity
   completion_memory |> completions.memory_attempt
   element_memory_decision |> completions.decision
@@ -542,13 +598,18 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   completions.scalar_result |> scalar_result
   completions.floating_result |> floating_result
 
+  /* Instruction resolution and retirement */
+
   instruction_compute |> instructions.compute_maturity
   def resolved_memory = resolution_memory |> filter_valid(_result => memory_accepted)
   Array(resolution_compute, resolved_memory) |> valid_arbiter() |> instructions.resolved
   cancel |> instructions.cancel
   instructions.retire |> retire
-  // Export only when the compilation target realizes a hart observer. The write
-  // is the physical VRF port, not the mask shadow's duplicate storage update.
+
+
+  /* Passive architectural observation
+     Expose the physical VRF write, not the mask shadow's duplicate storage update. */
+
   describe_cosim_signals({
     "admitted": request.fire(),
     "owner": next_owner,

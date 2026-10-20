@@ -17,7 +17,10 @@ import:
 
 /* Reassembles a compressed direct-jump immediate and sign-extends its even byte offset. */
 fun compressed_jump_offset(instruction :: Bits(16), output_width :: PosInt) :~ Bits(output_width):
-  def immediate = instruction[12..13] ++ instruction[8..9] ++ instruction[9..11] ++ instruction[6..7] ++ instruction[7..8] ++ instruction[2..3] ++ instruction[11..12] ++ instruction[3..6] ++ bits(0, 1)
+  def immediate = (
+    instruction[12..13] ++ instruction[8..9] ++ instruction[9..11] ++ instruction[6..7]
+      ++ instruction[7..8] ++ instruction[2..3] ++ instruction[11..12] ++ instruction[3..6] ++ bits(0, 1)
+  )
   immediate.into(SInt(12)).sext(output_width).as_bits()
 
 /* Validates predicted boundaries, refreshes warm RAS targets, and discovers direct jumps/returns.
@@ -33,12 +36,18 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   interface clear(Pulse(), ~role: consumer)
   input ras_head_valid: Bool
   input ras_head: Bits(xlen.width)
+
+
+  /* Packet boundaries and prediction validation.
+     Scanner-owned partial state tracks S2 prefixes independently of Decode's residual parcel. */
+
   reg partial(~init: Bool(#false))
   reg partial_halfword(Bits(16))
   reg partial_prediction_seen(~init: Bool(#false))
   reg partial_return_repair(~init: Bool(#false))
   reg partial_return_prediction(BranchPrediction(xlen))
   def packet = ingress.bits
+  def packet_clean = !packet.page_fault & !packet.access_fault
   def lower_compressed = if compressed_enabled | packet.word[0..2] =/= bits(3, 2) | Bool(#false)
   def upper_compressed = if compressed_enabled | packet.word[16..18] =/= bits(3, 2) | Bool(#false)
   def lower_start = packet.mask[0].into(Bool) & !partial
@@ -46,19 +55,30 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def predicted_upper = packet.prediction.pc[1].into(Bool)
   def predicted_half = mux(predicted_upper, packet.word[16..32], packet.word[0..16])
   def predicted_compressed = mux(predicted_upper, upper_compressed, lower_compressed)
-  def compressed_jump = (predicted_half[0..2] === bits(1, 2)) & (predicted_half[13..16].is_one_of(bits(5, 3), bits(6, 3), bits(7, 3)) ||| (Bool(xlen == XLen.X32) & (predicted_half[13..16] === bits(1, 3))))
+  def compressed_jump_function = predicted_half[13..16].is_one_of(bits(5, 3), bits(6, 3), bits(7, 3)) ||| (
+    Bool(xlen == XLen.X32) & (predicted_half[13..16] === bits(1, 3))
+  )
+  def compressed_jump = (predicted_half[0..2] === bits(1, 2)) & compressed_jump_function
   def compressed_indirect = (predicted_half[0..2] === bits(2, 2)) & (predicted_half[13..16] === bits(4, 3)) & (predicted_half[2..7] === bits(0, 5)) & predicted_half[7..12].or_reduce()
   def control_flow = mux(predicted_compressed, compressed_jump ||| compressed_indirect, predicted_half[0..7].is_one_of(bits(0x63, 7), bits(0x6f, 7), bits(0x67, 7)))
   def boundary = mux(predicted_upper, upper_start, lower_start)
-  def bad_prediction = packet.prediction.valid & !packet.page_fault & !packet.access_fault & (!boundary ||| (packet.prediction.compressed ^ predicted_compressed) ||| !control_flow)
+  def prediction_shape_mismatch = !boundary ||| (packet.prediction.compressed ^ predicted_compressed) ||| !control_flow
+  def bad_prediction = packet.prediction.valid & packet_clean & prediction_shape_mismatch
   def prediction = packet.prediction.updated(~valid: packet.prediction.valid & !bad_prediction)
+
+
+  /* First instruction and optional upper compressed successor.
+     A retained prefix completes from this packet before a following upper instruction is considered. */
+
   def first_upper = !partial & packet.pc[1].into(Bool)
-  def first_halfword = mux(partial, partial_halfword, mux(first_upper, packet.word[16..32], packet.word[0..16]))
+  def first_halfword :: Bits(16) = priority_mux(~default: packet.word[0..16]):
+    partial: partial_halfword
+    first_upper: packet.word[16..32]
   def first_compressed = if compressed_enabled | first_halfword[0..2] =/= bits(3, 2) | Bool(#false)
   def first_complete = first_compressed ||| partial ||| !first_upper
   def first_instruction = mux(partial, packet.word[0..16] ++ partial_halfword, packet.word)
   def first_action = mux(first_compressed, riscv_compressed_ras_action(xlen, first_halfword), riscv_ras_action(first_instruction))
-  def first_valid = mux(partial, packet.mask[0].into(Bool), mux(first_upper, packet.mask[1].into(Bool), packet.mask[0].into(Bool)))
+  def first_valid = mux(!partial & first_upper, packet.mask[1].into(Bool), packet.mask[0].into(Bool))
   def first_pc = mux(partial, packet.pc - bits(2, xlen.width), packet.pc)
   def first_return = first_valid & first_complete & first_action.is_one_of(RasAction.Pop, RasAction.PopPush)
   def first_compressed_direct = (first_halfword[0..2] === bits(1, 2)) & ((first_halfword[13..16] === bits(5, 3)) ||| (Bool(xlen == XLen.X32) & (first_halfword[13..16] === bits(1, 3))))
@@ -80,42 +100,62 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def first_fallback = first_direct_jump ||| (first_return & ras_head_valid)
   def second_fallback = second_direct_jump ||| (second_return & ras_head_valid)
   def prediction_missing = !packet.prediction.valid & (!partial ||| !partial_prediction_seen)
-  // Refresh the validated hint before this packet's RAS action. A straddling
-  // return pops here once, but its redirect must wait for the continuation.
-  def return_repair = prediction.valid & prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid & (prediction.target =/= ras_head) & !packet.page_fault & !packet.access_fault
+
+
+  /* Fallback selection and live-RAS repair.
+     Refresh the hint before this packet's RAS action. A straddling return acts once,
+     but its redirect waits for the continuation and retains the pre-action target. */
+
+  def predicted_return = prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush)
+  def return_repair = prediction.valid & predicted_return & ras_head_valid & (prediction.target =/= ras_head) & packet_clean
   def return_prefix = prediction.pc[1].into(Bool) & !prediction.compressed
-  def continued_return_repair = partial & partial_return_repair & first_complete & !packet.page_fault & !packet.access_fault
+  def continued_return_repair = partial & partial_return_repair & first_complete & packet_clean
   def missing_fallback = prediction_missing & (first_fallback ||| second_fallback)
   def fallback_valid = ingress.valid & (missing_fallback ||| (return_repair & !return_prefix) ||| continued_return_repair)
   def fallback_pc = mux(first_fallback, first_pc, second_pc)
-  def fallback_target = mux(first_fallback, mux(first_direct_jump, first_direct_target, ras_head), mux(second_direct_jump, second_direct_target, ras_head))
+  def first_fallback_target = mux(first_direct_jump, first_direct_target, ras_head)
+  def second_fallback_target = mux(second_direct_jump, second_direct_target, ras_head)
+  def fallback_target = mux(first_fallback, first_fallback_target, second_fallback_target)
   def fallback_prediction = BranchPrediction(xlen):
-    valid: ingress.valid & missing_fallback & !packet.page_fault & !packet.access_fault
+    valid: ingress.valid & missing_fallback & packet_clean
     pc: fallback_pc
     target: fallback_target
     compressed: mux(first_fallback, first_compressed, Bool(#true))
     ras_action: mux(first_fallback, first_action, second_action)
   def refreshed_prediction = prediction.updated(~target: ras_head)
-  def effective_prediction = mux(return_repair, refreshed_prediction, mux(fallback_prediction.valid, fallback_prediction, prediction))
-  def redirect_prediction = mux(continued_return_repair, partial_return_prediction, mux(return_repair, refreshed_prediction, fallback_prediction))
-  // A valid lower compressed prediction cuts the upper parcel. A stale cut
-  // instead retains the complete word and restarts after it, not before it.
+  def effective_prediction :: BranchPrediction(xlen) = priority_mux(~default: prediction):
+    return_repair: refreshed_prediction
+    fallback_prediction.valid: fallback_prediction
+  def redirect_prediction :: BranchPrediction(xlen) = priority_mux(~default: fallback_prediction):
+    continued_return_repair: partial_return_prediction
+    return_repair: refreshed_prediction
+
+
+  /* Packet cut, repair, and fallback publication.
+     A valid lower compressed prediction cuts the upper parcel; a stale cut retains
+     the complete word and restarts after it, not before it. */
+
   def cut_upper = effective_prediction.valid & !effective_prediction.pc[1].into(Bool) & effective_prediction.compressed
   def cut_after_straddle = continued_return_repair ||| (fallback_prediction.valid & partial & first_fallback)
   def mask = mux(cut_upper ||| cut_after_straddle, bits(1, 2), packet.mask)
   def Array(packets, repairs, fallbacks) = ingress |> fork_valid(3)
   (packets |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: effective_prediction))) |> egress
-  (fallbacks |> filter_valid(_packet => fallback_valid & !packet.page_fault & !packet.access_fault & !clear.valid) |> map_valid(_packet => redirect_prediction)) |> fallback
+  (fallbacks |> filter_valid(_packet => fallback_valid & packet_clean & !clear.valid) |> map_valid(_packet => redirect_prediction)) |> fallback
   (repairs |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
     pc: packet.pc.align_down(4) + bits(4, xlen.width)
     entry: packet.prediction.pc
   ) |> repair
+
+
+  /* Scanner prefix updates.
+     Epoch clear wins new input; an admitted prefix retains any deferred return repair. */
+
   when (clear.valid):
     partial <== Bool(#false)
     partial_prediction_seen <== Bool(#false)
     partial_return_repair <== Bool(#false)
   elsewhen (ingress.valid):
-    partial <== mask[1].into(Bool) & upper_start & !upper_compressed & !packet.page_fault & !packet.access_fault
+    partial <== mask[1].into(Bool) & upper_start & !upper_compressed & packet_clean
     partial_halfword <== packet.word[16..32]
     partial_prediction_seen <== packet.prediction.valid
     partial_return_repair <== return_repair & return_prefix

@@ -118,15 +118,17 @@ sync_circuit Plic(config :: PlicConfig):
   def data_bytes = p.data_bytes
   def lane_width = alignment_bits(data_bytes)
   def initial_priorities = vec(for List (_source in 0..source_count): bits(0, priority_width))
-  def initial_enables = vec(
-    for List (_context in 0..context_count): Mask(source_count)(0)
-  )
+  def initial_enables = vec(for List (_context in 0..context_count): Mask(source_count)(0))
   def initial_thresholds = vec(for List (_context in 0..context_count): bits(0, priority_width))
 
   input identity: PlicIdentity(p)
   input sources: Vec(source_count, Bool)
   interface port(CHISNChannels(p), ~role: node)
   output context_interrupts: Vec(context_count, Bool)
+
+
+  /* CHI owner and architectural interrupt state.
+     Pending bits and gateway-busy bits have distinct claim/completion lifetimes. */
 
   inst transaction(CHISingleBeatSubordinate(p, "plic"))
   port <=> transaction.port
@@ -138,23 +140,26 @@ sync_circuit Plic(config :: PlicConfig):
   reg enables(Vec(context_count, Mask(source_count)), ~init: initial_enables)
   reg thresholds(Vec(context_count, Bits(priority_width)), ~init: initial_thresholds)
 
+
+  /* Request validation and register-region decode.
+     Reads select the incoming REQ; writes retain that address until DAT acceptance. */
+
   def incoming = port.req.bits
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
   def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[PlicAddressWidth..p.request_address_width].or_reduce()
-  def incoming_opcode_supported = (incoming_opcode === CHIReqOpcode.ReadNoSnp) ||| (
-    incoming_opcode === CHIReqOpcode.WriteNoSnpFull
-  ) ||| (incoming_opcode === CHIReqOpcode.WriteNoSnpPtl)
-  def incoming_supported = incoming_opcode_supported & incoming_in_window & (
-    incoming.size_or_num_req === bits(2, 6)
-  ) & incoming.address.is_aligned(4) & (incoming.tgt_id === identity.node_id)
+  def incoming_opcode_supported = incoming_opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
+  def incoming_word_access = (incoming.size_or_num_req === bits(2, 6)) & incoming.address.is_aligned(4)
+  def incoming_targets_device = incoming.tgt_id === identity.node_id
+  def incoming_supported = incoming_opcode_supported & incoming_in_window & incoming_word_access & incoming_targets_device
   transaction.request_supported <== incoming_supported
   def request_fire = transaction.request_fire
+  def accepted_read = request_fire & !incoming_write
   def incoming_relative :: Bits(PlicAddressWidth) = incoming_relative_full[0..PlicAddressWidth]
   def request_relative_full :: Bits(p.request_address_width) = request.address - identity.base_address
   def request_relative :: Bits(PlicAddressWidth) = request_relative_full[0..PlicAddressWidth]
-  def active_address :: Bits(PlicAddressWidth) = mux(request_fire & !incoming_write, incoming_relative, request_relative)
+  def active_address :: Bits(PlicAddressWidth) = mux(accepted_read, incoming_relative, request_relative)
 
   def priority_source_id :: Bits(10) = active_address[2..12]
   def priority_index :: Bits(source_index_width) = (
@@ -185,12 +190,16 @@ sync_circuit Plic(config :: PlicConfig):
   def threshold_access = context_access & (context_register_offset === bits(0, 12))
   def claim_access = context_access & (context_register_offset === bits(4, 12))
 
+
+  /* Per-context winner reduction and interrupt delivery.
+     Threshold gates interrupt delivery, never claim eligibility. */
+
   /* Chooses an eligible candidate by higher priority, then lower source ID. */
   fun prefer_candidate(left :: PlicCandidate(priority_width, source_id_width),
                        right :: PlicCandidate(priority_width, source_id_width)):
-    def right_wins = right.valid & (!left.valid ||| (right.priority > left.priority) ||| (
-      (right.priority === left.priority) & (right.source_id < left.source_id)
-    ))
+    def higher_priority = right.priority > left.priority
+    def lower_id_tie = (right.priority === left.priority) & (right.source_id < left.source_id)
+    def right_wins = right.valid & (!left.valid ||| higher_priority ||| lower_id_tie)
     mux(right_wins, right, left)
 
   def pending_bits = pending.as_bits()
@@ -210,10 +219,11 @@ sync_circuit Plic(config :: PlicConfig):
       )
   )
   def selected_winner = winners[active_context]
-  context_interrupts <== vec(
-    for List (context in 0..context_count):
-      winners[context].valid & (winners[context].priority > thresholds[context])
-  )
+  context_interrupts <== vec(for List (context in 0..context_count): winners[context].valid & (winners[context].priority > thresholds[context]))
+
+
+  /* Read snapshots and physical byte lanes.
+     Source zero stays reserved in software-visible pending and enable words. */
 
   def pending_word_value = (
     (pending_bits.zext(source_count + 32) << 1) >> (pending_word ++ bits(0, 5))
@@ -247,9 +257,12 @@ sync_circuit Plic(config :: PlicConfig):
   transaction.write_ready <== Bool(#true)
   def write_data_fire = transaction.write_data_fire
 
-  // Claims snapshot the old winner and clear pending at request acceptance;
-  // threshold affects interrupt delivery, not claim eligibility.
-  def claim_fire = request_fire & !incoming_write & claim_access
+
+  /* Claim and completion events.
+     Claims snapshot the old winner and clear pending at REQ acceptance;
+     enabled, in-range completions release gateways at DAT acceptance. */
+
+  def claim_fire = accepted_read & claim_access
   def completion_source_id = write_value
   def completion_source_index :: Bits(source_index_width) = (
     completion_source_id - bits(1, 32)
@@ -259,9 +272,16 @@ sync_circuit Plic(config :: PlicConfig):
   )
   def completion_enabled = enables[active_context].as_bits().as_vec(Bool)[completion_source_index]
   def completion_fire = write_data_fire & claim_access & completion_source_valid & completion_enabled
+
+
+  /* Independent pending and gateway updates.
+     Claim does not release a gateway; a still-high completed source can re-pend on a later edge. */
+
+  def gateway_busy_bits = gateway_busy.as_bits()
+  def forwarded_sources = vec(for List (source in 0..source_count): !gateway_busy_bits[source].into(Bool) & sources[source])
   def next_pending = vec(
     for List (source in 0..source_count):
-      def forwarded = !gateway_busy.as_bits()[source].into(Bool) & sources[source]
+      def forwarded = forwarded_sources[source]
       def claimed = claim_fire & selected_winner.valid & (
         selected_winner.source_id === bits(source + 1, source_id_width)
       )
@@ -271,9 +291,9 @@ sync_circuit Plic(config :: PlicConfig):
   // can forward again on a later edge, independently of the claim context.
   def next_gateway_busy = vec(
     for List (source in 0..source_count):
-      def forwarded = !gateway_busy.as_bits()[source].into(Bool) & sources[source]
+      def forwarded = forwarded_sources[source]
       def completed = completion_fire & (completion_source_id === bits(source + 1, 32))
-      (gateway_busy.as_bits()[source].into(Bool) ||| forwarded) & !completed
+      (gateway_busy_bits[source].into(Bool) ||| forwarded) & !completed
   ).into(Mask(source_count))
   def next_enable = vec(
     for List (source in 0..source_count):
@@ -282,6 +302,9 @@ sync_circuit Plic(config :: PlicConfig):
           write_value[source_id mod 32].into(Bool),
           selected_enable_bits[source].into(Bool))
   ).into(Mask(source_count))
+
+
+  /* Architectural state commit and assertion-only byte-mask checks. */
 
   transaction.read_data <== register_read_data
 

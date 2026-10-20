@@ -33,9 +33,7 @@ fun fp_integer_word_input(xlen :: XLen,
                           unsigned :: Bool) :~ Bits(xlen.width):
   if xlen == XLen.X32
   | value
-  | mux(unsigned,
-        value[0..32].zext(64),
-        value[0..32].into(SInt(32)).sext(64).as_bits())
+  | mux(unsigned, value[0..32].zext(64), value[0..32].into(SInt(32)).sext(64).as_bits())
 
 /* Sign-extends a converted 32-bit result to XLEN, including unsigned word conversions. */
 fun fp_integer_word_result(xlen :: XLen,
@@ -142,11 +140,14 @@ circuit FpFormatDatapath(
   def width = xlen.width
   def flen = floating_point_register_width(profile)
   unless flen >= format.ieee_width
-  | error(~who: #'FpFormatDatapath,
-          "floating-point register width must cover the selected format")
+  | error(~who: #'FpFormatDatapath, "floating-point register width must cover the selected format")
 
   input request: FpExecutionRequest(xlen, profile, Tag)
   output completion: FpExecutionResult(xlen, profile, Tag)
+
+
+  /* Operand unboxing and recoding
+     Numerical operations consume checked operands; raw moves retain their separate bit path. */
 
   def control = request.control.execution
   def left = riscv_unbox(format, flen, request.left)
@@ -155,6 +156,10 @@ circuit FpFormatDatapath(
   def left_recoded = left.to_recoded()
   def right_recoded = right.to_recoded()
   def third_recoded = third.to_recoded()
+
+
+  /* Parallel fixed arithmetic lanes
+     Add, multiply, and fused operations retain their own rounding and exception outputs. */
 
   inst add(AddRecFN(format))
   add.subtract <== control.add_operation === FloatAddOperation.Subtract
@@ -176,6 +181,9 @@ circuit FpFormatDatapath(
   fused.c <== third_recoded
   fused.rounding_mode <== request.rounding_mode
   fused.tininess_mode <== TininessMode.AfterRounding
+
+
+  /* Comparison, min/max, estimates, and optional Zfa operations */
 
   inst compare(CompareRecFN(format))
   compare.a <== left_recoded
@@ -208,6 +216,10 @@ circuit FpFormatDatapath(
   zfa.raise_inexact <== control.round_raise_inexact
   zfa.immediate_index <== request.immediate_index
 
+
+  /* Integer conversion lanes
+     Keep narrow-width saturation and sign extension distinct from XLEN conversion. */
+
   def normalized_integer = fp_integer_narrow_input(xlen, request.integer_operand, control.integer_width, control.integer_unsigned)
   inst integer_to_fp(IntegerToRecFN(width, format))
   integer_to_fp.signed_input <== !control.integer_unsigned
@@ -233,7 +245,14 @@ circuit FpFormatDatapath(
   fp_to_integer.signed_output <== !control.integer_unsigned
   def converted_narrow = fp_integer_narrow_result(xlen, mux(control.integer_width === FloatIntegerWidth.Byte, fp_to_byte.out.zext(16), fp_to_half.out), control.integer_width, control.integer_unsigned)
   def converted_integer = mux_lookup(control.integer_width, ~default: fp_to_integer.out, [[FloatIntegerWidth.Byte, converted_narrow], [FloatIntegerWidth.Half, converted_narrow], [FloatIntegerWidth.Word, fp_integer_word_result(xlen, fp_to_word.out)]])
-  def conversion_flags = mux_lookup(control.integer_width, ~default: riscv_integer_exception_flags(fp_to_integer.exception_flags), [[FloatIntegerWidth.Byte, riscv_integer_exception_flags(fp_to_byte.exception_flags)], [FloatIntegerWidth.Half, riscv_integer_exception_flags(fp_to_half.exception_flags)], [FloatIntegerWidth.Word, riscv_integer_exception_flags(fp_to_word.exception_flags)]])
+  def conversion_flags = mux_lookup(control.integer_width, ~default: riscv_integer_exception_flags(fp_to_integer.exception_flags)):
+    FloatIntegerWidth.Byte: riscv_integer_exception_flags(fp_to_byte.exception_flags)
+    FloatIntegerWidth.Half: riscv_integer_exception_flags(fp_to_half.exception_flags)
+    FloatIntegerWidth.Word: riscv_integer_exception_flags(fp_to_word.exception_flags)
+
+
+  /* Result decode and exception selection
+     Decode the value and flags from the same execution unit without changing NaN policy. */
 
   def sign_value = riscv_sign_inject(format, left, right, control.sign_operation)
   def move_source = request.left[0..format.ieee_width].into(IEEEFloat(format))
@@ -246,21 +265,16 @@ circuit FpFormatDatapath(
     control.unit,
     ~default: riscv_canonical_nan(format),
     [
-      [FloatUnit.FusedMultiplyAdd,
-       riscv_canonicalize_nan(format, fused.out.to_ieee())],
-      [FloatUnit.Add,
-       riscv_canonicalize_nan(format, add.out.to_ieee())],
-      [FloatUnit.Multiply,
-       riscv_canonicalize_nan(format, multiply.out.to_ieee())],
+      [FloatUnit.FusedMultiplyAdd, riscv_canonicalize_nan(format, fused.out.to_ieee())],
+      [FloatUnit.Add, riscv_canonicalize_nan(format, add.out.to_ieee())],
+      [FloatUnit.Multiply, riscv_canonicalize_nan(format, multiply.out.to_ieee())],
       [FloatUnit.SignInject, sign_value],
-      [FloatUnit.MinMax,
-       riscv_canonicalize_nan(format, minmax.out.to_ieee())],
+      [FloatUnit.MinMax, riscv_canonicalize_nan(format, minmax.out.to_ieee())],
       [FloatUnit.Estimate, estimate.out],
       [FloatUnit.Convert, converted_fp],
       [FloatUnit.Move, fp_move_value],
       [FloatUnit.Immediate, zfa.immediate],
-      [FloatUnit.RoundToIntegral,
-       riscv_canonicalize_nan(format, zfa.rounded.to_ieee())]
+      [FloatUnit.RoundToIntegral, riscv_canonicalize_nan(format, zfa.rounded.to_ieee())]
     ]
   )
   def integer_value = mux_lookup(
@@ -269,8 +283,7 @@ circuit FpFormatDatapath(
     [
       [FloatUnit.Compare, comparison_value.as_bits().zext(width)],
       [FloatUnit.Convert, converted_integer],
-      [FloatUnit.IntegerModulo,
-       fp_integer_word_result(xlen, zfa.modulo)],
+      [FloatUnit.IntegerModulo, fp_integer_word_result(xlen, zfa.modulo)],
       [FloatUnit.Move, integer_move_value],
       [FloatUnit.Classify, class_value]
     ]
@@ -279,21 +292,13 @@ circuit FpFormatDatapath(
     control.unit,
     ~default: bits(0, 5),
     [
-      [FloatUnit.FusedMultiplyAdd,
-       riscv_exception_flags(fused.exception_flags)],
+      [FloatUnit.FusedMultiplyAdd, riscv_exception_flags(fused.exception_flags)],
       [FloatUnit.Add, riscv_exception_flags(add.exception_flags)],
-      [FloatUnit.Multiply,
-       riscv_exception_flags(multiply.exception_flags)],
-      [FloatUnit.MinMax,
-       riscv_exception_flags(minmax.exception_flags)],
-      [FloatUnit.Estimate,
-       riscv_exception_flags(estimate.exception_flags)],
-      [FloatUnit.Compare,
-       riscv_exception_flags(compare.exception_flags)],
-      [FloatUnit.Convert,
-       mux(fp_destination,
-           riscv_exception_flags(integer_to_fp.exception_flags),
-           conversion_flags)],
+      [FloatUnit.Multiply, riscv_exception_flags(multiply.exception_flags)],
+      [FloatUnit.MinMax, riscv_exception_flags(minmax.exception_flags)],
+      [FloatUnit.Estimate, riscv_exception_flags(estimate.exception_flags)],
+      [FloatUnit.Compare, riscv_exception_flags(compare.exception_flags)],
+      [FloatUnit.Convert, mux(fp_destination, riscv_exception_flags(integer_to_fp.exception_flags), conversion_flags)],
       [FloatUnit.RoundToIntegral, zfa.round_exception_flags],
       [FloatUnit.IntegerModulo, zfa.modulo_exception_flags]
     ]
@@ -328,9 +333,7 @@ circuit FpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag
   completion <== FpExecutionResult(xlen, profile, Tag):
     tag: request.tag
     integer_value: fp_move_to_integer(xlen, format, source)
-    fp_value: riscv_nan_box(format,
-                            integer_move_to_fp(xlen, format, request.integer_operand),
-                            flen)
+    fp_value: riscv_nan_box(format, integer_move_to_fp(xlen, format, request.integer_operand), flen)
     exception_flags: bits(0, 5)
     exception_flags_valid: Bool(#false)
 
@@ -341,13 +344,7 @@ circuit FpFixedF(xlen :: XLen,
   input request: FpExecutionRequest(xlen, FloatingPointProfile.F, Tag)
   output completion: FpExecutionResult(xlen, FloatingPointProfile.F, Tag)
 
-  inst single(FpFormatDatapath(
-    xlen,
-    FloatingPointProfile.F,
-    FloatFormat.F32,
-    Tag,
-    ~zfa: zfa_enabled
-  ))
+  inst single(FpFormatDatapath(xlen, FloatingPointProfile.F, FloatFormat.F32, Tag, ~zfa: zfa_enabled))
   single.request <== request
   completion <== single.completion
 
@@ -385,21 +382,13 @@ circuit FpFixedD(xlen :: XLen,
   input request: FpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
   output completion: FpExecutionResult(xlen, FloatingPointProfile.D, Tag)
 
-  inst single(FpFormatDatapath(
-    xlen,
-    FloatingPointProfile.D,
-    FloatFormat.F32,
-    Tag,
-    ~zfa: zfa_enabled
-  ))
-  inst double(FpFormatDatapath(
-    xlen,
-    FloatingPointProfile.D,
-    FloatFormat.F64,
-    Tag,
-    ~zfa: zfa_enabled,
-    ~zfa_modulo: #true
-  ))
+  inst single(FpFormatDatapath(xlen, FloatingPointProfile.D, FloatFormat.F32, Tag, ~zfa: zfa_enabled))
+  inst double(FpFormatDatapath(xlen, FloatingPointProfile.D, FloatFormat.F64, Tag, ~zfa: zfa_enabled, ~zfa_modulo: #true))
+
+
+  /* Mixed-precision operand promotion
+     Widen only operands consumed by the selected arithmetic operation. */
+
   def control = request.control.execution
   def source_single = control.source_precision === FloatPrecision.Single
   def floating_point_destination = request.control.registers.destination === FloatDestination.FloatingPoint
@@ -420,12 +409,12 @@ circuit FpFixedD(xlen :: XLen,
   single.request <== request
   double.request <== mux(widening_arithmetic, widened_request, request)
 
+
+  /* Cross-precision conversion lanes
+     Select ordinary precision separately from explicit conversion and its accrued flags. */
+
   def ordinary_single = mux(floating_point_destination, control.destination_precision === FloatPrecision.Single, source_single)
-  def cross_precision = floating_point_destination & request.control.registers.uses_frs1 & (
-    control.unit === FloatUnit.Convert
-  ) & (
-    control.source_precision =/= control.destination_precision
-  )
+  def cross_precision = floating_point_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & (control.source_precision =/= control.destination_precision)
   def single_source = riscv_unbox(FloatFormat.F32, 64, request.left)
   def double_source = request.left.into(IEEEFloat(FloatFormat.F64))
   inst single_to_double(RecFNToRecFN(FloatFormat.F32, FloatFormat.F64))
@@ -440,32 +429,19 @@ circuit FpFixedD(xlen :: XLen,
   def ordinary = mux(ordinary_single, single.completion, double.completion)
   def converted_value = mux(
     source_single,
-    riscv_nan_box(
-      FloatFormat.F64,
-      riscv_canonicalize_nan(FloatFormat.F64,
-                             single_to_double.out.to_ieee()),
-      64
-    ),
-    riscv_nan_box(
-      FloatFormat.F32,
-      riscv_canonicalize_nan(FloatFormat.F32,
-                             double_to_single.out.to_ieee()),
-      64
-    )
+    riscv_nan_box(FloatFormat.F64, riscv_canonicalize_nan(FloatFormat.F64, single_to_double.out.to_ieee()), 64),
+    riscv_nan_box(FloatFormat.F32, riscv_canonicalize_nan(FloatFormat.F32, double_to_single.out.to_ieee()), 64)
   )
-  def converted_flags = mux(
-    source_single,
-    riscv_exception_flags(single_to_double.exception_flags),
-    riscv_exception_flags(double_to_single.exception_flags)
-  )
+  def converted_flags = mux(source_single, riscv_exception_flags(single_to_double.exception_flags), riscv_exception_flags(double_to_single.exception_flags))
+
+
+  /* Completion flags
+     The fused operation includes the third operand's widening flags; binary arithmetic does not. */
+
   def left_widening_flags = mux(request.left_precision === FloatPrecision.Single, widen_left.exception_flags, bits(0, 5))
   def right_widening_flags = mux(request.right_precision === FloatPrecision.Single, widen_right.exception_flags, bits(0, 5))
   def third_widening_flags = mux(request.third_precision === FloatPrecision.Single, widen_third.exception_flags, bits(0, 5))
-  def widening_flags = mux(
-    control.unit === FloatUnit.FusedMultiplyAdd,
-    left_widening_flags ||| right_widening_flags ||| third_widening_flags,
-    left_widening_flags ||| right_widening_flags
-  )
+  def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
     ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5)))
@@ -485,6 +461,10 @@ circuit FpFixedFHalf(xlen :: XLen,
   inst single(FpFixedF(xlen, Tag, ~zfa: zfa_enabled))
   half.request <== request
 
+
+  /* Mixed-precision operand promotion
+     Widen only operands consumed by the selected arithmetic operation. */
+
   def control = request.control.execution
   def fp_destination = request.control.registers.destination === FloatDestination.FloatingPoint
   def widening_arithmetic = fp_destination & (control.destination_precision === FloatPrecision.Single) & control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd) & (
@@ -502,12 +482,13 @@ circuit FpFixedFHalf(xlen :: XLen,
     ~third: mux(request.third_precision === FloatPrecision.Half, widen_third.widened, request.third)
   )
   single.request <== mux(widening_arithmetic, widened_request, request)
-  def ordinary_half = mux(fp_destination,
-                          control.destination_precision === FloatPrecision.Half,
-                          control.source_precision === FloatPrecision.Half)
-  def cross_precision = fp_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & (
-    control.source_precision =/= control.destination_precision
-  )
+
+
+  /* Cross-precision conversion lanes
+     Select ordinary precision separately from explicit conversion and its accrued flags. */
+
+  def ordinary_half = mux(fp_destination, control.destination_precision === FloatPrecision.Half, control.source_precision === FloatPrecision.Half)
+  def cross_precision = fp_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & (control.source_precision =/= control.destination_precision)
   def half_source = riscv_unbox(FloatFormat.F16, 32, request.left)
   def single_source = riscv_unbox(FloatFormat.F32, 32, request.left)
   inst half_to_single(RecFNToRecFN(FloatFormat.F16, FloatFormat.F32))
@@ -526,9 +507,12 @@ circuit FpFixedFHalf(xlen :: XLen,
     riscv_nan_box(FloatFormat.F32, riscv_canonicalize_nan(FloatFormat.F32, half_to_single.out.to_ieee()), 32),
     riscv_nan_box(FloatFormat.F16, riscv_canonicalize_nan(FloatFormat.F16, single_to_half.out.to_ieee()), 32)
   )
-  def converted_flags = mux(source_half,
-                            riscv_exception_flags(half_to_single.exception_flags),
-                            riscv_exception_flags(single_to_half.exception_flags))
+  def converted_flags = mux(source_half, riscv_exception_flags(half_to_single.exception_flags), riscv_exception_flags(single_to_half.exception_flags))
+
+
+  /* Completion flags
+     The fused operation includes the third operand's widening flags; binary arithmetic does not. */
+
   def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
   def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
   def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
@@ -553,6 +537,10 @@ circuit FpFixedDHalf(xlen :: XLen,
   inst base(FpFixedD(xlen, Tag, ~zfa: zfa_enabled))
   half.request <== request
 
+
+  /* Mixed-precision operand promotion
+     Widen only operands consumed by the selected arithmetic operation. */
+
   def control = request.control.execution
   def fp_destination = request.control.registers.destination === FloatDestination.FloatingPoint
   def widening_arithmetic = fp_destination & (control.destination_precision === FloatPrecision.Single) & control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd) & (
@@ -570,14 +558,13 @@ circuit FpFixedDHalf(xlen :: XLen,
     ~third: mux(request.third_precision === FloatPrecision.Half, widen_third.widened, request.third)
   )
   base.request <== mux(widening_arithmetic, widened_request, request)
-  def ordinary_half = mux(fp_destination,
-                          control.destination_precision === FloatPrecision.Half,
-                          control.source_precision === FloatPrecision.Half)
-  def half_cross = fp_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & (
-    (control.source_precision === FloatPrecision.Half) ||| (
-      control.destination_precision === FloatPrecision.Half
-    )
-  )
+
+
+  /* Cross-precision conversion lanes
+     Select ordinary precision separately from explicit conversion and its accrued flags. */
+
+  def ordinary_half = mux(fp_destination, control.destination_precision === FloatPrecision.Half, control.source_precision === FloatPrecision.Half)
+  def half_cross = fp_destination & request.control.registers.uses_frs1 & (control.unit === FloatUnit.Convert) & ((control.source_precision === FloatPrecision.Half) ||| (control.destination_precision === FloatPrecision.Half))
   def half_source = riscv_unbox(FloatFormat.F16, 64, request.left)
   def single_source = riscv_unbox(FloatFormat.F32, 64, request.left)
   def double_source = request.left.into(IEEEFloat(FloatFormat.F64))
@@ -600,27 +587,22 @@ circuit FpFixedDHalf(xlen :: XLen,
 
   def ordinary = mux(ordinary_half, half.completion, base.completion)
   def source_half = control.source_precision === FloatPrecision.Half
-  def other_single = mux(source_half,
-                         control.destination_precision === FloatPrecision.Single,
-                         control.source_precision === FloatPrecision.Single)
-  def converted_value = mux(
-    source_half,
-    mux(other_single,
-        riscv_nan_box(FloatFormat.F32, riscv_canonicalize_nan(FloatFormat.F32, half_to_single.out.to_ieee()), 64),
-        riscv_nan_box(FloatFormat.F64, riscv_canonicalize_nan(FloatFormat.F64, half_to_double.out.to_ieee()), 64)),
-    mux(other_single,
-        riscv_nan_box(FloatFormat.F16, riscv_canonicalize_nan(FloatFormat.F16, single_to_half.out.to_ieee()), 64),
-        riscv_nan_box(FloatFormat.F16, riscv_canonicalize_nan(FloatFormat.F16, double_to_half.out.to_ieee()), 64))
-  )
-  def converted_flags = mux(
-    source_half,
-    mux(other_single,
-        riscv_exception_flags(half_to_single.exception_flags),
-        riscv_exception_flags(half_to_double.exception_flags)),
-    mux(other_single,
-        riscv_exception_flags(single_to_half.exception_flags),
-        riscv_exception_flags(double_to_half.exception_flags))
-  )
+  def other_single = mux(source_half, control.destination_precision === FloatPrecision.Single, control.source_precision === FloatPrecision.Single)
+  def half_to_single_value = riscv_nan_box(FloatFormat.F32, riscv_canonicalize_nan(FloatFormat.F32, half_to_single.out.to_ieee()), 64)
+  def half_to_double_value = riscv_nan_box(FloatFormat.F64, riscv_canonicalize_nan(FloatFormat.F64, half_to_double.out.to_ieee()), 64)
+  def single_to_half_value = riscv_nan_box(FloatFormat.F16, riscv_canonicalize_nan(FloatFormat.F16, single_to_half.out.to_ieee()), 64)
+  def double_to_half_value = riscv_nan_box(FloatFormat.F16, riscv_canonicalize_nan(FloatFormat.F16, double_to_half.out.to_ieee()), 64)
+  def widening_value = mux(other_single, half_to_single_value, half_to_double_value)
+  def narrowing_value = mux(other_single, single_to_half_value, double_to_half_value)
+  def converted_value = mux(source_half, widening_value, narrowing_value)
+  def widening_conversion_flags = mux(other_single, riscv_exception_flags(half_to_single.exception_flags), riscv_exception_flags(half_to_double.exception_flags))
+  def narrowing_conversion_flags = mux(other_single, riscv_exception_flags(single_to_half.exception_flags), riscv_exception_flags(double_to_half.exception_flags))
+  def converted_flags = mux(source_half, widening_conversion_flags, narrowing_conversion_flags)
+
+
+  /* Completion flags
+     The fused operation includes the third operand's widening flags; binary arithmetic does not. */
+
   def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
   def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
   def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, bits(0, 5))

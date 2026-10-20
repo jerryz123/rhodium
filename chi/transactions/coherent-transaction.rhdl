@@ -79,6 +79,11 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
                                            rx_snp :: CHISnpFlit(p),
                                            ~rx_rsp_valid: rx_rsp_valid :: Bool = Bool(#false),
                                            ~rx_rsp: rx_rsp :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)):
+
+
+  /* Independent bounded transaction tables.
+     Reads, snoops, and copybacks retain their own completion obligations. */
+
   def empty_read = literal(CHICoherentReadTransaction(p), 0)
   def initial_reads = vec(for List (_index in 0..limit): empty_read)
   def empty_snoop = literal(CHISnoopTransaction(p), 0)
@@ -86,6 +91,11 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   reg reads(~init: initial_reads)
   reg snoops(~init: initial_snoops)
   reg copybacks(~init: vec(for List (_index in 0..limit): literal(CHICopyBackTransaction(p), 0)))
+
+
+  /* Full-line copyback request, grant, and packet receipt.
+     The DBID grant establishes data identity; only the complete packet mask ends ownership. */
+
   def copyback_request = tx_req_valid & (req.opcode === CHIReqOpcode.WriteBackFull)
   def copyback_grant = rx_rsp_valid & (rx_rsp.opcode === CHIRspOpcode.CompDBIDResp)
   def copyback_data = tx_dat_valid & (tx_dat.opcode === CHIDatOpcode.CopyBackWriteData)
@@ -101,12 +111,18 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   )
   def copyback_data_id = one_hot(tx_dat.data_id).as_bits()
   def copyback_expected = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
-  def live_requests = vec(for List (index in 0..limit): reads[index].phase =/= CHICoherentReadPhase.Free).as_bits() ++ vec(for List (index in 0..limit): copybacks[index].live).as_bits()
-  when (copyback_request ||| (tx_req_valid & req.allow_retry & req.opcode.is_one_of(CHIReqOpcode.ReadShared, CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique))):
+  def live_reads = vec(for List (index in 0..limit): reads[index].phase =/= CHICoherentReadPhase.Free).as_bits()
+  def live_copybacks = vec(for List (index in 0..limit): copybacks[index].live).as_bits()
+  def live_requests = live_reads ++ live_copybacks
+  def coherent_read_request = tx_req_valid & req.opcode.is_one_of(CHIReqOpcode.ReadShared, CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
+  def new_retryable_read = coherent_read_request & req.allow_retry
+  when (copyback_request ||| new_retryable_read):
     assert(popcount(live_requests) < bits(limit, index_width(2 * limit + 1)), label_prefix ++ "_requests_within_outstanding_limit")
   when copyback_request:
     assert(free_copybacks.or_reduce(), label_prefix ++ "_copyback_capacity")
-    assert(req.address.is_aligned(64) & (chi_req_size(p, req) === CHITransferSize.Bytes64) & !req.multi_req & !req.exp_comp_ack, label_prefix ++ "_copyback_request")
+    def full_line = req.address.is_aligned(64) & (chi_req_size(p, req) === CHITransferSize.Bytes64)
+    def copyback_framing = !req.multi_req & !req.exp_comp_ack
+    assert(full_line & copyback_framing, label_prefix ++ "_copyback_request")
   when tx_req_valid:
     for (index in 0..limit):
       assert(!copybacks[index].live ||| (copybacks[index].txn_id =/= req.txn_id), label_prefix ++ "_copyback_txn_unique")
@@ -116,7 +132,10 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     assert(grant_matches.or_reduce(), label_prefix ++ "_copyback_grant_has_request")
     assert((rx_rsp.resp_err === CHIRespErr.OK) & (rx_rsp.resp === bits(0, 3)), label_prefix ++ "_copyback_grant_ok")
     for (index in 0..limit):
-      assert(!(copybacks[index].live & copybacks[index].granted & (copybacks[index].home_id === rx_rsp.src_id) & (copybacks[index].dbid === rx_rsp.dbid_or_group_id)), label_prefix ++ "_copyback_dbid_unique")
+      def same_granted_dbid = copybacks[index].live & copybacks[index].granted & (
+        copybacks[index].home_id === rx_rsp.src_id
+      ) & (copybacks[index].dbid === rx_rsp.dbid_or_group_id)
+      assert(!same_granted_dbid, label_prefix ++ "_copyback_dbid_unique")
   when copyback_data:
     assert(data_matches.or_reduce(), label_prefix ++ "_copyback_data_has_grant")
     monitor_chi_copyback_data(p, tx_dat, label_prefix ++ "_copyback_data")
@@ -139,13 +158,16 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         dbid: bits(0, 12)
         received: bits(0, 4)
         state: bits(0, 3)
+
+
+  /* Coherent read, snoop, and paired-DVM event classification.
+     Only the second DVM packet allocates a snoop response obligation. */
+
   reg coherent_dvm_first_pending(~init: Bool(#false))
   reg coherent_dvm_source_id(~init: bits(0, p.node_id_width))
   reg coherent_dvm_txn_id(~init: bits(0, 12))
 
-  def req_event = tx_req_valid & req.opcode.is_one_of(CHIReqOpcode.ReadShared,
-                                                      CHIReqOpcode.ReadClean,
-                                                      CHIReqOpcode.ReadUnique)
+  def req_event = coherent_read_request
   def comp_ack_event = tx_rsp_valid & (tx_rsp.opcode === CHIRspOpcode.CompAck)
   def read_data_event = rx_dat_valid & (rx_dat.opcode === CHIDatOpcode.CompData)
   def read_data_id = one_hot(rx_dat.data_id).as_bits()
@@ -157,32 +179,17 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def snoop_dat_event = tx_dat_valid & tx_dat.opcode.is_snoop_response()
   def forward_data_event = tx_dat_valid & (tx_dat.opcode === CHIDatOpcode.CompData)
 
-  def free_reads = vec(
-    for List (index in 0..limit):
-      reads[index].phase === CHICoherentReadPhase.Free
-  )
+
+  /* Read data and CompAck lifetime.
+     Keep packet receipt and acknowledgement independent, including a shared-cycle update. */
+
+  def free_reads = vec(for List (index in 0..limit): reads[index].phase === CHICoherentReadPhase.Free)
   def read_allocation_available = free_reads.or_reduce()
   def read_allocation_index = priority_encoder(free_reads)
-  def duplicate_read_txn = or_reduce(
-    for List (index in 0..limit):
-      (reads[index].phase =/= CHICoherentReadPhase.Free) & (
-        reads[index].txn_id === req.txn_id
-      )
-  )
-  def read_data_matches = vec(
-    for List (index in 0..limit):
-      (reads[index].phase === CHICoherentReadPhase.AwaitData) & (
-        reads[index].txn_id === rx_dat.txn_id
-      )
-  )
-  def read_data_expected = or_reduce(
-    for List (index in 0..limit):
-      read_data_matches[index] & or_reduce(reads[index].expected_data_ids & read_data_id)
-  )
-  def read_data_duplicate = or_reduce(
-    for List (index in 0..limit):
-      read_data_matches[index] & or_reduce(reads[index].received_data_ids & read_data_id)
-  )
+  def duplicate_read_txn = or_reduce(for List (index in 0..limit): (reads[index].phase =/= CHICoherentReadPhase.Free) & (reads[index].txn_id === req.txn_id))
+  def read_data_matches = vec(for List (index in 0..limit): (reads[index].phase === CHICoherentReadPhase.AwaitData) & (reads[index].txn_id === rx_dat.txn_id))
+  def read_data_expected = or_reduce(for List (index in 0..limit): read_data_matches[index] & or_reduce(reads[index].expected_data_ids & read_data_id))
+  def read_data_duplicate = or_reduce(for List (index in 0..limit): read_data_matches[index] & or_reduce(reads[index].received_data_ids & read_data_id))
   def read_data_metadata_consistent = or_reduce(
     for List (index in 0..limit):
       read_data_matches[index] & (
@@ -245,11 +252,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         def entry = reads[index]
         def read_data_here = read_data_event & read_data_matches[index]
         def comp_ack_here = comp_ack_event & comp_ack_matches[index]
-        def next_received_data_ids = mux(
-          read_data_here,
-          entry.received_data_ids ||| read_data_id,
-          entry.received_data_ids
-        )
+        def next_received_data_ids = mux(read_data_here, entry.received_data_ids ||| read_data_id, entry.received_data_ids)
         def first_data = !entry.received_data_ids.or_reduce()
         def next_comp_ack_seen = entry.comp_ack_seen ||| comp_ack_here
         def data_complete = next_received_data_ids === entry.expected_data_ids
@@ -272,6 +275,10 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   )
   reads <== next_reads
 
+
+  /* Snoop and forwarded-data obligations.
+     Ordinary responses finish directly; forwarding waits for both response and forwarded data. */
+
   def free_snoops = vec(for List (index in 0..limit): !snoops[index].live)
   def snoop_allocation_available = free_snoops.or_reduce()
   def snoop_allocation_index = priority_encoder(free_snoops)
@@ -281,18 +288,8 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         snoops[index].home_id === rx_snp.src_id
       )
   )
-  def rsp_snoop_matches = vec(
-    for List (index in 0..limit):
-      (snoops[index].txn_id === tx_rsp.txn_id) & (
-        snoops[index].home_id === tx_rsp.tgt_id
-      )
-  )
-  def dat_snoop_matches = vec(
-    for List (index in 0..limit):
-      (snoops[index].txn_id === tx_dat.txn_id) & (
-        snoops[index].home_id === tx_dat.tgt_id
-      )
-  )
+  def rsp_snoop_matches = vec(for List (index in 0..limit): (snoops[index].txn_id === tx_rsp.txn_id) & (snoops[index].home_id === tx_rsp.tgt_id))
+  def dat_snoop_matches = vec(for List (index in 0..limit): (snoops[index].txn_id === tx_dat.txn_id) & (snoops[index].home_id === tx_dat.tgt_id))
   def forward_data_matches = vec(
     for List (index in 0..limit):
       snoops[index].forward & (
@@ -347,9 +344,9 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         def forward_data_here = forward_data_event & forward_data_matches[index]
         def next_response_seen = entry.response_seen ||| forwarded_response
         def next_forward_data_seen = entry.forward_data_seen ||| forward_data_here
-        def completes = (response_here & !forwarded_response) ||| (
-          entry.forward & next_response_seen & next_forward_data_seen
-        )
+        def ordinary_complete = response_here & !forwarded_response
+        def forwarded_complete = entry.forward & next_response_seen & next_forward_data_seen
+        def completes = ordinary_complete ||| forwarded_complete
         def progressed = entry.updated(
           ~live: entry.live & !completes,
           ~response_seen: next_response_seen,
@@ -361,6 +358,11 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         mux(allocate_here, allocated_snoop, progressed)
   )
   snoops <== next_snoops
+
+
+  /* Paired-DVM identity retention.
+     Capture source/TxnID on the first packet and preserve them through the matching second. */
+
   when dvm_event:
     coherent_dvm_first_pending <== !coherent_dvm_first_pending
     coherent_dvm_source_id <== mux(coherent_dvm_first_pending,

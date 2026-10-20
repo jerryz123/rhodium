@@ -45,6 +45,9 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   interface memory(RiscvTranslationMemory(), ~role: requester)
   input cancel: Bool
 
+
+  /* Walk frame, continuation, and physical-read ownership */
+
   reg state(~init: RiscvPageWalkState.Idle)
   reg phase(RiscvPageWalkPhase)
   reg operation(RiscvTlbLookup())
@@ -54,6 +57,10 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   reg memory_address(Bits(64))
   reg memory_pbmt(PageMemoryType)
   reg result(RiscvTlbMapping())
+
+
+  /* Public offers and accepted-response ownership
+     Cancellation ends architectural completion but does not abandon an accepted PTE reply. */
 
   def walking = request |> trace_event("mmu/walk", ~when: !cancel, ~residency: "walk", ~fields: translation):
     virtual_address: translation.virtual_address
@@ -71,15 +78,19 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def response_received = memory.response.valid & response_expected
   assert(!memory.response.valid ||| response_expected, "riscv_ptw_response_owned")
 
+
+  /* Current traversal and PTE validation */
+
   def virtual_stage = phase === RiscvPageWalkPhase.Virtual
   def implicit_access = phase === RiscvPageWalkPhase.GuestPte
   def guest_bare = !operation.virtualized ||| (operation.context.g_mode === RiscvGMode.Bare)
   def pte = memory.response.bits.into(Sv39Pte())
   def leaf = pte.sv39_leaf()
   def pbmte = mux(virtual_stage, operation.context.vs_pbmte, operation.context.g_pbmte)
-  def structural_fault = !sv39_pte_structurally_valid(pte, ~level: frame.level, ~svnapot: svnapot, ~pbmte: pbmte) ||| (
-    leaf & !pte.sv39_superpage_aligned(frame.level)
-  ) ||| (!leaf & ((frame.level === bits(0, 2)) ||| pte.dirty ||| pte.accessed ||| pte.user))
+  def encoding_fault = !sv39_pte_structurally_valid(pte, ~level: frame.level, ~svnapot: svnapot, ~pbmte: pbmte)
+  def superpage_alignment_fault = leaf & !pte.sv39_superpage_aligned(frame.level)
+  def nonleaf_fault = !leaf & ((frame.level === bits(0, 2)) ||| pte.dirty ||| pte.accessed ||| pte.user)
+  def structural_fault = encoding_fault ||| superpage_alignment_fault ||| nonleaf_fault
   def checked_access = mux(implicit_access, Sv39Access.Load, operation.access)
   def user = !virtual_stage ||| (operation.context.privilege === PrivilegeMode.User)
   def supervisor = virtual_stage & (operation.context.privilege === PrivilegeMode.Supervisor)
@@ -89,10 +100,8 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def permission_fault = leaf & !sv39_permission_valid(pte, checked_access, user, supervisor, sum, mxr, operation.execute_read & !implicit_access)
   def page_size = sv39_page_size(pte, frame.level)
   def translated_address = sv39_physical_address(frame.address, sv39_base_ppn(pte.ppn, page_size), page_size)
-  def pte_address = (frame.table_ppn ++ bits(0, 12)).zext(64) + mux(
-    virtual_stage, (frame.address.sv39_vpn(frame.level) ++ bits(0, 3)).zext(64),
-    (sv39x4_vpn(frame.address, frame.level) ++ bits(0, 3)).zext(64)
-  )
+  def pte_offset = mux(virtual_stage, (frame.address.sv39_vpn(frame.level) ++ bits(0, 3)).zext(64), (sv39x4_vpn(frame.address, frame.level) ++ bits(0, 3)).zext(64))
+  def pte_address = (frame.table_ppn ++ bits(0, 12)).zext(64) + pte_offset
   memory.request.bits <== RiscvPteRead():
     address: mux(operation.virtualized, memory_address, pte_address)
     pbmt: mux(operation.virtualized, memory_pbmt, PageMemoryType.PMA)
@@ -100,9 +109,15 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   describe_interface_retained_storage(request_fire & !cancel, occupied & (completion.fire() ||| cancel), occupied, ~name: "walk")
   describe_interface_contract(walking, Array(memory.request, completion), "walk-outputs", ~trace_model: interface_trace_retained(~name: "walk", ~outputs: 2))
 
+
+  /* Address checks and retained mapping construction */
+
   def bad_virtual_address = virtual_stage & !frame.address.sv39_canonical()
   def bad_guest_address = !virtual_stage & !guest_bare & (!sv39x4_address_valid(frame.address) ||| or_reduce(operation.context.g_root_ppn[0..2]))
   def bare_overflow = !virtual_stage & guest_bare & or_reduce(frame.address[56..64])
+  def address_fault = priority_mux(~default: RiscvTranslationFault.GuestPageFault):
+    bare_overflow: RiscvTranslationFault.AccessFault
+    virtual_stage: RiscvTranslationFault.PageFault
   def checking_address = state === RiscvPageWalkState.CheckAddress
   def preparing_read = state === RiscvPageWalkState.PrepareRead
   def zero_leaf = bits(0, 64).into(Sv39Pte())
@@ -136,6 +151,10 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
       fault: fault
       fault_details: details
 
+
+  /* Traversal state updates
+     Cancellation and drain precede new admission, address checks, PTE responses, and completion. */
+
   when cancel:
     // Keep the memory owner even after its architectural consumer disappears.
     state <== mux(owns_response & !memory.response.valid, RiscvPageWalkState.Drain, RiscvPageWalkState.Idle)
@@ -147,9 +166,11 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     result <== empty_mapping.updated(~virtual_address: request.bits.virtual_address, ~access: request.bits.access, ~fault: RiscvTranslationFault.PageFault)
     phase <== mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, RiscvPageWalkPhase.Virtual, RiscvPageWalkPhase.GuestFinal)
     frame <== root_frame(request.bits.virtual_address, mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, request.bits.context.vs_root_ppn, request.bits.context.g_root_ppn))
-    state <== mux(!request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39), mux(request.bits.virtual_address.sv39_canonical(), RiscvPageWalkState.Request, RiscvPageWalkState.Complete), RiscvPageWalkState.CheckAddress)
+    def direct_host_walk = !request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39)
+    def host_first_state = mux(request.bits.virtual_address.sv39_canonical(), RiscvPageWalkState.Request, RiscvPageWalkState.Complete)
+    state <== mux(direct_host_walk, host_first_state, RiscvPageWalkState.CheckAddress)
   elsewhen (checking_address & (bad_virtual_address ||| bad_guest_address ||| bare_overflow)):
-    result <== outcome(mux(bare_overflow, RiscvTranslationFault.AccessFault, mux(virtual_stage, RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)), bits(0, 56), zero_leaf)
+    result <== outcome(address_fault, bits(0, 56), zero_leaf)
     state <== RiscvPageWalkState.Complete
   elsewhen (checking_address & !virtual_stage & guest_bare & implicit_access):
     memory_address <== frame.address

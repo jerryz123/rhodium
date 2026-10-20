@@ -65,6 +65,10 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
+
+  /* Retained execution and LSU owners.
+     Both continue servicing accepted work independently of the pending descriptor head. */
+
   inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   execution.schedule_enable <== Bool(#true)
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
@@ -78,8 +82,12 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
       access.request_guest_fault <== request_guest_fault
       access.pipeline_guest_fault <== pipeline_guest_fault
   | #void
-  // Pending descriptor policy is independent of the older execution owner's
-  // LSU policy, so prechecking the next macro cannot perturb active issue.
+
+
+  /* Head-only certification and dispatch.
+     Pending policy is separate from the older execution owner's LSU policy;
+     prechecking the next macro cannot perturb active issue. */
+
   reg store(~init: Bool(#false))
   reg captured_pointer_masking(PointerMaskControl())
   reg execution_certified(~init: Bool(#false))
@@ -100,11 +108,16 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def needs_check = queued_descriptor.bits.control.memory & !footprint.empty & footprint.eligible & !queued_descriptor.bits.precertified
   def immediate_certificate = !queued_descriptor.bits.control.memory ||| footprint.empty
   def head_certified = immediate_certificate ||| queued_descriptor.bits.precertified ||| (check_complete & certified)
+  def head_check_resolved = !needs_check ||| check_complete
+  def memory_dispatch_safe = !queued_descriptor.bits.control.memory ||| queued_descriptor.bits.precertified ||| (
+    access.requests_idle & !execution.sequencing & !execution.issue.valid
+  )
   (
     queued_descriptor |> map_flow(descriptor => VectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
       descriptor: descriptor
-  ) |> gate_flow((!needs_check ||| check_complete) & (!queued_descriptor.bits.control.memory ||| queued_descriptor.bits.precertified ||| (access.requests_idle & !execution.sequencing & !execution.issue.valid))) |> execution.request
+  ) |> gate_flow(head_check_resolved & memory_dispatch_safe) |> execution.request
+  def dispatch_fire = execution.request.fire()
   // A strided certificate pins translation only; its transfers remain elementwise.
   execution.packed_memory <== head_certified & queued_descriptor.bits.control.memory & (queued_descriptor.bits.control.memory_addressing === VectorMemoryAddressing.UnitStride)
   precheck.request.valid <== queued_descriptor.valid & needs_check & !check_started
@@ -113,7 +126,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   // The page window belongs to the current sequencer, not an older compute
   // macro whose final beat may issue after a memory descriptor replaces it.
   precheck.release.valid <== execution.sequencing_done.valid & active_precheck
-  def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: execution.request.fire() & queued_descriptor.bits.control.memory & footprint.empty, ~bits: queued_descriptor.bits.pc)
+  def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: dispatch_fire & queued_descriptor.bits.control.memory & footprint.empty, ~bits: queued_descriptor.bits.pc)
   def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
   def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => VectorCommit(xlen, slots)):
     tag: bits(0, index_width(slots))
@@ -123,6 +136,11 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
+
+
+  /* Memory execution and registered architectural outcomes.
+     Early certification establishes fault certainty; final LSU outcomes cover fallback. */
+
   execution.issue |> filter_flow(operation => operation.memory) |> access.issue
   access.feedback |> execution.decision
   access.completion |> execution.completion
@@ -143,24 +161,35 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
         guest: if early | literal(RiscvGuestException(), 0) | access.outcome_guest
     | Retirement():
         value: value
-  def retired = Array(early_outcome |> map_valid(event => retirement(event, #true)), final_outcome |> map_valid(event => retirement(event, #false))) |> valid_arbiter() |> valid_pipe(1)
+  def retired = Array(
+    early_outcome |> map_valid(event => retirement(event, #true)),
+    final_outcome |> map_valid(event => retirement(event, #false))
+  ) |> valid_arbiter() |> valid_pipe(1)
   retired |> map_valid(event => event.value) |> outcome
   if hypervisor
   | block:
       output outcome_guest: RiscvGuestException()
       outcome_guest <== retired.bits.guest
   | #void
-  when (request.fire() & request.bits.control.memory & !request.bits.precertified):
+
+
+  /* Independent admission, fault-certainty, and certificate lifetimes.
+     Do not merge these update chains: their events and collision priorities differ. */
+
+  def accepted_memory = request.fire() & request.bits.control.memory
+  def final_authorization = final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)
+  def fault_certainty_resolved = early_outcome.valid ||| final_authorization ||| outcome.valid
+  when (accepted_memory & !request.bits.precertified):
     waiting_retirement <== Bool(#true)
   elsewhen (outcome.valid):
     waiting_retirement <== Bool(#false)
   // Scalar Decode needs fault certainty, not the later retirement transfer.
   // Keep vector admission serialized until that transfer independently.
-  when (request.fire() & request.bits.control.memory):
+  when accepted_memory:
     uncertified_memory <== !request.bits.precertified & !early_outcome.valid
-  elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)) ||| outcome.valid):
+  elsewhen fault_certainty_resolved:
     uncertified_memory <== Bool(#false)
-  when (execution.request.fire()):
+  when dispatch_fire:
     check_started <== Bool(#false)
     check_complete <== Bool(#false)
     certified <== Bool(#false)
@@ -169,7 +198,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   elsewhen (checked.valid):
     check_complete <== Bool(#true)
     certified <== checked.bits
-  when (execution.request.fire()):
+  when dispatch_fire:
     store <== queued_descriptor.bits.control.store & queued_descriptor.bits.control.memory
     captured_pointer_masking <== queued_descriptor.bits.pointer_masking
     execution_certified <== head_certified
@@ -180,6 +209,11 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     assert(queued_descriptor.valid & needs_check, "vector_precheck_has_pending_descriptor")
   when (execution_certified & access.feedback.valid):
     assert(access.feedback.bits.disposition.is_one_of(VectorDisposition.Authorized, VectorDisposition.Retry), "certified_vector_cannot_fault")
+
+
+  /* Physical memory and shared execution-service connections.
+     Younger scalar redirects do not cancel allocated vector work. */
+
   access.pipeline <=> pipeline
   access.memory <=> memory
   pipeline_physical <== access.pipeline_physical
@@ -204,8 +238,11 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.scalar_result |> scalar_result
   execution.scalar_writeback |> scalar_writeback
   execution.floating_result |> floating_result
-  // Summaries cover both waiting entries, including a non-head FP or memory
-  // descriptor. Transfer into execution moves ownership without a status gap.
+
+
+  /* Pending-kind accounting across queue-to-execution handoff.
+     Summaries include both queued entries and have no status gap at dispatch. */
+
   reg queued_loads(~init: bits(0, 2))
   reg queued_stores(~init: bits(0, 2))
   reg queued_fp(~init: bits(0, 2))

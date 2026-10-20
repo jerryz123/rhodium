@@ -82,6 +82,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
+
 /* Implements feed-forward IF/ID/EX/MEM/WB with replay on rejected WB dispatch.
    EX prepares operands and side-effect-free lookups; WB authorizes mutations and
    fixed results and WB-launched variable services. Precise traps wait for older
@@ -155,6 +156,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         pipeline_guest_fault
     | literal(RiscvGuestException(), 0)
 
+
+  /* LSU port composition.
+     Adapts scalar/vector traffic to the selected guest or physical interfaces. */
+
   inst memory_ports(RV5StageMemoryArbiter(xlen, vector_completion_slots))
   pipeline_vector <== memory_ports.pipeline_vector
   wire ex_guest_access: RiscvGuestMemoryAccess
@@ -184,44 +189,45 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def scalar_pipeline = memory_ports.scalar_pipeline
 
   def zero = bits(0, width)
+
   /* Normalizes the raw 32-bit instruction to XLEN for illegal-instruction trap values. */
   fun core_instruction_value(instruction :: Bits(32)):
     if width == 32 | instruction | instruction.zext(width)
+
   /* Identifies results whose destination remains reserved beyond ordinary scalar WB. */
   fun core_deferred_writeback(source :: RV5StageWritebackSelect):
     source.is_one_of(RV5StageWritebackSelect.Memory, RV5StageWritebackSelect.Multiply, RV5StageWritebackSelect.Divide)
+
   /* Identifies system and fence operations that require ordered state, excluding bypassed
      vector configuration. */
   fun core_serializing_operation(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl()) :~ Bool:
     (system.is_system_operation() & (system.action =/= RV5StageSystemOperation.VectorConfig)) ||| fence.is_fence_operation()
+
   /* Selects load or store exception class from the memory operation while retaining the fault
      address. */
-  fun core_data_exception(operation :: CacheOperation,
-                          address :: Bits(width),
-                          store_cause :: ExceptionCause,
-                          load_cause :: ExceptionCause):
+  fun core_data_exception(operation :: CacheOperation, address :: Bits(width), store_cause :: ExceptionCause, load_cause :: ExceptionCause):
     RV5StageException(xlen):
       valid: Bool(#true)
-      cause: mux(operation.store_fault_class(),
-                 exception_cause_bits(store_cause, width),
-                 exception_cause_bits(load_cause, width))
+      cause: mux(operation.store_fault_class(), exception_cause_bits(store_cause, width), exception_cause_bits(load_cause, width))
       value: address
 
   /* Combines independently reported Decode admission hazards without changing their priority. */
   fun core_hazard_any(reasons :: RV5StageHazardReasons()) :~ Bool:
     reasons.deferred_dependency ||| reasons.scoreboard_raw ||| reasons.scoreboard_waw ||| reasons.fp_source ||| reasons.fp_destination ||| reasons.resource ||| reasons.pause ||| reasons.serialization ||| reasons.wfi ||| reasons.interrupt_pending ||| reasons.exception
 
-  // Control-plane state is declared before the stage bodies because redirects,
-  // hazards, and retirement decisions travel backward through the pipeline.
-  // The stage sections below remain the readable forward datapath order.
+
+  /* Control-plane state.
+     Retains a precise pending trap while older authorized work drains;
+     backward control is declared before the forward stage bodies. */
+
   reg wb_pending_exception_valid(~init: Bool(#false))
   reg wb_pending_exception(MemoryWriteback(xlen, vector_completion_slots, hypervisor))
 
-  // Pipeline storage and reusable execution units.
-  // The fall-through IBuf holds leftover parcels, not a separate IF/ID stage.
-  // Every boundary after Decode
-  // advances feed-forward; rejected WB dispatch refetches the instruction
-  // without authorizing effects or introducing downstream backpressure.
+
+  /* Pipeline storage and scalar execution units.
+     The fall-through IBuf retains parcels, not an IF/ID stage. Later stages
+     advance feed-forward; rejected WB dispatch replays without side effects. */
+
   inst id_instructions(RV5StageInstructionBuffer(core_profile))
   inst id_ex_pipe(ValidPipeAlwaysCapture(DecodeExecute(xlen, vector_completion_slots, hypervisor), 1))
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen, vector_completion_slots, hypervisor), 1))
@@ -265,6 +271,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
   wb_csrs.time_counter <== time_counter
+
+
+  /* Shared floating-point execution.
+     Scalar and vector services share arithmetic while retaining their own
+     request owners, flag updates, and booked return cycles. */
+
   def wb_scalar_fp_tag = RV5StageFpScalarTag(Bits(width))
   inst wb_gpr_calendar(WritebackCalendar(2, wb_calendar_span))
   // WB services reserve before younger ID admissions; WB readiness must not
@@ -302,10 +314,16 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_fp_granted <== wb_fp_service.ex_granted
   wb_fp_fixed_integer_return <== wb_fp.execution_result.valid & wb_fp.execution_result.bits.tag.speculative & (wb_fp.execution_result.bits.tag.destination === FloatDestination.Integer)
 
+
+  /* Shared multiplication.
+     Scalar EX reservations and vector ownership select launches; each return
+     keeps its scalar authorization or vector completion tag. */
+
   def wb_vector_multiply_tag = VectorMultiplyTag(vector_completion_slots)
   def wb_vector_divide_tag = VectorDivideTag(vector_completion_slots)
   def wb_vector_multiply_request_link :: Handle = interface_link(Decoupled(IntegerExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag)))
   def wb_vector_multiply_result_link :: Handle = interface_link(Irrevocable(IntegerExecutionResult(Bits(width * 2), wb_vector_multiply_tag)))
+
   /* Routes shared multiplier returns through scalar authorization or vector completion
      ownership. */
   tagged_union MultiplyOwner():
@@ -345,8 +363,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
            map_flow(~stable: #true, result => integer_result_with_tag(Bits(width * 2), MultiplyOwner(), wb_vector_multiply_tag, result, result.tag.view(MultiplyOwner().Vector).payload))
          )
   ) <=> Array(wb_multiplier.execution_result, wb_vector_multiply_result_link.left)
+
+
+  /* Shared division.
+     Arbitrates scalar/vector requests and routes retained result owners. */
+
   def wb_vector_divide_request_link :: Handle = interface_link(Decoupled(IntegerExecutionRequest(DividerRequest(width), wb_vector_divide_tag)))
   def wb_vector_divide_result_link :: Handle = interface_link(Irrevocable(IntegerExecutionResult(DividerResponse(width), wb_vector_divide_tag)))
+
   /* Routes shared divider returns using retained scalar/vector owner tags. */
   tagged_union DivideOwner():
     Scalar(RV5StageDivideTag())
@@ -364,8 +388,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
          )
   ) <=> Array(wb_divider.execution_result, wb_vector_divide_result_link.left)
 
-  // Stage boundary aliases and retained retirement contexts. These aliases
-  // keep the stage bodies below independent of Flow implementation details.
+
+  /* WB context retention and selection.
+     Rejoins parallel MEM/WB captures and selects the live, memory, wait,
+     or vector owner without changing the feed-forward stage boundaries. */
+
   def ex_input = id_ex_pipe.egress
   def mem_input = ex_mem_pipe.egress
   def mem_cache_outcome = mux(scalar_pipeline.response.valid & mem_input.bits.data_request_valid, scalar_pipeline.response.bits.outcome, CachePipelineOutcome.Slow)
@@ -423,9 +450,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_input = wb_captured |> to_valid()
   def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
   def Array(wb_live_path, wb_memory_retention_path, wb_wait_path, wb_vector_retention_path) = wb_retirement_path |> fork_valid(4)
-  // WRS owns its retirement context outside the feed-forward pipeline. Wake
-  // levels win over timeout, including a reservation lost on entry to waiting.
-  // NTO uses the same bound for TW and guest VTW; TW's illegal trap wins.
+
+  /* Reservation-wait owner.
+     Wake levels beat timeout, including reservation loss on entry;
+     NTO shares a TW/VTW bound, with TW's illegal-instruction trap first. */
+
   def wb_reservation_wait_pending = wb_reservation_wait.egress.valid
   def wb_reservation_wait_instruction = wb_reservation_wait.egress.bits
   reg wb_reservation_wait_count(~init: bits(0, 12))
@@ -442,7 +471,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     wb_reservation_wait_count <== bits(0, 12)
   elsewhen (wb_reservation_wait_pending & !wb_reservation_wait_done & !wb_reservation_wait_expired):
     wb_reservation_wait_count <== wb_reservation_wait_count + bits(1, 12)
-  def Array(wb_integer_responses, wb_fp_responses, wb_other_responses) = scalar_data.response |> demux_flow(3, response => mux(response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool), bits(0, 2), mux(response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool), bits(1, 2), bits(2, 2))))
+  def Array(wb_integer_responses, wb_fp_responses, wb_other_responses) = scalar_data.response |> demux_flow(3, response):
+    priority_mux(~default: bits(2, 2)):
+      response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool): bits(0, 2)
+      response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool): bits(1, 2)
   def wb_fp_response = wb_fp_responses |> to_valid()
   def wb_other_response = wb_other_responses |> to_valid()
   def wb_split_pending = wb_memory_pending & wb_memory_retirement.egress.bits.data_request.access.into(CacheOperation).is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory_retirement.egress.bits.data_request.width.is_aligned(wb_memory_retirement.egress.bits.data_request.address)
@@ -468,7 +500,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_vector_retirement_link.right |> offer_decoupled() |> wb_selection.ingress[3]
   when (wb_vector_retirement_link.right.valid):
     assert(!wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending, "vector_outcome_has_retirement_port")
-  def wb = wb_selection.egress |> gate_flow(mux(wb_reservation_wait_pending, wb_reservation_wait_done, mux(wb_memory_pending, wb_memory_done, Bool(#true)))) |> to_valid()
+  def wb_owner_complete = priority_mux(~default: Bool(#true)):
+    wb_reservation_wait_pending: wb_reservation_wait_done
+    wb_memory_pending: wb_memory_done
+  def wb = wb_selection.egress |> gate_flow(wb_owner_complete) |> to_valid()
   def Array(wb_commit_path, wb_vector_launch_path, wb_vector_replay_path, wb_vector_slow_path, wb_fp_reservation_path, wb_fp_hit_path) = wb |> fork_valid(6)
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = wb.bits
   vector_fast.candidate <== wb_offer_bits.vector_fast
@@ -497,9 +532,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   satp <== wb_csrs.satp
   pbmte <== wb_csrs.pbmte
 
-  // Backward-traveling observations use local Valid interface links. Their
-  // producers remain in the forward stage sections below, despite earlier
-  // stages consuming their values.
+
+  /* Backward control and recovery.
+     Valid links carry redirects and scoreboard updates from later stages;
+     restart arbitration preserves the ordered source list below. */
+
   def if_redirect_link :: Handle = interface_link(Valid(Bits(width)))
   def mem_to_if_exception_link :: Handle = interface_link(Valid(Bits(width)))
   def mem_to_if_replay_link :: Handle = interface_link(Valid(Bits(width)))
@@ -552,16 +589,20 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   if_redirect_sources |> valid_arbiter() |> if_redirect_link.left
 
-  // Stage 1: Fetch (IF) assembles variable-length instructions from aligned
-  // cache words. Redirects and faults discard partial and outstanding data.
-  def if_exception_in_flight = wb_pending_exception_valid ||| mem_exception_event ||| (
-    wb_commit_valid & wb_commit_bits.exception_valid
-  )
+
+  /* IF: Frontend admission and architectural cursor.
+     Seeds fetch once after reset and gates it during recovery, PAUSE, and
+     interrupt/reservation waits. The IBuf owns instruction assembly. */
+
+  def if_exception_in_flight = wb_pending_exception_valid ||| mem_exception_event ||| (wb_commit_valid & wb_commit_bits.exception_valid)
   def if_squash = wb_split_accepted ||| if_exception_in_flight ||| mem_replay_event ||| if_redirect_link.right.valid
   reg if_started(~init: Bool(#false))
   reg if_waiting_for_interrupt(~init: Bool(#false))
-  // PAUSE retires before its bounded cooldown. Unlike WFI/WRS, no instruction
-  // context or older-memory drain is required, and interrupts remain live.
+
+  /* PAUSE cooldown.
+     Starts after retirement without retaining an instruction or draining
+     older memory; accepted completions and interrupts remain live. */
+
   def if_pause_cycle_limit = 16
   reg if_pause_cycles(~init: bits(0, index_width(if_pause_cycle_limit + 1)))
   def if_pause_active = or_reduce(if_pause_cycles)
@@ -572,8 +613,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     if_pause_cycles <== bits(if_pause_cycle_limit, index_width(if_pause_cycle_limit + 1))
   elsewhen if_pause_active:
     if_pause_cycles <== if_pause_cycles - bits(1, index_width(if_pause_cycle_limit + 1))
+
+  /* Frontend start, recovery, and cursor.
+     Seeds fetch once after reset; software in the reset image owns boot
+     waiting. Architectural redirects precede the retired successor. */
+
   reg if_architectural_pc(~init: reset_pc)
-  // Seed fetch once after reset; software in the reset image owns boot waiting.
   def if_start_link :: Handle = interface_link(Valid(Bits(width)))
   if_start_link.left.valid <== !if_started
   if_start_link.left.bits <== reset_pc
@@ -593,17 +638,22 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   elsewhen (wb_macro_retire & !wb_commit_bits.exception_valid):
     if_architectural_pc <== wb_commit_bits.resume_pc
 
+  /* WFI sleep state.
+     Wake or architectural redirect wins over entering sleep. */
+
   when (wb_csrs.wfi_wake ||| wb_csrs.redirect.valid):
     if_waiting_for_interrupt <== Bool(#false)
   elsewhen (wb_csrs.wfi):
     if_waiting_for_interrupt <== Bool(#true)
 
+
+  /* ID: Decode and instruction admission.
+     Consumes the fall-through IBuf into ID/EX. Squash discards offers;
+     dependency and serialization gates retain instructions awaiting older work. */
+
   def id_decode_valid = id_instructions.fetched.valid & !if_squash
   def id_decode_bits = id_instructions.fetched.bits
 
-  // Stage 2: Decode (ID) consumes the fall-through IBuf directly into ID/EX.
-  // Filtering consumes squashed tokens; gating holds a token that depends on
-  // deferred work which has not yet reached the WB commit point.
   def id_instruction = id_decode_bits.instruction
   id_decoder.instruction <== id_instruction
   def id_control :: RV5StageControl() = id_decoder.control
@@ -614,11 +664,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_frs3 = instruction_field(riscv_fields.rs3, id_instruction)
   def id_fp_rounding = riscv_rounding_mode(instruction_field(riscv_fields.rm, id_instruction), wb_csrs.frm)
   def id_immediate = id_control.operand.immediate.decode(id_instruction, width)
-  wb_csrs.cbo_operation <== mux_lookup(
-    id_control.memory.access, ~default: CboManagementOperation.Invalidate,
-    [[CacheOperation.CacheBlockClean, CboManagementOperation.Clean],
-     [CacheOperation.CacheBlockFlush, CboManagementOperation.Flush]]
-  )
+  wb_csrs.cbo_operation <== mux_lookup(id_control.memory.access, ~default: CboManagementOperation.Invalidate):
+    CacheOperation.CacheBlockClean: CboManagementOperation.Clean
+    CacheOperation.CacheBlockFlush: CboManagementOperation.Flush
   def id_management = id_control.memory.access.is_cache_management()
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_cbo = id_management ||| id_control.memory.access.is_cache_block_zero()
@@ -628,25 +676,23 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_explicit_guest = Bool(hypervisor) & (id_control.guest_access =/= RiscvGuestMemoryAccess.Normal)
   def id_virtual_instruction = if hypervisor | (id_explicit_guest & wb_csrs.guest_translation.virtualized) ||| (id_cbo & (id_cbo_access === CboAccess.VirtualInstruction)) | Bool(#false)
   def id_guest_illegal = if hypervisor | id_explicit_guest & !wb_csrs.guest_translation.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(wb_csrs.guest_translation.hstatus, HstatusHU) | Bool(#false)
-  def id_illegal = id_control.vector.floating_point & (Bool(!floating_point_supports_f(profile)) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & !wb_csrs.vector_enabled) ||| (
-    (id_control.system.action === RV5StageSystemOperation.VectorConfig) & !wb_csrs.vector_enabled
-  ) ||| (
-    id_cbo & (id_cbo_access === CboAccess.IllegalInstruction)
-  ) ||| (
-    id_control.floating_point_valid & (
-      !wb_csrs.fp_enabled ||| (
-        id_control.floating_point.execution.uses_rounding_mode & !id_fp_rounding.valid
-      )
-    )
-  )
+  def id_vector_fp_illegal = id_control.vector.floating_point & (Bool(!floating_point_supports_f(profile)) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3))))
+  def id_vector_config_illegal = (id_control.system.action === RV5StageSystemOperation.VectorConfig) & !wb_csrs.vector_enabled
+  def id_cbo_illegal = id_cbo & (id_cbo_access === CboAccess.IllegalInstruction)
+  def id_scalar_fp_illegal = id_control.floating_point_valid & (!wb_csrs.fp_enabled ||| (id_control.floating_point.execution.uses_rounding_mode & !id_fp_rounding.valid))
+  def id_illegal = id_vector_fp_illegal ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & !wb_csrs.vector_enabled) ||| id_vector_config_illegal ||| id_cbo_illegal ||| id_scalar_fp_illegal
   def id_fault = id_decode_bits.instruction_page_fault ||| id_decode_bits.instruction_access_fault ||| id_illegal ||| id_guest_illegal ||| id_virtual_instruction
 
   id_registers.read_address_1 <== id_rs1
   id_registers.read_address_2 <== id_rs2
-  // Decode selects the registered data source that will be present in EX's
-  // next cycle. Live MEM faults, replay, and redirects never select operands.
+
+  /* Registered bypass selection.
+     Decode selects the source present in EX next cycle; live MEM fault,
+     replay, and redirect controls never select its operand payload. */
+
   def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & (ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (ex_input.bits.system.action === RV5StageSystemOperation.VectorConfig))
   def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & (mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (mem_input.bits.system.action === RV5StageSystemOperation.VectorConfig))
+
   /* Captures the registered bypass source expected in EX, giving the nearer older producer
      priority. */
   fun id_operand(index :: Bits(5), register_value :: Bits(width)):
@@ -656,91 +702,62 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     RV5StageOperand(xlen):
       stage_sel: id_bypass_winner.mux([RV5StageBypassStage.Memory, RV5StageBypassStage.Writeback], ~default: RV5StageBypassStage.RegisterFile)
       value: register_value
+
   /* Checks older pre-admission vector tokens across EX, MEM, and WB against a dependency
      predicate. Their deferred destinations are not reserved until WB admission;
      capacity alone is not a Decode dependency hazard. */
   fun id_vector_launch_matches(predicate :: Function.of_arity(2)):
-    (ex_input.valid & ex_input.bits.vector_launch & predicate(ex_input.bits.vector_control, ex_input.bits.rd)) ||| (mem_input.valid & mem_input.bits.vector_launch & predicate(mem_input.bits.vector_context.control, mem_input.bits.rd)) ||| (wb.valid & wb_offer_bits.vector_launch & predicate(wb_offer_bits.vector_context.control, wb_offer_bits.rd))
+    def ex_match = ex_input.valid & ex_input.bits.vector_launch & predicate(ex_input.bits.vector_control, ex_input.bits.rd)
+    def mem_match = mem_input.valid & mem_input.bits.vector_launch & predicate(mem_input.bits.vector_context.control, mem_input.bits.rd)
+    def wb_match = wb.valid & wb_offer_bits.vector_launch & predicate(wb_offer_bits.vector_context.control, wb_offer_bits.rd)
+    ex_match ||| mem_match ||| wb_match
+
   /* Combines admitted deferred writers with older unreserved FP/vector GPR destinations. */
   fun id_integer_register_busy(index :: Bits(5)):
-    (
-      id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): control.integer & control.scalar_destination & (rd === index)) ||| scoreboard_busy(register_count, wb_scoreboard.busy, index) ||| scoreboard_busy(
-        register_count,
-        wb_fp_integer_scoreboard.busy,
-        index
-      ) ||| (
-        wb_to_id_scoreboard_set_link.right.valid & (wb_to_id_scoreboard_set_link.right.bits === index)
-      ) ||| (
-        ex_input.valid & ex_input.bits.floating_point_valid & (
-          ex_input.bits.floating_point_control.registers.destination === FloatDestination.Integer
-        ) & (ex_input.bits.rd === index)
-      ) ||| (
-        mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === FloatDestination.Integer) & (mem_input.bits.rd === index)
-      ) ||| (
-        wb.valid & wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === FloatDestination.Integer) & (wb_offer_bits.rd === index)
-      )
-    ) & !(
-      wb_to_id_scoreboard_clear_link.right.valid & (wb_to_id_scoreboard_clear_link.right.bits === index)
-    )
+    def vector_pending = id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): control.integer & control.scalar_destination & (rd === index))
+    def integer_reserved = scoreboard_busy(register_count, wb_scoreboard.busy, index)
+    def fp_reserved = scoreboard_busy(register_count, wb_fp_integer_scoreboard.busy, index)
+    def reserving = wb_to_id_scoreboard_set_link.right.valid & (wb_to_id_scoreboard_set_link.right.bits === index)
+    def ex_fp_pending = ex_input.valid & ex_input.bits.floating_point_valid & (ex_input.bits.floating_point_control.registers.destination === FloatDestination.Integer) & (ex_input.bits.rd === index)
+    def mem_fp_pending = mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === FloatDestination.Integer) & (mem_input.bits.rd === index)
+    def wb_fp_pending = wb.valid & wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === FloatDestination.Integer) & (wb_offer_bits.rd === index)
+    def completing = wb_to_id_scoreboard_clear_link.right.valid & (wb_to_id_scoreboard_clear_link.right.bits === index)
+    (vector_pending ||| integer_reserved ||| fp_reserved ||| reserving ||| ex_fp_pending ||| mem_fp_pending ||| wb_fp_pending) & !completing
 
   def id_ex_deferred = ex_input.valid & ex_input.bits.writeback_enable & core_deferred_writeback(ex_input.bits.writeback_source)
   def id_mem_deferred = mem_input.valid & mem_input.bits.writeback_enable & core_deferred_writeback(mem_input.bits.writeback_source) & !mem_load_hit
+
   /* Checks RAW and WAW conflicts against an older deferred destination, excluding x0. */
-  fun id_conflicts_with_deferred(deferred_valid :: Bool,
-                                 deferred_destination :: Bits(5)):
-    deferred_valid & deferred_destination.or_reduce() & (
-      (id_control.operand.uses_rs1 & (deferred_destination === id_rs1)) ||| (
-        id_control.operand.uses_rs2 & (deferred_destination === id_rs2)
-      ) ||| (
-        (id_control.writeback.enable ||| (
-          id_control.floating_point_valid & (
-            id_control.floating_point.registers.destination === FloatDestination.Integer
-          )
-        )) & (deferred_destination === id_rd)
-      )
-    )
-  def id_deferred_dependency_hazard = id_decode_valid & (
-    id_conflicts_with_deferred(id_ex_deferred, ex_input.bits.rd) ||| (
-      id_conflicts_with_deferred(id_mem_deferred, mem_input.bits.rd)
-    )
-  )
-  def id_scoreboard_raw_hazard = (
-    id_control.operand.uses_rs1 & id_rs1.or_reduce() & id_integer_register_busy(id_rs1)
-  ) ||| (
-    id_control.operand.uses_rs2 & id_rs2.or_reduce() & id_integer_register_busy(id_rs2)
-  )
-  def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & id_control.vector.integer & id_control.vector.scalar_destination) ||| (
-    id_control.floating_point_valid & (
-      id_control.floating_point.registers.destination === FloatDestination.Integer
-    )
-  )
+  fun id_conflicts_with_deferred(deferred_valid :: Bool, deferred_destination :: Bits(5)):
+    def reads_rs1 = id_control.operand.uses_rs1 & (deferred_destination === id_rs1)
+    def reads_rs2 = id_control.operand.uses_rs2 & (deferred_destination === id_rs2)
+    def writes_integer = id_control.writeback.enable ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
+    def overwrites = writes_integer & (deferred_destination === id_rd)
+    deferred_valid & deferred_destination.or_reduce() & (reads_rs1 ||| reads_rs2 ||| overwrites)
+  def id_deferred_dependency_hazard = id_decode_valid & (id_conflicts_with_deferred(id_ex_deferred, ex_input.bits.rd) ||| id_conflicts_with_deferred(id_mem_deferred, mem_input.bits.rd))
+  def id_scoreboard_raw_hazard = (id_control.operand.uses_rs1 & id_rs1.or_reduce() & id_integer_register_busy(id_rs1)) ||| (id_control.operand.uses_rs2 & id_rs2.or_reduce() & id_integer_register_busy(id_rs2))
+  def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & id_control.vector.integer & id_control.vector.scalar_destination) ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
   def id_scoreboard_waw_hazard = id_integer_write & id_rd.or_reduce() & id_integer_register_busy(id_rd)
+
   /* Combines the FPR scoreboard with older scalar/vector writers not yet reserved at WB. */
   fun id_fp_register_busy(index :: Bits(5)):
-    id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): control.floating_scalar_destination & (rd === index)) ||| scoreboard_busy(register_count, wb_fp.busy, index) ||| (
-      ex_input.valid & ex_input.bits.floating_point_valid & (
-        ex_input.bits.floating_point_control.registers.destination === FloatDestination.FloatingPoint
-      ) & (ex_input.bits.rd === index)
-    ) ||| (
-      mem_input.valid & mem_input.bits.data_request_valid & (
-        mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)
-      ) & (mem_input.bits.data_request.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd === index)
-    ) ||| (
-      mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === FloatDestination.FloatingPoint) & (mem_input.bits.rd === index)
-    ) ||| (
-      wb.valid & ((wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === FloatDestination.FloatingPoint)) ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool))) & (wb_offer_bits.rd === index)
-    )
-  def id_fp_source_hazard = id_control.floating_point_valid & (
-    (id_control.floating_point.registers.uses_frs1 & id_fp_register_busy(id_rs1)) ||| (
-      id_control.floating_point.registers.uses_frs2 & id_fp_register_busy(id_rs2)
-    ) ||| (
-      id_control.floating_point.registers.uses_frs3 & id_fp_register_busy(id_frs3)
-    )
-  )
+    def vector_pending = id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): control.floating_scalar_destination & (rd === index))
+    def reserved = scoreboard_busy(register_count, wb_fp.busy, index)
+    def ex_pending = ex_input.valid & ex_input.bits.floating_point_valid & (ex_input.bits.floating_point_control.registers.destination === FloatDestination.FloatingPoint) & (ex_input.bits.rd === index)
+    def mem_load_pending = mem_input.valid & mem_input.bits.data_request_valid & mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool) & (mem_input.bits.data_request.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd === index)
+    def mem_compute_pending = mem_input.valid & mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.registers.destination === FloatDestination.FloatingPoint) & (mem_input.bits.rd === index)
+    def wb_compute = wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.registers.destination === FloatDestination.FloatingPoint)
+    def wb_load = wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)
+    def wb_pending = wb.valid & (wb_compute ||| wb_load) & (wb_offer_bits.rd === index)
+    vector_pending ||| reserved ||| ex_pending ||| mem_load_pending ||| mem_compute_pending ||| wb_pending
+  def id_fp_source_hazard = id_control.floating_point_valid & ((id_control.floating_point.registers.uses_frs1 & id_fp_register_busy(id_rs1)) ||| (id_control.floating_point.registers.uses_frs2 & id_fp_register_busy(id_rs2)) ||| (id_control.floating_point.registers.uses_frs3 & id_fp_register_busy(id_frs3)))
   def id_vector_fp_source_hazard = id_control.vector.floating_point & (id_control.vector.operand === VectorOperandMode.FloatingScalar) & id_fp_register_busy(id_rs1)
-  def id_fp_destination_hazard = id_control.floating_point_valid & (
-    id_control.floating_point.registers.destination === FloatDestination.FloatingPoint
-  ) & id_fp_register_busy(id_rd)
+  def id_fp_destination_hazard = id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.FloatingPoint) & id_fp_register_busy(id_rd)
+
+  /* Serialization and execution capacity.
+     Includes older pre-admission writers and memory operations, not just
+     already allocated scoreboards and transaction engines. */
+
   def id_ex_fp_reservation_pending = ex_input.valid & ex_input.bits.floating_point_valid & ((ex_input.bits.floating_point_control.execution.unit =/= FloatUnit.Memory) ||| !ex_input.bits.floating_point_control.execution.memory_write)
   def id_mem_fp_reservation_pending = mem_input.valid & (mem_input.bits.fp_compute ||| (mem_input.bits.data_request_valid & mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
   def id_wb_fp_reservation_pending = wb.valid & (wb_offer_bits.fp_compute ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
@@ -751,13 +768,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence)
   def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === RV5StageHintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === RV5StageHintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === RV5StageHintOperation.Pause))
   def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_memory_pending ||| wb_reservation_wait_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(CacheOperation).is_cache_management())
-  def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(
-    wb_commit_bits.writeback_source
-  ) & wb_commit_bits.write_enable
+  def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(wb_commit_bits.writeback_source) & wb_commit_bits.write_enable
   def wb_deferred_results_pending = wb_scoreboard.busy.or_reduce() ||| wb_fp_integer_scoreboard.busy.or_reduce() ||| !wb_fp.drained
-  def id_deferred_state_pending = id_ex_deferred ||| id_mem_deferred ||| (
-    id_wb_commit_deferred
-  ) ||| wb_deferred_results_pending ||| wb_to_id_scoreboard_set_link.right.valid ||| (ex_input.valid & ex_input.bits.floating_point_valid) ||| (mem_input.valid & mem_input.bits.fp_compute) ||| (wb.valid & wb_offer_bits.fp_compute)
+  def id_deferred_state_pending = id_ex_deferred ||| id_mem_deferred ||| id_wb_commit_deferred ||| wb_deferred_results_pending ||| wb_to_id_scoreboard_set_link.right.valid ||| (ex_input.valid & ex_input.bits.floating_point_valid) ||| (mem_input.valid & mem_input.bits.fp_compute) ||| (wb.valid & wb_offer_bits.fp_compute)
   // Include older accesses not yet accepted by the LSU: drained alone can
   // still be true while a block zero (or scalar store) is in Execute/Memory.
   def id_older_memory_in_flight = (ex_input.valid & ex_input.bits.memory_operation.into(CacheOperation).is_memory()) ||| (mem_input.valid & mem_input.bits.data_request_valid) ||| (wb.valid & wb_offer_bits.data_request_valid)
@@ -773,17 +786,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_ex_has_divide = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
   def id_mem_has_divide = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
   def wb_commit_has_divide = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Divide) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
-  def id_divide_resource_hazard = id_needs_divider & !id_fault & (
-    !wb_divider.available ||| id_ex_has_divide ||| id_mem_has_divide ||| wb_commit_has_divide
-  )
+  def id_divide_resource_hazard = id_needs_divider & !id_fault & (!wb_divider.available ||| id_ex_has_divide ||| id_mem_has_divide ||| wb_commit_has_divide)
   def id_fp_execution_control = id_control.floating_point.execution
   id_fp_execution <== id_fp_execution_control
   def id_fp_fixed = id_control.floating_point_valid & !id_fp_execution_control.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot)
   id_fp_gpr_reservation <== id_fp_fixed & (id_control.floating_point.registers.destination === FloatDestination.Integer) & id_rd.or_reduce() & (fp_timing.latency(id_fp_execution_control) > bits(2, fp_timing.width))
   id_execution_return_delay <== mux(id_fp_fixed, fp_timing.latency(id_fp_execution_control, ~width: wb_calendar_width) + bits(1, wb_calendar_width), bits(PipelinedMultiplierStages + 1, wb_calendar_width))
-  def id_fp_memory = id_control.floating_point_valid & (
-    id_fp_execution_control.unit === FloatUnit.Memory
-  )
+  def id_fp_memory = id_control.floating_point_valid & (id_fp_execution_control.unit === FloatUnit.Memory)
   def id_fp_store = id_fp_memory & id_fp_execution_control.memory_write
   def id_fp_store_resource_hazard = id_fp_store & !id_fault & (ex_fp_granted ||| (wb.valid & wb_offer_bits.fp_compute & (wb_offer_bits.fp_issue.control.execution.unit === FloatUnit.DivideSquareRoot)))
   // WB division and vector scalar snapshots own the read ports ahead of a
@@ -791,12 +800,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_fp_wb_read_pending = mem_input.valid & ((mem_input.bits.fp_compute & (mem_input.bits.fp_issue.control.execution.unit === FloatUnit.DivideSquareRoot)) ||| mem_input.bits.vector_launch)
   def id_fp_resource_hazard = id_fp_fixed & !id_fault & (!id_fp_available ||| id_fp_wb_read_pending)
   def id_local_resource_hazard = id_multiply_resource_hazard ||| id_divide_resource_hazard ||| id_fp_store_resource_hazard ||| id_fp_resource_hazard
-  // Certification releases independent scalar work before vector sequencing
-  // finishes. Memory ordering and vector/state observers retain explicit barriers.
-  // Descriptor capacity is intentionally absent: vector launches speculate
-  // through ID and replay precisely if the WB sink cannot admit them.
-  // State observers must also wait for older launches that have not reached
-  // the vector sink yet; its registered active flag cannot cover those tokens.
+
+  /* Vector admission interlocks.
+     Certification releases independent scalar work, but memory ordering and
+     state observers still cover pre-admission launches. Descriptor capacity
+     is checked at WB, not predicted as an ID hazard. */
+
   def id_vector_launch_pending = id_vector_launch_matches(fun (_control, _rd): Bool(#true))
   // Preserve scalar memory ordering before vector admission. Vector memory
   // descriptors retain their own order through the FIFO and sequencer.
@@ -808,7 +817,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // A nonzero vstart still waits for the older WB reset.
   def id_vector_start_pending = id_vector_instruction & wb_csrs.vector_state.vstart.or_reduce() & id_vector_launch_pending
   def id_vector_fp_pending = wb_vector_fp_pending ||| id_vector_launch_matches(fun (control :: VectorControl(), _rd): control.floating_point)
-  def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| (id_vector_instruction & wb_vector_integer_write_pending) ||| ((wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)) ||| (wb_vector_loads_pending & id_scalar_needs_unique) ||| (wb_vector_stores_pending & id_scalar_memory) ||| ((wb_vector_fp_write_pending ||| id_vector_fp_pending) & id_control.floating_point_valid)
+  def id_vector_state_wait = (wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)
+  def id_vector_memory_wait = (wb_vector_loads_pending & id_scalar_needs_unique) ||| (wb_vector_stores_pending & id_scalar_memory)
+  def id_vector_scalar_wait = (id_vector_instruction & wb_vector_integer_write_pending) ||| ((wb_vector_fp_write_pending ||| id_vector_fp_pending) & id_control.floating_point_valid)
+  def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| id_vector_scalar_wait ||| id_vector_state_wait ||| id_vector_memory_wait
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard
@@ -829,6 +841,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     context: id_decode_bits.pc
     precision: id_fp_execution_control.source_precision
     rs: id_rs2
+
+  /* Decode transfer and payload capture.
+     Observe the offer before admission; only an admitted token advances ID/EX. */
+
   def id_traced_decode:
     id_instructions.fetched
       |> filter_flow(_fetched => !if_squash)
@@ -909,7 +925,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_gpr_calendar.reserve[1].bits <== id_execution_return_delay
   when (wb_gpr_calendar.reserve[1].valid):
     assert(wb_gpr_calendar.reserve[1].ready, "scalar_execution_has_reserved_write_cycle")
-  // Capability selection changes the service, not scalar WB admission and retirement policy.
+
+
+  /* Vector service integration.
+     Selects the active/disabled implementation without changing WB admission,
+     architectural reservations, retained outcomes, or scalar retirement. */
+
   inst wb_vector(
     if vector_enabled
     | RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa, ~multiply_latency: if wb_pipelined_multiplier | PipelinedMultiplierStages | #false, ~fixed_fp: #true, ~fp_timing: fp_timing, ~hypervisor: hypervisor)
@@ -1005,9 +1026,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   assert(!(wb_vector_accepted & wb_vector_replay), "rv5stage_wb_vector_accept_does_not_replay")
   assert(!wb_vector_replay ||| !wb_vector.request.fire(), "rv5stage_wb_vector_replay_has_no_admission")
 
-  /* Stage 3: EX uses only registered selectors and data. A killed producer's younger
-     consumer is canceled independently; it does not select an older operand.
-     The WB selector names the normal pipeline token, not retained retirement context. */
+
+  /* EX: Registered operands and execution.
+     A killed producer cancels its younger consumer independently of payload
+     capture. WB bypass uses the normal token, not retained retirement context. */
 
   /* Selects only registered producer data using the source chosen in Decode. */
   fun ex_forwarded_register_value(operand :: RV5StageOperand(xlen)):
@@ -1023,23 +1045,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_vector_resolved_rs1 <== ex_forwarded_rs1
   ex_vector_resolved_rs2 <== ex_forwarded_rs2
 
-  ex_alu.left <== mux_lookup(
-    ex_input.bits.operand_left,
-    ~default: ex_forwarded_rs1,
-    [
-      [OperandASelect.Pc, ex_input.bits.pc],
-      [OperandASelect.Zero, bits(0, width)]
-    ]
-  )
+  ex_alu.left <== mux_lookup(ex_input.bits.operand_left, ~default: ex_forwarded_rs1):
+    OperandASelect.Pc: ex_input.bits.pc
+    OperandASelect.Zero: bits(0, width)
   ex_alu.right <== mux(ex_input.bits.operand_right === OperandBSelect.Immediate, ex_input.bits.immediate, ex_forwarded_rs2)
   ex_alu.control <== ex_input.bits.alu_control
 
   def ex_redirect_requested = ex_branch_resolver.result.bits.taken
-  def ex_redirect_target :: Bits(width) = mux(
-    ex_input.bits.target_from_rs1,
-    (ex_forwarded_rs1 + ex_input.bits.immediate) & !bits(1, width),
-    ex_input.bits.pc + ex_input.bits.immediate
-  )
+  def ex_redirect_target :: Bits(width) = mux(ex_input.bits.target_from_rs1, (ex_forwarded_rs1 + ex_input.bits.immediate) & !bits(1, width), ex_input.bits.pc + ex_input.bits.immediate)
   def ex_redirect_aligned = ex_redirect_target.is_aligned(instruction_alignment)
   def ex_memory_operation = mux(ex_input.bits.vector_launch, CacheOperation.None, ex_input.bits.memory_operation)
   ex_guest_access <== if hypervisor | ex_input.bits.guest_access | RiscvGuestMemoryAccess.Normal
@@ -1055,12 +1068,17 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def ex_fp_store = ex_fp_memory & ex_fp_execution_control.memory_write
   def ex_fp_load = ex_fp_memory & !ex_fp_execution_control.memory_write
   def ex_fp_compute = ex_is_fp & !ex_fp_memory
-  // vset executes in EX. Older in-flight results take priority over committed
-  // state so configurations and vector launches can consume its state directly.
+
+  /* Vector configuration forwarding.
+     In-flight MEM state precedes WB and committed CSR state, allowing dependent
+     configurations and launches to consume the newest older result. */
+
   def ex_is_vector_config = ex_input.bits.system.action === RV5StageSystemOperation.VectorConfig
   def ex_mem_vector_config = mem_input.valid & (mem_input.bits.system.action === RV5StageSystemOperation.VectorConfig) & !mem_input.bits.replay & !mem_input.bits.exception_valid
   def ex_wb_vector_config = wb.valid & (wb_offer_bits.system.action === RV5StageSystemOperation.VectorConfig) & !wb_offer_bits.replay & !wb_offer_bits.exception_valid
-  def ex_vector_base_state = mux(ex_mem_vector_config, mem_input.bits.vector_context.state, mux(ex_wb_vector_config, wb_offer_bits.vector_context.state, wb_csrs.vector_state))
+  def ex_vector_base_state = priority_mux(~default: wb_csrs.vector_state):
+    ex_mem_vector_config: mem_input.bits.vector_context.state
+    ex_wb_vector_config: wb_offer_bits.vector_context.state
   def ex_vector_config = vector_configuration_request(xlen, ex_input.bits.vector_control.configure, ex_input.bits.instruction, ex_forwarded_rs1, ex_forwarded_rs2)
   def ex_vector_configuration = vector_configure(xlen, vector_length, ex_vector_config, ex_vector_base_state.vtype, ex_vector_base_state.vl[0..index_width(vector_length + 1)], ~elen: vector_elen)
   def ex_configured_vector_state = RiscvVectorState(xlen):
@@ -1076,10 +1094,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def ex_vector_first_raw = mux(ex_vector_geometry.reverse, ex_forwarded_rs1 - ex_vector_offset, ex_forwarded_rs1 + ex_vector_offset)
   def ex_vector_first = if extensions.ssnpm | apply_pointer_mask(xlen, ex_vector_first_raw, ex_input.bits.pointer_masking) | ex_vector_first_raw
   def ex_vector_illegal = (ex_input.bits.vector_launch & !ex_vector_operation_legal) ||| (ex_is_vector_config & ex_vector_configuration.illegal)
-  def ex_request_fault = ex_input.bits.instruction_page_fault ||| ex_input.bits.instruction_access_fault ||| ex_input.bits.illegal ||| ex_vector_illegal ||| ex_virtual_instruction ||| (
-    ex_is_memory & ex_memory_alignment_fault
-  )
+
+  /* EX-local fault classification.
+     Preserves instruction, legality, target, and data-alignment fault priority
+     before any memory offer or architectural side effect. */
+
+  def ex_request_fault = ex_input.bits.instruction_page_fault ||| ex_input.bits.instruction_access_fault ||| ex_input.bits.illegal ||| ex_vector_illegal ||| ex_virtual_instruction ||| (ex_is_memory & ex_memory_alignment_fault)
   def ex_redirect_fault = !ex_input.bits.vector_launch & ex_redirect_requested & !ex_redirect_aligned
+
   /* Builds an EX-local exception with architectural cause encoding and trap value. */
   fun ex_make_exception(cause :: ExceptionCause, value :: Bits(width)):
     RV5StageException(xlen):
@@ -1095,34 +1117,22 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       cause: if hypervisor | mux(ex_input.bits.guest.page_fault, exception_cause_bits(ExceptionCause.InstructionGuestPageFault, width), exception_cause_bits(ExceptionCause.InstructionPageFault, width)) | exception_cause_bits(ExceptionCause.InstructionPageFault, width)
       value: ex_input.bits.instruction_fault_address
   elsewhen (ex_input.bits.illegal ||| ex_vector_illegal):
-    ex_exception <== ex_make_exception(ExceptionCause.IllegalInstruction,
-                                       core_instruction_value(ex_input.bits.raw_instruction))
+    ex_exception <== ex_make_exception(ExceptionCause.IllegalInstruction, core_instruction_value(ex_input.bits.raw_instruction))
   elsewhen ex_virtual_instruction:
     ex_exception <== ex_make_exception(ExceptionCause.VirtualInstruction, core_instruction_value(ex_input.bits.raw_instruction))
   elsewhen ex_redirect_fault:
-    ex_exception <== ex_make_exception(ExceptionCause.InstructionAddressMisaligned,
-                                       ex_redirect_target)
+    ex_exception <== ex_make_exception(ExceptionCause.InstructionAddressMisaligned, ex_redirect_target)
   elsewhen (ex_is_memory & ex_memory_alignment_fault):
-    ex_exception <== core_data_exception(ex_memory_operation,
-                                         ex_memory_address,
-                                         ExceptionCause.StoreAddressMisaligned,
-                                         ExceptionCause.LoadAddressMisaligned)
+    ex_exception <== core_data_exception(ex_memory_operation, ex_memory_address, ExceptionCause.StoreAddressMisaligned, ExceptionCause.LoadAddressMisaligned)
   otherwise:
     ex_exception <== RV5StageException(xlen):
       valid: Bool(#false)
       cause: dont_care(Bits(width))
       value: dont_care(Bits(width))
-  def ex_csr_source = mux(
-    ex_input.bits.system.immediate,
-    ex_input.bits.instruction[15..20].zext(width),
-    ex_forwarded_rs1
-  )
-  def ex_result = mux_lookup(
-    ex_input.bits.writeback_source,
-    ~default: ex_alu.result,
-    [[RV5StageWritebackSelect.Zero, zero],
-     [RV5StageWritebackSelect.SequentialPc, ex_input.bits.sequential_pc]]
-  )
+  def ex_csr_source = mux(ex_input.bits.system.immediate, ex_input.bits.instruction[15..20].zext(width), ex_forwarded_rs1)
+  def ex_result = mux_lookup(ex_input.bits.writeback_source, ~default: ex_alu.result):
+    RV5StageWritebackSelect.Zero: zero
+    RV5StageWritebackSelect.SequentialPc: ex_input.bits.sequential_pc
   def ex_multiply_issue = RV5StageMultiplyIssue(xlen):
     left: ex_forwarded_rs1
     right: ex_forwarded_rs2
@@ -1151,22 +1161,26 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def ex_prefetch_request = CachePrefetchReq(width):
     address: ex_memory_address
     operation: ex_input.bits.prefetch_operation
-  def ex_fp_store_response_match = wb_fp.store_response.valid & (
-    wb_fp.store_response.bits.context === ex_input.bits.pc
-  )
+  def ex_fp_store_response_match = wb_fp.store_response.valid & (wb_fp.store_response.bits.context === ex_input.bits.pc)
   def ex_fp_store_replay = ex_transfer & ex_fp_store & !ex_exception.valid & !ex_fp_store_response_match
   def ex_replay = ex_fp_store_replay
-  assert(!(ex_replay & ex_exception.valid),
-         "rv5stage_execute_fault_does_not_replay")
+  assert(!(ex_replay & ex_exception.valid), "rv5stage_execute_fault_does_not_replay")
   ex_branch_resolver.request.valid <== ex_transfer & !ex_input.bits.vector_launch
   ex_branch_resolver.request.bits <== BranchResolverRequest(width):
     left: ex_forwarded_rs1
     right: ex_forwarded_rs2
     control: ex_input.bits.branch_control
 
+  /* Memory request payloads.
+     Carries integer, FP, or acknowledgement ownership separately from the
+     speculative fixed-cycle lookup; only WB authorizes external effects. */
+
   def ex_fp_memory_writeback = RV5StageFpMemoryWriteback():
     rd: ex_input.bits.rd
     precision: ex_fp_execution_control.destination_precision
+  def ex_memory_writeback = priority_mux(~default: RV5StageMemoryWriteback(vector_completion_slots).Ack):
+    ex_fp_load: RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint(ex_fp_memory_writeback)
+    ex_memory_operation.returns_result(): RV5StageMemoryWriteback(vector_completion_slots).Integer(ex_input.bits.rd)
   def ex_data_request = PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)):
     byte_mask: memory_byte_mask(xlen, ex_memory_address, ex_input.bits.memory_width)
     address: ex_memory_address
@@ -1174,18 +1188,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     atomic: ex_input.bits.memory_atomic
     width: ex_input.bits.memory_width
     unsigned: ex_input.bits.memory_unsigned
-    data: mux(ex_fp_store,
-              if xlen == XLen.X32 | wb_fp.store_response.bits.data[0..32] | wb_fp.store_response.bits.data,
-              ex_forwarded_rs2)
+    data: mux(ex_fp_store, if xlen == XLen.X32 | wb_fp.store_response.bits.data[0..32] | wb_fp.store_response.bits.data, ex_forwarded_rs2)
     context:
       RV5StageMemoryContext(vector_completion_slots):
-        writeback: mux(
-          ex_fp_load,
-          RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint(ex_fp_memory_writeback),
-          mux(ex_memory_operation.returns_result(),
-              RV5StageMemoryWriteback(vector_completion_slots).Integer(ex_input.bits.rd),
-              RV5StageMemoryWriteback(vector_completion_slots).Ack)
-        )
+        writeback: ex_memory_writeback
         origin: RV5StageDataOrigin.Core
     locality: RiscvMemoryLocality.Default
 
@@ -1199,7 +1205,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     unsigned: ex_input.bits.memory_unsigned
     data: ex_data_request.data
 
-  def ex_resume_pc = mux(ex_input.bits.vector_launch, ex_input.bits.sequential_pc, mux(ex_redirect_requested, ex_redirect_target, ex_input.bits.sequential_pc))
+  def ex_resume_pc = priority_mux(~default: ex_input.bits.sequential_pc):
+    ex_input.bits.vector_launch: ex_input.bits.sequential_pc
+    ex_redirect_requested: ex_redirect_target
   def ex_vector_context = RV5StageVectorLaunchContext(xlen):
     pointer_masking: ex_input.bits.pointer_masking
     instruction: ex_input.bits.instruction
@@ -1269,6 +1277,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       ex_payload.guest <== mux(ex_input.bits.instruction_page_fault ||| ex_input.bits.instruction_access_fault, ex_input.bits.guest, local_guest)
   | #void
 
+  /* EX transfers and scheduled arithmetic.
+     Squash filters validity; registered payload capture and promised return
+     cycles retain their existing timing. */
+
   def ex_traced = ex_input |> filter_valid(_operation => ex_transfer)
     |> trace_valid_event("core/s3.execute", ~fields: operation):
          pc: operation.pc
@@ -1282,8 +1294,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_lookup_path |> filter_valid(_operation => !ex_exception.valid & ex_memory_operation.is_one_of(CacheOperation.Load, CacheOperation.Store))
     |> map_valid(_operation => ex_lookup_payload) |> scalar_pipeline.request
 
-  // Stage 4: MEM resolves the parallel DTLB/tag/data lookup. Capture successful load
-  // data at the ordinary MEM/WB boundary, alongside pure integer results.
+
+  /* MEM: Translation and cache resolution.
+     Pairs the DTLB/tag/data outcome with its live instruction; load-hit data
+     crosses the ordinary MEM/WB edge alongside the instruction context. */
+
   def mem_live = mem_input |> filter_valid(_operation => mem_stage_valid) |> trace_valid_event("core/s4.memory", ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
@@ -1314,6 +1329,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     |> map_valid(operation => operation.resume_pc) |> mem_to_if_redirect_link.left
   // Nonbranches also train: they remove a stale prediction at this PC.
   mem_training_path |> filter_valid(operation => !operation.vector_launch) |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
+
+  /* MEM/WB context capture.
+     Instruction/control state crosses in parallel with the LSU result;
+     no extra response stage or live-control forwarding path is introduced. */
+
   def mem_to_wb = memory_response.live_context |> map_valid(operation):
     wire result: MemoryWritebackContext(xlen, vector_completion_slots, hypervisor)
     result.vector_launch <== operation.vector_launch
@@ -1354,21 +1374,18 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     result
   mem_to_wb |> mem_wb_pipe.ingress
 
-  // Stage 5: WB authorizes transactions that did not complete as speculative hits.
-  // An attempted request
-  // either faults, transfers irrevocably, or replays without any side effect.
-  // Device reads, misses, and mutations cannot acquire effects speculatively.
-  // In-order WB associates NTL with exactly one successor, not one memory
-  // access. Rejected dispatch and pipeline replay leave this state untouched.
+
+  /* WB: Service authorization and replay.
+     Attempts either fault, transfer irrevocably, or replay without side effects.
+     Device reads, misses, and mutations cannot acquire effects speculatively;
+     NTL associates with exactly one successfully retiring successor. */
+
   reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
-  def wb_retiring_locality = mux_lookup(
-    wb_commit_bits.hint,
-    ~default: RiscvMemoryLocality.Default,
-    [[RV5StageHintOperation.NtlP1, RiscvMemoryLocality.P1],
-     [RV5StageHintOperation.NtlPall, RiscvMemoryLocality.Pall],
-     [RV5StageHintOperation.NtlS1, RiscvMemoryLocality.S1],
-     [RV5StageHintOperation.NtlAll, RiscvMemoryLocality.All]]
-  )
+  def wb_retiring_locality = mux_lookup(wb_commit_bits.hint, ~default: RiscvMemoryLocality.Default):
+    RV5StageHintOperation.NtlP1: RiscvMemoryLocality.P1
+    RV5StageHintOperation.NtlPall: RiscvMemoryLocality.Pall
+    RV5StageHintOperation.NtlS1: RiscvMemoryLocality.S1
+    RV5StageHintOperation.NtlAll: RiscvMemoryLocality.All
   when (wb_csrs.redirect.valid):
     wb_pending_locality <== RiscvMemoryLocality.Default
   elsewhen (wb_macro_retire & !wb_commit_bits.exception_valid):
@@ -1413,10 +1430,17 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_fp_admission = mux(wb_fp.authorize.valid, wb_fp.authorize.bits, wb_fp.issue.bits)
   def wb_fp_direct_integer = wb_fp.authorize.valid & (fp_timing.latency(wb_fp.authorize.bits.control.execution) === bits(2, fp_timing.width)) & (wb_fp.authorize.bits.control.registers.destination === FloatDestination.Integer)
   def Array(wb_fp_direct_completion, wb_fp_deferred_completion) = wb_fp.completion |> demux_flow(2, _result => !wb_fp_direct_integer)
+
+  /* WB fault and replay classification.
+     Selects fault provenance from the retained split, admission, or pipeline
+     owner; accepted work must never be replayed. */
+
   def wb_page_fault = (wb_split_done & split_completion.bits.page_fault) ||| (wb_attempt & (wb_offer_bits.cache_outcome === CachePipelineOutcome.PageFault)) ||| (scalar_data.request.valid & scalar_data.request_fault)
   // The arbiter gates the fault for this owner. Pipeline and delayed
   // completion faults still use their retained instruction address context.
-  def wb_fault_address = mux(wb_split_done, split_completion.bits.fault_address, mux(scalar_data.request.valid & (scalar_data.request_fault ||| scalar_data.request_access_fault), request_fault_address, wb_offer_bits.data_request.address))
+  def wb_fault_address = priority_mux(~default: wb_offer_bits.data_request.address):
+    wb_split_done: split_completion.bits.fault_address
+    scalar_data.request.valid & (scalar_data.request_fault ||| scalar_data.request_access_fault): request_fault_address
   def wb_access_fault = (wb_attempt & (wb_offer_bits.cache_outcome === CachePipelineOutcome.AccessFault)) ||| (scalar_data.request.valid & !wb_page_fault & scalar_data.request_access_fault) ||| (wb_memory_done & !wb_split_pending & wb_other_response.bits.access_fault) ||| (wb_split_done & split_completion.bits.response.access_fault)
   wb_data_fault <== wb_page_fault ||| wb_access_fault
   wb_memory_accepted <== scalar_data.request.fire() & !wb_data_fault
@@ -1431,8 +1455,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_replay = wb_offer_bits.replay ||| wb_memory_replay ||| wb_fp_replay ||| wb_hit_fp_replay ||| wb_store_replay ||| wb_vector_replay
   def wb_guest :: RiscvGuestException():
     if hypervisor
-    | mux(wb_split_done, split_completion.bits.guest, mux(!wb_offer_bits.exception_valid & scalar_data.request.valid & (scalar_data.request_fault ||| scalar_data.request_access_fault), request_guest, wb_offer_bits.guest))
+    | priority_mux(~default: wb_offer_bits.guest):
+        wb_split_done: split_completion.bits.guest
+        !wb_offer_bits.exception_valid & scalar_data.request.valid & (scalar_data.request_fault ||| scalar_data.request_access_fault): request_guest
     | literal(RiscvGuestException(), 0)
+  def wb_store_fault = wb_offer_bits.data_request.access.into(CacheOperation).store_fault_class()
+  def wb_guest_page_cause = mux(wb_store_fault, exception_cause_bits(ExceptionCause.StoreGuestPageFault, width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, width))
+  def wb_page_cause = mux(wb_store_fault, exception_cause_bits(ExceptionCause.StorePageFault, width), exception_cause_bits(ExceptionCause.LoadPageFault, width))
   wire wb_exception: RV5StageException(xlen)
   when (wb_offer_bits.exception_valid):
     wb_exception <== RV5StageException(xlen):
@@ -1442,9 +1471,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   elsewhen wb_page_fault:
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#true)
-      cause: mux(wb_guest.page_fault,
-                 mux(wb_offer_bits.data_request.access.into(CacheOperation).store_fault_class(), exception_cause_bits(ExceptionCause.StoreGuestPageFault, width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, width)),
-                 mux(wb_offer_bits.data_request.access.into(CacheOperation).store_fault_class(), exception_cause_bits(ExceptionCause.StorePageFault, width), exception_cause_bits(ExceptionCause.LoadPageFault, width)))
+      cause: mux(wb_guest.page_fault, wb_guest_page_cause, wb_page_cause)
       value: wb_fault_address
   elsewhen wb_access_fault:
     wb_exception <== core_data_exception(wb_offer_bits.data_request.access, wb_fault_address, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
@@ -1488,16 +1515,18 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   assert(!(wb_memory_accepted & wb_replay), "rv5stage_wb_memory_accept_does_not_replay")
   assert(!(wb_fp.issue.fire() & wb_replay), "rv5stage_wb_fp_accept_does_not_replay")
 
-  // Retirement and architectural side effects. Older authorized work must
-  // finish before entering a precise trap. Younger
-  // speculative pipeline occupancy is not outstanding architectural work.
+
+  /* Architectural retirement and precise traps.
+     Older authorized work drains before trap entry. Younger speculative
+     pipeline occupancy is not outstanding architectural work. */
+
   def wb_current_exception_wait = wb_commit_valid & wb_commit_bits.exception_valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
   def wb_architectural_commit = mux(wb_pending_exception_valid, wb_pending_exception, wb_commit_bits)
   def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_active & scalar_data.drained
   wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_memory_pending & !wb_reservation_wait_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
-  wb_csrs.interrupt_pc <== mux(wb_commit_replay,
-                               wb_commit_bits.pc,
-                               mux(wb_commit_valid, wb_commit_bits.resume_pc, if_architectural_pc))
+  wb_csrs.interrupt_pc <== priority_mux(~default: if_architectural_pc):
+    wb_commit_replay: wb_commit_bits.pc
+    wb_commit_valid: wb_commit_bits.resume_pc
   wb_csrs.commit.valid <== wb_pending_exception_ready ||| (wb_macro_retire & !wb_current_exception_wait)
   // RV5Stage retires exactly one authorized macro when CSR/trap checks succeed.
   // The shared bank consumes this event but owns no pipeline-retirement policy.
@@ -1533,24 +1562,20 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   (
     wb_scoreboard_path
-      |> filter_valid(committed => !committed.replay & core_deferred_writeback(committed.writeback_source) & (
-          committed.write_enable
-        ) & committed.rd.or_reduce())
+      |> filter_valid(committed => !committed.replay & core_deferred_writeback(committed.writeback_source) & committed.write_enable & committed.rd.or_reduce())
       |> map_valid(committed => committed.rd)
   ) |> wb_to_id_scoreboard_set_link.left
 
+  /* Normal register writeback and arithmetic authorization.
+     Direct FP results use the ordinary WB port; later results retain the
+     deferred port and their architectural reservation. */
+
   def wb_normal_write = (
     wb_register_path
-      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= RV5StageWritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & (
-          committed.write_enable
-        ) & ((committed.writeback_source =/= RV5StageWritebackSelect.Csr) ||| wb_csrs.writeback_valid))
+      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= RV5StageWritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & committed.write_enable & ((committed.writeback_source =/= RV5StageWritebackSelect.Csr) ||| wb_csrs.writeback_valid))
       |> map_valid(committed => RegisterFileWrite(xlen)):
           address: committed.rd
-          data: mux(
-            committed.writeback_source === RV5StageWritebackSelect.Csr,
-            wb_csrs.writeback_value,
-            committed.value
-          )
+          data: mux(committed.writeback_source === RV5StageWritebackSelect.Csr, wb_csrs.writeback_value, committed.value)
   )
   def wb_fp_integer_write = wb_fp_direct_completion |> filter_flow(result => result.rd.or_reduce()) |> map_flow(result => RegisterFileWrite(xlen)):
     address: result.rd
@@ -1578,9 +1603,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         assert(wb_multiplier.available, "rv5stage_multiplier_commit_reserved")
   (
     wb_divide_path
-      |> filter_valid(committed => !committed.replay & (
-          committed.writeback_source === RV5StageWritebackSelect.Divide
-        ) & committed.write_enable & committed.rd.or_reduce())
+      |> filter_valid(committed => !committed.replay & (committed.writeback_source === RV5StageWritebackSelect.Divide) & committed.write_enable & committed.rd.or_reduce())
       |> map_valid(_committed => wb_input.bits.divide_issue)
   ) |> wb_divider.issue
   when wb_commit_has_divide:
@@ -1589,10 +1612,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_fp_integer_scoreboard.set.valid <== wb_fp_admitted & !wb_fp_direct_integer & (wb_fp_admission.control.registers.destination === FloatDestination.Integer) & wb_fp_admission.frd.or_reduce()
   wb_fp_integer_scoreboard.set.bits <== wb_fp_admission.frd
 
-  // Deferred completion. Loads and arithmetic complete outside the ordered
-  // pipeline. Each candidate carries its semantic source, so routing does not
-  // depend on the arbiter's structural input index.
+
+  /* Deferred completion and register writeback.
+     Loads and arithmetic retain their semantic source outside ordered WB;
+     fixed return bookings coexist with arbitrated variable completions. */
+
   inst wb_completion_arbiter(RRArbiter(RV5StageDeferredCompletion(xlen), 5))
+
   /* Attaches a semantic completion source so scoreboard clearing does not depend on arbiter
      input order. */
   fun wb_tag_completion(source :: RV5StageCompletionSource):
@@ -1624,9 +1650,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ) |> gate_flow(!wb_gpr_calendar.occupied[0].into(Bool)) |> wb_tag_completion(RV5StageCompletionSource.Divide) |> wb_completion_arbiter.ingress[1]
   (
     wb_fp_deferred_completion
-      |> filter_flow(completion => (
-          completion.destination === FloatDestination.Integer
-        ) & completion.rd.or_reduce())
+      |> filter_flow(completion => (completion.destination === FloatDestination.Integer) & completion.rd.or_reduce())
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.integer_value
@@ -1670,7 +1694,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           data: if xlen == XLen.X32 | response.data.zext(64) | response.data
   ) |> wb_fp.load_completion
 
-  // Semantic taps are passive metadata; compilation alone selects observer realization.
+
+  /* Passive architectural observations.
+     Declares semantic taps only; compilation selects observer realization
+     without adding functional capture state or simulation-owned core inputs. */
+
   def fp_cosim_taps:
     if floating_point_supports_f(profile)
     | {

@@ -115,6 +115,10 @@ sync_circuit Uart16550(config :: Uart16550Config):
   output interrupt: Bool
   interface port(CHISNChannels(p), ~role: node)
 
+
+  /* CHI transaction ownership and software-visible registers.
+     The shared engine retains requests; this device owns register effects and TX backpressure. */
+
   inst transaction(CHISingleBeatSubordinate(p, "uart16550"))
   port <=> transaction.port
   transaction.node_id <== identity.node_id
@@ -137,6 +141,10 @@ sync_circuit Uart16550(config :: Uart16550Config):
   wire clear_rx_fifo: Bool
   inst tx_fifo(Queue(Bits(8), fifo_depth, ~pipe: #true), ~reset_when: clear_tx_fifo)
   inst rx_fifo(Queue(Bits(8), fifo_depth, ~pipe: #true), ~reset_when: clear_rx_fifo)
+
+
+  /* Serial timing and FIFO capacity.
+     A zero divisor acts as one; disabled FIFO mode exposes a one-byte capacity. */
 
   def divisor = concat(divisor_latch_high, divisor_latch_low)
   def effective_divisor = mux(divisor === bits(0, 16), bits(1, 16), divisor)
@@ -166,39 +174,35 @@ sync_circuit Uart16550(config :: Uart16550Config):
                           bits(1, fifo_count_width))
   def rx_head = rx_fifo.egress.bits
 
+
+  /* Request validation and byte-lane selection.
+     Reads use the incoming REQ; writes use the retained request through DAT acceptance. */
+
   def incoming = port.req.bits
   def incoming_opcode = incoming.opcode
-  def incoming_write = (incoming_opcode === CHIReqOpcode.WriteNoSnpFull) ||| (
-    incoming_opcode === CHIReqOpcode.WriteNoSnpPtl
-  )
+  def incoming_write = incoming_opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
+  def incoming_read = incoming_opcode === CHIReqOpcode.ReadNoSnp
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
   def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[Uart16550AddressWidth..p.request_address_width].or_reduce()
-  def incoming_supported = (
-    (incoming_opcode === CHIReqOpcode.ReadNoSnp) ||| (
-      incoming_opcode === CHIReqOpcode.WriteNoSnpFull
-    ) ||| (incoming_opcode === CHIReqOpcode.WriteNoSnpPtl)
-  ) & incoming_in_window & (
-    incoming.size_or_num_req[0..3] === bits(0, 3)
-  ) & (incoming.tgt_id === identity.node_id)
+  def incoming_byte_access = incoming.size_or_num_req[0..3] === bits(0, 3)
+  def incoming_targets_device = incoming.tgt_id === identity.node_id
+  def incoming_supported = (incoming_read ||| incoming_write) & incoming_in_window & incoming_byte_access & incoming_targets_device
   transaction.request_supported <== incoming_supported
   def request_fire = transaction.request_fire
+  def accepted_read = request_fire & !incoming_write
 
   def incoming_relative :: Bits(Uart16550AddressWidth) = incoming_relative_full[0..Uart16550AddressWidth]
   def request_relative_full :: Bits(p.request_address_width) = request.address - identity.base_address
   def request_relative :: Bits(Uart16550AddressWidth) = request_relative_full[0..Uart16550AddressWidth]
-  def active_offset :: Bits(Uart16550AddressWidth) = mux(
-    request_fire & !incoming_write,
-    incoming_relative,
-    request_relative
-  )
-  def active_address :: Bits(p.request_address_width) = mux(
-    request_fire & !incoming_write,
-    incoming.address,
-    request.address
-  )
+  def active_offset :: Bits(Uart16550AddressWidth) = mux(accepted_read, incoming_relative, request_relative)
+  def active_address :: Bits(p.request_address_width) = mux(accepted_read, incoming.address, request.address)
   def register_lane = active_address[0..lane_width]
   def register_shift = concat(register_lane, bits(0, 3))
   def dlab = line_control[7].into(Bool)
+
+
+  /* Read snapshots, interrupt priority, and REQ-time side effects.
+     RBR consumption and LSR clear are tied to accepted requests, not returned responses. */
 
   def receiver_data_available = !rx_empty
   def transmitter_holding_empty = tx_empty
@@ -221,10 +225,12 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def interrupt_identification = interrupt_cause ||| mux(fifo_enabled, bits(0xc0, 8), bits(0, 8))
   interrupt <== receive_interrupt ||| transmit_interrupt
 
+  def receive_read_byte = mux(rx_empty, bits(0, 8), rx_head)
+  def rbr_dll_read_byte = mux(dlab, divisor_latch_low, receive_read_byte)
   def selected_read_byte :: Bits(8) = mux_lookup(
     active_offset,
     ~default: bits(0, 8),
-    [[Uart16550RbrThrDllOffset, mux(dlab, divisor_latch_low, mux(rx_empty, bits(0, 8), rx_head))],
+    [[Uart16550RbrThrDllOffset, rbr_dll_read_byte],
      [Uart16550IerDlmOffset, mux(dlab, divisor_latch_high, interrupt_enable)],
      [Uart16550IirFcrOffset, interrupt_identification],
      [Uart16550LcrOffset, line_control],
@@ -235,12 +241,16 @@ sync_circuit Uart16550(config :: Uart16550Config):
   )
   def register_read_data = selected_read_byte.zext(p.data_width) << register_shift
   // Snapshot and read effects share REQ acceptance, not response transfer.
-  def read_rbr = request_fire & !incoming_write & !dlab & (
+  def read_rbr = accepted_read & !dlab & (
     incoming_relative === bits(Uart16550RbrThrDllOffset, Uart16550AddressWidth)
   ) & !rx_empty
-  def read_lsr = request_fire & !incoming_write & (
+  def read_lsr = accepted_read & (
     incoming_relative === bits(Uart16550LsrOffset, Uart16550AddressWidth)
   )
+
+
+  /* DAT-time writes and FIFO clear control.
+     THR waits for space; byte enables qualify effects without changing mask-validation policy. */
 
   def incoming_data = port.dat.request.bits
   def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
@@ -258,25 +268,26 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def write_data_fire = transaction.write_data_fire
 
   def write_thr = write_data_fire & write_thr_target
-  def write_dll = write_data_fire & write_enabled & dlab & (
+  def register_write = write_data_fire & write_enabled
+  def write_dll = register_write & dlab & (
     request_relative === bits(Uart16550RbrThrDllOffset, Uart16550AddressWidth)
   )
-  def write_ier = write_data_fire & write_enabled & !dlab & (
+  def write_ier = register_write & !dlab & (
     request_relative === bits(Uart16550IerDlmOffset, Uart16550AddressWidth)
   )
-  def write_dlm = write_data_fire & write_enabled & dlab & (
+  def write_dlm = register_write & dlab & (
     request_relative === bits(Uart16550IerDlmOffset, Uart16550AddressWidth)
   )
-  def write_fcr = write_data_fire & write_enabled & (
+  def write_fcr = register_write & (
     request_relative === bits(Uart16550IirFcrOffset, Uart16550AddressWidth)
   )
-  def write_lcr = write_data_fire & write_enabled & (
+  def write_lcr = register_write & (
     request_relative === bits(Uart16550LcrOffset, Uart16550AddressWidth)
   )
-  def write_mcr = write_data_fire & write_enabled & (
+  def write_mcr = register_write & (
     request_relative === bits(Uart16550McrOffset, Uart16550AddressWidth)
   )
-  def write_scr = write_data_fire & write_enabled & (
+  def write_scr = register_write & (
     request_relative === bits(Uart16550ScrOffset, Uart16550AddressWidth)
   )
   def next_fifo_enabled = write_byte[0].into(Bool)
@@ -284,17 +295,15 @@ sync_circuit Uart16550(config :: Uart16550Config):
   clear_rx_fifo <== write_fcr & (write_byte[1].into(Bool) ||| fifo_mode_change)
   clear_tx_fifo <== write_fcr & (write_byte[2].into(Bool) ||| fifo_mode_change)
 
-  // A scoped reset takes effect on the edge, so mask both sides while clear is
-  // asserted to prevent a stale TX byte from entering the serial shifter.
+
+  /* FIFO transfers and write-mask validation.
+     Mask both queue sides during synchronous clear so stale TX data cannot enter the shifter. */
+
   tx_fifo.ingress.valid <== write_thr & !clear_tx_fifo
   tx_fifo.ingress.bits <== write_byte
   tx_fifo.egress |> gate_flow(!clear_tx_fifo) |> transmitter.bytes
 
-  def expected_write_mask = transfer_byte_mask(
-    request.address,
-    request.size_or_num_req[0..3],
-    p.data_bytes
-  ).into(Bits(p.data_bytes))
+  def expected_write_mask = transfer_byte_mask(request.address, request.size_or_num_req[0..3], p.data_bytes ).into(Bits(p.data_bytes))
   def supplied_write_mask = incoming_data.byte_enable
   def partial_write = request.opcode === CHIReqOpcode.WriteNoSnpPtl
   def write_mask_supported = mux(
@@ -311,8 +320,10 @@ sync_circuit Uart16550(config :: Uart16550Config):
   rx_fifo.ingress.bits <== receiver.received.bits
   rx_fifo.egress.ready <== read_rbr & !clear_rx_fifo
 
-  // A concurrent receive owns error state over an LSR read; clear happens only
-  // without a receive, and FIFO clear does not reset the serial engines.
+
+  /* Register updates and receive-error collision priority.
+     A receive wins over LSR read-to-clear; FIFO clear does not reset serial engines. */
+
   when receive_byte:
     when (!rx_has_space):
       overrun_error <== Bool(#true)

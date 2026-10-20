@@ -61,6 +61,11 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
         input request_guest_fault: RiscvGuestException()
         request_guest_fault
     | literal(RiscvGuestException(), 0)
+
+
+  /* Retained physical requests and split ownership.
+     Certified capture is durable; retry rewinds unaccepted requests, not completed work. */
+
   inst split_owner(OfferRegister(Decision()))
   def split_pending = split_owner.egress.valid
   wire split_capture: Bool
@@ -85,17 +90,18 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def queued = count.or_reduce()
   def bypass = next_request === tail
   def pending = next_request =/= tail
+  def attempts_enabled = !recover & !split_pending
   def captures = retention |> fork_valid(slots)
   def retained_attempts = for Array (slot in 0..slots):
     def index = bits(slot, index_width(slots))
     def capture = captures[slot] |> filter_valid(_token => request_index(tail) === index)
-    def offered = inject_interface(Valid(Token), ~valid: pending & !recover & !split_pending & (request_index(next_request) === index), ~bits: requests[slot])
+    def offered = inject_interface(Valid(Token), ~valid: pending & attempts_enabled & (request_index(next_request) === index), ~bits: requests[slot])
     def occupied = if slots == 1 | queued | (index - request_index(head)).zext(Cursor.width) < count
     def name = "request-" ++ to_string(slot)
     describe_interface_retained_storage(capture.valid, resolved & (request_index(head) === index), occupied, ~name: name)
     describe_interface_contract(capture, offered, name, ~trace_model: interface_trace_retained(~name: name))
     offered
-  def bypassed = live_attempt |> filter_valid(_token => bypass & !recover & !split_pending)
+  def bypassed = live_attempt |> filter_valid(_token => bypass & attempts_enabled)
   def attempt = Array(retained_attempts |> valid_arbiter(), bypassed) |> valid_arbiter()
   def direct = faultable_input |> gate_flow(!queued & !split_pending) |> to_valid()
   def ex = Array(attempt, direct) |> valid_arbiter() |> valid_pipe(1, ~flush: recover)
@@ -110,7 +116,11 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     next_request <== next_request + bits(1, Cursor.width)
   when resolved:
     head <== head + bits(1, Cursor.width)
-  // Capture resolves ownership at execute, independent of later cache retries.
+
+
+  /* Capture feedback and EX lookup formation.
+     Durable ownership is reported independently of later cache acceptance or retries. */
+
   def durable = capture_feedback |> valid_pipe(1) |> map_valid(operation => VectorCommit(xlen, slots)):
     tag: operation.completion_tag
     pc: operation.context
@@ -149,6 +159,11 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
            unsigned: request.unsigned
            data: request.data
   ) |> pipeline.request
+
+
+  /* MEM context and cache-result pairing.
+     An absent response means Slow; the same-cycle join adds no storage or wait. */
+
   def mem = context_path |> map_valid(token => Lookup()):
     token: token
     request: request
@@ -170,10 +185,18 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     | #void
     decision
   def arrival = wb |> to_valid() |> valid_pipe(1, ~flush: recover)
+
+
+  /* WB decision and split-result reentry.
+     A retained split decision rejoins classification only when its completion arrives. */
+
   def returned_split = split_owner.egress |> gate_flow(split_completion.valid) |> map_flow(operation):
     wire result: Decision()
     result.request_context <== operation.request_context
-    result.outcome <== mux(split_completion.bits.page_fault, CachePipelineOutcome.PageFault, mux(split_completion.bits.response.access_fault, CachePipelineOutcome.AccessFault, CachePipelineOutcome.LoadHit))
+    def split_outcome :: CachePipelineOutcome = priority_mux(~default: CachePipelineOutcome.LoadHit):
+      split_completion.bits.page_fault: CachePipelineOutcome.PageFault
+      split_completion.bits.response.access_fault: CachePipelineOutcome.AccessFault
+    result.outcome <== split_outcome
     result.data <== split_completion.bits.response.data
     if hypervisor
     | result.guest <== split_completion.bits.guest
@@ -193,9 +216,13 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def page_fault = memory_operation & ((operation.outcome === CachePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
   def access_fault = memory_operation & !page_fault & ((operation.outcome === CachePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
   def fault = wb_context.valid & (page_fault ||| access_fault)
-  def hit = wb_context.valid & !slow & !fault & (operation.outcome =/= CachePipelineOutcome.Replay)
-  def precise_retry = memory_operation & !fault & ((operation.outcome === CachePipelineOutcome.Replay) ||| (slow & !memory.request.ready) ||| (store_hit & !pipeline.commit_ready))
-  retry <== precise_retry ||| (hit & token.precertified & !token.store & !hit_ready)
+  def cache_replay = operation.outcome === CachePipelineOutcome.Replay
+  def hit = wb_context.valid & !slow & !fault & !cache_replay
+  def slow_blocked = slow & !memory.request.ready
+  def store_commit_blocked = store_hit & !pipeline.commit_ready
+  def precise_retry = memory_operation & !fault & (cache_replay ||| slow_blocked ||| store_commit_blocked)
+  def hit_completion_blocked = hit & token.precertified & !token.store & !hit_ready
+  retry <== precise_retry ||| hit_completion_blocked
   // The outgoing offer below is exactly the live Slow decision. Compute its
   // admission before annotating/forking that decision, without reading an undriven output.
   def accepted = slow & memory.request.ready & !fault
@@ -206,6 +233,11 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   when (wb_context.valid & token.precertified):
     assert(!fault, "certified_vector_request_cannot_fault")
     assert(queued & (token.completion_tag === requests[request_index(head)].completion_tag), "vector_retry_resolves_oldest_request")
+
+
+  /* Request admission, precise feedback, and macro outcome.
+     Slow offers do not depend on their own admission feedback; certified work has no late fault. */
+
   def disposition = priority_mux(~default: VectorDisposition.Authorized):
     precise_retry: VectorDisposition.Retry
     truncate: VectorDisposition.Truncate
@@ -217,9 +249,9 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
       output outcome_guest: RiscvGuestException()
       outcome_guest <== guest
   | #void
-  def page_cause = mux(guest.page_fault,
-                       mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width)),
-                       mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width)))
+  def guest_page_cause = mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
+  def ordinary_page_cause = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
+  def page_cause = mux(guest.page_fault, guest_page_cause, ordinary_page_cause)
   def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
   def response_capture = response_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
     pc: decision.request_context.token.context
@@ -231,6 +263,10 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     admitted: accepted
   def Array(request_path, decision_path, hit_path) = response_capture |> fork_valid(3)
   request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.request_context.request) |> offer_decoupled() |> memory.request
+  def slow_admission_fault = slow & (memory.request_fault ||| memory.request_access_fault)
+  def fault_address :: Bits(xlen.width) = priority_mux(~default: operation.request_context.request.address):
+    split_pending: split_completion.bits.fault_address
+    slow_admission_fault: request_fault_address
   def decision = decision_path |> filter_valid(_operation => !split_capture) |> map_valid(operation => VectorCommit(xlen, slots)):
     tag: operation.request_context.token.completion_tag
     pc: operation.request_context.token.context
@@ -238,12 +274,17 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     slow: accepted ||| (split_pending & !fault)
     data: operation.data
     cause: mux(page_fault, page_cause, access_cause)
-    fault_address: mux(split_pending, split_completion.bits.fault_address, mux(slow & (memory.request_fault ||| memory.request_access_fault), request_fault_address, operation.request_context.request.address))
+    fault_address: fault_address
   def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
   def precise_feedback = feedback_path |> filter_valid(_event => !token.precertified)
   Array(durable, precise_feedback) |> valid_arbiter() |> feedback
   assert(!(durable.valid & precise_feedback.valid), "vector_capture_and_precise_feedback_are_exclusive")
   outcome_path |> filter_valid(event => !token.precertified & (event.disposition =/= VectorDisposition.Retry) & (token.last ||| fault)) |> outcome
+
+
+  /* Completion arbitration and store-hit acknowledgements.
+     Hits may retry before acceptance; committed stores retain tags, never completed result data. */
+
   def Array(load_hit_path, store_hit_path) = hit_path |> fork_valid(2)
   def hit_completion = load_hit_path |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(result => VectorCompletion(xlen, slots)):
     tag: result.request_context.token.completion_tag
@@ -290,8 +331,12 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     assert(!memory.response.bits.access_fault, "vector_memory_faults_are_reported_before_acceptance")
     assert(memory.response.bits.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool), "vector_response_has_vector_owner")
   assert(!(accepted & (retry ||| fault)), "vector_accepted_request_never_replays")
-  // A direct precise hit has no asynchronous completion. All other successful
-  // accesses retain their slot through completion, including certified hit ACKs.
+
+
+  /* Passive completion accounting.
+     A direct precise hit has no asynchronous completion. Other successful accesses
+     retain their slot through completion, including certified hit acknowledgements. */
+
   describe_cosim_signals({
     "direct": memory_operation & hit & !retry & !token.precertified & !split_pending,
     "direct_tag": token.completion_tag,

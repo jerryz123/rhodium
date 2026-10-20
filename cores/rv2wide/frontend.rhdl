@@ -59,6 +59,10 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   interface history_commit(Valid(RV2WideHistoryCommit()), ~role: consumer)
   interface history_restore(Valid(Bits(10)), ~role: consumer)
 
+
+  /* Fetch ownership and fixed-cycle context.
+     Each S1/S2 context reserves one eventual block in the assembler. */
+
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(RV2WideFetchCursor(xlen), 0))
   inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8))
@@ -71,6 +75,11 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   inst s1(ValidPipeAlwaysCapture(RV2WideFetchCursor(xlen), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(xlen), 1, ~flushable: #true))
   inst assembler(RV2WideInstructionAssembler(profile))
+
+
+  /* Predictor control and S1 target selection.
+     Continuations retain the original prediction; ordinary lookups may use the RAS. */
+
   def command = start.valid ||| redirect.valid ||| flush.valid ||| invalidate.valid
   def repair = assembler.repair.valid ||| direction_repair
   def restore = command ||| predictor_restore.valid
@@ -87,11 +96,20 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   assembler.ras_head_valid <== ras.head_valid & !restore
   assembler.ras_head <== ras.head
   assembler.pause <== predictor_restore.valid
-  def prediction :: BranchPrediction(xlen) = mux(s1.egress.bits.continuation, s1.egress.bits.prediction, btb.prediction.updated(~target: mux(btb.prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras.head_valid & !restore, ras.head, btb.prediction.target)))
+  def use_ras_target = btb.prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras.head_valid & !restore
+  def ordinary_prediction = btb.prediction.updated(~target: mux(use_ras_target, ras.head, btb.prediction.target))
+  def prediction :: BranchPrediction(xlen) = mux(s1.egress.bits.continuation, s1.egress.bits.prediction, ordinary_prediction)
+
+
+  /* S2 outcome classification and direction correction.
+     Replay retains the current attempt for retry; fault stops further fetch. */
+
   def result_fault = s2.egress.bits.fault.valid ||| (memory.response.valid & memory.response.bits.access_fault)
   def replay = s2.egress.valid & !s2.egress.bits.fault.valid & (s2.egress.bits.replay ||| (memory.response.valid & memory.response.bits.replay)) & !command
   def fault = s2.egress.valid & !replay & result_fault & !command
   def stop = replay ||| fault
+  def kill_younger = command ||| repair ||| stop
+  def continue_fetch = active & !command & !stop
   def reserved = s1.egress.valid.as_bits().zext(2) + s2.egress.valid.as_bits().zext(2)
   assert(reserved <= assembler.available, "rv2wide_fetch_reservations")
   assembler.clear.valid <== command
@@ -113,12 +131,18 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   def s2_prediction = s2.egress.bits.cursor.prediction
   def s2_straddle = s2_prediction.valid & (s2_prediction.pc[0..3] === bits(6, 3)) & !s2_prediction.compressed & !s2.egress.bits.cursor.continuation
   def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.target, s2.egress.bits.cursor.pc.align_down(8) + bits(8, xlen.width))
-  direction_repair <== Bool(profile.bht) & direction.valid & !result_fault & (direction.next_pc =/= provisional_successor)
+  def direction_updates_history = Bool(profile.bht) & direction.valid & !result_fault
+  direction_repair <== direction_updates_history & (direction.next_pc =/= provisional_successor)
+
+
+  /* History recovery.
+     Commit folds lanes in program order; speculative history follows recovery priority. */
+
   def mutable committed_next = committed_history
   for (lane in 0..2):
     def history :: Bits(10) = committed_next
     committed_next := mux(history_commit.valid & history_commit.bits.enable[lane], history[0..9] ++ history_commit.bits.taken[lane].as_bits(), history)
-  def s1_history = mux(direction.valid & !result_fault & Bool(profile.bht), direction.history_after, speculative_history)
+  def s1_history = mux(direction_updates_history, direction.history_after, speculative_history)
   when (bht.clear.valid):
     speculative_history <== bits(0, 10)
     committed_history <== bits(0, 10)
@@ -130,11 +154,14 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
       speculative_history <== committed_next
     elsewhen (assembler.repair.valid):
       speculative_history <== assembler.repair.bits.history
-    elsewhen (direction.valid & !result_fault & Bool(profile.bht)):
+    elsewhen direction_updates_history:
       speculative_history <== direction.history_after
 
-  // S1's combinational prediction feeds S0 directly. Recovery cancels younger
-  // reservations; S2 direction correction still reserves its retained response.
+
+  /* S0 cursor selection and credited lookup admission.
+     S1 prediction feeds S0 directly. Recovery cancels younger reservations,
+     but direction correction still reserves the retained S2 response. */
+
   def straddle = prediction.valid & (prediction.pc[0..3] === bits(6, 3)) & !prediction.compressed & !s1.egress.bits.continuation
   def next_cursor = RV2WideFetchCursor(xlen):
     pc: mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target, s1.egress.bits.pc.align_down(8) + bits(8, xlen.width))
@@ -153,8 +180,10 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     s1.egress.valid: next_cursor
   def attempt_link :: Handle = interface_link(Decoupled(RV2WideFetchCursor(xlen)))
   def attempt :: Endpoint = attempt_link.right
-  def replacement_room = restart ||| assembler.repair.valid ||| (assembler.available > (s2.egress.valid & !replay).as_bits().zext(2))
-  attempt_link.left.valid <== (replace & replacement_room) ||| (active & !command & !stop & (assembler.available > reserved))
+  def retained_response_credit = (s2.egress.valid & !replay).as_bits().zext(2)
+  def replacement_room = restart ||| assembler.repair.valid ||| (assembler.available > retained_response_credit)
+  def sequential_room = assembler.available > reserved
+  attempt_link.left.valid <== (replace & replacement_room) ||| (continue_fetch & sequential_room)
   attempt_link.left.bits <== selected
   def requested = attempt |> trace_event("frontend/s0.request", ~fields: address):
     pc: address.pc
@@ -176,21 +205,27 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     active <== Bool(#false)
   when (attempt.fire()):
     cursor <== selected.updated(~pc: selected.pc.align_down(8) + bits(8, xlen.width), ~continuation: Bool(#false), ~hashed: Bool(#false))
-  elsewhen (replace ||| (active & !command & !stop & s1.egress.valid)):
+  elsewhen (replace ||| (continue_fetch & s1.egress.valid)):
     cursor <== selected
 
-  // S1 translates while array outputs arrive, then resolves physical permissions. A bad
-  // instruction PC becomes a fault token, never an aliased aligned fetch.
+
+  /* S1 translation and physical permission resolution.
+     Array outputs arrive alongside translation. A bad instruction PC becomes
+     a fault token, never an aliased aligned fetch. */
+
   def s1_base = translation.address.align_down(8)
   def physical = config.physical_map.lookup(s1_base, s1_base +& bits(7, 64))
   def attributes = resolve_memory_attributes(physical, translation.pbmt)
   def permitted = physical.mapped & physical.executable
   def misaligned = !s1.egress.bits.pc.is_aligned(2)
-  s1.egress |> filter_valid(cursor => !command & !repair & !stop & cursor.pc.is_aligned(2)) |> map_valid(cursor => cursor.pc) |> translation.request
+  s1.egress |> filter_valid(cursor => !kill_younger & cursor.pc.is_aligned(2)) |> map_valid(cursor => cursor.pc) |> translation.request
   def translation_replay = translation.resolution.disposition === RV2WideDisposition.Replay
   def translation_fault = translation.resolution.disposition === RV2WideDisposition.Fault
   def denied = misaligned ||| (!translation_replay & (translation_fault ||| !permitted))
-  def looked_up = s1.egress |> filter_valid(_pc => !command & !repair & !stop) |> trace_valid_event("frontend/s1.lookup", ~fields: address):
+  def fault_cause :: Bits(xlen.width) = priority_mux(~default: exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width)):
+    misaligned: exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, xlen.width)
+    translation_fault: translation.resolution.cause
+  def looked_up = s1.egress |> filter_valid(_pc => !kill_younger) |> trace_valid_event("frontend/s1.lookup", ~fields: address):
     pc: address.pc
     predicted: prediction.valid
     target: prediction.target
@@ -209,36 +244,39 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     attempt.fault <== RV2WideFetchFault(xlen):
       guest: translation.resolution.guest
       valid: denied
-      cause: mux(misaligned, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, xlen.width), mux(translation_fault, translation.resolution.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width)))
+      cause: fault_cause
       value: address.pc
     attempt
   ) |> s2.ingress
-  s1.flush <== (command ||| repair ||| stop) & !attempt.fire()
-  s2.flush <== command ||| repair ||| stop
+  s1.flush <== kill_younger & !attempt.fire()
+  s2.flush <== kill_younger
   // Local repair/replay cancel younger lookup contexts, not accepted refills or
   // the current S2 response. Only architectural commands detach cache ownership.
   memory.flush <== command
   memory.invalidate_all <== invalidate.valid
-  memory.s1_kill <== command ||| repair ||| stop
+  memory.s1_kill <== kill_younger
 
-  // Cache outcomes enter credited block storage. Assembly owns parcel retention,
-  // expansion, and continuation-page faults; no cache result waits on issue.
+
+  /* S2 publication into reserved block storage.
+     Assembly owns parcels, expansion, and continuation-page faults;
+     no cache result waits for instruction issue. */
+
   def outcome = s2.egress |> filter_valid(_attempt => !command & !replay) |> trace_valid_event("frontend/s2.outcome", ~fields: attempt):
     pc: attempt.cursor.pc
     fault: result_fault
   (outcome |> map_valid(attempt):
-         def fetch_fault = RV2WideFetchFault(xlen):
-           guest: attempt.fault.guest
-           valid: result_fault
-           cause: mux(attempt.fault.valid, attempt.fault.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width))
-           value: mux(attempt.fault.valid, attempt.fault.value, attempt.cursor.pc)
-         RV2WideFetchBlock(xlen):
-           pc: attempt.cursor.pc
-           data: memory.response.bits.data
-           fault: fetch_fault
-           prediction: mux(Bool(profile.bht), direction.corrected, attempt.cursor.prediction)
-           directions: mux(Bool(profile.bht), direction.directions, literal(Vec(4, BhtPrediction(10)), 0))
-           prefix_direction: mux(Bool(profile.bht), direction.prefix_direction, literal(BhtPrediction(10), 0))
+    def fetch_fault = RV2WideFetchFault(xlen):
+      guest: attempt.fault.guest
+      valid: result_fault
+      cause: mux(attempt.fault.valid, attempt.fault.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width))
+      value: mux(attempt.fault.valid, attempt.fault.value, attempt.cursor.pc)
+    RV2WideFetchBlock(xlen):
+      pc: attempt.cursor.pc
+      data: memory.response.bits.data
+      fault: fetch_fault
+      prediction: mux(Bool(profile.bht), direction.corrected, attempt.cursor.prediction)
+      directions: mux(Bool(profile.bht), direction.directions, literal(Vec(4, BhtPrediction(10)), 0))
+      prefix_direction: mux(Bool(profile.bht), direction.prefix_direction, literal(BhtPrediction(10), 0))
   ) |> to_decoupled() |> assembler.blocks
   when (s2.egress.valid & !s2.egress.bits.fault.valid & !s2.egress.bits.replay & !command):
     assert(memory.response.valid, "rv2wide_fetch_has_outcome")

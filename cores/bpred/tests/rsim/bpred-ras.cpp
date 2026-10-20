@@ -107,6 +107,40 @@ int main() {
     check_compressed_classification(UINT64_C(8193), NONE);
     check_rv32_compressed_classification(UINT64_C(8193), PUSH);
 
+    for (unsigned opcode = 0; opcode < 128; ++opcode) {
+      for (unsigned rd = 0; rd < 32; ++rd) {
+        for (unsigned rs1 = 0; rs1 < 32; ++rs1) {
+          const bool rd_link = rd == 1 || rd == 5;
+          const bool rs1_link = rs1 == 1 || rs1 == 5;
+          std::uint8_t expected = NONE;
+          if (opcode == 0x6f && rd_link)
+            expected = PUSH;
+          else if (opcode == 0x67) {
+            if (rd_link)
+              expected = rs1_link && rd != rs1 ? POP_PUSH : PUSH;
+            else if (rs1_link)
+              expected = POP;
+          }
+          check_classification((rs1 << 15) | (rd << 7) | opcode, expected);
+        }
+      }
+    }
+    for (unsigned encoded = 0; encoded < 65536; ++encoded) {
+      const unsigned rs1 = (encoded >> 7) & 31;
+      std::uint8_t expected = NONE;
+      if ((encoded & 0xe07f) == 0x8002 && rs1 != 0) {
+        if (encoded & 0x1000)
+          expected = rs1 == 5 ? POP_PUSH : PUSH;
+        else if (rs1 == 1 || rs1 == 5)
+          expected = POP;
+      }
+      compressed_instruction = encoded;
+      eval();
+      CHECK(compressed_classification == expected);
+      CHECK(compressed_classification_rv32 ==
+            ((encoded & 0xe003) == 0x2001 ? PUSH : expected));
+    }
+
     speculate(PUSH, UINT64_C(256));
     speculate(PUSH, UINT64_C(512));
     check(1, UINT64_C(512));
@@ -154,6 +188,55 @@ int main() {
     check(1, UINT64_C(1536));
 
     pulse_clear();
+    check(0);
+
+    // Matching resolution and speculation advance their independent stacks.
+    tick_model();
+    speculate_in = {.pvalid = 1,
+                    .pbits = {.paction = PUSH, .preturn_uaddress = 0x100}};
+    resolve_in = {
+        .pvalid = 1,
+        .pbits = {.pactual = {.paction = PUSH, .preturn_uaddress = 0x200},
+                  .ppredicted_uaction = PUSH}};
+    tick_model();
+    speculate_in = {};
+    resolve_in = {};
+    check(1, 0x100);
+    pulse_restore();
+    check(1, 0x200);
+
+    // Recovery uses this edge's resolved action instead of new speculation.
+    tick_model();
+    speculate_in = {.pvalid = 1,
+                    .pbits = {.paction = PUSH, .preturn_uaddress = 0x300}};
+    resolve_in = {
+        .pvalid = 1,
+        .pbits = {.pactual = {.paction = PUSH, .preturn_uaddress = 0x400},
+                  .ppredicted_uaction = PUSH}};
+    restore_in.pvalid = 1;
+    tick_model();
+    speculate_in = {};
+    resolve_in = {};
+    restore_in = {};
+    check(1, 0x400);
+
+    // Clear wins over resolution, restoration, and speculation in both copies.
+    tick_model();
+    speculate_in = {.pvalid = 1,
+                    .pbits = {.paction = PUSH, .preturn_uaddress = 0x500}};
+    resolve_in = {
+        .pvalid = 1,
+        .pbits = {.pactual = {.paction = PUSH, .preturn_uaddress = 0x600},
+                  .ppredicted_uaction = PUSH}};
+    restore_in.pvalid = 1;
+    clear_in.pvalid = 1;
+    tick_model();
+    speculate_in = {};
+    resolve_in = {};
+    restore_in = {};
+    clear_in = {};
+    check(0);
+    pulse_restore();
     check(0);
   });
 }

@@ -42,13 +42,19 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
   output(allocate_id, sequencing_id): Bits(tag_width)
   output(closed, serial, memory): Vec(vector_completion_slots, Bool)
   output(available, active, loads_pending, stores_pending, fp_pending): Bool
+
+
+  /* Macro ownership ring.
+     Sequencing can hand off while slots and destination intents remain live. */
+
+  def layout = VectorRegisterLayout(vlen, xlen.width)
+  def row_count = layout.depth
+  def rows_per_register = layout.rows_per_register
   def compute_beat = compute_maturity.bits.beat
   def compute_owner = compute_maturity.bits.owner
   def element_resolved = resolved.valid
   def resolution_beat = resolved.bits.beat
   def resolution_owner = resolved.bits.owner
-  // Sequencing ownership ends at the final accepted read request. These lightweight
-  // contexts retain only completion and ordering state after that handoff.
   reg macro_valid(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg macro_load(Vec(vector_completion_slots, Bool))
   reg macro_store(Vec(vector_completion_slots, Bool))
@@ -64,19 +70,37 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
   reg current_owner(~init: bits(0, tag_width))
   reg drain_owner(~init: bits(0, tag_width))
   reg store_barrier(~init: Bool(#false))
+
+
+  /* Destination-intent classification.
+     Only ordinary in-order row schedules can progressively release their group. */
+
   def destination_registers = vector_destination_registers(xlen, vlen, request.bits)
   // These schedules visit destination rows in order. Other schedules retain
   // their whole-group intent until the final beat resolves.
   def requested_control = request.bits.control
   def special_schedule = requested_control.reduction ||| requested_control.scan ||| requested_control.compress ||| requested_control.element_move ||| requested_control.whole_register_move ||| requested_control.gather
   def special_geometry = requested_control.mask_destination ||| requested_control.mask_logic ||| requested_control.widening ||| requested_control.narrowing ||| requested_control.extension ||| requested_control.wide_vs2
-  def progressive_write = (requested_control.integer ||| requested_control.fp_service ||| requested_control.multiply_divide) & !requested_control.memory & !requested_control.scalar_destination & !requested_control.floating_scalar_destination & !special_schedule & !special_geometry
+  def row_ordered_compute = requested_control.integer ||| requested_control.fp_service ||| requested_control.multiply_divide
+  def scalar_destination = requested_control.scalar_destination ||| requested_control.floating_scalar_destination
+  def progressive_write = row_ordered_compute & !requested_control.memory & !scalar_destination & !special_schedule & !special_geometry
+
+
+  /* Issue closure and ordered owner reclamation.
+     Allocation wins a collision. Cancellation closes unissued/unauthorized work;
+     already accepted slots still drain. */
+
   def owner_has_slots = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & (slots[slot].owner === drain_owner)).as_bits().or_reduce()
-  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed_drain_blocked & !(splat_active & (splat_owner === drain_owner))
+  def owner_has_splat = splat_active & (splat_owner === drain_owner)
+  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed_drain_blocked & !owner_has_splat
   for (owner in 0..vector_completion_slots):
     def owner_tag = bits(owner, tag_width)
     def unauthorized = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & !slots[slot].accepted & (slots[slot].owner === owner_tag)).as_bits().or_reduce()
-    when (request.valid & (next_owner === owner_tag)):
+    def allocate_owner = request.valid & (next_owner === owner_tag)
+    def reclaim_owner = macro_complete & (drain_owner === owner_tag)
+    def cancel_owner = cancel.valid & macro_valid[owner] & (!macro_issued[owner] ||| unauthorized)
+    def finish_owner = finished.valid & (finished.bits.owner === owner_tag)
+    when allocate_owner:
       macro_valid[owner] <== Bool(#true)
       macro_issued[owner] <== Bool(#false)
       macro_fault[owner] <== Bool(#false)
@@ -86,34 +110,49 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
       macro_store[owner] <== request.bits.control.memory & request.bits.control.store
       macro_fp[owner] <== request.bits.control.floating_point
       macro_serial[owner] <== (request.bits.control.scan & !request.bits.control.scan_control.index) ||| request.bits.control.compress
-    elsewhen (macro_complete & (drain_owner === owner_tag)):
+    elsewhen reclaim_owner:
       macro_valid[owner] <== Bool(#false)
-    elsewhen (cancel.valid & macro_valid[owner] & (!macro_issued[owner] ||| unauthorized)):
+    elsewhen cancel_owner:
       macro_issued[owner] <== Bool(#true)
       macro_fault[owner] <== Bool(#true)
-    elsewhen (finished.valid & (finished.bits.owner === owner_tag)):
+    elsewhen finish_owner:
       macro_issued[owner] <== Bool(#true)
       macro_fault[owner] <== finished.bits.fault ||| cancel.valid
   when macro_complete:
     drain_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_owner + bits(1, tag_width)
-  def mutable foreign :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = packed_rows.as_bits()
-  foreign := foreign ||| mux(splat_active & (splat_owner =/= current_owner), splat_rows.as_bits(), bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+
+
+  /* Conservative destination intents and exact pending rows.
+     The sequencer excludes itself; splat waits only for older owners in ring order. */
+
+  def mutable foreign :: Bits(row_count) = packed_rows.as_bits()
+  foreign := foreign ||| mux(splat_active & (splat_owner =/= current_owner), splat_rows.as_bits(), bits(0, row_count))
   // The sequencer is youngest; a draining splat is not. Compare ring age from
   // the retirement frontier so a younger dependent writer cannot block it.
-  def mutable splat_older :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = bits(0, VectorRegisterLayout(vlen, xlen.width).depth)
+  def mutable splat_older :: Bits(row_count) = bits(0, row_count)
   for (owner in 0..vector_completion_slots):
-    def older_than_splat = (bits(owner, tag_width) - drain_owner) < (splat_owner - drain_owner)
-    for (row in 0..VectorRegisterLayout(vlen, xlen.width).depth):
+    def owner_tag = bits(owner, tag_width)
+    def older_than_splat = (owner_tag - drain_owner) < (splat_owner - drain_owner)
+    for (row in 0..row_count):
       def future_row = !macro_progressive[owner] ||| (bits(row, row_frontier_width) >= macro_row_frontier[owner])
-      def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div VectorRegisterLayout(vlen, xlen.width).rows_per_register].into(Bool) & future_row
-      foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << row, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
-      splat_older := splat_older ||| mux(pending_row & older_than_splat, bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << row, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+      def destination_row = macro_destinations[owner][row div rows_per_register].into(Bool)
+      def pending_row = macro_valid[owner] & !macro_classified[owner] & destination_row & future_row
+      def row_bit = bits(1, row_count) << row
+      foreign := foreign ||| mux(pending_row & (owner_tag =/= current_owner), row_bit, bits(0, row_count))
+      splat_older := splat_older ||| mux(pending_row & older_than_splat, row_bit, bits(0, row_count))
   for (slot in 0..vector_completion_slots):
-    def rows = mux(slots[slot].allocated & !slots[slot].packed & slots[slot].writes, bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << slots[slot].write_address, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
-    foreign := foreign ||| mux(slots[slot].owner =/= current_owner, rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
-    splat_older := splat_older ||| mux((slots[slot].owner - drain_owner) < (splat_owner - drain_owner), rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+    def exact_write = slots[slot].allocated & !slots[slot].packed & slots[slot].writes
+    def rows = mux(exact_write, bits(1, row_count) << slots[slot].write_address, bits(0, row_count))
+    def older_than_splat = (slots[slot].owner - drain_owner) < (splat_owner - drain_owner)
+    foreign := foreign ||| mux(slots[slot].owner =/= current_owner, rows, bits(0, row_count))
+    splat_older := splat_older ||| mux(older_than_splat, rows, bits(0, row_count))
   blocked_rows <== foreign.as_vec(Bool)
   splat_blocked_rows <== splat_older.as_vec(Bool)
+
+
+  /* Allocation and pending-work summaries.
+     A committed store barrier outlives macro reclamation until memory drains. */
+
   when (request.valid):
     current_owner <== next_owner
     next_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | next_owner + bits(1, tag_width)
@@ -126,6 +165,11 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
     store_barrier <== Bool(#true)
   elsewhen (store_barrier & !store_macro_pending & memory_drained):
     store_barrier <== Bool(#false)
+
+
+  /* Destination handoff at maturity.
+     Classification closes the whole-group intent; progressive rows advance separately. */
+
   def row_element_mask = bits(vector_word_bytes(xlen) - 1, index_width(vlen + 1)) >> compute_beat.element_width.as_bits()
   def row_finished = compute_beat.last ||| ((compute_beat.end & row_element_mask) === bits(0, index_width(vlen + 1)))
   for (owner in 0..vector_completion_slots):
@@ -141,6 +185,11 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
     elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & macro_progressive[owner] & row_finished):
       assert(compute_beat.write.address.zext(row_frontier_width) >= macro_row_frontier[owner], "vector_progressive_write_rows_are_ordered")
       macro_row_frontier[owner] <== compute_beat.write.address.zext(row_frontier_width) + bits(1, row_frontier_width)
+
+
+  /* Retirement versus ownership release.
+     Faulted macros reclaim their owner but do not emit successful retirement. */
+
   retire.valid <== macro_complete & !macro_fault[drain_owner]
   allocate_id <== next_owner
   sequencing_id <== current_owner

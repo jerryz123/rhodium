@@ -123,6 +123,10 @@ moving a module or changing dependency direction.
 
 ## Make one owned change
 
+For first-party hardware and its elaboration logic, follow the repository
+[`RTL style guide`](RTL_STYLE.md). It owns general RTL authoring conventions;
+the nearest component guide owns local architecture and timing invariants.
+
 1. Read the owning README for the current public contract and deliberate
    limits.
 2. Read its DEVELOPING guide for source ownership, extension points, and

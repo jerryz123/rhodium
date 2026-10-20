@@ -40,6 +40,11 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   interface pipeline(CachePipelineAccess(xlen), ~role: responder)
   interface chi(CHIRNChannels(config.flit), ~role: node)
   interface uncached_chi(CHIRNIChannels(config.flit), ~role: node)
+
+
+  /* Coherent storage and ordered uncached transport.
+     Data and fetch share transport, but accepted data drain excludes the younger fetch owner. */
+
   inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth))
   storage.node_id <== node_id
   chi <=> storage.chi
@@ -59,6 +64,11 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   transport.cancel <== ownership.cancel
   transport.chi <=> uncached_chi
   inst uncached_management(Queue(Bits(xlen.width), 1))
+
+
+  /* Uncached fetch and best-effort prefetch.
+     Instruction requests wait for data drain; outstanding IO/local management suppress hints. */
+
   (instruction.request |> gate_flow(storage.core.drained & io.core.drained & !uncached_management.egress.valid)
     |> map_flow(fetch => UncachedMemoryReq(XLen.X64, Bits(3))):
       device: fetch.device
@@ -80,6 +90,11 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
       address: request.address[0..xlen.width]
       operation: request.operation
   ) |> storage.prefetch
+
+
+  /* Physical admission and service selection.
+     Management uses physical cacheability; ordinary requests use resolved PMA/PBMT attributes. */
+
   def ordered_busy = !io.core.request.ready ||| uncached_management.egress.valid
   def request :: RV2WideMemoryReq(xlen, 64) = memory.request.bits
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
@@ -91,17 +106,33 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   def physical = config.physical_map.lookup(first_address, last_address)
   def attributes = resolve_memory_attributes(physical, request.pbmt)
   def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
-  def permitted = mux(management, cbo_management_physical_permission(physical), physical.mapped & (zero_block ||| request.width.is_aligned(request.address)) & mux(request.access.store_fault_class(), physical.writable, physical.readable) & (!atomic_request ||| (cacheable & physical.atomic & physical.readable)) & (!zero_block ||| physical.cache_block_zero))
+  def access_permitted = mux(request.access.store_fault_class(), physical.writable, physical.readable)
+  def alignment_permitted = zero_block ||| request.width.is_aligned(request.address)
+  def atomic_permitted = !atomic_request ||| (cacheable & physical.atomic & physical.readable)
+  def zero_permitted = !zero_block ||| physical.cache_block_zero
+  def ordinary_permitted = physical.mapped & alignment_permitted & access_permitted & atomic_permitted & zero_permitted
+  def permitted = mux(management, cbo_management_physical_permission(physical), ordinary_permitted)
 
-  // The MMU owns MEM translation/PMA checks. EX indexing must not depend on
-  // a TLB hit; the physical tag arrives alongside the following SRAM result.
+
+  /* Speculative EX/MEM cache access.
+     The MMU owns translation/PMA checks. EX indexing cannot depend on a TLB hit;
+     the physical tag arrives alongside the following SRAM result. */
+
   pipeline_lookup |> storage.pipeline_lookup
   pipeline.request |> filter_valid(_request => !ordered_busy) |> storage.pipeline.request
   storage.pipeline.response |> pipeline.response
   storage.pipeline.commit <== pipeline.commit & !ordered_busy
   pipeline.commit_ready <== storage.pipeline.commit_ready & !ordered_busy
 
-  def Array(cached, uncached, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => mux(management & !physical.cacheable, bits(2, 2), (!mux(management, physical.cacheable, cacheable)).as_bits().zext(2)))
+
+  /* Committed cached, uncached, and local-management paths.
+     Accepted operations retain response ownership across speculative redirects. */
+
+  def cached_service = mux(management, physical.cacheable, cacheable)
+  def service_route :: Bits(2) = priority_mux(~default: bits(0, 2)):
+    management & !physical.cacheable: bits(2, 2)
+    !cached_service: bits(1, 2)
+  def Array(cached, uncached, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => service_route)
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
   local_management |> gate_flow(storage.core.drained & !ordered_busy) |> map_flow(_request => bits(0, xlen.width)) |> uncached_management.ingress
@@ -134,6 +165,11 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
           context: if xlen == XLen.X64 | request.address[0..3] | request.address[0..2].zext(3)
           locality: request.locality
   ) |> io.core.request
+
+
+  /* Admission faults and ordered response merge.
+     Local management drains without inventing a device access; IO preserves exact byte lanes. */
+
   memory.fault.valid <== memory.request.valid & !permitted
   memory.fault.bits <== RV2WideResolution(xlen):
     guest: literal(RiscvGuestFault(), 0)

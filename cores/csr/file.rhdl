@@ -113,37 +113,26 @@ fun resolve_csr_trap(xlen :: XLen,
                      ~vtvm: vtvm :: Bool = Bool(#false)) :~ RiscvTrapDecision(xlen):
   def width = xlen.width
   def zero = bits(0, width)
+
   def csr_commit = commit_valid & (operation.csr_operation =/= RiscvCsrOperation.None)
   def illegal_csr = csr_commit & !csr_access_legal
   def supervisor = privilege === PrivilegeMode.Supervisor
   def less_than_machine = privilege =/= PrivilegeMode.Machine
   def illegal_mret = (operation.action === RiscvCsrAction.Mret) & less_than_machine
-  def illegal_sret = (operation.action === RiscvCsrAction.Sret) & (
-    (privilege === PrivilegeMode.User) ||| (supervisor & !virtualized & csr_flag(mstatus, MstatusTSR))
-  )
-  def illegal_wfi = (operation.action === RiscvCsrAction.Wfi) & (
-    (privilege === PrivilegeMode.User) ||| (supervisor & csr_flag(mstatus, MstatusTW))
-  )
-  def illegal_sfence_vma = (operation.action === RiscvCsrAction.SfenceVma) & (
-    (privilege === PrivilegeMode.User) ||| (supervisor & !virtualized & csr_flag(mstatus, MstatusTVM))
-  )
+  def illegal_sret = (operation.action === RiscvCsrAction.Sret) & ((privilege === PrivilegeMode.User) ||| (supervisor & !virtualized & csr_flag(mstatus, MstatusTSR)))
+  def illegal_wfi = (operation.action === RiscvCsrAction.Wfi) & ((privilege === PrivilegeMode.User) ||| (supervisor & csr_flag(mstatus, MstatusTW)))
+  def illegal_sfence_vma = (operation.action === RiscvCsrAction.SfenceVma) & ((privilege === PrivilegeMode.User) ||| (supervisor & !virtualized & csr_flag(mstatus, MstatusTVM)))
   def hfence = operation.action.is_one_of(RiscvCsrAction.HfenceVvma, RiscvCsrAction.HfenceGvma)
   def illegal_hfence = !virtualized & hfence & ((privilege === PrivilegeMode.User) ||| (supervisor & csr_flag(mstatus, MstatusTVM) & (operation.action === RiscvCsrAction.HfenceGvma)))
   // Svinval ordering-only instructions have no TVM/VTVM restriction.
   def invalidation_order = operation.action === RiscvCsrAction.TranslationOrder
   def illegal_invalidation_order = invalidation_order & !virtualized & (privilege === PrivilegeMode.User)
-  def virtual_instruction = virtualized & (
-    hfence ||| (invalidation_order & (privilege === PrivilegeMode.User)) ||| (csr_commit & virtual_csr) ||| (
-      (operation.action === RiscvCsrAction.Sret) & ((privilege === PrivilegeMode.User) ||| vtsr)
-    ) ||| (
-      (operation.action === RiscvCsrAction.Wfi) & !csr_flag(mstatus, MstatusTW) & ((privilege === PrivilegeMode.User) ||| vtw)
-    ) ||| (
-      (operation.action === RiscvCsrAction.SfenceVma) & ((privilege === PrivilegeMode.User) ||| vtvm)
-    )
-  )
-  def illegal_privileged_operation = commit_valid & (
-    illegal_mret ||| illegal_sret ||| illegal_wfi ||| illegal_sfence_vma ||| illegal_hfence ||| illegal_invalidation_order
-  )
+  def virtual_sret = (operation.action === RiscvCsrAction.Sret) & ((privilege === PrivilegeMode.User) ||| vtsr)
+  def virtual_wfi = (operation.action === RiscvCsrAction.Wfi) & !csr_flag(mstatus, MstatusTW) & ((privilege === PrivilegeMode.User) ||| vtw)
+  def virtual_sfence = (operation.action === RiscvCsrAction.SfenceVma) & ((privilege === PrivilegeMode.User) ||| vtvm)
+  def virtual_invalidation_order = invalidation_order & (privilege === PrivilegeMode.User)
+  def virtual_instruction = virtualized & (hfence ||| virtual_invalidation_order ||| (csr_commit & virtual_csr) ||| virtual_sret ||| virtual_wfi ||| virtual_sfence)
+  def illegal_privileged_operation = commit_valid & (illegal_mret ||| illegal_sret ||| illegal_wfi ||| illegal_sfence_vma ||| illegal_hfence ||| illegal_invalidation_order)
   def explicit_exception = commit_valid & operation.exception_valid
   def ecall = commit_valid & (operation.action === RiscvCsrAction.Ecall)
   def ebreak = commit_valid & (operation.action === RiscvCsrAction.Ebreak)
@@ -157,15 +146,10 @@ fun resolve_csr_trap(xlen :: XLen,
       [PrivilegeMode.Machine, exception_cause_bits(ExceptionCause.EnvironmentCallFromMachine, width)]
     ]
   )
-  def generated_cause = mux(
-    ecall,
-    ecall_cause,
-    mux(
-      ebreak,
-      exception_cause_bits(ExceptionCause.Breakpoint, width),
-      mux(virtual_instruction, exception_cause_bits(ExceptionCause.VirtualInstruction, width), exception_cause_bits(ExceptionCause.IllegalInstruction, width))
-    )
-  )
+  def generated_cause = priority_mux(~default: exception_cause_bits(ExceptionCause.IllegalInstruction, width)):
+    ecall: ecall_cause
+    ebreak: exception_cause_bits(ExceptionCause.Breakpoint, width)
+    virtual_instruction: exception_cause_bits(ExceptionCause.VirtualInstruction, width)
   def instruction = if width == 32 | operation.instruction | operation.instruction.zext(width)
   resolve_riscv_trap(
     xlen,
@@ -307,6 +291,9 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   output pointer_masking: PointerMaskControl()
   output pointer_masking_changed: Bool
 
+
+  /* Architectural state and extension owners */
+
   reg privilege_state(PrivilegeMode, ~init: PrivilegeMode.Machine)
   def sstc = config.sstc
   def smstateen = config.smstateen
@@ -359,6 +346,9 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   fun fiom_field(value :: Bits(width)) :~ Bits(width):
     csr_keep_fields(value, [EnvcfgFIOM])
 
+
+  /* Composed host and guest status views */
+
   def fp_status_value = csr_field_value(MstatusFS, fp_csrs.status, width)
   def fp_status_dirty = fp_csrs.status === bits(ExtensionStatusDirty, MstatusFS.width)
   def vector_status_value = csr_field_value(MstatusVS, vector_csrs.status, width)
@@ -380,6 +370,11 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def timeh_value = if xlen == XLen.X32 | time_counter[32..64] | zero
   def instret_value = if xlen == XLen.X32 | counters.instret[0..32] | counters.instret
   def instreth_value = if xlen == XLen.X32 | counters.instret[32..64] | zero
+
+
+  /* Interrupt-pending composition
+     Timer enables replace their legacy pending sources; delegation remains a separate view. */
+
   def legacy_pending = riscv_interrupt_pending(xlen, interrupts) ||| state.mip ||| mux(hpm_pending, lcof_mask, zero) ||| (if hypervisor | state.hvip | zero)
   def supervisor_timer_mask = bits(interrupt_mask([InterruptCause.SupervisorTimer]), width)
   def virtual_timer_mask = bits(interrupt_mask([InterruptCause.VirtualSupervisorTimer]), width)
@@ -390,6 +385,11 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def supervisor_visible_mask = state.mideleg & supervisor_interrupt_mask
   def csr = commit.bits.csr_address
   def bank_address = if hypervisor | virtual_supervisor_csr(csr, virtualized) | csr
+
+
+  /* Base CSR decode bank
+     Read views and WARL write handlers share the same bank-address aliases. */
+
   def bank = csr_bank(bank_address, ~default: zero):
     read CsrId.Fflags: fp_csrs.fflags.zext(width)
     read CsrId.Frm: fp_csrs.frm.zext(width)
@@ -532,6 +532,10 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         if sstc && xlen == XLen.X32
         | state.stce <== csr_flag(value, EnvcfghSTCE)
         | #void
+
+
+  /* Hypervisor CSR bank */
+
   def hypervisor_bank :: CsrBank:
     if hypervisor
     | csr_bank(bank_address, ~default: zero):
@@ -612,6 +616,10 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
               // Sv39x4 has a four-page root; ASID/VMID are intentionally zero.
               state.hgatp <== csr_keep_fields(value, [Hgatp64Mode, Hgatp64PPN]) & !bits(3, 64)
     | bank
+
+
+  /* Timer CSR bank */
+
   def timer_bank :: CsrBank:
     cond
     | sstc && xlen == XLen.X32:
@@ -632,8 +640,12 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         csr_bank(bank_address, ~default: zero):
           storage CsrId.Stimecmp: state.stimecmp
     | ~else: bank
-  // Only SE and ENVCFG describe implemented state. SSTATEEN has no writable
-  // bits; its shared, software-switched view is therefore constant zero.
+
+
+  /* State-enable CSR banks
+     Only SE and ENVCFG describe implemented state. SSTATEEN has no writable
+     bits; its shared, software-switched view is therefore constant zero. */
+
   def stateen_banks :: List.of(CsrBank):
     for List (index in 0..(if smstateen | 4 | 0)):
       def fields = [StateenSE] ++ (if index == 0 | [StateenENVCFG] | [])
@@ -664,6 +676,11 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
               write value:
                 state.mstateen[index] <== csr_keep_fields(value, fields)
             read SupervisorStateEnableIds[index]: zero
+
+
+  /* CSR bank selection and access policy
+     State-enable, timer, and hypervisor banks override the base bank in that order. */
+
   def mutable stateen_selected = Bool(#false)
   def mutable stateen_read_value = zero
   for (entry :: CsrBank in stateen_banks):
@@ -686,7 +703,10 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def vector_access_enabled = vector_csrs.status.or_reduce() & (!virtualized ||| guest_vector_status.or_reduce())
   def hpm_extension_unavailable = Bool(!sscofpmf) & csr.is_one_of(([CsrId.Scountovf, CsrId.Mcountinhibit] ++ MachineHpmEventHighIds).map(csr_bits))
   def csr_recognized = (bank.recognized ||| hypervisor_selected ||| timer_selected ||| stateen_selected) & !hpm_extension_unavailable & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
-  def csr_read_value = mux(stateen_selected, stateen_read_value, mux(timer_selected, timer_bank.read_value, mux(hypervisor_selected, hypervisor_bank.read_value, bank.read_value)))
+  def csr_read_value :: Bits(width) = priority_mux(~default: bank.read_value):
+    stateen_selected: stateen_read_value
+    timer_selected: timer_bank.read_value
+    hypervisor_selected: hypervisor_bank.read_value
   def csr_source_specifier = instruction_field(riscv_fields.rs1, commit.bits.instruction)
   def write_requested = riscv_csr_write_requested(commit.bits.csr_operation, csr_source_specifier)
   def csr_read_only = csr_field(csr, CsrAddressReadOnly) === bits(3, CsrAddressReadOnly.width)
@@ -697,14 +717,16 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def instret_csr = csr.is_one_of(csr_bits(CsrId.Instret), csr_bits(CsrId.Instreth))
   def hpm_csr = csr.is_one_of((HpmCounterIds ++ HpmCounterHighIds).map(csr_bits))
   def counter_csr = cycle_csr ||| time_csr ||| instret_csr ||| hpm_csr
-  def satp_restricted = (csr === csr_bits(CsrId.Satp)) & (
-    privilege_state === PrivilegeMode.Supervisor
-  ) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
+  def satp_restricted = (csr === csr_bits(CsrId.Satp)) & (privilege_state === PrivilegeMode.Supervisor) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
   def hgatp_restricted = Bool(hypervisor) & (csr === csr_bits(CsrId.Hgatp)) & (privilege_state === PrivilegeMode.Supervisor) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
   def hpm3_csr = csr.is_one_of(csr_bits(CsrId.Hpmcounter3), csr_bits(CsrId.Hpmcounter3h))
+
   /* Checks the enable bit for the selected base counter or implemented HPM slot three. */
   fun counter_enabled(counteren :: Bits(width)) :~ Bool:
-    mux(hpm_csr, hpm3_csr & counteren[3].into(Bool), mux(cycle_csr, csr_flag(counteren, CounterenCY), mux(time_csr, csr_flag(counteren, CounterenTM), csr_flag(counteren, CounterenIR))))
+    priority_mux(~default: csr_flag(counteren, CounterenIR)):
+      hpm_csr: hpm3_csr & counteren[3].into(Bool)
+      cycle_csr: csr_flag(counteren, CounterenCY)
+      time_csr: csr_flag(counteren, CounterenTM)
   def machine_counter_enabled = counter_enabled(state.mcounteren)
   def supervisor_counter_enabled = counter_enabled(state.scounteren)
   def counter_access_enabled = mux_lookup(
@@ -726,6 +748,11 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   )
   def privilege_sufficient = !(privilege_bits < required_privilege) ||| (Bool(hypervisor) & !virtualized & (privilege_state === PrivilegeMode.Supervisor) & hypervisor_privilege)
   def csr_access_legal = csr_recognized & privilege_sufficient & !(write_requested & csr_read_only) & !satp_restricted & !hgatp_restricted & !timer_illegal & !stateen_access.illegal & !virtual_csr & (!counter_csr ||| (counter_access_enabled & (!virtualized ||| hypervisor_counter_enabled)))
+
+
+  /* Commit validation and trap arbitration
+     A synchronous exception takes priority over an interrupt at the retirement boundary. */
+
   def csr_commit = commit.valid & (commit.bits.csr_operation =/= RiscvCsrOperation.None)
   def vector_config_commit = commit.valid & (commit.bits.action === RiscvCsrAction.VectorConfig)
   def illegal_vector_config = vector_config_commit & (!vector_access_enabled ||| vector_csrs.configuration_illegal)
@@ -760,6 +787,9 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def trap_to_guest = trap.target === RiscvTrapTarget.VirtualSupervisor
   def trap_to_supervisor = trap.target === RiscvTrapTarget.Supervisor
 
+
+  /* CSR writes and extension side effects */
+
   def csr_replacement :: Bits(width) = mux_lookup(
     commit.bits.csr_operation,
     ~default: csr_read_value,
@@ -782,6 +812,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def guest_mask_changed:
     if hypervisor
     | block:
+
         /* Derives pointer masking for normal or explicit guest data access from the live
            execution context. */
         fun masking(access :: RiscvGuestMemoryAccess) :~ PointerMaskControl():
@@ -801,16 +832,19 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     value: csr_replacement[0..8]
   fp_csrs.status_write.valid <== csr_write & bank_address.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   fp_csrs.status_write.bits <== csr_field(csr_replacement, MstatusFS)
+
+  /* Translation-context changes */
+
   def sfence_vma_commit = commit.valid & commit.bits.action.is_one_of(RiscvCsrAction.SfenceVma, RiscvCsrAction.HfenceVvma, RiscvCsrAction.HfenceGvma)
   def pbmte_changed = Bool(config.svpbmt) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Menvcfg)) & (svpbmt_enabled(xlen, csr_replacement) =/= pbmte)
   def guest_pbmte_changed = if hypervisor | Bool(config.svpbmt) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Henvcfg)) & pbmte & (svpbmt_enabled(xlen, csr_replacement) =/= svpbmt_enabled(xlen, state.henvcfg)) | Bool(#false)
-  translation_flush <== pbmte_changed ||| guest_pbmte_changed ||| (sfence_vma_commit & !synchronous_trap.valid) ||| (
-    csr_write & bank_address.is_one_of(csr_bits(CsrId.Satp), csr_bits(CsrId.Vsatp), csr_bits(CsrId.Hgatp))
-  )
-  def machine_counter_csr = csr.is_one_of(csr_bits(CsrId.Mcycle),
-                                          csr_bits(CsrId.Minstret),
-                                          csr_bits(CsrId.Mcycleh),
-                                          csr_bits(CsrId.Minstreth))
+  translation_flush <== pbmte_changed ||| guest_pbmte_changed ||| (sfence_vma_commit & !synchronous_trap.valid) ||| (csr_write & bank_address.is_one_of(csr_bits(CsrId.Satp), csr_bits(CsrId.Vsatp), csr_bits(CsrId.Hgatp)))
+
+
+  /* Counter and HPM updates
+     The caller supplies the full successful retirement prefix; CSR writes retain priority. */
+
+  def machine_counter_csr = csr.is_one_of(csr_bits(CsrId.Mcycle), csr_bits(CsrId.Minstret), csr_bits(CsrId.Mcycleh), csr_bits(CsrId.Minstreth))
   command_success <== commit.valid & !synchronous_trap.valid
   counters.retire_count <== retire_count
   counters.machine_write.valid <== csr_write & machine_counter_csr
@@ -834,6 +868,10 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       hpm.counter_write.bits.high <== csr === csr_bits(CsrId.Mhpmcounter3h)
       hpm.selector_write.bits.high <== csr === csr_bits(CsrId.Mhpmevent3h)
   | #void
+
+
+  /* Trap provenance and return state */
+
   def mret = commit.valid & !trap.valid & (commit.bits.action === RiscvCsrAction.Mret)
   def sret = commit.valid & !trap.valid & (commit.bits.action === RiscvCsrAction.Sret)
   def mret_privilege = mstatus_mret_privilege(state.mstatus)
@@ -852,6 +890,9 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def mret_status = mstatus_after_mret(state.mstatus)
   def sret_status = mstatus_after_sret(state.mstatus)
 
+
+  /* Architectural results and redirect selection */
+
   writeback_valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.or_reduce()
   writeback_value <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
   interrupt_request <== interrupt.valid
@@ -865,11 +906,18 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   vector_enabled <== vector_access_enabled
   vector_state <== vector_csrs.state
   redirect.valid <== trap.valid ||| mret ||| sret
-  redirect.bits <== mux(
-    trap.valid,
-    mux(trap_to_guest, if hypervisor | state.vstvec | zero, mux(trap_to_supervisor, state.stvec, state.mtvec)),
-    mux(mret, state.mepc, if hypervisor | mux(virtualized, state.vsepc, state.sepc) | state.sepc)
-  )
+  def trap_vector = priority_mux(~default: state.mtvec):
+    trap_to_guest: if hypervisor | state.vstvec | zero
+    trap_to_supervisor: state.stvec
+  def supervisor_return_pc = if hypervisor | mux(virtualized, state.vsepc, state.sepc) | state.sepc
+  def redirect_pc = priority_mux(~default: supervisor_return_pc):
+    trap.valid: trap_vector
+    mret: state.mepc
+  redirect.bits <== redirect_pc
+
+
+  /* Privilege and trap-stack updates
+     Keep trap, return, and ordinary CSR-write priority in one state-update chain. */
 
   when (trap.valid):
     privilege_state <== mux(trap.target === RiscvTrapTarget.Machine, PrivilegeMode.Machine, PrivilegeMode.Supervisor)
@@ -930,11 +978,17 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   elsewhen csr_write:
     bank.write(csr_replacement)
 
-  // Pending is independent of sticky OF. Fresh overflow wins a software clear.
+
+  /* Pending is independent of sticky OF. Fresh overflow wins a software clear. */
+
   when (hpm.overflow.valid & Bool(sscofpmf)):
     hpm_pending <== Bool(#true)
   elsewhen (csr_write & Bool(sscofpmf) & ((bank_address === csr_bits(CsrId.Mip)) ||| ((bank_address === csr_bits(CsrId.Sip)) & state.mideleg[13].into(Bool)))):
     hpm_pending <== csr_replacement[13].into(Bool)
+
+
+  /* Independent guest dirty-state tracking
+     Trap-stack writes do not replace the shared FP/vector payload owners. */
 
   if hypervisor
   | block:

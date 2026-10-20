@@ -116,6 +116,10 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def requester = port.requester
   def subordinate = port.subordinate
 
+
+  /* Retained transaction slots.
+     Request, subordinate identity, and DBID outlive live ingress selection. */
+
   inst occupancy(Scoreboard(limit))
   inst read_pending(Scoreboard(limit))
   inst write_await_dbid(Scoreboard(limit))
@@ -132,6 +136,10 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   mem subordinate_ids(limit, Bits(p.node_id_width))
   mem subordinate_dbids(limit, Bits(12))
 
+
+  /* Admission and downstream request transfer.
+     A slot is allocated only when the mapped subordinate accepts its forwarded request. */
+
   def free_slots = vec(for List (index in 0..limit): !occupied[index])
   def allocation_available = free_slots.or_reduce()
   def allocation_slot = priority_encoder(free_slots)
@@ -142,16 +150,12 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def subordinate_lookup :: CHISubordinateLookup(p.node_id_width) = (
     subordinate_map.lookup(upstream_request.address)
   )
-  def request_service_supported = chi_hni_subordinate_supported(
-    p,
-    upstream_request,
-    subordinate_map.services
-  )
+  def request_service_supported = chi_hni_subordinate_supported(p, upstream_request, subordinate_map.services)
   def request_routable = subordinate_lookup.valid & request_service_supported
-  def request_accepted = request_ordinary & request_supported & request_routable
+  def request_eligible = request_ordinary & request_supported & request_routable
   (
     requester.req
-      |> filter_flow(_request => request_accepted)
+      |> filter_flow(_request => request_eligible)
       |> gate_flow(allocation_available)
       |> map_flow(request => chi_hni_downstream_request(
           p,
@@ -181,6 +185,10 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   write_await_dbid.set.bits <== allocation_slot
   requests.write(allocation_slot, upstream_request, ~enable: allocate)
   subordinate_ids.write(allocation_slot, subordinate_lookup.node_id, ~enable: allocate)
+
+
+  /* Subordinate DBID and completion responses.
+     Validate the retained slot/phase and subordinate identity before forwarding upstream. */
 
   def downstream_response = subordinate.rsp.bits
   def response_ordinary = downstream_response.opcode =/= CHIRspOpcode.RespLCrdReturn
@@ -233,6 +241,10 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
                           downstream_response.dbid_or_group_id,
                           ~enable: dbid_transfer)
 
+
+  /* Requester write-data forwarding.
+     The slot's recorded subordinate and DBID route every accepted packet. */
+
   def upstream_write_data = requester.dat.request.bits
   def write_data_ordinary = upstream_write_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def write_data_slot = upstream_write_data.txn_id[0..slot_width]
@@ -243,11 +255,11 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def write_data_received_ids = received_write_data_ids[write_data_slot]
   def next_write_data_ids = write_data_received_ids ||| write_data_id
   def final_write_data = next_write_data_ids === write_data_expected_ids
-  def write_data_match = write_data_slot_valid & writes_waiting_data[write_data_slot] & (
-    upstream_write_data.src_id === write_data_request.src_id
-  ) & or_reduce(write_data_expected_ids & write_data_id) & (
-    !or_reduce(write_data_received_ids & write_data_id)
-  )
+  def write_data_identity_match = upstream_write_data.src_id === write_data_request.src_id
+  def write_data_id_expected = or_reduce(write_data_expected_ids & write_data_id)
+  def write_data_id_duplicate = or_reduce(write_data_received_ids & write_data_id)
+  def write_data_phase_match = write_data_slot_valid & writes_waiting_data[write_data_slot]
+  def write_data_match = write_data_phase_match & write_data_identity_match & write_data_id_expected & !write_data_id_duplicate
   (
     requester.dat.request
       |> filter_flow(_data => write_data_ordinary & write_data_match)
@@ -273,6 +285,10 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   write_await_comp.clear.valid <== write_completion
   write_await_comp.clear.bits <== response_slot
 
+
+  /* Subordinate read-data forwarding.
+     Write completion has priority over read data at the shared slot-release port. */
+
   def downstream_read_data = subordinate.dat.response.bits
   def read_data_ordinary = downstream_read_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def read_data_slot = downstream_read_data.txn_id[0..slot_width]
@@ -288,14 +304,13 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def read_data_identity_match = (
     downstream_read_data.src_id === read_data_subordinate_id
   ) & (downstream_read_data.tgt_id === bits(home.node_id, p.node_id_width))
-  def read_data_match = read_data_slot_valid & read_data_phase_match & read_data_identity_match & (
-    or_reduce(read_data_expected_ids & read_data_id)
-  ) & !or_reduce(read_data_received_ids & read_data_id)
-  def write_completion_now = write_completion
+  def read_data_id_expected = or_reduce(read_data_expected_ids & read_data_id)
+  def read_data_id_duplicate = or_reduce(read_data_received_ids & read_data_id)
+  def read_data_match = read_data_slot_valid & read_data_phase_match & read_data_identity_match & read_data_id_expected & !read_data_id_duplicate
   (
     subordinate.dat.response
       |> filter_flow(_data => read_data_ordinary & read_data_match)
-      |> gate_flow(!write_completion_now)
+      |> gate_flow(!write_completion)
       |> map_flow(data => chi_hni_upstream_read_data(
           p,
           data,
@@ -305,7 +320,8 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
           home.node_id
         ))
   ) |> requester.dat.response
-  def read_completion = requester.dat.response.fire()
+  def read_data_transfer = requester.dat.response.fire()
+  def final_read_transfer = read_data_transfer & final_read_data
 
   when (subordinate.dat.response.valid & read_data_ordinary):
     assert(read_data_slot_valid & read_data_phase_match,
@@ -316,9 +332,13 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
       assert(downstream_read_data.tgt_id === bits(home.node_id, p.node_id_width),
              "chi_hni_read_data_targets_home")
 
-  read_pending.clear.valid <== read_completion & final_read_data
+
+  /* Slot reclamation and packet receipt state.
+     Final public transfer releases ownership; allocation resets its selected receipt mask. */
+
+  read_pending.clear.valid <== final_read_transfer
   read_pending.clear.bits <== read_data_slot
-  occupancy.clear.valid <== write_completion ||| (read_completion & final_read_data)
+  occupancy.clear.valid <== write_completion ||| final_read_transfer
   occupancy.clear.bits <== mux(write_completion,
                                response_slot,
                                read_data_slot)
@@ -329,9 +349,9 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
         def index_bits = bits(index, slot_width)
         def allocate_here = allocate_write & (allocation_slot === index_bits)
         def data_here = write_data_transfer & (write_data_slot === index_bits)
-        mux(allocate_here,
-            bits(0, 4),
-            mux(data_here, next_write_data_ids, received_write_data_ids[index]))
+        priority_mux(~default: received_write_data_ids[index]):
+          allocate_here: bits(0, 4)
+          data_here: next_write_data_ids
   )
   when (allocate_write ||| write_data_transfer):
     received_write_data_ids <== next_received_write_data_ids
@@ -341,13 +361,17 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
       block:
         def index_bits = bits(index, slot_width)
         def allocate_here = allocate_read & (allocation_slot === index_bits)
-        def data_here = read_completion & (read_data_slot === index_bits)
-        mux(allocate_here,
-            bits(0, 4),
-            mux(data_here, next_read_data_ids, received_read_data_ids[index]))
+        def data_here = read_data_transfer & (read_data_slot === index_bits)
+        priority_mux(~default: received_read_data_ids[index]):
+          allocate_here: bits(0, 4)
+          data_here: next_read_data_ids
   )
-  when (allocate_read ||| read_completion):
+  when (allocate_read ||| read_data_transfer):
     received_read_data_ids <== next_received_read_data_ids
+
+
+  /* Channel monitoring.
+     Check accepted upstream/downstream lifetimes independently of forwarding control. */
 
   requester.rsp.requester.ready <== Bool(#true)
 

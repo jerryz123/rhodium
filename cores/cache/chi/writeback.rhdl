@@ -41,6 +41,10 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
 
+
+  /* Retained victim command.
+     The cache keeps the victim snoop-visible until grant; this owner retains its data and context. */
+
   inst control(CHIRetryableTransactionControl(p, CacheCopyBackResponses))
   reg line_address(Bits(address_width))
   reg line(Vec(packets, Bits(p.data_width)))
@@ -64,10 +68,19 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
     context <== command.bits.context
     home_id <== command_home.node_id
 
+
+  /* Request retry and grant-time state capture.
+     Snoop activity delays the grant, not retry/credit handling, so the latest state is frozen. */
+
   control.attempt
-    |> map_flow(attempt => cache_chi_request(p, node_id, home_id, line_address, CHITransferSize.Bytes64, CHIReqOpcode.WriteBackFull, bits(txn_id, 12), Bool(#false), Bool(#true), attempt.allow_retry, attempt.pcrd_type))
+    |> map_flow(attempt => cache_chi_request(
+      p, node_id, home_id, line_address, CHITransferSize.Bytes64, CHIReqOpcode.WriteBackFull,
+      bits(txn_id, 12), Bool(#false), Bool(#true), attempt.allow_retry, attempt.pcrd_type
+    ))
     |> requests
-  responses |> gate_flow(!snoop_pending ||| responses.bits.opcode.is_one_of(CHIRspOpcode.RetryAck, CHIRspOpcode.PCrdGrant)) |> control.response
+  def retry_or_credit = responses.bits.opcode.is_one_of(CHIRspOpcode.RetryAck, CHIRspOpcode.PCrdGrant)
+  def response_can_advance = !snoop_pending ||| retry_or_credit
+  responses |> gate_flow(response_can_advance) |> control.response
   def response = control.event.bits.flit
   def grant = control.event.valid & CacheCopyBackResponses.milestone(control.event.bits.effects, "grant")
   granted <== CacheCopyBackResponses.milestone(control.received, "grant")
@@ -81,10 +94,18 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
     assert(response.resp === bits(0, 3), "copyback_completion_has_no_state")
     assert(victim_state =/= CHICacheState.UniqueDirtyPartial, "copyback_complete_dirty_line")
     dbid <== response.dbid_or_group_id
+    def granted_response_state :: CHIResponseState = priority_mux(~default: CHIResponseState.SharedClean):
+      !victim_state.is_valid(): CHIResponseState.Invalid
+      victim_state.is_unique(): CHIResponseState.Unique
+      victim_state.is_dirty(): CHIResponseState.SharedDirty
     def coherent_response = CHICoherentResponse():
       pass_dirty: victim_state.is_dirty()
-      state: mux(!victim_state.is_valid(), CHIResponseState.Invalid, mux(victim_state.is_unique(), CHIResponseState.Unique, mux(victim_state.is_dirty(), CHIResponseState.SharedDirty, CHIResponseState.SharedClean)))
+      state: granted_response_state
     response_state <== coherent_response.as_bits()
+
+
+  /* Granted packet stream and caller completion.
+     Only accepted data advances the packet cursor; final handoff precedes completion release. */
 
   data.valid <== granted & !data_sent
   def packet_number = if packet_width == 2 | packet_index | packet_index.zext(2)
