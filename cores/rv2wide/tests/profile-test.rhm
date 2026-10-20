@@ -22,8 +22,8 @@ check:
   bare64.hart_description.mmu_type ~is RiscvMmuType.Bare
   integer.hart_description.mmu_type ~is RiscvMmuType.Sv39
   RV2WideConfig(~xlen: XLen.X32, ~mmu_type: RiscvMmuType.Sv39) ~throws "Bare or RV64 Sv39"
-  RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.D) ~throws "RV32 supports scalar integer"
-  RV2WideConfig(~xlen: XLen.X32, ~hypervisor: #true) ~throws "RV32 supports scalar integer"
+  RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.D) ~throws "RV2Wide supports disabled FP, RV32F, or RV64D"
+  RV2WideConfig(~xlen: XLen.X32, ~hypervisor: #true) ~throws "RV32 supports Bare execution"
   RV2WideConfig(~mmu_type: RiscvMmuType.Bare, ~svpbmt: #true) ~throws "translation extensions require Sv39"
 def supervisor = RV2WideConfig(~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true)
 def hypervisor = RV2WideConfig(~hypervisor: #true)
@@ -43,6 +43,15 @@ def invalidation_fp = RV2WideConfig(~svinval: #true, ~svnapot: #true, ~svpbmt: #
 def napot = RV2WideConfig(~svnapot: #true)
 def napot_fp = RV2WideConfig(~svnapot: #true, ~floating_point: FloatingPointProfile.D)
 def double = RV2WideConfig(~floating_point: FloatingPointProfile.D)
+def single = RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F)
+def vector32fp = RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F, ~vector: VectorProfile.Zve32f, ~vector_length: 64, ~vector_extensions: [VectorExtension.Zvbb])
+check:
+  single.isa_profile.misa_extension_bits ~is integer32.isa_profile.misa_extension_bits + 32
+  single.csr_config.floating_point ~is FloatingPointProfile.F
+  vector32fp.isa_profile.isa_extensions.contains("zve32f") ~is #true
+  vector32fp.isa_profile.isa_extensions.contains("d") ~is #false
+  rv2wide_udb_configuration(single, "rv32f", "RV32F", 32).to_yaml().contains("  MUTABLE_MISA_F: false") ~is #true
+  rv2wide_udb_configuration(single, "rv32f", "RV32F", 32).to_yaml().contains("MUTABLE_MISA_D") ~is #false
 def vector64 = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V)
 def vector32 = RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64, ~vector_extensions: [VectorExtension.Zvbb])
 check:
@@ -144,7 +153,7 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [vector32, vector64, integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [single, vector32fp, vector32, vector64, integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", if profile.xlen == XLen.X32 | 32 | 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:
@@ -172,7 +181,7 @@ for (profile in [vector32, vector64, integer32, bare64, supervisor, hypervisor, 
     extensions.contains("Zicbom") ~is profile.zicbom
     extensions.contains("Zicboz") ~is profile.zicboz
     extensions.contains("Zfa") ~is profile.zfa
-    extensions.contains("F") ~is (profile.floating_point == FloatingPointProfile.D)
+    extensions.contains("F") ~is floating_point_supports_f(profile.floating_point)
     extensions.contains("D") ~is (profile.floating_point == FloatingPointProfile.D)
     extensions.contains("Zfhmin") ~is half_precision_supports_zfhmin(profile.half_precision)
     extensions.contains("Zfh") ~is half_precision_supports_zfh(profile.half_precision)
@@ -180,6 +189,7 @@ for (profile in [vector32, vector64, integer32, bare64, supervisor, hypervisor, 
     extensions.contains("Zcmop") ~is profile.compressed.contains(CompressedExtension.Zcmop)
     extensions.contains("C") ~is #true
     extensions.contains("Zcd") ~is (profile.floating_point == FloatingPointProfile.D)
+    extensions.contains("Zcf") ~is (profile.xlen == XLen.X32 && floating_point_supports_f(profile.floating_point))
   check:
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Zfa").map(fun (extension): extension.version) ~is (if profile.zfa | ["1.0.0"] | [])
 

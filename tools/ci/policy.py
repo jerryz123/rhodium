@@ -160,6 +160,7 @@ ARCH_SHARD_COUNTS = {
     'simple-rv5stage-rv32int': 8,
     'simple-rv5stage-rv32max': 8,
     'simple-rv2wide-rv32int': 8,
+    'simple-rv2wide-rv32max': 8,
     'simple-spike-rva23': 8,
     'simple-spike-rv32int': 4,
     'simple-spike-rv32max': 4,

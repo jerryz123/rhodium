@@ -6,7 +6,7 @@ import:
   lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   "../../../cores/rv2wide/bundles.rhdl" open
-  "../../../cores/rv2wide/profile.rhm".RV2WideConfig
+  "../../../cores/rv2wide/profile.rhm" open
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
   lib("cores/fp/timing.rhdl") open
@@ -26,7 +26,7 @@ dpi_import procedure rhodium_rv2wide_lane(
   address: Bits(64), access: Bits(64), width: Bits(64), atomic: Bits(64), store_data: Bits(64), fp: Bits(64), fp_destination: Bits(64), fp_delay: Bits(64), vector: Bits(64)
 )
 /* Reports authorized numerical returns and boxed load writes without architectural snapshots. */
-dpi_import procedure rhodium_rv2wide_fp(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), destination: Bits(64), value: Bits(64), flags_valid: Bits(64), flags: Bits(64))
+dpi_import procedure rhodium_rv2wide_fp(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), destination: Bits(64), value: Bits(64), flags_valid: Bits(64), flags: Bits(64), flen: Bits(64))
 /* Samples only external inputs and architectural trap/return decisions, not a CSR-bank snapshot. */
 dpi_import procedure rhodium_rv2wide_boundary(
   instance: Bits(64), privilege: Bits(64), next_privilege: Bits(64), interrupt_take: Bits(64), trap: Bits(64), cause: Bits(64), epc: Bits(64),
@@ -117,10 +117,10 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   for (index in 0..4):
     def result :: RV2WideRetirement(xlen) = completions[index]
     rhodium_rv2wide_completion.call(instance_id, bits(index, 64), lane(completion_valid[index].as_bits()), lane(result.fetched.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
-  def fp_result :: FpExecutionResult(xlen, FloatingPointProfile.D, RV2WideFpOwner(xlen)) = taps["fp_completion"]
+  def fp_result :: FpExecutionResult(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen)) = taps["fp_completion"]
   def fp_load :: RV2WideFpLoad(xlen) = taps["fp_load"]
-  rhodium_rv2wide_fp.call(instance_id, bits(0, 64), tap_lane("fp_valid"), lane(fp_result.tag.fetched.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), fp_result.fp_value), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), ~enable: active)
-  rhodium_rv2wide_fp.call(instance_id, bits(1, 64), tap_lane("fp_load_valid"), lane(fp_load.owner.fetched.pc), lane(fp_load.owner.rd), bits(2, 64), fp_load_value(FloatingPointProfile.D, fp_load.precision, fp_load.data), bits(0, 64), bits(0, 64), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, bits(0, 64), tap_lane("fp_valid"), lane(fp_result.tag.fetched.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), lane(fp_result.fp_value)), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), bits(floating_point_register_width(rv2wide_fp_profile(xlen)), 64), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, bits(1, 64), tap_lane("fp_load_valid"), lane(fp_load.owner.fetched.pc), lane(fp_load.owner.rd), bits(2, 64), lane(fp_load_value(rv2wide_fp_profile(xlen), fp_load.precision, fp_load.data)), bits(0, 64), bits(0, 64), bits(floating_point_register_width(rv2wide_fp_profile(xlen)), 64), ~enable: active)
   def vector_request :: Bool = if vectors | taps["lsu_request_vector"] | Bool(#false)
   def vector_pipeline :: Bool = if vectors | taps["lsu_pipeline_vector"] | Bool(#false)
   def vector_split :: Bool = if vectors | taps["lsu_split_vector"] | Bool(#false)

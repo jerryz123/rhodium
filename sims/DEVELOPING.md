@@ -20,7 +20,9 @@ the simulation-only `SpikeCore` DPI boundary while retaining the selected
 SoC shape's coherent fabric and platform contract.
 
 RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
-`rv64imacb` and `rv64imafdcb`. Its four enrolled configs run only capability-filtered ISA smoke,
+`rv32int`, `rv32max`, `rv64imacb`, and `rv64imafdcb`. The lean RV64 configs run
+only capability-filtered ISA smoke; both RV32 presets follow the shared
+shape/ISA software policy (platform tests, plus Simple's native ISA and ACT),
 with ordinary BootROM/FESVR loading and target-selected Sail cosimulation.
 Their optional flow tracing uses the same event pass and RHEG exporter. The SoC resolver owns
 their fixed ISA and cache resources, not this harness.

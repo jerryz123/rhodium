@@ -34,7 +34,12 @@ storage. It owns PMA qualification and core/split response routing; accepted
 responses survive invalidation. `mmu.rhdl` remains the RV64 Sv39/guest adapter.
 The top selects one implementation from `profile.mmu_type`. Keep exact SoC
 profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
-Zvbb/Zvkt and the preset's optional scalar/system guarantees.
+Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
+scalar F and Zve32f while retaining the same Bare platform and vector geometry.
+`rv2wide_fp_profile(xlen)` selects the native pipeline transport shape (RV32F
+or RV64D), including the disabled adapter. Do not put 64-bit FPR payloads in
+RV32 pipeline tokens. The raw FP-load transport remains 64 bits because the
+shared boxing helper consumes a width-independent load image.
 
 Keep stage logic in one pipeline-ordered `core.rhdl`. Flow owns feed-forward
 storage; the issue window owns prefix admission, retention, and coalescing.
@@ -821,7 +826,12 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v6` contract. Its typed tokens
+`observation.rhdl` names the passive `rv2wide.v7` contract. Numerical observations
+carry explicit FLEN; FPR effect masks must not be inferred from XLEN.
+`rv2wide-core-fp-rv32` and `rv2wide-core-fp-late-rv32` run the common FP
+hazard/ownership fixture at native single precision, including killed EX
+results, paired GPR writes, delayed loads, split accesses, and WB divide.
+The observation contract's typed tokens
 use grouped branch state and compact FP scheduling tags; the native callbacks
 retain their existing architectural fields and timing. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through

@@ -7,7 +7,7 @@ RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state and optional
 H/Sha guest execution with Sv39x4 translation. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes scalar RV32IMACB or RV64IMACB, optionally RV64IMAFDCB:
+independently usable RR-through-WB execution slice. It executes scalar RV32IMACB or RV64IMACB, optionally RV32IMAFCB or RV64IMAFDCB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and scalar
 loads/stores, including retained misaligned accesses in cacheable normal memory.
 It also executes Zicond and Zimop, plus Zicsr, ECALL/EBREAK, MRET/SRET, WFI,
@@ -32,6 +32,8 @@ ACLINT release. The corresponding `mini-rv2wide-rv64imafdcb` and
 `mini-rv2wide-rv32int` and `simple-rv2wide-rv32int` select the existing RV32
 integer preset with Bare translation, Zve32x, VLEN64, Zvbb, and Zvkt. They use
 the same shape/ISA-selected software policy as the other core implementations.
+The corresponding `rv32max` selections add scalar F, compressed FP loads/stores,
+and Zve32f with 32-bit FPRs, keeping VLEN64 and the same integer/system features.
 No H-enabled or Tiled SoC selection is provided.
 
 ## Entry point
@@ -46,7 +48,8 @@ inst core(RV2WideCore())
 
 Select `RV2WideConfig(~xlen: XLen.X32)` for scalar RV32 with Bare translation.
 The default remains RV64/Sv39; `~mmu_type: RiscvMmuType.Bare` also selects
-Bare-only RV64. RV32 currently excludes FP, H, and pointer masking. Translation
+Bare-only RV64. RV32 excludes H and pointer masking; add
+`~floating_point: FloatingPointProfile.F` for scalar F. Translation
 extensions require Sv39. Add `~vector: VectorProfile.Zve32x,
 ~vector_length: 64` for integer vectors; SoC preset selection remains separate.
 
@@ -119,8 +122,10 @@ pulses for a connected predictor; `RV2Wide` connects these internally.
 
 ## Floating point
 
-Select `RV2WideConfig(~floating_point: FloatingPointProfile.D)`; the default
-remains integer-only. RV64D implies F. Controls, decode, the three-read/two-write
+Select `RV2WideConfig(~floating_point: FloatingPointProfile.D)` for RV64D,
+or `RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F)`
+for RV32F; the default remains integer-only. RV64D implies F. Architectural
+FPR width is 32 bits for RV32F and 64 bits for RV64D. Controls, decode, the three-read/two-write
 FPR file, numerical execution, boxing, and flag behavior come from
 [`cores/fp/`](../fp/README.md).
 
@@ -920,13 +925,15 @@ invent ancestry from equal PCs or reused transaction IDs.
 `RV2WideConfig` selects optional `vector`, `vector_length`, and
 `vector_completion_slots` parameters, plus `vector_extensions` for optional
 Zvbb operations. The default remains `VectorProfile.None`.
-RV32 supports integer Zve32x; RV64 additionally supports the embedded
-64-bit profiles and V, with scalar D required for vector floating point.
+RV32 supports integer Zve32x or Zve32f with scalar F. RV64 additionally supports
+the embedded 64-bit profiles and V, with scalar D required for vector floating point.
 VLEN must provide at least two XLEN-wide rows per register.
 For example, `RV2WideConfig(~floating_point: FloatingPointProfile.D,
 ~vector: VectorProfile.V)` selects VLEN=128 and eight completion slots.
 The RV64 vector specialization remains a core-level selection. The Mini/Simple
-`rv32int` presets enable vector execution and the shared vector cosim observer.
+`rv32int` and `rv32max` presets enable vector execution and the shared vector
+cosim observer. RV32Max uses the existing shared FP service for scalar and
+vector FP without adding another execution unit or FPR write port.
 
 `vector.rhdl` also exposes `RV2WideVectorPipeline(xlen, vlen)` as an independently
 usable service. It composes the shared sequencer, VRF, SIMD datapath, and

@@ -46,7 +46,7 @@ configuration generation do not imply full ACT validation. See the
 [Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
 Core selection does not add a runtime mux to the RTL.
 
-RV2Wide is available on Mini and Simple with `rv32int` and the lean
+RV2Wide is available on Mini and Simple with `rv32int`, `rv32max`, and the lean
 `rv64imacb`/`rv64imafdcb` presets:
 
 ```sh
@@ -55,7 +55,7 @@ make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
 ```
 
 These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
-the scalar RV64 presets with only ISA smoke; RV32Int follows the normal
+the scalar RV64 presets with only ISA smoke; both RV32 presets follow the normal
 shape/ISA software policy. All have Sail cosimulation enabled. Set `COSIM=1` for local
 checked builds; see [cosim setup](cosim/README.md). Both also support optional
 [flow event tracing](#export-soc-events-to-perfetto), independently or alongside cosim.
@@ -83,7 +83,7 @@ make -C sims isa-smoke SOC=simple-spike-rv64imafdcb
 ```
 
 Mini supports `rv32int` and `rv32max` on both Spike and RV5Stage.
-Mini and Simple also support `rv32int` on RV2Wide.
+Mini and Simple also support both RV32 presets on RV2Wide.
 The `smoke`, `boot-test`, `host-mmio-test`, and `uart-pty-test` payloads select
 ELF32/ILP32 for both ISAs. Both smoke variants exercise integer vectors and
 Zvbb with VLEN64. RV32Max additionally exercises scalar F and Zve32f;

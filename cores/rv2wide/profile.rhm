@@ -61,12 +61,12 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
                ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
     unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
     | error(~who: #'RV2WideConfig, "RV2Wide supports Bare or RV64 Sv39")
-    when xlen == XLen.X32 && (floating_point != FloatingPointProfile.None || hypervisor || ssnpm || supm)
-    | error(~who: #'RV2WideConfig, "RV32 supports scalar integer execution without H or pointer masking")
+    when xlen == XLen.X32 && (hypervisor || ssnpm || supm)
+    | error(~who: #'RV2WideConfig, "RV32 supports Bare execution without H or pointer masking")
     when mmu_type == RiscvMmuType.Bare && (svnapot || svpbmt || hypervisor)
     | error(~who: #'RV2WideConfig, "translation extensions require Sv39")
-    unless floating_point == FloatingPointProfile.None || floating_point == FloatingPointProfile.D
-    | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP or RV64D")
+    unless floating_point == FloatingPointProfile.None || floating_point == rv2wide_fp_profile(xlen)
+    | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP, RV32F, or RV64D")
     when zfa && floating_point == FloatingPointProfile.None
     | error(~who: #'RV2WideConfig, "Zfa requires floating-point support")
     check_half_precision_profile(floating_point, half_precision)
@@ -92,7 +92,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     | HalfPrecisionProfile.None: []
     | HalfPrecisionProfile.Zfhmin: ["zfhmin"]
     | HalfPrecisionProfile.Zfh: ["zfh"]
-    def fp = if floating_point == FloatingPointProfile.None | [] | ["f", "d"]
+    def fp = (if floating_point_supports_f(floating_point) | ["f"] | []) ++ (if floating_point_supports_d(floating_point) | ["d"] | [])
     def scalar = ["i", "m", "a"] ++ fp ++ ["c", "b"] ++ (if hypervisor | ["h"] | []) ++ ["za64rs", "zba", "zbb", "zbs"]
     def compressed_additions = (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | []) ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
     def memory = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ ["zicclsm"] ++ (if ziccrse | ["ziccrse"] | [])
@@ -103,7 +103,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     def guest = (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
     def supervisor = if xlen == XLen.X64 | (if mmu_type != RiscvMmuType.Bare | ["ssccptr"] | []) ++ ["sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
     def names = scalar ++ compressed_additions ++ (if zfa | ["zfa"] | []) ++ half_extensions ++ memory ++ masking ++ hints ++ system ++ privileged ++ guest ++ (if sscofpmf | ["sscofpmf"] | []) ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
-    def misa = RV2WideIsaProfile.misa_extensions.take(6) ++ (if floating_point == FloatingPointProfile.None | [] | [MisaExtension.F, MisaExtension.D]) ++ [MisaExtension.C] ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | []) ++ (if hypervisor | [MisaExtension.H] | [])
+    def misa = RV2WideIsaProfile.misa_extensions.take(6) ++ (if floating_point_supports_f(floating_point) | [MisaExtension.F] | []) ++ (if floating_point_supports_d(floating_point) | [MisaExtension.D] | []) ++ [MisaExtension.C] ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | []) ++ (if hypervisor | [MisaExtension.H] | [])
     RiscvIsaProfile(xlen, names, misa)
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
   property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: mmu_type, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom, ~sstc: sstc, ~svpbmt: svpbmt, ~ssnpm: ssnpm, ~sscofpmf: sscofpmf, ~smstateen: smstateen, ~hypervisor: hypervisor, ~vector: vector, ~vector_length: vector_length)
@@ -116,6 +116,11 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
       ~vector: if vector_profile_enabled(vector) | RiscvVectorDescription(vector_length, vector_profile_elen_bits(vector)) | #false
     )
 
+/* Selects the implemented FP transport shape, including the disabled adapter: RV32F or RV64D. */
+fun rv2wide_fp_profile(xlen :: XLen) :: FloatingPointProfile:
+  if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+
 export:
+  rv2wide_fp_profile
   RV2WideIsaProfile
   RV2WideConfig

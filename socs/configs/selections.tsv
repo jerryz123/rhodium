@@ -10,6 +10,7 @@ mini-rv5stage-rv64imacb mini rv5stage rv64imacb
 mini-spike-rv64imacb mini spike rv64imacb
 mini-rv2wide-rv64imacb mini rv2wide rv64imacb
 mini-rv2wide-rv32int mini rv2wide rv32int
+mini-rv2wide-rv32max mini rv2wide rv32max
 mini-rv2wide-rv64imafdcb mini rv2wide rv64imafdcb
 mini-rv5stage-rv64imafdcb mini rv5stage rv64imafdcb
 mini-spike-rv64imafdcb mini spike rv64imafdcb
@@ -25,6 +26,7 @@ simple-rv5stage-rv64imacb simple rv5stage rv64imacb
 simple-spike-rv64imacb simple spike rv64imacb
 simple-rv2wide-rv64imacb simple rv2wide rv64imacb
 simple-rv2wide-rv32int simple rv2wide rv32int
+simple-rv2wide-rv32max simple rv2wide rv32max
 simple-rv2wide-rv64imafdcb simple rv2wide rv64imafdcb
 simple-rv5stage-rv64imafdcb simple rv5stage rv64imafdcb
 simple-spike-rv64imafdcb simple spike rv64imafdcb

@@ -391,24 +391,23 @@ class PlanTest(unittest.TestCase):
 
     def test_rv32_native_inventory_is_paired_without_rv64_only_ports(self):
         entries = self.plan("sims/Makefile")["program_matrix"]["include"]
-        for core in ("rv5stage", "spike"):
+        for core in ("rv5stage", "spike", "rv2wide"):
             for isa in ("rv32int", "rv32max"):
                 self.assertEqual([entry["suite"] for entry in entries
                                   if entry["soc"] == f"simple-{core}-{isa}"], ["isa"])
-        self.assertEqual([entry["suite"] for entry in entries
-                          if entry["soc"] == "simple-rv2wide-rv32int"], ["isa"])
 
-    def test_rv2wide_rv32int_reuses_shape_policy_and_cosim(self):
+    def test_rv2wide_rv32_reuses_shape_policy_and_cosim(self):
         plan = self.plan("sims/Makefile")
-        for shape in ("mini", "simple"):
-            soc = f"{shape}-rv2wide-rv32int"
-            entries = [entry for entry in plan["simulator_matrix"]["include"]
-                       if entry["soc"] == soc and entry["backend"] == "rsim"]
-            self.assertEqual(len(entries), 1)
-            self.assertTrue(entries[0]["cosim"])
-            self.assertEqual(entries[0]["software_tests"], " ".join(SOFTWARE_TESTS[(shape, "rv32int")]))
-        self.assertIn("simple-rv2wide-rv32int",
-                      {entry["configuration"] for entry in plan["arch_run_matrix"]["include"]})
+        for isa in ("rv32int", "rv32max"):
+            for shape in ("mini", "simple"):
+                soc = f"{shape}-rv2wide-{isa}"
+                entries = [entry for entry in plan["simulator_matrix"]["include"]
+                           if entry["soc"] == soc and entry["backend"] == "rsim"]
+                self.assertEqual(len(entries), 1)
+                self.assertTrue(entries[0]["cosim"])
+                self.assertEqual(entries[0]["software_tests"], " ".join(SOFTWARE_TESTS[(shape, isa)]))
+            self.assertIn(f"simple-rv2wide-{isa}",
+                          {entry["configuration"] for entry in plan["arch_run_matrix"]["include"]})
 
     def test_rv64_smoke_presets_are_paired_isa_smoke_only(self):
         plan = self.plan("socs/configs/isa-profiles.rhm")

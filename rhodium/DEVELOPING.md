@@ -349,6 +349,8 @@ shared FP execution, timing, register-file, and load-boxing APIs plus Flow,
 pure FP/XLEN descriptors, and that calendar. Its composed decoder imports the
 shared FP control relation and pure register-bank metadata. No dependency on
 RV5Stage is introduced.
+RV2Wide's FP adapter and pipeline bundles import its profile-owned native FP
+transport selector, keeping RV32F/RV64D payload widths consistent.
 RV2Wide's `profile.rhm` imports the stable generator-parameter contract and
 shared cache geometry alongside pure ISA/hart descriptors and the shared CSR
 configuration used by both RTL and WARL metadata. `hart.rhdl` uses
@@ -412,7 +414,7 @@ functional handshakes, and no named core imports the simulator receiver.
 RV2Wide's core, MMU, and composition import the same passive metadata bridge
 for dual WB slots, CSR command context, deferred return ownership, and physical
 request/fragment provenance. Its vector and memory-port adapters also import
-the passive metadata bridge. `cores/rv2wide/observation.rhdl` declares `rv2wide.v6`
+the passive metadata bridge. `cores/rv2wide/observation.rhdl` declares `rv2wide.v7`
 without imports. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
 RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing helpers,
 architectural privilege/interrupt/XLEN/FP-profile descriptors,

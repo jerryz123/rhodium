@@ -17,7 +17,7 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
   unless physical_address_width <= profile.xlen.width
   | error(~who: #'rv2wide_udb_configuration, "physical address width must fit XLEN")
   def extensions = riscv_udb_extensions(profile.hart_description, ~additional: if profile.mmu_type == RiscvMmuType.Bare | [] | [UdbExtension("Svade", "1.0.0")])
-  def fp = profile.floating_point == FloatingPointProfile.D
+  def fp = floating_point_supports_f(profile.floating_point)
   def xlen = profile.xlen.width
   def pma_granularity_log2 = if xlen == 32 | 2 | 3
   def delegatable_counters = for List (index in 0..32): index < 3 || (profile.sscofpmf && index == 3)
@@ -95,10 +95,10 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
     if fp
     | [
         boolean_parameter("MUTABLE_MISA_F", #false),
-        boolean_parameter("MUTABLE_MISA_D", #false),
         string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")
       ]
     | []
+  def double_parameters = if floating_point_supports_d(profile.floating_point) | [boolean_parameter("MUTABLE_MISA_D", #false)] | []
   def wait_parameters = if profile.zawrs | [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)] | []
   def supervisor_parameters = (if profile.ssnpm | [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])] | [])
   def mutable hypervisor_parameters = []
@@ -128,7 +128,7 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
         hypervisor_parameters := hypervisor_parameters ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
       when profile.smstateen
       | hypervisor_parameters := hypervisor_parameters ++ [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")]
-  UdbConfiguration(name, description, extensions, parameters ++ riscv_csr_udb_parameters(profile.csr_config) ++ vector_udb_parameters(profile.vector, profile.vector_length, profile.hypervisor) ++ fp_parameters ++ wait_parameters ++ supervisor_parameters ++ hypervisor_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
+  UdbConfiguration(name, description, extensions, parameters ++ riscv_csr_udb_parameters(profile.csr_config) ++ vector_udb_parameters(profile.vector, profile.vector_length, profile.hypervisor) ++ fp_parameters ++ double_parameters ++ wait_parameters ++ supervisor_parameters ++ hypervisor_parameters ++ [boolean_parameter("MUTABLE_MISA_C", #false)])
 
 export:
   rv2wide_udb_configuration

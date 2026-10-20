@@ -22,7 +22,7 @@ struct BoundarySample {
   Word virtualized = 0, next_virtualized = 0, target_virtualized = 0, guest_valid = 0, htval = 0, htinst = 0, hpm_enabled = 0, hpm_counter = 0, hpm_overflow = 0;
 };
 struct CompletionSample { Word index, valid, pc, rd, write, data; };
-struct FpSample { Word index, valid, pc, rd, destination, value, flags_valid, flags; };
+struct FpSample { Word index, valid, pc, rd, destination, value, flags_valid, flags, flen; };
 struct PhysicalSample {
   Word request_valid, request_address, pipeline_valid, pipeline_address,
        fragment_valid, fragment_address, fragment_virtual, fragment_mask, fragment_data,
@@ -86,7 +86,7 @@ class HartAdapter final : public DpiAdapter {
 }
 
 extern "C" {
-void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t destination, std::int64_t value, std::int64_t flags_valid, std::int64_t flags) noexcept;
+void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t destination, std::int64_t value, std::int64_t flags_valid, std::int64_t flags, std::int64_t flen) noexcept;
 void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data, std::int64_t fp = 0, std::int64_t fp_destination = 0, std::int64_t fp_delay = 0, std::int64_t vector = 0) noexcept;
 void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary, std::int64_t virtualized = 0, std::int64_t next_virtualized = 0, std::int64_t target_virtualized = 0, std::int64_t guest_valid = 0, std::int64_t htval = 0, std::int64_t htinst = 0, std::int64_t hpm_enabled = 0, std::int64_t hpm_counter = 0, std::int64_t hpm_overflow = 0) noexcept;
 void rhodium_rv2wide_completion(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t write, std::int64_t data) noexcept;

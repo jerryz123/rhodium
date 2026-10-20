@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".rv2wide_fp_profile
   lib("cores/fp/launch-calendar.rhdl") open
   lib("cores/fp/authorization.rhdl").align_fp_authorization
   "bundles.rhdl" open
@@ -19,11 +20,11 @@ import:
 
 /* Snapshots operands at RR; fixed returns write only with their aligned WB authorization.
    Accepted variable work and load owners survive all speculative pipeline flushes. */
-sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~vector_slots: slots :: Pow2Int = 8):
-  def Request = FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(XLen.X64))
-  def Result = FpExecutionResult(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(XLen.X64))
+sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~vector_slots: slots :: Pow2Int = 8):
+  def Request = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen))
+  def Result = FpExecutionResult(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen))
   input read_addresses: Vec(3, Bits(5))
-  output read_values: Vec(3, Bits(64))
+  output read_values: Vec(3, Bits(floating_point_register_width(rv2wide_fp_profile(xlen))))
   input probe: FloatExecutionControl()
   interface book(Valid(FloatExecutionControl()), ~role: consumer)
   output available: Bool
@@ -31,18 +32,18 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
   interface variable_issue(Decoupled(Request), ~role: consumer)
   interface authorize(Valid(Request), ~role: consumer)
   interface completion(Valid(Result), ~role: producer)
-  interface load_reserve(Valid(RV2WideFpOwner(XLen.X64)), ~role: consumer)
-  interface load_hit(Valid(RV2WideFpLoad(XLen.X64)), ~role: consumer)
-  interface load_return(Decoupled(RV2WideFpLoad(XLen.X64)), ~role: consumer)
-  interface load_write(Valid(RV2WideFpLoad(XLen.X64)), ~role: producer)
+  interface load_reserve(Valid(RV2WideFpOwner(xlen)), ~role: consumer)
+  interface load_hit(Valid(RV2WideFpLoad(xlen)), ~role: consumer)
+  interface load_return(Decoupled(RV2WideFpLoad(xlen)), ~role: consumer)
+  interface load_write(Valid(RV2WideFpLoad(xlen)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
   output busy: Bits(32)
   output drained: Bool
-  interface vector_request(Decoupled(FpExecutionRequest(XLen.X64, FloatingPointProfile.D, Bits(index_width(slots)))), ~role: consumer)
-  interface vector_result(Decoupled(FpExecutionResult(XLen.X64, FloatingPointProfile.D, Bits(index_width(slots)))), ~role: producer)
+  interface vector_request(Decoupled(FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: consumer)
+  interface vector_result(Decoupled(FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: producer)
   interface vector_reserve(Valid(Bits(5)), ~role: consumer)
-  interface vector_write(Valid(FloatingPointRegisterWrite(FloatingPointProfile.D)), ~role: consumer)
-  interface vector_written(Valid(FloatingPointRegisterWrite(FloatingPointProfile.D)), ~role: producer)
+  interface vector_write(Valid(FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))), ~role: consumer)
+  interface vector_written(Valid(FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))), ~role: producer)
 
 
   /* RR return booking and EX launch ownership.
@@ -51,24 +52,24 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
   def span = timing.maximum + 1
   /* Separates speculative scalar authorization from irrevocable vector completion ownership. */
   tagged_union Owner():
-    Scalar(RV2WideFpOwner(XLen.X64))
+    Scalar(RV2WideFpOwner(xlen))
     Vector(Bits(index_width(slots)))
-  def SharedRequest = FpExecutionRequest(XLen.X64, FloatingPointProfile.D, Owner())
-  def SharedResult = FpExecutionResult(XLen.X64, FloatingPointProfile.D, Owner())
-  def VectorRequest = FpExecutionRequest(XLen.X64, FloatingPointProfile.D, Bits(index_width(slots)))
-  def VectorResult = FpExecutionResult(XLen.X64, FloatingPointProfile.D, Bits(index_width(slots)))
+  def SharedRequest = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Owner())
+  def SharedResult = FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Owner())
+  def VectorRequest = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))
+  def VectorResult = FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))
   inst vector_returns(CompletionQueue(VectorRequest, VectorResult, slots, ~pipe: #false))
   vector_returns.response |> vector_result
   inst launch_calendar(FpLaunchCalendar(timing, span))
   launch_calendar.probe <== probe
   book |> launch_calendar.book
-  inst execution(FpExecutionService(XLen.X64, FloatingPointProfile.D, Owner(), ~half_precision: half_precision, ~zfa: zfa, ~scheduled_writeback: #true, ~timing: timing))
+  inst execution(FpExecutionService(xlen, rv2wide_fp_profile(xlen), Owner(), ~half_precision: half_precision, ~zfa: zfa, ~scheduled_writeback: #true, ~timing: timing))
   launch_calendar.fixed_available <== execution.fixed_admission_available
   launch_calendar.vector_waiting <== vector_request.valid
   available <== launch_calendar.available
-  def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(request => fp_request_with_tag(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(XLen.X64), Owner(), request, Owner().Scalar(request.tag)))
-  def scalar_variable = variable_issue |> map_flow(request => fp_request_with_tag(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(XLen.X64), Owner(), request, Owner().Scalar(request.tag)))
-  def vector = vector_request |> map_flow(request => fp_request_with_tag(XLen.X64, FloatingPointProfile.D, Bits(index_width(slots)), Owner(), request, Owner().Vector(request.tag)))
+  def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag)))
+  def scalar_variable = variable_issue |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag)))
+  def vector = vector_request |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)), Owner(), request, Owner().Vector(request.tag)))
   def unreserved = Array(scalar_variable, vector) |> rr_arbiter()
   inst selection(GrantMerge(SharedRequest, 2))
   selection.grants <== vec([launch_calendar.reserved, !launch_calendar.reserved]).into(MaybeOneHot(2))
@@ -76,11 +77,11 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
   def Array(launch, booking, credit) = selection.egress |> atomic_fork(3)
   launch |> execution.request
   booking |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool) & (request.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(request => request.control.execution) |> launch_calendar.vector_book
-  credit |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool)) |> map_flow(request => fp_request_with_tag(XLen.X64, FloatingPointProfile.D, Owner(), Bits(index_width(slots)), request, request.tag.view(Owner().Vector).payload)) |> vector_returns.request
+  credit |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool)) |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), Bits(index_width(slots)), request, request.tag.view(Owner().Vector).payload)) |> vector_returns.request
   launch_calendar.vector_accepted <== vector_request.fire()
   def Array(scalar_return, vector_return) = execution.result |> demux_flow(2, result => result.tag.is(Owner().Vector).into(Bool))
-  vector_return |> map_flow(result => fp_result_with_tag(XLen.X64, FloatingPointProfile.D, Owner(), Bits(index_width(slots)), result, result.tag.view(Owner().Vector).payload)) |> to_valid() |> vector_returns.completion
-  def scalar_result = scalar_return |> map_flow(result => fp_result_with_tag(XLen.X64, FloatingPointProfile.D, Owner(), RV2WideFpOwner(XLen.X64), result, result.tag.view(Owner().Scalar).payload))
+  vector_return |> map_flow(result => fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), Bits(index_width(slots)), result, result.tag.view(Owner().Vector).payload)) |> to_valid() |> vector_returns.completion
+  def scalar_result = scalar_return |> map_flow(result => fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), RV2WideFpOwner(xlen), result, result.tag.view(Owner().Scalar).payload))
   when (fixed_issue.valid):
     assert(launch_calendar.reserved & selection.ingress[0].ready, "rv2wide_fp_ex_launch_reserved")
 
@@ -94,7 +95,7 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
     assert(authorization_matches, "rv2wide_fp_wb_owner")
   def authorized = align_fp_authorization(
     authorize, timing,
-    fun (operation :: FpExecutionRequest(XLen.X64, FloatingPointProfile.D, RV2WideFpOwner(XLen.X64))): operation.control.execution,
+    fun (operation :: FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen))): operation.control.execution,
     ~elapsed: 2
   )
   def return_matches = scalar_result.valid & (scalar_result.bits.tag.as_bits() === authorized.bits.tag.as_bits())
@@ -107,27 +108,27 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
   /* FPR reads and architectural write ports.
      Arithmetic and loads have separate ports; immediate load hits outrank backpressurable returns. */
 
-  inst registers(FloatingPointRegisterFile(FloatingPointProfile.D))
+  inst registers(FloatingPointRegisterFile(rv2wide_fp_profile(xlen)))
   registers.read_address_1 <== read_addresses[0]
   registers.read_address_2 <== read_addresses[1]
   registers.read_address_3 <== read_addresses[2]
   read_values <== vec(registers.read_data_1, registers.read_data_2, registers.read_data_3)
   def arithmetic_write = completed[1] |> filter_valid(result => result.tag.destination === FloatDestination.FloatingPoint)
-  (arithmetic_write |> map_valid(result => FloatingPointRegisterWrite(FloatingPointProfile.D)):
+  (arithmetic_write |> map_valid(result => FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))):
     address: result.tag.rd
     data: result.fp_value
   ) |> registers.writes[1]
   // A WB hit cannot wait; the accepted miss response retains its owner under backpressure.
-  inst vector_move(OfferRegister(FloatingPointRegisterWrite(FloatingPointProfile.D)))
+  inst vector_move(OfferRegister(FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))))
   vector_write |> vector_move.update
   def vector_move_result = vector_move.egress |> gate_flow(!load_hit.valid) |> to_valid()
   vector_move_result |> vector_written
   def delayed_load = load_return |> gate_flow(!load_hit.valid & !vector_written.valid) |> to_valid()
   def loaded = Array(load_hit, delayed_load) |> valid_arbiter() |> fork_valid(2)
   loaded[0] |> load_write
-  def load_port = loaded[1] |> map_valid(result => FloatingPointRegisterWrite(FloatingPointProfile.D)):
+  def load_port = loaded[1] |> map_valid(result => FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))):
     address: result.owner.rd
-    data: fp_load_value(FloatingPointProfile.D, result.precision, result.data)
+    data: fp_load_value(rv2wide_fp_profile(xlen), result.precision, result.data)
   Array(load_port, vector_move_result) |> valid_arbiter() |> registers.writes[0]
   when (vector_write.valid):
     assert(!vector_move.egress.valid, "rv2wide_vector_fpr_move_retains_one_owner")
@@ -167,10 +168,10 @@ sync_circuit RV2WideFp(timing :: FpExecutionTiming, ~half_precision: half_precis
 
 /* Provides the same pipeline-facing ports without FP state, execution, or accepted work. */
 sync_circuit RV2WideFpDisabled(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
-  def Request = FpExecutionRequest(xlen, FloatingPointProfile.D, RV2WideFpOwner(xlen))
-  def Result = FpExecutionResult(xlen, FloatingPointProfile.D, RV2WideFpOwner(xlen))
+  def Request = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen))
+  def Result = FpExecutionResult(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen))
   input read_addresses: Vec(3, Bits(5))
-  output read_values: Vec(3, Bits(64))
+  output read_values: Vec(3, Bits(floating_point_register_width(rv2wide_fp_profile(xlen))))
   input probe: FloatExecutionControl()
   interface book(Valid(FloatExecutionControl()), ~role: consumer)
   output available: Bool
@@ -185,13 +186,13 @@ sync_circuit RV2WideFpDisabled(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
   interface state_update(Valid(Bits(5)), ~role: producer)
   output busy: Bits(32)
   output drained: Bool
-  interface vector_request(Decoupled(FpExecutionRequest(xlen, FloatingPointProfile.D, Bits(index_width(slots)))), ~role: consumer)
-  interface vector_result(Decoupled(FpExecutionResult(xlen, FloatingPointProfile.D, Bits(index_width(slots)))), ~role: producer)
+  interface vector_request(Decoupled(FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: consumer)
+  interface vector_result(Decoupled(FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: producer)
   interface vector_reserve(Valid(Bits(5)), ~role: consumer)
-  interface vector_write(Valid(FloatingPointRegisterWrite(FloatingPointProfile.D)), ~role: consumer)
-  interface vector_written(Valid(FloatingPointRegisterWrite(FloatingPointProfile.D)), ~role: producer)
+  interface vector_write(Valid(FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))), ~role: consumer)
+  interface vector_written(Valid(FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))), ~role: producer)
 
-  read_values <== literal(Vec(3, Bits(64)), 0)
+  read_values <== literal(Vec(3, Bits(floating_point_register_width(rv2wide_fp_profile(xlen)))), 0)
   available <== Bool(#false)
   variable_issue.ready <== Bool(#false)
   completion.valid <== Bool(#false)

@@ -210,7 +210,9 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     require(owner.lane.pc==value.pc && owner.lane.rd==value.rd && owner.lane.fp_destination==value.destination,"FP completion owner mismatch");
     Word effects=0;
     if (value.destination==2 || (value.destination==1 && value.rd)) {
-      const Word mask = value.destination==2 || c.reset_state(instance).xlen==64 ? UINT64_MAX : UINT32_MAX;
+      require(value.flen==32 || value.flen==64, "invalid FP register width");
+      const Word width = value.destination==2 ? value.flen : c.reset_state(instance).xlen;
+      const Word mask = width==64 ? UINT64_MAX : UINT32_MAX;
       c.effect(instance,owner.id,{0,effects++},RegisterWrite{value.destination==2 ? Bank::FloatingPoint : Bank::Integer,value.rd,0,mask,value.value & mask});
     }
     if (value.flags_valid)
@@ -251,9 +253,9 @@ using rhodium::cosim::rv2wide::LaneSample;
 using rhodium::cosim::rv2wide::BoundarySample;
 using rhodium::cosim::rv2wide::CompletionSample;
 using rhodium::cosim::rv2wide::PhysicalSample;
-extern "C" void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t destination, std::int64_t value, std::int64_t flags_valid, std::int64_t flags) noexcept {
+extern "C" void rhodium_rv2wide_fp(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t destination, std::int64_t value, std::int64_t flags_valid, std::int64_t flags, std::int64_t flen) noexcept {
   dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& c) {
-    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),rhodium::cosim::rv2wide::FpSample{Word(index),Word(valid),Word(pc),Word(rd),Word(destination),Word(value),Word(flags_valid),Word(flags)});
+    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),rhodium::cosim::rv2wide::FpSample{Word(index),Word(valid),Word(pc),Word(rd),Word(destination),Word(value),Word(flags_valid),Word(flags),Word(flen)});
   });
 }
 extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, std::int64_t retired, std::int64_t split, std::int64_t pc, std::int64_t encoding, std::int64_t next_pc, std::int64_t fetch_fault, std::int64_t rd, std::int64_t write, std::int64_t data, std::int64_t deferred, std::int64_t service, std::int64_t memory, std::int64_t address, std::int64_t access, std::int64_t width, std::int64_t atomic, std::int64_t store_data, std::int64_t fp, std::int64_t fp_destination, std::int64_t fp_delay, std::int64_t vector) noexcept {

@@ -7,9 +7,12 @@ const auto &memory_stage(unsigned i) {
   return i ? memory_stage_1_out : memory_stage_0_out;
 }
 const auto &retired(unsigned i) { return i ? retired_1_out : retired_0_out; }
+constexpr unsigned xlen = 8 * sizeof(memory_in.presponse.pbits);
+constexpr unsigned native_precision = xlen == 32 ? 0 : 1;
+constexpr unsigned native_width = xlen == 32 ? 2 : 3;
 int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0;
 std::array<std::uint64_t, 32> gprs{};
-std::uint64_t next_pc = 0x8000, load_data = 0x4008000000000000, stored_data = 0,
+std::uint64_t next_pc = 0x8000, load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
               inject_pc = 0;
 unsigned stored_mask = 0, stored_width = 0, expected_locality = 0;
 int stores = 0, response_due = 0, split_due = 0, split_count = 0;
@@ -102,14 +105,14 @@ void send(std::uint32_t a, std::uint32_t b = UINT64_C(19),
   instructions_in.pvalid = 1;
   instructions_in.pbits = {};
   instructions_in.pbits.pcount = paired ? 2 : 1;
-  instructions_in.pbits.pentries[0] = {.ppc = next_pc,
-                                       .pinstruction = a,
-                                       .praw_uinstruction = a,
-                                       .psequential_upc = next_pc + 4};
-  instructions_in.pbits.pentries[1] = {.ppc = next_pc + 4,
-                                       .pinstruction = b,
-                                       .praw_uinstruction = b,
-                                       .psequential_upc = next_pc + 8};
+  auto& older = instructions_in.pbits.pentries[0];
+  older.ppc = next_pc;
+  older.pinstruction = older.praw_uinstruction = a;
+  older.psequential_upc = next_pc + 4;
+  auto& younger = instructions_in.pbits.pentries[1];
+  younger.ppc = next_pc + 4;
+  younger.pinstruction = younger.praw_uinstruction = b;
+  younger.psequential_upc = next_pc + 8;
   accept([&] { return instructions_out.pready; });
   next_pc += paired ? 8 : 4;
   falling();
@@ -121,7 +124,7 @@ void drain() {
 }
 void expect_gpr(int rd, std::uint64_t value) { CHECK(gprs[rd] == value); }
 void expect_fpr(int rd, std::uint64_t value) {
-  send(fp(UINT64_C(0x71), 30, rd, 0));
+  send(fp(0x70 + native_precision, 30, rd, 0));
   drain();
   expect_gpr(30, value);
 }
@@ -135,21 +138,21 @@ int main() {
     reset = 0;
     // FS disabled must trap before any numerical request or FPR update.
     expected_traps = 1;
-    send(fp(UINT64_C(0x69), 1, 0, 0));
+    send(fp(0x68 + native_precision, 1, 0, 0));
     drain();
     CHECK(traps == 1);
     send(UINT64_C(0x20b7));     // lui x1,2: FS=Initial
     send(UINT64_C(0x30009073)); // csrw mstatus,x1
     drain();
     send(UINT64_C(0x1000093), UINT64_C(0x900313), 1); // x1=16, x6=9
-    send(fp(UINT64_C(0x69), 1, 1, 0), UINT64_C(0x700393),
-         1); // fcvt.d.w f1,x1 + integer
+    send(fp(0x68 + native_precision, 1, 1, 0), UINT64_C(0x700393),
+         1); // fcvt.s/d.w f1,x1 + integer
     drain();
-    send(UINT64_C(0xb00413), fp(UINT64_C(1), 2, 1, 1),
-         1);                           // integer + fadd.d f2,f1,f1
-    send(fp(UINT64_C(0x61), 3, 2, 0)); // fcvt.w.d x3,f2
-    send(fp(UINT64_C(13), 3, 2, 1));   // fdiv.d f3,f2,f1 (WB)
-    send(fp(UINT64_C(0x61), 4, 3, 0));
+    send(UINT64_C(0xb00413), fp(native_precision, 2, 1, 1),
+         1);                           // integer + fadd.s/d f2,f1,f1
+    send(fp(0x60 + native_precision, 3, 2, 0)); // fcvt.w.s/d x3,f2
+    send(fp(12 + native_precision, 3, 2, 1));   // fdiv.s/d f3,f2,f1 (WB)
+    send(fp(0x60 + native_precision, 4, 3, 0));
     drain();
     expect_gpr(3, 32);
     expect_gpr(4, 2);
@@ -158,13 +161,13 @@ int main() {
     CHECK(fp_pairs >= 2);
 
     // Same-destination pairing preserves age when FP returns at WB or later.
-    send(fp(UINT64_C(0x61), 21, 2, 0), UINT64_C(0x6300a93),
+    send(fp(0x60 + native_precision, 21, 2, 0), UINT64_C(0x6300a93),
          1);                 // older FP x21=32, younger integer x21=99
     send(UINT64_C(0xa8b13)); // x22=x21 must forward the younger value
     drain();
     expect_gpr(21, 99);
     expect_gpr(22, 99);
-    send(UINT64_C(0x700b93), fp(UINT64_C(0x61), 23, 2, 0),
+    send(UINT64_C(0x700b93), fp(0x60 + native_precision, 23, 2, 0),
          1);                 // older integer x23=7, younger FP x23=32
     send(UINT64_C(0xb8c13)); // x24=x23 waits for the younger FP value
     drain();
@@ -173,10 +176,10 @@ int main() {
 
     // Fixed multiply and FP-to-GPR returns share a calendar. Exercise both age
     // orders: equal-latency pairing must split before EX, never retain a result.
-    send(UINT64_C(0x26086b3), fp(UINT64_C(0x61), 14, 2, 0),
-         1); // mul x13,x1,x6=144; fcvt.w.d x14,f2=32
-    send(fp(UINT64_C(0x61), 15, 2, 0), UINT64_C(0x2608833),
-         1);                  // fcvt.w.d x15,f2=32; mul x16,x1,x6=144
+    send(UINT64_C(0x26086b3), fp(0x60 + native_precision, 14, 2, 0),
+         1); // mul x13,x1,x6=144; fcvt.w.s/d x14,f2=32
+    send(fp(0x60 + native_precision, 15, 2, 0), UINT64_C(0x2608833),
+         1);                  // fcvt.w.s/d x15,f2=32; mul x16,x1,x6=144
     send(UINT64_C(0x168693)); // x13=x13+1 waits for the direct multiply write
     drain();
     expect_gpr(13, 145);
@@ -185,51 +188,51 @@ int main() {
     expect_gpr(16, 144);
 
     // f0 is writable, and FPR forwarding must cover the load port too.
-    send(fp(UINT64_C(0x69), 0, 1, 0));
-    send(fp(UINT64_C(0x61), 5, 0, 0));
+    send(fp(0x68 + native_precision, 0, 1, 0));
+    send(fp(0x60 + native_precision, 5, 0, 0));
     drain();
     expect_gpr(5, 16);
-    send(UINT64_C(0x10003407)); // fld f8,256(x0): 3.0
-    send(fp(UINT64_C(0x61), 9, 8, 0));
+    send(0x10000407 | (native_width << 12)); // flw/fld f8,256(x0): 3.0
+    send(fp(0x60 + native_precision, 9, 8, 0));
     drain();
     expect_gpr(9, 3);
-    send(UINT64_C(0x10803427)); // fsd f8,264(x0)
+    send(0x10800427 | (native_width << 12)); // fsw/fsd f8,264(x0)
     drain();
     CHECK(stores == 1 && stored_data == load_data);
 
     slow_load = 1;
     expected_locality = 4;
-    send(UINT64_C(0x500033), UINT64_C(0x10003607),
-         1); // NTL.ALL; fld f12,256(x0)
-    send(fp(UINT64_C(1), 14, 1,
+    send(UINT64_C(0x500033), (0x10000607 | (native_width << 12)),
+         1); // NTL.ALL; flw/fld f12,256(x0)
+    send(fp(native_precision, 14, 1,
             1)); // independent arithmetic while the load is pending
-    send(fp(UINT64_C(0x61), 15, 12, 0));
+    send(fp(0x60 + native_precision, 15, 12, 0));
     drain();
     expect_gpr(15, 3);
     slow_load = 0;
     expected_locality = 0;
 
-    send(UINT64_C(0x10303c07)); // misaligned fld f24,259(x0)
+    send(0x10300c07 | (native_width << 12)); // misaligned flw/fld f24,259(x0)
     drain();
-    send(fp(UINT64_C(0x61), 24, 24, 0));
+    send(fp(0x60 + native_precision, 24, 24, 0));
     drain();
     expect_gpr(24, 3);
-    send((UINT64_C(8) << 25) | (UINT64_C(24) << 20) | (UINT64_C(3) << 12) |
-         (UINT64_C(11) << 7) | UINT64_C(0x27)); // fsd f24,267(x0)
+    send((UINT64_C(8) << 25) | (UINT64_C(24) << 20) | (native_width << 12) |
+         (UINT64_C(11) << 7) | UINT64_C(0x27)); // fsw/fsd f24,267(x0)
     drain();
     CHECK(split_count == 2 && stored_data == load_data);
 
     // Kill already-launched younger arithmetic with an older same-group fault.
-    send(fp(UINT64_C(0x69), 20, 1, 0));
+    send(fp(0x68 + native_precision, 20, 1, 0));
     drain();
     inject_fault = 1;
     inject_pc = next_pc;
     expected_traps = 2;
-    send(UINT64_C(0x100893), fp(UINT64_C(1), 20, 1, 1), 1);
+    send(UINT64_C(0x100893), fp(native_precision, 20, 1, 1), 1);
     drain();
     inject_fault = 0;
     CHECK(traps == 2);
-    send(fp(UINT64_C(0x61), 21, 20, 0));
+    send(fp(0x60 + native_precision, 21, 20, 0));
     drain();
     expect_gpr(21, 16);
 
@@ -239,31 +242,32 @@ int main() {
     send(fp(UINT64_C(0x60), 12, 11, 0));
     drain();
     expect_gpr(12, 32);
-    send(fp(UINT64_C(0x71), 13, 10, 0));
+    send(fp(0x70 + native_precision, 13, 10, 0));
     drain();
-    expect_gpr(13, UINT64_C(0xffffffff41800000));
+    expect_gpr(13, xlen == 32 ? 0x41800000 : UINT64_C(0xffffffff41800000));
     send(UINT64_C(0x302573)); // csrr x10,fcsr
     drain();
     expect_gpr(10, 0);
-    send((UINT64_C(1) << 27) | (UINT64_C(1) << 25) | (UINT64_C(3) << 20) |
+    send((UINT64_C(1) << 27) | (native_precision << 25) | (UINT64_C(3) << 20) |
          (UINT64_C(1) << 15) | (UINT64_C(22) << 7) |
-         UINT64_C(0x43)); // fmadd.d f22,f1,f3,f1
-    send(fp(UINT64_C(0x61), 22, 22, 0));
+         UINT64_C(0x43)); // fmadd.s/d f22,f1,f3,f1
+    send(fp(0x60 + native_precision, 22, 22, 0));
     drain();
     expect_gpr(22, 48);
-    send(fp(UINT64_C(0x79), 0, 0, 0)); // fmv.d.x f0,x0
-    send(fp(UINT64_C(13), 16, 1, 0));  // 16/0: DZ, +infinity
-    send(fp(UINT64_C(0x71), 17, 16, 0));
+    send(fp(0x78 + native_precision, 0, 0, 0)); // fmv.w/d.x f0,x0
+    send(fp(12 + native_precision, 16, 1, 0));  // 16/0: DZ, +infinity
+    send(fp(0x70 + native_precision, 17, 16, 0));
     send(UINT64_C(0x302973)); // csrr x18,fcsr drains prior arithmetic
     drain();
-    expect_gpr(17, UINT64_C(0x7ff0000000000000));
+    expect_gpr(17, xlen == 32 ? 0x7f800000 : UINT64_C(0x7ff0000000000000));
     expect_gpr(18, 8);
     send(UINT64_C(0x101073)); // csrw fflags,x0
     drain();
     expected_traps = 3;
-    send(fp(UINT64_C(1), 20, 1, 1, 5));
+    send(fp(native_precision, 20, 1, 1, 5));
     drain();
     CHECK(traps == 3);
+    if constexpr (xlen == 32) return; // The RV32Max fixture selects F, without Zfa or half precision.
     // Zfa uses the same EX launch, WB authorization and variable-latency return paths.
     // FLI's rs1 field is an immediate index, not an integer or FP source register.
     send(fp(UINT64_C(0x78), 25, 16, 1), UINT64_C(0x1900c93),

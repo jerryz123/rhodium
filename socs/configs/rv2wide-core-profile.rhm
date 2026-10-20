@@ -1,5 +1,5 @@
 #lang rhombus
-/* Applies Mini/Simple cache resources to RV2Wide's exact scalar and RV32 integer-vector presets. */
+/* Applies Mini/Simple cache resources to RV2Wide's exact scalar and RV32 integer/FP-vector presets. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,8 +12,8 @@ import:
 
 /* Rejects unsupported shapes or architectures rather than silently selecting a weaker hart. */
 fun rv2wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV2WideConfig:
-  unless [SoCShape.Mini, SoCShape.Simple].contains(shape) && [IsaPreset.RV32Int, IsaPreset.RV64IMACB, IsaPreset.RV64IMAFDCB].contains(preset)
-  | error(~who: #'rv2wide_soc_profile, "RV2Wide supports Mini/Simple RV32Int, RV64IMACB or RV64IMAFDCB")
+  unless [SoCShape.Mini, SoCShape.Simple].contains(shape) && [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RV64IMACB, IsaPreset.RV64IMAFDCB].contains(preset)
+  | error(~who: #'rv2wide_soc_profile, "RV2Wide supports Mini/Simple RV32Int, RV32Max, RV64IMACB or RV64IMAFDCB")
   def cache = if shape == SoCShape.Mini | CacheConfig(32, 1) | CacheConfig(64, 4)
   def architecture = soc_architecture(preset)
   def has = architecture.has
@@ -21,7 +21,7 @@ fun rv2wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV2WideConfig
   def profile = RV2WideConfig(
     ~xlen: architecture.isa.xlen, ~mmu_type: architecture.mmu,
     ~instruction_cache: cache, ~data_cache: cache,
-    ~floating_point: if has("d") | FloatingPointProfile.D | FloatingPointProfile.None,
+    ~floating_point: if has("d") | FloatingPointProfile.D | (if has("f") | FloatingPointProfile.F | FloatingPointProfile.None),
     ~compressed: compressed,
     ~ziccif: has("ziccif"), ~ziccamoa: has("ziccamoa"), ~ziccrse: has("ziccrse"),
     ~zicbop: has("zicbop"), ~zicbom: has("zicbom"), ~zicboz: has("zicboz"),

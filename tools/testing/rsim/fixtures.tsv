@@ -191,7 +191,9 @@ rv2wide-vector-memory	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vec
 rv2wide-vector-memory-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector-memory-rv32.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector-memory.cpp
 rv2wide-vector	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector.cpp
 rv2wide-core-fp	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-fp.cpp
+rv2wide-core-fp-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-fp.cpp
 rv2wide-core-fp-late	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp-late.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-fp-late.cpp
+rv2wide-core-fp-late-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp-late.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-fp-late.cpp
 rv2wide-cache	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-cache.rhm	program	cores/rv2wide/tests/rsim/rv2wide-cache.cpp
 rv2wide-fetch-disabled	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fetch-disabled.cpp
 rv2wide-assembly-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction.cpp
