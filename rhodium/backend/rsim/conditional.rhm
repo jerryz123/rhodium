@@ -1,5 +1,5 @@
 #lang rhombus
-/* Plans bounded exclusive computations beneath lookup selections and explicit consumer guards in each evaluation phase. */
+/* Plans bounded exclusive computations beneath lookup/one-hot selections and explicit consumer guards in each evaluation phase. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "plan.rhm" open
@@ -35,7 +35,7 @@ fun guarded_roots(sink :: RsimSink, schedule :: RsimSchedule) :: List.of(Nat):
   match sink.kind
   | "register":
       def reg = schedule.registers[sink.index]
-      if !sink.array && (reg.reset != #false || schedule.steps[reg.next_value].opcode == "rtl.mux_lookup")
+      if !sink.array && (reg.reset != #false || schedule.steps[reg.next_value].opcode in ["rtl.mux_lookup", "rtl.onehot_mux"])
       | [reg.next_value]
       | []
   | "foreign": schedule.foreign_calls[sink.index].arguments
@@ -107,7 +107,7 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
           when cost + amount <= budget
           | absorbed.add(value)
             cost := cost + amount
-            if step.opcode == "rtl.mux_lookup"
+            if step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
             | for (operand in step.operands.drop(1)):
                 next_path := next_path + 1
                 request(operand, next_path)
@@ -159,7 +159,7 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
   def conditionals = MutableMap{}
   for (offset in 0..body.steps.length()):
     def value = body.steps[body.steps.length() - 1 - offset]
-    when !(value in removed) && schedule.steps[value].opcode == "rtl.mux_lookup"
+    when !(value in removed) && schedule.steps[value].opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
     | def selected = plan([value], evaluation.dependencies[value], value)
       when selected | conditionals[value] := selected
   RsimEvaluation(body.steps.filter(~keep: fun (value): !(value in removed)), sinks.snapshot(), conditionals.snapshot())

@@ -20,6 +20,7 @@ class RsimRegionCache(regions :: Set, invalidations :: Map, words :: Nat)
 /* Classify retained pointer slots from their actual producers and branch backing.
    Decode rows and constant roots have static lifetime. Projections preserve that
    lifetime, and a borrowed mux is safe only when every possible arm is immutable.
+   One-hot selection's implicit zero fallback also has static lifetime.
    Owned scratch pointers remain excluded: copying a model would leave them
    pointing into the original object. Process producers before borrowed chains. */
 fun immutable_borrows(schedule :: RsimSchedule, regions :: List.of(RsimRegion),
@@ -35,7 +36,7 @@ fun immutable_borrows(schedule :: RsimSchedule, regions :: List.of(RsimRegion),
       when slot && slot.indirect
       | def step = schedule.steps[value]
         when aggregate_decode(step)
-          || (step.opcode == "rtl.mux_lookup" && (for all (operand in step.operands.drop(1)): immutable_reference(operand)))
+          || (step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"] && (for all (operand in step.operands.drop(1)): immutable_reference(operand)))
         | immutable.add(slot)
   immutable.snapshot()
 

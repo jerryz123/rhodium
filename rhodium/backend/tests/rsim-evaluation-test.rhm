@@ -425,6 +425,32 @@ check:
   emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains(" = &(") ~is #false
   emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint8_t, 2>, ") ~is #true
 
+// One-hot aggregate results use the same stable backing rule. With no private
+// arm work, their boundary can point to an input, a constant, or the zero fallback.
+def onehot_design = Design()
+def onehot_builder = Builder(onehot_design)
+def onehot_top = onehot_builder.module("BoundaryOnehot")
+def onehot_select = onehot_builder.input(onehot_top, "select", Bits(2))
+def onehot_data = onehot_builder.input(onehot_top, "data", borrow_type)
+def onehot_constant = onehot_builder.cast(onehot_top, onehot_builder.constant(onehot_top, Bits(10), 37), borrow_type)
+def onehot_mux = onehot_builder.onehot_mux(onehot_top, onehot_select, [onehot_data, onehot_constant])
+onehot_builder.drive(onehot_builder.output(onehot_top, "result", borrow_type), onehot_mux)
+def onehot_other = onehot_builder.cast(onehot_top, onehot_builder.constant(onehot_top, Bits(10), 19), borrow_type)
+def onehot_immutable = onehot_builder.onehot_mux(onehot_top, onehot_select, [onehot_constant, onehot_other])
+onehot_builder.drive(onehot_builder.output(onehot_top, "immutable", borrow_type), onehot_immutable)
+onehot_builder.finish(onehot_top)
+def onehot_schedule = build_schedule(prepare_rtl(DesignElaboration(onehot_design, onehot_top)).rtl)
+def onehot_evaluation = plan_conditionals(onehot_schedule, build_evaluation_plan(onehot_schedule))
+def onehot_regions = build_regions(onehot_schedule, onehot_evaluation, onehot_evaluation.outputs, ~budget: 1)
+def onehot_layout = boundary_layout(onehot_regions, onehot_schedule, CppTypes(), onehot_evaluation.constants)
+def onehot_cache = plan_region_cache(onehot_schedule, onehot_evaluation, onehot_regions, onehot_layout)
+check:
+  onehot_evaluation.outputs.conditionals ~is Map{}
+  scratch_slot(onehot_layout.bindings[onehot_schedule.outputs[0].value]).indirect ~is #true
+for (output in onehot_schedule.outputs, number in 0..onehot_schedule.outputs.length()):
+  def producer = onehot_regions.index(onehot_regions.find(fun (region): output.value in region.steps))
+  check: producer in onehot_cache.regions ~is (number == 1)
+
 // A boundary vector fills its unique slot before binding the result. The same
 // constructor remains an ordinary initializer when it is helper-local.
 def vector_step = borrow_schedule.steps.index(borrow_schedule.steps.find(fun (step): step.opcode == "rtl.vector_create"))
@@ -638,7 +664,7 @@ for (indirect in [#false, #true]):
 // Conditional consumers retain complete external dependencies even when helper
 // splitting separates every producer. Shared output/control values stay live;
 // the native companion observes actual skipped multiply executions and retries.
-for (program in [make_branches(), make_conditionals()]):
+for (program in [make_branches(), make_conditionals(), make_conditionals(~onehot_width: 3), make_conditionals(~onehot_width: 65)]):
   def planned = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(program).rtl)))
   def base = build_evaluation_plan(planned)
   for (limit in [24, 4096]):

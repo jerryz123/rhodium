@@ -83,7 +83,7 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def selector_type = steps[step.operands[0]].type
       def cases = for List (value in args.drop(1), index in 0..(args.length() - 1)):
         types.bit_test(selector_type, args[0], index) ++ " ? " ++ value ++ " : "
-      String.join(cases, "") ++ types.name(step.type) ++ "{}"
+      String.join(cases, "") ++ (if record_type(step.type) || vector_type(step.type) | types.constant_reference(step.type, 0) | types.name(step.type) ++ "{}")
   | step.opcode == "rtl.decode" && step.attributes.has_key("rsim_table"):
       def table = types.decode_reference(step.type, step.attributes["rsim_table"])
       "*" ++ table ++ "_rows[" ++ table ++ "[" ++ args[0] ++ "]]"
@@ -158,7 +158,8 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       String.join(cases, "") ++ args[1]
   | ~else: error(~who: #'rsim, "missing expression renderer for " ++ step.opcode)
 
-/* Collect planned constants and aggregate decode rows into one immutable pool.
+/* Collect planned constants, aggregate decode rows, and one-hot zero fallbacks
+   into one immutable pool. Borrowed selections must never refer to temporaries.
    Only unconditional constant steps receive step-to-symbol bindings: a decode
    must still select its row on every evaluation. */
 fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: CppTypes) :: Map:
@@ -168,6 +169,8 @@ fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: 
     | bindings[index] := types.constant_reference(step.type, constant_values[index])
     when step.attributes.has_key("rsim_table")
     | types.decode_reference(step.type, step.attributes["rsim_table"])
+    when step.opcode == "rtl.onehot_mux" && (record_type(step.type) || vector_type(step.type))
+    | types.constant_reference(step.type, 0)
     when aggregate_decode(step)
     | for (row in step.attributes["cases"]): types.constant_reference(step.type, row[2] bits.and row[3])
       types.constant_reference(step.type, step.attributes["default_value"] bits.and step.attributes["default_care"])
@@ -239,7 +242,7 @@ fun emit_branch_producer(value :: Nat, absorbed :: Set, steps :~ List.of(RsimSte
                          constants :: Map, source :: MutableList, indent :: String, emitted :: MutableSet):
   when value in absorbed && !(value in emitted)
   | def step = steps[value]
-    if step.opcode == "rtl.mux_lookup"
+    if step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
     | source.add(indent ++ types.name(step.type) ++ " " ++ ref(value) ++ ";")
       emit_branch_assignment(value, absorbed, ref(value), steps, types, constants, source, indent, emitted)
     | for (operand in step.operands): emit_branch_producer(operand, absorbed, steps, types, constants, source, indent, emitted)
@@ -247,23 +250,32 @@ fun emit_branch_producer(value :: Nat, absorbed :: Set, steps :~ List.of(RsimSte
     emitted.add(value)
 
 /* Evaluate only the selected pure cone, assigning the complete destination on
-   every path, including holds. Lookup order and the default match expression
-   emission; current state remains immutable throughout all conditional work. */
+   every path, including holds. Lookup defaults and first-set-bit/zero one-hot
+   choices match expression emission; current state remains immutable throughout all conditional work. */
 fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, steps :~ List.of(RsimStep),
                            types :: CppTypes, constants :: Map, source :: MutableList, indent :: String, emitted :: MutableSet):
   def step = steps[value]
-  if value in absorbed && step.opcode == "rtl.mux_lookup"
-  | def selector = step.operands[0]
-    for (key in step.attributes["keys"], branch in 0..step.attributes["keys"].length()):
-      source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
-      emit_branch_assignment(step.operands[branch + 2], absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
-      source.add(indent ++ "}")
-    when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
-    emit_branch_assignment(step.operands[1], absorbed, target, steps, types, constants, source,
-                           indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""), emitted)
-    when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
-  | emit_branch_producer(value, absorbed, steps, types, constants, source, indent, emitted)
-    source.add(indent ++ target ++ " = " ++ ref(value) ++ ";")
+  cond
+  | value in absorbed && step.opcode == "rtl.mux_lookup":
+      def selector = step.operands[0]
+      for (key in step.attributes["keys"], branch in 0..step.attributes["keys"].length()):
+        source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
+        emit_branch_assignment(step.operands[branch + 2], absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
+        source.add(indent ++ "}")
+      when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
+      emit_branch_assignment(step.operands[1], absorbed, target, steps, types, constants, source,
+                             indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""), emitted)
+      when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
+  | value in absorbed && step.opcode == "rtl.onehot_mux":
+      def selector = step.operands[0]
+      for (operand in step.operands.drop(1), branch in 0..(step.operands.length() - 1)):
+        source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ types.bit_test(steps[selector].type, ref(selector), branch) ++ ") {")
+        emit_branch_assignment(operand, absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
+        source.add(indent ++ "}")
+      source.add(indent ++ "else {\n" ++ indent ++ "  " ++ target ++ " = {};\n" ++ indent ++ "}")
+  | ~else:
+      emit_branch_producer(value, absorbed, steps, types, constants, source, indent, emitted)
+      source.add(indent ++ target ++ " = " ++ ref(value) ++ ";")
 
 /* Materialize a scheduled conditional result in owned local or scratch storage.
    Branch-local references cannot escape their scope; consumers see one fully

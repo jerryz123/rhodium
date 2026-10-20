@@ -231,8 +231,10 @@ int main() {{
 '''
 
 
-def run_conditional_suite(work, run, compare, differential):
-    original = (work / 'RsimConditionals.cpp').read_text()
+def run_conditional_suite(work, run, compare, differential, onehot_width=None):
+    fixture = "RsimConditionals" + (str(onehot_width) if onehot_width else "")
+    label = fixture.lower()
+    original = (work / f'{fixture}.cpp').read_text()
     for index, name in enumerate(CONDITIONAL_PROBES):
         # Input identities survive schedule renumbering and helper splitting.
         port = re.escape('inputs.p' + name.replace('_', '_u'))
@@ -247,19 +249,19 @@ def run_conditional_suite(work, run, compare, differential):
         original, count = re.subn(pattern, rf'  ++rsim_conditional_evaluations[{index}];\n\1', original)
         if count == 0:
             raise AssertionError(f'no computation probe for {name}')
-    source = work / 'conditionals-instrumented.cpp'
+    source = work / f'{label}-instrumented.cpp'
     source.write_text('#include <array>\nextern std::array<unsigned, 9> rsim_conditional_evaluations;\n' + original)
-    main = work / 'conditionals-main.cpp'
-    main.write_text(conditional_driver(True))
+    main = work / f'{label}-main.cpp'
+    main.write_text(conditional_driver(True).replace('RsimConditionals', fixture))
     run(shlex.split(os.environ.get('CXX', 'c++')) +
         ['-std=c++17', '-O0', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
-         '-fno-sanitize-recover=all', str(source), str(main), '-o', str(work / 'conditionals-native')], work, 'conditionals-build')
+         '-fno-sanitize-recover=all', str(source), str(main), '-o', str(work / f'{label}-native')], work, f'{label}-build')
     stimulus, expected = conditional_stimuli()
-    compare(run([str(work / 'conditionals-native')], work, 'conditionals-native', stimulus), expected, 'rsim conditionals')
+    compare(run([str(work / f'{label}-native')], work, f'{label}-native', stimulus), expected, 'rsim conditionals')
     if differential:
-        reference = work / 'conditionals-reference.cpp'
-        reference.write_text(conditional_driver(False))
-        run(['verilator', '--cc', '--exe', '--build', '--assert', '-j', '2', '--top-module', 'RsimConditionals',
-             '--Mdir', str(work / 'conditionals-obj'), str(work / 'RsimConditionals.sv'), str(reference)], work, 'conditionals-verilator')
-        compare(run([str(work / 'conditionals-obj/VRsimConditionals')], work, 'conditionals-reference', stimulus), expected, 'SV conditionals')
+        reference = work / f'{label}-reference.cpp'
+        reference.write_text(conditional_driver(False).replace('RsimConditionals', fixture))
+        run(['verilator', '--cc', '--exe', '--build', '--assert', '-j', '2', '--top-module', fixture,
+             '--Mdir', str(work / f'{label}-obj'), str(work / f'{fixture}.sv'), str(reference)], work, f'{label}-verilator')
+        compare(run([str(work / f'{label}-obj/V{fixture}')], work, f'{label}-reference', stimulus), expected, 'SV conditionals')
     return len(expected)

@@ -246,8 +246,8 @@ When adding a storage-reading step or a pre-edge consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
 After evaluation planning, `plan_conditionals` applies one ownership rule to
-both pre-edge and output bodies. A lookup mux owns pure producers whose uses
-all belong to one branch path; its result remains available to every consumer.
+both pre-edge and output bodies. Lookup and one-hot muxes own pure producers whose
+uses all belong to one branch path; their results remain available to every consumer.
 Explicit register reset, memory-port, foreign-call, and assertion guards can also
 own exclusive
 data operands. Uses are counted independently in each body, including repeated
@@ -273,7 +273,11 @@ Moved work is bounded per owner by the same step-cost estimate as regions
 unconditional, retaining existing helper splitting. Each owner is one atomic
 region item; its cost includes moved producers and its external leaves replace
 the original dependencies before boundary/storage planning. Nested muxes follow
-lookup priority. Conditional mux results own their storage so branch-local
+lookup priority or the existing one-hot first-set-bit/zero fallback choices,
+including selectors wider than a machine word. Unconditional one-hot aggregate
+selections can borrow stable arm storage,
+including a pooled zero fallback; only proven evaluation-long backing may cross
+a helper boundary. Conditional mux results own their storage so branch-local
 references cannot escape. Register paths assign the complete inactive-bank
 destination, including holds, with reset precedence. Disabled frame fields and
 synchronous-read results remain initialized. Assertions and DPI retain their
@@ -997,6 +1001,8 @@ producers and mux results, datapath-derived enables, resetless state, model
 copying, and failed-edge retries retain their behavior. Repeated arithmetic uses
 and DPI arguments check that shared branch producers execute once; a producer
 used in alternative mux arms checks that sharing cannot escape branch scope.
+The same conditional scoreboard runs with lookup, 3-bit one-hot, and 65-bit
+one-hot selections, with the default choice on the highest bit.
 Paired consumers check shared-guard computation counts for registers, calls,
 assertions, reads, and writes. A 256-entry peer memory checks byte-sized frame
 addresses at the carrier limit.

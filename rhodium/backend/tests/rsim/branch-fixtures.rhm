@@ -49,10 +49,23 @@ fun make_branches():
   b.finish(top)
   DesignElaboration(design, top)
 
-fun make_conditionals():
+fun make_conditionals(~onehot_width: onehot_width :: maybe(PosInt) = #false):
   def design = Design()
   def b = Builder(design)
-  def top = b.module("RsimConditionals")
+  def top = b.module("RsimConditionals" ++ (if onehot_width | to_string(onehot_width) | ""))
+  // Exercise the same observable contract through lookup, narrow one-hot, or
+  // wide one-hot selection. The default occupies the highest selector bit.
+  fun select_value(selector :: Value, fallback :: Value, cases :: List):
+    if !onehot_width
+    | b.mux_lookup(top, selector, fallback, cases)
+    | def matches = cases.map(fun (entry): b.eq(top, selector, b.constant(top, selector.type, entry[0])))
+      def mutable matched = b.constant(top, Bits(1), 0)
+      for (match in matches): matched := b.bit_or(top, matched, match)
+      def bits = for List (index in 0..onehot_width):
+        if index == onehot_width - 1 | b.bit_not(top, matched) | (if index < matches.length() | matches[index] | b.constant(top, Bits(1), 0))
+      def choices = for List (index in 0..onehot_width):
+        if index == onehot_width - 1 | fallback | (if index < cases.length() | cases[index][1] | b.constant(top, fallback.type, 0))
+      b.onehot_mux(top, b.concat(top, bits.reverse()), choices)
   def clock = b.input(top, "clock", Clock)
   def reset = b.input(top, "reset", Reset)
   def select = b.input(top, "select", Bits(2))
@@ -67,13 +80,13 @@ fun make_conditionals():
     b.mul(top, b.input(top, name, Bits(32)), b.constant(top, Bits(32), 3))
   // Both arms compute; default must also be lazy. Multiple uses of the mux
   // result must not duplicate or eagerly evaluate its exclusive producers.
-  def selected = b.mux_lookup(top, select, products[1], [[1, products[0]], [2, products[2]]])
+  def selected = select_value(select, products[1], [[1, products[0]], [2, products[2]]])
   b.drive(b.output(top, "combined", Bits(32)), b.add(top, selected, products[2]))
   b.drive(b.output(top, "inverted", Bits(32)), b.bit_not(top, selected))
   b.drive(b.output(top, "shared", Bits(32)), products[2])
   // Sharing across alternative paths must not create a reference to a local
   // declared only in the other branch. This producer remains unconditional.
-  def sibling = b.mux_lookup(top, select, b.add(top, products[7], b.constant(top, Bits(32), 1)), [[1, b.bit_not(top, products[7])]])
+  def sibling = select_value(select, b.add(top, products[7], b.constant(top, Bits(32), 1)), [[1, b.bit_not(top, products[7])]])
   b.drive(b.output(top, "sibling", Bits(32)), sibling)
   // Pure register inputs need no hold branch to skip work during reset.
   def captured = b.register(top, "capture_state", Bits(32), clock, reset, b.constant(top, Bits(32), 17))
@@ -106,7 +119,7 @@ fun make_conditionals():
   def imp = b.dpi_import("rsim_conditional_call", ["arg", "again"], [Bits(32), Bits(32)], "result", Bits(32))
   // A shared mux result is declared once in the call guard, and its private
   // branch work remains lazy inside that declaration.
-  def call_arg = b.mux_lookup(top, select, products[4], [[1, raw_call]])
+  def call_arg = select_value(select, products[4], [[1, raw_call]])
   def result = b.dpi_register(top, "held_call", imp, [call_arg, call_arg], clock, call_enable)
   b.drive(b.output(top, "call_result", Bits(32)), result)
   def peer_result = b.dpi_register(top, "held_peer", imp, [call_arg, b.add(top, call_arg, b.constant(top, Bits(32), 2))], clock, call_enable)

@@ -66,5 +66,6 @@ def foreign_result = compile_program(make_foreign(), target)
 for (artifact in foreign_result.artifacts):
   file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
 
-for (artifact in compile_program(make_conditionals(), target).artifacts):
-  file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+for (width in [#false, 3, 65]):
+  for (artifact in compile_program(make_conditionals(~onehot_width: width), target).artifacts):
+    file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})

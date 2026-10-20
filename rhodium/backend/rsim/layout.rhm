@@ -109,7 +109,7 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
       if direct
       | bindings[index] := direct
       | def borrow_mux:
-          step.opcode == "rtl.mux_lookup" && (record_type(step.type) || vector_type(step.type))
+          step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"] && (record_type(step.type) || vector_type(step.type))
             && !region.conditionals.has_key(index)
             && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
         def borrow = aggregate_decode(step) || borrow_mux
