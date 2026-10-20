@@ -1280,49 +1280,6 @@ fun declare_interface_array(name :: String,
   )
   Array(& declarations.map(fun (declaration): declaration[1]))
 
-/*
- * Creates a local, declaration-order-independent pair of complementary
- * endpoint views. The left view accepts the first-role direction and the right view
- * exposes it, with reverse-direction members mirrored.
- */
-fun interface_link(type :: InterfaceType,
-                   name :: String = "interface_link"):
-  validate_interface_declaration(type, type.roles[0])
-  def module_def = kernel.active_module()
-  def mutable left_bindings = []
-  def mutable right_bindings = []
-  for (direction in type.directions):
-    def direction_name = kernel.fresh_name(name ++ "_flow")
-    def place = kernel.wire(direction_name, direction.type)
-    def value = kernel.read(place)
-    def left_entity:
-      if direction.from_role == type.roles[0] | place | value
-    def right_entity:
-      if direction.from_role == type.roles[0] | value | place
-    left_bindings := left_bindings ++ [
-      InterfaceBinding(direction, direction_name, left_entity)
-    ]
-    right_bindings := right_bindings ++ [
-      InterfaceBinding(direction, direction_name, right_entity)
-    ]
-  def handle = InterfaceHandle(
-    InterfaceEndpoint(type,
-                      type.roles[0],
-                      type.roles[1],
-                      left_bindings,
-                      "link-left"),
-    InterfaceEndpoint(type,
-                      type.roles[0],
-                      type.roles[0],
-                      right_bindings,
-                      "link-right")
-  )
-  module_def.add_metadata(
-    interface_link_group_namespace,
-    InterfaceLinkGroup(module_def, name, handle.left, handle.right)
-  )
-  handle
-
 /* Rebinds a concrete child's interface group to its parent-side instance ports. */
 fun endpoint_for_group(instance :: Instance, group :: InterfaceGroup):
   def bindings:
@@ -1617,6 +1574,8 @@ annot.macro 'InterfaceTopologyFields':
 // statically. It supports endpoint fields, endpoint-array indexing, and handle
 // sides without claiming which runtime shape elaboration will produce.
 annot.macro 'InterfaceTopologyResult':
+  let '$(methods :: annot_meta.Parsed)' = 'HardwareMethodFields'
+  def (_methods_predicate, method_infos) = annot_meta.unpack_predicate(methods)
   def endpoint_infos = statinfo_meta.unpack(
     annot_meta.parse_to_packed_statinfo('Endpoint')
   )
@@ -1630,7 +1589,10 @@ annot.macro 'InterfaceTopologyResult':
   )
   annot_meta.pack_predicate(
     'fun (value): value is_a InterfaceEndpoint || value is_a Array || value is_a InterfaceHandle',
-    '(($(statinfo_meta.dot_provider_key), interface_topology_result_dot), ($(statinfo_meta.index_get_key), interface_array_index), ($(statinfo_meta.index_result_key), $(statinfo_meta.pack_index_result(endpoint_infos, []))), ($(statinfo_meta.call_result_key), $call_result))'
+    statinfo_meta.and(
+      '(($(statinfo_meta.dot_provider_key), interface_topology_result_dot), ($(statinfo_meta.index_get_key), interface_array_index), ($(statinfo_meta.index_result_key), $(statinfo_meta.pack_index_result(endpoint_infos, []))), ($(statinfo_meta.call_result_key), $call_result))',
+      method_infos
+    )
   )
 
 /* Exposes the handle's still-open input endpoint shape. */
@@ -1662,11 +1624,12 @@ dot.macro 'interface_handle_dot $left $dot $right':
   | ~else: #false
 
 dot.macro 'interface_topology_result_dot $left $dot $right':
+  ~tail: '$tail ...'
   match right
   | 'left': 'interface_handle_left($left)'
   | 'right': 'interface_handle_right($left)'
   | ~else:
-      'interface_member($left, $(right.to_source_string())) :: InstanceMembers'
+      interface_field_expansion(left, right, '($tail ...)')
 
 annot.macro 'Sink':
   annot_meta.pack_predicate('fun (value): value is_a InterfaceSink')
@@ -1674,6 +1637,50 @@ annot.macro 'Sink':
 // Retains the implementation-facing name while the standard profile exports
 // Endpoint as the public annotation for interface-producing functions.
 annot.macro 'InterfaceFields': 'Endpoint'
+
+/*
+ * Creates a local, declaration-order-independent pair of complementary
+ * endpoint views. The left view accepts the first-role direction and the right view
+ * exposes it, with reverse-direction members mirrored. Preserve the Handle
+ * authoring surface at the factory boundary, including under use_static.
+ */
+fun interface_link(type :: InterfaceType,
+                   name :: String = "interface_link") :: Handle:
+  validate_interface_declaration(type, type.roles[0])
+  def module_def = kernel.active_module()
+  def mutable left_bindings = []
+  def mutable right_bindings = []
+  for (direction in type.directions):
+    def direction_name = kernel.fresh_name(name ++ "_flow")
+    def place = kernel.wire(direction_name, direction.type)
+    def value = kernel.read(place)
+    def left_entity:
+      if direction.from_role == type.roles[0] | place | value
+    def right_entity:
+      if direction.from_role == type.roles[0] | value | place
+    left_bindings := left_bindings ++ [
+      InterfaceBinding(direction, direction_name, left_entity)
+    ]
+    right_bindings := right_bindings ++ [
+      InterfaceBinding(direction, direction_name, right_entity)
+    ]
+  def handle = InterfaceHandle(
+    InterfaceEndpoint(type,
+                      type.roles[0],
+                      type.roles[1],
+                      left_bindings,
+                      "link-left"),
+    InterfaceEndpoint(type,
+                      type.roles[0],
+                      type.roles[0],
+                      right_bindings,
+                      "link-right")
+  )
+  module_def.add_metadata(
+    interface_link_group_namespace,
+    InterfaceLinkGroup(module_def, name, handle.left, handle.right)
+  )
+  handle
 
 /* Projects recursively readable observation members or ordinary hardware record fields. */
 fun interface_observation_member(value :: InterfaceObservation || HardwareEntity,
@@ -1781,32 +1788,38 @@ meta:
       )
     | #false
 
+  /* Resolves endpoint members without intercepting receiver-first method calls,
+     including when a transform's eventual endpoint/array/handle shape is unknown. */
+  fun interface_field_expansion(left :: Syntax, right :: Syntax, tail_syntax :: Syntax):
+    let '($tail ...)' = tail_syntax
+    def precise = interface_member_static_expansion(
+      left,
+      right,
+      statinfo_meta.gather(left)
+    )
+    if precise
+    | precise
+    | match '$right $tail ...'
+      | 'observe() $rest ...':
+          values('observe($left) :: Observation', '$rest ...')
+      | 'lookup($(selector :: expr_meta.Parsed),
+                ~default: $(default_value :: expr_meta.Parsed)) $rest ...': #false
+      | '$(method :: Identifier)($argument, ...) $rest ...': #false
+      | ~else:
+          match right
+          | 'field': #false
+          | 'type': #false
+          | 'role': #false
+          | 'represented_role': #false
+          | 'bindings': #false
+          | 'view': #false
+          | 'observe': 'fun () :~ Observation: observe($left)'
+          | ~else:
+              'interface_member($left, $(right.to_source_string())) :: InstanceMembers'
+
 dot.macro 'interface_field_dot $left $dot $right':
   ~tail: '$tail ...'
-  def precise = interface_member_static_expansion(
-    left,
-    right,
-    statinfo_meta.gather(left)
-  )
-  if precise
-  | precise
-  | match '$right $tail ...'
-    | 'observe() $rest ...':
-        values('observe($left) :: Observation', '$rest ...')
-    | 'lookup($(selector :: expr_meta.Parsed),
-              ~default: $(default_value :: expr_meta.Parsed)) $rest ...': #false
-    | '$(method :: Identifier)($argument, ...) $rest ...': #false
-    | ~else:
-        match right
-        | 'field': #false
-        | 'type': #false
-        | 'role': #false
-        | 'represented_role': #false
-        | 'bindings': #false
-        | 'view': #false
-        | 'observe': 'fun () :~ Observation: observe($left)'
-        | ~else:
-            'interface_member($left, $(right.to_source_string())) :: InstanceMembers'
+  interface_field_expansion(left, right, '($tail ...)')
 
 /* Requires one value and one undriven place of exactly equal type before returning a connection pair. */
 fun validate_interface_entity_pair(left_entity :: Value || Place,
@@ -2883,7 +2896,7 @@ fun inject_interface(type :: InterfaceType,
     bindings,
     #'inject_interface
   )
-  def link :: Handle = interface_link(type, "inject_interface")
+  def link = interface_link(type, "inject_interface")
   def circuit_endpoint:
     if type.provider_role == type.roles[0] | link.left | link.right
   def interface_endpoint :: Endpoint:

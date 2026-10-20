@@ -1203,12 +1203,21 @@ supporting 1-to-1 protocol conversion as well as N-to-M topology without
 adding a protocol concept to core IR. Protocol libraries implement the wiring
 between the internal link ends before constructing the transform.
 
-A binding annotated as `Handle` exposes `.left` and `.right` as endpoint
+`interface_link` returns a `Handle`, so its result exposes `.left` and `.right`
+without a caller-side annotation. A `Handle` exposes those sides as endpoint
 shapes: either one `Endpoint` or a recursively matching endpoint `Array`.
 Static information preserves field access on scalar sides and indexing on
 array sides. This supports named local links such as `Valid(T)` sidebands:
 drive the fields on `.left` and read the corresponding fields on `.right`
 without materializing a circuit instance.
+
+Preserve that information at host collection boundaries too: use
+`List.of(Handle)` or `Array.later_of(Handle)` for generated link collections, and
+`List.of(Endpoint)` or `Array.later_of(Endpoint)` for generated scalar endpoints.
+Typed collections retain element field access through indexing and iteration;
+an ordinary unannotated `for List` result does not promise that surface.
+Conservative topology results also preserve endpoint method dispatch, including
+receiver-first methods such as `.fire()` and the `.observe()` view operation.
 
 - `endpoint |> handle` connects the endpoint to the left end and returns the
   right end while preserving endpoint-shape static information.

@@ -628,7 +628,10 @@ sync_circuit L1DCache(xlen :: XLen,
      S4 reserves the backing engines; blocked S3 work retains its request,
      then rereads instead of consuming stale array data. */
 
-  def s3_can_advance = s4_result.ingress.ready & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !s4_needs_refill & !local_mutation
+  def retained_array_work_idle = !maintenance_active & gather_idle & !refill_installing & !pending_mutation_valid
+  def backing_engines_ready = refill.command.ready & writeback.command.ready
+  def arrays_available = retained_array_work_idle & !s4_needs_refill & !local_mutation
+  def s3_can_advance = s4_result.ingress.ready & arrays_available & backing_engines_ready & !snoop_pending
   // Gating retains blocked requests; only admitted reads enter the elastic S4
   // result register. A stalled request is reread when S4 has capacity.
   def s3_observed = s3_lookup.egress |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
@@ -660,8 +663,7 @@ sync_circuit L1DCache(xlen :: XLen,
      transaction/reservation ownership. A same-line waiter behind the active
      miss owns no array port and need not block independent load hits. */
 
-  def arrays_available = !maintenance_active & gather_idle & !refill_installing & !pending_mutation_valid & !s4_needs_refill & !local_mutation
-  def engines_idle = arrays_available & !miss_active & refill.command.ready & writeback.command.ready
+  def engines_idle = arrays_available & !miss_active & backing_engines_ready
   def parked_same_line_waiter = ordinary_requests.valid & miss_active & ordinary_requests.bits.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & (ordinary_requests.bits.address.align_down(CacheLineBytes) === miss_line_address)
   def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
@@ -748,7 +750,10 @@ sync_circuit L1DCache(xlen :: XLen,
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
-  core.drained <== stores.empty & !stores.enqueue.fire() & !service_request_accept & !service_requests.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid & !pending_mutation_valid & !maintenance_active & !miss_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
+  def store_buffer_quiet = stores.empty & !stores.enqueue.fire()
+  def service_pipeline_empty = !service_requests.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
+  def backing_work_drained = retained_array_work_idle & !miss_active & backing_engines_ready
+  core.drained <== store_buffer_quiet & !service_request_accept & service_pipeline_empty & backing_work_drained
 
 
   /* Shared SRAM port scheduling.

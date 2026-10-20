@@ -113,12 +113,12 @@ fun frame_fixed_flits(flits_per_packet :: PosInt)
     def input_type = flow_payload_type(source)
     def [T] = FixedFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "fixed_flit_input")
-    def input_endpoint :: Endpoint = input_link.right
+    def input_endpoint = input_link.right
     def output_link = interface_link(
       flow_protocol_with_payload(input_protocol, FramedFixedFlit(T)),
       "framed_fixed_flit_output"
     )
-    def output_endpoint :: Endpoint = output_link.left
+    def output_endpoint = output_link.left
     input_endpoint.ready <== output_endpoint.ready
     def transfer = input_endpoint.fire()
     def [first, last] = flit_phase(flits_per_packet, transfer)
@@ -150,12 +150,12 @@ fun require_fixed_framing(flits_per_packet :: PosInt)
     def input_type = flow_payload_type(source)
     def [T] = VariableFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "variable_flit_input")
-    def input_endpoint :: Endpoint = input_link.right
+    def input_endpoint = input_link.right
     def output_link = interface_link(
       flow_protocol_with_payload(input_protocol, FramedFixedFlit(T)),
       "framed_fixed_flit_output"
     )
-    def output_endpoint :: Endpoint = output_link.left
+    def output_endpoint = output_link.left
     input_endpoint.ready <== output_endpoint.ready
     output_endpoint.valid <== input_endpoint.valid
     output_endpoint.bits <== FramedFixedFlit(T):
@@ -175,12 +175,12 @@ fun strip_fixed_framing(flits_per_packet :: PosInt)
     def input_type = flow_payload_type(source)
     def [T] = FramedFixedFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "framed_fixed_flit_input")
-    def input_endpoint :: Endpoint = input_link.right
+    def input_endpoint = input_link.right
     def output_link = interface_link(
       flow_protocol_with_payload(input_protocol, FixedFlit(T)),
       "fixed_flit_output"
     )
-    def output_endpoint :: Endpoint = output_link.left
+    def output_endpoint = output_link.left
     input_endpoint.ready <== output_endpoint.ready
     output_endpoint.valid <== input_endpoint.valid
     output_endpoint.bits <== FixedFlit(T):
@@ -197,12 +197,12 @@ fun forget_fixed_framing()
     def input_type = flow_payload_type(source)
     def [T] = FramedFixedFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "framed_fixed_flit_input")
-    def input_endpoint :: Endpoint = input_link.right
+    def input_endpoint = input_link.right
     def output_link = interface_link(
       flow_protocol_with_payload(input_protocol, VariableFlit(T)),
       "variable_flit_output"
     )
-    def output_endpoint :: Endpoint = output_link.left
+    def output_endpoint = output_link.left
     input_endpoint.ready <== output_endpoint.ready
     output_endpoint.valid <== input_endpoint.valid
     output_endpoint.bits <== VariableFlit(T):

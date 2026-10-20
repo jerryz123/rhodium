@@ -67,21 +67,47 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   launch_calendar.fixed_available <== execution.fixed_admission_available
   launch_calendar.vector_waiting <== vector_request.valid
   available <== launch_calendar.available
-  def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag)))
-  def scalar_variable = variable_issue |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag)))
-  def vector = vector_request |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)), Owner(), request, Owner().Vector(request.tag)))
+
+
+  /* Shared launch selection preserves the RR scalar booking.
+     An unreserved slot fairly chooses scalar variable or vector work. A killed
+     fixed scalar issue does not donate its already booked slot to vector work. */
+
+  def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(request):
+    fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag))
+  def scalar_variable = variable_issue |> map_flow(request):
+    fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag))
+  def vector = vector_request |> map_flow(request):
+    fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)), Owner(), request, Owner().Vector(request.tag))
   def unreserved = Array(scalar_variable, vector) |> rr_arbiter()
   inst selection(GrantMerge(SharedRequest, 2))
   selection.grants <== vec([launch_calendar.reserved, !launch_calendar.reserved]).into(MaybeOneHot(2))
   Array(scalar_fixed, unreserved) <=> selection.ingress
+
+
+  /* Atomic launch, return booking, and vector credit allocation.
+     Every launched vector owner has completion storage; tagged replies return
+     to that owner rather than the current arbitration winner. */
+
   def Array(launch, booking, credit) = selection.egress |> atomic_fork(3)
   launch |> execution.request
-  booking |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool) & (request.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(request => request.control.execution) |> launch_calendar.vector_book
-  credit |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool)) |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), Bits(index_width(slots)), request, request.tag.view(Owner().Vector).payload)) |> vector_returns.request
+  booking
+    |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool) & (request.control.execution.unit =/= FloatUnit.DivideSquareRoot))
+    |> map_flow(request => request.control.execution)
+    |> launch_calendar.vector_book
+  credit
+    |> filter_flow(request => request.tag.is(Owner().Vector).into(Bool))
+    |> map_flow(request => fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), Bits(index_width(slots)), request, request.tag.view(Owner().Vector).payload))
+    |> vector_returns.request
   launch_calendar.vector_accepted <== vector_request.fire()
+
   def Array(scalar_return, vector_return) = execution.result |> demux_flow(2, result => result.tag.is(Owner().Vector).into(Bool))
-  vector_return |> map_flow(result => fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), Bits(index_width(slots)), result, result.tag.view(Owner().Vector).payload)) |> to_valid() |> vector_returns.completion
-  def scalar_result = scalar_return |> map_flow(result => fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), RV2WideFpOwner(xlen), result, result.tag.view(Owner().Scalar).payload))
+  vector_return
+    |> map_flow(result => fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), Bits(index_width(slots)), result, result.tag.view(Owner().Vector).payload))
+    |> to_valid()
+    |> vector_returns.completion
+  def scalar_result = scalar_return |> map_flow(result):
+    fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), RV2WideFpOwner(xlen), result, result.tag.view(Owner().Scalar).payload)
   when (fixed_issue.valid):
     assert(launch_calendar.reserved & selection.ingress[0].ready, "rv2wide_fp_ex_launch_reserved")
 
@@ -118,11 +144,16 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
     address: result.tag.rd
     data: result.fp_value
   ) |> registers.writes[1]
-  // A WB hit cannot wait; the accepted miss response retains its owner under backpressure.
+
+  /* Port zero priority is immediate load hit, retained vector move, then delayed load.
+     A WB hit cannot wait. Vector moves retain their owner until the actual write;
+     an accepted miss response remains backpressured behind either higher priority. */
+
   inst vector_move(OfferRegister(FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))))
   vector_write |> vector_move.update
   def vector_move_result = vector_move.egress |> gate_flow(!load_hit.valid) |> to_valid()
   vector_move_result |> vector_written
+
   def delayed_load = load_return |> gate_flow(!load_hit.valid & !vector_written.valid) |> to_valid()
   def loaded = Array(load_hit, delayed_load) |> valid_arbiter() |> fork_valid(2)
   loaded[0] |> load_write
@@ -132,7 +163,6 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   Array(load_port, vector_move_result) |> valid_arbiter() |> registers.writes[0]
   when (vector_write.valid):
     assert(!vector_move.egress.valid, "rv2wide_vector_fpr_move_retains_one_owner")
-
 
 
   /* Destination reservations and completion forwarding.

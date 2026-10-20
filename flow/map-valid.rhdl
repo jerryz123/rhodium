@@ -43,7 +43,7 @@ expr.macro
          map_valid_input_protocol,
          "map_valid_input"
        )
-       def map_valid_input :: Endpoint = map_valid_input_link.right
+       def map_valid_input = map_valid_input_link.right
        def map_valid_payload_type = valid_flow_payload_type(map_valid_source)
        def map_valid_bits :: Hardware.of(map_valid_payload_type) = map_valid_input.bits
        def mapped_bits = flow_payload_body(

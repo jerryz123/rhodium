@@ -133,10 +133,8 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     continuation_target: prediction.target
     prediction: literal(BranchPrediction(xlen), 0)
   def Array(next_offer, next_update) = next_candidates |> fork_valid(2)
-  def seed :: Handle = interface_link(Valid(RV5StageFetchAttempt(xlen)))
-  seed.left.valid <== Bool(#true)
-  seed.left.bits <== literal(RV5StageFetchAttempt(xlen), 0)
-  def saved = Array(cursor.stored, seed.right) |> valid_arbiter()
+  def seed = inject_interface(Valid(RV5StageFetchAttempt(xlen)), ~valid: Bool(#true), ~bits: literal(RV5StageFetchAttempt(xlen), 0))
+  def saved = Array(cursor.stored, seed) |> valid_arbiter()
   def Array(saved_offer, saved_clear) = saved |> fork_valid(2)
   Array(restart_offer, replay_offer, next_offer, saved_offer) |> valid_arbiter() |> offer.candidate
 

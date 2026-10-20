@@ -106,13 +106,13 @@ expr.macro
          demux_flow_protocol,
          "demux_input"
        )
-       def demux_flow_input :: Endpoint = demux_flow_input_link.right
+       def demux_flow_input = demux_flow_input_link.right
        def demux_flow_selector = flow_payload_body(
          $payload_infos,
          $payload,
          demux_flow_input.bits
        ): $selector
-       def demux_flow_output_links = Array.make(demux_flow_count)
+       def demux_flow_output_links :: Array.later_of(Handle) = Array.make(demux_flow_count)
        for (index in 0..demux_flow_count):
          demux_flow_output_links[index] := interface_link(
            demux_flow_output_protocol,

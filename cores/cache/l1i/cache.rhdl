@@ -263,15 +263,14 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     mask: dont_care(Mask(data_lanes))
   // The installation sequencer is a real producer: each held completion
   // generates several writes before its own transfer can finish.
-  def line_install :: Handle = interface_link(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)))
-  line_install.left.valid <== refill_install_word
-  line_install.left.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
+  def line_install_bits = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: completion_set ++ refill_install_index
     write: Bool(#true)
     data: vec(line_write_bytes)
     mask: line_write_mask
-  assert(!(line_read_commands.valid & line_install.right.valid), "l1i_data_ports_exclusive")
-  Array(line_install.right, line_read_commands) |> valid_arbiter() |> lines.port.request
+  def line_install = inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: refill_install_word, ~bits: line_install_bits)
+  assert(!(line_read_commands.valid & line_install.valid), "l1i_data_ports_exclusive")
+  Array(line_install, line_read_commands) |> valid_arbiter() |> lines.port.request
 
 
   /* Resident publication and replacement updates

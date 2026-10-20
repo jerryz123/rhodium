@@ -215,6 +215,11 @@ for cosmetic consistency. Conversely, do not mark an observable result as
   Do not add storage, handshake conversions, or register stages just to make a
   source pipeline look uniform. Retained protocol owners can require explicit
   state beyond a feed-forward Flow pipeline.
+- Preserve endpoint and handle information in producer return annotations and
+  typed host collections rather than reannotating each element at use sites.
+  Use `inject_interface` and `eject_interface` for ordinary signal/flow
+  boundaries; keep explicit links where topology or custom ownership contracts
+  need both endpoint views.
 
 ## Types, widths, and operators
 

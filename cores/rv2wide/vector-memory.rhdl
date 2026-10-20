@@ -53,6 +53,11 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   output outcome_guest: RiscvGuestFault()
   output(idle, requests_idle, pipeline_physical, request_physical): Bool
 
+
+  /* Certified request retention and precise bypass.
+     Recovery flushes unaccepted attempt stages; retry rewinds the retained ring.
+     Accepted return and split owners survive. Durable capture reports authorization. */
+
   wire recover: Bool
   wire retry: Bool
   wire resolved: Bool
@@ -80,6 +85,11 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: token.address
+
+
+  /* EX: Shape the selected beat and launch its fixed-cycle lookup.
+     Certified addresses bypass pointer masking; misaligned beats defer to WB. */
+
   def address = mux(ex.bits.precertified, ex.bits.physical_address, apply_pointer_mask(xlen, ex.bits.address, pointer_masking))
   pipeline_physical <== ex.bits.precertified
   def width = ex.bits.memory_width.into(MemoryWidth)
@@ -99,6 +109,11 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     guest_access: RiscvGuestMemoryAccess.Normal
   def misaligned = ex.bits.enabled & !width.is_aligned(address)
   ex |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
+
+
+  /* MEM: Pair the retained beat with the lookup result.
+     A missing result or misaligned attempt takes the slow path, never a hit. */
+
   def mem = (
     ex |> map_valid(token => Attempt()):
       token: token
@@ -110,6 +125,12 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
       attempt: attempt
       response: pipeline.response.bits.updated(~outcome: mux(pipeline.response.valid & !attempt.misaligned, pipeline.response.bits.outcome, RV2WideCacheOutcome.Slow))
   ) |> valid_pipe(1, ~flush: recover)
+
+
+  /* WB: Authorize stores and offer ordinary or split slow work.
+     Request eligibility precedes admission/fault outcomes. Reserve response
+     capacity before accepting work that cannot later be canceled. */
+
   def attempt = wb.bits.attempt
   def token = attempt.token
   request_physical <== token.precertified
@@ -132,6 +153,11 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     context: Bool(#false)
     locality: decision.attempt.request.locality
   ) |> offer_decoupled() |> split.request
+
+
+  /* Accepted ordinary responses retain extraction geometry.
+     Join each raw word with its queued tag, width, and byte offset, not live WB. */
+
   def accepted = memory.request.fire()
   owners.ingress.valid <== accepted
   owners.ingress.bits <== ReturnOwner():
@@ -147,6 +173,12 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     VectorCompletion(xlen, slots):
       tag: owner.tag
       data: returned_data.value
+
+
+  /* Split completion resolves the captured attempt.
+     A successful response has reserved completion capacity; faults retain
+     their exact address and guest provenance for architectural reporting. */
+
   def returned_split = split.response.valid & split_pending
   def split_fault = split.response.bits.page_fault ||| split.response.bits.guest.page_fault ||| split.response.bits.response.access_fault
   split_returns.ingress.valid <== returned_split & !split_fault
@@ -161,10 +193,20 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     split_token <== attempt
   elsewhen returned_split:
     split_pending <== Bool(#false)
+
+
+  /* WB recovery and immediate completion.
+     Faults suppress retries. Completion backpressure retries only the certified
+     ring; a committed store retains an acknowledgement instead of retrying. */
+
   def lookup_fault = access & wb.bits.response.outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.GuestPageFault, RV2WideCacheOutcome.AccessFault)
   def admission_fault = memory.request.valid & memory.fault.valid
   def fault = lookup_fault ||| admission_fault
-  def access_retry = access & !fault & (memory.ordered_busy ||| (wb.bits.response.outcome === RV2WideCacheOutcome.Replay) ||| (ordinary & !accepted) ||| (store_hit & !store_commit) ||| (store_commit & !pipeline.commit_ready) ||| (split_attempt & !split.request.fire()))
+  def lookup_retry = wb.bits.response.outcome === RV2WideCacheOutcome.Replay
+  def ordinary_retry = ordinary & !accepted
+  def store_retry = (store_hit & !store_commit) ||| (store_commit & !pipeline.commit_ready)
+  def split_retry = split_attempt & !split.request.fire()
+  def access_retry = access & !fault & (memory.ordered_busy ||| lookup_retry ||| ordinary_retry ||| store_retry ||| split_retry)
   def hit = wb.valid & !slow & !fault & !access_retry
   inst hit_data(LoadGen(xlen, xlen.width / 8))
   hit_data.address <== attempt.request.address
@@ -189,6 +231,12 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   when (wb.valid & token.precertified):
     assert(!fault & !attempt.misaligned, "rv2wide_certified_vector_request_is_aligned_and_nonfaulting")
     assert(queued & (token.completion_tag === replay.oldest.completion_tag), "rv2wide_vector_retry_resolves_oldest_request")
+
+
+  /* Architectural outcomes distinguish retry, truncation, and fault.
+     Immediate admission faults override lookup details; split outcomes use
+     their retained owner. Certified capture and precise feedback are exclusive. */
+
   def page_fault = wb.bits.response.outcome === RV2WideCacheOutcome.PageFault
   def guest_page_fault = wb.bits.response.outcome === RV2WideCacheOutcome.GuestPageFault
   /* Selects the architectural fault class using the retained operation, never live scalar state. */
@@ -197,19 +245,24 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
       guest: mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
       page: mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
   def lookup_cause = fault_cause(token.store, page_fault, guest_page_fault)
+  def fault_disposition = mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
+  def immediate_disposition = priority_mux(~default: VectorDisposition.Authorized):
+    access_retry: VectorDisposition.Retry
+    fault: fault_disposition
   def immediate = wb |> filter_valid(_decision => !token.precertified & !split.request.fire()) |> map_valid(decision => VectorCommit(xlen, slots)):
     tag: decision.attempt.token.completion_tag
     pc: decision.attempt.token.context
-    disposition: mux(access_retry, VectorDisposition.Retry, mux(fault, mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault), VectorDisposition.Authorized))
+    disposition: immediate_disposition
     slow: accepted
     data: hit_value
     cause: mux(admission_fault, memory.fault.bits.cause, lookup_cause)
     fault_address: mux(admission_fault, memory.fault.bits.value, decision.attempt.request.address)
   def split_cause = fault_cause(split_token.token.store, split.response.bits.page_fault, split.response.bits.guest.page_fault)
+  def split_fault_disposition = mux(split_token.token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
   def split_decision = split.response |> filter_valid(_result => split_pending) |> map_valid(result => VectorCommit(xlen, slots)):
     tag: split_token.token.completion_tag
     pc: split_token.token.context
-    disposition: mux(split_fault, mux(split_token.token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault), VectorDisposition.Authorized)
+    disposition: mux(split_fault, split_fault_disposition, VectorDisposition.Authorized)
     slow: !split_fault
     data: result.response.data
     cause: split_cause
@@ -217,8 +270,16 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def Array(decision, retirement) = Array(immediate, split_decision) |> valid_arbiter() |> fork_valid(2)
   Array(durable, decision) |> valid_arbiter() |> feedback
   assert(!(durable.valid & decision.valid), "rv2wide_vector_capture_and_precise_feedback_are_exclusive")
-  retirement |> filter_valid(event => (event.disposition =/= VectorDisposition.Retry) & (mux(returned_split, split_token.token.last, token.last) ||| event.disposition.is_one_of(VectorDisposition.Fault, VectorDisposition.Truncate))) |> outcome
-  outcome_guest <== mux(returned_split, split.response.bits.guest.details, mux(admission_fault, memory.fault.bits.guest, wb.bits.response.guest))
+  def last_beat = mux(returned_split, split_token.token.last, token.last)
+  retirement |> filter_valid(event => (event.disposition =/= VectorDisposition.Retry) & (last_beat ||| event.disposition.is_one_of(VectorDisposition.Fault, VectorDisposition.Truncate))) |> outcome
+  outcome_guest <== priority_mux(~default: wb.bits.response.guest):
+    returned_split: split.response.bits.guest.details
+    admission_fault: memory.fault.bits.guest
+
+
+  /* Quiescence includes accepted owners as well as unaccepted attempts.
+     A drained attempt pipeline alone does not release outstanding responses. */
+
   requests_idle <== !queued & !ex.valid & !mem.valid & !wb.valid & !split_pending
   idle <== requests_idle & !owners.count.or_reduce() & !split_returns.count.or_reduce() & !store_ack.pending
   assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")

@@ -58,8 +58,8 @@ expr.macro
          zip_right_protocol,
          "zip_right"
        )
-       def zip_left_endpoint :: Endpoint = zip_left_link.right
-       def zip_right_endpoint :: Endpoint = zip_right_link.right
+       def zip_left_endpoint = zip_left_link.right
+       def zip_right_endpoint = zip_right_link.right
        def $left_payload = zip_left_endpoint.bits
        def $right_payload = zip_right_endpoint.bits
        /* Evaluates the inline mapping with both input payloads bound. */

@@ -16,6 +16,30 @@ sync_circuit FlowStaticInformation():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   input shift_flush: Bool
 
+  def local_link = interface_link(Valid(Bits(8)), "typed_local")
+  def local_valid_place = local_link.left.valid
+  def local_bits_value = local_link.right.bits
+  def generated_links :: List.of(Handle) = for List (index in 0..2):
+    interface_link(Valid(Bits(8)), "typed_local_" ++ to_string(index))
+  def generated_valid_place = generated_links[0].left.valid
+  def generated_endpoints :: List.of(Endpoint) = for List (link in generated_links): link.right
+  def generated_bits = generated_endpoints[1].bits
+  def generated_array :: Array.later_of(Handle) = for Array (index in 0..2):
+    interface_link(Valid(Bits(8)), "typed_array_" ++ to_string(index))
+  def generated_array_bits = generated_array[0].right.bits
+  def ready_valid_link = interface_link(Decoupled(Bits(8)), "typed_ready_valid")
+  def mapped_endpoint = ready_valid_link.right |> map_flow(payload => payload)
+  def mapped_transfer = mapped_endpoint.fire()
+  def mapped_observation = mapped_endpoint.observe()
+  fun conservative_endpoint(endpoint :: Endpoint) :~ InterfaceTopologyResult:
+    endpoint
+  def conservative_mapped = conservative_endpoint(mapped_endpoint)
+  def conservative_transfer = conservative_mapped.fire()
+  def conservative_observation = conservative_mapped.observe()
+  for (endpoint in generated_endpoints):
+    def valid = endpoint.valid
+    #void
+
   def ready_valid_protocol :: FlowSource.to_ready_valid_protocol = Bits(8)
   def valid_protocol :: FlowSource.to_valid_protocol = Bits(8)
   def control_protocol :: FlowSource.to_control_protocol = DecoupledCtrl()

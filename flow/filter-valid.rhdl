@@ -41,7 +41,7 @@ expr.macro
          filter_valid_protocol,
          "filter_valid_input"
        )
-       def filter_valid_input :: Endpoint = filter_valid_input_link.right
+       def filter_valid_input = filter_valid_input_link.right
        def filter_valid_keep :: Bool = flow_payload_body(
          $payload_infos,
          $payload,

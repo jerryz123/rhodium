@@ -58,7 +58,7 @@ expr.macro
          map_flow_input_protocol,
          "map_input"
        )
-       def map_flow_input :: Endpoint = map_flow_input_link.right
+       def map_flow_input = map_flow_input_link.right
        def mapped_bits = flow_payload_body(
          $payload_infos,
          $payload,

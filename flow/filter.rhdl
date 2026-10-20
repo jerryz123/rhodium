@@ -43,7 +43,7 @@ expr.macro
          filter_flow_protocol,
          "filter_input"
        )
-       def filter_flow_input :: Endpoint = filter_flow_input_link.right
+       def filter_flow_input = filter_flow_input_link.right
        def filter_flow_keep :: Bool = flow_payload_body(
          $payload_infos,
          $payload,

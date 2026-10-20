@@ -69,8 +69,8 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
     value: result.value
   ) |> vector_returns.completion
   vector_returns.response |> vector_result
-  def wb_owner :: Endpoint = issue |> valid_pipe(2)
-  def returned :: Endpoint = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
+  def wb_owner = issue |> valid_pipe(2)
+  def returned = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(operation):
     def product = execution.result.bits.value
     def value = mux(operation.control.high_result, product[xlen.width..2 * xlen.width], product[0..xlen.width])

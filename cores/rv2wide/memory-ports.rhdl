@@ -26,6 +26,11 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
   output split_guest_access: RiscvGuestMemoryAccess
   output(pipeline_vector, request_vector): Bool
 
+
+  /* Fixed-cycle lookup and store-candidate ownership.
+     Scalar EX wins each lookup; MEM routes its response and WB qualifies commit.
+     These stage registers do not track accepted slow-memory requests. */
+
   pipeline_vector <== !scalar_pipeline.request.valid
   Array(scalar_pipeline.request, vector_pipeline.request) |> valid_arbiter() |> pipeline.request
   reg mem_vector(~init: Bool(#false))
@@ -42,6 +47,11 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
   scalar_pipeline.commit_ready <== wb_valid & !wb_vector & pipeline.commit_ready
   vector_pipeline.commit_ready <== wb_valid & wb_vector & pipeline.commit_ready
 
+
+  /* Accepted slow-memory owners and ordered replies.
+     Queue the chosen client atomically with acceptance, then consume that
+     owner with its response. Admission faults use the live choice; replies never do. */
+
   inst requests(RRArbiter(RV2WideMemoryReq(xlen, xlen.width), 2))
   inst owners(Queue(Bool, 16))
   Array(scalar_memory.request, vector_memory.request) <=> requests.ingress
@@ -51,6 +61,7 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
   owner |> map_flow(_request => request_vector) |> owners.ingress
   memory.fault |> filter_valid(_fault => !request_vector) |> scalar_memory.fault
   memory.fault |> filter_valid(_fault => request_vector) |> vector_memory.fault
+
   /* Keeps each raw beat paired with the client selected at acceptance. */
   bundle Response():
     data: Bits(xlen.width)
@@ -64,10 +75,16 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
     (Decoupled(Response()) |> map_flow(response => response.data)) |> scalar_memory.response,
     (Decoupled(Response()) |> map_flow(response => response.data)) |> vector_memory.response
   )
+
   for (client in [scalar_memory, vector_memory]):
     client.drained <== memory.drained & !owners.count.or_reduce()
     client.ordered_busy <== memory.ordered_busy
     client.reservation_valid <== memory.reservation_valid
+
+
+  /* Split ownership spans the entire fragment sequence.
+     Capture the client at request transfer and release only on final response;
+     subsequent offers and speculative recovery cannot redirect that response. */
 
   inst fragments(RRArbiter(split.request.bits.type, 2))
   Array(scalar_split.request, vector_split.request) <=> fragments.ingress

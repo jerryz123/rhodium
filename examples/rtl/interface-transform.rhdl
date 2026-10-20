@@ -41,8 +41,8 @@ interface EventChannel():
 fun rename_channel()
   :: ((source :: Any) -> InterfaceTransformResult(source, Endpoint)):
   fun (source) :~ InterfaceTransformResult(source, Endpoint):
-    def input_link :: Handle = interface_link(CommandChannel(), "rename_input")
-    def output_link :: Handle = interface_link(RenamedChannel(), "rename_output")
+    def input_link = interface_link(CommandChannel(), "rename_input")
+    def output_link = interface_link(RenamedChannel(), "rename_output")
     input_link.right.accepted <== output_link.left.ready
     output_link.left.payload <== input_link.right.command
     finish_interface_transform(
@@ -54,11 +54,10 @@ fun rename_channel()
 fun duplicate_event(outputs :: PosInt)
   :: ((source :: Any) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source) :~ InterfaceTransformResult(source, InterfaceArrayFields):
-    def input_link :: Handle = interface_link(EventChannel(), "event_input")
-    def output_links = for Array (index in 0..outputs):
+    def input_link = interface_link(EventChannel(), "event_input")
+    def output_links :: Array.later_of(Handle) = for Array (index in 0..outputs):
       interface_link(EventChannel(), "event_output_" ++ to_string(index))
-    for (index in 0..output_links.length()):
-      def output_link :: Handle = output_links[index]
+    for (output_link in output_links):
       output_link.left.payload <== input_link.right.payload
     finish_interface_transform(
       source,

@@ -228,6 +228,19 @@ remain available under `use_static` without corrective `:: Endpoint`
 annotations. The contributor guide explains the
 [shared implementation of that propagation](DEVELOPING.md#static-information-and-topology-results).
 
+Keep generated host collections typed at their construction boundary rather
+than reannotating each selected element:
+
+```rhombus
+def links :: List.of(Handle) = for List (index in 0..2):
+  interface_link(Valid(Bits(8)), "link" ++ to_string(index))
+def outputs :: List.of(Endpoint) = for List (link in links): link.right
+```
+
+The factory already returns `Handle`; direct calls need no corrective
+annotation. Existing `List.of(Endpoint)` parameters likewise preserve endpoint
+field access in loop binders without an intermediate typed alias.
+
 A direct pipeline also carries the left endpoint's exact payload surface into
 the inline binders of `map_flow`, `filter_flow`, `demux_flow`, `map_valid`,
 `filter_valid`, `selective_atomic_fork`, and named event captures. Under
@@ -440,6 +453,9 @@ admission without changing the functional offer.
 
 Use the interface layer's generic `inject_interface(protocol, ...)` and
 `eject_interface(...)` boundaries to connect circuit wires to flow stages.
+Use explicit local links when implementing a transform or a custom retained
+ownership/trace boundary that needs both endpoint views; ordinary signal-to-flow
+boundaries need not manually assign a link's `.left` fields.
 Each named binding corresponds to a declared protocol member. A `Decoupled(T)`
 boundary therefore names `~valid`, `~bits`,
 and `~ready`, while a `Valid(T)` boundary names only `~valid` and `~bits`:

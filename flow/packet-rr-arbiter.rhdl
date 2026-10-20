@@ -115,16 +115,16 @@ expr.macro
            | packet_rr_inputs[packet_rr_index]
          def packet_rr_protocol :: FlowSource.to_ready_valid_protocol = packet_rr_input_source
          packet_rr_protocol
-       def packet_rr_input_links = for Array (packet_rr_index in 0..packet_rr_input_count):
+       def packet_rr_input_links :: Array.later_of(Handle) = for Array (packet_rr_index in 0..packet_rr_input_count):
          interface_link(packet_rr_protocols[packet_rr_index],
                         "packet_rr_input")
-       def packet_rr_input_endpoints = for Array (packet_rr_index in 0..packet_rr_input_count):
+       def packet_rr_input_endpoints :: Array.later_of(Endpoint) = for Array (packet_rr_index in 0..packet_rr_input_count):
          packet_rr_input_links[packet_rr_index].right
        inst packet_rr_stage(PacketRRArbiter(packet_rr_type,
                                             packet_rr_input_count))
        packet_rr_stage.ends_packet <== vec(
          for List (packet_rr_index in 0..packet_rr_input_count):
-           def packet_rr_input :: Endpoint = packet_rr_input_endpoints[packet_rr_index]
+           def packet_rr_input = packet_rr_input_endpoints[packet_rr_index]
            def $packet = packet_rr_input.bits
            /* Evaluates the inline packet-end predicate for this input's payload. */
            fun compute_packet_end(): $predicate

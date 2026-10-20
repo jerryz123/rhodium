@@ -30,6 +30,11 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   output(packed_memory, execution_certified, store): Bool
   output pointer_masking: PointerMaskControl()
 
+
+  /* Descriptor credit and retained execution context.
+     Queue timing is caller-selected. Faultable memory holds admission until
+     its registered architectural outcome, independently of execution drain. */
+
   inst descriptors(Queue(VectorDescriptor(xlen), 2, ~pipe: pipe, ~flow: #true))
   reg waiting_retirement(~init: Bool(#false))
   reg uncertified_memory(~init: Bool(#false))
@@ -42,20 +47,35 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   reg captured_store(~init: Bool(#false))
   request |> gate_flow(!waiting_retirement) |> descriptors.ingress
   available <== !waiting_retirement & descriptors.ingress.ready
+
+
+  /* Head certification and dispatch.
+     Eligible memory waits for its footprint check. Memory without an input
+     certificate also waits for older LSU attempts and sequencing to become quiescent. */
+
   def head = descriptors.egress
   def footprint = vector_footprint(xlen, vlen, head.bits, head.bits.pointer_masking)
   def needs_check = head.bits.control.memory & !footprint.empty & footprint.eligible & !head.bits.precertified
   def head_certified = !head.bits.control.memory ||| footprint.empty ||| head.bits.precertified ||| (check_complete & certified)
+  def certification_ready = !needs_check ||| check_complete
+  def execution_quiescent = requests_idle & !sequencing & !issue_valid
+  def memory_dispatch_ready = !head.bits.control.memory ||| head.bits.precertified ||| execution_quiescent
   (
     head |> map_flow(descriptor => VectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
       descriptor: descriptor
-  ) |> gate_flow((!needs_check ||| check_complete) & (!head.bits.control.memory ||| head.bits.precertified ||| (requests_idle & !sequencing & !issue_valid))) |> dispatch
+  ) |> gate_flow(certification_ready & memory_dispatch_ready) |> dispatch
   packed_memory <== head_certified & head.bits.control.memory & (head.bits.control.memory_addressing === VectorMemoryAddressing.UnitStride)
   precheck.request.valid <== head.valid & needs_check & !check_started
   precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))
   def checked = precheck.response |> gate_flow(check_started & !check_complete) |> to_valid()
   precheck.release.valid <== sequencing_done.valid & active_precheck
+
+
+  /* Architectural outcomes retain precise fault provenance.
+     Empty or successfully certified memory can report early; other outcomes
+     come from precise execution. Both publish through the same registered edge. */
+
   def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: dispatch.fire() & head.bits.control.memory & footprint.empty, ~bits: head.bits.pc)
   def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => head.bits.pc)
   def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => VectorCommit(xlen, slots)):
@@ -66,6 +86,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
+
   /* Keeps precise fault provenance attached to its registered architectural outcome. */
   bundle Retirement():
     value: VectorCommit(xlen, slots)
@@ -80,14 +101,27 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   def retirement = Array(early, final_retirement) |> valid_arbiter() |> valid_pipe(1)
   retirement |> map_valid(event => event.value) |> outcome
   outcome_fault <== retirement.bits.fault
-  when (request.fire() & request.bits.control.memory & !request.bits.precertified):
+
+
+  /* Admission holds and certification status have different release events.
+     Acceptance wins a coincident release in each chain; an early outcome can
+     clear uncertified status before the registered outcome releases admission. */
+
+  def memory_accepted = request.fire() & request.bits.control.memory
+  when (memory_accepted & !request.bits.precertified):
     waiting_retirement <== Bool(#true)
   elsewhen (outcome.valid):
     waiting_retirement <== Bool(#false)
-  when (request.fire() & request.bits.control.memory):
+  when memory_accepted:
     uncertified_memory <== !request.bits.precertified & !early_outcome.valid
   elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)) ||| outcome.valid):
     uncertified_memory <== Bool(#false)
+
+
+  /* Check progress belongs to the queued head; captured context belongs to
+     dispatched execution. Preserve their independent response/release updates:
+     dispatch clears head progress while capturing the next execution context. */
+
   when (dispatch.fire()):
     check_started <== Bool(#false)
     check_complete <== Bool(#false)
@@ -106,15 +140,23 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     active_precheck <== Bool(#false)
   when (precheck.response.fire()):
     assert(head.valid & needs_check, "vector_precheck_has_pending_descriptor")
+
+
+  /* Queued-kind summaries count descriptor transfers, not execution completion.
+     Increment and decrement may coincide, including flow-through dispatch. */
+
   reg queued_loads(~init: bits(0, 2))
   reg queued_stores(~init: bits(0, 2))
   reg queued_fp(~init: bits(0, 2))
   def incoming = descriptors.ingress.bits.control
   def outgoing = head.bits.control
-  queued_loads <== queued_loads + (descriptors.ingress.fire() & incoming.memory & !incoming.store).as_bits().zext(2) - (head.fire() & outgoing.memory & !outgoing.store).as_bits().zext(2)
-  queued_stores <== queued_stores + (descriptors.ingress.fire() & incoming.memory & incoming.store).as_bits().zext(2) - (head.fire() & outgoing.memory & outgoing.store).as_bits().zext(2)
-  queued_fp <== queued_fp + (descriptors.ingress.fire() & incoming.floating_point).as_bits().zext(2) - (head.fire() & outgoing.floating_point).as_bits().zext(2)
+  def descriptor_enqueued = descriptors.ingress.fire()
+  def descriptor_dequeued = head.fire()
+  queued_loads <== queued_loads + (descriptor_enqueued & incoming.memory & !incoming.store).as_bits().zext(2) - (descriptor_dequeued & outgoing.memory & !outgoing.store).as_bits().zext(2)
+  queued_stores <== queued_stores + (descriptor_enqueued & incoming.memory & incoming.store).as_bits().zext(2) - (descriptor_dequeued & outgoing.memory & outgoing.store).as_bits().zext(2)
+  queued_fp <== queued_fp + (descriptor_enqueued & incoming.floating_point).as_bits().zext(2) - (descriptor_dequeued & outgoing.floating_point).as_bits().zext(2)
   assert((queued_loads <= descriptors.count) & (queued_stores <= descriptors.count) & (queued_fp <= descriptors.count), "vector_queued_kinds_match_occupancy")
+
   active <== waiting_retirement ||| head.valid
   certification_pending <== uncertified_memory
   loads_pending <== queued_loads.or_reduce()

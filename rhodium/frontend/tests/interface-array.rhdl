@@ -57,11 +57,36 @@ circuit InterfaceHandleEnds():
   output sink_valid: Bool
   output sink_bits: Bits(8)
 
-  def link :: Handle = interface_link(Valid(Bits(8)), "local")
+  def link = interface_link(Valid(Bits(8)), "local")
   link.left.valid <== source_valid
   link.left.bits <== source_bits
   sink_valid <== link.right.valid
   sink_bits <== link.right.bits
+
+fun conservative_endpoint(endpoint :: Endpoint) :~ InterfaceTopologyResult:
+  endpoint
+
+circuit InterfaceTopologyMethods():
+  input offered: Bool
+  input ready: Bool
+  output accepted: Bool
+
+  def link = interface_link(Decoupled(Bits(8)), "local")
+  link.left.valid <== offered
+  link.left.bits <== bits(0, 8)
+  link.right.ready <== ready
+  def endpoint = conservative_endpoint(link.right)
+  accepted <== endpoint.fire()
+  def observation = endpoint.observe()
+  #void
+
+circuit InterfaceTopologyMethodTypeMismatch():
+  def link = interface_link(Valid(Bits(8)), "local")
+  link.left.valid <== Bool(#true)
+  link.left.bits <== bits(0, 8)
+  def endpoint = conservative_endpoint(link.right)
+  def transfer = endpoint.fire()
+  #void
 
 // A sink can consume an earlier handle before any concrete source is
 // attached, retaining only the earlier handle's input end.
@@ -116,6 +141,8 @@ export:
   ParenthesizedInterfaceArrayNamedMember
   InterfaceArrayTypeOnce
   InterfaceHandleEnds
+  InterfaceTopologyMethods
+  InterfaceTopologyMethodTypeMismatch
   ComposedInterfaceSinkAdapter
   ReusedInterfaceHandle
   ReusedInterfaceSink

@@ -25,7 +25,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
   head.entries <== vec([entries[0], entries[1]])
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), bits(0, 4))
   // Observe accepted packets without changing their independent ingress readiness.
-  def accepted :: Handle = interface_link(Valid(RV2WidePacket(xlen)))
+  def accepted = interface_link(Valid(RV2WidePacket(xlen)))
   accepted.left.valid <== ingress.fire()
   accepted.left.bits <== ingress.bits
   describe_interface_contract(ingress, accepted.left, "packet-acceptance", ~trace_model: interface_trace_combinational())

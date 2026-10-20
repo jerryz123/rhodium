@@ -27,7 +27,7 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
   // Admission queries retained owners; drain also covers this cycle's allocation.
   pending <== owners.count.or_reduce()
   drained <== !pending & !allocate.valid
-  def joined :: Endpoint = Array(response, owners.egress) |> zip_flow(data, owner):
+  def joined = Array(response, owners.egress) |> zip_flow(data, owner):
     owner.updated(~data: data)
   def result :: RV2WideResult(xlen) = joined.bits
   ordered_completed.valid <== joined.fire() & !result.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)

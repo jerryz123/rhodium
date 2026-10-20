@@ -251,7 +251,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       output guest_translation: RiscvHypervisorTranslation()
       guest_translation <== wb_csrs.guest_translation
   | #void
-  def wb_vector_retirement_link :: Handle = interface_link(Valid(MemoryWriteback(xlen, vector_completion_slots, hypervisor)))
+  def wb_vector_retirement_link = interface_link(Valid(MemoryWriteback(xlen, vector_completion_slots, hypervisor)))
   wire wb_vector_active: Bool
   wire wb_vector_replay: Bool
   wire ex_vector_operation_legal: Bool
@@ -261,12 +261,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire wb_vector_loads_pending: Bool
   wire wb_vector_fp_pending: Bool
   wire wb_vector_integer_write_pending: Bool
-  def wb_vector_reserve_link :: Handle = interface_link(Valid(Bits(5)))
+  def wb_vector_reserve_link = interface_link(Valid(Bits(5)))
   wire wb_vector_stores_pending: Bool
   wire wb_vector_fp_write_pending: Bool
   wire ex_vector_resolved_rs1: Bits(width)
   wire ex_vector_resolved_rs2: Bits(width)
-  def wb_vector_scalar_result_link :: Handle = interface_link(Valid(RegisterFileWrite(xlen)))
+  def wb_vector_scalar_result_link = interface_link(Valid(RegisterFileWrite(xlen)))
   wire wb_memory_accepted: Bool
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
@@ -292,9 +292,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire ex_fp_granted: Bool
   wb_fp.fixed_reserved <== ex_fp_granted
   def wb_vector_fp_tag = Bits(index_width(vector_completion_slots))
-  def wb_vector_fp_request_link :: Handle = interface_link(Decoupled(FpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))
-  def wb_vector_fp_result_link :: Handle = interface_link(Decoupled(FpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag)))
-  def wb_vector_fp_update_link :: Handle = interface_link(Valid(Bits(5)))
+  def wb_vector_fp_request_link = interface_link(Decoupled(FpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))
+  def wb_vector_fp_result_link = interface_link(Decoupled(FpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag)))
+  def wb_vector_fp_update_link = interface_link(Valid(Bits(5)))
   // Scalar and vector completions may both update flags on the same edge.
   wb_csrs.fp_update.valid <== wb_fp.state_update.valid ||| wb_vector_fp_update_link.right.valid
   wb_csrs.fp_update.bits <== mux(wb_fp.state_update.valid, wb_fp.state_update.bits, bits(0, 5)) ||| mux(wb_vector_fp_update_link.right.valid, wb_vector_fp_update_link.right.bits, bits(0, 5))
@@ -321,8 +321,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_vector_multiply_tag = VectorMultiplyTag(vector_completion_slots)
   def wb_vector_divide_tag = VectorDivideTag(vector_completion_slots)
-  def wb_vector_multiply_request_link :: Handle = interface_link(Decoupled(IntegerExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag)))
-  def wb_vector_multiply_result_link :: Handle = interface_link(Irrevocable(IntegerExecutionResult(Bits(width * 2), wb_vector_multiply_tag)))
+  def wb_vector_multiply_request_link = interface_link(Decoupled(IntegerExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag)))
+  def wb_vector_multiply_result_link = interface_link(Irrevocable(IntegerExecutionResult(Bits(width * 2), wb_vector_multiply_tag)))
 
   /* Routes shared multiplier returns through scalar authorization or vector completion
      ownership. */
@@ -368,8 +368,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   /* Shared division.
      Arbitrates scalar/vector requests and routes retained result owners. */
 
-  def wb_vector_divide_request_link :: Handle = interface_link(Decoupled(IntegerExecutionRequest(DividerRequest(width), wb_vector_divide_tag)))
-  def wb_vector_divide_result_link :: Handle = interface_link(Irrevocable(IntegerExecutionResult(DividerResponse(width), wb_vector_divide_tag)))
+  def wb_vector_divide_request_link = interface_link(Decoupled(IntegerExecutionRequest(DividerRequest(width), wb_vector_divide_tag)))
+  def wb_vector_divide_result_link = interface_link(Irrevocable(IntegerExecutionResult(DividerResponse(width), wb_vector_divide_tag)))
 
   /* Routes shared divider returns using retained scalar/vector owner tags. */
   tagged_union DivideOwner():
@@ -537,12 +537,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      Valid links carry redirects and scoreboard updates from later stages;
      restart arbitration preserves the ordered source list below. */
 
-  def if_redirect_link :: Handle = interface_link(Valid(Bits(width)))
-  def mem_to_if_exception_link :: Handle = interface_link(Valid(Bits(width)))
-  def mem_to_if_replay_link :: Handle = interface_link(Valid(Bits(width)))
-  def mem_to_if_redirect_link :: Handle = interface_link(Valid(Bits(width)))
-  def wb_to_id_scoreboard_set_link :: Handle = interface_link(Valid(Bits(5)))
-  def wb_to_id_scoreboard_clear_link :: Handle = interface_link(Valid(Bits(5)))
+  def if_redirect_link = interface_link(Valid(Bits(width)))
+  def mem_to_if_exception_link = interface_link(Valid(Bits(width)))
+  def mem_to_if_replay_link = interface_link(Valid(Bits(width)))
+  def mem_to_if_redirect_link = interface_link(Valid(Bits(width)))
+  def wb_to_id_scoreboard_set_link = interface_link(Valid(Bits(5)))
+  def wb_to_id_scoreboard_clear_link = interface_link(Valid(Bits(5)))
   Array(wb_to_id_scoreboard_set_link.right, wb_vector_reserve_link.right) |> valid_arbiter() |> wb_scoreboard.set
   wb_to_id_scoreboard_clear_link.right |> wb_scoreboard.clear
   def fence_i_commit = wb_commit_valid & !wb_commit_bits.exception_valid & wb_offer_bits.fence.into(RV5StageFenceControl()).is_instruction_fence()
@@ -619,13 +619,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      waiting. Architectural redirects precede the retired successor. */
 
   reg if_architectural_pc(~init: reset_pc)
-  def if_start_link :: Handle = interface_link(Valid(Bits(width)))
-  if_start_link.left.valid <== !if_started
-  if_start_link.left.bits <== reset_pc
+  def if_start = inject_interface(Valid(Bits(width)), ~valid: !if_started, ~bits: reset_pc)
   def if_fetch_valid = !wb_split_pending & !wb_split_accepted & if_started & !if_pause_active & !if_pause_commit & !if_squash & !wb_csrs.interrupt_request & !if_waiting_for_interrupt & !wb_reservation_wait_pending & !wb_reservation_wait_accept
   frontend_control.active <== if_fetch_valid
   Array(mem_to_if_exception_link.right, mem_to_if_replay_link.right) |> valid_arbiter() |> frontend_control.flush
-  Array(if_redirect_link.right, if_start_link.right) |> valid_arbiter() |> frontend_control.restart
+  Array(if_redirect_link.right, if_start) |> valid_arbiter() |> frontend_control.restart
   def Array(wb_instruction_invalidate, wb_predictor_invalidate) = wb_serializing_invalidate |> fork_valid(2)
   wb_instruction_invalidate |> filter_valid(_pc => fence_i_commit) |> frontend_control.invalidate_all
   def wb_predictor_flush = wb_predictor_invalidate |> filter_valid(_pc => fence_i_commit ||| wb_csrs.translation_flush)

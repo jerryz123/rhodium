@@ -258,7 +258,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Only registered descriptor/cursor state drives this offer. Independent
      setup, source, and operand-fetch acceptances hold it until launch. */
 
-  def sequence_offer :: Handle = interface_link(Decoupled(SequenceRequest), "sequence_offer")
+  def sequence_offer = interface_link(Decoupled(SequenceRequest), "sequence_offer")
   sequence_offer.left.valid <== occupied & (!all_issued ||| suffix.valid) & !clear
   wire beat_context: VectorSequenceContext(xlen, vlen, Context)
   beat_context.instruction <== instruction

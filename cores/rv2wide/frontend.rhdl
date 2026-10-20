@@ -178,13 +178,16 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     direction_repair: cursor.updated(~pc: direction.next_pc, ~continuation: Bool(#false), ~hashed: Bool(#false))
     replay: s2.egress.bits.cursor
     s1.egress.valid: next_cursor
-  def attempt_link :: Handle = interface_link(Decoupled(RV2WideFetchCursor(xlen)))
-  def attempt :: Endpoint = attempt_link.right
   def retained_response_credit = (s2.egress.valid & !replay).as_bits().zext(2)
   def replacement_room = restart ||| assembler.repair.valid ||| (assembler.available > retained_response_credit)
   def sequential_room = assembler.available > reserved
-  attempt_link.left.valid <== (replace & replacement_room) ||| (continue_fetch & sequential_room)
-  attempt_link.left.bits <== selected
+  wire attempt_ready: Bool
+  def attempt = inject_interface(
+    Decoupled(RV2WideFetchCursor(xlen)),
+    ~valid: (replace & replacement_room) ||| (continue_fetch & sequential_room),
+    ~bits: selected,
+    ~ready: attempt_ready
+  )
   def requested = attempt |> trace_event("frontend/s0.request", ~fields: address):
     pc: address.pc
   def Array(array_index, context) = requested |> atomic_fork(2)
