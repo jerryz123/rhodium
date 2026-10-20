@@ -22,7 +22,7 @@ class RoutingSemantics(topology_nodes,
                        proof,
                        route_table_rows,
                        assumptions,
-                       validator_version):
+                       validator_kind):
   method fingerprint():
     [topology_nodes,
      topology_links,
@@ -35,7 +35,7 @@ class RoutingSemantics(topology_nodes,
      proof,
      route_table_rows,
      assumptions,
-     validator_version]
+     validator_kind]
 
 fun route_class_signature(route_class):
   route_class.describe()
@@ -153,9 +153,9 @@ fun snapshot_routing(problem, ~escape: escape_request = #false):
     if result is_a ValidatedRouting
     | result.assumptions.describe()
     | "none"
-  def validator_version:
+  def validator_kind:
     if result is_a ValidatedRouting
-    | result.validator_version
+    | result.validator_kind
     | "none"
   RoutingSemantics(
     materialized.topology.nodes.map(fun (node): node.describe()),
@@ -169,5 +169,5 @@ fun snapshot_routing(problem, ~escape: escape_request = #false):
     proof,
     route_table_rows,
     assumptions,
-    validator_version
+    validator_kind
   )

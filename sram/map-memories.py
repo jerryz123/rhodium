@@ -445,15 +445,15 @@ def verify_collateral(plans: Sequence[Plan], pdk_root: Optional[Path]) -> None:
         raise MappingError("missing macro collateral:\n  " + "\n  ".join(sorted(missing)))
 
 
-# Validates the schema-1 occurrence inventory and normalizes optional policy-top, scope, and
+# Validates the occurrence inventory and normalizes optional policy-top, scope, and
 # actual-path fields.
 def load_site_inventory(path: Path) -> Dict[str, object]:
     try:
         inventory = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise MappingError(f"cannot read site inventory {path}: {error}") from error
-    if not isinstance(inventory, dict) or inventory.get("schema_version") != 1:
-        raise MappingError(f"site inventory {path} must use schema_version 1")
+    if not isinstance(inventory, dict):
+        raise MappingError(f"site inventory {path} must be an object")
     if not isinstance(inventory.get("top"), str) or not inventory["top"]:
         raise MappingError(f"site inventory {path} has no top module")
     policy_top = inventory.get("policy_top", inventory["top"])
@@ -755,7 +755,6 @@ def plan_manifest(
             memory_entry["mapping"]["instances_per_site"] = plan.instance_count
         memories.append(memory_entry)
     manifest = {
-        "schema_version": 1,
         "source_mlir": str(source),
         "catalog": str(catalog),
         "pdk_root": None if pdk_root is None else str(pdk_root),
@@ -804,7 +803,6 @@ def plan_manifest(
     mapped_sites = len(memories)
     manifest.update(
         {
-            "schema_version": 2,
             "site_inventory": (
                 None if site_inventory_path is None else str(site_inventory_path)
             ),

@@ -23,7 +23,7 @@ def environment(directory):
     digest = hashlib.sha256()
     for path in inputs:
         digest.update(str(path.relative_to(ROOT)).encode() + b'\0' + path.read_bytes())
-    return dict(schema=1, commit=subprocess.check_output(
+    return dict(commit=subprocess.check_output(
         ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
         system=platform.system(), machine=platform.machine(), workspace=str(ROOT),
         directory=str(directory.resolve()), sources=digest.hexdigest())

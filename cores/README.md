@@ -231,7 +231,7 @@ not prescribe SRAM ports or scheduling.
 
 ### Passive architectural observations
 
-[`cosim-source.rhm`](cosim-source.rhm) declares versioned hart contracts and
+[`cosim-source.rhm`](cosim-source.rhm) declares hart adapter contracts and
 read-only semantic taps without capture hardware. The optional
 [simulation pass](../sims/cosim/README.md#compile-target-instrumentation) selects
 adapters and adds DPI capture at compilation. Functional cores import only

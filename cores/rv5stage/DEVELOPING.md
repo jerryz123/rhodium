@@ -31,7 +31,6 @@ completion adaptation and instruction/uncached integration.
 | [`udb.rhm`](udb.rhm) | Exact-version UDB extension closure and fixed RV5Stage architectural parameter claims |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
-| [`observation.rhdl`](observation.rhdl) | Versioned passive observation contract identity |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`../memory-response.rhdl`](../memory-response.rhdl) | Shared optional-response pairing and LSU result capture; core instruction/control state crosses MEM/WB in parallel |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
@@ -74,8 +73,8 @@ across delayed completions. Sail owns deterministic CSR evolution; do not add
 CSR-bank snapshots merely for comparison. Cycle timing comes from reset-relative active
 edges. The simulation owner documents checking policies in
 [`sims/cosim/README.md`](../../sims/cosim/README.md).
-`observation.rhdl` owns `rv5stage.v1`. `core.rhdl`
-declares that identity, detached configuration, and semantic taps; it imports no
+`core.rhdl` declares the `rv5stage` adapter identity, detached configuration,
+and semantic taps; it imports no
 DPI capture implementation. Capture lives under `sims/cosim/rv5stage/` and is
 selected by the compilation pass. Adapter eligibility belongs there, not in the
 functional core's metadata.

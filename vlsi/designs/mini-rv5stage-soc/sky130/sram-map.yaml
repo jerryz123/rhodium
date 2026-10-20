@@ -1,7 +1,6 @@
 # Selects Sky130 SRAM implementation per MiniRV5StageSoC-relative logical memory site.
 # SPDX-License-Identifier: Apache-2.0
 
-schema_version: 1
 top: MiniRV5StageSoC
 default: infer
 sites:

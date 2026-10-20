@@ -71,7 +71,7 @@ def elf_build_spec(target, suite, options=None):
         digest = options.get('fdt_sha256')
         if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
             raise ValueError('OpenSBI build specification requires the generated FDT checksum')
-        return dict(schema=1, suite=suite, target=layout, options=options)
+        return dict(suite=suite, target=layout, options=options)
     projected = {field: target[field] for field in ('xlen', 'march', 'mabi', 'ram')}
     if suite in ('isa', 'benchmark', 'litmus'):
         projected['extensions'] = sorted(target['extensions'])
@@ -85,7 +85,7 @@ def elf_build_spec(target, suite, options=None):
         projected['clock_frequency_hz'] = target['clock_frequency_hz']
     if suite in ('coremark', 'coremark_scalar'):
         projected['clock_frequency_hz'] = target['clock_frequency_hz']
-    return dict(schema=1, suite=suite, target=projected, options=options)
+    return dict(suite=suite, target=projected, options=options)
 
 
 def elf_build_metadata(target, suite, options=None):

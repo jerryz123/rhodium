@@ -59,7 +59,7 @@ check:
   cycle_semantics.proof.length() ~is 3
   cycle_semantics.route_table_rows ~is []
   cycle_semantics.assumptions ~is "none"
-  cycle_semantics.validator_version ~is "none"
+  cycle_semantics.validator_kind ~is "none"
 
 // A cyclic adaptive choice remains in the full relation while the second VC
 // on each link forms a closed, acyclic escape subnetwork.
@@ -122,7 +122,7 @@ check:
     fun (row): row == "escape-vcs=[l0.vc1, l1.vc1, l2.vc1]"
   ) != #false ~is #true
   escape_semantics.route_table_rows.length() ~is 5
-  escape_semantics.validator_version ~is "vc-escape-subnetwork/v1"
+  escape_semantics.validator_kind ~is "vc-escape-subnetwork"
   escape_semantics.assumptions.contains(
     "reachable escape VC dependency subgraph is acyclic"
   ) ~is #true

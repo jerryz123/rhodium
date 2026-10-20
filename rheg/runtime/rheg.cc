@@ -336,7 +336,7 @@ static std::string instances_json(const std::map<std::uint32_t, InstanceValue>& 
   }
   return result + ']';
 }
-/* Wraps exact occurrences and compiler metadata in the versioned trace envelope. */
+/* Wraps exact occurrences and compiler metadata in the trace envelope. */
 std::string Snapshot::json() const {
   std::string metadata;
   if (timing()) {
@@ -345,7 +345,7 @@ std::string Snapshot::json() const {
                std::to_string(timing()->epoch_id) +
                "\",\"origin\":\"cycle-zero\"}";
   }
-  return "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
+  return "{\"format\":\"rhodium-event-trace\",\"manifest\":" +
          manifest().json + metadata + instances_json(instances()) + ",\"occurrences\":" + graph_.json() + "}\n";
 }
 /* Serializes stable site/sequence identities, payload words, and parent-child references. */
@@ -354,7 +354,7 @@ static std::string occurrences_json(const std::map<Ref, Node>& nodes,
   std::ostringstream out;
   // Sequences and cycles are decimal strings: JS consumers must not round
   // 64-bit identities to floating-point numbers.
-  out << "{\"format\":\"rhodium-event-occurrences\",\"version\":1,\"nodes\":[";
+  out << "{\"format\":\"rhodium-event-occurrences\",\"nodes\":[";
   bool comma = false;
   for (const auto& entry : nodes) {
     if (comma) out << ',';
@@ -398,7 +398,7 @@ std::string CycleBatch::json() const {
     endings += "{\"site\":" + std::to_string(ref.site) + ",\"sequence\":\"" + std::to_string(ref.sequence) +
                "\",\"cycle\":\"" + std::to_string(end) + "\"}";
   }
-  return "{\"format\":\"rhodium-event-cycle\",\"version\":1,\"cycle\":\"" +
+  return "{\"format\":\"rhodium-event-cycle\",\"cycle\":\"" +
          std::to_string(cycle) + "\",\"occurrences\":" + occurrences +
          (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + instances_json(instances) + "}\n";
 }

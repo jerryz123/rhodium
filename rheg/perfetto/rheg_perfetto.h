@@ -18,7 +18,7 @@ struct PerfettoTrackGroup {
   std::vector<std::string> sites;
 };
 using PerfettoTrackGroups = std::vector<PerfettoTrackGroup>;
-/* Reads version-1 rheg-perfetto-tracks JSON; the writer checks manifest membership. */
+/* Reads rheg-perfetto-tracks JSON; the writer checks manifest membership. */
 PerfettoTrackGroups read_perfetto_track_groups(std::istream& input);
 /* Encodes one epoch on a caller-owned stream that must outlive the writer.
    Live writes accept typed deltas without serializing or reparsing occurrence JSON. */
@@ -45,7 +45,7 @@ private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
-/* Parses and validates a timed version-1 rhodium-event-trace snapshot.
+/* Parses and validates a timed rhodium-event-trace snapshot.
    JSON parsing belongs to this optional exporter, not the stdlib-only DPI collector. */
 Snapshot read_event_trace(std::istream& input);
 /* Replays a timed snapshot through the identical live writer, including empty traces. */

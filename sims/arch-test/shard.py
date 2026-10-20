@@ -23,7 +23,7 @@ def partition(elf_dir, output, index, count):
     inventory = output.parent / 'inventory.json'
     if existing:
         previous = json.loads(inventory.read_text()) if inventory.exists() else {}
-        if previous.get('kind') != 'rhodium-act-shard-v1':
+        if previous.get('kind') != 'rhodium-act-shard':
             raise ValueError('existing ELF directory is not an owned ACT shard')
         if any(str(path.relative_to(output)) not in previous['tests'] for path in existing):
             raise ValueError('shard directory contains unowned ELF paths')
@@ -37,7 +37,7 @@ def partition(elf_dir, output, index, count):
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.symlink_to(elf)
     inventory.write_text(json.dumps(dict(
-        kind='rhodium-act-shard-v1', index=index, count=count, total=len(elfs),
+        kind='rhodium-act-shard', index=index, count=count, total=len(elfs),
         tests=[str(elf.relative_to(elf_dir.resolve())) for elf in selected]), indent=2) + '\n')
     return selected
 

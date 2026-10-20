@@ -26,7 +26,7 @@ def environment():
             "instruction_cacheable": not device,
         }}
     return {
-        "schema": 1, "reset_pc": 0x1000, "hart_id": 0,
+        "reset_pc": 0x1000, "hart_id": 0,
         "clock_frequency_hz": 100000000, "timebase_frequency_hz": 1000000,
         "private_memory": [{"address": 0x1000, "size": 0x1000}, {"address": 0x80000000, "size": 0x10000}],
         "regions": [region(0x80000000, 0x10000, cacheable=True),
@@ -35,6 +35,25 @@ def environment():
 
 
 class SailConfigurationTest(unittest.TestCase):
+    def test_export_requires_matching_fingerprints_and_an_environment_object(self):
+        configuration = {"config": "mini-rv5stage-rva23"}
+        env = environment()
+        exported = {"configuration": configuration, "environment": env,
+                    "configuration_fingerprint": fingerprint(configuration),
+                    "environment_fingerprint": fingerprint(env)}
+        checked = COSIM["checked_config"]
+        architecture = vector_udb()
+        with patch.dict(checked.__globals__, config_architecture=Mock(return_value=architecture)):
+            self.assertEqual(checked(exported, configuration["config"]), (architecture, env))
+            for key in ("configuration", "environment"):
+                changed = copy.deepcopy(exported)
+                changed[key]["changed"] = True
+                with self.assertRaises(ValueError):
+                    checked(changed, configuration["config"])
+            changed = {**exported, "environment": [], "environment_fingerprint": fingerprint([])}
+            with self.assertRaises(ValueError):
+                checked(changed, configuration["config"])
+
     def test_model_defaults_check_schema_even_with_unchanged_release_string(self):
         default = self.default()
         default["extensions"]["H"]["transformed_instruction"] = dict.fromkeys(TRANSFORMED_INSTRUCTION_PARAMETERS, True)
@@ -145,7 +164,7 @@ class SailConfigurationTest(unittest.TestCase):
     def test_runtime_image_and_descriptor_are_embedded_exactly(self):
         env = environment()
         env.update(xlen=64, rom_image={"address": 0x1000, "bytes": [0, 255, 19, 0]})
-        observations = {"schema": 1, "epoch": "host-reset", "harts": [{"instance": 0, "path": ["soc", "hart", "core"]}]}
+        observations = {"epoch": "host-reset", "harts": [{"instance": 0, "path": ["soc", "hart", "core"]}]}
         manifest = COSIM["runtime_manifest"]({"environment_fingerprint": fingerprint(env)}, env, observations)
         self.assertEqual(manifest["rom_image"], env["rom_image"])
         self.assertEqual(manifest["observations"], observations)
@@ -157,6 +176,7 @@ class SailConfigurationTest(unittest.TestCase):
                 self.assertEqual(value, manifest if name == "manifest" else {"quoted": 'a"b\\c'})
         for mutate in (lambda e, o: o["harts"].append(o["harts"][0]),
                        lambda e, o: o["harts"][0].update(instance=1),
+                       lambda e, o: o.update(epoch="unknown"),
                        lambda e, o: e["rom_image"].update(address=0x2000),
                        lambda e, o: e["rom_image"].update(bytes=[256]),
                        lambda e, o: e["rom_image"].update(bytes=[0] * 4097)):

@@ -153,9 +153,9 @@ Arrays preserve extraction order, and map keys are serialized deterministically.
 Transform `properties` must contain JSON-serializable strings, booleans,
 numbers, arrays, lists, or maps. IDs are references within one extracted view;
 treat them as opaque and do not persist assumptions about their spelling or
-numeric value across edits to the source design. The format currently has no
-schema-version field, so consumers should reject missing required fields rather
-than infer a different schema.
+numeric value across edits to the source design. The format is unversioned;
+use matching producers and consumers and regenerate artifacts after changes.
+Consumers reject missing required fields rather than infer a different schema.
 
 ## Render diagnostic DOT
 

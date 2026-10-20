@@ -13,7 +13,7 @@ def config_architecture(configuration, name, udb=None):
     """Use the resolved config's UDB, optionally checking an accompanying export."""
     from ruamel.yaml import YAML
     resolved = YAML(typ="safe").load(configuration["udb"])
-    if configuration.get("schema") != 1 or configuration.get("config") != name:
+    if configuration.get("config") != name:
         raise ValueError("configuration must identify the selected config")
     if configuration["xlen"] != resolved["params"]["MXLEN"] or (udb is not None and resolved != udb):
         raise ValueError("UDB differs from its resolved config")

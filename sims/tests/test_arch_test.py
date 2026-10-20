@@ -700,7 +700,7 @@ class ArchTestGenerationTest(unittest.TestCase):
             build_root = root / "build"
             config_dir = build_root / "configs/simple-rv5stage-rva23"
             config_dir.mkdir(parents=True)
-            (config_dir / "configuration.json").write_text('{"schema":1,"config":"simple-rv5stage-rva23"}')
+            (config_dir / "configuration.json").write_text('{"config":"simple-rv5stage-rva23"}')
             elf_dir = build_root / "work/simple-rv5stage-rva23/simple-rv5stage-rva23/elfs"
             elf_dir.mkdir(parents=True)
             (elf_dir / "old.elf").touch()

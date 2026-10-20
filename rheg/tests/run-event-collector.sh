@@ -17,7 +17,6 @@ trap 'rm -rf "$collector_tmp_dir"' EXIT
   (define occurrences (hash-ref trace (quote occurrences)))
   (define timing (hash-ref trace (quote timing)))
   (unless (and (equal? (hash-ref trace (quote format)) "rhodium-event-trace")
-               (= (hash-ref trace (quote version)) 1)
                (equal? (hash-ref timing (quote clock_frequency_hz)) "9007199254740993")
                (equal? (hash-ref timing (quote epoch_id)) "9007199254740993")
                (equal? (hash-ref timing (quote origin)) "cycle-zero")

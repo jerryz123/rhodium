@@ -365,7 +365,7 @@ architectural privilege types; its host receiver lives in `sims/cosim/`, with
 no reverse simulator import or dependency on tracing metadata.
 `cores/cosim-source.rhm` bridges source declarations to public core metadata
 and frontend `kernel`/`support/clocking` read/domain APIs. Its descriptors remap
-live taps and instance views while retaining versioned contract identities and
+live taps and instance views while retaining adapter contract identities and
 detached host configuration. It stores no observer functions.
 RV5Stage's MMU imports that bridge to describe translated physical-address taps;
 `rv5stage.rhdl` imports it to bind the sibling MMU to the child core observer.
@@ -397,7 +397,7 @@ contract from `cores/misaligned-access.rhdl`. RV5Stage's MMU, core, and
 `vector/memory.rhdl` specialize it with `RV5StageMemoryContext` through
 `mmu/protocol.rhdl`; guest fault details come from the existing
 RISC-V hypervisor adapter. Physical cache protocols remain unchanged.
-`cores/rv5stage/observation.rhdl` declares `rv5stage.v1` without imports. `sims/cosim/events/transport.rhdl`
+`sims/cosim/events/transport.rhdl`
 owns DPI lane widening through the base frontend. Neither capture module imports
 generic architectural hooks, Flow ownership queues, or an atomic datapath.
 The native hart adapter owns identities, retained requests, scalar/FP completion
@@ -405,8 +405,8 @@ owners, instruction FP flag contributions, and AMO effect normalization. It supp
 adapter's allocation identity before resolving vector events in the same sample.
 The core declares its contract identity, configuration, and semantic taps;
 only the optional `sims/cosim/pass.rhm` selects and realizes its adapter. That
-pass imports the simulation-owned RV5Stage capture adapter and core observation
-identity for its default registry, alongside neutral compile contracts, core
+pass imports simulation-owned capture adapters for its default registry under
+stable hart identifiers, alongside neutral compile contracts, core
 IR/Builder/types, the event occurrence copier, source descriptors, and JSON
 string encoding. Callers can supply a different contract-to-adapter map. No observer signal drives
 functional handshakes, and no named core imports the simulator receiver.
@@ -414,15 +414,14 @@ functional handshakes, and no named core imports the simulator receiver.
 RV2Wide's core, MMU, and composition import the same passive metadata bridge
 for dual WB slots, CSR command context, deferred return ownership, and physical
 request/fragment provenance. Its vector and memory-port adapters also import
-the passive metadata bridge. `cores/rv2wide/observation.rhdl` declares `rv2wide.v7`
-without imports. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
+the passive metadata bridge. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
 RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing helpers,
 architectural privilege/interrupt/XLEN/FP-profile descriptors,
 the shared vector capture module, and the common transport widening helper;
 it adds no observer state or outputs.
 Its native adapter depends only on generic event/DPI contracts. The cosim pass
-imports both named-core observation identities and simulation-owned capture
-adapters for its default registry. Both native adapters share
+imports simulation-owned capture adapters for its default `rv5stage`/`rv2wide`
+registry. Both native adapters share
 `events/atomic.h` for observed physical AMO write-byte normalization, not
 reference execution. The event package retains no named-core dependency.
 `cores/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line

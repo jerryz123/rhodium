@@ -273,7 +273,6 @@ class MapperTest(unittest.TestCase):
             policy = output_dir / "unknown-site.yaml"
             policy.write_text(
                 "# Exercises rejection of a misspelled memory site.\n\n"
-                "schema_version: 1\n"
                 "top: Leaf\n"
                 "default: infer\n"
                 "sites:\n"

@@ -18,7 +18,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 
 def program_target(soc='simple-rv5stage-rva23'):
-    configuration = dict(schema=1, config=soc, implementation='test implementation', platform=dict(ram_bytes=65536))
+    configuration = dict(config=soc, implementation='test implementation', platform=dict(ram_bytes=65536))
     return dict(resolved_configuration=configuration, configuration_fingerprint=target_fingerprint(configuration),
                 soc=soc, xlen=64, harts=[0], extensions=['i', 'm'], march='rv64im',
                 mabi='lp64', clock_frequency_hz=100000000,

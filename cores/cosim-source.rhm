@@ -22,7 +22,7 @@ class CosimSignals(taps :: Map, parameters :: List, clock :: Value, reset :: Val
   override method remap_ir(remap :: Function.of_arity(1)):
     CosimSignals(remap(taps), parameters, remap(clock), remap(reset), remap(components))
 
-/* Names a versioned observation contract with detached configuration and explicit taps.
+/* Names a observation contract with detached configuration and explicit taps.
    Simulation selects its adapter; source metadata never stores executable observer code. */
 class CosimSource(contract :: String, configuration :: Map, taps :: Map, components :: Map):
   implements ModuleMetadataPayload
@@ -51,7 +51,7 @@ fun local_taps(taps :: Map):
 fun describe_cosim_signals(taps :: Map, parameters :: List = [], ~components: components :: Map = {}):
   kernel.active_module().add_metadata("riscv.cosim.signals", CosimSignals(local_taps(taps), parameters, ambient_clock(), ambient_reset_active(), components))
 
-/* Declare a versioned contract and immutable host configuration beside read-only hardware taps. */
+/* Declare a adapter contract and immutable host configuration beside read-only hardware taps. */
 fun describe_cosim_hart(contract :: String, configuration :: Map, taps :: Map, components :: Map):
   def signals = local_taps(taps ++ {"clock": ambient_clock(), "reset": kernel.cast(ambient_reset_active(), Reset)})
   kernel.active_module().add_metadata("riscv.cosim.hart", CosimSource(contract, configuration, signals, components))

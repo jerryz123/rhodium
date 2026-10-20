@@ -826,7 +826,7 @@ make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2w
 make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
 ```
 
-`observation.rhdl` names the passive `rv2wide.v7` contract. Numerical observations
+`core.rhdl` declares the passive `rv2wide` adapter contract. Numerical observations
 carry explicit FLEN; FPR effect masks must not be inferred from XLEN.
 `rv2wide-core-fp-rv32` and `rv2wide-core-fp-late-rv32` run the common FP
 hazard/ownership fixture at native single precision, including killed EX

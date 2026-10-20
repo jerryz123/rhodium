@@ -62,7 +62,7 @@ template<class F> void rejects(F action, const std::string& text) {
   throw std::runtime_error("expected rejection: " + text);
 }
 Manifest manifest() {
-  return {R"({"format":"rhodium-event-graph","version":1,"top":"Test","sites":[{"id":"root/accepted","label":"accepted","source_location":"fixture.rhdl:17","payload_width":8},{"id":"root/issued","label":"issued","payload_width":0}],"dependencies":[{"parent":"root/accepted","child":"root/issued"},{"parent":"root/issued","child":"root/issued"}]})",
+  return {R"({"format":"rhodium-event-graph","top":"Test","sites":[{"id":"root/accepted","label":"accepted","source_location":"fixture.rhdl:17","payload_width":8},{"id":"root/issued","label":"issued","payload_width":0}],"dependencies":[{"parent":"root/accepted","child":"root/issued"},{"parent":"root/issued","child":"root/issued"}]})",
           {8, 0}, {{0, 1}, {1, 1}}};
 }
 CycleBatch batch(std::uint64_t cycle, Ref ref, unsigned width = 0) {
@@ -87,7 +87,7 @@ std::string inflate_trace(const std::string& encoded) {
   return decoded;
 }
 void scoped_labels(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Labels","sites":[{"id":"front","label":"frontend.s0.request","payload_width":0,"fields":[]},{"id":"back","label":"backend.s0.request","payload_width":0,"fields":[]},{"id":"plain","label":"plain","payload_width":0,"fields":[]},{"id":"trailing","label":"trailing.","payload_width":0,"fields":[]}],"dependencies":[]})",
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"Labels","sites":[{"id":"front","label":"frontend.s0.request","payload_width":0,"fields":[]},{"id":"back","label":"backend.s0.request","payload_width":0,"fields":[]},{"id":"plain","label":"plain","payload_width":0,"fields":[]},{"id":"trailing","label":"trailing.","payload_width":0,"fields":[]}],"dependencies":[]})",
       {0,0,0,0}, {}, {{},{},{},{}}};
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
   std::ostringstream live;
@@ -104,7 +104,7 @@ void scoped_labels(const std::string& path) {
   std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
 }
 void instance_context(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Instances","sites":[
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"Instances","sites":[
     {"id":"a/request","label":"unit/request","payload_width":0,"fields":[]},
     {"id":"a/result","label":"unit/result","payload_width":0,"fields":[]},
     {"id":"b/request","label":"unit/request","payload_width":0,"fields":[]},
@@ -172,7 +172,7 @@ void instance_context(const std::string& path) {
   check(grouped.str().empty());
 }
 void hierarchical_labels(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Hierarchy","sites":[
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"Hierarchy","sites":[
     {"id":"req","label":"dcache/chi.txreq","payload_width":0,"fields":[]},
     {"id":"dat","label":"dcache/chi.rxdat","payload_width":0,"fields":[]},
     {"id":"blocked","label":"ignored/group/stall","kind":"stall","observation_of":"dat","payload_width":0,"fields":[]},
@@ -278,7 +278,7 @@ void compression_contract(const std::string& path) {
   }
 }
 Manifest instruction_manifest(const std::string& isa, unsigned xlen, unsigned width = 32, bool multiple = false) {
-  return {"{\"format\":\"rhodium-event-graph\",\"version\":1,\"top\":\"Instructions\",\"sites\":[{\"id\":\"cpu\",\"label\":\"decode\",\"payload_width\":" + std::to_string(xlen+width+32) +
+  return {"{\"format\":\"rhodium-event-graph\",\"top\":\"Instructions\",\"sites\":[{\"id\":\"cpu\",\"label\":\"decode\",\"payload_width\":" + std::to_string(xlen+width+32) +
     ",\"fields\":[{\"name\":\"address\",\"width\":" + std::to_string(xlen) + ",\"offset\":" + std::to_string(width+32) + ",\"encoding\":\"hex\"},"
     "{\"name\":\"opcode\",\"width\":" + std::to_string(width) + ",\"offset\":32,\"encoding\":\"riscv\",\"isa\":\"" + isa + "\",\"pc\":\"address\"},"
     "{\"name\":\"instruction\",\"width\":32,\"offset\":0,\"encoding\":\"" + (multiple ? "riscv\",\"isa\":\"" + isa + "\",\"pc\":\"address" : "hex") + "\"}]}],\"dependencies\":[]}",
@@ -308,7 +308,7 @@ void instruction_trace(const std::string& path, const std::string& isa, unsigned
   std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
 }
 void enum_trace(const std::string& path) {
-  Manifest manifest{R"({"format":"rhodium-event-graph","version":1,"top":"Enums","sites":[
+  Manifest manifest{R"({"format":"rhodium-event-graph","top":"Enums","sites":[
     {"id":"req","label":"cache.txreq","payload_width":7,"fields":[{"name":"opcode","width":7,"offset":0,"encoding":"enum","symbols":[{"value":"1","name":"ReadShared"},{"value":"2","name":"ReadClean"}],"label":true}]},
     {"id":"rsp","label":"cache.txrsp","payload_width":7,"fields":[{"name":"operation","width":7,"offset":0,"encoding":"enum","symbols":[{"value":"1","name":"SnpResp"},{"value":"2","name":"CompAck"}],"label":true}]},
     {"id":"plain","label":"unselected","payload_width":7,"fields":[{"name":"opcode","width":7,"offset":0,"encoding":"enum","symbols":[{"value":"1","name":"NotALabel"}]}]},
@@ -397,7 +397,7 @@ void interning_trace(const std::string& path) {
   std::ofstream file(path, std::ios::binary); file << encoded; file.close(); check(bool(file));
 }
 void stall_trace(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Stalls","sites":[{"id":"accepted","label":"accepted","payload_width":0},{"id":"issued","label":"issued","kind":"transfer","payload_width":0},{"id":"issued/stall","label":"issued.stall","kind":"stall","observation_of":"issued","payload_width":0}],"dependencies":[{"parent":"accepted","child":"issued"},{"parent":"accepted","child":"issued/stall"}]})",
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"Stalls","sites":[{"id":"accepted","label":"accepted","payload_width":0},{"id":"issued","label":"issued","kind":"transfer","payload_width":0},{"id":"issued/stall","label":"issued.stall","kind":"stall","observation_of":"issued","payload_width":0}],"dependencies":[{"parent":"accepted","child":"issued"},{"parent":"accepted","child":"issued/stall"}]})",
                       {0, 0, 0}, {{0, 1}, {0, 2}}};
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
   std::ostringstream live; PerfettoWriter writer(live, descriptor, {100000000});
@@ -442,7 +442,7 @@ void stall_trace(const std::string& path) {
 void named_stall_trace(const std::string& path) {
   // The observer precedes its transfer, has a different capture schema, and is
   // the only active site. Neither disassembly nor an enum may rename its slice.
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"NamedStalls","sites":[
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"NamedStalls","sites":[
     {"id":"cpu/stall","label":"decode.stall","kind":"stall","observation_of":"cpu","payload_width":99,"fields":[
       {"name":"pc","width":64,"offset":35,"encoding":"hex"},
       {"name":"instruction","width":32,"offset":3,"encoding":"riscv","isa":"rv64i","pc":"pc"},
@@ -460,7 +460,7 @@ void named_stall_trace(const std::string& path) {
   std::ofstream file(path, std::ios::binary); write_perfetto(file, graph.snapshot()); file.close(); check(bool(file));
 }
 void stall_runs(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Runs","sites":[
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"Runs","sites":[
     {"id":"source","payload_width":8},{"id":"issue","payload_width":8},
     {"id":"blocked","kind":"stall","observation_of":"issue","payload_width":8},
     {"id":"other","payload_width":8},
@@ -541,12 +541,12 @@ void shared_tracks(const std::string& path) {
   // Stall captures match across a site change, consecutive sequences, and the same parent.
   Manifest descriptor;
   std::ostringstream json;
-  json << R"({"format":"rhodium-event-graph","version":1,"top":"Modes","sites":[)";
+  json << R"({"format":"rhodium-event-graph","top":"Modes","sites":[)";
   const std::array<std::string,7> suffixes = {"launch","execution/issue","execution/issue.stall",
       "execution/packed/issue","execution/packed/issue.stall","execution/completions/complete","execution/packed/assembly/complete"};
   PerfettoTrackGroups groups;
   std::ostringstream config;
-  config << R"({"format":"rheg-perfetto-tracks","version":1,"tracks":[)";
+  config << R"({"format":"rheg-perfetto-tracks","tracks":[)";
   for (unsigned core = 0; core < 2; ++core) {
     const auto scope = "soc/core" + std::to_string(core) + "/vector/";
     const auto display = "core" + std::to_string(core) + "/vector/";
@@ -671,8 +671,8 @@ void shared_tracks(const std::string& path) {
   invalid({{"issue",{groups[0].sites[0]}}},"at least two");
   invalid({{"vector//issue",groups[0].sites}},"empty hierarchy segment");
   invalid({{"",groups[0].sites}},"empty hierarchy segment");
-  for (const auto& bad : {std::string("{}"), std::string(R"({"format":"rheg-perfetto-tracks","version":2,"tracks":[]})"),
-       std::string(R"({"format":"rheg-perfetto-tracks","version":1,"tracks":[{"label":"x","sites":["a","a"]}]})")}) {
+  for (const auto& bad : {std::string("{}"), std::string(R"({"format":"rheg-perfetto-tracks","tracks":{}})"),
+       std::string(R"({"format":"rheg-perfetto-tracks","tracks":[{"label":"x","sites":["a","a"]}]})")}) {
     bool rejected = false;
     try { std::istringstream input(bad); read_perfetto_track_groups(input); } catch (const std::exception&) { rejected = true; }
     check(rejected, "malformed track configuration accepted");
@@ -680,7 +680,7 @@ void shared_tracks(const std::string& path) {
 }
 }
 void residency(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Residency","sites":[{"id":"regular","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"packed","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"issue","label":"vector/s2.issue","payload_width":0}],"dependencies":[{"parent":"regular","child":"issue"},{"parent":"packed","child":"issue"}]})",
+  Manifest descriptor{R"({"format":"rhodium-event-graph","top":"Residency","sites":[{"id":"regular","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"packed","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"issue","label":"vector/s2.issue","payload_width":0}],"dependencies":[{"parent":"regular","child":"issue"},{"parent":"packed","child":"issue"}]})",
       {0,0,0}, {{0,2},{1,2}}, {}, {0,1}};
   PerfettoTrackGroups groups{{"vector/sequencer", {"regular","packed"}}};
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
@@ -791,7 +791,7 @@ int main(int argc, char** argv) {
   hierarchical_labels(std::string(argv[1]) + "/hierarchy.pftrace");
   instance_context(std::string(argv[1]) + "/instances.pftrace");
   {
-    Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"PartialStalls","sites":[{"id":"transfer","label":"issue","payload_width":false},{"id":"stall","label":"issue.stall","payload_width":false,"kind":"stall","observation_of":"transfer"}],"dependencies":[]})", {0,0}, {}};
+    Manifest descriptor{R"({"format":"rhodium-event-graph","top":"PartialStalls","sites":[{"id":"transfer","label":"issue","payload_width":false},{"id":"stall","label":"issue.stall","payload_width":false,"kind":"stall","observation_of":"transfer"}],"dependencies":[]})", {0,0}, {}};
     Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
     std::ostringstream live; PerfettoWriter writer(live,descriptor,{100000000});
     for (unsigned cycle=0; cycle<3; ++cycle) {
@@ -950,7 +950,7 @@ int main(int argc, char** argv) {
   std::ofstream empty_file(std::string(argv[1]) + "/empty.pftrace", std::ios::binary);
   empty_file << empty_trace.str(); empty_file.close(); check(bool(empty_file));
   Manifest named_manifest{
-    R"({"format":"rhodium-event-graph","version":1,"top":"Named","sites":[{"id":"capture","payload_width":8,"fields":[{"name":"value","width":8,"offset":0,"encoding":"unsigned"}]}],"dependencies":[]})",
+    R"({"format":"rhodium-event-graph","top":"Named","sites":[{"id":"capture","payload_width":8,"fields":[{"name":"value","width":8,"offset":0,"encoding":"unsigned"}]}],"dependencies":[]})",
     {8}, {}, {{{"value",8,0,"unsigned"}}}};
   Graph named_graph; named_graph.bind_manifest(named_manifest); named_graph.bind_timing({1});
   named_graph.record_node({0,0},0,8); named_graph.record_payload({0,0},0,255);

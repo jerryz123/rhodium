@@ -57,9 +57,9 @@ Json parse(const std::string& text) {
   std::istringstream input(text);
   return parse(input);
 }
-/* Checks the expected version-1 format discriminator before interpreting an envelope. */
+/* Checks the expected format discriminator before interpreting an envelope. */
 void format(const Json& value, const char* name) {
-  require(value.at("format") == name && number(value.at("version")) == 1, "unsupported trace format/version");
+  require(value.at("format") == name, "unexpected trace format");
 }
 /* Carries display metadata separately from numeric graph identities and payload schemas. */
 struct Site { std::string id, label, source, kind, observation_of, group, track_name; };
@@ -819,7 +819,7 @@ struct PerfettoWriter::Impl {
           }
         }
       } else {
-        // Old snapshots retain their raw display when no capture schema exists.
+        // Payloads without named-field metadata use raw display.
         std::vector<std::uint32_t> words;
         for (auto word : node.words) words.push_back(word.second);
         annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
@@ -872,11 +872,11 @@ void PerfettoWriter::write(const CycleBatch& batch) { impl_->write(batch); }
 /* Explicitly completes pending display intervals and output framing. */
 void PerfettoWriter::finish() { impl_->finish(); }
 
-/* Parses strict version-1 track overrides, checking labels and unique exact site memberships. */
+/* Parses strict track overrides, checking labels and unique exact site memberships. */
 PerfettoTrackGroups read_perfetto_track_groups(std::istream& input) {
   const auto json = parse(input);
   format(json, "rheg-perfetto-tracks");
-  require(json.size() == 3 && json.at("tracks").is_array(), "invalid track group configuration");
+  require(json.size() == 2 && json.at("tracks").is_array(), "invalid track group configuration");
   PerfettoTrackGroups groups;
   std::set<std::string> sites;
   for (const auto& group : json.at("tracks")) {

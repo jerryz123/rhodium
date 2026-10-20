@@ -41,7 +41,6 @@ def fabric = if config is_a MiniSoCConfig | config.fabric | (config :: SingleCor
 def description = config.description
 def configuration = config_metadata(resolved, config)
 def environment = {
-  "schema": 1,
   "reset_pc": description.boot.reset_address,
   "hart_id": description.harts[0],
   "clock_frequency_hz": description.clocks.clock_frequency_hz,

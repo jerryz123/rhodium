@@ -14,8 +14,8 @@ from program_target import load_target, target_fingerprint
 
 
 def configuration_fingerprint(configuration):
-    if not isinstance(configuration, dict) or configuration.get('schema') != 1:
-        raise ValueError('unsupported resolved configuration schema')
+    if not isinstance(configuration, dict) or not isinstance(configuration.get('config'), str) or not configuration['config']:
+        raise ValueError('resolved configuration must identify a config')
     return hashlib.sha256(json.dumps(configuration, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 

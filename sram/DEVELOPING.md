@@ -52,7 +52,7 @@ SoCs, the generic pass, or the generic adapter renderer.
    direct-top and harness-scoped use.
 2. Reject malformed or unknown policy paths before mapping and include the
    available scoped sites in diagnostics.
-3. Version inventory or manifest schema changes explicitly. Update the pass,
+3. Keep inventory and manifest formats unversioned. Update the pass,
    mapper, design-specific checker, fixtures, and owning README together.
 4. Keep occurrence inventory generated and policy YAML hand-authored. Never
    infer a physical selection silently after a policy requested a macro.

@@ -69,7 +69,7 @@ const auto snapshot = rheg::graph().snapshot();
 const auto trace_json = snapshot.json();
 ```
 
-The generated header contains both the complete version-1 manifest JSON and
+The generated header contains both the complete manifest JSON and
 matching numeric site-width/dependency tables. It defines one
 `rheg_generated::manifest()` function per instrumented top; do not
 combine headers for different tops in one translation unit. The descriptor is
@@ -91,8 +91,8 @@ emitted an edge; completeness remains enforced by the instrumented logic.
 with `nodes()`, `edges()`, and `manifest()` accessors. Later callbacks and resets
 do not change an existing snapshot. The call must run on the simulator thread
 at a settled boundary; it is not a concurrent snapshot API. Its JSON is a
-version-1 `rhodium-event-trace` object containing `manifest` and `occurrences`,
-each retaining its own existing format and version. It preserves decimal-string
+`rhodium-event-trace` object containing `manifest` and `occurrences`,
+each retaining its own format discriminator. It preserves decimal-string
 64-bit identities and deterministic ordering. Reset clears live occurrences,
 not saved snapshots; never merge reset epochs by site/sequence alone.
 
@@ -179,8 +179,8 @@ strings. Booleans and integers use native scalar arguments; values wider than
 Raw word arrays and aggregate widths are no longer normal display arguments.
 An explicit raw capture appears as `raw`.
 
-The schema is additive within version 1. Legacy snapshots without it retain
-raw-word display, but cannot provide named lookup.
+Snapshots without named-field metadata use raw-word display and cannot provide
+named lookup.
 Mixed schema presence, duplicate names, overlaps, gaps, out-of-range fields,
 invalid encodings, and JSON/C++ table mismatches are errors. The collector
 validates typed descriptors without acquiring a JSON dependency; the shared
@@ -261,7 +261,7 @@ supplies this timing in its opt-in trace build; other integrations bind it expli
 
 `Snapshot::timing()` returns a const optional timing value. Untimed snapshots
 remain supported and retain their existing JSON shape. Timed snapshots add an
-optional `timing` object to the version-1 trace envelope, outside `manifest`:
+optional `timing` object to the trace envelope, outside `manifest`:
 
 ```text
 "timing": {"clock_frequency_hz": "100000000", "epoch_id": "0", "origin": "cycle-zero"}
@@ -369,12 +369,11 @@ follow their transfer site. This changes only presentation, not graph identity,
 captures, or parent edges.
 
 Both APIs accept groups parsed by `read_perfetto_track_groups(input)`. The
-standalone converter accepts the same version-1 configuration with `--tracks`:
+standalone converter accepts the same configuration with `--tracks`:
 
 ```json
 {
   "format": "rheg-perfetto-tracks",
-  "version": 1,
   "tracks": [
     {
       "label": "vector/s2.issue",
@@ -566,8 +565,10 @@ WHERE json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.label') GLO
 
 ## Scope and compatibility
 
-The fixed `rheg_*` ABI and version-1 `rhodium-event-*` JSON identifiers remain
-stable. Named-field schemas and optional timing extend version 1 additively.
+The `rheg_*` ABI and `rhodium-event-*` format identifiers are unversioned.
+Use producers and consumers from the same checkout and regenerate stale artifacts
+after format changes. Parsers validate format identities and payload structure;
+there are no version negotiation or migration paths.
 
 The current collector supports one instrumented top per process on the
 simulator thread. It retains the whole current epoch in memory. Instrumented

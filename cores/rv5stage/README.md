@@ -94,7 +94,7 @@ deliberately rejected.
 RV5Stage declares passive architectural observation sites. Select
 [`cosim_pass`](../../sims/cosim/README.md#compile-target-instrumentation) when
 compiling the elaborated program to emit passive event capture. The core declares
-its `rv5stage.v1` observation contract and read-only taps; the simulation package
+its `rv5stage` observation contract and read-only taps; the simulation package
 supplies the matching adapter. No DPI capture implementation is imported by the
 functional core.
 There is no co-sim generator parameter or public observer port. An ordinary

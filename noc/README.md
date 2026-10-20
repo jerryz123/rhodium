@@ -254,7 +254,7 @@ routing, adaptive-minimal routing under both whole-graph and escape proofs,
 and prefixed topology-fragment composition. Each raw, builder, and embedded
 form is reduced to a `RoutingSemantics` fingerprint containing the normalized
 topology and route classes, materialized and reachable decisions, dependency
-graph, proof result, route-table rows, assumptions, and validator version.
+graph, proof result, route-table rows, assumptions, and validator kind.
 Hardware emission remains outside this package.
 
 ## Reusable topology definitions
@@ -595,13 +595,13 @@ whole-graph acyclicity as before. Passing
 `~escape: EscapeValidationRequest(...)` explicitly selects escape-subnetwork
 validation. An accepted request produces an opaque `EscapeCertificate` with
 the escape reachability and closure evidence, projected dependency graph,
-topological ordering, validator version, and implementation assumptions.
+topological ordering, validator kind, and implementation assumptions.
 Reachability and model errors remain explicit failures.
 
 Only the validation module can construct `ValidatedRouting`. The artifact
 retains the normalized topology, route classes, materialized and reachable
 relations, full dependency graph, selected certificate, proof assumptions,
-validator version, and deterministic `RouteTable`.
+validator kind, and deterministic `RouteTable`.
 
 There is one table row for each route class's legal injection terminal and each
 reachable held VC. A row records its router node, its exact ejection terminal

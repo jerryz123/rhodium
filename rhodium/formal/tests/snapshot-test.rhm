@@ -30,7 +30,6 @@ def add_operation:
   )
 
 check:
-  rkt.#{hash-ref}(snapshot, "version") ~is 1
   rkt.#{hash-ref}(snapshot, "top") ~is finished_adder.id
   modules.length() ~is 1
   rkt.#{hash-ref}(module_snapshot, "name") ~is "SnapshotAdder"

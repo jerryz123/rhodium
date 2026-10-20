@@ -52,8 +52,9 @@ flowchart LR
 
 Treat the model and JSON as the stable consumer boundary. Preserve deterministic
 array order and map keys, opaque reference IDs, compound interface identity,
-and the distinction between protocol channels and data dependencies. Add a
-schema-version field before making an incompatible JSON change.
+and the distinction between protocol channels and data dependencies. Update
+producers, consumers, and fixtures together when the JSON contract changes;
+regenerate stale artifacts rather than adding format versions or migrations.
 
 Project whole composite connections and transparent links into matching nested
 channel pairs using one cached endpoint projection per extraction. Reverse

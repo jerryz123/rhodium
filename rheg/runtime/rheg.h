@@ -174,7 +174,7 @@ public:
   const std::optional<TraceTiming>& timing() const { return graph_.timing_; }
   /* Returns this epoch's registered runtime instance identities. */
   const std::map<std::uint32_t, InstanceValue>& instances() const { return graph_.instances_; }
-  /* Serializes the versioned trace envelope with manifest, occurrences, and timing. */
+  /* Serializes the trace envelope with manifest, occurrences, and timing. */
   std::string json() const;
   /* Extracts a named capture without consulting the live collector. */
   FieldValue field(Ref ref, const std::string& name) const { return graph_.field(ref, name); }

@@ -149,8 +149,8 @@ def main() -> None:
         manifest = json.loads(arguments.manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         fail(str(error))
-    if manifest.get("schema_version") != 2:
-        fail("expected a site-aware schema_version 2 manifest")
+    if not isinstance(manifest, dict):
+        fail("memory manifest must be an object")
 
     selection = manifest.get("selection_policy")
     if not isinstance(selection, dict):

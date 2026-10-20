@@ -34,7 +34,7 @@ fun fabric_metadata(fabric :: SingleCoreSystemParams) :: Map:
     "hart_attachment": repr(fabric.hart_params)
   }
 
-/* Builds the versioned metadata envelope from the selected implementation, shape configuration, architectural description, DTS, and UDB. */
+/* Builds the resolved metadata envelope from the selected implementation, shape configuration, architectural description, DTS, and UDB. */
 fun config_metadata(resolved :: ResolvedSoCConfig,
                     config :: MiniSoCConfig || SingleCoreSoCConfig || TiledSoCConfig = resolved.configuration()) :: Map:
   def csr_warl = match resolved.selection.core
@@ -56,7 +56,6 @@ fun config_metadata(resolved :: ResolvedSoCConfig,
        "memory": repr(config.memory), "llc": repr(config.llc),
        "clocks": repr(config.clocks), "flit": repr(config.flit), "boot": repr(config.boot)}
   {
-    "schema": 1,
     "config": resolved.key,
     "architecture": repr(config.hart.description),
     "xlen": config.hart.description.xlen.width,

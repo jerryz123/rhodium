@@ -1,5 +1,5 @@
 #lang rhombus
-// Converts verified public Rhodium IR into immutable plain data for the Rosette engine.
+/* Converts verified public Rhodium IR into immutable plain data for the Rosette engine. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -150,9 +150,9 @@ fun reachable_modules(top :: Module):
   visit(top)
   modules
 
+/* Verifies a design and snapshots its top and reachable modules for symbolic execution. */
 fun formal_snapshot(subject :: DesignElaboration || Module || Design):
   def top = formal_subject_top(subject)
   verify_design(top.design)
-  rkt.hash("version", 1,
-           "top", top.id,
+  rkt.hash("top", top.id,
            "modules", to_pair_list(reachable_modules(top).map(module_snapshot)))

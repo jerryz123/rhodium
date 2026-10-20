@@ -25,7 +25,6 @@ import:
   lib("cores/writeback-calendar.rhdl") open
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/rtl/floating-point.rhdl") open
-  "observation.rhdl".RV2WideObservationContract
   "../cosim-source.rhm".describe_cosim_hart
   "decode/core-ctrl.rhdl" open
   "decode/operand-ctrl.rhdl" open
@@ -1473,7 +1472,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      Publishes the declared core contract without adding functional ports,
      retirement state, or simulator-selected policy. */
 
-  describe_cosim_hart(RV2WideObservationContract, {"profile": profile, "fp_timing": fp_timing}, {
+  describe_cosim_hart("rv2wide", {"profile": profile, "fp_timing": fp_timing}, {
     "wb_tokens": wb_tokens,
     "wb_retired": vec(retired[0].valid, retired[1].valid),
     "wb_retirement": vec(retired[0].bits, retired[1].bits),

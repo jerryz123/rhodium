@@ -34,7 +34,7 @@ Keep capture words compact in nodes; resolve fields through immutable site
 schema. Width, offset, overlap, gap, encoding, and named-field extraction checks
 belong in the collector. Never infer captures from type-description strings.
 The exporter parses and cross-checks JSON against typed tables once, then reuses
-the collector extractor. Preserve legacy no-schema snapshots.
+the collector extractor. Preserve the supported raw-payload representation when named-field metadata is absent.
 
 `Snapshot` owns a validated graph copy with const views and its bound manifest;
 it has no visualization dependency. Optional timing belongs in the trace
@@ -54,7 +54,7 @@ intentional; bounded-memory collection is separate work.
 `record_unknown`/`rheg_unknown` may arrive before or after the node callback,
 but never after that occurrence has streamed. Preserve the optional marker in
 snapshots and batches, reject duplicates and orphan markers, and omit it from
-JSON when false for legacy compatibility. The exporter validates its boolean
+JSON when false because absence means false. The exporter validates its boolean
 JSON type, displays it only when true, and treats changes as stall-run boundaries.
 Missing-contract details are static track context, not duplicated per occurrence.
 
@@ -116,7 +116,7 @@ Perfetto is a visualization projection, not a second graph serialization.
 
 Keep transfer/stall classification and `observation_of` in static site JSON
 and track descriptions, not the DPI ABI or occurrence arguments. Missing kind
-means transfer for legacy manifests. Validate that a stall observes a transfer
+means transfer when the field is omitted. Validate that a stall observes a transfer
 site and has no outgoing dependency. Resolve observation-to-transfer track IDs
 after reading every site, independently of manifest order. Emit descriptors only
 for transfers, with complete companion schemas in an `observations` array.

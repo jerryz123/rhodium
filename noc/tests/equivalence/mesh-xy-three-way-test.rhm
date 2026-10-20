@@ -202,5 +202,5 @@ check:
   raw_semantics.route_table_rows ~is syntax_semantics.route_table_rows
   raw_semantics.assumptions ~is builder_semantics.assumptions
   raw_semantics.assumptions ~is syntax_semantics.assumptions
-  raw_semantics.validator_version ~is builder_semantics.validator_version
-  raw_semantics.validator_version ~is syntax_semantics.validator_version
+  raw_semantics.validator_kind ~is builder_semantics.validator_kind
+  raw_semantics.validator_kind ~is syntax_semantics.validator_kind

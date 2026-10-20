@@ -311,7 +311,7 @@ The structured result includes:
 - `EventManifest`: original elaboration, sites, dependencies, and IR-backed
   `trace_plans` keyed by child ID when inferred with `~dynamic: #true`.
 
-`event_manifest_to_json` emits deterministic version-1 `rhodium-event-graph`
+`event_manifest_to_json` emits deterministic `rhodium-event-graph`
 JSON with the selected top, sites, and dependencies. Dynamic plans stay in the
 structured manifest, not JSON; see the [plan representation](DEVELOPING.md#dynamic-lineage-plans).
 

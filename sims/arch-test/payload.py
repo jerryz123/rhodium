@@ -57,7 +57,7 @@ def package(elf_dir, configuration, bundle, identity):
             archive.add(elf, arcname=elf.relative_to(elf_dir).as_posix(), recursive=False)
     shutil.copyfile(configuration, bundle / "configuration.json")
     (bundle / "inventory.json").write_text(json.dumps({
-        "schema": 1, "identity": identity, "elfs": inventory,
+        "identity": identity, "elfs": inventory,
     }, sort_keys=True, indent=2) + "\n")
     (bundle / "elfs.sha256").write_text(checksum_text(bundle))
     verify(bundle, configuration, identity)
@@ -70,7 +70,7 @@ def verify(bundle, configuration, identity=None):
     if (bundle / "configuration.json").read_bytes() != configuration.read_bytes():
         raise ValueError("ACT payload configuration mismatch")
     manifest = json.loads((bundle / "inventory.json").read_text())
-    if manifest.get("schema") != 1 or not isinstance(manifest.get("identity"), str):
+    if not isinstance(manifest.get("identity"), str):
         raise ValueError("invalid ACT payload inventory schema")
     if identity is not None and manifest["identity"] != identity:
         raise ValueError("ACT payload input identity mismatch")

@@ -219,8 +219,8 @@ The direct `verilog_target` is also supported. Add `event_trace_pass()` to the
 same list for Flow DPI tracing; both pass orders preserve annotations and prior
 observers. `cosim_pass(~harts: [["core"]])` selects exact declared hart paths
 relative to the compilation top. The default selects all declared harts.
-The default adapter map handles `rv5stage.v1`. To support another declared
-contract, supply `~adapters: {"my-hart.v1": adapter}`. This replaces the map;
+The default adapter map handles `rv5stage` and `rv2wide`. To support another declared
+contract, supply `~adapters: {"my-hart": adapter}`. This replaces the map;
 list every contract needed by the selected harts. Each adapter receives detached
 configuration, tap types, component parameters, and an occurrence ID, and returns
 an elaborated observer with no outputs. The core declares metadata only; adapters

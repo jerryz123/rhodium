@@ -65,7 +65,7 @@ check:
   accepted.certificate.rank(escape_vc(first)) ~is 0
   accepted.certificate.closure.decisions.length() ~is 1
   accepted.certificate.closure.describe() ~is "closed escape transitions=1"
-  accepted.certificate.describe() ~is "escape certificate vc-escape-subnetwork/v1: vcs=3, reachable-vcs=2"
+  accepted.certificate.describe() ~is "escape certificate vc-escape-subnetwork: vcs=3, reachable-vcs=2"
   accepted_route_evidence.reachable_escape_vcs.map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc1", "l1.vc1"]
@@ -73,8 +73,8 @@ check:
     fun (vc): vc.describe()
   ) ~is ["l0.vc1", "l1.vc1"]
   accepted_route_evidence.entries.length() ~is 2
-  accepted.validator_version ~is "vc-escape-subnetwork/v1"
-  accepted.describe() ~is "validated routing vc-escape-subnetwork/v1: routes=1, vcs=4, rows=5"
+  accepted.validator_kind ~is "vc-escape-subnetwork"
+  accepted.describe() ~is "validated routing vc-escape-subnetwork: routes=1, vcs=4, rows=5"
   accepted.assumptions === accepted.certificate.assumptions ~is #true
   accepted.assumptions.deadlock_criterion ~is "reachable escape VC dependency subgraph is acyclic"
   accepted.assumptions.persistent_escape_request ~is #true
@@ -90,7 +90,7 @@ def ordinary = compile_routing(accepted_problem)
 check:
   ordinary is_a ValidatedRouting ~is #true
   ordinary.certificate is_a AcyclicCertificate ~is #true
-  ordinary.validator_version ~is "vc-dependency-acyclic/v1"
+  ordinary.validator_kind ~is "vc-dependency-acyclic"
   ordinary.assumptions.persistent_escape_request ~is #false
   ordinary.assumptions.eventual_escape_grant ~is #false
 

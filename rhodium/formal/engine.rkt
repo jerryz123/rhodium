@@ -1,5 +1,5 @@
 #lang rosette
-;; Interprets immutable verified Rhodium snapshots for combinational equivalence, reachability, and property queries.
+#| Interprets immutable verified Rhodium snapshots for combinational equivalence, reachability, and property queries. |#
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/list
@@ -315,9 +315,8 @@
   (for ([operation (in-list (required module "operations" "module"))])
     (validate-operation module operation module-ids)))
 
+#| Validates the top module and every referenced module before symbolic execution. |#
 (define (validate-snapshot snapshot)
-  (unless (= (required snapshot "version" "formal snapshot") 1)
-    (error 'rhodium-formal "unsupported formal snapshot version"))
   (define modules (required snapshot "modules" "formal snapshot"))
   (unless (pair? modules)
     (error 'rhodium-formal "formal snapshot has no modules"))

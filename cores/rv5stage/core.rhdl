@@ -12,7 +12,6 @@ import:
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_hart
-  "observation.rhdl".RV5StageObservationContract
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/bpred/ras.rhdl") open
@@ -1709,7 +1708,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         "fp_completion": wb_fp.completion.bits
       }
     | {}
-  describe_cosim_hart(RV5StageObservationContract, {"profile": core_profile}, {
+  describe_cosim_hart("rv5stage", {"profile": core_profile}, {
     "wb_vector_admission": wb_vector_slow_admission,
     "wb_vector_return": wb_vector_retirement_link.right.valid,
     "wb_retained_memory_accepted": wb_retained_memory_accepted,

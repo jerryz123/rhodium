@@ -24,6 +24,14 @@ Keep generated Racket bytecode, CIRCT output, SystemVerilog, Verilator builds,
 and physical-flow artifacts out of version control unless an owning guide
 explicitly defines a checked-in reference.
 
+Repository-owned serialized formats and internal adapter contracts are
+unversioned. Change producers, consumers, and fixtures together; regenerate
+stale artifacts instead of maintaining format-version fields, numbered adapter
+identities, compatibility readers, or migration paths. Keep structural and
+semantic validation, format-kind discriminators, and source/build/configuration
+fingerprints. Versions required by external formats, architectural
+specifications, and dependency/toolchain pins remain part of those contracts.
+
 ## Find the change owner
 
 Choose the lowest package that owns the behavior before editing:

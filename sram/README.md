@@ -93,7 +93,6 @@ A site policy is relative to one logical design top:
 ```yaml
 # Selects implementation decisions relative to one logical design top.
 
-schema_version: 1
 top: DesignTop
 default: infer
 sites:
@@ -101,7 +100,7 @@ sites:
   path/to/other_storage: infer
 ```
 
-`schema_version: 1`, a nonempty `top`, `default: infer`, and a `sites` mapping
+A nonempty `top`, `default: infer`, and a `sites` mapping
 are required. Every explicit path must exist in the prepared scope. An omitted
 site inherits `infer`; an explicit `infer` records an intentional decision.
 The policy value for a mapped site is an exact macro name from the selected

@@ -14,8 +14,8 @@ export:
   ValidatedRouting
   compile_routing
 
-def acyclic_validator_version = "vc-dependency-acyclic/v1"
-def escape_validator_version = "vc-escape-subnetwork/v1"
+def acyclic_validator_kind = "vc-dependency-acyclic"
+def escape_validator_kind = "vc-escape-subnetwork"
 
 /* Compares normalized origins by kind and terminal or VC identity. */
 fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
@@ -149,14 +149,14 @@ def escape_assumptions = _ValidationAssumptions(
   #true
 )
 
-/* Retains checked escape evidence, projected resource ranks, assumptions, and validator version. */
+/* Retains checked escape evidence, projected resource ranks, assumptions, and validator kind. */
 class EscapeCertificate(request :: EscapeValidationRequest,
                         reachability :: EscapeReachabilityEvidence,
                         closure :: EscapeClosureEvidence,
                         dependency_graph :: VCDependencyGraph,
                         acyclic_certificate :: AcyclicCertificate,
                         assumptions :: ValidationAssumptions,
-                        validator_version :: String):
+                        validator_kind :: String):
   opaque
   internal _EscapeCertificate
   /* Restricts artifact construction to this module's validated projection path. */
@@ -166,9 +166,9 @@ class EscapeCertificate(request :: EscapeValidationRequest,
   method rank(vc :: VCId):
     acyclic_certificate.rank(vc)
 
-  /* Summarizes the escape selection, reachable proof resources, and validator version. */
+  /* Summarizes the escape selection, reachable proof resources, and validator kind. */
   method describe():
-    String.append("escape certificate ", validator_version, ": vcs=",
+    String.append("escape certificate ", validator_kind, ": vcs=",
                   to_string(request.escape_vcs.length()),
                   ", reachable-vcs=",
                   to_string(dependency_graph.vertices.length()))
@@ -184,7 +184,7 @@ class ValidatedRouting(topology :: Topology,
                        certificate :: AcyclicCertificate || EscapeCertificate,
                        route_table :: RouteTable,
                        assumptions :: ValidationAssumptions,
-                       validator_version :: String):
+                       validator_kind :: String):
   opaque
   internal _ValidatedRouting
   /* Restricts artifact construction to this module's validated projection path. */
@@ -194,9 +194,9 @@ class ValidatedRouting(topology :: Topology,
   method route_row(route_class :: RouteClass, origin :: Injection || HeldVC):
     route_table.row(route_class, origin)
 
-  /* Summarizes route, resource, and table sizes with the validator version. */
+  /* Summarizes route, resource, and table sizes with the validator kind. */
   method describe():
-    String.append("validated routing ", validator_version,
+    String.append("validated routing ", validator_kind,
                   ": routes=", to_string(route_classes.length()),
                   ", vcs=", to_string(dependency_graph.vertices.length()),
                   ", rows=", to_string(route_table.rows.length()))
@@ -245,7 +245,7 @@ fun finish_validated_routing(materialized :: MaterializedRouting,
                              dependency_graph :: VCDependencyGraph,
                              certificate :: AcyclicCertificate || EscapeCertificate,
                              assumptions :: ValidationAssumptions,
-                             version :: String):
+                             kind :: String):
   def route_table = build_route_table(materialized, reachable)
   _ValidatedRouting(
     materialized.topology,
@@ -258,7 +258,7 @@ fun finish_validated_routing(materialized :: MaterializedRouting,
     certificate,
     route_table,
     assumptions,
-    version
+    kind
   )
 
 /* Materializes once, analyzes reachability/dependencies, and gates planning on the selected proof. */
@@ -284,7 +284,7 @@ fun compile_routing(problem :: RoutingProblem,
           dependency_graph,
           proof,
           initial_assumptions,
-          acyclic_validator_version
+          acyclic_validator_kind
         )
   | block:
       def evidence = validate_escape_subnetwork(
@@ -302,7 +302,7 @@ fun compile_routing(problem :: RoutingProblem,
             evidence.dependency_graph,
             evidence.acyclic_certificate,
             escape_assumptions,
-            escape_validator_version
+            escape_validator_kind
           )
           finish_validated_routing(
             materialized,
@@ -310,6 +310,6 @@ fun compile_routing(problem :: RoutingProblem,
             dependency_graph,
             certificate,
             escape_assumptions,
-            escape_validator_version
+            escape_validator_kind
           )
       | evidence

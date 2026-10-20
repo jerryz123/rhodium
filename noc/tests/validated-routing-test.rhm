@@ -61,7 +61,7 @@ check:
   validated.reachable.materialized === validated.materialized ~is #true
   validated.dependency_graph.reachable === validated.reachable ~is #true
   validated.certificate.graph === validated.dependency_graph ~is #true
-  validated.validator_version ~is "vc-dependency-acyclic/v1"
+  validated.validator_kind ~is "vc-dependency-acyclic"
   validated.assumptions.resource_model ~is "virtual-channel hold-and-request"
   validated.assumptions.deadlock_criterion ~is "reachable VC dependency union is acyclic"
   validated.assumptions.injection_holds_vc ~is #false
@@ -82,7 +82,7 @@ check:
     HeldVC(VCId(LinkId(3), 0)),
     VCId(LinkId(4), 0)
   ) ~is #true
-  validated.describe() ~is "validated routing vc-dependency-acyclic/v1: routes=1, vcs=3, rows=4"
+  validated.describe() ~is "validated routing vc-dependency-acyclic: routes=1, vcs=3, rows=4"
 
 check:
   validated.route_table.row(

@@ -19,8 +19,8 @@ def checked_config(exported, name):
         if fingerprint(exported[key]) != exported[key + "_fingerprint"]:
             raise ValueError(f"{key} fingerprint mismatch")
     udb = config_architecture(configuration, name)
-    if environment["schema"] != 1:
-        raise ValueError("unsupported co-simulation environment schema")
+    if not isinstance(environment, dict):
+        raise ValueError("co-simulation environment must be an object")
     return udb, environment
 
 
@@ -92,7 +92,7 @@ def project_environment(config, environment):
 
 def runtime_manifest(manifest, environment, observations):
     """Bind the one-hart descriptor and actual boot image into the executable."""
-    if (observations["schema"] != 1 or observations.get("epoch") != "host-reset" or
+    if (observations.get("epoch") != "host-reset" or
             len(observations["harts"]) != 1 or observations["harts"][0]["instance"] != 0):
         raise ValueError("scalar runtime requires exactly one observed hart with instance zero")
     image = environment["rom_image"]
@@ -134,7 +134,7 @@ def main():
     # The standalone executable has no host provider and requires its own CLINT.
     differences = reference_model_differences(udb["params"])
     manifest = {
-        "schema": 1, "config": args.name,
+        "config": args.name,
         "configuration_fingerprint": exported["configuration_fingerprint"],
         "environment_fingerprint": exported["environment_fingerprint"],
         "sail_configuration_fingerprint": fingerprint(config),

@@ -123,7 +123,7 @@ For its RV5Stage integration, run the EX/MEM/WB load-path fixtures listed in
 [`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md#focused-validation).
 
 `cosim-source.rhm` bridges public core metadata and frontend read/domain APIs.
-Its versioned contracts, local taps, explicit child views, and sibling contexts
+Its adapter contracts, local taps, explicit child views, and sibling contexts
 are remappable read-only declarations, not capture hardware. All selected
 components must share the hart's clock/reset domain. DPI producers, adapters,
 event reconstruction, and reference checking belong to

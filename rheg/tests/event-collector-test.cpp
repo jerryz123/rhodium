@@ -23,7 +23,7 @@ template<class F> void rejects(F action, const std::string& message) {
   throw std::runtime_error("collector accepted invalid input: " + message);
 }
 Manifest descriptor() {
-  return {R"({"format":"rhodium-event-graph","version":1,"top":"Test","sites":[{"id":"a","payload_width":false},{"id":"b","payload_width":8}],"dependencies":[{"parent":"a","child":"b"}]})",
+  return {R"({"format":"rhodium-event-graph","top":"Test","sites":[{"id":"a","payload_width":false},{"id":"b","payload_width":8}],"dependencies":[{"parent":"a","child":"b"}]})",
           {0, 8}, {{0, 1}}};
 }
 Graph populated() {
@@ -299,7 +299,7 @@ int main() {
   const auto snapshot = rheg::graph().snapshot();
   require(snapshot.edges().size() == 2);
   require(snapshot.json().find("\"9007199254740993\"") != std::string::npos);
-  require(snapshot.json() == "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
+  require(snapshot.json() == "{\"format\":\"rhodium-event-trace\",\"manifest\":" +
           descriptor().json + ",\"timing\":{\"clock_frequency_hz\":\"9007199254740993\",\"epoch_id\":\"9007199254740993\",\"origin\":\"cycle-zero\"},\"occurrences\":" + rheg::graph().json() + "}\n");
   rheg_reset(1);
   require(rheg::graph().snapshot().nodes().empty());

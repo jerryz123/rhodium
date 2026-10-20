@@ -53,7 +53,7 @@
         "operations" operations))
 
 (define (single-module-snapshot module)
-  (hash "version" 1 "top" (hash-ref module "id") "modules" (list module)))
+  (hash "top" (hash-ref module "id") "modules" (list module)))
 
 (define (operation-design opcode input-types result-type [attributes (hash)])
   (define input-values

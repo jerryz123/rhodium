@@ -23,7 +23,7 @@ collector -> event records
 ```
 
 Functional cores declare passive taps through `cores/cosim-source.rhm`.
-Metadata retains a versioned contract, immutable host configuration, and
+Metadata retains an adapter contract, immutable host configuration, and
 remappable hardware references, not observer closures. The pass selects an
 adapter, elaborates it separately, checks its input/domain contract and absence
 of outputs, then imports it into selected occurrences. Capture has no functional
@@ -139,7 +139,7 @@ retains a split owner through its final retirement/trap, including completed
 store prefixes. Three native service FIFOs correspond to accepted memory,
 WB-authorized multiply, and divide. Variable-return arbitration schedules load
 and divide owners through three feed-forward stages; multiply writes directly
-on its authorized WB+1 edge. The versioned `rv2wide.v7` source contract consumes
+on its authorized WB+1 edge. The `rv2wide` source contract consumes
 grouped branch payloads, compact FP scheduling tags, and vector admission/
 execution ownership. It samples
 virtual entry/return context, guest trap provenance, and counter-3 timing as well

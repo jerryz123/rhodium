@@ -53,7 +53,7 @@ sync_circuit ObservedLane(wrong_domain :: Boolean = #false, unsupported :: Boole
     | inst child(NestedComponent(wrong_nested))
       child.value <== source.bits
       child
-  describe_cosim_hart("test.v1", {"unsupported": unsupported}, {"value": source.bits, "accepted": source.fire()}, {"component": component})
+  describe_cosim_hart("test", {"unsupported": unsupported}, {"value": source.bits, "accepted": source.fire()}, {"component": component})
 
 sync_circuit ObservedTop(wrong_context :: Boolean = #false):
   interface source[2](Decoupled(Bits(8)), ~role: consumer)

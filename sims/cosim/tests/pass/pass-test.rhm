@@ -22,7 +22,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector-profile.rhm").VectorProfile
 
-def adapters = {"test.v1": recipe}
+def adapters = {"test": recipe}
 def source = make_fixture()
 def before = dump_ir(source.design)
 for (backend in [circt_target, verilog_target]):
@@ -34,7 +34,7 @@ for (backend in [circt_target, verilog_target]):
     normal.artifacts[0].content.contains("cosim_test_sample") ~is #false
     observed.artifacts[0].content.contains("cosim_test_sample") ~is #true
     observed.artifacts[0].content.contains("cosim_test_functional") ~is #true
-    observed.artifacts[1].content ~is "{\"schema\":1,\"epoch\":\"host-reset\",\"harts\":[{\"instance\":0,\"path\":[\"left\"]},{\"instance\":1,\"path\":[\"right\"]}]}"
+    observed.artifacts[1].content ~is "{\"epoch\":\"host-reset\",\"harts\":[{\"instance\":0,\"path\":[\"left\"]},{\"instance\":1,\"path\":[\"right\"]}]}"
     selected.artifacts[1].content.contains("left") ~is #false
     selected.artifacts[1].content.contains("right") ~is #true
   for (passes in [[cosim_pass(~adapters: adapters), event_trace_pass()], [event_trace_pass(), cosim_pass(~adapters: adapters)]]):

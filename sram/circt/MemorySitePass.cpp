@@ -31,9 +31,8 @@ using namespace mlir;
 
 namespace {
 
-/* Records schema-1, logical-top-relative site decisions with inference as the required default. */
+/* Records logical-top-relative site decisions with inference as the required default. */
 struct MemoryPolicy {
-  unsigned schemaVersion = 0;
   std::string top;
   std::string defaultDecision;
   std::map<std::string, std::string> sites;
@@ -58,9 +57,8 @@ namespace llvm::yaml {
 
 /* Reads the required policy fields using LLVM's YAML mapping diagnostics. */
 template <> struct MappingTraits<MemoryPolicy> {
-  /* Maps the version, logical top, default, and explicit site decisions into the host policy. */
+  /* Maps the logical top, default, and explicit site decisions into the host policy. */
   static void mapping(IO &io, MemoryPolicy &policy) {
-    io.mapRequired("schema_version", policy.schemaVersion);
     io.mapRequired("top", policy.top);
     io.mapRequired("default", policy.defaultDecision);
     io.mapRequired("sites", policy.sites);
@@ -92,10 +90,6 @@ static FailureOr<MemoryPolicy> readPolicy(StringRef path, Operation *anchor) {
   if (std::error_code error = input.error()) {
     anchor->emitError() << "cannot parse memory policy '" << path
                         << "': " << error.message();
-    return failure();
-  }
-  if (policy.schemaVersion != 1) {
-    anchor->emitError() << "memory policy schema_version must be 1";
     return failure();
   }
   if (policy.top.empty()) {
@@ -216,7 +210,6 @@ static LogicalResult writeInventory(StringRef path, const MemoryPolicy &policy,
     siteValues.push_back(std::move(value));
   }
   llvm::json::Object inventory{
-      {"schema_version", 1},
       {"top", top},
       {"policy_top", policy.top},
       {"scope_prefix", scopePrefix},

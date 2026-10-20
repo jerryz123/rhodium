@@ -101,7 +101,7 @@ parameters obtain subordinate endpoints from their services. `make check-boundar
 Resolved snapshots belong in `configs/metadata.rhm`: serialize architecture,
 the complete implementation profile, platform parameters, device-tree source,
 and UDB projection. Public immutable host parameters use Rhombus expression notation inside a
-versioned JSON envelope; XLEN and the architectural projections preserve the
+resolved JSON envelope; XLEN and the architectural projections preserve the
 public meaning of private host values. Factory functions are represented
 by their resolved attachment parameters; executable changes are additionally
 bound by the exact source revision. New configuration fields must enter this
