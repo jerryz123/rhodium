@@ -162,7 +162,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   /*
    * Consume preceding handshakes and completions, service an accepted snoop, update architectural
-   * inputs, then resume Spike until its next yield.
+   * inputs, then resume Spike only when its blocking memory transaction can finish.
    */
   Outputs tick(const Inputs& inputs) {
     inputs_ = inputs;
@@ -172,7 +172,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
     service_snoop(snoop_fire);
     update_architectural_inputs();
     host_ = context_t::current();
-    target_.switch_to();
+    if (!memory_wait_pending()) target_.switch_to();
     return outputs();
   }
 
@@ -347,6 +347,20 @@ class SpikeCoreModel::Implementation final : public simif_t {
     assert(host_ != nullptr);
     assert(!amo_active_);
     host_->switch_to();
+  }
+
+  /*
+   * Each blocking memory operation sets its flags immediately before yielding and cannot progress
+   * until both request acceptance and response delivery finish. Inspect them only from the host,
+   * after servicing this cycle's inputs. Budget and cached-fault yields leave these flags clear;
+   * snoop replies are independent and must not prevent execution.
+   */
+  bool memory_wait_pending() const {
+    return address_request_valid_ || address_response_waiting_ ||
+           instruction_request_valid_ || instruction_response_waiting_ ||
+           acquire_request_valid_ || acquire_response_waiting_ ||
+           release_request_valid_ || release_response_waiting_ ||
+           uncached_request_valid_ || uncached_response_waiting_;
   }
 
   /* Check that an enclosed byte access remains wholly inside the pinned AMO physical range. */

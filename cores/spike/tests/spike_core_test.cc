@@ -14,6 +14,42 @@ using rhodium::spike::Inputs;
 using rhodium::spike::Outputs;
 using rhodium::spike::SpikeCoreModel;
 
+// Exercise both phases of a blocking transaction, including independent snoop traffic.
+static void stall_transaction(SpikeCoreModel& model, bool Outputs::*request_valid,
+                              bool Inputs::*request_ready, bool Outputs::*response_ready) {
+  Inputs inputs;
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    const auto outputs = model.tick(inputs);
+    assert(outputs.*request_valid);
+    assert(outputs.*response_ready);
+  }
+  inputs.*request_ready = true;
+  auto outputs = model.tick(inputs);
+  assert(!(outputs.*request_valid));
+  assert(outputs.*response_ready);
+  inputs = Inputs{};
+  // An absent line must still receive a snoop reply while the hart waits for memory.
+  inputs.snoop_valid = true;
+  inputs.snoop_address = 0xffff0000;
+  inputs.snoop_invalidate = true;
+  outputs = model.tick(inputs);
+  assert(outputs.snoop_response_valid);
+  assert(!outputs.snoop_response_has_data);
+  inputs = Inputs{};
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    outputs = model.tick(inputs);
+    assert(!outputs.address_request_valid && !outputs.instruction_request_valid &&
+           !outputs.acquire_request_valid && !outputs.release_request_valid &&
+           !outputs.uncached_request_valid);
+    assert(outputs.*response_ready);
+    assert(outputs.snoop_response_valid);
+  }
+  inputs.snoop_response_ready = true;
+  outputs = model.tick(inputs);
+  assert(!outputs.snoop_response_valid);
+  assert(outputs.*response_ready);
+}
+
 int main() {
   Configuration configuration;
   assert(configuration.max_retired_instructions_per_cycle == 64);
@@ -54,14 +90,28 @@ int main() {
   assert(outputs.address_request_valid);
   assert(outputs.address_request_address == 0x1000);
 
-  inputs.address_request_ready = true;
+  // A response alone cannot advance the coroutine while its request is backpressured.
   inputs.address_response_valid = true;
   inputs.address_response_cacheable = true;
   inputs.address_response_instruction_cacheable = true;
   outputs = model.tick(inputs);
+  assert(outputs.address_request_valid);
+  assert(!outputs.address_response_ready);
+  assert(!outputs.instruction_request_valid);
+  inputs = Inputs{};
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    outputs = model.tick(inputs);
+    assert(outputs.address_request_valid);
+    assert(outputs.address_request_address == 0x1000);
+    assert(!outputs.instruction_request_valid);
+  }
+  inputs.address_request_ready = true;
+  outputs = model.tick(inputs);
   assert(outputs.instruction_request_valid);
   assert(outputs.instruction_request_address == 0x1000);
 
+  stall_transaction(model, &Outputs::instruction_request_valid, &Inputs::instruction_request_ready,
+                    &Outputs::instruction_response_ready);
   inputs = Inputs{};
   inputs.instruction_request_ready = true;
   inputs.instruction_response_valid = true;
@@ -90,6 +140,8 @@ int main() {
     outputs = model.tick(inputs);
     Inputs next;
     if (outputs.address_request_valid) {
+      stall_transaction(model, &Outputs::address_request_valid, &Inputs::address_request_ready,
+                        &Outputs::address_response_ready);
       next.address_request_ready = true;
       next.address_response_valid = true;
       next.address_response_cacheable = true;
@@ -100,6 +152,8 @@ int main() {
       assert(outputs.acquire_request_address == (acquire_count == 0 ? 0x2000 : 0x2080));
       assert(outputs.acquire_request_unique);
       ++acquire_count;
+      stall_transaction(model, &Outputs::acquire_request_valid, &Inputs::acquire_request_ready,
+                        &Outputs::acquire_response_ready);
       next.acquire_request_ready = true;
       next.acquire_response_valid = true;
       next.acquire_response_state = 2;
@@ -109,6 +163,8 @@ int main() {
       assert(outputs.release_request_state == 4);
       assert(outputs.release_request_line[0] == 42);
       ++release_count;
+      stall_transaction(model, &Outputs::release_request_valid, &Inputs::release_request_ready,
+                        &Outputs::release_response_ready);
       next.release_request_ready = true;
       next.release_response_valid = true;
     }
@@ -165,6 +221,8 @@ int main() {
       next.address_response_instruction_cacheable = true;
     }
     if (uncached_outputs.uncached_request_valid) {
+      stall_transaction(uncached_model, &Outputs::uncached_request_valid, &Inputs::uncached_request_ready,
+                        &Outputs::uncached_response_ready);
       assert(uncached_outputs.uncached_request_size == 1);
       if (uncached_outputs.uncached_request_address == 0x1000) ++low_half_fetches;
       if (uncached_outputs.uncached_request_address == 0x1002) ++high_half_fetches;

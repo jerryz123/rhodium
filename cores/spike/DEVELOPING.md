@@ -12,6 +12,12 @@ Keep Spike runtime, DPI, private-cache, and transaction policy in this named-cor
 package. Reuse pure architectural descriptions from `riscv/` and implementation-neutral attachment
 contracts from `cores/`; do not add Spike policy to either shared layer.
 
+The native tick services handshakes, responses, snoops, time, and interrupts on
+every cycle. It skips resuming the Spike coroutine only while a blocking memory
+request is unaccepted or its response is outstanding. Keep this check after host
+services so completion resumes execution on the same tick. Instruction-budget
+and cached-fault yields must still resume; snoop replies do not block execution.
+
 ## Implementation map
 
 | Area | Owner |
