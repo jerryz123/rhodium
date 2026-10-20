@@ -34,10 +34,10 @@ sync_circuit Queue(T :: DataType,
 
   /* A flow-through transfer does not touch storage, so internal enqueue and
      dequeue events differ from the externally visible ready-valid handshakes. */
-  fun stores_input(empty :: Bool, ingress_ready :: Bool):
+  fun stores_input(empty :: Bool):
     if flow
-    | ingress.valid & ingress_ready & !(empty & egress.ready)
-    | ingress.valid & ingress_ready
+    | ingress.fire() & !(empty & egress.ready)
+    | ingress.fire()
   /* Removes only a stored head; an empty bypass transfer does not consume storage. */
   fun removes_output(empty :: Bool): !empty & egress.ready
 
@@ -48,10 +48,10 @@ sync_circuit Queue(T :: DataType,
       def empty = !occupied
       def input_ready = ready_for_input(occupied)
       def output_valid = valid_for_output(empty)
-      def enqueue = stores_input(empty, input_ready)
+      ingress.ready <== input_ready
+      def enqueue = stores_input(empty)
       def dequeue = removes_output(empty)
 
-      ingress.ready <== input_ready
       egress.valid <== output_valid
       egress.bits <== bits_for_output(empty, payload)
       count <== occupied.as_bits()
@@ -78,10 +78,10 @@ sync_circuit Queue(T :: DataType,
       def input_ready = ready_for_input(full)
       def output_valid = valid_for_output(empty)
       def stored_bits = storage[read_pointer.value]
-      def enqueue = stores_input(empty, input_ready)
+      ingress.ready <== input_ready
+      def enqueue = stores_input(empty)
       def dequeue = removes_output(empty)
 
-      ingress.ready <== input_ready
       egress.valid <== output_valid
       egress.bits <== bits_for_output(empty, stored_bits)
       count <== occupancy
@@ -119,10 +119,10 @@ sync_circuit CtrlQueue(depth :: PosInt,
     if flow | (!empty ||| ingress.valid) | !empty
   /* Counts accepted tokens as stores except when an empty flow-through token
      is immediately accepted downstream. */
-  fun stores_input(empty :: Bool, ingress_ready :: Bool):
+  fun stores_input(empty :: Bool):
     if flow
-    | ingress.valid & ingress_ready & !(empty & egress.ready)
-    | ingress.valid & ingress_ready
+    | ingress.fire() & !(empty & egress.ready)
+    | ingress.fire()
   /* Removes only a stored token, excluding empty flow-through transfers. */
   fun removes_output(empty :: Bool): !empty & egress.ready
 
@@ -131,10 +131,10 @@ sync_circuit CtrlQueue(depth :: PosInt,
       reg occupied(~init: Bool(#false))
       def empty = !occupied
       def input_ready = ready_for_input(occupied)
-      def enqueue = stores_input(empty, input_ready)
+      ingress.ready <== input_ready
+      def enqueue = stores_input(empty)
       def dequeue = removes_output(empty)
 
-      ingress.ready <== input_ready
       egress.valid <== valid_for_output(empty)
       count <== occupied.as_bits()
 
@@ -150,10 +150,10 @@ sync_circuit CtrlQueue(depth :: PosInt,
       assert(occupancy <= bits(depth, count_width),
              "ctrl_queue_occupancy_in_range")
       def input_ready = ready_for_input(full)
-      def enqueue = stores_input(empty, input_ready)
+      ingress.ready <== input_ready
+      def enqueue = stores_input(empty)
       def dequeue = removes_output(empty)
 
-      ingress.ready <== input_ready
       egress.valid <== valid_for_output(empty)
       count <== occupancy
 

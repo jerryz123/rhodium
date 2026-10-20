@@ -33,9 +33,9 @@ sync_circuit EventPartialLane(traced :: Boolean):
   opaque.egress |> select.ingress[1]
   ingress[2] |> select.ingress[2]
   def selected = select.egress |> queue(2) |> shift_queue(2, ~flow: #true)
-  def joined = Array(selected, buddy) |> zip_flow(a, b => a ^ b)
+  def joined :: Endpoint = Array(selected, buddy) |> zip_flow(a, b => a ^ b)
   def buffered = joined |> queue(2)
-  def middle = if traced | buffered |> trace_event("middle", ~stalls: #true) | buffered
+  def middle :: Endpoint = if traced | buffered |> trace_event("middle", ~stalls: #true) | buffered
   if traced
   | middle |> pipe(1) |> trace_event("after") |> egress[0]
   | middle |> pipe(1) |> egress[0]
@@ -44,9 +44,9 @@ sync_circuit EventPartialLane(traced :: Boolean):
   if traced
   | isolated_output |> trace_event("isolated", ~stalls: #true) |> egress[1]
   | isolated_output |> egress[1]
-  selected_fire <== select.egress.valid & select.egress.ready
-  joined_fire <== joined.valid & joined.ready
-  middle_fire <== middle.valid & middle.ready
+  selected_fire <== select.egress.fire()
+  joined_fire <== joined.fire()
+  middle_fire <== middle.fire()
   middle_stall <== middle.valid & !middle.ready
 
 sync_circuit EventPartial():

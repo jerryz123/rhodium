@@ -99,18 +99,18 @@ sync_circuit WormholeRouter(T :: DataType,
   allocator.fallback_requests <== fallback_requests
   allocator.target_available <== target_available
   (input_buffers |> grant_crossbar(config.target_count, ~grants: allocator.grants)) <=> egress
-  allocator.accepts <== vec(for List (target_index in 0..config.target_count): egress[target_index].valid & egress[target_index].ready)
+  allocator.accepts <== vec(for List (target_index in 0..config.target_count): egress[target_index].fire())
 
   def next_active = vec(
     for List (input_index in 0..config.input_count):
       def input_buffer :: Endpoint = input_buffers[input_index]
-      def transfer = input_buffer.valid & input_buffer.ready
+      def transfer = input_buffer.fire()
       mux(transfer, !input_buffer.bits.tail, packet_active[input_index])
   )
   def next_reservations = vec(
     for List (input_index in 0..config.input_count):
       def input_buffer :: Endpoint = input_buffers[input_index]
-      def transfer = input_buffer.valid & input_buffer.ready
+      def transfer = input_buffer.fire()
       def retained = mux(packet_active[input_index], reservations[input_index], allocator.grants[input_index])
       mux(transfer, mux(input_buffer.bits.tail, unreserved, retained), reservations[input_index])
   )

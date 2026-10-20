@@ -20,27 +20,27 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
     if traced | ingress[index] |> trace_event("root" ++ to_string(index), ~payload: #true) | ingress[index]
   def left = inputs[0] |> queue(2, ~pipe: #true)
   def right = inputs[1] |> pipe(2)
-  def third = inputs[2] |> queue(2)
-  def first = Array(left, right) |> zip_flow(a, b => a ^ b)
+  def third :: Endpoint = inputs[2] |> queue(2)
+  def first :: Endpoint = Array(left, right) |> zip_flow(a, b => a ^ b)
   def checkpoint = if traced && mode == 2 | first |> trace_event("joined", ~payload: #true) | first
-  def replicas = if mode == 0 | checkpoint |> atomic_fork(2) | checkpoint |> broadcast(2)
+  def replicas :: InterfaceArrayFields = if mode == 0 | checkpoint |> atomic_fork(2) | checkpoint |> broadcast(2)
   def branch0 = replicas[0] |> pipe(1)
   def branch1 = replicas[1] |> queue(2)
-  def rejoined = Array(branch0, branch1) |> zip_flow(a, b => a)
-  def stored = rejoined |> queue(2)
-  def combined = if mode == 0 | Array(stored, third) |> zip_flow(a, b => a ^ b) | Array(stored, third) |> rr_arbiter()
-  def routed = combined |> queue(3, ~flow: #true, ~pipe: #true) |> demux_flow(2, payload => payload[0])
+  def rejoined :: Endpoint = Array(branch0, branch1) |> zip_flow(a, b => a)
+  def stored :: Endpoint = rejoined |> queue(2)
+  def combined :: Endpoint = if mode == 0 | Array(stored, third) |> zip_flow(a, b => a ^ b) | Array(stored, third) |> rr_arbiter()
+  def routed :: InterfaceArrayFields = combined |> queue(3, ~flow: #true, ~pipe: #true) |> demux_flow(2, payload => payload[0])
   def outputs = Array(routed[0] |> pipe(1), routed[1] |> queue(2))
   for (index in 0..2):
     if traced
     | outputs[index] |> trace_event("completed" ++ to_string(index), ~payload: #true) |> egress[index]
     | outputs[index] |> egress[index]
-  first_fire <== first.valid & first.ready
-  replicas_fire <== vec(for List (index in 0..2): replicas[index].valid & replicas[index].ready).as_bits()
-  rejoin_fire <== rejoined.valid & rejoined.ready
-  combine_inputs <== vec([stored.valid & stored.ready, third.valid & third.ready]).as_bits()
-  combine_fire <== combined.valid & combined.ready
-  routes_fire <== vec(for List (index in 0..2): routed[index].valid & routed[index].ready).as_bits()
+  first_fire <== first.fire()
+  replicas_fire <== vec(for List (index in 0..2): replicas[index].fire()).as_bits()
+  rejoin_fire <== rejoined.fire()
+  combine_inputs <== vec([stored.fire(), third.fire()]).as_bits()
+  combine_fire <== combined.fire()
+  routes_fire <== vec(for List (index in 0..2): routed[index].fire()).as_bits()
 
 sync_circuit EventJoinOccurrences(traced :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

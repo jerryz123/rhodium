@@ -50,7 +50,7 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   )
   chosen <== selected_index
 
-  def transfer = selected_valid & egress.ready
+  def transfer = egress.fire()
   when (transfer & selected_last):
     locked <== Bool(#false)
     next_priority <== mux(

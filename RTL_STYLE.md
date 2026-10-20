@@ -188,6 +188,11 @@ for cosmetic consistency. Conversely, do not mark an observable result as
 
 ## Handshakes and transaction ownership
 
+- Use `endpoint.fire()` for ready-valid transfer events, not manual
+  `valid & ready` checks, including checks through local control aliases.
+  Keep offer eligibility, stalls (`valid & !ready`), and storage-only events
+  distinct; do not replace them with transfers or use `.fire()` to construct
+  the endpoint's own valid/ready wiring.
 - Distinguish an offer (`valid`), a transfer (`fire()`), service admission, and
   final completion. Use names such as `offered`, `transferred`, `accepted`, and
   `completed` only for the event they actually describe. A protocol with

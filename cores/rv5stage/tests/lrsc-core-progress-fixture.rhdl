@@ -101,8 +101,8 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
     home_node.port.requester.snoops |> queue(1) |> demux_flow(2, dispatch => (dispatch.target_id === bits(5, p.node_id_width)).as_bits())
       |> parallel(map_flow(dispatch => dispatch.flit), map_flow(dispatch => dispatch.flit))
   ) <=> Array(cpu.dmem.snoops, loader.chi.snoops)
-  instruction_requests <== cpu.imem.req.valid & cpu.imem.req.ready
-  data_requests <== cpu.dmem.requests.valid & cpu.dmem.requests.ready
+  instruction_requests <== cpu.imem.req.fire()
+  data_requests <== cpu.dmem.requests.fire()
   eviction_waiting <== cpu.dmem.snoops.valid & !cpu.dmem.snoops.ready
 
 export:

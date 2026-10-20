@@ -77,8 +77,10 @@ bundle RV5StageControl():
   floating_point: FloatingPointControl()
   vector: VectorControl()
 
-// Inactive resources constrain only the discriminator observed by the core.
-// Payload fields remain free behind that discriminator.
+
+/* Inactive resources constrain only the discriminator observed by the core.
+   Payload fields remain free behind that discriminator. */
+
 def scalar_address_alu = component_output(RV64IAluCases, instruction_pattern(ADD))
 def unused_scalar_alu = pattern(AluControl(), _)
 def inactive_branch_control = partial_pattern(RiscvBranchControl()):
@@ -195,8 +197,10 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
           vector: NoVectorControl
       )
 
-// Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
-// after the ordinary scalar control columns have been composed.
+
+/* Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
+   after the ordinary scalar control columns have been composed. */
+
 def zicbop_operand_control = pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
@@ -260,8 +264,10 @@ def HypervisorFenceControlCases = [
   hint_control_case(HFENCE_GVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
 ]
 
-// Full-order invalidations reuse WB's existing SFENCE/HFENCE paths. Ordering
-// instructions remain distinct solely for their privilege-only access checks.
+
+/* Full-order invalidations reuse WB's existing SFENCE/HFENCE paths. Ordering
+   instructions remain distinct solely for their privilege-only access checks. */
+
 def SvinvalControlCases = [
   hint_control_case(SINVAL_VMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.AddressTranslation),
   hint_control_case(SFENCE_W_INVAL, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.TranslationOrder),
@@ -272,8 +278,10 @@ def SvinvalHypervisorControlCases = [
   hint_control_case(HINVAL_GVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
 ]
 
-// Guest memory uses the scalar address adder and load/store datapath. Only
-// translation intent differs; HLVX remains a load for faults and writeback.
+
+/* Guest memory uses the scalar address adder and load/store datapath. Only
+   translation intent differs; HLVX remains a load for faults and writeback. */
+
 def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_read] in RiscvGuestMemoryInstructions):
   def store = ordinary in (RiscvWordStores ++ RiscvDoubleStores)
   def control = partial_pattern(RV5StageControl()):
@@ -381,7 +389,9 @@ def ZihintntlCoreControlCases = [
   hint_control_case(NTL_ALL, RV5StageHintOperation.NtlAll)
 ]
 
-// Reservation waits retain retirement context in the core.
+
+/* Reservation waits retain retirement context in the core. */
+
 def ZawrsCoreControlCases = compose_control_cases(
   ZawrsInstructions,
   ZawrsAluCases,
@@ -466,10 +476,14 @@ fun rv5stage_instructions(xlen :: XLen,
                           ~hypervisor: hypervisor :: Boolean = #false) :: List.of(InstructionSpec):
   check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   def base_integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
-  def integer_instructions = base_integer_instructions ++ (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | []) ++ (if zawrs_enabled | ZawrsInstructions | []) ++ (if zihintpause_enabled | ZihintpauseInstructions | []) ++ (if zihintntl_enabled | ZihintntlInstructions | [])
-  integer_instructions ++ (if hypervisor | RV64HInstructions | []) ++ (
-    if svinval_enabled | SvinvalInstructions ++ (if hypervisor | SvinvalHypervisorInstructions | []) | []
-  ) ++ (if profile == FloatingPointProfile.None | [] | fp_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled))
+  def cache_instructions = (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | [])
+  def wait_instructions = if zawrs_enabled | ZawrsInstructions | []
+  def hint_instructions = (if zihintpause_enabled | ZihintpauseInstructions | []) ++ (if zihintntl_enabled | ZihintntlInstructions | [])
+  def integer_instructions = base_integer_instructions ++ cache_instructions ++ wait_instructions ++ hint_instructions
+  def guest_instructions = if hypervisor | RV64HInstructions | []
+  def invalidation_instructions = if svinval_enabled | SvinvalInstructions ++ (if hypervisor | SvinvalHypervisorInstructions | []) | []
+  def floating_instructions = if profile == FloatingPointProfile.None | [] | fp_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  integer_instructions ++ guest_instructions ++ invalidation_instructions ++ floating_instructions
 def RV32RV5StageControlCases = compose_control_cases(
   RV32RV5StageInstructions,
   RV32RV5StageAluCases,
@@ -535,10 +549,24 @@ circuit RV5StageInstructionDecoder(
   output valid: Bool
   output control: RV5StageControl()
 
+
+  /* Base scalar controls and exact hint refinement.
+     Prefetch overlays precede appended CBO/wait rows; PAUSE/NTL overlays
+     then refine their base words without replacing neighboring encodings. */
+
   def base_integer_cases = if xlen == XLen.X32 | RV32RV5StageControlCases | RV64RV5StageControlCases
-  def integer_cases = (if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases) ++ (if zicboz_enabled | ZicbozCoreControlCases | []) ++ (if zicbom_enabled | ZicbomCoreControlCases | []) ++ (if zawrs_enabled | ZawrsCoreControlCases | [])
+  def prefetch_cases = if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases
+  def cache_cases = (if zicboz_enabled | ZicbozCoreControlCases | []) ++ (if zicbom_enabled | ZicbomCoreControlCases | [])
+  def wait_cases = if zawrs_enabled | ZawrsCoreControlCases | []
+  def integer_cases = prefetch_cases ++ cache_cases ++ wait_cases
   def hint_overrides = (if zihintpause_enabled | ZihintpauseCoreControlCases | []) ++ (if zihintntl_enabled | ZihintntlCoreControlCases | [])
   def hinted_cases = if hint_overrides.is_empty() | integer_cases | overlay_decode_cases(integer_cases, hint_overrides)
+
+
+  /* Selected FP and vector families.
+     Compose shared execution relations into caller-owned scalar columns;
+     profile-disabled families contribute no rows. */
+
   def zvfh_enabled = vector_extensions_support_zvfh(vector_extensions)
   def selected_cases:
     if profile == FloatingPointProfile.None
@@ -550,7 +578,13 @@ circuit RV5StageInstructionDecoder(
   def base_vector_cases = if !vector_profile_enabled(vector_profile) | [] | (if vector_profile_supports_fp32(vector_profile) | VectorCoreControlCases | VectorIntegerCoreControlCases)
   def vector_cases = base_vector_cases ++ (if vector_extensions_support_zvbb(vector_extensions) | VectorZvbbCoreControlCases | [])
   def invalidation_cases = if svinval_enabled | SvinvalControlCases ++ (if hypervisor | SvinvalHypervisorControlCases | []) | []
-  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ vector_cases ++ invalidation_cases ++ (if hypervisor | HypervisorFenceControlCases ++ HypervisorMemoryControlCases | []))(instruction)
+  def guest_cases = if hypervisor | HypervisorFenceControlCases ++ HypervisorMemoryControlCases | []
+
+
+  /* One final relation preserves family ordering and nested care masks. */
+
+  def complete_cases = selected_cases ++ vector_cases ++ invalidation_cases ++ guest_cases
+  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(complete_cases)(instruction)
   valid <== decoded.valid
   control <== decoded.value
 

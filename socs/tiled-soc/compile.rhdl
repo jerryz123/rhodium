@@ -60,9 +60,13 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def layout = config.layout
   def ids = config.node_ids
   def memory = config.memory
-  def mesh = rectangular_mesh(layout.width,
-                              layout.height,
-                              [VCGroup("transport", 1)])
+
+
+  /* Authored placement and occurrence identities.
+     Enumerate each role in layout order so site paths, NodeIDs, and tile
+     indices remain deterministic. This phase constructs descriptions, not RTL. */
+
+  def mesh = rectangular_mesh(layout.width, layout.height, [VCGroup("transport", 1)])
 
   def hart_placements:
     for List (cell in layout.harts,
@@ -174,6 +178,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
         mesh.node_at(cell.coordinate.x, cell.coordinate.y)
       )
 
+
+  /* Logical connectivity on one CHI fabric.
+     Requester-to-Home edges precede subordinate/device edges in their existing
+     order; every LLC subordinate reaches the single external memory site. */
+
   def mutable rnf_sites = [host_placement.site]
   for (placement in hart_placements):
     rnf_sites := rnf_sites ++ [placement.data_site]
@@ -199,9 +208,12 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     CHISNConnection(device_home_placement.subordinate_site, uart_placement.site)
   ]
 
-  def routing = uniform_chi_routing(
-    xy_dimension_order(mesh, ~vc_groups: ["transport"])
-  )
+
+  /* Per-plane routes and common physical links.
+     Validate all four planes against REQ's physical plan before deriving
+     the independent time/interrupt distribution overlay. */
+
+  def routing = uniform_chi_routing(xy_dimension_order(mesh, ~vc_groups: ["transport"]))
   def compilations = compile_chi_connections(mesh.spec, connections, routing)
   def families = TiledChannelFamilyPlans(
     RouterFamilyPlan(compilations.req.network.network_plan),
@@ -219,6 +231,10 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     plic_placement.router,
     hart_placements.map(fun (placement): placement.router)
   )
+
+
+  /* Global identity validation.
+     Preserve role and hart order in the published NodeID inventory. */
 
   def node_ids = hart_placements.map(
     fun (placement): placement.instruction_node_id
@@ -240,6 +256,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
 
   def host_node = soc_host_node(host_placement.node_id)
   def host_port = host_node.icn_peer()
+
+
+  /* Architectural memory stripes and shared platform regions.
+     PMAs and Home routing derive from the same service address descriptions;
+     stripes select LLC ownership without remapping downstream addresses. */
 
   def address_layout = StripedAddressLayout(
     memory.size_bytes / llc_placements.length(),
@@ -274,6 +295,10 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     address_layout.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
   | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
 
+
+  /* Requester contracts for coherent memory and nonsnooping devices.
+     Instruction and uncached ports retain their per-Home capability projections. */
+
   def hart_chi_params:
     for List (placement in hart_placements):
       config.hart.chi_params(hart_config,
@@ -293,6 +318,9 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
 
   def instruction_device_ports = hart_chi_params.map(fun (params): params.instruction_home_port(~coherent: #false))
   def device_home_params = platform.home_params(uncached_ports ++ [soc_host_home_port(host_node, ~coherent: #false)] ++ instruction_device_ports)
+
+
+  /* One backing-memory service and the inclusive LLC slice contracts. */
 
   def memory_node = CHINodeParams(
     "tiled-memory", ids.memory, CHINodeKind.SNF,
@@ -314,7 +342,12 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   )
   def hnf_params:
     for List (home in homes, placement in llc_placements):
-      CHIHNFParams(home, hnf_config, CHISubordinateServiceParams(memory_service.endpoint, [address_layout.address_set(memory.base, placement.slice_index)], memory_service.requests))
+      def slice_service = CHISubordinateServiceParams(
+        memory_service.endpoint,
+        [address_layout.address_set(memory.base, placement.slice_index)],
+        memory_service.requests
+      )
+      CHIHNFParams(home, hnf_config, slice_service)
   def llc_config = CHIInclusiveHNFConfig(
     hnf_config,
     address_layout,
@@ -322,19 +355,16 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     ~ways: config.llc.ways
   )
 
+
+  /* Channel adapters and router attachments.
+     Keep REQ/RSP/SNP/DAT ordering aligned, then bind the existing per-role
+     local attachment groups without adding another fabric or hardware wrapper. */
+
   def adapter_plans = CHIChannelAdapterPlans(
-    compile_chi_channel_family_adapter_plan(compilations.req,
-                                            families.req,
-                                            flit),
-    compile_chi_channel_family_adapter_plan(compilations.rsp,
-                                            families.rsp,
-                                            flit),
-    compile_chi_channel_family_adapter_plan(compilations.snp,
-                                            families.snp,
-                                            flit),
-    compile_chi_channel_family_adapter_plan(compilations.dat,
-                                            families.dat,
-                                            flit)
+    compile_chi_channel_family_adapter_plan(compilations.req, families.req, flit),
+    compile_chi_channel_family_adapter_plan(compilations.rsp, families.rsp, flit),
+    compile_chi_channel_family_adapter_plan(compilations.snp, families.snp, flit),
+    compile_chi_channel_family_adapter_plan(compilations.dat, families.dat, flit)
   )
   def router_configs = CHIRouterFamilyConfigs(
     compile_simple_router_family(families.req),
@@ -344,105 +374,42 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     physical_plan
   )
 
-  def hart_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(
-        ~rnf_sites: (for List (placement in hart_placements):
-                      [placement.data_site]),
-        ~rni_sites: (for List (placement in hart_placements):
-                      [placement.instruction_site, placement.uncached_site])
-      )
-    )
-  )
-  def llc_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(
-        ~hnf_requester_sites: (for List (placement in llc_placements):
-                                [placement.home_site]),
-        ~hn_subordinate_sites: (for List (placement in llc_placements):
-                                 [placement.subordinate_site])
-      )
-    )
-  )
-  def memory_router_params = CHIRouterParams(flit, router_configs, compile_chi_router_attachment_plan(router_configs, adapter_plans, CHIRouterAttachments(~sn_sites: [[memory_placement.site]])))
-  def device_home_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(
-        ~hni_requester_sites: [[device_home_placement.requester_site]],
-        ~hn_subordinate_sites: [[device_home_placement.subordinate_site]],
-        ~sn_sites: [[bootrom_placement.site, boot_address_site]]
-      )
-    )
-  )
-  def aclint_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(~sn_sites: [[aclint_placement.site]])
-    )
-  )
-  def plic_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(~sn_sites: [[plic_placement.site]])
-    )
-  )
-  def uart_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(~sn_sites: [[uart_placement.site]])
-    )
-  )
-  def host_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments(~rnf_sites: [[host_placement.site]])
-    )
-  )
-  def transit_router_params = CHIRouterParams(
-    flit,
-    router_configs,
-    compile_chi_router_attachment_plan(
-      router_configs,
-      adapter_plans,
-      CHIRouterAttachments()
-    )
-  )
+  /* Binds one role's local sites to the already compiled common fabric.
+     This pure helper shares authoring policy, not router instances or state. */
+  fun router_params(attachments :: CHIRouterAttachments) :: CHIRouterParams:
+    def plan = compile_chi_router_attachment_plan(router_configs, adapter_plans, attachments)
+    CHIRouterParams(flit, router_configs, plan)
 
-  def hart_tile_params = HartTileParams(hart_config,
-                                        hart_router_params,
-                                        hart_placements.length(),
-                                        config.hart)
-  def llc_tile_params = LLCTileParams(llc_config,
-                                      llc_router_params)
+  def hart_router_params = router_params(CHIRouterAttachments(
+    ~rnf_sites: (for List (placement in hart_placements): [placement.data_site]),
+    ~rni_sites: (for List (placement in hart_placements): [placement.instruction_site, placement.uncached_site])
+  ))
+  def llc_router_params = router_params(CHIRouterAttachments(
+    ~hnf_requester_sites: (for List (placement in llc_placements): [placement.home_site]),
+    ~hn_subordinate_sites: (for List (placement in llc_placements): [placement.subordinate_site])
+  ))
+  def memory_router_params = router_params(CHIRouterAttachments(~sn_sites: [[memory_placement.site]]))
+  def device_home_router_params = router_params(CHIRouterAttachments(
+    ~hni_requester_sites: [[device_home_placement.requester_site]],
+    ~hn_subordinate_sites: [[device_home_placement.subordinate_site]],
+    ~sn_sites: [[bootrom_placement.site, boot_address_site]]
+  ))
+  def aclint_router_params = router_params(CHIRouterAttachments(~sn_sites: [[aclint_placement.site]]))
+  def plic_router_params = router_params(CHIRouterAttachments(~sn_sites: [[plic_placement.site]]))
+  def uart_router_params = router_params(CHIRouterAttachments(~sn_sites: [[uart_placement.site]]))
+  def host_router_params = router_params(CHIRouterAttachments(~rnf_sites: [[host_placement.site]]))
+  def transit_router_params = router_params(CHIRouterAttachments())
+
+
+  /* Immutable tile parameters and occurrence assembly.
+     Shared tile specializations and ordered occurrence lists remain separate;
+     circuit instantiation belongs to the consuming SoC implementation. */
+
+  def hart_tile_params = HartTileParams(hart_config, hart_router_params, hart_placements.length(), config.hart)
+  def llc_tile_params = LLCTileParams(llc_config, llc_router_params)
   def device_home_tile_params = DeviceHomeTileParams(device_home_params, device_home_router_params)
   def aclint_tile_params = AclintTileParams(platform.aclint_config, aclint_router_params)
-  def plic_tile_params = PlicTileParams(platform.plic_config,
-                                        plic_router_params,
-                                        hart_placements.length())
+  def plic_tile_params = PlicTileParams(platform.plic_config, plic_router_params, hart_placements.length())
   def uart_tile_params = UartTileParams(platform.uart_config, uart_router_params)
   def host_tile_params = HostTileParams(host_router_params)
   def transit_tile_params = TransitTileParams(transit_router_params)

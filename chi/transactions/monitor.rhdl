@@ -4,6 +4,7 @@
 
 import:
   lib("rhodium/std/credited.rhdl").check_credited
+  lib("rhodium/std/ready-valid.rhdl").fire
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -363,20 +364,41 @@ fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             ~transaction_checks: transaction_checks :: Boolean = #true):
   check_chi_channel_contract(p, node, peer, [CHINodeKind.RNF, CHINodeKind.RND])
   def observed :: Observation = port.observe()
-  monitor_chi_req_fields(p, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requests.bits.src_id, node.emits.req,
+
+
+  /* Only accepted ready/valid transfers enter field and transaction checks.
+     Credited-link attachments below deliberately retain valid-only gating. */
+
+  def tx_req_event = port.requests.fire()
+  def tx_rsp_event = port.requester_responses.fire()
+  def tx_dat_event = port.request_data.fire()
+  def rx_dat_event = port.response_data.fire()
+  def rx_snp_event = port.snoops.fire()
+  def rx_rsp_event = port.responses.fire()
+
+
+  /* Packet fields and cross-channel transaction ownership use the same events. */
+
+  monitor_chi_req_fields(p, tx_req_event, observed.requests.bits, observed.requests.bits.src_id, node.emits.req,
                          node.node_id, "_src_id", label_prefix ++ "_tx_req")
-  monitor_chi_cache_maintenance(p, observed.requests.valid & observed.requests.ready, observed.requests.bits, label_prefix)
-  monitor_chi_rsp_fields(p, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits,
+  monitor_chi_cache_maintenance(p, tx_req_event, observed.requests.bits, label_prefix)
+  monitor_chi_rsp_fields(p, tx_rsp_event, observed.requester_responses.bits,
                          observed.requester_responses.bits.src_id, node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
-  monitor_chi_dat_fields(p, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.request_data.bits.src_id,
+  monitor_chi_dat_fields(p, tx_dat_event, observed.request_data.bits, observed.request_data.bits.src_id,
                          node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
-  monitor_chi_dat_fields(p, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.response_data.bits.tgt_id,
+  monitor_chi_dat_fields(p, rx_dat_event, observed.response_data.bits, observed.response_data.bits.tgt_id,
                          node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
-  monitor_chi_snp_fields(p, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits, node.supports.snp, label_prefix ++ "_rx_snp")
-  monitor_chi_rsp_fields(p, observed.responses.valid & observed.responses.ready, observed.responses.bits, observed.responses.bits.tgt_id, node.supports.rsp,
+  monitor_chi_snp_fields(p, rx_snp_event, observed.snoops.bits, node.supports.snp, label_prefix ++ "_rx_snp")
+  monitor_chi_rsp_fields(p, rx_rsp_event, observed.responses.bits, observed.responses.bits.tgt_id, node.supports.rsp,
                          node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
   if transaction_checks
-  | monitor_chi_rn_transactions(p, node, label_prefix, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits, observed.responses.valid & observed.responses.ready, observed.responses.bits)
+  | monitor_chi_rn_transactions(p, node, label_prefix,
+                                tx_req_event, observed.requests.bits,
+                                tx_rsp_event, observed.requester_responses.bits,
+                                tx_dat_event, observed.request_data.bits,
+                                rx_dat_event, observed.response_data.bits,
+                                rx_snp_event, observed.snoops.bits,
+                                rx_rsp_event, observed.responses.bits)
   | #void
 
 /*
@@ -426,19 +448,37 @@ fun monitor_chi_rni_channels(p :: CHIFlitParams, node :: CHINodeParams,
                              ~transaction_checks: transaction_checks :: Boolean = #true):
   check_chi_channel_contract(p, node, peer, [CHINodeKind.RNI])
   def observed :: Observation = port.observe()
-  monitor_chi_req_fields(p, observed.req.valid & observed.req.ready, observed.req.bits, observed.req.bits.src_id, node.emits.req, node.node_id, "_src_id",
+
+
+  /* Only accepted ready/valid transfers enter field and transaction checks.
+     Credited-link attachments below deliberately retain valid-only gating. */
+
+  def tx_req_event = port.req.fire()
+  def rx_rsp_event = port.rsp.response.fire()
+  def tx_dat_event = port.dat.request.fire()
+  def rx_dat_event = port.dat.response.fire()
+  def tx_rsp_event = port.rsp.requester.fire()
+
+
+  /* Packet fields and cross-channel transaction ownership use the same events. */
+
+  monitor_chi_req_fields(p, tx_req_event, observed.req.bits, observed.req.bits.src_id, node.emits.req, node.node_id, "_src_id",
                          label_prefix ++ "_tx_req")
-  monitor_chi_cache_maintenance(p, observed.req.valid & observed.req.ready, observed.req.bits, label_prefix)
-  monitor_chi_rsp_fields(p, observed.rsp.response.valid & observed.rsp.response.ready, observed.rsp.response.bits, observed.rsp.response.bits.tgt_id,
+  monitor_chi_cache_maintenance(p, tx_req_event, observed.req.bits, label_prefix)
+  monitor_chi_rsp_fields(p, rx_rsp_event, observed.rsp.response.bits, observed.rsp.response.bits.tgt_id,
                          node.supports.rsp, node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
-  monitor_chi_dat_fields(p, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.request.bits.src_id,
+  monitor_chi_dat_fields(p, tx_dat_event, observed.dat.request.bits, observed.dat.request.bits.src_id,
                          node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
-  monitor_chi_dat_fields(p, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits, observed.dat.response.bits.tgt_id,
+  monitor_chi_dat_fields(p, rx_dat_event, observed.dat.response.bits, observed.dat.response.bits.tgt_id,
                          node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
-  monitor_chi_rsp_fields(p, observed.rsp.requester.valid & observed.rsp.requester.ready, observed.rsp.requester.bits, observed.rsp.requester.bits.src_id,
+  monitor_chi_rsp_fields(p, tx_rsp_event, observed.rsp.requester.bits, observed.rsp.requester.bits.src_id,
                          node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
   if transaction_checks
-  | monitor_chi_rni_transactions(p, node, label_prefix, observed.req.valid & observed.req.ready, observed.req.bits, observed.rsp.response.valid & observed.rsp.response.ready, observed.rsp.response.bits, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits)
+  | monitor_chi_rni_transactions(p, node, label_prefix,
+                                 tx_req_event, observed.req.bits,
+                                 rx_rsp_event, observed.rsp.response.bits,
+                                 tx_dat_event, observed.dat.request.bits,
+                                 rx_dat_event, observed.dat.response.bits)
   | #void
 
 /* Isolate subordinate checker registers for one monitored endpoint's accepted events. */
@@ -485,16 +525,33 @@ fun monitor_chi_sn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             ~transaction_checks: transaction_checks :: Boolean = #true):
   check_chi_channel_contract(p, node, peer, [CHINodeKind.SNF, CHINodeKind.SNI])
   def observed :: Observation = port.observe()
-  monitor_chi_req_fields(p, observed.req.valid & observed.req.ready, observed.req.bits, observed.req.bits.tgt_id, node.supports.req, node.node_id,
+
+
+  /* Only accepted ready/valid transfers enter field and transaction checks.
+     Credited-link attachments below deliberately retain valid-only gating. */
+
+  def rx_req_event = port.req.fire()
+  def tx_rsp_event = port.rsp.fire()
+  def rx_dat_event = port.dat.request.fire()
+  def tx_dat_event = port.dat.response.fire()
+
+
+  /* Packet fields and cross-channel transaction ownership use the same events. */
+
+  monitor_chi_req_fields(p, rx_req_event, observed.req.bits, observed.req.bits.tgt_id, node.supports.req, node.node_id,
                          "_tgt_id", label_prefix ++ "_rx_req")
-  monitor_chi_rsp_fields(p, observed.rsp.valid & observed.rsp.ready, observed.rsp.bits, observed.rsp.bits.src_id, node.emits.rsp, node.node_id, "_src_id",
+  monitor_chi_rsp_fields(p, tx_rsp_event, observed.rsp.bits, observed.rsp.bits.src_id, node.emits.rsp, node.node_id, "_src_id",
                          label_prefix ++ "_tx_rsp")
-  monitor_chi_dat_fields(p, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.request.bits.tgt_id,
+  monitor_chi_dat_fields(p, rx_dat_event, observed.dat.request.bits, observed.dat.request.bits.tgt_id,
                          node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
-  monitor_chi_dat_fields(p, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits, observed.dat.response.bits.src_id,
+  monitor_chi_dat_fields(p, tx_dat_event, observed.dat.response.bits, observed.dat.response.bits.src_id,
                          node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
   if transaction_checks
-  | monitor_chi_sn_transactions(p, node, label_prefix, observed.req.valid & observed.req.ready, observed.req.bits, observed.rsp.valid & observed.rsp.ready, observed.rsp.bits, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits)
+  | monitor_chi_sn_transactions(p, node, label_prefix,
+                                rx_req_event, observed.req.bits,
+                                tx_rsp_event, observed.rsp.bits,
+                                rx_dat_event, observed.dat.request.bits,
+                                tx_dat_event, observed.dat.response.bits)
   | #void
 
 /*
@@ -683,28 +740,28 @@ fun monitor_chi_hni(home :: CHIHomeParams,
   def downstream_read_data :: Observation = downstream_response_data.observe()
   def upstream_request_opcode :: CHIReqOpcode = upstream_request.bits.opcode
   def downstream_request_opcode :: CHIReqOpcode = downstream_request.bits.opcode
-  def upstream_request_event = upstream_request.valid & upstream_request.ready & (
+  def upstream_request_event = upstream_requests.fire() & (
     upstream_request_opcode.supports_initial_transaction()
   )
-  def downstream_request_event = downstream_request.valid & downstream_request.ready & (
+  def downstream_request_event = downstream_requests.fire() & (
     downstream_request_opcode.supports_initial_transaction()
   )
-  def downstream_response_event = downstream_response.valid & downstream_response.ready & (
+  def downstream_response_event = downstream_responses.fire() & (
     downstream_response.bits.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp)
   )
-  def upstream_response_event = upstream_response.valid & upstream_response.ready & (
+  def upstream_response_event = upstream_responses.fire() & (
     upstream_response.bits.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp)
   )
-  def upstream_write_data_event = upstream_write_data.valid & upstream_write_data.ready & (
+  def upstream_write_data_event = upstream_request_data.fire() & (
     upstream_write_data.bits.opcode === CHIDatOpcode.NonCopyBackWriteData
   )
-  def downstream_write_data_event = downstream_write_data.valid & downstream_write_data.ready & (
+  def downstream_write_data_event = downstream_request_data.fire() & (
     downstream_write_data.bits.opcode === CHIDatOpcode.NonCopyBackWriteData
   )
-  def downstream_read_data_event = downstream_read_data.valid & downstream_read_data.ready & (
+  def downstream_read_data_event = downstream_response_data.fire() & (
     downstream_read_data.bits.opcode === CHIDatOpcode.CompData
   )
-  def upstream_read_data_event = upstream_read_data.valid & upstream_read_data.ready & (
+  def upstream_read_data_event = upstream_response_data.fire() & (
     upstream_read_data.bits.opcode === CHIDatOpcode.CompData
   )
   home_transaction_monitor(flit,

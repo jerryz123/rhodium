@@ -69,6 +69,12 @@ bundle RV2WideControl():
   muldiv: RV2WideLongControl()
   fp: RV2WideFpControl()
 
+/* Inactive controls care only about the enable/valid discriminator.
+   Reuse these exact patterns without filling in unobservable payload fields. */
+def inactive_core_memory = partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+def inactive_core_fp = partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+
+
 /* Selects canonical instruction encodings before joining their control columns. */
 fun integer_instructions(xlen :: XLen) :: List.of(InstructionSpec):
   (if xlen == XLen.X32 | rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions | RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions) ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
@@ -84,12 +90,12 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
   def operands = rv2wide_operand_cases(xlen)
   def loads = RiscvWordLoads ++ (if xlen == XLen.X64 | RiscvDoubleLoads | [])
   def RV2WideStores = RiscvWordStores ++ (if xlen == XLen.X64 | RiscvDoubleStores | [])
-  def memory = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~double: xlen == XLen.X64)) ++ instruction_cases(excluding_instructions(base, loads ++ RV2WideStores), partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
+  def memory = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~double: xlen == XLen.X64)) ++ instruction_cases(excluding_instructions(base, loads ++ RV2WideStores), inactive_core_memory)
   def atomics = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~double: xlen == XLen.X64))
   def instructions = integer_instructions(xlen)
   def addition_alu_cases = instruction_cases(atomic ++ ZimopInstructions, component_output(alu, instruction_pattern(ADDI)))
   def system_alu_cases = instruction_cases(multiply ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, unused_alu)
-  def inactive_memory_cases = instruction_cases(multiply ++ bitmanip ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
+  def inactive_memory_cases = instruction_cases(multiply ++ bitmanip ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, inactive_core_memory)
   def core_long_cases = long_cases(instructions, ~xlen: xlen)
   def core_branch_cases = branch_cases(instructions)
   def branches = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
@@ -119,17 +125,21 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
         writeback: component_output(writeback_cases, input)
         system: component_output(RV2WideSystemCases, if instruction in RV2WideSystemInstructions | input | instruction_pattern(ADDI))
         muldiv: component_output(core_long_cases, input)
-        fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+        fp: inactive_core_fp
         prefetch: CachePrefetchOperation.None
         pause: Bool(#false)
         locality_hint: RiscvMemoryLocality.Default
     )
 
-// Optional rows reuse width-independent inactive controls, not another decoder.
+
+/* Optional rows reuse width-independent inactive controls, not another decoder. */
+
 def inactive_branch = component_output(branch_cases([ADDI]), instruction_pattern(ADDI))
 def inactive_long = component_output(long_cases([ADDI]), instruction_pattern(ADDI))
 
-// All CBOs use rs1 unchanged and have no register destination or CSR action.
+
+/* CBO rows use rs1 unchanged and have no register destination or CSR action. */
+
 def RV2WideCboInstructions = ZicbozInstructions ++ ZicbomInstructions
 def RV2WideCboControlCases = for List (instruction in RV2WideCboInstructions):
   def input = instruction_pattern(instruction)
@@ -142,13 +152,15 @@ def RV2WideCboControlCases = for List (instruction in RV2WideCboInstructions):
     writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
     system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
     muldiv: component_output(long_cases(RV2WideCboInstructions), input)
-    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+    fp: inactive_core_fp
     prefetch: CachePrefetchOperation.None
     pause: Bool(#false)
     locality_hint: RiscvMemoryLocality.Default
   DecodeCase(input, output)
 
-// Prefetch rows refine ORI-to-x0; overlay removes only those exact hint cubes.
+
+/* Prefetch rows refine ORI-to-x0; overlay removes only those exact hint cubes. */
+
 def RV2WidePrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperation.Instruction], [PREFETCH_R, CachePrefetchOperation.Read], [PREFETCH_W, CachePrefetchOperation.Write]]):
   def output = pattern(RV2WideControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
@@ -161,21 +173,29 @@ def RV2WidePrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperati
         right_immediate: Bool(#true)
         immediate: RV2WideImmediate.Prefetch
     branch: inactive_branch
-    memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+    memory: inactive_core_memory
     prefetch: entry[1]
     pause: Bool(#false)
     locality_hint: RiscvMemoryLocality.Default
     writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
     system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
     muldiv: inactive_long
-    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+    fp: inactive_core_fp
   DecodeCase(instruction_pattern(entry[0]), output)
 
 /* Selects the exact scalar domain used by decode and compressed expansion. */
 fun rv2wide_instructions(profile :: RV2WideConfig) :: List.of(InstructionSpec):
-  integer_instructions(profile.xlen) ++ (if profile.zicboz | ZicbozInstructions | []) ++ (if profile.zicbom | ZicbomInstructions | []) ++ (if profile.zicbop | ZicbopInstructions | []) ++ (if profile.zawrs | ZawrsInstructions | []) ++ (if profile.zihintpause | ZihintpauseInstructions | []) ++ (if profile.zihintntl | ZihintntlInstructions | []) ++ (if profile.svinval | SvinvalInstructions | []) ++ (if profile.hypervisor | RV64HInstructions ++ (if profile.svinval | [HINVAL_VVMA, HINVAL_GVMA] | []) | []) ++ fp_instructions(profile.xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
+  def cache_instructions = (if profile.zicboz | ZicbozInstructions | []) ++ (if profile.zicbom | ZicbomInstructions | []) ++ (if profile.zicbop | ZicbopInstructions | [])
+  def wait_instructions = if profile.zawrs | ZawrsInstructions | []
+  def hint_instructions = (if profile.zihintpause | ZihintpauseInstructions | []) ++ (if profile.zihintntl | ZihintntlInstructions | [])
+  def invalidation_instructions = if profile.svinval | SvinvalInstructions | []
+  def guest_instructions = if profile.hypervisor | RV64HInstructions ++ (if profile.svinval | [HINVAL_VVMA, HINVAL_GVMA] | []) | []
+  def floating_instructions = fp_instructions(profile.xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
+  integer_instructions(profile.xlen) ++ cache_instructions ++ wait_instructions ++ hint_instructions ++ invalidation_instructions ++ guest_instructions ++ floating_instructions
 
-// WRS is operand-free and uses the core's retained WB owner, not a memory request.
+
+/* WRS is operand-free and uses the core's retained WB owner, not a memory request. */
+
 def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WRS_STO, RV2WideWait.ShortTimeout]]):
   def output = pattern(RV2WideControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
@@ -185,7 +205,7 @@ def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WR
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
     branch: inactive_branch
-    memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+    memory: inactive_core_memory
     prefetch: CachePrefetchOperation.None
     pause: Bool(#false)
     locality_hint: RiscvMemoryLocality.Default
@@ -197,10 +217,12 @@ def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WR
         fence: RV2WideFence.None
         wait: entry[1]
     muldiv: inactive_long
-    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+    fp: inactive_core_fp
   DecodeCase(instruction_pattern(entry[0]), output)
 
-// PAUSE refines FENCE into an operand-free hint with no ordering or CSR action.
+
+/* PAUSE refines FENCE into an operand-free hint with no ordering or CSR action. */
+
 def pause_control = pattern(RV2WideControl()):
   guest_access: RiscvGuestMemoryAccess.Normal
   alu: unused_alu
@@ -209,17 +231,19 @@ def pause_control = pattern(RV2WideControl()):
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
   branch: inactive_branch
-  memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+  memory: inactive_core_memory
   prefetch: CachePrefetchOperation.None
   pause: Bool(#true)
   locality_hint: RiscvMemoryLocality.Default
   writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
   system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
   muldiv: inactive_long
-  fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+  fp: inactive_core_fp
 def RV2WidePauseCases = [DecodeCase(instruction_pattern(PAUSE), pause_control)]
 
-// Locality hints refine exact ADD-to-x0 words; encoded rs2 is not an operand.
+
+/* Locality hints refine exact ADD-to-x0 words; encoded rs2 is not an operand. */
+
 def RV2WideLocalityCases = for List (entry in [[NTL_P1, RiscvMemoryLocality.P1], [NTL_PALL, RiscvMemoryLocality.Pall], [NTL_S1, RiscvMemoryLocality.S1], [NTL_ALL, RiscvMemoryLocality.All]]):
   def output = pattern(RV2WideControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
@@ -229,17 +253,19 @@ def RV2WideLocalityCases = for List (entry in [[NTL_P1, RiscvMemoryLocality.P1],
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
     branch: inactive_branch
-    memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+    memory: inactive_core_memory
     prefetch: CachePrefetchOperation.None
     pause: Bool(#false)
     locality_hint: entry[1]
     writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
     system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
     muldiv: inactive_long
-    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+    fp: inactive_core_fp
   DecodeCase(instruction_pattern(entry[0]), output)
 
-// These serialized commands share inactive datapaths, but retain distinct CSR actions.
+
+/* Serialized invalidation commands share inactive datapaths but retain distinct CSR actions. */
+
 def RV2WideInvalidationControlCases = for List (instruction in SvinvalInstructions):
   def input = instruction_pattern(instruction)
   def output = pattern(RV2WideControl()):
@@ -250,23 +276,29 @@ def RV2WideInvalidationControlCases = for List (instruction in SvinvalInstructio
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
     branch: inactive_branch
-    memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+    memory: inactive_core_memory
     prefetch: CachePrefetchOperation.None
     pause: Bool(#false)
     locality_hint: RiscvMemoryLocality.Default
     writeback: partial_pattern(RV2WideWritebackControl()): enable: Bool(#false)
     system: component_output(RV2WideInvalidationCases, input)
     muldiv: inactive_long
-    fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+    fp: inactive_core_fp
   DecodeCase(input, output)
 
 /* Composes selected memory, hint, hypervisor, and shared FP controls with the integer decoder. */
 fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
   def xlen = profile.xlen
-  def instructions = fp_instructions(xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
-  def controls = fp_control_cases(xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
-  def fp_branches = branch_cases(instructions)
-  def fp_long = long_cases(instructions)
+  def selected_fp_instructions = fp_instructions(xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
+  def selected_fp_controls = fp_control_cases(xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
+  def fp_branches = branch_cases(selected_fp_instructions)
+  def fp_long = long_cases(selected_fp_instructions)
+
+
+  /* Integer composition and exact hint overlays.
+     Only the hint cubes replace base rows; CBO, wait, and guest rows append
+     afterward in their original order. */
+
   def cbo_instructions = (if profile.zicboz | ZicbozInstructions | []) ++ (if profile.zicbom | ZicbomInstructions | [])
   def cbo_cases = for List (instruction in cbo_instructions):
     def input = instruction_pattern(instruction)
@@ -274,7 +306,16 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
   def hint_cases = (if profile.zicbop | RV2WidePrefetchCases | []) ++ (if profile.zihintpause | RV2WidePauseCases | []) ++ (if profile.zihintntl | RV2WideLocalityCases | [])
   def base_cases = compose_control_cases(xlen)
   def integer_cases = if hint_cases.length() > 0 | overlay_decode_cases(base_cases, hint_cases) | base_cases
-  integer_cases ++ cbo_cases ++ (if profile.zawrs | RV2WideWaitCases | []) ++ (if profile.svinval | RV2WideInvalidationControlCases | []) ++ (if profile.hypervisor | rv2wide_hypervisor_cases(profile.svinval) | []) ++ for List (instruction in instructions):
+  def wait_cases = if profile.zawrs | RV2WideWaitCases | []
+  def invalidation_cases = if profile.svinval | RV2WideInvalidationControlCases | []
+  def guest_cases = if profile.hypervisor | rv2wide_hypervisor_cases(profile.svinval) | []
+
+
+  /* Floating-point rows add scalar register/address policy to the shared
+     execution controls. Nonmemory operands and inactive columns keep their
+     existing partial-pattern care masks. */
+
+  def floating_cases = for List (instruction in selected_fp_instructions):
     def input = instruction_pattern(instruction)
     def load = instruction.name in ["FLH", "FLW", "FLD"]
     def store = instruction.name in ["FSH", "FSW", "FSD"]
@@ -304,7 +345,7 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
       alu: if memory | component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)) | unused_alu
       operand: if memory | memory_operands | operands
       branch: component_output(fp_branches, input)
-      memory: if memory | memory_control | partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+      memory: if memory | memory_control | inactive_core_memory
       prefetch: CachePrefetchOperation.None
       pause: Bool(#false)
       locality_hint: RiscvMemoryLocality.Default
@@ -317,8 +358,10 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
       fp:
         pattern(RV2WideFpControl()):
           valid: Bool(#true)
-          bits: component_output(controls, input)
+          bits: component_output(selected_fp_controls, input)
     DecodeCase(input, output)
+
+  integer_cases ++ cbo_cases ++ wait_cases ++ invalidation_cases ++ guest_cases ++ floating_cases
 
 /* Reuses ordinary LSU controls for explicit guest accesses and serialized CSR actions for fences. */
 fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
@@ -346,7 +389,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
           link: if store | pattern(Bool, _) | Bool(#false)
       system: component_output(RV2WideSystemCases, input)
       muldiv: inactive_long
-      fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+      fp: inactive_core_fp
     DecodeCase(instruction_pattern(entry[0]), output)
   def fences = [[HFENCE_VVMA, RiscvCsrAction.HfenceVvma], [HFENCE_GVMA, RiscvCsrAction.HfenceGvma]] ++ (if svinval | [[HINVAL_VVMA, RiscvCsrAction.HfenceVvma], [HINVAL_GVMA, RiscvCsrAction.HfenceGvma]] | [])
   memory_cases ++ for List (entry in fences):
@@ -355,7 +398,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
       alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
       operand: component_output(RV2WideOperandCases, input)
       branch: inactive_branch
-      memory: partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
+      memory: inactive_core_memory
       guest_access: RiscvGuestMemoryAccess.Normal
       prefetch: CachePrefetchOperation.None
       pause: Bool(#false)
@@ -369,7 +412,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
           fence: RV2WideFence.None
           wait: RV2WideWait.None
       muldiv: inactive_long
-      fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
+      fp: inactive_core_fp
     DecodeCase(instruction_pattern(entry[0]), output)
 
 export:

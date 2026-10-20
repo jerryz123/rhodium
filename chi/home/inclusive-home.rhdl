@@ -177,7 +177,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   interface port(CHIHNChannels(p), ~role: home)
   def requester = port.requester
-  def admitted_requests = requester.requests |> trace_event("home/transaction", ~residency: "request", ~fields: flit):
+  def admitted_requests :: Endpoint = requester.requests |> trace_event("home/transaction", ~residency: "request", ~fields: flit):
     address: flit.address
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
@@ -356,7 +356,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   comp_acks.reserve.valid <== request_fire & incoming_request.exp_comp_ack
   comp_acks.reserve.bits <== incoming_request.src_id
 
-  when (admitted_requests.valid & admitted_requests.ready):
+  when (admitted_requests.fire()):
     assert(chi_hnf_source_known(p, home_config, incoming_request), "chi_inclusive_hnf_request_source_known")
     assert(incoming_request.tgt_id === home_id, "chi_inclusive_hnf_request_targets_home")
     assert(chi_hnf_request_supported(p, home_config, incoming_request), "chi_inclusive_hnf_request_opcode_supported")
@@ -718,14 +718,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def unlocked_subordinate_request_writeback = victim_writebacks.request.valid & (!slot_subordinate_request_valid ||| subordinate_request_prefers_writeback)
   def selected_subordinate_request_writeback = mux(subordinate_request_locked, subordinate_request_writeback_owner, unlocked_subordinate_request_writeback)
   wire slot_subordinate_request_ready: Bool
-  def slot_requests = inject_interface(Decoupled(CHIReqFlit(p)), ~valid: slot_subordinate_request_valid, ~bits: slot_subordinate_request_bits, ~ready: slot_subordinate_request_ready)
+  def slot_requests :: Endpoint = inject_interface(Decoupled(CHIReqFlit(p)), ~valid: slot_subordinate_request_valid, ~bits: slot_subordinate_request_bits, ~ready: slot_subordinate_request_ready)
   subordinate.req.valid <== home_active & mux(selected_subordinate_request_writeback, victim_writebacks.request.valid, slot_requests.valid)
   subordinate.req.bits <== mux(selected_subordinate_request_writeback, victim_writebacks.request.bits, slot_requests.bits)
   victim_writebacks.request.ready <== home_active & subordinate.req.ready & selected_subordinate_request_writeback
   slot_requests.ready <== home_active & subordinate.req.ready & !selected_subordinate_request_writeback
   describe_interface_selection([!selected_subordinate_request_writeback, selected_subordinate_request_writeback], ~name: "subordinate-request")
   describe_interface_contract(Array(slot_requests, victim_writebacks.request), subordinate.req, "subordinate-request", ~trace_model: interface_trace_selection(~name: "subordinate-request"))
-  def subordinate_request_fire = slot_subordinate_request_valid & slot_subordinate_request_ready
+  def subordinate_request_fire = slot_requests.fire()
   def subordinate_request_output_fire = subordinate.req.fire()
   when (subordinate.req.valid & !subordinate.req.ready):
     subordinate_request_locked <== Bool(#true)
@@ -755,14 +755,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def unlocked_subordinate_data_writeback = victim_writebacks.data.valid & (!send_victim_data ||| subordinate_data_prefers_writeback)
   def selected_subordinate_data_writeback = mux(subordinate_data_locked, subordinate_data_writeback_owner, unlocked_subordinate_data_writeback)
   wire slot_subordinate_data_ready: Bool
-  def slot_data = inject_interface(Decoupled(CHIDatFlit(p)), ~valid: send_victim_data, ~bits: slot_subordinate_data_bits, ~ready: slot_subordinate_data_ready)
+  def slot_data :: Endpoint = inject_interface(Decoupled(CHIDatFlit(p)), ~valid: send_victim_data, ~bits: slot_subordinate_data_bits, ~ready: slot_subordinate_data_ready)
   subordinate.dat.request.valid <== home_active & mux(selected_subordinate_data_writeback, victim_writebacks.data.valid, slot_data.valid)
   subordinate.dat.request.bits <== mux(selected_subordinate_data_writeback, victim_writebacks.data.bits, slot_data.bits)
   victim_writebacks.data.ready <== home_active & subordinate.dat.request.ready & selected_subordinate_data_writeback
   slot_data.ready <== home_active & subordinate.dat.request.ready & !selected_subordinate_data_writeback
   describe_interface_selection([!selected_subordinate_data_writeback, selected_subordinate_data_writeback], ~name: "subordinate-data")
   describe_interface_contract(Array(slot_data, victim_writebacks.data), subordinate.dat.request, "subordinate-data", ~trace_model: interface_trace_selection(~name: "subordinate-data"))
-  def subordinate_data_fire = send_victim_data & slot_subordinate_data_ready
+  def subordinate_data_fire = slot_data.fire()
   def subordinate_data_output_fire = subordinate.dat.request.fire()
   def selected_subordinate_data_final = mux(selected_subordinate_data_writeback, victim_writebacks.data.bits.data_id === chi_transfer_data_id(chi_data_beats_minus_one(CHITransferSize.Bytes64, p), p), final_victim_data)
   when (subordinate.dat.request.valid & !subordinate.dat.request.ready):

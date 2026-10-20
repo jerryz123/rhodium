@@ -55,13 +55,13 @@ sync_circuit Packetizer(T :: DataType, chunk_width :: PosInt):
   inst payload_queue(Queue(T, 1, ~pipe: #true))
   ingress <=> payload_queue.ingress
 
-  def transfer = payload_queue.egress.valid & egress.ready
+  egress.valid <== payload_queue.egress.valid
+  def transfer = egress.fire()
   def [phase, first, last] = flit_phase_state(chunk_count, transfer)
   def packed = payload_queue.egress.bits.as_bits()
   def padded = if padded_width == payload_width | packed | packed.zext(padded_width)
   def chunks = padded.as_vec(Bits(chunk_width))
 
-  egress.valid <== payload_queue.egress.valid
   egress.bits <== FramedFixedFlit(Bits(chunk_width)):
     first: first
     last: last
@@ -119,9 +119,9 @@ fun frame_fixed_flits(flits_per_packet :: PosInt)
       "framed_fixed_flit_output"
     )
     def output_endpoint :: Endpoint = output_link.left
-    def transfer = input_endpoint.valid & output_endpoint.ready
-    def [first, last] = flit_phase(flits_per_packet, transfer)
     input_endpoint.ready <== output_endpoint.ready
+    def transfer = input_endpoint.fire()
+    def [first, last] = flit_phase(flits_per_packet, transfer)
     output_endpoint.valid <== input_endpoint.valid
     output_endpoint.bits <== FramedFixedFlit(T):
       first: first
@@ -162,7 +162,7 @@ fun require_fixed_framing(flits_per_packet :: PosInt)
       first: input_endpoint.bits.head
       last: input_endpoint.bits.tail
       payload: input_endpoint.bits.payload
-    def transfer = input_endpoint.valid & output_endpoint.ready
+    def transfer = input_endpoint.fire()
     check_fixed_framing(input_endpoint.bits.head, input_endpoint.bits.tail, transfer, flits_per_packet)
     finish_flit_transform(source, input_link, output_link)
 
@@ -185,7 +185,7 @@ fun strip_fixed_framing(flits_per_packet :: PosInt)
     output_endpoint.valid <== input_endpoint.valid
     output_endpoint.bits <== FixedFlit(T):
       payload: input_endpoint.bits.payload
-    def transfer = input_endpoint.valid & output_endpoint.ready
+    def transfer = input_endpoint.fire()
     check_fixed_framing(input_endpoint.bits.first, input_endpoint.bits.last, transfer, flits_per_packet)
     finish_flit_transform(source, input_link, output_link)
 

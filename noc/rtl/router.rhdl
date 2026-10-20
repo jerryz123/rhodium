@@ -243,7 +243,7 @@ sync_circuit SimpleRouter(T :: DataType, config :: SimpleRouterConfig):
   allocator.target_available <== vec(for List (target_index in 0..config.target_count): target[target_index].available)
   def traversal = input_buffers |> grant_crossbar(config.target_count, ~grants: allocator.grants)
   for (target_index in 0..config.target_count): traversal[target_index] <=> target[target_index].egress
-  allocator.accepts <== vec(for List (target_index in 0..config.target_count): target[target_index].egress.valid & target[target_index].egress.ready)
+  allocator.accepts <== vec(for List (target_index in 0..config.target_count): target[target_index].egress.fire())
 
 /* Realizes the same registered per-origin queues and switching in a uniform shape. A statically
    bound site key selects only prevalidated rows; the owner wires links, endpoints, and padding. */
@@ -295,4 +295,4 @@ sync_circuit SimpleRouterFamily(T :: DataType,
   allocator.target_available <== vec(for List (target_index in 0..config.target_count): target[target_index].available)
   def traversal = input_buffers |> grant_crossbar(config.target_count, ~grants: allocator.grants)
   for (target_index in 0..config.target_count): traversal[target_index] <=> target[target_index].egress
-  allocator.accepts <== vec(for List (target_index in 0..config.target_count): target[target_index].egress.valid & target[target_index].egress.ready)
+  allocator.accepts <== vec(for List (target_index in 0..config.target_count): target[target_index].egress.fire())

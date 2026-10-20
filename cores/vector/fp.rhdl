@@ -20,6 +20,11 @@ import:
 fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), tag :: Bits(index_width(slots))) :~ FpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
   def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def flen = floating_point_register_width(profile)
+
+  /* Format mapping and conversion controls.
+     Source and destination formats may differ; unused control fields retain
+     their don't-care values behind the selected execution/register controls. */
+
   /* Maps legal FP element widths to IEEE execution precision. */
   fun precision(width :: SimdElementWidth) :~ FloatPrecision:
     mux_lookup(width, ~default: FloatPrecision.Double, [[SimdElementWidth.E16, FloatPrecision.Half], [SimdElementWidth.E32, FloatPrecision.Single]])
@@ -30,15 +35,25 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   def result_precision = precision(beat.fp_result_width)
   def left_precision = mux(beat.control.wide_vs2, result_precision, source_precision)
   def right_precision = mux(beat.control.reduction & beat.control.widening, result_precision, source_precision)
-  // The decoder selects a physical FP operation; SEW supplies its dynamic format.
+  // The decoder selects the physical FP operation; SEW supplies its format.
   wire unused: FloatingPointControl()
   unused <== dont_care(FloatingPointControl())
   def fp_source = beat.control.fp_source === VectorFloatSource.Floating
   def fp_destination = beat.control.fp_result === VectorFloatResult.Floating
-  def control = unused.updated(
-    ~registers: unused.registers.updated(~destination: mux(fp_destination, FloatDestination.FloatingPoint, FloatDestination.Integer), ~uses_frs1: fp_source),
-    ~execution: beat.control.fp_execution.updated(~source_precision: source_precision, ~destination_precision: result_precision, ~integer_width: mux(fp_source, integer_width(beat.fp_result_width), integer_width(beat.fp_source_width)))
+  def register_control = unused.registers.updated(~destination: mux(fp_destination, FloatDestination.FloatingPoint, FloatDestination.Integer), ~uses_frs1: fp_source)
+  def conversion_width = mux(fp_source, integer_width(beat.fp_result_width), integer_width(beat.fp_source_width))
+  def execution_control = beat.control.fp_execution.updated(
+    ~source_precision: source_precision,
+    ~destination_precision: result_precision,
+    ~integer_width: conversion_width
   )
+  def control = unused.updated(~registers: register_control, ~execution: execution_control)
+
+
+  /* Operand boxing and fused-operation routing.
+     A scalar FPR source is already boxed. Vector elements are boxed according
+     to each operand's precision before swapping or selecting old vd. */
+
   /* NaN-boxes a raw vector element to the shared service's physical FPR width. */
   fun operand(value :: Bits(xlen.width), precision :: FloatPrecision) :~ Bits(flen):
     def half = riscv_nan_box(FloatFormat.F16, value[0..16].into(IEEEFloat(FloatFormat.F16)), flen)
@@ -53,11 +68,18 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   def destination_operand = operand(beat.destination_data, result_precision)
   def ordered_left = mux(beat.control.swap_operands, source_right, vector_left)
   def ordered_right = mux(beat.control.swap_operands, vector_left, source_right)
+  def ordered_left_precision = mux(beat.control.swap_operands, right_precision, left_precision)
+  def request_left_precision = mux(beat.control.multiply_destination, result_precision, ordered_left_precision)
+
+
+  /* Shared-service request with the persistent completion slot and captured
+     rounding policy; no additional execution state belongs in this adapter. */
+
   FpExecutionRequest(xlen, profile, Bits(index_width(slots))):
     tag: tag
     control: control
     left: mux(beat.control.multiply_destination, destination_operand, ordered_left)
-    left_precision: mux(beat.control.multiply_destination, result_precision, mux(beat.control.swap_operands, right_precision, left_precision))
+    left_precision: request_left_precision
     right: ordered_right
     right_precision: mux(beat.control.swap_operands, left_precision, right_precision)
     third: mux(beat.control.multiply_destination, vector_left, destination_operand)

@@ -14,7 +14,7 @@ sync_circuit EventAtomicForkNetwork(buffered :: Boolean):
   output fork_ready: Bool
   output transfers: Bits(3)
   def incoming = if buffered | ingress |> queue(2, ~pipe: #true) | ingress
-  def branches = incoming |> atomic_fork(3)
+  def branches :: InterfaceArrayFields = incoming |> atomic_fork(3)
   if buffered
   | branches[0] |> pipe(1) |> egress[0]
     branches[1] |> queue(3, ~flow: #true, ~pipe: #true) |> egress[1]
@@ -22,7 +22,7 @@ sync_circuit EventAtomicForkNetwork(buffered :: Boolean):
   | for (index in 0..3): branches[index] |> egress[index]
   fork_valid <== incoming.valid
   fork_ready <== incoming.ready
-  transfers <== vec(for List (index in 0..3): branches[index].valid & branches[index].ready).as_bits()
+  transfers <== vec(for List (index in 0..3): branches[index].fire()).as_bits()
 
 sync_circuit EventAtomicForkLane(buffered :: Boolean, traced :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

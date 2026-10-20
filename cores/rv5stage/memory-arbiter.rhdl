@@ -20,9 +20,11 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   interface vector_pipeline(CachePipelineAccess(xlen), ~role: responder)
   interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   output pipeline_vector: Bool
+
+  /* Authorized requests: admitted vector work precedes younger scalar WB.
+     Return routing uses retained writeback tags, not the live arbiter choice. */
+
   inst requests(Arbiter(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)), 2))
-  // A live vector element belongs to a macro already admitted at WB, so it
-  // precedes a simultaneous younger scalar WB slow request.
   Array(vector.request, scalar.request) <=> requests.ingress
   requests.egress |> memory.request
   def selected_vector = requests.chosen === bits(0, 1)
@@ -38,8 +40,11 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   scalar.reservation_valid <== memory.reservation_valid
   vector.reservation_valid <== memory.reservation_valid
 
-  // A losing Valid lookup receives an explicit replay in its response cycle.
-  // Ownership travels for two cycles, through the retained store candidate.
+
+  /* Speculative lookups: scalar precedes vector, unlike authorized requests.
+     Each caller keeps its one-cycle result owner, including a losing lookup
+     that must receive Replay rather than disappear. */
+
   inst lookups(ValidArbiter(CachePipelineReq(xlen), 2))
   def Array(scalar_lookup, scalar_context) = scalar_pipeline.request |> fork_valid(2)
   def Array(vector_lookup, vector_context) = vector_pipeline.request |> fork_valid(2)
@@ -51,6 +56,12 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   def scalar_result = scalar_context |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
   def vector_result = vector_context |> map_valid(_request => lookup_vector) |> valid_pipe(1)
   def store_owner = selected_owner |> map_valid(_request => lookup_vector) |> valid_pipe(2)
+
+
+  /* One-cycle result routing and local fallback.
+     An absent physical response is Slow for the selected lookup; a losing
+     lookup receives ArrayPort Replay. Selected Flow lineage stays intact. */
+
   def replay = CachePipelineResult(xlen):
     outcome: CachePipelineOutcome.Replay
     reason: CachePipelineReason.ArrayPort
@@ -65,6 +76,12 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   def vector_local = vector_result |> filter_valid(selected => !selected ||| !pipeline.response.valid) |> map_valid(_selected => vector_bits)
   Array(scalar_selected, scalar_local) |> valid_arbiter() |> scalar_pipeline.response
   Array(vector_selected, vector_local) |> valid_arbiter() |> vector_pipeline.response
+
+
+  /* Two-cycle store-commit ownership.
+     The retained selected lookup, not a newer live request, selects the
+     commit source and the sole caller allowed to observe commit readiness. */
+
   pipeline.commit <== store_owner.valid & mux(store_owner.bits, vector_pipeline.commit, scalar_pipeline.commit)
   scalar_pipeline.commit_ready <== store_owner.valid & !store_owner.bits & pipeline.commit_ready
   vector_pipeline.commit_ready <== store_owner.valid & store_owner.bits & pipeline.commit_ready

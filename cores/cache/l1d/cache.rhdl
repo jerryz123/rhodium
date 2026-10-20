@@ -479,7 +479,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def eviction_command_valid = gather_state === L1DGatherState.EvictionReady
   wire eviction_command_ready: Bool
   inject_interface(Decoupled(hardware_value_type(eviction_command)), ~valid: eviction_command_valid, ~bits: eviction_command, ~ready: eviction_command_ready) |> writeback.command
-  def writeback_command_fire = eviction_command_valid & eviction_command_ready
+  def writeback_command_fire = writeback.command.fire()
   writeback.victim_state <== eviction_state
   writeback.snoop_pending <== snoop_pending
   when eviction_gather_start:

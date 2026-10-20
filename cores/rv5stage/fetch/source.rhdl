@@ -42,9 +42,9 @@ sync_circuit RV5StageFetchOffer(xlen :: XLen):
   assert(!enabled ||| candidate.valid, "fetch_offer_has_candidate")
   describe_interface_contract(candidate, egress, "admission", ~trace_model: interface_trace_combinational(~guard: enabled))
 
-/* Selects restart, late redirect, replay, predicted successor, or saved cursor in priority
-   order.
-   Accepted offers own S1; BTB/RAS lookup and continuation drive the next S0 candidate. */
+/* Selects restart, late redirect, replay, predicted successor, or saved cursor
+   in priority order. Accepted offers own S1; BTB/RAS lookup and continuation
+   drive the next S0 candidate. */
 sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6):
   def width = xlen.width
   input active: Bool
@@ -64,6 +64,11 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   output ras_head_valid: Bool
   output ras_head: Bits(width)
 
+
+  /* Retained cursor, S1 occurrence, and predictor instances.
+     The cursor can retain an unaccepted candidate; only an accepted offer
+     allocates the fixed S1 lookup context. */
+
   reg running(~init: Bool(#true))
   inst cursor(RV5StageFetchCursor(xlen))
   inst offer(RV5StageFetchOffer(xlen))
@@ -71,6 +76,11 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   inst ras(if btb_entries == 0 || ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, ras_entries))
   def command = clear.valid ||| restart.valid ||| redirect.valid
   inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
+
+
+  /* Predictor lookup and qualified update paths.
+     Resolution, speculation, and restoration retain their independent events. */
+
   btb.cursor <== s1.egress.bits.pc
   btb.invalidate_all.valid <== predictor_flush.valid
   ras.clear.valid <== predictor_flush.valid
@@ -89,12 +99,25 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   ras_restore |> ras.restore
   ras_head_valid <== ras.head_valid
   ras_head <== ras.head
+
+
+  /* Predicted successor geometry.
+     A continuation resumes its saved target before considering a new prediction;
+     a predicted straddle fetches the next word before taking its target. */
+
   def stored_prediction = btb.prediction
   def predicted_return = stored_prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras.head_valid
   def btb_prediction = stored_prediction.updated(~target: mux(predicted_return, ras.head, stored_prediction.target))
   def prediction = mux(s1.egress.bits.continuation, literal(BranchPrediction(xlen), 0), btb_prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
-  def next_pc = mux(s1.egress.bits.continuation, s1.egress.bits.continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, s1.egress.bits.pc.align_down(4) + bits(4, width)))
+  def next_pc = priority_mux(~default: s1.egress.bits.pc.align_down(4) + bits(4, width)):
+    s1.egress.bits.continuation: s1.egress.bits.continuation_target
+    prediction.valid & !predicted_straddle: prediction.target
+
+
+  /* Live candidate priority: restart, redirect, replay, successor, saved cursor.
+     Keep the explicit Flow forks so lookup and request ancestry are preserved. */
+
   def redirecting = restart.valid ||| redirect.valid
   def restart_candidates = Array(restart, redirect) |> valid_arbiter() |> map_valid(pc => RV5StageFetchAttempt(xlen)):
     pc: pc
@@ -116,8 +139,12 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   def saved = Array(cursor.stored, seed.right) |> valid_arbiter()
   def Array(saved_offer, saved_clear) = saved |> fork_valid(2)
   Array(restart_offer, replay_offer, next_offer, saved_offer) |> valid_arbiter() |> offer.candidate
-  // Restart bypasses old-epoch reservation; a late redirect preserves the epoch
-  // and issues only with space. Neither admission depends on candidate validity.
+
+
+  /* Request admission and S1 capture.
+     Restart bypasses old-epoch reservation; a late redirect preserves the epoch
+     and requires space. Admission does not depend on candidate validity. */
+
   offer.enabled <== restart.valid ||| (redirect.valid & space) ||| (active & running & !command & space)
   // The S1 lookup result is captured with this occurrence at the S2 boundary.
   (lookup_source |> map_valid(attempt => attempt.updated(~prediction: prediction))) |> stage1
@@ -131,8 +158,11 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   contexts |> to_valid() |> s1.ingress
   s1.flush <== command & !attempts.fire()
 
-  // Preserve the original state-update priority, distinct from live PC selection.
-  // Restart stores its target even when that same-cycle replacement transfers.
+
+  /* Saved-cursor update priority differs from live candidate selection:
+     restart, clear, accepted sequential advance, replay, then predicted successor.
+     Restart retains its target even when the same-cycle replacement transfers. */
+
   Array(
     restart_update |> map_valid(attempt => attempt.updated(~continuation_target: saved.bits.continuation_target)),
     saved_clear |> filter_valid(_attempt => clear.valid) |> map_valid(attempt => attempt.updated(~continuation: Bool(#false))),
@@ -140,7 +170,8 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     replay_update |> filter_valid(_attempt => !command),
     next_update |> filter_valid(_attempt => !command)
   ) |> valid_arbiter() |> cursor.update
-  when command: running <== redirecting
+  when command:
+    running <== redirecting
 
 export:
   RV5StageFetchAttempt

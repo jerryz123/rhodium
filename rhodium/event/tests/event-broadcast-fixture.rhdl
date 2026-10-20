@@ -14,7 +14,7 @@ sync_circuit EventBroadcastNetwork(buffered :: Boolean, direct :: Boolean):
   output broadcast_ready: Bool
   output transfers: Bits(3)
   def incoming = if buffered | ingress |> queue(2, ~pipe: #true) | ingress
-  def branches:
+  def branches :: InterfaceArrayFields:
     if direct
     | block:
         inst storage(Broadcast(Bits(8), 3))
@@ -28,7 +28,7 @@ sync_circuit EventBroadcastNetwork(buffered :: Boolean, direct :: Boolean):
   | for (index in 0..3): branches[index] |> egress[index]
   broadcast_valid <== incoming.valid
   broadcast_ready <== incoming.ready
-  transfers <== vec(for List (index in 0..3): branches[index].field("valid") & branches[index].field("ready")).as_bits()
+  transfers <== vec(for List (index in 0..3): branches[index].fire()).as_bits()
 
 sync_circuit EventBroadcastLane(buffered :: Boolean, traced :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

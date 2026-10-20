@@ -35,7 +35,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
   describe_interface_selection(for List (index in 0..n): grant[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "rr-arbiter", ~trace_model: interface_trace_selection())
 
-  when (choice.valid & egress.ready):
+  when (egress.fire()):
     next_priority <== mux(
       choice.index === bits(n - 1, width),
       bits(0, width),
@@ -62,7 +62,7 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
   egress.valid <== choice.valid
   chosen <== choice.index
 
-  when (choice.valid & egress.ready):
+  when (egress.fire()):
     next_priority <== mux(
       choice.index === bits(n - 1, width),
       bits(0, width),

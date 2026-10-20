@@ -110,11 +110,19 @@ fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: IntegerExecu
   def high = mux_lookup(result.tag.sew, ~default: full_high, cases)
   def ordinary = mux(result.tag.result === VectorMultiplyResult.High, high, low)
   def widened = mux_lookup(result.tag.sew, ~default: low, widened_cases)
+
+  /* Fractional projection retains vxrm with the completed operation's tag;
+     it rounds before checking signed overflow at the original source SEW. */
+
   def fractional_cases = for List (width in widths, code in 0..widths.length()):
     [code, fractional_multiply_value(xlen, width, result.value[0..width * 2], result.tag.rounding_mode)]
   def fractional :: VectorMultiplyValue(xlen) = mux_lookup(result.tag.sew, ~default: fractional_cases[fractional_cases.length() - 1][1], fractional_cases)
+  def accumulated = mux(subtract, addend - widened, addend + widened)
+  def ordinary_value = priority_mux(~default: ordinary):
+    accumulate: accumulated
+    result.tag.result === VectorMultiplyResult.Widened: widened
   def ordinary_result = VectorMultiplyValue(xlen):
-    data: mux(accumulate, mux(subtract, addend - widened, addend + widened), mux(result.tag.result === VectorMultiplyResult.Widened, widened, ordinary))
+    data: ordinary_value
     saturated: Bool(#false)
   mux(!accumulate & (result.tag.result === VectorMultiplyResult.Fractional), fractional, ordinary_result)
 

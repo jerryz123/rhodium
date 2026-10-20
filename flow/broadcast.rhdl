@@ -31,8 +31,8 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
   // The final recipients can drain while the next item is accepted, avoiding
   // an input bubble without exposing the replacement payload in this cycle.
   def input_ready = !any_pending ||| all_pending_ready
-  def accept_input = ingress.valid & input_ready
   ingress.ready <== input_ready
+  def accept_input = ingress.fire()
   describe_interface_broadcast_storage(accept_input, for List (index in 0..n): pending[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "broadcast", ~trace_model: interface_trace_buffered_broadcast())
 
@@ -42,7 +42,7 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
   for (index in 0..n):
     when (accept_input):
       pending[index] <== Bool(#true)
-    elsewhen (pending[index] & egress[index].ready):
+    elsewhen (egress[index].fire()):
       pending[index] <== Bool(#false)
 
 /* Payloadless broadcast retains only the per-recipient pending mask. Each
@@ -65,13 +65,13 @@ sync_circuit CtrlBroadcast(n :: PosInt):
     egress[index].valid <== pending[index]
 
   def input_ready = !any_pending ||| all_pending_ready
-  def accept_input = ingress.valid & input_ready
   ingress.ready <== input_ready
+  def accept_input = ingress.fire()
 
   for (index in 0..n):
     when (accept_input):
       pending[index] <== Bool(#true)
-    elsewhen (pending[index] & egress[index].ready):
+    elsewhen (egress[index].fire()):
       pending[index] <== Bool(#false)
 
 /* Configures a one-slot broadcast with independently accepted irrevocable outputs. */

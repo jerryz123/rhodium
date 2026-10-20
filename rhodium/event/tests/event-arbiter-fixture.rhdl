@@ -14,15 +14,15 @@ sync_circuit EventArbiterNetwork(mode :: Nat, direct :: Boolean = #false):
   output take1: Bool
   output take2: Bool
   output join_fire: Bool
-  def a = if mode >= 2 | ingress[0] |> pipe(1) | ingress[0]
-  def b = if mode >= 2 | ingress[1] |> queue(2) | ingress[1]
-  def c = if mode >= 2 | ingress[2] |> queue(3, ~flow: #true, ~pipe: #true) | ingress[2]
+  def a :: Endpoint = if mode >= 2 | ingress[0] |> pipe(1) | ingress[0]
+  def b :: Endpoint = if mode >= 2 | ingress[1] |> queue(2) | ingress[1]
+  def c :: Endpoint = if mode >= 2 | ingress[2] |> queue(3, ~flow: #true, ~pipe: #true) | ingress[2]
   def selected:
     if mode == 3
     | block:
-        def first = Array(a, b) |> arbiter() |> queue(2, ~pipe: #true)
+        def first :: Endpoint = Array(a, b) |> arbiter() |> queue(2, ~pipe: #true)
         def result = Array(first, c) |> rr_arbiter()
-        join_fire <== first.valid & first.ready
+        join_fire <== first.fire()
         result
     | block:
         join_fire <== Bool(#false)
@@ -36,9 +36,9 @@ sync_circuit EventArbiterNetwork(mode :: Nat, direct :: Boolean = #false):
   if mode >= 2
   | selected |> queue(3, ~pipe: #true, ~flow: #true) |> pipe(1) |> egress
   | selected |> egress
-  take0 <== a.valid & a.ready
-  take1 <== b.valid & b.ready
-  take2 <== c.valid & c.ready
+  take0 <== a.fire()
+  take1 <== b.fire()
+  take2 <== c.fire()
 
 sync_circuit EventArbiterLane(mode :: Nat, traced :: Boolean):
   interface ingress[3](Decoupled(Bits(8)), ~role: consumer)

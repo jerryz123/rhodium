@@ -34,7 +34,7 @@ sync_circuit FpCompletionArbiter(T :: DataType):
   describe_interface_selection([selected_valid & !selected_is_second, selected_valid & selected_is_second])
   describe_interface_contract(ingress, egress, "data", ~kind: "irrevocable-rr-arbiter", ~trace_model: interface_trace_selection())
 
-  when (selected_valid & egress.ready):
+  when (egress.fire()):
     locked <== Bool(#false)
     prefer_second <== !selected_is_second
   elsewhen (selected_valid & !locked):
