@@ -17,6 +17,8 @@ import:
   "../chi-hart.rhdl" open
   "../load-store.rhdl" open
   "../../riscv/isa/xlen.rhm" open
+  lib("riscv/isa/trap.rhm").ExceptionCause
+  lib("riscv/rtl/trap.rhdl").exception_cause_bits
   "../../riscv/rtl/atomic.rhdl" open
   "../../riscv/rtl/cmo.rhdl" open
   "../../riscv/rtl/svpbmt.rhdl" open
@@ -174,7 +176,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   memory.fault.bits <== RV2WideResolution(xlen):
     guest: literal(RiscvGuestFault(), 0)
     disposition: RV2WideDisposition.Fault
-    cause: mux(request.access.store_fault_class(), bits(7, xlen.width), bits(5, xlen.width))
+    cause: mux(request.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
     value: memory.request.bits.address[0..xlen.width]
   Array(
     uncached_management.egress,

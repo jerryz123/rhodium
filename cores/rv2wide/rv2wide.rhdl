@@ -45,6 +45,11 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   output halted: Bool
   output sleeping: Bool
   output(issued, retired_count): Bits(2)
+
+
+  /* Execution and selected cache/translation services.
+     Scalar width follows the profile; fetch and physical transport remain 64-bit. */
+
   inst core(RV2WideCore(profile))
   core.interrupts <== interrupts
   core.hart_id <== hart_id
@@ -55,6 +60,11 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   inst data(RV2WideL1D(cache, ~chi: config, ~xlen: xlen))
   inst mmu(if profile.mmu_type == RiscvMmuType.Bare | RV2WideBareMemory(xlen, config) | RV2WideMmu(config, ~svnapot: profile.svnapot))
   describe_cosim_context(core, {"mmu": mmu})
+
+
+  /* Translation context, instruction delivery, and predictor recovery.
+     The core owns architectural context and cancellation of speculative fetch work. */
+
   mmu.split_guest_access <== core.split_guest_access
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush
@@ -73,15 +83,30 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   core.ras_resolution |> frontend.ras_resolution
   core.history_commit |> frontend.history_commit
   core.history_restore |> frontend.history_restore
+
+
+  /* Cached and nonallocating fetch share one frontend response path.
+     Noncacheable fetch uses the data adapter's ordered uncached transport. */
+
   inst instruction_memory(RV2WideInstructionMemory())
   frontend.memory <=> instruction_memory.core
   instruction_memory.cache <=> instruction.core
   instruction_memory.uncached <=> data.instruction
   frontend.virtual_lookup |> instruction.virtual_lookup
+
+
+  /* Best-effort physical prefetch splits by instruction/data operation.
+     Translation precedes routing to either private cache. */
+
   core.prefetch |> mmu.prefetch
   def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)
   instruction_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation === CachePrefetchOperation.Instruction) |> instruction.prefetch
   data_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
+
+
+  /* Instruction CHI identity and architectural reporting.
+     Redirects both recover the frontend and remain externally observable. */
+
   instruction.chi <=> instruction_chi
   instruction.node_id <== instruction_node_id
   core.retired <=> retired
@@ -89,6 +114,11 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   def Array(fetch_redirect, reported_redirect) = core.redirect |> fork_valid(2)
   fetch_redirect |> frontend.redirect
   reported_redirect |> redirect
+
+
+  /* Committed LSU and speculative cache lookup share translation and L1D.
+     Coherent data and uncached services retain distinct CHI identities. */
+
   core.memory <=> mmu.memory
   core.split <=> mmu.split
   core.pipeline <=> mmu.pipeline
@@ -99,12 +129,16 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   data.node_id <== data_node_id
   data.uncached_node_id <== uncached_node_id
   data.uncached_chi <=> uncached_chi
+
+
+  /* Reset-only startup and composition invariants.
+     Starting requires quiescent data services; this wrapper supplies no external resolutions. */
+
   reg stopped(~init: Bool(#true))
   when (start.valid):
     stopped <== Bool(#false)
-  halted <== stopped
-  when (start.valid):
     assert(stopped & data.memory.drained, "rv2wide_start_at_quiescent_boundary")
+  halted <== stopped
   assert(instruction_node_id =/= data_node_id, "rv2wide_distinct_cache_identities")
   assert((instruction_node_id =/= uncached_node_id) & (data_node_id =/= uncached_node_id), "rv2wide_distinct_uncached_identity")
   issued <== core.issued

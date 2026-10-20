@@ -336,7 +336,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def fragment_address = data_result.physical_address.zext(64).align_down(8)
   def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& bits(7, 64))
   def fragment_attributes = resolve_memory_attributes(fragment_region, data_pbmt)
-  def fragment_permitted = (!execute_read ||| fragment_region.executable) & fragment_region.mapped & fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent & mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
+  def fragment_normal_memory = fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent
+  def fragment_access_permitted = mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
+  def fragment_execute_permitted = !execute_read ||| fragment_region.executable
+  def fragment_permitted = fragment_execute_permitted & fragment_region.mapped & fragment_normal_memory & fragment_access_permitted
   (split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(request => rv2wide_physical_request(XLen.X64, request, fragment_address, data_pbmt))) |> requests.ingress[1]
 
 
@@ -344,7 +347,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   def pte_region = config.physical_map.lookup(walker.memory.request.bits.address, walker.memory.request.bits.address +& bits(7, 64))
   def pte_attributes = resolve_memory_attributes(pte_region, walker.memory.request.bits.pbmt)
-  def pte_permitted = pte_region.mapped & pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent & pte_region.readable
+  def pte_normal_memory = pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent
+  def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable
   requests.ingress[2].valid <== walker.memory.request.valid & pte_permitted
   requests.ingress[2].bits <== RV2WideMemoryReq(XLen.X64, 64):
     guest_access: RiscvGuestMemoryAccess.Normal
@@ -358,7 +362,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     pbmt: walker.memory.request.bits.pbmt
 
 
-  /* Physical admission faults and accepted-owner routing */
+  /* Physical admission and accepted-owner capture.
+     Live arbitration identifies admission faults; only acceptance queues an owner. */
 
   def origin = requests.chosen.into(RV2WidePhysicalOwner)
   def pte_selected = origin === RV2WidePhysicalOwner.Walker
@@ -366,9 +371,17 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def Array(physical_request, owner) = requests.egress |> atomic_fork(2)
   physical_request |> physical_memory.request
   owner |> map_flow(_request => origin) |> owners.ingress
-  def pte_fault = (walker.memory.request.valid & !pte_permitted) ||| (physical_memory.fault.valid & pte_selected)
+
+  /* Walker admission reports either local PTE permission or selected service faults. */
+
+  def pte_local_fault = walker.memory.request.valid & !pte_permitted
+  def pte_physical_fault = physical_memory.fault.valid & pte_selected
+  def pte_fault = pte_local_fault ||| pte_physical_fault
   walker.memory.request.ready <== requests.ingress[2].ready ||| pte_fault
   walker.memory.request_access_fault <== pte_fault
+
+  /* Core faults retain the virtual address and translation-before-execute priority. */
+
   def core_execute_denied = execute_read & !region.executable
   def core_physical_fault = physical_memory.fault.valid & (origin === RV2WidePhysicalOwner.Core)
   def core_local_fault = data_known & (!data_ok ||| core_execute_denied)
@@ -381,11 +394,19 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     disposition: RV2WideDisposition.Fault
     cause: core_fault_cause
     value: memory.request.bits.address
+
+  /* Split fragments distinguish page faults from physical access denial.
+     Preserve the original split owner's guest details and full-fragment permissions. */
+
   misaligned.request_guest <== RiscvGuestException():
     page_fault: data_result.fault === RiscvTranslationFault.GuestPageFault
     details: data_guest_fault
   misaligned.request_fault <== split_request.valid & data_known & data_result.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
-  misaligned.request_access_fault <== split_request.valid & data_known & !misaligned.request_fault & !misaligned.request_guest.page_fault & ((data_result.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| (physical_memory.fault.valid & split_selected))
+  def split_translation_fault = data_result.fault =/= RiscvTranslationFault.None
+  def split_physical_fault = physical_memory.fault.valid & split_selected
+  def split_access_denied = split_translation_fault ||| !fragment_permitted ||| split_physical_fault
+  misaligned.request_access_fault <== split_request.valid & data_known & !misaligned.request_fault & !misaligned.request_guest.page_fault & split_access_denied
+
   memory.drained <== physical_memory.drained & (owners.count === bits(0, owners.count.type.width)) & !misaligned.busy
   memory.ordered_busy <== physical_memory.ordered_busy
   memory.reservation_valid <== physical_memory.reservation_valid
