@@ -53,10 +53,21 @@ check:
   rv2wide_udb_configuration(single, "rv32f", "RV32F", 32).to_yaml().contains("  MUTABLE_MISA_F: false") ~is #true
   rv2wide_udb_configuration(single, "rv32f", "RV32F", 32).to_yaml().contains("MUTABLE_MISA_D") ~is #false
 def vector64 = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V)
+def vector_half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfhmin])
+def vector_half = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb])
 def vector32 = RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64, ~vector_extensions: [VectorExtension.Zvbb])
 check:
   vector64.isa_profile.isa_extensions.contains("v") ~is #true
   vector64.csr_config.vector ~is VectorProfile.V
+  vector64.execution_half_precision ~is HalfPrecisionProfile.None
+  vector_half_min.execution_half_precision ~is HalfPrecisionProfile.Zfhmin
+  vector_half_min.isa_profile.isa_extensions.contains("zvfhmin") ~is #true
+  vector_half_min.half_precision ~is HalfPrecisionProfile.None
+  vector_half.execution_half_precision ~is HalfPrecisionProfile.Zfh
+  vector_half.half_precision ~is HalfPrecisionProfile.Zfhmin
+  vector_half.isa_profile.isa_extensions.contains("zvfh") ~is #true
+  vector_half.isa_profile.isa_extensions.contains("zfh") ~is #false
+  RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh]) ~throws "Zvfh requires scalar Zfhmin or Zfh"
   vector32.isa_profile.isa_extensions.contains("zve32x") ~is #true
   vector32.csr_config.vector_length ~is 64
   vector32.isa_profile.isa_extensions.contains("zvbb") ~is #true
@@ -153,7 +164,7 @@ check:
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcb]) ~throws "duplicate"
   RV2WideConfig(~compressed: [CompressedExtension.C, CompressedExtension.Zcd]) ~throws "already supplies"
 
-for (profile in [single, vector32fp, vector32, vector64, integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
+for (profile in [single, vector32fp, vector32, vector64, vector_half_min, vector_half, integer32, bare64, supervisor, hypervisor, sha, integer, zero, management, cmo, prefetch, wait, pause, locality, timer, invalidation, invalidation_fp, napot, napot_fp, pbmt, pbmt_napot, double, zfa, half_min, half, zcb, zcmop, compressed_fp]):
   def configuration = rv2wide_udb_configuration(profile, "rv2wide-test", "RV2Wide profile contract", if profile.xlen == XLen.X32 | 32 | 44)
   def extensions = configuration.extensions.map(fun (extension): extension.name)
   check:

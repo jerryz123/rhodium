@@ -143,7 +143,7 @@ remain visible as failures in those existing lanes.
 
 ### Dual-issue RV2Wide checking
 
-Mini/Simple RV2Wide's `rv32int`, `rv32max`, `rv64imacb`, and `rv64imafdcb` configurations reuse the same Sail
+Mini/Simple RV2Wide's `rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb` configurations reuse the same Sail
 configuration, collector, and FESVR lifecycle. Enable a local checked build with
 `make -C sims boot-test isa-smoke SOC=mini-rv2wide-rv64imacb COSIM=1`.
 The observer admits both successful WB slots in age order. Accepted load,

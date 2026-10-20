@@ -21,8 +21,9 @@ import:
   lib("riscv/gnu-toolchain.rhm").gnu_isa_target
 
 def rv32 = soc_architecture(IsaPreset.RV32Int)
-// A third hart binding retains the exact lean architecture and shape-owned resources.
-for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMACB), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV64IMAFDCB), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV32Int), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV32Int), SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV32Max), SoCSelection(SoCShape.Simple, CoreKind.RV2Wide, IsaPreset.RV32Max)]):
+// Every supported RV2Wide selection retains the exact architecture and shape-owned resources.
+for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv32max", "simple-rv2wide-rv32max", "mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb", "mini-rv2wide-rv64imafdcb", "simple-rv2wide-rv64imafdcb", "mini-rv2wide-rv64max", "simple-rv2wide-rv64max"]):
+  def selection = named_soc_selection(key)
   def shape = selection.shape
   def isa = selection.isa
   def resolved = resolve_soc_config(selection)
@@ -33,7 +34,7 @@ for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64I
     named_soc_selection(selection.key) ~is selection
     resolved.description.hart.isa_profile ~is expected.isa
     resolved.description.hart.mmu_type ~is expected.mmu
-    (resolved.description.hart.vector != #false) ~is (isa == IsaPreset.RV32Int || isa == IsaPreset.RV32Max)
+    (resolved.description.hart.vector != #false) ~is (expected.vector != VectorProfile.None)
     resolved.description.hart.instruction_cache.sets ~is cache_sets
     resolved.description.hart.data_cache.ways ~is cache_ways
     resolved.description.to_device_tree().to_dtb().length() > 0 ~is #true
@@ -47,6 +48,13 @@ for (selection in [SoCSelection(SoCShape.Mini, CoreKind.RV2Wide, IsaPreset.RV64I
       resolved.description.hart.vector.elen ~is 32
       resolved.udb().to_yaml().contains("  VLEN: 64") ~is #true
       resolved.udb().to_yaml().contains("  PHYS_ADDR_WIDTH: 32") ~is #true
+  when isa == IsaPreset.RV64Max
+  | check:
+      resolved.description.hart.vector.vlen ~is 128
+      resolved.description.hart.vector.elen ~is 64
+      resolved.description.hart.isa_profile.isa_extensions.contains("zvfh") ~is #true
+      resolved.description.hart.isa_profile.isa_extensions.contains("h") ~is #false
+      resolved.udb().to_yaml().contains("  VLEN: 128") ~is #true
 check:
   rv2wide_soc_profile(SoCShape.Mini, IsaPreset.RVA23) ~throws "supports Mini/Simple"
   rv2wide_soc_profile(SoCShape.Tiled, IsaPreset.RV64IMACB) ~throws "supports Mini/Simple"

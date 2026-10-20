@@ -235,6 +235,24 @@ int main() {
       send((0x61u << 25) | (3 << 15) | (7 << 7) | 0x53); // fcvt.w.d x7,f3
       run(120);
       CHECK(gprs[7] == 6);
+      // Half arithmetic shares the native FP service with scalar D; scalar
+      // decode remains Zfhmin while vector execution needs full half arithmetic.
+      setvl(1, 8);
+      send(0x00004137); // lui x2,4
+      send(addi(2, 2, -1024)); // 0x3c00 = half 1.0
+      send(vi(23, 0, 2, 4, 8)); // vmv.v.x v8,x2
+      send(vi(0, 8, 8, 1, 9)); // vfadd.vv v9,v8,v8 = half 2.0
+      send((1u << 25) | (1 << 20) | (1 << 15) | (2 << 7) | 0x53); // competing fadd.d
+      extract(9, 7, 0x4000, true);
+      send(vi(18, 9, 12, 1, 10)); // vfwcvt.f.f.v v10,v9
+      send(vi(18, 10, 20, 1, 12)); // vfncvt.f.f.w v12,v10
+      extract(12, 7, 0x4000, true);
+      send(0x00101073); // clear fflags
+      send(vi(23, 0, 0, 4, 13)); // half zero
+      send(vi(32, 8, 13, 1, 14)); // vfdiv.vv v14,v8,v13 = +infinity
+      extract(14, 7, 0x7c00, true);
+      send(0x001023f3); // csrr x7,fflags waits for vector flags
+      CHECK(gprs[7] == 8); // DZ
     }
     CHECK(proof_count >= 3);
     CHECK(deferred_count >= 5);

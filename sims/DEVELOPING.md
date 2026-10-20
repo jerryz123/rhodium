@@ -20,7 +20,7 @@ the simulation-only `SpikeCore` DPI boundary while retaining the selected
 SoC shape's coherent fabric and platform contract.
 
 RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
-`rv32int`, `rv32max`, `rv64imacb`, and `rv64imafdcb`. The lean RV64 configs run
+`rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb`. The RV64 configs run
 only capability-filtered ISA smoke; both RV32 presets follow the shared
 shape/ISA software policy (platform tests, plus Simple's native ISA and ACT),
 with ordinary BootROM/FESVR loading and target-selected Sail cosimulation.
@@ -660,10 +660,13 @@ configs use 32-bit physical addresses and disable PMP; both retain the platform'
 44-bit CHI fabric. Generate each core's own Sail
 expectations; never reuse one implementation's WARL/PMP claims for the other.
 The six CI Mini configs and both Tiled configs use capability-filtered ISA smoke.
-For each of `rv64max`, `rv64imacb`, and `rv64imafdcb`, only the paired Simple
-configs are enrolled. These six configs run only `isa-smoke`: no platform suite, full
+For each of `rv64max`, `rv64imacb`, and `rv64imafdcb`, RV5Stage and Spike enroll
+only Simple. RV2Wide enrolls Mini and Simple for the two lean scalar presets,
+and only Simple for `rv64max`; Mini RV2Wide RV64Max remains a supported manual
+selection. All these RV64 configs run only `isa-smoke`: no platform suite, full
 native ISA suite, ACT, benchmarks, OpenSBI, or litmus. Keep this policy keyed by
-shape/ISA so RV5Stage and Spike exercise the same capability-filtered selection.
+shape/ISA so every core exercises the same capability-filtered selection.
+RV2Wide's enrolled configs enable Sail cosimulation on the ordinary simulator.
 Both Tiled configs additionally own the focused upstream multihart benchmark selection. The
 Make targets and CI select only eight participating harts, retaining all three
 workloads without repeating them at smaller hart counts. The

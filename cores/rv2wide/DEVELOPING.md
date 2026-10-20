@@ -36,6 +36,12 @@ The top selects one implementation from `profile.mmu_type`. Keep exact SoC
 profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
 Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
 scalar F and Zve32f while retaining the same Bare platform and vector geometry.
+`rv64max` projects the complete non-H RV64 preset with VLEN128 and Sv39.
+`profile.execution_half_precision` selects shared FP hardware for the union of
+scalar and vector capabilities; scalar decode must continue to use
+`profile.half_precision`. The core-vector fixture exercises scalar Zfhmin with
+full Zvfh, including half arithmetic, width conversions, flag completion, and
+scalar/vector FP contention.
 `rv2wide_fp_profile(xlen)` selects the native pipeline transport shape (RV32F
 or RV64D), including the disabled adapter. Do not put 64-bit FPR payloads in
 RV32 pipeline tokens. The raw FP-load transport remains 64 bits because the

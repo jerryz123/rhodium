@@ -4,12 +4,13 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
-  lib("riscv/isa/vector-profile.rhm").VectorProfile
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
   "../../core.rhdl".RV2WideCore
   "../../profile.rhm".RV2WideConfig
 
-def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V)))
+// Scalar Zfhmin plus full Zvfh exercises the wider execution capability without scalar Zfh.
+def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb])))
 def rv32_program = elaborate(RV2WideCore(RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)))
 export:
   program

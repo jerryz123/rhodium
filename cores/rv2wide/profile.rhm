@@ -83,9 +83,16 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
     | error(~who: #'RV2WideConfig, "64-bit vector FP requires scalar D")
     validate_vector_extensions(vector, vector_extensions)
-    unless for all (extension in vector_extensions): extension == VectorExtension.Zvbb
-    | error(~who: #'RV2WideConfig, "RV2Wide's optional vector decode currently supports Zvbb")
+    when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
+    | error(~who: #'RV2WideConfig, "Zvfh requires scalar Zfhmin or Zfh")
     super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots)
+
+  /* Sizes the shared FP datapath for scalar and vector operations without enabling additional scalar instructions. */
+  property execution_half_precision :: HalfPrecisionProfile:
+    cond
+    | half_precision_supports_zfh(half_precision) || vector_extensions_support_zvfh(vector_extensions): HalfPrecisionProfile.Zfh
+    | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
+    | ~else: HalfPrecisionProfile.None
 
   property isa_profile :: RiscvIsaProfile:
     def half_extensions = match half_precision

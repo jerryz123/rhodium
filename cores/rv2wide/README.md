@@ -34,6 +34,9 @@ integer preset with Bare translation, Zve32x, VLEN64, Zvbb, and Zvkt. They use
 the same shape/ISA-selected software policy as the other core implementations.
 The corresponding `rv32max` selections add scalar F, compressed FP loads/stores,
 and Zve32f with 32-bit FPRs, keeping VLEN64 and the same integer/system features.
+The `mini-rv2wide-rv64max` and `simple-rv2wide-rv64max` selections enable the
+maximal RV64 preset: F/D, full V with VLEN128, Zfh/Zvfh, Zvbb/Zvkt, and the
+preset's scalar and supervisor extensions with Sv39.
 No H-enabled or Tiled SoC selection is provided.
 
 ## Entry point
@@ -924,14 +927,15 @@ invent ancestry from equal PCs or reused transaction IDs.
 
 `RV2WideConfig` selects optional `vector`, `vector_length`, and
 `vector_completion_slots` parameters, plus `vector_extensions` for optional
-Zvbb operations. The default remains `VectorProfile.None`.
+Zvbb, Zvfhmin, and Zvfh operations. The default remains `VectorProfile.None`.
+Zvfh requires scalar Zfhmin or Zfh. The shared FP datapath supports the union of
+scalar and vector half-precision operations without widening scalar decode.
 RV32 supports integer Zve32x or Zve32f with scalar F. RV64 additionally supports
 the embedded 64-bit profiles and V, with scalar D required for vector floating point.
 VLEN must provide at least two XLEN-wide rows per register.
 For example, `RV2WideConfig(~floating_point: FloatingPointProfile.D,
 ~vector: VectorProfile.V)` selects VLEN=128 and eight completion slots.
-The RV64 vector specialization remains a core-level selection. The Mini/Simple
-`rv32int` and `rv32max` presets enable vector execution and the shared vector
+The Mini/Simple `rv64max`, `rv32int`, and `rv32max` presets enable vector execution and the shared vector
 cosim observer. RV32Max uses the existing shared FP service for scalar and
 vector FP without adding another execution unit or FPR write port.
 
