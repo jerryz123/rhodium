@@ -34,7 +34,7 @@ for (config in TestConfigs):
     metadata_json(metadata).contains("#<function") ~is #false
     metadata["csr_warl"]["pmm_unsupported_write"] ~is "disabled"
     metadata["csr_warl"]["medeleg_mask"] ~is (if config.core != CoreKind.Spike | 0xcb3fe | 0x8b3fe) bits.or (if config.isa == IsaPreset.RVA23 | 0xf00400 | 0)
-    metadata["csr_warl"]["hedeleg_mask"] ~is (if config.isa == IsaPreset.RVA23 | (if config.core == CoreKind.RV5Stage | 0xcb1fe | 0xcb1ff) | 0)
+    metadata["csr_warl"]["hedeleg_mask"] ~is (if config.isa == IsaPreset.RVA23 | (if config.core == CoreKind.Spike | 0xcb1ff | 0xcb1fe) | 0)
   when config.core == CoreKind.Spike
   | block:
       def profile :: SpikeConfig = resolved.hart.profile
