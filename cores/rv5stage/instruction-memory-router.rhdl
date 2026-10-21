@@ -16,6 +16,10 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   interface cache(InstructionCacheLookup(xlen.width, 32), ~role: requester)
   interface uncached(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
 
+
+  /* S1/S2 cached lookup.
+     Capture every surviving attempt while only cacheable requests reach L1I. */
+
   inst s2(ValidPipeAlwaysCapture(RV5StagePhysicalInstructionReq(xlen), 1), ~reset_when: core.flush)
   core.request |> filter_valid(_request => !core.s1_kill & !core.flush) |> s2.ingress
   cache.flush <== core.flush
@@ -26,8 +30,11 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
       address: request.address
   ) |> cache.request
 
-  // This state belongs only to the non-pipelined IO operation, not cache hits.
-  // Redirect detaches its result; the uncached engine drains accepted traffic.
+
+  /* Retained uncached fetch ownership.
+     These registers do not hold cache hits. Redirect detaches the consumer;
+     the downstream engine still drains accepted traffic. */
+
   reg pending(~init: Bool(#false))
   reg completed(~init: Bool(#false))
   reg address(Bits(xlen.width))
@@ -39,6 +46,12 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   s2.egress |> filter_valid(request => !request.cacheable & !core.flush & !pending & !completed)
     |> offer_decoupled() |> uncached.request
   def uncached_completed = uncached.response |> gate_flow(pending & !core.flush) |> to_valid()
+
+
+  /* S2 outcome selection.
+     Every live attempt receives an outcome, even when its selected path has
+     no result yet. Missing cached data and unmatched uncached data replay. */
+
   def unavailable = RV5StageFetchResult(#false):
     response: literal(RV5StageInstructionResp(#false), 0)
     replay: Bool(#true)
@@ -56,11 +69,16 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
 
     replay: cache.response.bits.replay
 
-  // Every live S2 gets an outcome, including a retry when the selected
-  // implementation has no result. Do not arbitrate only available replies.
+  def cached_outcome = mux(cache.response.valid, cached_result, unavailable)
   s2.egress |> filter_valid(_request => !core.flush)
-    |> map_valid(request => mux(request.cacheable, mux(cache.response.valid, cached_result, unavailable), uncached_result))
+    |> map_valid(request => mux(request.cacheable, cached_outcome, uncached_result))
     |> core.response
+
+
+  /* Uncached lifecycle and cancellation.
+     Flush wins; otherwise capture, completion, and matching consumption are
+     ordered. Completed data remains retained until the matching attempt. */
+
   when (core.flush):
     pending <== Bool(#false)
     completed <== Bool(#false)

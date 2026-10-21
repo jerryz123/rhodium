@@ -17,6 +17,11 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
 
   reg count(~init: Bits(2)(0))
   reg entries(Vec(2, RV2WideBranchTraining(xlen)))
+
+
+  /* Output selection and occupancy accounting.
+     A queued head wins; when empty the oldest incoming offer bypasses storage. */
+
   def queued = count.or_reduce()
   def offered = incoming[0].valid ||| incoming[1].valid
   def first = mux(incoming[0].valid, incoming[0].bits, incoming[1].bits)
@@ -28,15 +33,26 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
   training.valid <== (queued ||| offered) & !clear.valid
   training.bits <== mux(queued, entries[0], first)
   assert(clear.valid ||| (next_count <= Bits(3)(2)), "rv2wide_branch_training_capacity")
+
+
+  /* Ordered compaction after the one emitted update.
+     A retained tail stays ahead of incoming updates. Clear discards all owners. */
+
+  def retained_tail = remaining.or_reduce()
+  def next_head = priority_mux(~default: first):
+    retained_tail: entries[1]
+    bypass: incoming[1].bits
+
+  def next_tail = mux(retained_tail, first, incoming[1].bits)
   when (clear.valid):
     count <== Bits(2)(0)
   otherwise:
     count <== next_count[0..2]
     when (next_count > Bits(3)(0)):
-      entries[0] <== mux(remaining.or_reduce(), entries[1], mux(bypass, incoming[1].bits, first))
+      entries[0] <== next_head
 
     when (next_count === Bits(3)(2)):
-      entries[1] <== mux(remaining.or_reduce(), first, incoming[1].bits)
+      entries[1] <== next_tail
 
 export:
   RV2WideBranchTrainingBuffer

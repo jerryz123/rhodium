@@ -279,6 +279,9 @@ alignment helpers, without importing the TLB/walker.
 The top selects Bare or Sv39 via `riscv/isa/hart.rhm`. XLEN-specialized pipeline
 and service payloads consume `riscv/isa/xlen.rhm`; operand and combined decode
 also import the canonical `riscv/isa/rv32i.rhm` catalog.
+`cores/rv2wide/pairing.rhdl` consumes that catalog through
+`riscv/rtl/instruction-pattern.rhdl` and `std/decode.rhdl` to recognize
+AUIPC+ADDI without duplicating instruction encodings.
 The Sv39 adapter owns EX/MEM translation alignment and
 WB/split/PTE arbitration; the cache package has no reverse dependency. Its MMU
 and core also consume `cores/misaligned-access.rhdl`: the neutral split

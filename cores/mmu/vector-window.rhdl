@@ -20,16 +20,15 @@ hardware_enum VectorWindowState:
 
 /* Certifies a whole physical page only in a cacheable, idempotent, nondevice address set. */
 fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits(64), store :: Bool) :~ Bool:
-  def mutable permitted = Bool(#false)
-  for (region in physical_map.regions):
+  def permitted_regions = for List (region in physical_map.regions):
     def attributes = region.attributes
     // Endpoint membership alone cannot certify a sparse physical address set.
     if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
-    | permitted := permitted ||| (region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable)))
-    | #void
+    | region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable))
+    | Bool(#false)
 
   def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
-  permitted & fits
+  vec(permitted_regions).or_reduce() & fits
 
 /* Retains up to two endpoint-page mappings for one nonspeculative vector macro.
    A failed check selects exact element execution; it does not raise an architectural fault. */

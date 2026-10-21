@@ -1313,8 +1313,12 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def memory_data_end = destination.zext(7) + memory_data_register_count
   def memory_index_end = source2.zext(7) + memory_index_group_mask.zext(7) + Bits(7)(1)
   def memory_groups_disjoint = (destination.zext(7) >= memory_index_end) ||| (source2.zext(7) >= memory_data_end)
-  def indexed_load_overlap_legal = memory_groups_disjoint ||| (!segmented_memory & ((control.memory_index_eew === config.sew) ||| ((config.sew < control.memory_index_eew) & (destination === source2)) ||| ((config.sew > control.memory_index_eew) & (memory_index_emul >= SInt(5)(0)) & (memory_data_end === memory_index_end))))
-  def indexed_store_overlap_legal = (control.memory_index_eew === config.sew) ||| memory_groups_disjoint
+  def equal_index_width = control.memory_index_eew === config.sew
+  def wide_index_shared_start = (config.sew < control.memory_index_eew) & (destination === source2)
+  def narrow_index_shared_end = (config.sew > control.memory_index_eew) & (memory_index_emul >= SInt(5)(0)) & (memory_data_end === memory_index_end)
+  def indexed_load_overlap_allowed = !segmented_memory & (equal_index_width ||| wide_index_shared_start ||| narrow_index_shared_end)
+  def indexed_load_overlap_legal = memory_groups_disjoint ||| indexed_load_overlap_allowed
+  def indexed_store_overlap_legal = equal_index_width ||| memory_groups_disjoint
   def indexed_overlap_legal = mux(control.store, indexed_store_overlap_legal, indexed_load_overlap_legal)
   def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.or_reduce()))
   def segment_memory_legal = !segmented_memory ||| ((memory_register_count <= Bits(7)(8)) & (memory_data_end <= Bits(7)(32)))
@@ -1333,7 +1337,10 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
 
   def fp_width_change = fp_widening ||| fp_narrowing
   def fp_reduction = control.floating_point & control.reduction
-  def fp_sources_legal = mux(fp_reduction, reduction_sources_legal, mux(fp_narrowing ||| (fp_widening & control.wide_vs2), wide_source2_aligned, source2_aligned) & (!control.fp_uses_vs1 ||| source1_aligned))
+  def fp_wide_source2 = fp_narrowing ||| (fp_widening & control.wide_vs2)
+  def fp_source2_aligned = mux(fp_wide_source2, wide_source2_aligned, source2_aligned)
+  def fp_element_sources_legal = fp_source2_aligned & (!control.fp_uses_vs1 ||| source1_aligned)
+  def fp_sources_legal = mux(fp_reduction, reduction_sources_legal, fp_element_sources_legal)
   def fp_destination_legal = fp_reduction ||| mux(control.mask_destination, mask_overlap_legal(source2) & (!control.fp_uses_vs1 ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   def fp_widening_overlap_legal = mux(control.wide_vs2, Bool(#true), widening_overlap_legal(source2)) & (!control.fp_uses_vs1 ||| widening_overlap_legal(source1))
   def fp_zvfhmin = Bool(vector_extensions_support_zvfhmin(extensions))

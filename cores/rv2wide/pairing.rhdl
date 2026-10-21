@@ -8,6 +8,9 @@ import:
   "decode/system-ctrl.rhdl" open
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/rv32i.rhm") as rv32
+  lib("riscv/rtl/instruction-pattern.rhdl").instruction_pattern
+  lib("rhodium/std/decode.rhdl") open
 
 /* Names operand rewrites and physical consumer muxes, not a general EX-to-EX bypass. */
 hardware_enum RV2WidePairRoute:
@@ -38,12 +41,22 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
   def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen).or_reduce()
   def store_data = integer_memory & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
-  def auipc_addi = (instructions[0][0..7] === Bits(7)(0x17)) & (instructions[1][0..7] === Bits(7)(0x13)) & (instructions[1][12..15] === Bits(3)(0))
+  def is_auipc = DecodeGen([DecodeCase(instruction_pattern(rv32.AUIPC), Bool(#true))], ~default: Bool(#false))
+  def is_addi = DecodeGen([DecodeCase(instruction_pattern(rv32.ADDI), Bool(#true))], ~default: Bool(#false))
+  def auipc_addi = is_auipc(instructions[0]) & is_addi(instructions[1])
+
+  /* Only rs1 has the AUIPC+ADDI rewrite. Otherwise memory consumers precede
+     conditional-branch consumers; an ineligible producer keeps the RF route. */
+
   def routes = vec(
     for List (source in 0..2):
       def consumer = if source == 0 | load_address | store_data
-      def route = mux(consumer, (if source == 0 | RV2WidePairRoute.LoadAddress | RV2WidePairRoute.StoreData), mux(branch_operand, RV2WidePairRoute.BranchOperand, RV2WidePairRoute.Register))
-      def selected = if source == 0 | mux(auipc_addi, RV2WidePairRoute.AuipcAddi, route) | route
+      def memory_route = if source == 0 | RV2WidePairRoute.LoadAddress | RV2WidePairRoute.StoreData
+      def selected = priority_mux(~default: RV2WidePairRoute.Register):
+        Bool(source == 0) & auipc_addi: RV2WidePairRoute.AuipcAddi
+        consumer: memory_route
+        branch_operand: RV2WidePairRoute.BranchOperand
+
       mux(producer & dependency[source], selected, RV2WidePairRoute.Register)
   )
 

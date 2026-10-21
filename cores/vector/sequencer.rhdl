@@ -291,9 +291,15 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
     destination: mux(segmented_memory, memory_register, vd)
 
+  def ordinary_read_enables = vec([!empty, !empty & second_source & !gather_vector, !empty & destination_source]).as_bits()
+  def ordinary_read_addresses = vec([mux(gather_vector, gather_address, first_address), second_address, destination_address])
+  def offered_read_enables = priority_mux(~default: ordinary_read_enables):
+    suffix.valid: Bits(3)(0)
+    packed_mode: preparation.read_enables
+
   sequence_offer.left.bits.context <== mux(suffix.valid, suffix.bits, beat_context)
-  sequence_offer.left.bits.enables <== mux(suffix.valid, Bits(3)(0), mux(packed_mode, preparation.read_enables, vec([!empty, !empty & second_source & !gather_vector, !empty & destination_source]).as_bits()))
-  sequence_offer.left.bits.addresses <== mux(packed_mode, preparation.read_addresses, vec([mux(gather_vector, gather_address, first_address), second_address, destination_address]))
+  sequence_offer.left.bits.enables <== offered_read_enables
+  sequence_offer.left.bits.addresses <== mux(packed_mode, preparation.read_addresses, ordinary_read_addresses)
   sequence_offer.left.bits.mask_enable <== !suffix.valid & !packed_mode & !empty
   sequence_offer.left.bits.mask_address <== (cursor >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
   def offered_sequence = sequence_offer.right |> trace_event("vector/s1.sequence", ~stalls: #true, ~fields: read):
@@ -374,7 +380,11 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     def fields = request.bits.descriptor.control.memory_nf.zext(xlen.width) + Bits(xlen.width)(1)
     def request_whole_register_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
     def request_mask_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.Mask)
-    def unit_stride_step = mux(request_whole_register_memory, field_bytes, mux(request.bits.descriptor.control.memory_nf.or_reduce(), fields << request.bits.descriptor.control.memory_data_eew, field_bytes))
+    def segmented_step = fields << request.bits.descriptor.control.memory_data_eew
+    def unit_stride_step = priority_mux(~default: field_bytes):
+      request_whole_register_memory: field_bytes
+      request.bits.descriptor.control.memory_nf.or_reduce(): segmented_step
+
     def element_step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, unit_stride_step)
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def incoming_control = request.bits.descriptor.control
@@ -403,7 +413,10 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     def request_whole_register_elements = Bits(index_width(vlen + 1))(vlen / 8) >> request.bits.descriptor.control.memory_data_eew
     def request_whole_register_limit = request_whole_register_elements << request_whole_register_group_shift
     def request_mask_memory_limit = (request.bits.descriptor.state.vl[0..index_width(vlen + 1)] + Bits(index_width(vlen + 1))(7)) >> 3
-    def request_limit = mux(request_whole_register_memory, request_whole_register_limit, mux(request_mask_memory, request_mask_memory_limit, request.bits.descriptor.state.vl[0..index_width(vlen + 1)]))
+    def request_limit = priority_mux(~default: request.bits.descriptor.state.vl[0..index_width(vlen + 1)]):
+      request_whole_register_memory: request_whole_register_limit
+      request_mask_memory: request_mask_memory_limit
+
     memory_setup_remaining <== mux(!packed_memory & request.bits.descriptor.control.memory & !indexed & (start < request_limit), start, Bits(index_width(vlen + 1))(0))
     all_issued <== Bool(#false)
   elsewhen retry:

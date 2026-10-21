@@ -160,7 +160,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def explicit_guest_privilege = mux(csr_flag(guest_state.hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User)
   def selected_data_privilege = mux(explicit_guest, explicit_guest_privilege, data_privilege)
   def normal_lookup = lookup(data_virtual_address, data_access, selected_data_privilege, data_guest).updated(~execute_read: execute_read)
-  def data_lookup = mux(vector_probe, lookup(vector_window.translation.request.bits.address, mux(vector_window.translation.request.bits.store, Sv39Access.Store, Sv39Access.Load), data_privilege, normal_data_guest), normal_lookup)
+  def probe_request = vector_window.translation.request.bits
+  def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
+  def probe_lookup = lookup(probe_request.address, probe_access, data_privilege, normal_data_guest)
+  def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
 
@@ -223,9 +226,13 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   vector_window.translation.response.bits <== riscv_host_result(data_result)
   instruction.pbmt <== riscv_host_result(instruction_result).pbmt
   instruction.address <== instruction_result.physical_address.zext(64)
+  def instruction_disposition = priority_mux(~default: RV2WideDisposition.Continue):
+    !instruction_known: RV2WideDisposition.Replay
+    instruction_result.fault =/= RiscvTranslationFault.None: RV2WideDisposition.Fault
+
   instruction.resolution <== RV2WideResolution(XLen.X64):
     guest: instruction_result.fault_details.updated(~guest_virtual_address: guest_state.virtualized)
-    disposition: mux(!instruction_known, RV2WideDisposition.Replay, mux(instruction_result.fault === RiscvTranslationFault.None, RV2WideDisposition.Continue, RV2WideDisposition.Fault))
+    disposition: instruction_disposition
     cause: riscv_translation_fault_cause(instruction_result)
     value: instruction.request.bits
 

@@ -14,6 +14,11 @@ sync_circuit TournamentBht(row_bits :: PosInt = 10):
   interface update(Valid(TournamentUpdate(row_bits)), ~role: consumer)
   output(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
   output(prefix_gshare_taken, prefix_use_gshare): Bool
+
+
+  /* Independent direction tables.
+     Both train on every update; the caller supplies each saved lookup index. */
+
   inst base(Bht(row_bits))
   inst gshare(Bht(row_bits))
   base.row <== base_row
@@ -38,28 +43,43 @@ sync_circuit TournamentBht(row_bits :: PosInt = 10):
 
   prefix_gshare_taken <== gshare.prefix_counter[1].into(Bool)
 
+
+  /* Chooser lookup and lazy row initialization.
+     Invalid rows prefer bimodal, including combinational reads during clear. */
+
   def rows = 1 << row_bits
   def cold = vec(for List (_ in 0..4): Bits(2)(1))
   mem choices(rows, Vec(4, Bits(2)))
-  reg valid_rows(~init: Bits(rows)(0))
-  def counters = mux((valid_rows >> choice_row)[0].into(Bool) & !clear.valid, choices[choice_row], cold)
+  reg valid_rows(~init: literal(Vec(rows, Bool), 0))
+  def counters = mux(valid_rows[choice_row] & !clear.valid, choices[choice_row], cold)
   for (bank in 0..4):
     use_gshare[bank] <== counters[bank][1].into(Bool)
 
-  prefix_use_gshare <== mux((valid_rows >> prefix_choice_row)[0].into(Bool) & !clear.valid, choices[prefix_choice_row][3], Bits(2)(1))[1].into(Bool)
+  def prefix_counter = mux(valid_rows[prefix_choice_row] & !clear.valid, choices[prefix_choice_row][3], Bits(2)(1))
+  prefix_use_gshare <== prefix_counter[1].into(Bool)
+
+
+  /* Disagreement training.
+     Saturate the current chooser toward the correct component; clear wins. */
+
   def write_row = update.bits.base_index[2..row_bits + 2]
   def bank = update.bits.base_index[0..2]
-  def previous = mux((valid_rows >> write_row)[0].into(Bool), choices[write_row], cold)
+  def previous = mux(valid_rows[write_row], choices[write_row], cold)
   def counter = previous[bank]
   def incremented = mux(counter === Bits(2)(3), counter, counter + Bits(2)(1))
   def decremented = mux(counter === Bits(2)(0), counter, counter - Bits(2)(1))
   def history_wins = update.bits.gshare_taken === update.bits.taken
-  def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), mux(history_wins, incremented, decremented), previous[lane]))
-  when (clear.valid):
-    valid_rows <== Bits(rows)(0)
-  elsewhen (update.valid & (update.bits.base_taken =/= update.bits.gshare_taken)):
+  def trained_counter = mux(history_wins, incremented, decremented)
+  def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), trained_counter, previous[lane]))
+  def train_choice = update.valid & (update.bits.base_taken =/= update.bits.gshare_taken)
+  when (!clear.valid & train_choice):
     choices.write(write_row, written)
-    valid_rows <== valid_rows ||| (Bits(rows)(1) << write_row)
+
+  for (index in 0..rows):
+    when (clear.valid):
+      valid_rows[index] <== Bool(#false)
+    elsewhen (train_choice & (write_row === Bits(row_bits)(index))):
+      valid_rows[index] <== Bool(#true)
 
 /* Retains the tournament port contract without allocating prediction or chooser state. */
 sync_circuit DisabledTournamentBht(row_bits :: PosInt = 10):

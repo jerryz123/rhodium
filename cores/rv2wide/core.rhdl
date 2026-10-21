@@ -418,7 +418,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   /* Pre-WB producers bridge the architectural scoreboard; both FPR write ports forward. */
   fun rr_fp_busy(address :: Bits(5)) :: Bool:
-    def registered_pending = (fp.busy & (Bits(32)(1) << address)).or_reduce()
+    def registered_pending = scoreboard_busy(32, fp.busy, address)
     def producer_matches = for List (producer in rr_producers):
       def token :: RV2WideResult(xlen) = producer.bits
       producer.valid & ((token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (token.vector.control.floating_point & token.vector.control.floating_scalar_destination)) & (token.rd === address)

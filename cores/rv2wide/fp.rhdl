@@ -37,7 +37,7 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   interface load_return(Decoupled(RV2WideFpLoad(xlen)), ~role: consumer)
   interface load_write(Valid(RV2WideFpLoad(xlen)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
-  output busy: Bits(32)
+  output busy: Mask(32)
   output drained: Bool
   interface vector_request(Decoupled(FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: consumer)
   interface vector_result(Decoupled(FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: producer)
@@ -177,15 +177,19 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   /* Destination reservations and completion forwarding.
      Same-cycle clears win reservation sets and immediately release the busy view. */
 
-  reg reservations(~init: Bits(32)(0))
+  reg reservations(~init: Mask(32)(0))
+  /* Decodes any architectural FPR, including f0, into its reservation lane. */
+  fun register_bit(address :: Bits(5)) :~ Mask(32):
+    one_hot(address).into(Mask(32))
+
   def admitted = mux(authorize.valid, authorize.bits.tag, variable_issue.bits.tag)
   def arithmetic_set = (authorize.valid ||| variable_issue.fire()) & (admitted.destination === FloatDestination.FloatingPoint)
-  def arithmetic_reservation = mux(arithmetic_set, Bits(32)(1) << admitted.rd, Bits(32)(0))
-  def load_reservation = mux(load_reserve.valid, Bits(32)(1) << load_reserve.bits.rd, Bits(32)(0))
-  def arithmetic_release = mux(arithmetic_write.valid, Bits(32)(1) << arithmetic_write.bits.tag.rd, Bits(32)(0))
-  def load_release = mux(delayed_load.valid, Bits(32)(1) << delayed_load.bits.owner.rd, Bits(32)(0))
-  def vector_reservation = mux(vector_reserve.valid, Bits(32)(1) << vector_reserve.bits, Bits(32)(0))
-  def vector_release = mux(vector_written.valid, Bits(32)(1) << vector_written.bits.address, Bits(32)(0))
+  def arithmetic_reservation = mux(arithmetic_set, register_bit(admitted.rd), Mask(32)(0))
+  def load_reservation = mux(load_reserve.valid, register_bit(load_reserve.bits.rd), Mask(32)(0))
+  def arithmetic_release = mux(arithmetic_write.valid, register_bit(arithmetic_write.bits.tag.rd), Mask(32)(0))
+  def load_release = mux(delayed_load.valid, register_bit(delayed_load.bits.owner.rd), Mask(32)(0))
+  def vector_reservation = mux(vector_reserve.valid, register_bit(vector_reserve.bits), Mask(32)(0))
+  def vector_release = mux(vector_written.valid, register_bit(vector_written.bits.address), Mask(32)(0))
   def set_mask = arithmetic_reservation ||| load_reservation ||| vector_reservation
   def clear_mask = arithmetic_release ||| load_release ||| vector_release
   reservations <== (reservations ||| set_mask) & !clear_mask
@@ -223,7 +227,7 @@ sync_circuit RV2WideFpDisabled(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
   interface load_return(Decoupled(RV2WideFpLoad(xlen)), ~role: consumer)
   interface load_write(Valid(RV2WideFpLoad(xlen)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
-  output busy: Bits(32)
+  output busy: Mask(32)
   output drained: Bool
   interface vector_request(Decoupled(FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: consumer)
   interface vector_result(Decoupled(FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))), ~role: producer)
@@ -241,7 +245,7 @@ sync_circuit RV2WideFpDisabled(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
   load_write.bits <== dont_care(RV2WideFpLoad(xlen))
   state_update.valid <== Bool(#false)
   state_update.bits <== Bits(5)(0)
-  busy <== Bits(32)(0)
+  busy <== Mask(32)(0)
   drained <== Bool(#true)
   vector_request.ready <== Bool(#false)
   vector_result.valid <== Bool(#false)

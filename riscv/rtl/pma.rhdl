@@ -106,40 +106,27 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
       | Bool(#true)
       | !raw_last_address[address_width..raw_last_width].or_reduce()
 
-    def mutable mapped = Bool(#false)
-    def mutable readable = Bool(#false)
-    def mutable writable = Bool(#false)
-    def mutable executable = Bool(#false)
-    def mutable cacheable = Bool(#false)
-    def mutable atomic = Bool(#false)
-    def mutable device = Bool(#false)
-    def mutable read_idempotent = Bool(#false)
-    def mutable cache_block_zero = Bool(#false)
-    def mutable instruction_cacheable = Bool(#false)
-    for (region in regions):
-      def matches = region.address_set.matches(address) & region.address_set.matches(last_address)
-      mapped := mapped ||| matches
-      readable := mux(matches, Bool(region.attributes.readable), readable)
-      writable := mux(matches, Bool(region.attributes.writable), writable)
-      executable := mux(matches, Bool(region.attributes.executable), executable)
-      cacheable := mux(matches, Bool(region.attributes.cacheable), cacheable)
-      atomic := mux(matches, Bool(region.attributes.atomic), atomic)
-      device := mux(matches, Bool(region.attributes.device), device)
-      read_idempotent := mux(matches, Bool(region.attributes.read_idempotent), read_idempotent)
-      cache_block_zero := mux(matches, Bool(region.attributes.cache_block_zero), cache_block_zero)
-      instruction_cacheable := mux(matches, Bool(region.attributes.instruction_cacheable), instruction_cacheable)
+    /* Region classification is parallel: construction rejects overlapping maps.
+       Share endpoint matches and reject truncated addresses for every attribute. */
+
+    def region_matches = vec(for List (region in regions): region.address_set.matches(address) & region.address_set.matches(last_address))
+    def range_fits = fits & last_fits
+
+    /* Reduces the matching region's selected host attribute, or false when unmapped. */
+    fun permitted(attribute :: Function) :~ Bool:
+      range_fits & vec(for List (index in 0..regions.length()): region_matches[index] & Bool(attribute(regions[index].attributes))).or_reduce()
 
     RiscvPhysicalMemoryLookup():
-      mapped: fits & last_fits & mapped
-      readable: fits & last_fits & mapped & readable
-      writable: fits & last_fits & mapped & writable
-      executable: fits & last_fits & mapped & executable
-      cacheable: fits & last_fits & mapped & cacheable
-      atomic: fits & last_fits & mapped & atomic
-      device: fits & last_fits & mapped & device
-      read_idempotent: fits & last_fits & mapped & read_idempotent
-      cache_block_zero: fits & last_fits & mapped & cache_block_zero
-      instruction_cacheable: fits & last_fits & mapped & instruction_cacheable
+      mapped: range_fits & region_matches.or_reduce()
+      readable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.readable)
+      writable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.writable)
+      executable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.executable)
+      cacheable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.cacheable)
+      atomic: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.atomic)
+      device: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.device)
+      read_idempotent: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.read_idempotent)
+      cache_block_zero: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.cache_block_zero)
+      instruction_cacheable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.instruction_cacheable)
 
 export:
   RiscvPhysicalMemoryAttributes

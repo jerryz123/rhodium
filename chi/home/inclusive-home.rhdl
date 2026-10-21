@@ -988,14 +988,25 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def lookup_installs_miss = (lookup_request.opcode =/= CHIReqOpcode.ReadOnce) ||| lookup_request.mem_attr.allocate
   def lookup_snoop_victim = !lookup_selection.valid & !lookup_maintenance & lookup_installs_miss
   def lookup_enters_snoop_path = lookup_selection.valid ||| lookup_maintenance ||| (lookup_victim_valid & lookup_installs_miss)
+  def lookup_read_needs_writer = lookup_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadOnce)
+
+  /* Maintenance only snoops a hit, optionally including the requester.
+     Demand hits select peers with relevant permissions; allocating misses
+     evict every resident of the selected victim, including the requester. */
+
   def lookup_snoop_targets = vec(
     for List (index in 0..resident_count):
       block:
         def endpoint = residents[index]
         def resident = lookup_entry.valid & lookup_entry.residents[index]
-        def read_needs_writer = lookup_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadOnce)
-        def read_target = chi_request_snoops_caches(lookup_request.opcode) & (lookup_request.src_id =/= Bits(p.node_id_width)(endpoint.node_id)) & (!read_needs_writer ||| lookup_entry.may_write[index])
-        resident & mux(lookup_maintenance, lookup_selection.valid & ((lookup_request.src_id =/= Bits(p.node_id_width)(endpoint.node_id)) ||| lookup_request.excl_snoop_me_cah), mux(lookup_selection.valid, read_target, lookup_installs_miss))
+        def peer = lookup_request.src_id =/= Bits(p.node_id_width)(endpoint.node_id)
+        def maintenance_target = lookup_selection.valid & (peer ||| lookup_request.excl_snoop_me_cah)
+        def demand_hit_target = chi_request_snoops_caches(lookup_request.opcode) & peer & (!lookup_read_needs_writer ||| lookup_entry.may_write[index])
+        def target = priority_mux(~default: lookup_installs_miss):
+          lookup_maintenance: maintenance_target
+          lookup_selection.valid: demand_hit_target
+
+        resident & target
   )
 
   def lookup_has_snoop_targets = lookup_snoop_targets.or_reduce()

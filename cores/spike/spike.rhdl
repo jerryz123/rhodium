@@ -15,6 +15,20 @@ import:
   lib("chi/protocol/channels.rhdl") open
   lib("chi/protocol/flits.rhdl").CHIDatFlit
 
+/* Keeps a reusable grant's validity and inclusive bounds in one selection payload. */
+bundle SpikeAddressGrant():
+  valid: Bool
+  base: Bits(64)
+  limit: Bits(64)
+
+/* Finds the trailing variable-bit mask of one contiguous fragment at elaboration time. */
+fun contiguous_fragment_mask(address_mask :: Nat) :: Nat:
+  def mutable run_mask = 0
+  while ((address_mask bits.and (run_mask + 1)) != 0):
+    run_mask := run_mask * 2 + 1
+
+  run_mask
+
 /*
  * Classify the existing request and certify its containing contiguous region fragment for native
  * reuse. Noncontiguous AddressSets grant only the run selected by their trailing variable bits;
@@ -23,25 +37,28 @@ import:
 fun spike_address_response(physical_map :: RiscvPhysicalMemoryMap, request :: SpikeAddressRequest()) :~ SpikeAddressResponse():
   def last_address = request.address +& ((Bits(64)(1) << request.size) - Bits(64)(1))
   def classified = physical_map.lookup(request.address, last_address)
-  def mutable grant_valid = Bool(#false)
-  def mutable grant_base = Bits(64)(0)
-  def mutable grant_limit = Bits(64)(0)
-  for (region in physical_map.regions):
-    def mutable run_mask = 0
-    while ((region.address_set.mask bits.and (run_mask + 1)) != 0):
-      run_mask := run_mask * 2 + 1
+  def grants :: Vec(physical_map.regions.length(), SpikeAddressGrant()) = vec(
+    for List (region in physical_map.regions):
+      def run_mask = contiguous_fragment_mask(region.address_set.mask)
+      def base = request.address & !Bits(64)(run_mask)
+      def limit = base ||| Bits(64)(run_mask)
+      SpikeAddressGrant():
+        valid: classified.mapped & region.address_set.matches(request.address) & (last_address <= limit.zext(65))
+        base: base
+        limit: limit
+  )
 
-    def base = request.address & !Bits(64)(run_mask)
-    def limit = base ||| Bits(64)(run_mask)
-    def matches = classified.mapped & region.address_set.matches(request.address) & (last_address <= limit.zext(65))
-    grant_valid := grant_valid ||| matches
-    grant_base := mux(matches, base, grant_base)
-    grant_limit := mux(matches, limit, grant_limit)
+  // The validated physical map is nonoverlapping, so at most one grant matches.
+  def selected = priority_encoder_oh(vec(for List (index in 0..physical_map.regions.length()): grants[index].valid))
+  def grant :: SpikeAddressGrant() = selected.mux(for List (index in 0..physical_map.regions.length()): grants[index], ~default: literal(SpikeAddressGrant(), 0))
+  def permitted = priority_mux(~default: classified.readable):
+    request.execute: classified.executable
+    request.write: classified.writable
 
   SpikeAddressResponse():
-    grant_valid: grant_valid
-    grant_base: grant_base
-    grant_limit: grant_limit
+    grant_valid: grant.valid
+    grant_base: grant.base
+    grant_limit: grant.limit
     readable: classified.readable
     writable: classified.writable
     executable: classified.executable
@@ -50,7 +67,7 @@ fun spike_address_response(physical_map :: RiscvPhysicalMemoryMap, request :: Sp
     instruction_cacheable: classified.instruction_cacheable
     device: classified.device
     atomic: classified.atomic
-    access_fault: !classified.mapped ||| mux(request.execute, !classified.executable, mux(request.write, !classified.writable, !classified.readable))
+    access_fault: !classified.mapped ||| !permitted
 
 /*
  * Compose one DPI hart and three CHI paths; classify requested physical ranges in RTL and pass
