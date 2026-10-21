@@ -32,6 +32,7 @@ contract without allocating predictor state.
 | `protocol.rhdl` | Target/direction predictions, saved-index training, and RAS event payloads |
 | `btb.rhdl` | Associative low-address entries, shared upper tags, local counters, discovery, and replacement |
 | `bht.rhdl` | Banked asynchronous direction counters, saved-index saturation, and lazy row initialization |
+| `tournament.rhdl` | Independent bimodal/gshare lookup ports and saved-disagreement chooser training |
 | `ras.rhdl` | Canonical/compressed RISC-V hints and speculative/resolved bounded stacks |
 | `tests/ras-fixture.rhdl` | Direct stack and classification test boundary |
 | `tests/rsim/` | Shared BTB/BHT/RAS emitters and cycle-visible C++ oracles |
@@ -54,12 +55,16 @@ Do not add compatibility forwarding modules under the old named-core paths.
 Run the direct behavioral fixtures through the managed Racket/rsim runner:
 
 ```sh
-FIXTURES='bpred-btb bpred-btb-wide bpred-bht bpred-ras' python3 tools/testing/rsim/run.py
+FIXTURES='bpred-btb bpred-btb-wide bpred-btb-external bpred-bht bpred-tournament bpred-ras' python3 tools/testing/rsim/run.py
 ```
 
 They cover counter saturation, address ordering and halfword cursors, entry and
 shared-page replacement, training/discovery/invalidation priority, call/return
 classification, stack overflow/underflow, and speculative reconciliation.
+The tournament oracle independently models all three tables, including chooser
+saturation, agreement, delayed predictions, aliased consecutive updates, and
+clear priority. External-direction BTB tests cover every bank, earliest-target
+selection, unconditional entries, and disagreement with local counters.
 
 For changes to shared payloads or extraction boundaries, also run the RV5Stage
 `rv5stage-fetch-prediction`, `rv5stage-return-prediction`, and

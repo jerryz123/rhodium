@@ -17,8 +17,8 @@ bundle RV2WideFetchBlock(xlen :: XLen):
   data: Bits(64)
   fault: RV2WideFetchFault(xlen)
   prediction: BranchPrediction(xlen)
-  directions: Vec(4, BhtPrediction(10))
-  prefix_direction: BhtPrediction(10)
+  directions: Vec(4, TournamentPrediction(10))
+  prefix_direction: TournamentPrediction(10)
 
 /* Decodes a two-block parcel window into an ordered one/two-instruction packet.
    Three retained blocks plus live bypass cover fixed-cycle fetch reservations.
@@ -102,7 +102,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def control_flow = !fault.valid & decoded.control_flow
     def action = mux(control_flow, decoded.action, RasAction.None)
     def predicted :: BranchPrediction(xlen) = mux(crosses & !owner.prediction.valid, second_block.prediction, owner.prediction)
-    def direction :: BhtPrediction(10) = mux(crosses, second_block.prefix_direction, owner.directions[pc[1..3]])
+    def direction :: TournamentPrediction(10) = mux(crosses, second_block.prefix_direction, owner.directions[pc[1..3]])
     def bht_branch = direction.valid & control_flow & decoded.conditional
     def known = mux(bht_branch, direction.taken, predicted.valid & (predicted.pc === pc) & (predicted.compressed === compressed) & control_flow)
     def immediate_control_flow = legal & decoded.immediate

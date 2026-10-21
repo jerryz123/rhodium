@@ -29,7 +29,10 @@ bool same_packet(const Packet &a, const Packet &b) {
         x.pdirection.pvalid != y.pdirection.pvalid ||
         x.pdirection.pindex != y.pdirection.pindex ||
         x.pdirection.phistory != y.pdirection.phistory ||
-        x.pdirection.ptaken != y.pdirection.ptaken)
+        x.pdirection.ptaken != y.pdirection.ptaken ||
+        x.pdirection.pbase_uindex != y.pdirection.pbase_uindex ||
+        x.pdirection.pbase_utaken != y.pdirection.pbase_utaken ||
+        x.pdirection.pgshare_utaken != y.pdirection.pgshare_utaken)
       return false;
   }
   return true;
@@ -390,11 +393,11 @@ int main() {
             write_bits(bytes, (second_parcel + 1) * 16, 16, UINT64_C(1));
           for (int parcel = 0; parcel < 4; parcel++) {
             first_directions[parcel] = {UINT64_C(1), std::uint16_t(parcel),
-                                        UINT64_C(17), UINT64_C(0)};
+                                        UINT64_C(17), UINT64_C(0), std::uint16_t(parcel + 8), 1, 0};
             second_directions[parcel] = {UINT64_C(1), std::uint16_t(4 + parcel),
-                                         UINT64_C(29), UINT64_C(0)};
+                                         UINT64_C(29), UINT64_C(0), std::uint16_t(parcel + 12), 0, 1};
           }
-          prefix = {UINT64_C(1), UINT64_C(3), UINT64_C(17), UINT64_C(0)};
+          prefix = {UINT64_C(1), UINT64_C(3), UINT64_C(17), UINT64_C(0), 11, 1, 0};
           expected_pc.push_back(pc);
           expected_pc.push_back(second_pc);
           offer(pc, bits(bytes, 63, 0), 0, 0, 0, 0, first_directions);
@@ -413,6 +416,9 @@ int main() {
                   (parcel < 4 ? UINT64_C(17) : UINT64_C(29)));
             CHECK(instructions_out.pbits.pentries[lane].pdirection.pindex ==
                   std::uint16_t(parcel));
+            CHECK(instructions_out.pbits.pentries[lane].pdirection.pbase_uindex == std::uint16_t(parcel + 8) &&
+                  instructions_out.pbits.pentries[lane].pdirection.pbase_utaken == (parcel < 4) &&
+                  instructions_out.pbits.pentries[lane].pdirection.pgshare_utaken == (parcel >= 4));
             CHECK(instructions_out.pbits.pentries[lane].psequential_upc ==
                   instructions_out.pbits.pentries[lane].ppc +
                       ((size)&low_mask(64)));
@@ -520,7 +526,7 @@ int main() {
         UINT64_C(0x12108),
         (field(UINT64_C(0x100010001), 48, 16) | field(UINT64_C(0x2000), 16, 0)),
         0, 0, 0, 0, {},
-        {UINT64_C(1), UINT64_C(0x123), UINT64_C(0x29), UINT64_C(0)});
+        {UINT64_C(1), UINT64_C(0x123), UINT64_C(0x29), UINT64_C(0), 0x456, 1, 0});
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2 &&
           !instructions_out.pbits.pentries[0].pprediction.pvalid &&
           instructions_out.pbits.pentries[0].pdirection.pvalid &&

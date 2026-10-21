@@ -1,5 +1,5 @@
 #lang rhodium
-/* Fetches credited mixed-width blocks with provisional S1 targets and fresh-S2 gshare direction correction. */
+/* Fetches credited mixed-width blocks with S1 bimodal targets and fresh-S2 tournament correction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,7 +12,7 @@ import:
   "../chi-hart.rhdl" open
   lib("cores/bpred/btb.rhdl").Btb
   lib("cores/bpred/btb.rhdl").DisabledBtb
-  lib("cores/bpred/bht.rhdl") open
+  lib("cores/bpred/tournament.rhdl") open
   lib("cores/bpred/ras.rhdl").Ras
   lib("cores/bpred/ras.rhdl").DisabledRas
   lib("cores/bpred/protocol.rhdl") open
@@ -30,6 +30,7 @@ bundle RV2WideFetchCursor(xlen :: XLen):
   continuation: Bool
   row: Bits(10)
   hashed: Bool
+  base_taken: Vec(4, Bool)
 
 /* Retains predictor ownership and permission outcomes through the cache-result stage. */
 bundle RV2WideFetchAttempt(xlen :: XLen):
@@ -54,7 +55,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   interface branch_update(Valid(BranchUpdate(xlen)), ~role: consumer)
   interface predictor_restore(Pulse(), ~role: consumer)
   interface predictor_clear(Pulse(), ~role: consumer)
-  interface direction_update(Valid(BhtUpdate(10)), ~role: consumer)
+  interface direction_update(Valid(TournamentUpdate(10)), ~role: consumer)
   interface ras_resolution(Valid(RasResolution(xlen)), ~role: consumer)
   interface history_commit(Valid(RV2WideHistoryCommit()), ~role: consumer)
   interface history_restore(Valid(Bits(10)), ~role: consumer)
@@ -65,9 +66,9 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
 
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(RV2WideFetchCursor(xlen), 0))
-  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8))
+  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen, ~fetch_bytes: 8, ~external_direction: profile.bht) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht))
   inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries))
-  inst bht(if profile.bht | Bht() | DisabledBht())
+  inst bht(if profile.bht | TournamentBht() | DisabledTournamentBht())
   inst direction(if profile.bht | RV2WideDirection(profile) | DisabledRV2WideDirection(profile))
   reg speculative_history(~init: Bits(10)(0))
   reg committed_history(~init: Bits(10)(0))
@@ -84,6 +85,9 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   def repair = assembler.repair.valid ||| direction_repair
   def restore = command ||| predictor_restore.valid
   btb.cursor <== s1.egress.bits.pc
+  if profile.bht
+  | btb.conditional_taken <== mux(s1.egress.bits.hashed, s1.egress.bits.base_taken, bht.base_taken)
+  | #void
   btb.invalidate_all.valid <== start.valid ||| invalidate.valid ||| predictor_clear.valid
   ras.clear.valid <== btb.invalidate_all.valid
   bht.clear.valid <== btb.invalidate_all.valid
@@ -122,10 +126,16 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   direction.prediction <== s2.egress.bits.cursor.prediction
   direction.row <== s2.egress.bits.cursor.row
   direction.history <== speculative_history
-  direction.counters <== bht.counters
-  direction.prefix_counter <== bht.prefix_counter
-  bht.row <== direction.row
-  bht.prefix_row <== direction.prefix_row
+  direction.base_taken <== s2.egress.bits.cursor.base_taken
+  direction.gshare_taken <== bht.gshare_taken
+  direction.use_gshare <== bht.use_gshare
+  direction.prefix_gshare_taken <== bht.prefix_gshare_taken
+  direction.prefix_use_gshare <== bht.prefix_use_gshare
+  bht.base_row <== s1.egress.bits.pc[3..13]
+  bht.gshare_row <== direction.row
+  bht.choice_row <== direction.pc[3..13]
+  bht.prefix_gshare_row <== direction.prefix_row
+  bht.prefix_choice_row <== direction.prefix_choice_row
   btb.invalidate.valid <== mux(assembler.repair.valid, assembler.repair.bits.invalidate, direction.valid & direction.invalidate & Bool(profile.bht))
   btb.invalidate.bits <== mux(assembler.repair.valid, assembler.repair.bits.entry, s2.egress.bits.cursor.prediction.pc)
   def s2_prediction = s2.egress.bits.cursor.prediction
@@ -169,6 +179,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     continuation: straddle
     row: Bits(10)(0)
     hashed: Bool(#false)
+    base_taken: literal(Vec(4, Bool), 0)
   def restart = start.valid ||| redirect.valid
   def replace = restart ||| (!command & (repair ||| replay))
   def selected :: RV2WideFetchCursor(xlen) = priority_mux(~default: cursor):
@@ -242,7 +253,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   ) |> memory.request
   (contexts |> map_valid(address):
     wire attempt: RV2WideFetchAttempt(xlen)
-    attempt.cursor <== address.updated(~prediction: prediction, ~row: mux(address.hashed, address.row, address.pc[3..13] ^ s1_history), ~hashed: Bool(#true))
+    attempt.cursor <== address.updated(~prediction: prediction, ~row: mux(address.hashed, address.row, address.pc[3..13] ^ s1_history), ~hashed: Bool(#true), ~base_taken: mux(address.hashed, address.base_taken, bht.base_taken))
     attempt.replay <== translation_replay & !misaligned
     attempt.fault <== RV2WideFetchFault(xlen):
       guest: translation.resolution.guest
@@ -267,6 +278,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   def outcome = s2.egress |> filter_valid(_attempt => !command & !replay) |> trace_valid_event("frontend/s2.outcome", ~fields: attempt):
     pc: attempt.cursor.pc
     fault: result_fault
+    direction_corrected: direction_repair
   (outcome |> map_valid(attempt):
     def fetch_fault = RV2WideFetchFault(xlen):
       guest: attempt.fault.guest
@@ -278,8 +290,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
       data: memory.response.bits.data
       fault: fetch_fault
       prediction: mux(Bool(profile.bht), direction.corrected, attempt.cursor.prediction)
-      directions: mux(Bool(profile.bht), direction.directions, literal(Vec(4, BhtPrediction(10)), 0))
-      prefix_direction: mux(Bool(profile.bht), direction.prefix_direction, literal(BhtPrediction(10), 0))
+      directions: mux(Bool(profile.bht), direction.directions, literal(Vec(4, TournamentPrediction(10)), 0))
+      prefix_direction: mux(Bool(profile.bht), direction.prefix_direction, literal(TournamentPrediction(10), 0))
   ) |> to_decoupled() |> assembler.blocks
   when (s2.egress.valid & !s2.egress.bits.fault.valid & !s2.egress.bits.replay & !command):
     assert(memory.response.valid, "rv2wide_fetch_has_outcome")

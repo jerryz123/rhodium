@@ -76,7 +76,7 @@ For the fetching core with both shared caches, import
 `RV2Wide(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
 `RV2WideConfig(~btb_entries: 32, ~ras_entries: 6, ~bht: #true)` selects predictor
-capacities and enables the 4,096-counter direction table. Set both capacities
+capacities and enables three 4,096-counter tournament tables. Set both capacities
 to zero and `~bht: #false` for the sequential-fetch baseline.
 Connect separate `instruction_chi` RN-I, `data_chi` RN-F, and `uncached_chi` RN-I
 endpoints with distinct `instruction_node_id`, `data_node_id`, and
@@ -102,7 +102,7 @@ Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
 bits are ignored for fetch faults.
 Each entry also supplies `prediction: BranchPrediction(xlen)` and
 `speculated_ras_action: RasAction`. A nonpredicting packet source clears
-`prediction.valid`, uses `RasAction.None`, and zeroes `direction: BhtPrediction(10)`.
+`prediction.valid`, uses `RasAction.None`, and zeroes `direction: TournamentPrediction(10)`.
 Predicting sources retain the saved direction index and pre-instruction history
 even for not-taken conditional branches. Prediction metadata belongs to
 the instruction, not its packet position, and remains attached after compaction.
@@ -388,16 +388,19 @@ misaligned faults.
 
 ## Branch prediction
 
-The frontend uses the shared 32-entry BTB, a six-entry RAS, and a banked gshare
-direction table. S1 looks up its registered PC and selects the earliest predicted-taken
+The frontend uses the shared 32-entry BTB, a six-entry RAS, and a bimodal/gshare
+tournament predictor. S1 reads the PC-indexed bimodal table alongside the BTB
+and selects the earliest predicted-taken
 instruction at or after the cursor. Its combinational result selects the next
 S0 cache request in that same cycle, without an intervening PC register. A 32-bit
 instruction at byte six requests its continuation block before the target.
 
-S1 hashes `PC[12:3] XOR history[9:0]` and registers that row with the lookup.
+S1 hashes `PC[12:3] XOR history[9:0]` and registers that row and the observed
+bimodal bits with the lookup. The bimodal and chooser rows use `PC[12:3]`.
 Fresh S2 cache data is predecoded at real instruction boundaries, independently
 of assembly backpressure. The branch PC's bits 2:1 select one of four counters
-in that row; the high counter bit predicts direction. All branches in a block
+in that row. S2 reads gshare and the PC-indexed chooser, selecting either the
+captured S1 bimodal bit or the gshare bit. All branches in a block
 share the saved S1 hash, a block-based gshare approximation. S2 appends their
 predicted outcomes in address order, stopping at the first predicted-taken
 control transfer. Only conditional branches enter global history.
@@ -408,7 +411,7 @@ instruction immediates. Corrections select a replacement S0 cursor in that
 cycle and cancel younger lookups while preserving the current block. The
 replacement issues immediately when block credits and cache admission permit;
 otherwise its cursor is retained until capacity returns. A byte-six branch waits for its upper parcel
-but keeps its original row; fetch replay preserves that prefix. Direction-only
+but keeps its original row and bimodal bit; fetch replay preserves that prefix. Direction-only
 overrides do not invalidate an otherwise valid BTB target.
 
 Assembly checks actual boundaries, instruction length, and control-flow encoding.
@@ -435,11 +438,13 @@ target-stream work, including a target instruction paired in the younger lane.
 Wrong direction, wrong target, or unmatched RAS action recovers once at MEM;
 older WB recovery has priority. Only successfully retiring branches generate
 resolved predictor updates, separately from assembly discovery. A two-entry
-ordered buffer accepts up to two BTB/BHT training records per cycle and emits
+ordered buffer accepts up to two BTB/tournament training records per cycle and emits
 one per cycle; RR projects queue occupancy through the in-flight retirement
 groups, including one table write per cycle, before issuing.
-BTB/BHT training may lag retirement, using the instruction's saved index and
-the current counter. Committed conditional history appends both retirement
+BTB/tournament training may lag retirement. Both direction components train
+using saved indices and current counters. The chooser trains only when the
+instruction's saved component predictions disagreed, toward the correct one.
+Committed conditional history appends both retirement
 outcomes in age order immediately, and resolved RAS actions also apply at WB,
 so recovery never waits for table training. Speculative redirects preserve
 queued training; predictor invalidation discards it. Each instruction carries
@@ -447,7 +452,7 @@ its pre-instruction history checkpoint. MEM restores the correcting branch's che
 actual conditional outcome; older WB rejection restores before the rejected
 instruction. Local assembly repairs retain only the accepted prefix's history.
 Standalone integrations connect the core's serialized `branch_update` and
-`direction_update: Valid(BhtUpdate(10))`, immediate
+`direction_update: Valid(TournamentUpdate(10))`, immediate
 `ras_resolution: Valid(RasResolution(XLen.X64))` and
 `history_commit: Valid(RV2WideHistoryCommit())`, and
 `history_restore: Valid(Bits(10))` to the frontend, alongside predictor restore
@@ -458,8 +463,12 @@ The speculative stack changes once per accepted complete
 call/return; two actions are emitted in separate packets. Recovery restores the
 resolved stack and reconciles through the surviving branch's WB retirement.
 Instruction invalidation and translation/context invalidation clear predictors.
-The BTB retains its local counters for provisional S1 predictions. The BHT has
-ten-bit speculative history and no ASID tags. Its asynchronous table is an
+With tournament prediction enabled, S1 uses bimodal bits instead of BTB-local
+counters; `~bht: #false` restores local-counter BTB-only behavior. Each of the
+three tables has 1,024 rows of four two-bit counters: 3 KiB of counter data plus
+384 bytes of validity. Cold directions are weakly not-taken and cold choosers
+weakly prefer bimodal. The predictor has ten-bit speculative history and no
+ASID tags. Its asynchronous tables are an
 initial implementation, not a physical SRAM guarantee.
 
 ## Execution and ordering

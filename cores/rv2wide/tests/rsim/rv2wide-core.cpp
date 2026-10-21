@@ -125,7 +125,8 @@ direction_t direction_metadata(std::uint64_t pc, std::uint32_t word,
                                std::uint8_t taken = 0) {
   return {sv_slice(word, 0, (6) - (0) + 1) == UINT64_C(0x63),
           std::uint16_t(((pc >> 1) ^ 725) & 4095),
-          std::uint16_t(((pc >> 1) ^ 341) & 1023), taken};
+          std::uint16_t(((pc >> 1) ^ 341) & 1023), taken,
+          std::uint16_t((pc >> 1) & 4095), taken, std::uint8_t(!taken)};
 }
 std::uint8_t branch_encoding(std::uint32_t word) {
   return (sv_slice(word, 0, (6) - (0) + 1) == UINT64_C(0x63) ||
@@ -4680,6 +4681,10 @@ void observe() {
                   offered_direction[branch_update_out.pbits.ppc].pindex &&
               direction_update_out.pbits.ptaken ==
                   branch_update_out.pbits.ptaken);
+        const auto &saved = offered_direction[branch_update_out.pbits.ppc];
+        CHECK(direction_update_out.pbits.pbase_uindex == saved.pbase_uindex &&
+              direction_update_out.pbits.pbase_utaken == saved.pbase_utaken &&
+              direction_update_out.pbits.pgshare_utaken == saved.pgshare_utaken);
         if (corrected_history.contains(branch_update_out.pbits.ppc)) {
           CHECK(corrected_history[branch_update_out.pbits.ppc] ==
                 (field(sv_slice(offered_direction[branch_update_out.pbits.ppc]

@@ -1,5 +1,5 @@
 #lang rhombus
-/* Elaborates the production frontend with gshare enabled for fresh-S2 and history tests. */
+/* Elaborates the production frontend with tournament prediction enabled for S1/S2 and history tests. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate

@@ -99,18 +99,18 @@ bundle RV2WideInstruction(xlen :: XLen):
   fault: RV2WideFetchFault(xlen)
   prediction: BranchPrediction(xlen)
   speculated_ras_action: RasAction
-  direction: BhtPrediction(10)
+  direction: TournamentPrediction(10)
 
 /* Offers a nonempty prefix of up to two instructions to the issue window. */
 bundle RV2WidePacket(xlen :: XLen):
   count: Bits(2)
   entries: Vec(2, RV2WideInstruction(xlen))
 
-/* Keeps a retired branch's BTB outcome and saved BHT address together during serialized training. */
+/* Keeps a retired branch's BTB outcome and saved tournament predictions together during training. */
 bundle RV2WideBranchTraining(xlen :: XLen):
   branch: BranchUpdate(xlen)
   direction_valid: Bool
-  direction_index: Bits(12)
+  direction: TournamentUpdate(10)
 
 /* Advances committed conditional history in retirement order, independently of table training. */
 bundle RV2WideHistoryCommit():
@@ -239,7 +239,7 @@ bundle RV2WideFetchRepair(xlen :: XLen):
   history: Bits(10)
 
 /* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
-fun rv2wide_history_after(prediction :: BhtPrediction(10), taken :: Bool) :~ Bits(10):
+fun rv2wide_history_after(prediction :: TournamentPrediction(10), taken :: Bool) :~ Bits(10):
   mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
 
 /* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */

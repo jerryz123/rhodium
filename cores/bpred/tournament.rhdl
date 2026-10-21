@@ -1,0 +1,75 @@
+#lang rhodium
+/* Stores an early bimodal table and late gshare/chooser tables with caller-owned lookup indices. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bht.rhdl".Bht
+  "protocol.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Reads S1 bimodal and S2 history/choice banks independently; retired disagreements train the chooser. */
+sync_circuit TournamentBht(row_bits :: PosInt = 10):
+  input(base_row, gshare_row, choice_row, prefix_gshare_row, prefix_choice_row): Bits(row_bits)
+  interface clear(Pulse(), ~role: consumer)
+  interface update(Valid(TournamentUpdate(row_bits)), ~role: consumer)
+  output(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
+  output(prefix_gshare_taken, prefix_use_gshare): Bool
+  inst base(Bht(row_bits))
+  inst gshare(Bht(row_bits))
+  base.row <== base_row
+  base.prefix_row <== base_row
+  gshare.row <== gshare_row
+  gshare.prefix_row <== prefix_gshare_row
+  clear |> base.clear
+  clear |> gshare.clear
+  (update |> map_valid(result => BhtUpdate(row_bits)):
+    index: result.base_index
+    taken: result.taken
+  ) |> base.update
+  (update |> map_valid(result => BhtUpdate(row_bits)):
+    index: result.index
+    taken: result.taken
+  ) |> gshare.update
+  for (bank in 0..4):
+    base_taken[bank] <== base.counters[bank][1].into(Bool)
+    gshare_taken[bank] <== gshare.counters[bank][1].into(Bool)
+  prefix_gshare_taken <== gshare.prefix_counter[1].into(Bool)
+
+  def rows = 1 << row_bits
+  def cold = vec(for List (_ in 0..4): Bits(2)(1))
+  mem choices(rows, Vec(4, Bits(2)))
+  reg valid_rows(~init: Bits(rows)(0))
+  def counters = mux((valid_rows >> choice_row)[0].into(Bool) & !clear.valid, choices[choice_row], cold)
+  for (bank in 0..4):
+    use_gshare[bank] <== counters[bank][1].into(Bool)
+  prefix_use_gshare <== mux((valid_rows >> prefix_choice_row)[0].into(Bool) & !clear.valid, choices[prefix_choice_row][3], Bits(2)(1))[1].into(Bool)
+  def write_row = update.bits.base_index[2..row_bits + 2]
+  def bank = update.bits.base_index[0..2]
+  def previous = mux((valid_rows >> write_row)[0].into(Bool), choices[write_row], cold)
+  def counter = previous[bank]
+  def incremented = mux(counter === Bits(2)(3), counter, counter + Bits(2)(1))
+  def decremented = mux(counter === Bits(2)(0), counter, counter - Bits(2)(1))
+  def history_wins = update.bits.gshare_taken === update.bits.taken
+  def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), mux(history_wins, incremented, decremented), previous[lane]))
+  when (clear.valid):
+    valid_rows <== Bits(rows)(0)
+  elsewhen (update.valid & (update.bits.base_taken =/= update.bits.gshare_taken)):
+    choices.write(write_row, written)
+    valid_rows <== valid_rows ||| (Bits(rows)(1) << write_row)
+
+/* Retains the tournament port contract without allocating prediction or chooser state. */
+sync_circuit DisabledTournamentBht(row_bits :: PosInt = 10):
+  input(base_row, gshare_row, choice_row, prefix_gshare_row, prefix_choice_row): Bits(row_bits)
+  interface clear(Pulse(), ~role: consumer)
+  interface update(Valid(TournamentUpdate(row_bits)), ~role: consumer)
+  output(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
+  output(prefix_gshare_taken, prefix_use_gshare): Bool
+  base_taken <== literal(Vec(4, Bool), 0)
+  gshare_taken <== literal(Vec(4, Bool), 0)
+  use_gshare <== literal(Vec(4, Bool), 0)
+  prefix_gshare_taken <== Bool(#false)
+  prefix_use_gshare <== Bool(#false)
+
+export:
+  TournamentBht
+  DisabledTournamentBht

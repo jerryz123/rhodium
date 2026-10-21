@@ -667,6 +667,8 @@ share fixed return delays without introducing a named-core dependency into FP.
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN only.
 `bht.rhdl` consumes that protocol and `flow/main.rhdl` for banked counter
 training and clear inputs; PC/history hashing stays with its caller.
+`tournament.rhdl` layers two `Bht` instances with chooser state and consumes
+the shared protocol plus `flow/main.rhdl`; it does not own pipeline history.
 `btb.rhdl` and `ras.rhdl` consume that protocol, XLEN, `std/bits.rhdl`, and
 `flow/main.rhdl`; RAS hint classification also imports pure RISC-V formats and
 the public instruction-field adapter. RV5Stage's fetch and execution consume
@@ -675,7 +677,7 @@ shared BTB/RAS. Fetch sequencing and architectural recovery remain named-core
 policy, with no dependency back from predictors to their consumers.
 RV2Wide's bundles and execution consume the same protocol, its assembler and
 core use the shared prediction payloads, and its frontend instantiates eight-byte
-BTB lookup, BHT, and RAS. Its shared `predecode.rhdl` consumes the named decode
+BTB lookup, `TournamentBht`, and RAS. Its shared `predecode.rhdl` consumes the named decode
 catalog, compressed expander, RAS classifier, pure formats/XLEN, and public
 immediate adapter. The assembler and fresh-S2 `direction.rhdl` consume that
 predecode; direction also uses Bits alignment helpers. No RV5Stage fetch module

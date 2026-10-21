@@ -1,4 +1,4 @@
-// Checks frontend prediction, retained packet ownership, and precise recovery timing.
+// Checks early bimodal and late tournament prediction, retained ownership, and recovery timing.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
 using Instruction =
@@ -33,7 +33,8 @@ std::uint64_t word(std::uint64_t address) {
     } break;
     case 3:
     case 4:
-    case 10: {
+    case 10:
+    case 15: {
       return (field(UINT64_C(0x63), 16, 48) |
               field(UINT64_C(0x100010001), 48, 0));
     } break;
@@ -46,7 +47,7 @@ std::uint64_t word(std::uint64_t address) {
               field(UINT64_C(0x20000063), 32, 0));
     } break;
     }
-  if (address == 0x108 && (scenario == 3 || scenario == 4 || scenario == 10))
+  if (address == 0x108 && (scenario == 3 || scenario == 4 || scenario == 10 || scenario == 15))
     return UINT64_C(0x0001000100012000);
   return UINT64_C(0x0010001300100013);
 }
@@ -78,7 +79,7 @@ void observe() {
           virtual_lookup_out.pbits == (target_pc & ~UINT64_C(7)) &&
           target_cycle < 0)
         target_cycle = cycles;
-      if (scenario == 1 && cycles == source_cycle + 1 &&
+      if ((scenario == 1 || scenario == 13 || scenario == 14) && cycles == source_cycle + 1 &&
           virtual_lookup_out.pbits == UINT64_C(0x300))
         btb_cycle = cycles;
     }
@@ -94,6 +95,9 @@ void observe() {
                 insn.pdirection.ptaken == taken);
           CHECK(insn.pprediction.pvalid == taken &&
                 (!taken || insn.pprediction.ptarget == target_pc));
+          CHECK(insn.pdirection.pbase_uindex == ((branch_pc >> 1) & 4095));
+          if (scenario == 13 || scenario == 14 || scenario == 15)
+            CHECK(insn.pdirection.pbase_utaken && !insn.pdirection.pgshare_utaken);
           if (taken)
             CHECK(int(instructions_out.pbits.pcount) == lane + 1);
         }
@@ -146,7 +150,7 @@ void begin_case(int which, std::uint8_t want_taken = 1,
           : (which == 9
                  ? UINT64_C(0x108)
                  : (which == 2 ? UINT64_C(0x104)
-                               : ((which == 3 || which == 4 || which == 10)
+                               : ((which == 3 || which == 4 || which == 10 || which == 15)
                                       ? UINT64_C(0x106)
                                       : (which == 5 ? UINT64_C(0x102)
                                                     : UINT64_C(0x100)))));
@@ -172,9 +176,24 @@ void begin_case(int which, std::uint8_t want_taken = 1,
     branch_update_in = {};
   }
   if (want_taken) {
-    direction_update_in = {UINT64_C(1), expected_index, UINT64_C(1)};
-    for (int repeat_index = 0; repeat_index < (2); ++repeat_index)
+    bool independent = which == 13 || which == 14 || which == 15;
+    direction_update_in = {1, std::uint16_t(expected_index ^ (independent ? 0x100 : 0)),
+                           std::uint16_t((branch_pc >> 1) & 4095), 0, 0, 1};
+    for (int repeat_index = 0; repeat_index < (which == 14 || which == 15 ? 1 : 2); ++repeat_index)
       falling();
+    direction_update_in = {};
+    if (independent) {
+      branch_update_in = {1, {branch_pc, branch_pc + 0x200, 1, 1, 0, 0, 0, 0, branch_pc + 4}};
+      for (int repeat_index = 0; repeat_index < 3; ++repeat_index)
+        falling();
+      branch_update_in = {};
+    }
+  } else if (btb_taken) {
+    direction_update_in = {1, std::uint16_t(expected_index ^ 0x100), std::uint16_t((branch_pc >> 1) & 4095), 0, 0, 1};
+    falling();
+    falling();
+    direction_update_in = {1, expected_index, std::uint16_t((branch_pc >> 1) & 4095), 1, 0, 0};
+    falling();
     direction_update_in = {};
   }
   history_restore_in = {UINT64_C(1), std::uint16_t(history & 1023)};
@@ -274,6 +293,22 @@ int main() {
     begin_case(6, 1, 0, 5);
     virtual_lookup_in.pready = 1;
     finish_case();
+    begin_case(13, 1, 1);
+    virtual_lookup_in.pready = 1;
+    finish_case();
+    CHECK(target_cycle == source_cycle + 1 && btb_cycle == target_cycle);
+    // S1's captured bit survives a later table update, including a byte-six prefix.
+    for (int which = 14; which <= 15; ++which) {
+      begin_case(which, 1, 1);
+      virtual_lookup_in.pready = 1;
+      until([&] { return source_cycle >= 0; });
+      falling();
+      direction_update_in = {1, std::uint16_t(expected_index ^ 0x100), std::uint16_t((branch_pc >> 1) & 4095), 0, 0, 0};
+      falling();
+      direction_update_in = {};
+      finish_case();
+      CHECK(target_cycle == source_cycle + (which == 14 ? 1 : 2));
+    }
     // Hold the S2 replacement at array admission, then verify the saved offer.
     begin_case(7);
     virtual_lookup_in.pready = 1;

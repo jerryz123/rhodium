@@ -1,5 +1,5 @@
 #lang rhodium
-/* Predicts conditional directions at fresh S2 parcel boundaries and retains unfinished instruction ownership. */
+/* Selects tournament directions at fresh S2 boundaries and retains unfinished instruction predictions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -18,11 +18,11 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
   input data: Bits(64)
   input prediction: BranchPrediction(xlen)
   input(row, history): Bits(10)
-  input counters: Vec(4, Bits(2))
-  input prefix_counter: Bits(2)
-  output prefix_row: Bits(10)
-  output directions: Vec(4, BhtPrediction(10))
-  output prefix_direction: BhtPrediction(10)
+  input(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
+  input(prefix_gshare_taken, prefix_use_gshare): Bool
+  output(prefix_row, prefix_choice_row): Bits(10)
+  output directions: Vec(4, TournamentPrediction(10))
+  output prefix_direction: TournamentPrediction(10)
   output corrected: BranchPrediction(xlen)
   output history_after: Bits(10)
   output next_pc: Bits(xlen.width)
@@ -32,8 +32,10 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
   reg partial_pc(Bits(xlen.width))
   reg partial_word(Bits(16))
   reg partial_row(Bits(10))
+  reg partial_base_taken(Bool)
   reg partial_prediction(BranchPrediction(xlen))
   prefix_row <== partial_row
+  prefix_choice_row <== partial_pc[3..13]
   def prefix = partial_valid & (pc === (partial_pc + Bits(xlen.width)(2)))
   def mutable checkpoint = history
   def mutable cut = Bool(#false)
@@ -55,12 +57,18 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
     def live = at_boundary & !cut & !fault
     def candidate :: BranchPrediction(xlen) = if slot == 0 | partial_prediction | prediction
     def known = live & complete & decoded.control_flow & candidate.valid & (candidate.pc === address) & (candidate.compressed === decoded.compressed)
-    def taken = mux(decoded.conditional, (if slot == 0 | prefix_counter | counters[parcel])[1].into(Bool), known)
-    def metadata = BhtPrediction(10):
+    def base = if slot == 0 | partial_base_taken | base_taken[parcel]
+    def history_direction = if slot == 0 | prefix_gshare_taken | gshare_taken[parcel]
+    def selected_history = if slot == 0 | prefix_use_gshare | use_gshare[parcel]
+    def taken = mux(decoded.conditional, mux(selected_history, history_direction, base), known)
+    def metadata = TournamentPrediction(10):
       valid: live & complete & decoded.conditional
       index: (if slot == 0 | partial_row | row) ++ Bits(2)(parcel)
       history: checkpoint
       taken: taken
+      base_index: address[1..13]
+      base_taken: base
+      gshare_taken: history_direction
     if slot == 0
     | prefix_direction <== metadata
     | directions[parcel] <== metadata
@@ -93,6 +101,7 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
       partial_pc <== pc.align_down(8) + Bits(xlen.width)(6)
       partial_word <== data[48..64]
       partial_row <== row
+      partial_base_taken <== base_taken[3]
       partial_prediction <== prediction
 
 /* Passes provisional BTB metadata without allocating predecode or history-prefix state. */
@@ -103,18 +112,19 @@ sync_circuit DisabledRV2WideDirection(profile :: RV2WideConfig):
   input data: Bits(64)
   input prediction: BranchPrediction(xlen)
   input(row, history): Bits(10)
-  input counters: Vec(4, Bits(2))
-  input prefix_counter: Bits(2)
-  output prefix_row: Bits(10)
-  output directions: Vec(4, BhtPrediction(10))
-  output prefix_direction: BhtPrediction(10)
+  input(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
+  input(prefix_gshare_taken, prefix_use_gshare): Bool
+  output(prefix_row, prefix_choice_row): Bits(10)
+  output directions: Vec(4, TournamentPrediction(10))
+  output prefix_direction: TournamentPrediction(10)
   output corrected: BranchPrediction(xlen)
   output history_after: Bits(10)
   output next_pc: Bits(xlen.width)
   output invalidate: Bool
   prefix_row <== row
-  directions <== literal(Vec(4, BhtPrediction(10)), 0)
-  prefix_direction <== literal(BhtPrediction(10), 0)
+  prefix_choice_row <== pc[3..13]
+  directions <== literal(Vec(4, TournamentPrediction(10)), 0)
+  prefix_direction <== literal(TournamentPrediction(10), 0)
   corrected <== prediction
   history_after <== history
   next_pc <== pc.align_down(8) + Bits(xlen.width)(8)

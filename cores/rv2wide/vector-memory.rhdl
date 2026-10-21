@@ -90,6 +90,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   /* EX: Shape the selected beat and launch its fixed-cycle lookup.
      Certified addresses bypass pointer masking; misaligned beats defer to WB. */
 
+  def Array(lookup_attempt, retained_attempt) = ex |> fork_valid(2)
   def address = mux(ex.bits.precertified, ex.bits.physical_address, apply_pointer_mask(xlen, ex.bits.address, pointer_masking))
   pipeline_physical <== ex.bits.precertified
   def width = ex.bits.memory_width.into(MemoryWidth)
@@ -108,14 +109,14 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     pbmt: PageMemoryType.PMA
     guest_access: RiscvGuestMemoryAccess.Normal
   def misaligned = ex.bits.enabled & !width.is_aligned(address)
-  ex |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
+  lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
 
 
   /* MEM: Pair the retained beat with the lookup result.
      A missing result or misaligned attempt takes the slow path, never a hit. */
 
   def mem = (
-    ex |> map_valid(token => Attempt()):
+    retained_attempt |> map_valid(token => Attempt()):
       token: token
       request: request
       misaligned: misaligned
@@ -131,6 +132,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
      Request eligibility precedes admission/fault outcomes. Reserve response
      capacity before accepting work that cannot later be canceled. */
 
+  def Array(ordinary_request, split_request, hit_response, store_response, precise_response) = wb |> fork_valid(5)
   def attempt = wb.bits.attempt
   def token = attempt.token
   request_physical <== token.precertified
@@ -141,8 +143,8 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def store_hit = access & (wb.bits.response.outcome === RV2WideCacheOutcome.StoreHit)
   def store_commit = store_hit & !memory.ordered_busy
   pipeline.commit <== store_commit
-  wb |> filter_valid(_decision => ordinary & owners.ingress.ready & !memory.ordered_busy) |> map_valid(decision => decision.attempt.request) |> offer_decoupled() |> memory.request
-  (wb |> filter_valid(_decision => split_attempt & !memory.ordered_busy & split_returns.ingress.ready) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
+  ordinary_request |> filter_valid(_decision => ordinary & owners.ingress.ready & !memory.ordered_busy) |> map_valid(decision => decision.attempt.request) |> offer_decoupled() |> memory.request
+  (split_request |> filter_valid(_decision => split_attempt & !memory.ordered_busy & split_returns.ingress.ready) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
     address: decision.attempt.request.address
     access: decision.attempt.request.access
     atomic: decision.attempt.request.atomic
@@ -214,7 +216,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   hit_data.unsigned_load <== Bool(#true)
   hit_data.data <== wb.bits.response.data
   def hit_value = hit_data.value
-  def hit_return = wb |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(_operation => VectorCompletion(xlen, slots)):
+  def hit_return = hit_response |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(_operation => VectorCompletion(xlen, slots)):
     tag: token.completion_tag
     data: hit_value
   def offered_hit = hit_return |> offer_decoupled()
@@ -226,7 +228,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   // A store must not wait for completion readiness after it has mutated the
   // cache. Retain only its acknowledgement bit in the already allocated slot.
   inst store_ack(VectorStoreAcknowledgements(xlen, slots))
-  wb |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_ack.capture
+  store_response |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_ack.capture
   Array(offered_hit, store_ack.completion, delayed, split_returns.egress) |> arbiter() |> completion
   when (wb.valid & token.precertified):
     assert(!fault & !attempt.misaligned, "rv2wide_certified_vector_request_is_aligned_and_nonfaulting")
@@ -249,7 +251,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def immediate_disposition = priority_mux(~default: VectorDisposition.Authorized):
     access_retry: VectorDisposition.Retry
     fault: fault_disposition
-  def immediate = wb |> filter_valid(_decision => !token.precertified & !split.request.fire()) |> map_valid(decision => VectorCommit(xlen, slots)):
+  def immediate = precise_response |> filter_valid(_decision => !token.precertified & !split.request.fire()) |> map_valid(decision => VectorCommit(xlen, slots)):
     tag: decision.attempt.token.completion_tag
     pc: decision.attempt.token.context
     disposition: immediate_disposition

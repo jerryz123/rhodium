@@ -288,7 +288,7 @@ zero's registered ALU result before the younger slot's comparator. Do not add
 an EX ALU-to-comparator path, waive an unrelated source, or extend the selection
 to deferred/FP/system/control-transfer producers or a dependent JALR base.
 EX still calculates the PC-relative or JALR target independently. MEM resolves
-direction, target alignment, effective successor, RAS mismatch, and gshare
+direction, target alignment, effective successor, RAS mismatch, and tournament
 outcome before its existing oldest-stop qualification and WB transfer.
 
 M instructions use the shared physical control relations in the same composed
@@ -331,9 +331,12 @@ suppress the younger branch's retirement and predictor training.
 `predecode.rhdl` centralizes compressed expansion, control-flow legality, RAS
 hints, and immediate offsets for both S2 and assembly. `direction.rhdl` walks
 fresh S2 parcel boundaries, carrying a byte-six prefix independently of the
-assembler. The shared BHT owns only counters; the frontend owns speculative
+assembler. The shared tournament component owns only counters; the frontend owns speculative
 and committed ten-bit history. S1 registers the PC/history hash, forwarding an
-older same-cycle S2 history update. A replayed attempt reuses its saved row.
+older same-cycle S2 history update. S1 captures PC-indexed bimodal bits before
+S2 selects them against gshare using the PC-indexed chooser. A replayed attempt
+reuses its saved row and bimodal bits. A byte-six prefix retains its own bimodal
+bit across continuation lookup and table training.
 Rows are block-based; intra-block checkpoints still append outcomes in order.
 
 Direction corrections preserve the fresh S2 block and cancel only younger
@@ -346,15 +349,16 @@ conditional outcome; WB rejection takes priority. WB emits separately qualified
 saved-index training. Repeated RAS restoration must not reset gshare history.
 Context/code invalidation clears both counter validity and history.
 
-Run `bpred-bht`, `rv2wide-bht`, the existing assembly/frontend baseline fixtures,
+Run `bpred-tournament`, `bpred-btb-external`, `rv2wide-bht`, the existing assembly/frontend baseline fixtures,
 and the production core/fetch fixtures for changes across this path. The BHT
 fixture checks public replacement timing under blocked assembly, direction
 overrides, compressed/straddled branches, replay, and history metadata. The core
 bench checks saved-index training and recovery checkpoints against offered
 instruction metadata.
 
-The frontend instantiates shared `Btb` with `fetch_bytes = 8`, shared `Ras`, and
-independently disableable `Bht`. S0 admits a PC into the registered S1 lookup. S1's combinational BTB/RAS result
+The frontend instantiates shared `Btb` with `fetch_bytes = 8` and external
+directions when enabled, shared `Ras`, and independently disableable
+`TournamentBht`. S0 admits a PC into the registered S1 lookup. S1's combinational BTB/RAS result
 selects the next S0 request directly and travels with its original lookup into S2.
 Byte-six continuations retain their prefix prediction instead of looking up a
 new branch. Replay retains that continuation context; the assembler also retains
@@ -405,9 +409,12 @@ retaining priority. RR permits at most one actual or speculative RAS action
 per group; conditional branches do not consume this restriction.
 
 `branch-training.rhdl` owns the two-entry training FIFO, accepting both successful
-WB branches in age order and emitting one BTB/BHT update each cycle, bypassing
+WB branches in age order and emitting one BTB/tournament update each cycle, bypassing
 the oldest incoming update when empty. A training record retains the branch
-outcome and its saved BHT address together. RR projects occupancy through the
+outcome, both saved table indices, and the observed component bits together.
+Both components train every conditional outcome; the chooser trains only saved
+disagreements toward the correct component. Use current counters, not saved
+counter values, so delayed aliased records compose. RR projects occupancy through the
 WB, MEM, and EX branch groups, subtracting one training write at each edge
 and saturating at zero. It admits a new pair only if its projected WB update
 fits; WB never waits for training capacity. Faults and flushes only reduce

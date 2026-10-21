@@ -118,7 +118,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   interface branch_update(Valid(BranchUpdate(xlen)), ~role: producer)
   interface predictor_restore(Pulse(), ~role: producer)
   interface predictor_clear(Pulse(), ~role: producer)
-  interface direction_update(Valid(BhtUpdate(10)), ~role: producer)
+  interface direction_update(Valid(TournamentUpdate(10)), ~role: producer)
   interface ras_resolution(Valid(RasResolution(xlen)), ~role: producer)
   interface history_commit(Valid(RV2WideHistoryCommit()), ~role: producer)
   interface history_restore(Valid(Bits(10)), ~role: producer)
@@ -1328,6 +1328,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       rd: result.rd
       branch_prediction(~format: "enum"): mux(wb.branch.update.branch, mux(next_pc =/= predicted_pc, RV2WideBranchPrediction.Mispredicted, RV2WideBranchPrediction.Correct), RV2WideBranchPrediction.NotBranch)
       ras_mismatch: wb.branch.update.ras_action =/= wb.branch.update.predicted_ras_action
+      direction_valid: result.fetched.direction.valid
+      bimodal_taken: result.fetched.direction.base_taken
+      gshare_taken: result.fetched.direction.gshare_taken
+      direction_taken: result.fetched.direction.taken
     observed |> fork_valid(4)
   for (lane in 0..2):
     def wb :: RV2WideResult(xlen) = wb_tokens[lane]
@@ -1367,7 +1371,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       RV2WideBranchTraining(xlen):
         branch: wb_tokens[lane].branch.update
         direction_valid: wb_tokens[lane].branch.update.conditional & wb_tokens[lane].fetched.direction.valid
-        direction_index: wb_tokens[lane].fetched.direction.index
+        direction:
+          TournamentUpdate(10):
+            index: wb_tokens[lane].fetched.direction.index
+            base_index: wb_tokens[lane].fetched.direction.base_index
+            base_taken: wb_tokens[lane].fetched.direction.base_taken
+            gshare_taken: wb_tokens[lane].fetched.direction.gshare_taken
+            taken: wb_tokens[lane].branch.update.taken
   )
   for (lane in 0..2):
     wb_retirement_paths[lane][3] |> filter_valid(_retired => wb_tokens[lane].branch.update.branch) |> map_valid(_retired => wb_training[lane]) |> branch_training.incoming[lane]
@@ -1376,9 +1386,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   branch_update.valid <== branch_training.training.valid
   branch_update.bits <== wb_training_head.branch
   direction_update.valid <== branch_update.valid & wb_training_head.direction_valid
-  direction_update.bits <== BhtUpdate(10):
-    index: wb_training_head.direction_index
-    taken: branch_update.bits.taken
+  direction_update.bits <== wb_training_head.direction
   // Architectural history and RAS reconciliation are never delayed behind table writes.
   def wb_ras :: Vec(2, Bool) = vec(for List (lane in 0..2): wb_train[lane] & ((wb_tokens[lane].branch.update.ras_action =/= RasAction.None) ||| (wb_tokens[lane].branch.update.predicted_ras_action =/= RasAction.None)))
   def wb_ras_branch = mux(wb_ras[0], wb_tokens[0].branch.update, wb_tokens[1].branch.update)

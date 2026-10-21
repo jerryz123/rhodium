@@ -25,7 +25,7 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
 class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int):
   implements StableCircuitParam
 
-  /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and a 4K-counter BHT. */
+  /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and three 4K-counter tournament tables. */
   constructor (~xlen: xlen :: XLen = XLen.X64,
                ~mmu_type: mmu_type :: RiscvMmuType = if xlen == XLen.X32 | RiscvMmuType.Bare | RiscvMmuType.Sv39,
                ~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),

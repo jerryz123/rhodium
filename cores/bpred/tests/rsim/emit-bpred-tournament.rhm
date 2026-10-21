@@ -1,0 +1,7 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../tournament.rhdl".TournamentBht
+def program = elaborate(TournamentBht(3))
+export program

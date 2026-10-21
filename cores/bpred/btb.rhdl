@@ -28,8 +28,9 @@ bundle BtbEntry(match_bits :: PosInt, page_count :: PosInt):
 
 /* Predicts the earliest taken branch in the configured fetch block using full-address matches via shared
    pages.
+   Optional caller directions replace local counters before selecting a conditional target.
    Resolved training precedes discovery; page replacement invalidates all dependent entries. */
-sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4):
+sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false):
   // Lookup is combinational; only predictor state changes are event flows.
   unless fetch_bytes == 4 || fetch_bytes == 8
   | error(~who: #'Btb, "fetch bytes must be four or eight")
@@ -39,6 +40,11 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   unless page_count >= 2
   | error(~who: #'Btb, "shared page count must be at least two")
   input cursor: Bits(xlen.width)
+  def caller_taken :: Vec(fetch_bytes / 2, Bool) = if external_direction
+  | block:
+      input conditional_taken: Vec(fetch_bytes / 2, Bool)
+      conditional_taken
+  | literal(Vec(fetch_bytes / 2, Bool), 0)
   interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
@@ -79,7 +85,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
       def entry = entries[index]
       def block_matches = cursor_pages[entry.pc_page] & (entry.pc_low[offset_bits..match_bits] === cursor[offset_bits..match_bits])
       def at_or_after_cursor = entry.pc_low[0..offset_bits] >= cursor[0..offset_bits]
-      def predicted_taken = !entry.conditional ||| entry.counter[1].into(Bool)
+      def direction = if external_direction | caller_taken[entry.pc_low[1..offset_bits]] | entry.counter[1].into(Bool)
+      def predicted_taken = !entry.conditional ||| direction
       entry.valid & pages[entry.target_page].valid & block_matches & at_or_after_cursor & predicted_taken
   )
   def offsets = for List (offset in 0..(fetch_bytes / 2)):
@@ -208,8 +215,13 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
       entries[index] <== entries[index].updated(~valid: Bool(#false))
 
 /* Terminates predictor inputs without state and never offers a prediction. */
-sync_circuit DisabledBtb(xlen :: XLen):
+sync_circuit DisabledBtb(xlen :: XLen, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false):
   input cursor: Bits(xlen.width)
+  def caller_taken :: Vec(fetch_bytes / 2, Bool) = if external_direction
+  | block:
+      input conditional_taken: Vec(fetch_bytes / 2, Bool)
+      conditional_taken
+  | literal(Vec(fetch_bytes / 2, Bool), 0)
   interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
