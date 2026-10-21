@@ -208,7 +208,8 @@ bundle RV2WideBranchResult(xlen :: XLen):
   operands_from_older: Vec(2, Bool)
   mispredicted: Bool
 
-/* Retains one result, control transfer, and fault/replay outcome through MEM and WB. */
+/* Retains one result, control transfer, and fault/replay outcome through MEM and WB.
+   An eligible EX vector range becomes a complete certificate only after MEM qualification. */
 bundle RV2WideResult(xlen :: XLen):
   fetched: RV2WideInstruction(xlen)
   rd: Bits(5)
@@ -232,6 +233,7 @@ bundle RV2WideResult(xlen :: XLen):
   resolution: RV2WideResolution(xlen)
   fp: RV2WideFpControl()
   fp_request: FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpSchedule())
+  vector_fast_eligible: Bool
   vector: VectorDescriptor(xlen)
 
 /* Restarts unassembled fetch work without discarding already accepted instructions. */

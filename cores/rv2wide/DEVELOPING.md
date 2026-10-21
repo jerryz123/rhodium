@@ -786,6 +786,25 @@ occupancy its credit returns on the cycle after a dequeue.
 Faultable descriptors retain their WB owner until certification or precise
 execution produces an outcome. Traps and direct CSR accesses drain accepted work.
 
+EX forms a conservative single-page range from the forwarded vector state,
+scalar base/stride, and vstart using shared vector footprint geometry. Its
+`vector_fast_eligible` flag qualifies only that proposed range; the descriptor's
+`precertified` remains false until MEM captures a successful `VectorFastCheck`.
+Only `certificate.range` is meaningful before that capture. MEM uses the existing
+DTLB below WB demand, fallback page probes, and ordinary speculative lookups;
+failure to certify never allocates a walk or produces a speculative fault.
+Bare memory supplies the same contract using identity mappings and page PMAs.
+
+WB revalidates context, invalidation epoch, and pointer masking, then retires an
+accepted certified memory descriptor normally. Only uncertified memory enters
+the retained WB owner and its younger-work flush/restart. Keep the shared
+admission controller's existing precertified bypass of page proof and execution
+quiescence; do not relax the precise fallback or scalar-memory ordering gates.
+The accepted descriptor carries the PPN/range into vector execution and local
+replay. Forward the adapter's physical-address flags through the selected memory
+owner: MMU lookup and WB demand must not translate these physical retries again
+or depend on the original TLB entry or fallback page window remaining resident.
+
 `vsetvli`, `vsetivli`, and `vsetvl` issue alone in slot zero but do not drain
 vector execution. EX computes configuration and its GPR result using the shared
 architectural helpers. The newest nonfaulted configuration in MEM, then WB,
@@ -834,6 +853,11 @@ Their vset streams check all configuration forms, MEM/WB and GPR forwarding,
 consecutive issue without refetch, forwarded-vill legality, illegal keep-VL
 transitions, configuration overlap with delayed vector loads, immutable old/new
 memory geometry, and wrong-path configuration suppression after a MEM branch.
+They also check certified loads/stores retiring at ordinary WB without recovery,
+younger scalar progress, physical remapping, stale-certificate fallback, and
+cross-page fallback. MMU checks cover nonallocating cold certification, warm
+host/guest mappings, current permissions/PBMT, demand-port priority, context/epoch
+revalidation, and self-contained physical retries after TLB invalidation.
 The RV64 fixture combines H with V/FP, checking both host/guest FS/VS gates,
 guest-fault CSR provenance, and draining accepted vector loads before trap entry.
 The MMU fixture certifies and reuses a nonidentity G-stage vector page mapping.

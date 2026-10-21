@@ -966,6 +966,13 @@ interfaces. `RV2WideCore` supplies the architectural integration:
 - Faultable memory instructions retain their architectural owner until page
   certification or precise execution determines the outcome. Successful page
   certification permits younger independent scalar work while execution drains.
+- Aligned, nonempty, single-page vector memory footprints can be certified in
+  scalar MEM using a current DTLB hit (or Bare identity translation) and normal
+  cacheable-memory permissions. WB validates the captured translation context;
+  accepted certified instructions retire without flushing younger work or
+  waiting for older sequencing to drain. The descriptor carries its mapping
+  through later TLB replacement. Cross-page, uncertain, or rejected checks keep
+  the retained precise path; a speculative check never starts a page walk.
 - Younger scalar memory waits for older vector stores; younger scalar stores
   also wait for older vector loads. Direct CSR accesses and traps drain accepted work.
 - Scalar EX multiply and fixed-FP reservations remain feed-forward. Vector
@@ -975,6 +982,8 @@ interfaces. `RV2WideCore` supplies the architectural integration:
 
 Standalone callers supply WB-authorized, nonspeculative `VectorDescriptor` requests, page-window
 certification, shared FP/multiply/divide services, and scalar write reservations.
+Standalone `RV2WideCore` integrations also connect `vector_fast` to their MEM
+translation service; withholding a certificate selects the ordinary fallback.
 Only the caller may retire an instruction, publish a fault, or grant a scalar
 register write. A scalar redirect must not cancel an accepted descriptor.
 

@@ -10,6 +10,8 @@ constexpr unsigned bytes = sizeof(memory_in.presponse.pbits);
 Request lookup{}, commit_owner{};
 bool lookup_live = false, proof_pending = false, slow = false, safe = true;
 bool guest_fault = false;
+bool fast_enabled = false, fast_current = true;
+unsigned fast_checks = 0;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 unsigned redirect_count = 0, response_delay = 12;
 std::uint64_t next_pc = 0x8000, replay_pc = 0, fault_at = 0;
@@ -17,6 +19,7 @@ std::array<std::uint64_t, 32> gprs{};
 std::map<std::uint64_t, std::uint64_t> words;
 std::set<std::uint64_t> retired_pcs;
 std::map<std::uint64_t, unsigned> memory_cycles;
+std::map<std::uint64_t, unsigned> retirement_cycles;
 struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
@@ -55,8 +58,15 @@ void settle() {
   vector_precheck_in.prequest.pready = !proof_pending;
   vector_precheck_in.presponse.pvalid = proof_pending;
   vector_precheck_in.presponse.pbits = safe;
+  vector_fast_in.presponse.pvalid = 0;
+  vector_fast_in.presponse.pbits = {};
+  vector_fast_in.pcandidate_ucurrent = fast_current;
   split_in.prequest.pready = 1;
   split_in.presponse.pvalid = 0;
+  eval();
+  vector_fast_in.presponse.pvalid = fast_enabled && vector_fast_out.prequest.pvalid;
+  vector_fast_in.presponse.pbits.prange = vector_fast_out.prequest.pbits;
+  vector_fast_in.presponse.pbits.pppn = (vector_fast_out.prequest.pbits.pfirst >> 12) + 1;
   eval();
   if (fault_at && memory_out.prequest.pvalid &&
       memory_out.prequest.pbits.paddress == fault_at) {
@@ -79,6 +89,7 @@ void step() {
       if (!port->pvalid) continue;
       const auto &result = port->pbits;
       CHECK(retired_pcs.insert(result.pfetched.ppc).second);
+      retirement_cycles.emplace(result.pfetched.ppc, cycle);
       if (result.pwrite && !result.pdeferred) gprs[result.prd] = result.pdata;
     }
     if (completed_out.pvalid && completed_out.pbits.pwrite) {
@@ -106,6 +117,7 @@ void step() {
     for (const auto *port : {&memory_stage_0_out, &memory_stage_1_out})
       if (port->pvalid) memory_cycles.try_emplace(port->pbits.ppc, cycle);
     CHECK(!split_out.prequest.pvalid);
+    if (vector_fast_out.prequest.pvalid) ++fast_checks;
   }
   const bool proof_accept = vector_precheck_out.prequest.pvalid && vector_precheck_in.prequest.pready;
   const bool proof_return = vector_precheck_in.presponse.pvalid && vector_precheck_out.presponse.pready;
@@ -197,6 +209,29 @@ void stream(std::initializer_list<std::uint32_t> words, bool fault = false) {
 
 void extract(unsigned vector_register, unsigned rd, std::uint64_t value,
              bool require_progress = false);
+void kill_younger(std::uint32_t instruction) {
+  const auto branch_pc = next_pc;
+  next_pc += 12;
+  instructions_in = {};
+  instructions_in.pvalid = 1;
+  instructions_in.pbits.pcount = 2;
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    auto &entry = instructions_in.pbits.pentries[lane];
+    entry.ppc = branch_pc + 4 * lane;
+    entry.psequential_upc = entry.ppc + 4;
+    entry.pinstruction = entry.praw_uinstruction = lane ? instruction : 0x00000663;
+  }
+  for (unsigned wait = 0; ; ++wait) {
+    CHECK(wait < 100);
+    settle();
+    const bool accepted = instructions_out.pready;
+    step();
+    if (accepted) break;
+  }
+  instructions_in.pvalid = 0;
+  run(12);
+  CHECK(retired_pcs.contains(branch_pc) && !retired_pcs.contains(branch_pc + 4));
+}
 void vector_configuration_overlap() {
   // MEM forwarding supplies dependent AVL and vtype; a gap exercises WB forwarding.
   const auto first = next_pc;
@@ -259,29 +294,76 @@ void vector_configuration_overlap() {
   extract(24, 7, 0x11);
 
   // A MEM branch kills the younger EX configuration before it can forward or commit.
-  const auto branch_pc = next_pc;
-  next_pc += 12;
-  instructions_in = {};
-  instructions_in.pvalid = 1;
-  instructions_in.pbits.pcount = 2;
-  for (unsigned lane = 0; lane < 2; ++lane) {
-    auto &entry = instructions_in.pbits.pentries[lane];
-    entry.ppc = branch_pc + 4 * lane;
-    entry.psequential_upc = entry.ppc + 4;
-    entry.pinstruction = entry.praw_uinstruction = lane ? vsetivli(5, 4, 8) : 0x00000663;
-  }
-  for (unsigned wait = 0; ; ++wait) {
-    CHECK(wait < 100);
-    settle();
-    const bool accepted = instructions_out.pready;
-    step();
-    if (accepted) break;
-  }
-  instructions_in.pvalid = 0;
-  run(12);
-  CHECK(retired_pcs.contains(branch_pc) && !retired_pcs.contains(branch_pc + 4));
+  kill_younger(vsetivli(5, 4, 8));
   send(0xc21023f3);
   CHECK(gprs[7] == 0);
+}
+void vector_memory_fast_path() {
+  run(120);
+  setvl(1, 4);
+  send(addi(1, 0, 0x400));
+  send(addi(2, 0, 0x123));
+  send(vi(23, 0, 2, 4, 8));
+  run();
+  fast_enabled = true;
+  const auto proofs_before = proof_count;
+  const auto store_pc = next_pc;
+  const auto store = 0x02005027 | (1 << 15) | (8 << 7);
+  stream({store, addi(3, 0, 42), addi(4, 3, 1)});
+  CHECK(retirement_cycles.at(store_pc) == memory_cycles.at(store_pc) + 1);
+  CHECK(gprs[3] == 42 && gprs[4] == 43 && proof_count == proofs_before);
+  run(60);
+  CHECK(words[0x1400] == (bytes == 8 ? UINT64_C(0x0123012301230123) : UINT64_C(0x01230123)));
+  CHECK(words[0x400] != words[0x1400]); // certificate, not live VA, selects memory
+  if constexpr (bytes == 4) CHECK(words[0x1404] == words[0x1400]);
+
+  slow = true;
+  response_delay = 80;
+  const auto load_pc = next_pc;
+  stream({0x02005007 | (1 << 15) | (9 << 7), addi(3, 0, 51)});
+  CHECK(retirement_cycles.at(load_pc) == memory_cycles.at(load_pc) + 1);
+  CHECK(gprs[3] == 51 && proof_count == proofs_before);
+  run(120);
+  extract(9, 7, 0x123);
+  slow = false;
+  response_delay = 12;
+
+  // vstart affects the certified range and stores only the remaining elements.
+  words[0x1400] = words[0x1400 + bytes] = 0;
+  send(addi(2, 0, 2));
+  send(0x00811073); // csrw vstart,x2
+  send(store);
+  run(60);
+  if constexpr (bytes == 8)
+    CHECK(words[0x1400] == UINT64_C(0x0123012300000000));
+  else
+    CHECK(words[0x1400] == 0 && words[0x1404] == UINT64_C(0x01230123));
+  send(0x008023f3); // accepted certification retires vstart exactly once
+  CHECK(gprs[7] == 0 && proof_count == proofs_before);
+
+  // Fast eligibility never authorizes a store killed by an older MEM redirect.
+  const auto stores_before = stores;
+  kill_younger(store);
+  run(20);
+  CHECK(stores == stores_before && proof_count == proofs_before);
+
+  // A stale MEM certificate must take the precise path, including its WB recovery.
+  fast_current = false;
+  const auto redirects_before = redirect_count;
+  send(store);
+  run(60);
+  CHECK(proof_count == proofs_before + 1 && redirect_count > redirects_before);
+  CHECK(words[0x400] == (bytes == 8 ? UINT64_C(0x0123012301230123) : UINT64_C(0x01230123)));
+  fast_current = true;
+
+  // Crossing a page is deliberately not a fast candidate, even if both pages are safe.
+  send(0x000010b7); // lui x1,1
+  send(addi(1, 1, -4));
+  const auto checks_before = fast_checks;
+  send(store);
+  run(60);
+  CHECK(fast_checks == checks_before && proof_count == proofs_before + 2);
+  fast_enabled = false;
 }
 void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) {
   send(addi(2, 0, guest_status >> 8));
@@ -450,5 +532,6 @@ int main() {
     CHECK(stores >= 2);
     CHECK(fault_count == (bytes == 8 ? 7 : 1));
     vector_configuration_overlap();
+    vector_memory_fast_path();
   });
 }

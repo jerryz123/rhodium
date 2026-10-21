@@ -33,7 +33,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("cores/mmu/vector.rhdl") open
-  lib("cores/mmu/vector-window.rhdl").VectorWindow
+  lib("cores/mmu/vector-window.rhdl") open
 
 /* Distinguishes physical response owners independently of live translation and fragment state. */
 hardware_enum RV2WidePhysicalOwner:
@@ -56,6 +56,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   input split_guest_access: RiscvGuestMemoryAccess
   input(pipeline_vector, request_vector): Bool
   interface vector_precheck(VectorPrecheck(), ~role: responder)
+  interface vector_fast(VectorFastCheck(XLen.X64), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(RV2WideInstructionTranslation(XLen.X64), ~role: responder)
@@ -77,6 +78,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   vector_precheck <=> vector_window.check
   reg mem_vector(~init: Bool(#false))
   mem_vector <== pipeline_vector
+  reg mem_physical(~init: Bool(#false))
+  mem_physical <== pipeline_vector & vector_fast.pipeline_physical
   assert(!(invalidate & vector_window.owned), "rv2wide_vector_window_drained_before_invalidation")
   split.request |> misaligned.start
   reg split_mode(RiscvGuestMemoryAccess)
@@ -107,6 +110,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
      Cancel the walker one cycle later; accepted physical response owners remain live. */
 
   reg cancel(~init: Bool(#false))
+  reg vector_invalidation_epoch(~init: Bits(2)(0))
+  when invalidate:
+    vector_invalidation_epoch <== vector_invalidation_epoch + Bits(2)(1)
+
   cancel <== invalidate
   walker.cancel <== cancel
   itlb.invalidate_all <== invalidate
@@ -147,8 +154,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def data_virtual_address = mux(split_request.valid, split_fault_address, data_request.address)
   def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
   def vector_probe = vector_window.translation.request.valid & !data_demand & !misaligned.busy
+  def fast_selected = vector_fast.request.valid & !data_demand & !vector_probe & !misaligned.busy & !mem_request.valid
+  def certified_physical = !split_request.valid & !vector_probe & mux(memory.request.valid, request_vector & vector_fast.request_physical, mem_request.valid & mem_physical)
   vector_window.addresses <== vec(mem.address, memory.request.bits.address)
-  def window_hit = !split_request.valid & !vector_probe & mux(memory.request.valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
+  def window_hit = !split_request.valid & !vector_probe & !certified_physical & mux(memory.request.valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
   def window_address = mux(memory.request.valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
   def explicit_guest = data_request.guest_access =/= RiscvGuestMemoryAccess.Normal
   def execute_read = data_request.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead
@@ -163,9 +172,26 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def probe_request = vector_window.translation.request.bits
   def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
   def probe_lookup = lookup(probe_request.address, probe_access, data_privilege, normal_data_guest)
-  def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
+  def fast_lookup = lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load), data_privilege, normal_data_guest)
+  def data_lookup = priority_mux(~default: normal_lookup):
+    vector_probe: probe_lookup
+    fast_selected: fast_lookup
+
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
+  def vector_context = lookup(Bits(64)(0), Sv39Access.Load, data_privilege, normal_data_guest)
+  vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.virtualized === vector_context.virtualized) & (vector_fast.candidate.context.as_bits() === vector_context.context.as_bits())
+  def fast_page = (dtlb.translation.physical_address[12..56] ++ Bits(12)(0)).zext(64)
+  vector_fast.response.valid <== fast_selected & !invalidate & dtlb.hit & (dtlb.translation.fault === RiscvTranslationFault.None) & (riscv_host_result(dtlb.translation).pbmt === PageMemoryType.PMA) & vector_page_permitted(config.physical_map, fast_page, vector_fast.request.bits.store)
+  vector_fast.response.bits <== VectorFastCertificate(XLen.X64):
+    range: vector_fast.request.bits
+    ppn: dtlb.translation.physical_address[12..56]
+    virtualized: vector_context.virtualized
+    context: vector_context.context
+    invalidation_epoch: vector_invalidation_epoch
+
+  when (vector_fast.request.valid):
+    assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "rv2wide_vector_fast_range_is_one_page")
 
 
   /* Registered hints never contend with demand translation or allocate a walk.
@@ -214,13 +240,16 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
   def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
   def instruction_known = itlb.hit ||| instruction_failed
-  def data_known = dtlb.hit ||| data_failed ||| window_hit
+  def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
   def instruction_result = mux(instruction_failed, instruction_fault.result, itlb.translation)
   def translated_result = mux(data_failed, data_fault.result, dtlb.translation)
-  def data_result = mux(window_hit, translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None), translated_result)
+  def data_result = priority_mux(~default: translated_result):
+    certified_physical: translated_result.updated(~physical_address: data_virtual_address[0..56], ~fault: RiscvTranslationFault.None)
+    window_hit: translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None)
+
   def data_ok = data_known & (data_result.fault === RiscvTranslationFault.None)
   def data_guest_fault = data_result.fault_details.updated(~guest_virtual_address: data_guest)
-  def data_pbmt = mux(window_hit, PageMemoryType.PMA, riscv_host_result(data_result).pbmt)
+  def data_pbmt = mux(window_hit ||| certified_physical, PageMemoryType.PMA, riscv_host_result(data_result).pbmt)
   vector_window.translation.request.ready <== vector_probe & data_known & !invalidate
   vector_window.translation.response.valid <== vector_window.translation.request.fire()
   vector_window.translation.response.bits <== riscv_host_result(data_result)

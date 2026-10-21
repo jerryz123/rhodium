@@ -296,7 +296,10 @@ from `riscv/`, plus HardFloat rounding types through shared FP descriptors.
 They do not import RV5Stage. Scalar WB admission and translation arbitration
 remain RV2Wide-owned, not dependencies of the shared vector package.
 Its core and pipeline bundles consume the shared vector descriptor/control
-types; its decoder joins the canonical V catalog into the ordinary decode
+types; the core also imports `cores/vector/precheck.rhdl` for footprint geometry
+and `std/bits.rhdl` for range alignment. Bare/Sv39 translation consume the shared
+`cores/mmu/vector.rhdl` fast-check contract and `vector-window.rhdl` page-PMA helper.
+Its decoder joins the canonical V catalog into the ordinary decode
 relation. The host profile consumes vector-profile and VLEN descriptors and
 `std/bits.rhdl` capacity annotations. `memory-ports.rhdl` uses Flow to retain
 scalar/vector response ownership; the Bare and Sv39 adapters consume the shared

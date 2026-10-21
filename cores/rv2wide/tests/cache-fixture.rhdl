@@ -64,6 +64,7 @@ sync_circuit RV2WideCacheFixture():
   inst data(RV2WideL1D(test_cache, ~chi: test_fetch_chi))
   inst mmu(RV2WideMmu(test_fetch_chi))
   core.vector_precheck <=> mmu.vector_precheck
+  core.vector_fast |> mmu.vector_fast
   mmu.pipeline_vector <== core.pipeline_vector
   mmu.request_vector <== core.request_vector
   mmu.split_guest_access <== core.split_guest_access

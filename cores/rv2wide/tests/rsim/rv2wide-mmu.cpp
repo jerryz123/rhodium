@@ -824,7 +824,22 @@ int main() {
     eval();
     CHECK(physical_valid && physical_address == UINT64_C(0x17008) && !wb_fault);
     wb_valid = 0;
-    // Vector certification in VS must pin the G-stage result, not the GPA.
+    // MEM certification captures the composed G-stage result without owning the window.
+    vector_fast_in.prequest = {1, {0x16000, 0x1600f, 0}};
+    eval();
+    CHECK(vector_fast_out.presponse.pvalid);
+    CHECK(vector_fast_out.presponse.pbits.pppn == 23);
+    CHECK(vector_fast_out.presponse.pbits.pvirtualized);
+    vector_fast_in.pcandidate = vector_fast_out.presponse.pbits;
+    vector_fast_in.prequest.pvalid = 0;
+    eval();
+    CHECK(vector_fast_out.pcandidate_ucurrent && vector_precheck_out.prequest.pready);
+    guest_state.phgatp += 1;
+    eval();
+    CHECK(!vector_fast_out.pcandidate_ucurrent);
+    guest_state.phgatp -= 1;
+
+    // Vector fallback certification in VS pins the same G-stage result, not the GPA.
     vector_precheck_in.prequest = {1, {0x16000, 0x1600f, 0}};
     vector_precheck_in.presponse.pready = 0;
     eval();
@@ -934,5 +949,89 @@ int main() {
     vector_precheck_in.prelease.pvalid = 1;
     tick_model();
     vector_precheck_in.prelease.pvalid = 0;
+    // Cold speculative certification never allocates a page walk or a fallback window.
+    fence();
+    vector_fast_in.prequest = {1, {0x500008, 0x50000f, 0}};
+    for (unsigned wait = 0; wait < 5; ++wait) {
+      eval();
+      CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
+      tick_model();
+    }
+    vector_fast_in.prequest.pvalid = 0;
+    offer_wb(0x500008);
+    walk_at(0x500008, (UINT64_C(22) << 10) | 0xcf);
+    vector_fast_in.prequest.pvalid = 1;
+    eval();
+    CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 22);
+    vector_fast_in.pcandidate = vector_fast_out.presponse.pbits;
+    vector_fast_in.prequest.pvalid = 0;
+    eval();
+    CHECK(vector_fast_out.pcandidate_ucurrent && vector_precheck_out.prequest.pready);
+    satp += 1;
+    eval();
+    CHECK(!vector_fast_out.pcandidate_ucurrent);
+    satp -= 1;
+
+    // Authorized WB and ordinary MEM lookups take priority over a speculative check.
+    vector_fast_in.prequest.pvalid = 1;
+    address = 0x500008;
+    wb_valid = 1;
+    eval();
+    CHECK(!vector_fast_out.presponse.pvalid && physical_valid && physical_address == 0x16008);
+    wb_valid = 0;
+    ex_valid = 1;
+    tick_model();
+    ex_valid = 0;
+    eval();
+    CHECK(!vector_fast_out.presponse.pvalid && resolve_valid && resolve_address == 0x16008);
+    tick_model();
+    eval();
+    CHECK(vector_fast_out.presponse.pvalid);
+    vector_fast_in.prequest.pvalid = 0;
+
+    // A certificate is self-contained: physical retries do not need its old TLB entry.
+    fence();
+    eval();
+    CHECK(!vector_fast_out.pcandidate_ucurrent);
+    vector_access = 1;
+    vector_fast_in.ppipeline_uphysical = vector_fast_in.prequest_uphysical = 1;
+    data_hit(0x16008, 0x16008);
+    vector_fast_in.ppipeline_uphysical = vector_fast_in.prequest_uphysical = 0;
+    vector_access = 0;
+
+    // A fallback probe owns translation even if the previous MEM owner was physical.
+    vector_precheck_in.prequest = {1, {0x500008, 0x50000f, 0}};
+    tick_model();
+    vector_precheck_in.prequest.pvalid = 0;
+    eval();
+    CHECK(!vector_precheck_out.presponse.pvalid);
+    walk_at(0x500008, (UINT64_C(22) << 10) | 0xcf);
+    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
+    fence();
+
+    // Current permissions and memory attributes decide certification, not a cached hit alone.
+    offer_wb(0x500008);
+    walk_at(0x500008, (UINT64_C(22) << 10) | 0x43); // read-only
+    vector_fast_in.prequest = {1, {0x500008, 0x50000f, 1}};
+    eval();
+    CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
+    vector_fast_in.prequest.pbits.pstore = 0;
+    eval();
+    CHECK(vector_fast_out.presponse.pvalid);
+    vector_fast_in.prequest.pvalid = 0;
+    fence();
+    pbmte = 1;
+    offer_wb(0x500008);
+    walk_at(0x500008, (UINT64_C(1) << 61) | (UINT64_C(22) << 10) | 0xcf);
+    vector_fast_in.prequest = {1, {0x500008, 0x50000f, 0}};
+    eval();
+    CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
+    vector_fast_in.prequest.pvalid = 0;
   });
 }

@@ -16,6 +16,7 @@ import:
   "memory-ports.rhdl" open
   lib("cores/vector/decode.rhdl") open
   lib("cores/vector/bundles.rhdl") open
+  lib("cores/vector/precheck.rhdl").vector_fast_footprint_geometry
   lib("cores/mmu/vector.rhdl") open
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/rtl/vector.rhdl") open
@@ -58,6 +59,7 @@ import:
   lib("riscv/rtl/zihintntl.rhdl") open
   lib("rhodium/std/decode.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("riscv/rtl/pointer-masking.rhdl") open
@@ -141,6 +143,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   output translation_state: RV2WideTranslationState(xlen)
   output translation_flush: Bool
   interface vector_precheck(VectorPrecheck(), ~role: requester)
+  interface vector_fast(VectorFastCheck(xlen), ~role: requester)
   output(pipeline_vector, request_vector): Bool
 
   def fp_enabled = floating_point_supports_f(profile.floating_point)
@@ -173,6 +176,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   vector.pipeline <=> memory_ports.vector_pipeline
   vector.split <=> memory_ports.vector_split
   vector.precheck <=> vector_precheck
+  vector_fast.pipeline_physical <== vector.pipeline_physical
+  vector_fast.request_physical <== vector.request_physical
 
 
   /* Pipeline storage and stage paths.
@@ -728,6 +733,20 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       | wb_csrs.pointer_masking
 
     def ex_address = apply_pointer_mask(xlen, ex_raw_address, ex_mask)
+    // Only the proposed range is meaningful before MEM supplies a certificate.
+    def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.rs2)
+    def ex_vector_offset = ex_vector_geometry.start_offset[0..xlen.width]
+    def ex_vector_first_raw = mux(ex_vector_geometry.reverse, ex.rs1 - ex_vector_offset, ex.rs1 + ex_vector_offset)
+    def ex_vector_first_address = apply_pointer_mask(xlen, ex_vector_first_raw, ex_mask)
+    def ex_vector_first = if xlen == XLen.X32 | ex_vector_first_address.zext(64) | ex_vector_first_address
+    def ex_vector_no_wrap = !ex_vector_geometry.start_offset[xlen.width..68].or_reduce() & mux(ex_vector_geometry.reverse, ex.rs1 >= ex_vector_offset, ex_vector_first_raw >= ex.rs1) & (!ex_vector_geometry.strided ||| (ex_mask.mode === PointerMaskMode.Disabled))
+    def ex_vector_last_offset = ex_vector_first[0..12].zext(14) + ex_vector_geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
+    def ex_vector_one_page = (ex_vector_geometry.span_bytes <= Bits(68)(4096)) & (ex_vector_last_offset < Bits(14)(4096))
+    def ex_vector_aligned = !(ex_vector_first & ((Bits(64)(1) << ex_vector_geometry.eew) - Bits(64)(1))).or_reduce()
+    def ex_vector_range = VectorRange():
+      first: ex_vector_first.align_down(xlen.width / 8)
+      last: (ex_vector_first[12..64] ++ ex_vector_last_offset[0..12]) ||| Bits(64)(xlen.width / 8 - 1)
+      store: ex.control.vector.store
     def ex_data_guest:
       if profile.hypervisor
       | block:
@@ -812,7 +831,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       right: ex.rs2
       fp: ex.control.fp
       fp_request: ex.fp_request
-      vector: ex.vector.updated(~state: ex_vector_state)
+      vector_fast_eligible: ex_vector_geometry.eligible & !ex_vector_geometry.empty & ex_vector_no_wrap & ex_vector_one_page & ex_vector_aligned
+      vector: ex.vector.updated(~state: ex_vector_state, ~certificate: ex.vector.certificate.updated(~range: ex_vector_range))
       resolution:
         RV2WideResolution(xlen):
           guest: mux(ex.fetched.fault.valid, ex.fetched.fault.guest, ex_generated_guest)
@@ -901,6 +921,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   def mem_memory_lane = mux(mem_older.egress.valid & mem_older.egress.bits.memory.enable, Bits(1)(0), Bits(1)(1))
   def mem_memory :: RV2WideResult(xlen) = mux(mem_memory_lane === Bits(1)(0), mem_older.egress.bits, mem_younger.egress.bits)
+  def mem_vector_lane = mux(mem_older.egress.valid & mem_older.egress.bits.vector.control.memory, Bits(1)(0), Bits(1)(1))
+  def mem_vector :: RV2WideResult(xlen) = mux(mem_vector_lane === Bits(1)(0), mem_older.egress.bits, mem_younger.egress.bits)
+  // This read-only lookup must not depend on WB service readiness through squash.
+  // The normal MEM/WB transfer filter discards certificates of killed instructions.
+  vector_fast.request.valid <== mux(mem_vector_lane === Bits(1)(0), mem_older.egress.valid, mem_younger.egress.valid) & mem_vector.vector_fast_eligible & (mem_vector.resolution.disposition === RV2WideDisposition.Continue)
+  vector_fast.request.bits <== mem_vector.vector.certificate.range
   inst mem_load(LoadGen(xlen, xlen.width / 8))
   mem_load.address <== mem_memory.address
   mem_load.width <== mem_memory.memory.width
@@ -967,7 +993,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       ),
       ~data: mux(mem_hit, mem_load.value, mem.data),
       ~result_ready: mem.result_ready ||| mem_hit,
-      ~cache_outcome: mem_outcome
+      ~cache_outcome: mem_outcome,
+      ~vector: mem.vector.updated(~precertified: (mem_vector_lane === Bits(1)(lane)) & vector_fast.response.valid, ~certificate: vector_fast.response.bits)
     )
 
     mem_input |> filter_valid(_operation => !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].branch.mispredicted & mem_older.egress.valid))) |> map_valid(_operation => mem_resolved[lane]) |> mem_output
@@ -1109,10 +1136,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vector_ordered = !wb_vector.vector.control.memory ||| (wb_prior_memory_drained & !wb_load_response.pending & !wb_ordered_memory_pending)
   def wb_vector_results_available = !wb_vector_scalar_pending & !wb_vector_fpr_pending
   def wb_vector_fpr_available = !wb_vector.vector.control.floating_scalar_destination ||| !wb_vector.vector.control.floating_point ||| fp.drained
+  vector_fast.candidate <== wb_vector.vector.certificate
+  def wb_vector_masking_current = wb_vector.vector.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
+  def wb_vector_certified = wb_vector.vector.precertified & vector_fast.candidate_current & wb_vector_masking_current
   vector.request.valid <== wb_vector_offer & wb_vector_ordered & wb_vector_results_available & wb_vector_fpr_available
-  vector.request.bits <== wb_vector.vector
+  vector.request.bits <== wb_vector.vector.updated(~precertified: wb_vector_certified)
   def wb_vector_accepted = vector.request.fire()
-  def wb_vector_capture = wb_vector_accepted & wb_vector.vector.control.memory
+  def wb_vector_capture = wb_vector_accepted & wb_vector.vector.control.memory & !wb_vector_certified
   def wb_vector_replay = wb_vector_offer & !wb_vector_accepted
   wb_vector_scoreboard.set.valid <== wb_vector_accepted & wb_vector.write
   wb_vector_scoreboard.set.bits <== wb_vector.rd
@@ -1132,7 +1162,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   elsewhen (fp.vector_written.valid):
     wb_vector_fpr_pending <== Bool(#false)
 
-  wb_csrs.vector_retire.valid <== vector.retire.valid ||| (wb_vector_accepted & !wb_vector.vector.control.memory)
+  wb_csrs.vector_retire.valid <== vector.retire.valid ||| (wb_vector_accepted & (!wb_vector.vector.control.memory ||| wb_vector_certified))
 
   /* Ordinary scalar memory admission selects live WB context independently
      of the retained vector owner and of final service acceptance. */

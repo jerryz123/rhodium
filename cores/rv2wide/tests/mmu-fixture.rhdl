@@ -28,6 +28,7 @@ sync_circuit RV2WideMmuFixture():
   input guest_access: RiscvGuestMemoryAccess
   input vector_access: Bool
   interface vector_precheck(VectorPrecheck(), ~role: responder)
+  interface vector_fast(VectorFastCheck(XLen.X64), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   input fetch_valid: Bool
@@ -69,6 +70,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.pipeline_vector <== vector_access
   mmu.request_vector <== vector_access
   vector_precheck <=> mmu.vector_precheck
+  vector_fast |> mmu.vector_fast
   mmu.split_guest_access <== guest_access
   mmu.state <== RV2WideTranslationState(XLen.X64):
     pointer_masking: literal(PointerMaskControl(), 0)
