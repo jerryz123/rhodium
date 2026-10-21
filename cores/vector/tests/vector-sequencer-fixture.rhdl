@@ -31,7 +31,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   output(active, request_ready, legal, issued, committed, retried): Bool
   output result: VectorResultBeat(xlen, vlen)
   def profile = if xlen == XLen.X32 | VectorProfile.Zve32x | VectorProfile.V
-  inst decode(VectorTestDecoder(profile, vector_extensions))
+  inst decode(VectorTestDecoder(profile, vector_extensions, ~uncared_ones: #true))
   inst operation_legality(VectorOperationLegality(xlen, vlen, profile, vector_extensions))
   inst sequencer(VectorSequencer(xlen, vlen, Bits(xlen.width)))
   sequencer.blocked_rows <== Bits(VectorRegisterLayout(vlen, xlen.width).depth)(0).as_vec(Bool)

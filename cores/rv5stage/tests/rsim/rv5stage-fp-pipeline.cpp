@@ -472,23 +472,51 @@ int main() {
 
     // FCVTMOD.W.D returns the low 32 bits while retaining FCVT.W.D flags.
     load_register(21, UINT64_C(0x41f0000000100000), 2);
-    issue_in.pvalid = 1;
-    issue_in.pbits = {};
-    issue_in.pbits.pcontext = UINT64_C(0xf4);
-    issue_in.pbits.pcontrol.pregisters.puses_ufrs1 = 1;
-    issue_in.pbits.pcontrol.pregisters.pdestination = 1;
-    issue_in.pbits.pcontrol.pexecution.punit = 14;
-    issue_in.pbits.pcontrol.pexecution.psource_uprecision = 2;
-    issue_in.pbits.pcontrol.pexecution.pinteger_uwidth = 2;
-    issue_in.pbits.pfrs1 = 21;
-    issue_in.pbits.pfrd = 22;
-    accept([&] { return issue_out.pready; });
-    eval();
-    issue_in.pvalid = 0;
-    await_value([&] { return completion_out.pvalid; });
-    eval();
-    CHECK(completion_out.pbits.pinteger_uvalue == 1);
-    CHECK(completion_out.pbits.pexception_uflags == 16);
-    consume_completion();
+    for (unsigned modifiers = 0; modifiers < 8; ++modifiers) {
+      issue_in.pvalid = 1;
+      issue_in.pbits = {};
+      issue_in.pbits.pcontext = UINT64_C(0xf4);
+      issue_in.pbits.pcontrol.pregisters.puses_ufrs1 = 1;
+      issue_in.pbits.pcontrol.pregisters.pdestination = 1;
+      issue_in.pbits.pcontrol.pexecution.punit = 14;
+      issue_in.pbits.pcontrol.pexecution.psource_uprecision = 2;
+      issue_in.pbits.pcontrol.pexecution.pinteger_uwidth = modifiers & 3;
+      issue_in.pbits.pcontrol.pexecution.pinteger_uunsigned = modifiers >> 2;
+      issue_in.pbits.pfrs1 = 21;
+      issue_in.pbits.pfrd = 22;
+      accept([&] { return issue_out.pready; });
+      eval();
+      issue_in.pvalid = 0;
+      await_value([&] { return completion_out.pvalid; });
+      eval();
+      CHECK(completion_out.pbits.pinteger_uvalue == 1);
+      CHECK(completion_out.pbits.pexception_uflags == 16);
+      consume_completion();
+    }
+
+    // FP-to-FP conversion ignores integer width and signedness as well.
+    load_register(21, UINT64_C(0xc00c000000000000), 2); // -3.5
+    for (unsigned modifiers = 0; modifiers < 8; ++modifiers) {
+      issue_in.pvalid = 1;
+      issue_in.pbits = {};
+      issue_in.pbits.pcontrol.pregisters.puses_ufrs1 = 1;
+      issue_in.pbits.pcontrol.pregisters.pdestination = 2;
+      issue_in.pbits.pcontrol.pexecution.punit = 8;
+      issue_in.pbits.pcontrol.pexecution.psource_uprecision = 2;
+      issue_in.pbits.pcontrol.pexecution.pdestination_uprecision = 1;
+      issue_in.pbits.pcontrol.pexecution.puses_urounding_umode = 1;
+      issue_in.pbits.pcontrol.pexecution.pinteger_uwidth = modifiers & 3;
+      issue_in.pbits.pcontrol.pexecution.pinteger_uunsigned = modifiers >> 2;
+      issue_in.pbits.pfrs1 = 21;
+      issue_in.pbits.pfrd = 23;
+      accept([&] { return issue_out.pready; });
+      eval();
+      issue_in.pvalid = 0;
+      await_value([&] { return completion_out.pvalid; });
+      eval();
+      CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0xffffffffc0600000));
+      CHECK(completion_out.pbits.pexception_uflags == 0);
+      consume_completion();
+    }
   });
 }

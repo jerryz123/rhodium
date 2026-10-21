@@ -3,18 +3,45 @@
 
 import:
   "../decode.rhdl" open
+  "../mask.rhdl".VectorMaskScanControl
+  lib("cores/simd-alu.rhdl").SimdAluControl
+  lib("rhodium/frontend/support/hardware-literal.rhm").PackedLiteral
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/isa/v.rhm") open
   lib("rhodium/std/decode.rhdl") open
 
-circuit VectorTestDecoder(profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+circuit VectorTestDecoder(profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions, ~uncared_ones: uncared_ones :: Boolean = #false):
   input instruction: Bits(32)
   output valid: Bool
   output control: VectorControl()
   def fp_rows = VectorFloatingPointCases ++ VectorFloatingPointMoveCases
   def base = if vector_profile_supports_fp32(profile) | VectorControlCases | VectorControlCases.filter(~keep: fun (row): !fp_rows.contains(row))
   def rows = base ++ (if vector_extensions_support_zvbb(extensions) | VectorZvbbCases | [])
-  def decoded :: DecodeResult(VectorControl()) = ValidDecodeGen(rows)(instruction)
+  // Force the newly released fields high only where their authored care mask is zero.
+  // This exercises the real sequencer/legality/execute consumers, not just mask metadata.
+  def probe = partial_pattern(VectorControl()):
+    slide_up: Bool(#true)
+    slide_one: Bool(#true)
+    clip_unsigned: Bool(#true)
+    left_signed: Bool(#true)
+    right_signed: Bool(#true)
+    scan_control: PackedLiteral(VectorMaskScanControl(), 0)
+    invert_logic_result: Bool(#true)
+    invert_comparison: Bool(#true)
+    alu:
+      partial_pattern(SimdAluControl()):
+        signed_compare: Bool(#true)
+
+  def checked_rows:
+    if uncared_ones
+    | for List (row in rows):
+        def free_bits = probe.care_bits bits.and bits.not(row.output.care_bits)
+        DecodeCase(row.input, Pattern(
+          ~value: PackedLiteral(VectorControl(), row.output.value_bits bits.or free_bits),
+          ~care: PackedLiteral(VectorControl(), row.output.care_bits bits.or free_bits)
+        ))
+    | rows
+  def decoded :: DecodeResult(VectorControl()) = ValidDecodeGen(checked_rows)(instruction)
   valid <== decoded.valid
   control <== decoded.value
 

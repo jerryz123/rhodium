@@ -59,6 +59,10 @@ storage and its ordered attempt/release cursors.
 Keep this boundary independent of RV5Stage when adding another caller. Reuse
 component decode relations, but compose scalar decode columns in that caller.
 Do not add compatibility re-exports through the old named-core paths.
+Keep operation modifiers partial behind their consuming discriminator, including
+nested scan controls. Widening and narrowing both use signed operand preparation;
+do not free those fields on narrowing rows. FP rounding selection remains cared
+for dynamic, fixed-RTZ, and round-to-odd operations, but not nonrounding units.
 Preserve trace event labels and passive observation fields when moving code;
 instrumentation consumers depend on ownership and timing, not source location.
 
@@ -93,7 +97,10 @@ make check-boundaries
 
 The overlap fixture covers persistent response ownership across sequencer
 replacement; packed and RV32 fixtures cover transport and row geometry. The
-RV5Stage admission fixture checks the caller boundary. Add its vector-memory
+sequencer fixtures force selected uncared decode modifiers high to exercise
+their unobservability through legality, operand preparation, and writeback.
+Care-mask regressions remain in `../rv5stage/tests/vector-ctrl-test.rhm`.
+The RV5Stage admission fixture checks the caller boundary. Add its vector-memory
 and MMU replay fixtures for translation/LSU behavior changes, FP/muldiv fixtures
 for shared arithmetic changes, and cosim/event fixtures for observation changes.
 Use the managed Racket wrappers and keep generated HDL/native builds untracked.

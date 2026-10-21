@@ -744,8 +744,6 @@ def DoubleZfaExecutionCases = decode_groups(
   [zfa.FCVTMOD_W_D]:
     unit: FloatUnit.IntegerModulo
     source_precision: FloatPrecision.Double
-    integer_width: FloatIntegerWidth.Word
-    integer_unsigned: Bool(#false)
 
   [zfa.FLEQ_D]:
     unit: FloatUnit.Compare

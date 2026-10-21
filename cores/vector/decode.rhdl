@@ -1,5 +1,5 @@
 #lang rhodium
-/* Decodes RVV integer, extension, fixed-point, and memory controls with register-group
+/* Decodes partial RVV integer, floating-point, and memory controls with register-group
    legality. */
 // SPDX-License-Identifier: Apache-2.0
 
@@ -165,8 +165,9 @@ def VectorConfigurationCases = [
   config_case(VSETVL, VectorConfigMode.VtypeRegister)
 ]
 
-/* Builds packed integer controls and derives operand/immediate form from the instruction
-   format. */
+/* Builds partial packed-integer controls and derives operand/immediate form. Keep scan,
+   slide, clipping, and mask modifiers free outside their consumers; both widening and
+   narrowing use the signed operand-preparation controls. */
 fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~mask: mask :: Boolean = #false,
                  ~mask_logic: mask_logic :: Boolean = #false,
@@ -228,8 +229,8 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       reduction: Bool(reduction)
       scan: Bool(scan)
       slide: Bool(slide)
-      slide_up: Bool(slide_up)
-      slide_one: Bool(slide_one)
+      slide_up: if slide | Bool(slide_up) | pattern(Bool, _)
+      slide_one: if slide | Bool(slide_one) | pattern(Bool, _)
       gather: Bool(gather)
       gather_index16: Bool(gather_index16)
       compress: Bool(compress)
@@ -237,20 +238,20 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       narrowing: Bool(narrowing)
       rounding: Bool(rounding)
       clip: Bool(clip)
-      clip_unsigned: Bool(clip_unsigned)
+      clip_unsigned: if clip | Bool(clip_unsigned) | pattern(Bool, _)
       wide_vs2: Bool(wide_vs2)
-      left_signed: Bool(left_signed)
-      right_signed: Bool(right_signed)
+      left_signed: if widening || narrowing | Bool(left_signed) | pattern(Bool, _)
+      right_signed: if widening || narrowing | Bool(right_signed) | pattern(Bool, _)
       scan_control:
-        VectorMaskScanControl():
-          result: scan_result
-          index: Bool(scan_index)
-          include_first: Bool(include_first)
-          only_first: Bool(only_first)
+        partial_pattern(VectorMaskScanControl()):
+          result: if scan | scan_result | pattern(VectorScanResult, _)
+          index: if scan | Bool(scan_index) | pattern(Bool, _)
+          include_first: if scan && scan_result == VectorScanResult.Mask | Bool(include_first) | pattern(Bool, _)
+          only_first: if scan && scan_result == VectorScanResult.Mask | Bool(only_first) | pattern(Bool, _)
 
       uses_vs2: Bool(uses_vs2)
-      invert_logic_result: Bool(invert_logic)
-      invert_comparison: Bool(invert)
+      invert_logic_result: if mask_logic | Bool(invert_logic) | pattern(Bool, _)
+      invert_comparison: if mask && (!mask_logic) && (!scan) | Bool(invert) | pattern(Bool, _)
       swap_operands: Bool(swap)
       alu: alu
   )
@@ -439,13 +440,11 @@ def vmseq_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Equal
   mask_result_select: SimdMaskResultSelect.Comparison
-  signed_compare: Bool(#false)
 
 def vmsne_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Equal
   mask_result_select: SimdMaskResultSelect.Comparison
-  signed_compare: Bool(#false)
 
 def vmsltu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
@@ -860,8 +859,8 @@ def VectorFaultOnlyFirstMemoryCases = fault_only_first_memory_cases(VectorFaultO
 def VectorMaskMemoryCases = mask_memory_cases(VectorMaskMemoryInstructions)
 def VectorWholeRegisterMemoryCases = whole_register_memory_cases(VectorWholeRegisterMemoryInstructions)
 def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases ++ VectorFaultOnlyFirstMemoryCases ++ VectorMaskMemoryCases ++ VectorWholeRegisterMemoryCases
-/* Builds shared-service vector FP controls, including source/result interpretation and
-   width-change eligibility. */
+/* Builds shared-service vector FP controls, preserving fixed conversion rounding while
+   leaving the rounding selector free for units that do not consume it. */
 fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
                         ~uses_vs1: uses_vs1 :: Boolean = #true,
                         ~mask_destination: mask_destination :: Boolean = #false,
@@ -877,6 +876,9 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
                         ~zvfhmin_e16: zvfhmin_e16 :: Boolean = #false,
                         ~wide_float: wide_float :: Boolean = #false,
                         ~wide_vs2: wide_vs2 :: Boolean = #false):
+  def dynamic_rounding = partial_pattern(FloatExecutionControl()):
+    uses_rounding_mode: Bool(#true)
+
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(VectorControl()):
@@ -893,7 +895,7 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
       fp_uses_vs1: Bool(uses_vs1)
       fp_source: source
       fp_result: if mask_destination | VectorFloatResult.Mask | result
-      fp_rounding: rounding
+      fp_rounding: if rounding != VectorFloatRounding.Dynamic || execution.overlaps(dynamic_rounding) | rounding | pattern(VectorFloatRounding, _)
       reduction: Bool(reduction)
       widening: Bool(widening)
       narrowing: Bool(narrowing)
@@ -904,8 +906,8 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
       swap_operands: Bool(swap)
   )
 
-/* Constrains only the selected FP unit's modifiers and leaves inactive unit fields
-   unconstrained. */
+/* Constrains only the selected FP unit's modifiers. Integer conversions explicitly select
+   signedness; FP-to-FP conversions leave the unused integer interpretation free. */
 fun fp_unit(unit :: FloatUnit,
             ~rounding: rounding :: Boolean = #false,
             ~fused: fused :: MulAddOperation = MulAddOperation.MultiplyAdd,
@@ -916,7 +918,7 @@ fun fp_unit(unit :: FloatUnit,
             ~estimate: estimate :: Estimate7Operation = Estimate7Operation.Reciprocal,
             ~comparison: comparison :: FloatComparison = FloatComparison.Equal,
             ~signaling: signaling :: Boolean = #false,
-            ~unsigned: unsigned :: Boolean = #false):
+            ~unsigned: unsigned :: Boolean || Pattern = pattern(Bool, _)):
   partial_pattern(FloatExecutionControl()):
     unit: unit
     uses_rounding_mode: Bool(rounding)
@@ -928,7 +930,7 @@ fun fp_unit(unit :: FloatUnit,
     estimate_operation: if unit == FloatUnit.Estimate | estimate | pattern(Estimate7Operation, _)
     comparison: if unit == FloatUnit.Compare | comparison | pattern(FloatComparison, _)
     comparison_signaling: if unit == FloatUnit.Compare | Bool(signaling) | pattern(Bool, _)
-    integer_unsigned: if unit == FloatUnit.Convert | Bool(unsigned) | pattern(Bool, _)
+    integer_unsigned: if unsigned is_a Boolean | Bool(unsigned) | unsigned
 
 def VectorFloatingPointCases = [
   floating_point_case(VFADD_VV, fp_unit(FloatUnit.Add, ~rounding: #true)),
@@ -1006,26 +1008,26 @@ def VectorFloatingPointCases = [
   floating_point_case(VFWREDUSUM_VS, fp_unit(FloatUnit.Add, ~rounding: #true), ~reduction: #true, ~widening: #true),
   floating_point_case(VFWREDOSUM_VS, fp_unit(FloatUnit.Add, ~rounding: #true), ~reduction: #true, ~widening: #true),
   floating_point_case(VFCVT_XU_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
-  floating_point_case(VFCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
+  floating_point_case(VFCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
   floating_point_case(VFCVT_F_XU_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer),
-  floating_point_case(VFCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer),
+  floating_point_case(VFCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~source: VectorFloatSource.Integer),
   floating_point_case(VFCVT_RTZ_XU_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
-  floating_point_case(VFCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
+  floating_point_case(VFCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
   floating_point_case(VFWCVT_XU_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
+  floating_point_case(VFWCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
   floating_point_case(VFWCVT_F_XU_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
-  floating_point_case(VFWCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
+  floating_point_case(VFWCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
   floating_point_case(VFWCVT_F_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~widening: #true, ~zvfhmin_e16: #true),
   floating_point_case(VFWCVT_RTZ_XU_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
-  floating_point_case(VFWCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
+  floating_point_case(VFWCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
   floating_point_case(VFNCVT_XU_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
-  floating_point_case(VFNCVT_X_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
+  floating_point_case(VFNCVT_X_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
   floating_point_case(VFNCVT_F_XU_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
-  floating_point_case(VFNCVT_F_X_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
+  floating_point_case(VFNCVT_F_X_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
   floating_point_case(VFNCVT_F_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~narrowing: #true, ~zvfhmin_e16: #true),
   floating_point_case(VFNCVT_ROD_F_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~rounding: VectorFloatRounding.RoundToOdd, ~narrowing: #true),
   floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true),
-  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true)
+  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true)
 ]
 
 /* Builds FP move/merge/slide controls that use vector routing without issuing FP arithmetic. */
@@ -1053,8 +1055,8 @@ fun floating_move_case(instruction :: InstructionSpec,
       element_move: Bool(element_move)
       floating_scalar_destination: Bool(floating_scalar_destination)
       slide: Bool(slide)
-      slide_up: Bool(slide_up)
-      slide_one: Bool(slide)
+      slide_up: if slide | Bool(slide_up) | pattern(Bool, _)
+      slide_one: if slide | Bool(#true) | pattern(Bool, _)
       uses_vs2: Bool(uses_vs2)
       alu: if slide | vslide_control | vselect_control
   )
@@ -1070,7 +1072,6 @@ def VectorFloatingPointMoveCases = [
 
 def VectorDivideCases = for List (instruction in VectorDivideInstructions):
   def signed_left = [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
-  def signed_right = [VMULH_VV, VMULH_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(VectorControl()):
@@ -1083,7 +1084,6 @@ def VectorDivideCases = for List (instruction in VectorDivideInstructions):
       divide: Bool(#true)
       multiply_accumulate: Bool(#false)
       left_signed: Bool(signed_left)
-      right_signed: Bool(signed_right)
       remainder: Bool([VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction))
   )
 

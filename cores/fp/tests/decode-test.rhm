@@ -131,6 +131,8 @@ check:
   field_pattern(quiet_execution, "comparison_signaling").matches(bool.Bool(#false)) ~is #true
   field_pattern(modulo_registers, "destination").matches(controls.FloatDestination.Integer) ~is #true
   field_pattern(modulo_execution, "unit").matches(controls.FloatUnit.IntegerModulo) ~is #true
+  field_pattern(modulo_execution, "integer_width").care_bits ~is 0
+  field_pattern(modulo_execution, "integer_unsigned").care_bits ~is 0
   controls.fp_profile_supported(XLen.X32, FloatingPointProfile.F) ~is #true
   controls.fp_profile_supported(XLen.X64, FloatingPointProfile.D) ~is #true
   controls.fp_profile_supported(XLen.X32, FloatingPointProfile.D) ~is #false

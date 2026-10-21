@@ -48,6 +48,53 @@ fun core_control(instruction):
 fun zvbb_core_control(instruction):
   VectorZvbbCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
+// Check the emitted relation, not whichever zero/one a minimizer chooses for a wildcard.
+for (instruction in [VADD_VV, VSUB_VX, VAND_VI, VMIN_VV, VMSLT_VV]):
+  def care = control_pattern(instruction).care
+  for (name in ["scan_control", "clip_unsigned", "slide_up", "slide_one", "left_signed", "right_signed", "invert_logic_result"]):
+    check: value(care, name) ~is 0
+
+for (instruction in [VADD_VV, VAND_VI, VMNAND_MM, VMSBF_M]):
+  check: value(control_pattern(instruction).care, "invert_comparison") ~is 0
+
+for (instruction in [VMSEQ_VV, VMSNE_VX]):
+  check: value(field(control_pattern(instruction).care, "alu"), "signed_compare") ~is 0
+
+for (instruction in [VWADD_VV, VNSRL_WV, VNCLIP_WX]):
+  check:
+    value(control_pattern(instruction).care, "left_signed") ~is 1
+    value(control_pattern(instruction).care, "right_signed") ~is 1
+
+for (instruction in [VMSBF_M, VMSIF_M, VMSOF_M]):
+  def care = field(control_pattern(instruction).care, "scan_control")
+  check:
+    value(care, "include_first") ~is 1
+    value(care, "only_first") ~is 1
+
+for (instruction in [VCPOP_M, VFIRST_M, VIOTA_M, VID_V]):
+  def care = field(control_pattern(instruction).care, "scan_control")
+  check:
+    value(care, "include_first") ~is 0
+    value(care, "only_first") ~is 0
+    value(care, "index") ~is 1
+
+for (instruction in [VFSGNJ_VV, VFCLASS_V, VFMIN_VV, VMFEQ_VV, VFRSQRT7_V]):
+  check: value(control_pattern(instruction).care, "fp_rounding") ~is 0
+
+for (instruction in [VFADD_VV, VFREC7_V, VFCVT_RTZ_X_F_V, VFNCVT_ROD_F_F_W]):
+  check: value(control_pattern(instruction).care, "fp_rounding") ~is 3
+
+for (instruction in [VFWCVT_F_F_V, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W]):
+  check: value(field(control_pattern(instruction).care, "fp_execution"), "integer_unsigned") ~is 0
+
+for (instruction in [VFCVT_X_F_V, VFCVT_F_X_V, VFNCVT_RTZ_X_F_W, VFCVT_XU_F_V]):
+  check: value(field(control_pattern(instruction).care, "fp_execution"), "integer_unsigned") ~is 1
+
+for (instruction in [VFMV_V_F, VFMERGE_VFM, VFMV_F_S, VFMV_S_F]):
+  check:
+    value(control_pattern(instruction).care, "slide_up") ~is 0
+    value(control_pattern(instruction).care, "slide_one") ~is 0
+
 check:
   value(control(VMV_X_S), "scalar_destination") ~is 1
   value(control(VFWCVT_F_F_V), "fp_zvfhmin_e16") ~is 1
@@ -252,7 +299,7 @@ for (instruction in VectorDivideInstructions, index in 0..8):
     value(decoded, "divide") ~is 1
     value(decoded, "multiply_accumulate") ~is 0
     value(decoded, "left_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
-    value(decoded, "right_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
+    value(care, "right_signed") ~is 0
     value(decoded, "remainder") ~is (if operation >= 2 | 1 | 0)
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
     value(care, "store") ~is 0
