@@ -1,0 +1,50 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("cores/simd-multiplier.rhdl") open
+
+sync_circuit SimdMultiplierFixture():
+  interface request32(Valid(SimdMultiplyAccumulateRequest(32)), ~role: consumer)
+  interface request64(Valid(SimdMultiplyAccumulateRequest(64)), ~role: consumer)
+  interface raw32(Valid(SimdMultiplyProducts(32)), ~role: producer)
+  interface raw64(Valid(SimdMultiplyProducts(64)), ~role: producer)
+  interface result32(Valid(SimdMultiplyResult(32)), ~role: producer)
+  interface result64(Valid(SimdMultiplyResult(64)), ~role: producer)
+  interface request_self64(Valid(SimdMultiplyAccumulateRequest(64)), ~role: consumer)
+  interface raw_self64(Valid(SimdMultiplyProducts(64)), ~role: producer)
+  interface result_self64(Valid(SimdMultiplyResult(64)), ~role: producer)
+  input scalar_product: SimdMultiplyProducts(64)
+  input scalar_context: SimdMultiplyContext(64)
+  output scalar_result: SimdMultiplyResult(64)
+  input scalar32_product: SimdMultiplyProducts(32)
+  input scalar32_context: SimdMultiplyContext(32)
+  output scalar32_result: SimdMultiplyResult(32)
+  inst mul32(SimdMultiplier(32, 16))
+  inst mul64(SimdMultiplier(64, 32))
+  inst mac32(SimdMultiplyAccumulate(32, 16))
+  inst mac64(SimdMultiplyAccumulate(64, 32))
+  inst mul_self64(SimdMultiplier(64, 64))
+  inst mac_self64(SimdMultiplyAccumulate(64, 64))
+  def Array(a_self64, b_self64) = request_self64 |> fork_valid(2)
+  a_self64 |> map_valid(operation => operation.operands) |> mul_self64.request
+  b_self64 |> mac_self64.request
+  mul_self64.response |> raw_self64
+  mac_self64.response |> result_self64
+  def Array(a32, b32) = request32 |> fork_valid(2)
+  def Array(a64, b64) = request64 |> fork_valid(2)
+  a32 |> map_valid(operation => operation.operands) |> mul32.request
+  a64 |> map_valid(operation => operation.operands) |> mul64.request
+  b32 |> mac32.request
+  b64 |> mac64.request
+  mul32.response |> raw32
+  mul64.response |> raw64
+  mac32.response |> result32
+  mac64.response |> result64
+  scalar_result <== simd_multiply_result(64, scalar_product, scalar_context)
+  scalar32_result <== simd_multiply_result(32, scalar32_product, scalar32_context)
+
+def program = elaborate(SimdMultiplierFixture())
+export program

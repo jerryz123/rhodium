@@ -189,6 +189,23 @@ its selected-element count; cross-word suffixes and architectural progress
 belong to the caller. Keep RVV register layout and architectural policy outside
 these reusable components.
 
+`simd-multiplier.rhdl` shares the existing three-stage `PipelinedMultiplier`
+arithmetic through banks derived from physical word width and maximum element
+width, independently of XLEN. Each byte-offset slot gets the largest supported
+multiplier aligned to that offset. A 64-bit bank's byte-offset order is
+64/8/16/8/32/8/16/8; a 32-bit bank uses 32/8/16/8. Wider slots extend narrower
+operands; product routing selects each lane's full result. Lowering the maximum
+element width repeats smaller banks and leaves larger elements to caller-owned
+execution resources. This follows the
+sharing principle in [Saturn's segmented multiplier](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/SegmentedMultiplyPipe.scala),
+using the repository's existing multiplier implementation rather than importing
+another arithmetic implementation.
+Result context advances separately for the same three cycles; a fourth stage
+registers the numeric projection. The formatter's guarded-byte adder prevents
+cross-element carry and remains independent of vector scheduling or writeback.
+Keep scalar-product formatting usable without instantiating another multiplier;
+the pipeline prunes unused projections through `~max_element_width`.
+
 ## Focused validation
 
 The direct SIMD fixture checks exhaustive byte operand pairs and directed or
@@ -213,6 +230,17 @@ do not reintroduce operand-dependent shortcuts or completed-product storage.
 ```sh
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
 FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' python3 tools/testing/rsim/run.py
+```
+
+`simd-multiplier` checks `(32, 16)`, `(64, 32)`, and self-contained `(64, 64)`
+geometry, exhaustive byte products under
+all signedness combinations, directed and randomized wider lanes, both widening
+halves, accumulating/subtracting results, all fractional rounding modes and
+saturation, exact three/four-cycle latency, bubbles, and reset while occupied.
+It also checks scalar-produced full-width products through the common formatter.
+
+```sh
+python3 tools/testing/rsim/run.py --fixture simd-multiplier
 ```
 
 `memory-decode.rhdl` generates active scalar/atomic/cache-block rows into caller-shaped

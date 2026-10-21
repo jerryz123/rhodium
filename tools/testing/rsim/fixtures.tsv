@@ -50,6 +50,7 @@ load-store	cores-components	cores/tests/rsim/emit-load-store.rhm	program	cores/t
 load-store-rv32-word	cores-components	cores/tests/rsim/emit-load-store-rv32-word.rhm	program	cores/tests/rsim/load-store-rv32-word.cpp
 rv64i-alu-integrated	cores-components	examples/cores/decoded-alu.rhdl	program	cores/tests/rsim/rv64i-alu-integrated.cpp
 pipelined-multiplier	cores-components	cores/tests/rsim/emit-pipelined-multiplier.rhm	program	cores/tests/rsim/pipelined-multiplier.cpp
+simd-multiplier	cores-components	cores/tests/rsim/emit-simd-multiplier.rhm	program	cores/tests/rsim/simd-multiplier.cpp
 hardfloat-numeric	hardfloat	hardfloat/tests/numeric-fixture.rhdl	program	hardfloat/tests/rsim/numeric.cpp
 hardfloat-representation	hardfloat	hardfloat/tests/representation-fixture.rhdl	program	hardfloat/tests/rsim/representation.cpp
 hardfloat-divide-sqrt	hardfloat	hardfloat/tests/divide-sqrt-fixture.rhdl	program	hardfloat/tests/rsim/divide-sqrt.cpp

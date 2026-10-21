@@ -40,6 +40,7 @@ each core composes its extension domains and dedicated execution-unit routing.
 | [`MemoryResponseCapture(Context, Result)`](memory-response.rhdl) | Same-cycle `Valid` context and optional response, plus a local fallback | Context passes combinationally; result arrives one cycle later; payload captures even in bubbles | Response pairing and result storage, with structural lineage from both inputs | Parallel instruction/control capture, response selection policy, recovery, and retirement |
 | [`IterativeMultiplier(width)`](multiplier.rhdl) | `Decoupled(MultiplierRequest)` to an `Irrevocable` double-width product | One request at a time; one magnitude-preparation cycle after capture, then one multiplier bit per cycle; response stays stable until accepted; may replace a response as it is consumed | Signed/unsigned magnitude handling and the complete product | Low/high/word projection and architectural destination |
 | [`PipelinedMultiplier(width)`](multiplier.rhdl) | Power-of-two width of at least two; `Valid(MultiplierRequest)` to a `Valid` double-width product | Three feed-forward stages; accepts and advances one request per cycle with fixed latency and no backpressure | Four raw half-width products, signed corrections, carry-save reduction, and one final sum | Write-cycle reservations or elastic return credits, low/high/word projection, and architectural destination |
+| [`SimdMultiplier(width, max_element_width)` / `SimdMultiplyAccumulate(width, max_element_width)`](simd-multiplier.rhdl) | Physical word width and largest element width, packed operands, independent signedness; optional addend and result controls | Three cycles for full products, four for formatted results; `Valid` input/output, one request per cycle | Shared tapered multipliers, product packing, low/high/widened projection, lane-isolated MAC, fractional rounding and saturation | Operand routing, masks, issue/return reservations, scalar sharing, and vector/core integration |
 | [`IterativeDivider(width)`](divider.rhdl) | `Decoupled(DividerRequest)` to an `Irrevocable(DividerResponse)` | One request at a time; trivial operands complete directly, otherwise leading-zero quotient work is skipped before resolving one remaining bit per cycle and finalizing signs; response stays stable until accepted; may replace a response as it is consumed | Quotient, remainder, divide-by-zero, and fixed-width signed-overflow behavior | Quotient/remainder/word projection and architectural destination |
 
 ### Tagged integer services
@@ -155,6 +156,74 @@ consecutive low lanes, clears unused output lanes, and reports a count from zero
 through the number of physical lanes. Selection bits above the active lane count
 are ignored. It is a stateless word-local primitive; a vector implementation
 must retain cross-word remnants and authorize destination writes itself.
+
+### Packed SIMD multiplication
+
+Import `lib("cores/simd-multiplier.rhdl")`. Instantiate
+`SimdMultiplier(width, max_element_width)` for raw products, or
+`SimdMultiplyAccumulate(width, max_element_width)` for a complete numerical
+result pipeline. These physical dimensions are independent of core XLEN.
+Both are standalone components; neither is connected to the vector engine yet.
+
+| Parameters | Multiplier banks | Products per cycle |
+|---|---|---|
+| `(32, 16)` | Two 16/8 banks | 4x8 or 2x16 |
+| `(64, 32)` | Two 32/16/8/8 banks | 8x8, 4x16, or 2x32 |
+| `(64, 64)` | One 64/32/16/16/8/8/8/8 bank | 8x8, 4x16, 2x32, or 1x64 |
+
+`width` is a power-of-two physical word size of at least eight bits;
+`max_element_width` is one of 8, 16, 32, or 64 and cannot exceed `width`.
+All power-of-two element widths from eight through that limit are supported.
+The word contains repeated banks, so wider physical words do not require wider
+elements. Choosing a smaller element limit leaves larger elements to another
+datapath; choosing 64 permits self-contained 64-bit multiplication. Scalar
+sharing is caller policy, not a property inferred from XLEN.
+
+An asserted raw request with an unsupported width fails the component assertion.
+Each accepted word produces `2*width` bits: product lane zero is at the least-significant end,
+and each product occupies twice its source element width. Signedness applies
+independently to the two operands. Element width is retained with the products.
+
+The guaranteed timing is:
+
+```text
+Valid operands -> partial products -> carry-save reduction -> final products
+                                                            | three cycles
+                                   result processing -> registered result
+                                                        | four cycles total
+```
+
+There is no backpressure, operand-dependent timing, or completion storage.
+Successive requests may change widths and controls. Synchronous reset clears
+all in-flight validity, not otherwise-unobservable payloads.
+
+`SimdMultiplyAccumulateRequest` supplies `operands` and a `context` containing
+one physical word of `addend` and `SimdMultiplyControl`. `select` chooses `Low`, `High`,
+`Wide`, or `Fractional`. `Wide` selects one half of the packed full products
+using `upper_half`, giving one physical destination beat with doubled element
+width. The doubled element must fit the physical word and be at most 64 bits;
+invalid widening requests fail the component assertion. Two requests with
+different halves cover a full source word; sequencing
+and destination selection remain outside the component. When `accumulate` is
+true, the selected result is added to or subtracted from `addend`, according to
+`subtract`, modulo each destination element width. Carries never cross lanes.
+The caller supplies the actual multiplicands/addend for each instruction form.
+
+`Fractional` requires signed multiplicands, rounds the product divided by
+2^(SEW-1) according to `SimdRoundingMode`, then clips to the signed SEW range.
+It ignores `accumulate` and `subtract`. Other selections ignore rounding;
+only `Wide` observes `upper_half`. The result's `saturated` mask replicates
+each element's saturation onto its destination bytes; it is zero for other
+selections. The caller qualifies this mask with active byte enables before
+updating architectural saturation state. No mask, tail, CSR, or instruction
+state is maintained here.
+
+`simd_multiply_result(width, products, context)` exposes the combinational
+formatter independently, including for products supplied by a scalar multiplier.
+Its host `~max_element_width` defaults to `min(width, 64)`; the pipeline passes
+its configured limit to omit unused projection and rounding logic. The helper
+creates no multiplier, and its caller must satisfy the same source-width and
+widening constraints. The component does not promise a synthesized frequency or area.
 
 ### Scalar memory and multicycle engines
 

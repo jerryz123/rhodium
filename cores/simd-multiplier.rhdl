@@ -1,0 +1,238 @@
+#lang rhodium
+/* Computes width-configurable packed products through shared tapered multiplier banks. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+  "multiplier.rhdl" open
+  "simd-alu.rhdl" open
+
+def SimdMultiplierStages :: PosInt = PipelinedMultiplierStages
+def SimdMultiplyAccumulateStages :: PosInt = SimdMultiplierStages + 1
+
+/* Select a source-width product projection or one widened destination word. */
+hardware_enum SimdMultiplySelect:
+  Low
+  High
+  Wide
+  Fractional
+
+/* Describe physical-word operands independently of core XLEN or execution ownership. */
+bundle SimdMultiplyRequest(width :: Pow2Int):
+  left: Bits(width)
+  right: Bits(width)
+  mode: MultiplierMode()
+  element_width: SimdElementWidth
+
+/* Retain the source width beside lane-ordered double-width products, low lane first. */
+bundle SimdMultiplyProducts(width :: Pow2Int):
+  data: Bits(width * 2)
+  element_width: SimdElementWidth
+
+/* Configure projection and optional addend +/- product; fractional ignores accumulate/subtract. */
+bundle SimdMultiplyControl():
+  select: SimdMultiplySelect
+  upper_half: Bool
+  accumulate: Bool
+  subtract: Bool
+  rounding_mode: SimdRoundingMode
+
+/* Retain only result-processing context beside the multiplication pipeline. */
+bundle SimdMultiplyContext(width :: Pow2Int):
+  addend: Bits(width)
+  control: SimdMultiplyControl()
+
+/* Supply numerical operands and result processing without instruction or destination ownership. */
+bundle SimdMultiplyAccumulateRequest(width :: Pow2Int):
+  operands: SimdMultiplyRequest(width)
+  context: SimdMultiplyContext(width)
+
+/* Report packed data and byte-replicated saturation; the caller qualifies active elements. */
+bundle SimdMultiplyResult(width :: Pow2Int):
+  data: Bits(width)
+  saturated: Mask(width / 8)
+
+/* Sign- or zero-extend a narrow operand into one physical multiplier slot. */
+fun simd_multiply_extend(width :: PosInt, source :: Bits(width), target :: PosInt, signed_mode :: Bool) :~ Bits(target):
+  if width == target
+  | source
+  | mux(signed_mode, source.into(SInt(width)).sext(target).as_bits(), source.zext(target))
+
+/* Validate physical geometry and enumerate source widths up to the selected largest multiplier. */
+fun simd_multiply_formats(width :: Pow2Int, max_element_width :: Pow2Int) :: List.of(PosInt):
+  unless width >= 8 && max_element_width >= 8 && max_element_width <= 64 && max_element_width <= width
+  | error(~who: #'SimdMultiplier, "require a byte-sized word and an element limit from 8 to min(word width, 64)")
+  [8, 16, 32, 64].filter(~keep: fun (element): element <= max_element_width)
+
+/*
+ * Repeat a tapered bank for every max_element_width bits in the physical word.
+ * Each byte-offset slot uses the largest aligned multiplier, sharing it with
+ * narrower elements. All widths use the same three feed-forward arithmetic stages.
+ */
+sync_circuit SimdMultiplier(width :: Pow2Int, max_element_width :: Pow2Int):
+  interface request(Valid(SimdMultiplyRequest(width)), ~role: consumer)
+  interface response(Valid(SimdMultiplyProducts(width)), ~role: producer)
+  def slots = width / 8
+  def copies = request |> fork_valid(slots + 1)
+  def formats = simd_multiply_formats(width, max_element_width)
+  def widths = SimdElementWidth.values().take(formats.length())
+  def capacities = for List (index in 0..slots):
+    def aligned = formats.filter(~keep: fun (element): (index * 8) mod element == 0)
+    aligned[aligned.length() - 1]
+
+  when (request.valid):
+    assert(request.bits.element_width.is_one_of(widths), "simd_multiply_element_width")
+
+  def products = for List (index in 0..slots):
+    def capacity = capacities[index]
+    def base = index * 8
+    inst multiply(PipelinedMultiplier(capacity))
+    (copies[index] |> map_valid(operation):
+      def choices = for List (element in formats.filter(~keep: fun (element): element <= capacity)):
+        def a = operation.left[base..base + element]
+        def b = operation.right[base..base + element]
+        MultiplierRequest(capacity):
+          left: simd_multiply_extend(element, a, capacity, operation.mode.left_signed)
+          right: simd_multiply_extend(element, b, capacity, operation.mode.right_signed)
+          mode: operation.mode
+
+      def first :: MultiplierRequest(capacity) = choices[0]
+      if choices.length() == 1
+      | first
+      | mux_lookup(operation.element_width, ~default: first, for List (choice in 1..choices.length()): [widths[choice], choices[choice]])
+    ) |> multiply.request
+    multiply.response.bits
+
+  def selected_width = copies[slots] |> map_valid(operation => operation.element_width) |> valid_pipe(SimdMultiplierStages)
+  (selected_width |> map_valid(element_width):
+    def choices = for List (element in formats, code in widths):
+      def lanes = for List (lane in 0..(width / element)):
+        def product :: Bits(capacities[lane * element / 8] * 2) = products[lane * element / 8]
+        product[0..element * 2]
+
+      [code, if lanes.length() == 1 | lanes[0] | concat(lanes.reverse())]
+
+    SimdMultiplyProducts(width):
+      data: mux_lookup(element_width, ~default: choices[0][1], choices)
+      element_width: element_width
+  ) |> response
+
+
+/* Preserve rounding overflow until a signed fractional result is clipped. */
+bundle SimdFractionalProduct(width :: PosInt):
+  data: Bits(width)
+  saturated: Bool
+
+/* Round product / 2^(width-1), then saturate to the signed source-width range. */
+fun simd_fractional_product(width :: PosInt, product :: Bits(width * 2), rounding_mode :: SimdRoundingMode) :~ SimdFractionalProduct(width):
+  def distance = width - 1
+  def shifted = (product.into(SInt(width * 2)) >> distance).as_bits()
+  def round_bit = product[distance - 1].into(Bool)
+  def discarded = product[0..distance].or_reduce()
+  def below_round = product[0..distance - 1].or_reduce()
+  def increment = mux_lookup(rounding_mode, ~default: round_bit, [
+    [SimdRoundingMode.NearestEven, round_bit & (below_round ||| shifted[0].into(Bool))],
+    [SimdRoundingMode.Down, Bool(#false)],
+    [SimdRoundingMode.Odd, !shifted[0].into(Bool) & discarded]
+  ])
+  def rounded = shifted + increment.as_bits().zext(width * 2)
+  def low = rounded[0..width]
+  def overflow = rounded[width..width * 2] =/= mux(low[width - 1].into(Bool), !Bits(width)(0), Bits(width)(0))
+  def limit = mux(rounded[width * 2 - 1].into(Bool), Bits(width)(1 << (width - 1)), Bits(width)((1 << (width - 1)) - 1))
+  SimdFractionalProduct(width):
+    data: mux(overflow, limit, low)
+    saturated: overflow
+
+/* Use byte guards to add or subtract without carries crossing runtime element boundaries. */
+fun simd_multiply_add(width :: Pow2Int, element_width :: SimdElementWidth, left :: Bits(width), right :: Bits(width), subtract :: Bool) :~ Bits(width):
+  def inverted = mux(subtract, !right, right)
+  def boundaries = for List (byte in 0..width / 8):
+    mux_lookup(element_width, ~default: Bool(#true), [
+      [SimdElementWidth.E16, Bool(byte mod 2 == 0)],
+      [SimdElementWidth.E32, Bool(byte mod 4 == 0)],
+      [SimdElementWidth.E64, Bool(byte mod 8 == 0)]
+    ])
+  def a = for List (byte in 0..width / 8):
+    left[byte * 8..byte * 8 + 8] ++ mux(boundaries[byte], subtract, Bool(#true)).as_bits()
+  def b = for List (byte in 0..width / 8):
+    inverted[byte * 8..byte * 8 + 8] ++ (boundaries[byte] & subtract).as_bits()
+  def left_guarded :: Bits(width / 8 * 9) = if width == 8 | a[0] | concat(a.reverse())
+  def right_guarded :: Bits(width / 8 * 9) = if width == 8 | b[0] | concat(b.reverse())
+  def sum = left_guarded + right_guarded
+  if width == 8 | sum[1..9] | concat((for List (byte in 0..width / 8): sum[byte * 9 + 1..byte * 9 + 9]).reverse())
+
+/*
+ * Format full products into one physical destination word. Wide selects a source
+ * half before accumulation; carries never cross destination elements. The host
+ * element limit prunes unused projection/rounding logic without creating multipliers.
+ */
+fun simd_multiply_result(width :: Pow2Int, products :: SimdMultiplyProducts(width), context :: SimdMultiplyContext(width), ~max_element_width: max_element_width :: Pow2Int = math.min(width, 64)) :~ SimdMultiplyResult(width):
+  def formats = simd_multiply_formats(width, max_element_width)
+  def codes = [SimdElementWidth.E8, SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
+  def projections = for List (element in formats, code in codes):
+    def lanes = for List (lane in 0..width / element):
+      def product = products.data[lane * element * 2..(lane + 1) * element * 2]
+      def fraction = simd_fractional_product(element, product, context.control.rounding_mode)
+      def data = mux_lookup(context.control.select, ~default: product[0..element], [
+        [SimdMultiplySelect.High, product[element..element * 2]],
+        [SimdMultiplySelect.Fractional, fraction.data]
+      ])
+
+      SimdFractionalProduct(element):
+        data: data
+        saturated: fraction.saturated
+
+    def data = lanes.map(fun (lane :: SimdFractionalProduct(element)): lane.data)
+    def saturation = for List (lane :: SimdFractionalProduct(element) in lanes):
+      if element == 8 | lane.saturated.as_bits() | concat(for List (byte in 0..element / 8): lane.saturated.as_bits())
+
+    def saturation_bits :: Bits(width / 8) = if saturation.length() == 1 | saturation[0] | concat(saturation.reverse())
+    def projection = SimdMultiplyResult(width):
+      data: if data.length() == 1 | data[0] | concat(data.reverse())
+      saturated: saturation_bits.into(Mask(width / 8))
+
+    [code, projection]
+
+  def narrow :: SimdMultiplyResult(width) = mux_lookup(products.element_width, ~default: projections[0][1], projections)
+  def wide = context.control.select === SimdMultiplySelect.Wide
+  def wide_data = mux(context.control.upper_half, products.data[width..width * 2], products.data[0..width])
+  def selected = mux(wide, wide_data, narrow.data)
+  def widened_width = mux_lookup(products.element_width, ~default: SimdElementWidth.E16, [
+    [SimdElementWidth.E16, SimdElementWidth.E32],
+    [SimdElementWidth.E32, SimdElementWidth.E64]
+  ])
+  def destination_width = mux(wide, widened_width, products.element_width)
+  def added = simd_multiply_add(width, destination_width, context.addend, selected, context.control.subtract)
+  def fractional = context.control.select === SimdMultiplySelect.Fractional
+  SimdMultiplyResult(width):
+    data: mux(context.control.accumulate & !fractional, added, selected)
+    saturated: mux(fractional, narrow.saturated, Mask(width / 8)(0))
+
+/* Multiply for three stages, then register one formatted word; there is no ready or queue. */
+sync_circuit SimdMultiplyAccumulate(width :: Pow2Int, max_element_width :: Pow2Int):
+  interface request(Valid(SimdMultiplyAccumulateRequest(width)), ~role: consumer)
+  interface response(Valid(SimdMultiplyResult(width)), ~role: producer)
+  inst multiply(SimdMultiplier(width, max_element_width))
+  def Array(operands, contexts) = request |> fork_valid(2)
+  operands |> map_valid(operation => operation.operands) |> multiply.request
+  def retained = contexts |> map_valid(operation => operation.context) |> valid_pipe(SimdMultiplierStages)
+  multiply.response |> map_valid(products => simd_multiply_result(width, products, retained.bits, ~max_element_width: max_element_width)) |> valid_pipe(1) |> response
+  when (request.valid & (request.bits.context.control.select === SimdMultiplySelect.Wide)):
+    def widening_sources = SimdElementWidth.values().take(bits.length(math.min(width, 64)) - 4)
+    def legal = if width == 8 | Bool(#false) | request.bits.operands.element_width.is_one_of(widening_sources)
+    assert(legal, "simd_multiply_wide_destination")
+
+export:
+  SimdMultiplierStages
+  SimdMultiplyAccumulateStages
+  SimdMultiplySelect
+  SimdMultiplyRequest
+  SimdMultiplyProducts
+  SimdMultiplyControl
+  SimdMultiplyContext
+  SimdMultiplyAccumulateRequest
+  SimdMultiplyResult
+  SimdMultiplier
+  SimdMultiplyAccumulate
+  simd_multiply_result

@@ -215,6 +215,11 @@ The reusable packed execution module `cores/simd-alu.rhdl` directly imports
 for the closed RV32/RV64 host configuration. Its remaining hardware operations
 use the public language; it imports no instruction catalog or named core.
 Its explicit `XLen` specialization prunes datapath width and element cases.
+`cores/simd-multiplier.rhdl` directly imports `flow/main.rhdl` for feed-forward
+fork/map/pipeline connections, `std/bits.rhdl` for power-of-two physical geometry,
+and the reusable scalar multiplier and SIMD width/rounding types. It takes
+physical dimensions, not XLEN, and imports no vector sequencer, instruction
+catalog, or named-core policy.
 `cores/vector-layout.rhm` is pure host physical-row geometry over
 `riscv/isa/vector.rhm`, with XLEN-derived word geometry from `riscv/isa/xlen.rhm`.
 Shared vector storage, sequencing, packing, scanning, and completion consumers import
