@@ -130,7 +130,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   reg parent_dbid(~init: Bits(12)(0))
   reg child_dbid(~init: Bits(12)(0))
   reg write_data(Vec(4, CHIDatFlit(p)))
-  reg received_write_data_ids(~init: Bits(4)(0))
+  reg received_write_data_ids(~init: Mask(4)(0))
 
   def idle = phase === CHITransferFragmenterPhase.Idle
   def incoming_request = upstream.req.bits
@@ -176,7 +176,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   def downstream_response_fire = downstream.rsp.fire()
 
   def receive_write_data = phase === CHITransferFragmenterPhase.ReceiveWriteData
-  def incoming_write_data_id = one_hot(upstream.dat.request.bits.data_id).as_bits()
+  def incoming_write_data_id = one_hot(upstream.dat.request.bits.data_id).into(Mask(4))
   def expected_write_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def next_received_write_data_ids = received_write_data_ids ||| incoming_write_data_id
   def final_parent_write_data = next_received_write_data_ids === expected_write_data_ids
@@ -208,7 +208,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
     request <== incoming_request
     child_index <== Bits(2)(0)
     last_child <== incoming_last_child
-    received_write_data_ids <== Bits(4)(0)
+    received_write_data_ids <== Mask(4)(0)
     phase <== CHITransferFragmenterPhase.SendRequest
   elsewhen downstream_request_fire:
     phase <== mux(request.opcode === CHIReqOpcode.ReadNoSnp, CHITransferFragmenterPhase.AwaitReadData, CHITransferFragmenterPhase.AwaitWriteDBID)

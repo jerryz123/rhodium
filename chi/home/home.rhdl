@@ -142,8 +142,8 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def writes_waiting_dbid = write_await_dbid.busy.into(Vec(limit, Bool))
   def writes_waiting_data = write_await_data.busy.into(Vec(limit, Bool))
   def writes_waiting_comp = write_await_comp.busy.into(Vec(limit, Bool))
-  reg received_write_data_ids(~init: vec(for List (_index in 0..limit): Bits(4)(0)))
-  reg received_read_data_ids(~init: vec(for List (_index in 0..limit): Bits(4)(0)))
+  reg received_write_data_ids(~init: vec(for List (_index in 0..limit): Mask(4)(0)))
+  reg received_read_data_ids(~init: vec(for List (_index in 0..limit): Mask(4)(0)))
   mem requests(limit, CHIReqFlit(p))
   mem subordinate_ids(limit, Bits(p.node_id_width))
   mem subordinate_dbids(limit, Bits(12))
@@ -262,7 +262,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def write_data_slot = upstream_write_data.txn_id[0..slot_width]
   def write_data_slot_valid = upstream_write_data.txn_id < Bits(12)(limit)
   def write_data_request = requests[write_data_slot]
-  def write_data_id = one_hot(upstream_write_data.data_id).as_bits()
+  def write_data_id = one_hot(upstream_write_data.data_id).into(Mask(4))
   def write_data_expected_ids = chi_transfer_data_ids(write_data_request.address, chi_req_size(p, write_data_request), p)
   def write_data_received_ids = received_write_data_ids[write_data_slot]
   def next_write_data_ids = write_data_received_ids ||| write_data_id
@@ -306,7 +306,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def read_data_slot = downstream_read_data.txn_id[0..slot_width]
   def read_data_slot_valid = downstream_read_data.txn_id < Bits(12)(limit)
   def read_data_request = requests[read_data_slot]
-  def read_data_id = one_hot(downstream_read_data.data_id).as_bits()
+  def read_data_id = one_hot(downstream_read_data.data_id).into(Mask(4))
   def read_data_expected_ids = chi_transfer_data_ids(read_data_request.address, chi_req_size(p, read_data_request), p)
   def read_data_received_ids = received_read_data_ids[read_data_slot]
   def next_read_data_ids = read_data_received_ids ||| read_data_id
@@ -362,7 +362,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
         def allocate_here = allocate_write & (allocation_slot === index_bits)
         def data_here = write_data_transfer & (write_data_slot === index_bits)
         priority_mux(~default: received_write_data_ids[index]):
-          allocate_here: Bits(4)(0)
+          allocate_here: Mask(4)(0)
           data_here: next_write_data_ids
   )
 
@@ -376,7 +376,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
         def allocate_here = allocate_read & (allocation_slot === index_bits)
         def data_here = read_data_transfer & (read_data_slot === index_bits)
         priority_mux(~default: received_read_data_ids[index]):
-          allocate_here: Bits(4)(0)
+          allocate_here: Mask(4)(0)
           data_here: next_read_data_ids
   )
 

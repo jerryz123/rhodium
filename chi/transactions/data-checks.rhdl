@@ -7,6 +7,7 @@ import:
   lib("chi/protocol/flits.rhdl").CHIDatFlit
   lib("chi/protocol/flits.rhdl").CHIDatOpcode
   lib("chi/protocol/flits.rhdl").CHIRespErr
+  lib("chi/protocol/coherence.rhdl") open
 
 /*
  * Assert the delivered full-copyback state and mask rules, including zero data for Invalid
@@ -16,8 +17,13 @@ fun monitor_chi_copyback_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_p
   monitor_chi_unelided_data(p, data, label_prefix)
   assert(data.opcode === CHIDatOpcode.CopyBackWriteData, label_prefix ++ "_opcode")
   assert(data.resp_err === CHIRespErr.OK, label_prefix ++ "_data_ok")
-  assert((data.resp === Bits(3)(0)) ||| (data.resp === Bits(3)(1)) ||| (data.resp === Bits(3)(2)) ||| (data.resp === Bits(3)(6)) ||| (data.resp === Bits(3)(7)), label_prefix ++ "_state")
-  def invalid = data.resp === Bits(3)(0)
+  // Resp packs PassDirty above the wire response state, not a local cache state.
+  def response :: CHICoherentResponse() = data.resp.into(CHICoherentResponse())
+  def clean_or_invalid = response.state.is_one_of(CHIResponseState.Invalid, CHIResponseState.SharedClean) & !response.pass_dirty
+  def unique = response.state === CHIResponseState.Unique
+  def shared_dirty = (response.state === CHIResponseState.SharedDirty) & response.pass_dirty
+  assert(clean_or_invalid ||| unique ||| shared_dirty, label_prefix ++ "_state")
+  def invalid = (response.state === CHIResponseState.Invalid) & !response.pass_dirty
   assert(data.byte_enable === mux(invalid, Bits(p.byte_enable_width)(0), !Bits(p.byte_enable_width)(0)), label_prefix ++ "_byte_enable")
   assert(!invalid ||| (data.data === Bits(p.data_width)(0)), label_prefix ++ "_invalid_zero_data")
 

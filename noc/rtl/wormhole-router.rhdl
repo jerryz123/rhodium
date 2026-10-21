@@ -85,29 +85,19 @@ sync_circuit WormholeRouter(T :: DataType,
       or_reduce(vec(for List (input_index in 0..config.input_count): packet_active[input_index] & reservations[input_index][target_index]))
   )
 
-  def requests = vec(
-    for List (input_index in 0..config.input_count):
-      def input_buffer = input_buffers[input_index]
-      def candidates :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].target_mask
-      vec(
-        for List (target_index in 0..config.target_count):
-          def candidate = candidates[target_index]
-          def new_request = input_buffer.valid & input_buffer.bits.head & route_decisions[input_index].valid & candidate & !target_busy[target_index]
-          mux(packet_active[input_index], reservations[input_index][target_index], new_request)
-      )
-  )
+  /* Qualifies new head targets; an active packet keeps its reservation for
+     both adaptive and fallback requests, independently of fresh route bits. */
+  fun eligible_targets(input_index :: Nat, candidates :: Mask(config.route_decoder.mask_width)) :~ Vec(config.target_count, Bool):
+    def input_buffer = input_buffers[input_index]
+    def new_head = input_buffer.valid & input_buffer.bits.head & route_decisions[input_index].valid
+    vec(
+      for List (target_index in 0..config.target_count):
+        def new_request = new_head & candidates[target_index] & !target_busy[target_index]
+        mux(packet_active[input_index], reservations[input_index][target_index], new_request)
+    )
 
-  def fallback_requests = vec(
-    for List (input_index in 0..config.input_count):
-      def input_buffer = input_buffers[input_index]
-      def fallbacks :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].fallback_mask
-      vec(
-        for List (target_index in 0..config.target_count):
-          def fallback = fallbacks[target_index]
-          def new_fallback = input_buffer.valid & input_buffer.bits.head & route_decisions[input_index].valid & fallback & !target_busy[target_index]
-          mux(packet_active[input_index], reservations[input_index][target_index], new_fallback)
-      )
-  )
+  def requests = vec(for List (input_index in 0..config.input_count): eligible_targets(input_index, route_decisions[input_index].target_mask))
+  def fallback_requests = vec(for List (input_index in 0..config.input_count): eligible_targets(input_index, route_decisions[input_index].fallback_mask))
 
 
   /* Allocation and traversal.

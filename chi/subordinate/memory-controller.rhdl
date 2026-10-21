@@ -348,10 +348,10 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
 
   reg read_active(~init: Bool(#false))
   reg read_allocation(CHISNAllocatedTransaction(p, slot_width))
-  reg pending_read_data_ids(~init: Bits(4)(0))
+  reg pending_read_data_ids(~init: Mask(4)(0))
   allocated_reads.ready <== !read_active
-  def selected_read_data_id = priority_encoder(pending_read_data_ids.as_vec(Bool))
-  def selected_read_data_id_mask = one_hot(selected_read_data_id).as_bits()
+  def selected_read_data_id = priority_encoder(pending_read_data_ids)
+  def selected_read_data_id_mask = one_hot(selected_read_data_id).into(Mask(4))
   def final_read_data = pending_read_data_ids === selected_read_data_id_mask
   read_operations.ingress.valid <== read_active
   read_operations.ingress.bits <== CHIRamMemoryOperation(p, slot_width):

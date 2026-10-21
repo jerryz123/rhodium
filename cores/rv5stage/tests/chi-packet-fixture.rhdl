@@ -14,7 +14,7 @@ sync_circuit CHIPacketWidthFixture(p :: CHIFlitParams):
   input size: CHITransferSize
   input data_id: Bits(2)
   input valid: Bool
-  output packet_set: Bits(4)
+  output packet_set: Mask(4)
   output packet_count: Bits(2)
   output write_id: Bits(2)
   output critical_chunk: Bits(2)
@@ -37,7 +37,7 @@ sync_circuit CHIPacketFixture():
   input size: CHITransferSize
   input data_id: Bits(2)
   input valid: Bool
-  output packet_sets: Vec(3, Bits(4))
+  output packet_sets: Vec(3, Mask(4))
   output packet_counts: Vec(3, Bits(2))
   output write_ids: Vec(3, Bits(2))
   output critical_chunks: Vec(3, Bits(2))

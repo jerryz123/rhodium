@@ -25,8 +25,8 @@ bundle CHIRequesterTransaction(p :: CHIFlitParams):
   txn_id: Bits(12)
   completer_id: Bits(p.node_id_width)
   dbid: Bits(12)
-  expected_data_ids: Bits(4)
-  received_data_ids: Bits(4)
+  expected_data_ids: Mask(4)
+  received_data_ids: Mask(4)
 
 /* Retain subordinate request, return routing, DBID, and expected/received packet masks. */
 bundle CHISubordinateTransaction(p :: CHIFlitParams):
@@ -36,8 +36,8 @@ bundle CHISubordinateTransaction(p :: CHIFlitParams):
   return_txn_id: Bits(12)
   return_node_id: Bits(p.node_id_width)
   dbid: Bits(12)
-  expected_data_ids: Bits(4)
-  received_data_ids: Bits(4)
+  expected_data_ids: Mask(4)
+  received_data_ids: Mask(4)
 
 /*
  * Retain Home translation between requester return identities and the selected
@@ -52,8 +52,8 @@ bundle CHIHomeTransaction(p :: CHIFlitParams):
   requester_qos: Bits(4)
   subordinate_id: Bits(p.node_id_width)
   subordinate_dbid: Bits(12)
-  expected_data_ids: Bits(4)
-  received_data_ids: Bits(4)
+  expected_data_ids: Mask(4)
+  received_data_ids: Mask(4)
 
 /* Test whether the encoded transfer fits within one physical DAT packet. */
 fun chi_initial_single_flit_size(size :: CHITransferSize,
@@ -118,8 +118,8 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
   /* Outstanding-transaction matching
      Match transaction/DBID identity, phase, and packet ownership before accepting progress. */
 
-  def outgoing_data_id = one_hot(tx_dat.data_id).as_bits()
-  def incoming_data_id = one_hot(rx_dat.data_id).as_bits()
+  def outgoing_data_id = one_hot(tx_dat.data_id).into(Mask(4))
+  def incoming_data_id = one_hot(rx_dat.data_id).into(Mask(4))
   def write_data_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitData) & (entries[index].dbid === tx_dat.txn_id) & (entries[index].completer_id === tx_dat.tgt_id)
@@ -197,7 +197,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       completer_id: req.tgt_id
       dbid: Bits(12)(0)
       expected_data_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
-      received_data_ids: Bits(4)(0)
+      received_data_ids: Mask(4)(0)
 
   def allocate = req_event & req_opcode.supports_initial_transaction() & (!duplicate_txn & allocation_available)
   def next_entries = vec(
@@ -263,8 +263,8 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
   /* Outstanding-transaction matching
      Match transaction/DBID identity, phase, and packet ownership before accepting progress. */
 
-  def incoming_write_data_id = one_hot(rx_dat.data_id).as_bits()
-  def outgoing_read_data_id = one_hot(tx_dat.data_id).as_bits()
+  def incoming_write_data_id = one_hot(rx_dat.data_id).into(Mask(4))
+  def outgoing_read_data_id = one_hot(tx_dat.data_id).into(Mask(4))
   def dbid_response_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitDBID) & (entries[index].txn_id === rsp.txn_id) & (entries[index].requester_id === rsp.tgt_id)
@@ -342,7 +342,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
       return_node_id: req.return_nid_or_stash_nid_or_data_target
       dbid: Bits(12)(0)
       expected_data_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
-      received_data_ids: Bits(4)(0)
+      received_data_ids: Mask(4)(0)
 
   def allocate = req_event & req_opcode.supports_initial_transaction() & (!duplicate_txn & allocation_available)
   def next_entries = vec(
@@ -408,8 +408,8 @@ fun home_transaction_monitor(p :: CHIFlitParams,
   def response_entry = entries[response_slot]
   def write_data_entry = entries[write_data_slot]
   def read_data_entry = entries[read_data_slot]
-  def write_data_id = one_hot(upstream_write_data.data_id).as_bits()
-  def read_data_id = one_hot(downstream_read_data.data_id).as_bits()
+  def write_data_id = one_hot(upstream_write_data.data_id).into(Mask(4))
+  def read_data_id = one_hot(downstream_read_data.data_id).into(Mask(4))
   def duplicate_request = or_reduce(
     for List (index in 0..limit):
       (entries[index].phase =/= CHIInitialTransactionPhase.Free) & (entries[index].requester_id === upstream_request.src_id) & (entries[index].requester_txn_id === upstream_request.txn_id)
@@ -532,7 +532,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
             subordinate_id: downstream_request.tgt_id
             subordinate_dbid: Bits(12)(0)
             expected_data_ids: chi_transfer_data_ids(upstream_request.address, chi_req_size(p, upstream_request), p)
-            received_data_ids: Bits(4)(0)
+            received_data_ids: Mask(4)(0)
 
         def after_dbid = entry.updated(~phase: CHIInitialTransactionPhase.WriteAwaitData, ~subordinate_dbid: downstream_response.dbid_or_group_id)
         def next_write_data_ids = entry.received_data_ids ||| write_data_id

@@ -23,8 +23,8 @@ bundle CHICoherentReadTransaction(p :: CHIFlitParams):
   txn_id: Bits(12)
   home_id: Bits(p.node_id_width)
   comp_ack_txn_id: Bits(12)
-  expected_data_ids: Bits(4)
-  received_data_ids: Bits(4)
+  expected_data_ids: Mask(4)
+  received_data_ids: Mask(4)
   comp_ack_seen: Bool
 
 /* Retain a snoop's ordinary and forwarded response obligations and endpoint identities. */
@@ -45,7 +45,7 @@ bundle CHICopyBackTransaction(p :: CHIFlitParams):
   txn_id: Bits(12)
   home_id: Bits(p.node_id_width)
   dbid: Bits(12)
-  received: Bits(4)
+  received: Mask(4)
   state: Bits(3)
 
 /* Assert the bounded snoop/forward profile's single unelided packet at DataID zero. */
@@ -111,7 +111,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       copybacks[index].live & copybacks[index].granted & (copybacks[index].dbid === tx_dat.txn_id) & (copybacks[index].home_id === tx_dat.tgt_id)
   )
 
-  def copyback_data_id = one_hot(tx_dat.data_id).as_bits()
+  def copyback_data_id = one_hot(tx_dat.data_id).into(Mask(4))
   def copyback_expected = chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
   def live_reads = vec(for List (index in 0..limit): reads[index].phase =/= CHICoherentReadPhase.Free).as_bits()
   def live_copybacks = vec(for List (index in 0..limit): copybacks[index].live).as_bits()
@@ -163,7 +163,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         txn_id: req.txn_id
         home_id: req.tgt_id
         dbid: Bits(12)(0)
-        received: Bits(4)(0)
+        received: Mask(4)(0)
         state: Bits(3)(0)
 
 
@@ -177,7 +177,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def req_event = coherent_read_request
   def comp_ack_event = tx_rsp_valid & (tx_rsp.opcode === CHIRspOpcode.CompAck)
   def read_data_event = rx_dat_valid & (rx_dat.opcode === CHIDatOpcode.CompData)
-  def read_data_id = one_hot(rx_dat.data_id).as_bits()
+  def read_data_id = one_hot(rx_dat.data_id).into(Mask(4))
   def snoop_event = rx_snp_valid & (rx_snp.opcode =/= CHISnpOpcode.SnpLCrdReturn)
   def dvm_event = snoop_event & (rx_snp.opcode === CHISnpOpcode.SnpDVMOp)
   def dvm_second_event = dvm_event & coherent_dvm_first_pending
@@ -255,7 +255,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         p
       )
 
-      received_data_ids: Bits(4)(0)
+      received_data_ids: Mask(4)(0)
       comp_ack_seen: Bool(#false)
 
   def next_reads = vec(

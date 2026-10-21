@@ -88,7 +88,8 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def masked = descriptor.masked & !whole & !mask_transfer
 
 
-  /* Increment the logical byte/field cursor; no element-address multiplier or divider. */
+  /* Increment the logical byte/field cursor; no element-address multiplier or divider.
+     Each lane observes the preceding lane's cursor, including leading and inactive bytes. */
 
   def mutable element :: Bits(index_width(vlen + 1)) = cursor.element
   def mutable field :: Bits(3) = cursor.field
@@ -109,9 +110,19 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
     live_values := live_values ++ [live]
     def end_byte = byte === ((Bits(vector_lane_count_width(xlen))(1) << eew) - Bits(vector_lane_count_width(xlen))(1))[0..vector_byte_offset_width(xlen)]
     def end_field = field === nf
-    element := element + (live & end_byte & end_field).as_bits().zext(index_width(vlen + 1))
-    field := mux(live & end_byte, mux(end_field, Bits(3)(0), field + Bits(3)(1)), field)
-    byte := mux(live, mux(end_byte, Bits(vector_byte_offset_width(xlen))(0), byte + Bits(vector_byte_offset_width(xlen))(1)), byte)
+    def advance_field = live & end_byte
+    def advance_element = advance_field & end_field
+    def next_field = priority_mux(~default: field):
+      advance_element: Bits(3)(0)
+      advance_field: field + Bits(3)(1)
+
+    def next_byte = priority_mux(~default: byte):
+      advance_field: Bits(vector_byte_offset_width(xlen))(0)
+      live: byte + Bits(vector_byte_offset_width(xlen))(1)
+
+    element := element + advance_element.as_bits().zext(index_width(vlen + 1))
+    field := next_field
+    byte := next_byte
 
   def mapped = VectorPackedLayout(xlen, vlen):
     before: cursor

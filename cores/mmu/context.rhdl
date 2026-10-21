@@ -15,6 +15,11 @@ import:
 fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode,
                              enabled :: Bool, root_ppn :: Bits(44), sum :: Bool, mxr :: Bool, pbmte :: Bool,
                              guest :: Bool, state :: RiscvHypervisorTranslation()) :~ RiscvTlbLookup():
+  def guest_vs_enabled = csr_field(state.vsatp, Satp64Mode) === Bits(4)(Sv39Mode)
+  def vs_enabled = mux(guest, guest_vs_enabled, enabled)
+  def g_enabled = guest & (csr_field(state.hgatp, Hgatp64Mode) === Bits(4)(Sv39Mode))
+  def vs_root = mux(guest, csr_field(state.vsatp, Satp64PPN), root_ppn)
+  def g_root = csr_field(state.hgatp, Hgatp64PPN)
   RiscvTlbLookup():
     virtualized: guest
     execute_read: Bool(#false)
@@ -22,10 +27,10 @@ fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privileg
     access: access
     context:
       RiscvGuestTranslationContext():
-        vs_mode: mux(mux(guest, csr_field(state.vsatp, Satp64Mode) === Bits(4)(Sv39Mode), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
-        g_mode: mux(guest & (csr_field(state.hgatp, Hgatp64Mode) === Bits(4)(Sv39Mode)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
-        vs_root_ppn: mux(guest, csr_field(state.vsatp, Satp64PPN), root_ppn)
-        g_root_ppn: csr_field(state.hgatp, Hgatp64PPN)
+        vs_mode: mux(vs_enabled, RiscvVSMode.Sv39, RiscvVSMode.Bare)
+        g_mode: mux(g_enabled, RiscvGMode.Sv39x4, RiscvGMode.Bare)
+        vs_root_ppn: vs_root
+        g_root_ppn: g_root
         privilege: privilege
         vs_sum: mux(guest, csr_flag(state.vsstatus, MstatusSUM), sum)
         vs_mxr: mux(guest, csr_flag(state.vsstatus, MstatusMXR), mxr)

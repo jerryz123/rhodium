@@ -13,6 +13,7 @@ using req_t = std::remove_cvref_t<decltype(port_out.ptx_ureq)>;
 bool tx_link_active_ack{};
 bool rx_link_active_request{};
 int EARLY_COPYBACK = 0;
+int COPYBACK_RESPONSE = 6;
 
 void clear_flits() {
   {
@@ -278,9 +279,10 @@ void run_case() {
       tx_dat_bits.ptgt_uid = 9;
       tx_dat_bits.ptxn_uid = UINT64_C(85);
       tx_dat_bits.pdata_uid = ((packet)&low_mask(2));
-      tx_dat_bits.presp = invalid != 0 ? 0 : 6;
-      tx_dat_bits.pbyte_uenable = invalid != 0 ? 0 : UINT64_MAX;
-      tx_dat_bits.pdata = wide(invalid != 0 ? 0 : packet + 1);
+      const int response = invalid != 0 ? 0 : COPYBACK_RESPONSE;
+      tx_dat_bits.presp = response;
+      tx_dat_bits.pbyte_uenable = response == 0 ? 0 : UINT64_MAX;
+      tx_dat_bits.pdata = wide(response == 0 ? 0 : packet + 1);
       tick_model();
       clear_flits();
     }
@@ -331,7 +333,16 @@ void early_ack() {
 }
 int main() {
   return run_test([] {
-    run_case();
+    for (int response = 0; response < 8; ++response) {
+      dut = Model{};
+      COPYBACK_RESPONSE = response;
+      const bool permitted = response == 0 || response == 1 || response == 2 ||
+                             response == 6 || response == 7;
+      if (permitted)
+        run_case();
+      else
+        expect_failure("chi_coherent_copyback_data_state", run_case);
+    }
     dut = Model{};
     EARLY_COPYBACK = 1;
     expect_failure("chi_coherent_copyback_data_has_grant", run_case);

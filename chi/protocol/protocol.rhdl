@@ -50,25 +50,26 @@ fun chi_data_id_valid(data_id :: Bits(2), p :: CHIFlitParams) :~ Bool:
 /*
  * IHI 0050H B2.9.4: DataID identifies the physical packet within a 64-byte
  * line, including narrow transfers. CCID independently identifies a 16-byte
- * critical chunk. These sets describe naturally aligned, unelided transfers;
+ * critical chunk. Mask lanes name encoded DataIDs, not consecutive beat indices.
+ * These sets describe naturally aligned, unelided transfers;
  * transaction engines retain their own receipt/duplicate/completion state.
  * https://documentation-service.arm.com/static/68d13eb5bd7cab51328bee7a
  */
 fun chi_transfer_data_ids(address :: Bits,
                           size :: CHITransferSize,
-                          p :: CHIFlitParams) :~ Bits(4):
-  def one_packet = one_hot(chi_line_data_id(address, p)).as_bits()
+                          p :: CHIFlitParams) :~ Mask(4):
+  def one_packet = one_hot(chi_line_data_id(address, p)).into(Mask(4))
   mux_lookup(size, ~default: one_packet):
     CHITransferSize.Bytes32:
       if p.data_width == 128
-      | mux(address[5].into(Bool), Bits(4)(0xc), Bits(4)(0x3))
+      | mux(address[5].into(Bool), Mask(4)(0xc), Mask(4)(0x3))
       | one_packet
 
     CHITransferSize.Bytes64:
       cond
-      | p.data_width == 128: Bits(4)(0xf)
-      | p.data_width == 256: Bits(4)(0x5)
-      | ~else: Bits(4)(0x1)
+      | p.data_width == 128: Mask(4)(0xf)
+      | p.data_width == 256: Mask(4)(0x5)
+      | ~else: Mask(4)(0x1)
 
 /* Encode a physical packet index as DataID, retaining width-dependent zero bits. */
 fun chi_transfer_data_id(beat :: Bits(2),

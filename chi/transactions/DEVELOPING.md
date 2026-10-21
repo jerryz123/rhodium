@@ -64,6 +64,10 @@ allocation and progression remain explicit record construction/updates.
 `data-checks.rhdl` owns shared unelided-DAT and full-copyback mask/state assertions. Callers pass concrete
 flits and retain event gating, assertion prefixes, and profile-specific DataID
 restrictions. It owns no receipt state or transaction lifetime.
+Copyback Resp checks consume the protocol's `CHICoherentResponse` view:
+the high bit is PassDirty and the low bits are `CHIResponseState`, not the
+distinct local `CHICacheState` encoding. Preserve the accepted wire combinations
+and assertion labels when changing that view.
 
 The coherent checker observes accepted RX RSP events as well as REQ/DAT to
 associate copyback grants. Keep capability coverage limited to the delivered

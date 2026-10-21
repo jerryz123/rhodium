@@ -172,8 +172,9 @@ non-snoopable, DBID-allocating, data-direction, and snoop-response queries.
 Generic `enum_valid` checks encoding membership; endpoint capabilities decide
 whether a declared opcode is legal on a particular connection.
 
-`chi_transfer_data_ids(address, size, p)` returns the expected four-bit packet
-set for a naturally aligned transfer without data elision. The same rule serves
+`chi_transfer_data_ids(address, size, p)` returns the expected `Mask(4)` packet
+set for a naturally aligned transfer without data elision. Each lane names an
+encoded DataID, not a consecutive beat index. The same rule serves
 coherent and non-coherent traffic. DataID identifies a physical position within
 a 64-byte line, not a transfer-relative beat: narrow accesses use Addr[5:4] at
 128 bits, Addr[5] followed by zero at 256 bits, and zero at 512 bits. CCID remains
