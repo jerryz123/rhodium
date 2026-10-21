@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") as scalar_operands
   lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -18,7 +19,6 @@ import:
   "../core.rhdl" as core
   "../profile.rhm" open
   "../decode/core-ctrl.rhdl" as controls
-  "../decode/operand-ctrl.rhdl" as operands
   "../decode/mem-ctrl.rhdl" as memory
   "../../cache/operation.rhdl" as core_memory
   "../decode/writeback-ctrl.rhdl" as writeback
@@ -44,12 +44,12 @@ def expected_prefetch_r = partial_pattern(controls.RV5StageControl()):
       result_select: alu.AluResultSelect.Adder
 
   operand:
-    pattern(operands.RV5StageOperandControl()):
+    pattern(scalar_operands.OperandControl()):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
-      left: operands.OperandASelect.Register
-      right: operands.OperandBSelect.Immediate
-      immediate: operands.RV5StageImmediateSelect.Prefetch
+      left: scalar_operands.OperandASelect.Register
+      right: scalar_operands.OperandBSelect.Immediate
+      immediate: scalar_operands.OperandImmediate.Prefetch
 
   memory:
     partial_pattern(memory.RV5StageMemoryControl()):

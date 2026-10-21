@@ -1,0 +1,51 @@
+#lang rhodium
+/* Defines scalar source-use, ALU routing, and canonical immediate extraction. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/model/formats.rhm") as riscv_fields
+  lib("riscv/rtl/instruction-fields.rhdl").instruction_immediate
+
+/* Routes register, PC, or zero into the scalar ALU's left operand. */
+hardware_enum OperandASelect:
+  Register
+  Pc
+  Zero
+
+/* Routes a register or decoded immediate into the scalar ALU's right operand. */
+hardware_enum OperandBSelect:
+  Register
+  Immediate
+
+/* Selects canonical immediate extraction, including the Zicbop address offset. */
+hardware_enum OperandImmediate:
+  Zero
+  I
+  S
+  B
+  U
+  J
+  Prefetch
+  /* Extracts and extends the selected immediate to the caller's width; Zero produces zero. */
+  method decode(select, instruction :: Bits(32), width :: PosInt) :: Bits(width):
+    mux_lookup(select, ~default: Bits(width)(0)):
+      OperandImmediate.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
+      OperandImmediate.S: instruction_immediate(riscv_fields.SImmediate, instruction, width)
+      OperandImmediate.B: instruction_immediate(riscv_fields.BImmediate, instruction, width)
+      OperandImmediate.U: instruction_immediate(riscv_fields.UImmediate, instruction, width)
+      OperandImmediate.J: instruction_immediate(riscv_fields.JImmediate, instruction, width)
+      OperandImmediate.Prefetch: instruction_immediate(riscv_fields.PrefetchImmediate, instruction, width)
+
+/* Carries GPR source-use bits independently of ALU operand and immediate selection. */
+bundle OperandControl():
+  uses_rs1: Bool
+  uses_rs2: Bool
+  left: OperandASelect
+  right: OperandBSelect
+  immediate: OperandImmediate
+
+export:
+  OperandASelect
+  OperandBSelect
+  OperandImmediate
+  OperandControl

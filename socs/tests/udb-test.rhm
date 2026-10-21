@@ -30,6 +30,16 @@ def Rva23MandatoryUdb = [
   "Zvfhmin", "Zvkb", "Zvkt", "Zvl128b", "Zvl32b", "Zvl64b"
 ].map(fun (name): [name, "1.0"])
 
+// Matching platforms and ISA selections must describe the same component
+// behavior despite different issue, retirement, and execution timing. PMA
+// granularity remains an explicit integration choice, not component policy.
+for (isa in ["rv32int", "rv32max", "rv64imacb", "rv64imafdcb", "rv64max", "rva23"]):
+  def scalar = riscv_udb_configuration("simple-rv5stage-" ++ isa)
+  def dual = riscv_udb_configuration("simple-rv2wide-" ++ isa)
+  def scalar_components = scalar.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
+  def dual_components = dual.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
+  check: scalar_components.map(fun (parameter): parameter.to_yaml()).sort() ~is dual_components.map(fun (parameter): parameter.to_yaml()).sort()
+
 fun missing_rva23_extensions(extensions :: List.of(UdbExtension)) :: List.of(String):
   fun absent(requirement):
     def present = for any (entry in extensions):

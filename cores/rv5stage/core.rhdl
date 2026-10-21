@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("cores/integer-service.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/integer-execution.rhdl") open
@@ -34,7 +35,6 @@ import:
   "../../riscv/rtl/csr.rhdl".csr_flag
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/zihintntl.rhdl" open
-  "decode/operand-ctrl.rhdl" open
   "decode/branch-ctrl.rhdl" open
   "../branch-decode.rhdl" open
   "decode/mem-ctrl.rhdl" open
@@ -49,7 +49,7 @@ import:
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "profile.rhm".RV5StageConfig
   "profile.rhm".RV5StageMultiplierKind
-  "profile.rhm".rv5stage_execution_half_precision
+  lib("cores/vector/profile.rhm").vector_execution_half_precision
   "../../riscv/rtl/interrupt.rhdl" open
   "multiply.rhdl" open
   "integer-execution.rhdl" open
@@ -94,7 +94,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def profile = extensions.floating_point
   def half_precision = extensions.half_precision
   def vector_extensions = core_profile.vector_extensions
-  def execution_half_precision = rv5stage_execution_half_precision(half_precision, vector_extensions)
+  def execution_half_precision = vector_execution_half_precision(half_precision, vector_extensions)
   def zfa_enabled = extensions.zfa
   def zicbop_enabled = extensions.zicbop
   def zicboz_enabled = extensions.zicboz

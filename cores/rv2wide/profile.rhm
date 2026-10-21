@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../fp/profile.rhm".check_fp_profile
+  "../vector/profile.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("riscv/isa/profile.rhm") open
   lib("riscv/isa/hart.rhm") open
@@ -69,13 +71,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     when mmu_type == RiscvMmuType.Bare && (svnapot || svpbmt || hypervisor)
     | error(~who: #'RV2WideConfig, "translation extensions require Sv39")
 
-    unless floating_point == FloatingPointProfile.None || floating_point == rv2wide_fp_profile(xlen)
-    | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP, RV32F, or RV64D")
-
-    when zfa && floating_point == FloatingPointProfile.None
-    | error(~who: #'RV2WideConfig, "Zfa requires floating-point support")
-
-    check_half_precision_profile(floating_point, half_precision)
+    check_fp_profile(xlen, floating_point, half_precision, ~zfa: zfa)
     unless compressed_extensions_report_misa_c(xlen, floating_point, compressed) && compressed.contains(CompressedExtension.C)
     | error(~who: #'RV2WideConfig, "RV2Wide requires C as its compressed base")
 
@@ -85,27 +81,13 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
     | error(~who: #'RV2WideConfig, "vectors require at least two XLEN rows per register")
 
-    when vector_profile_supports_integer64(vector) && xlen != XLen.X64
-    | error(~who: #'RV2WideConfig, "64-bit vector elements require RV64")
-
-    when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
-    | error(~who: #'RV2WideConfig, "vector FP requires scalar FP")
-
-    when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
-    | error(~who: #'RV2WideConfig, "64-bit vector FP requires scalar D")
-
-    validate_vector_extensions(vector, vector_extensions)
-    when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
-    | error(~who: #'RV2WideConfig, "Zvfh requires scalar Zfhmin or Zfh")
+    check_vector_profile(xlen, floating_point, half_precision, vector, vector_extensions)
 
     super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots, vector_dispatch_depth)
 
   /* Sizes the shared FP datapath for scalar and vector operations without enabling additional scalar instructions. */
   property execution_half_precision :: HalfPrecisionProfile:
-    cond
-    | half_precision_supports_zfh(half_precision) || vector_extensions_support_zvfh(vector_extensions): HalfPrecisionProfile.Zfh
-    | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
-    | ~else: HalfPrecisionProfile.None
+    vector_execution_half_precision(half_precision, vector_extensions)
 
   property isa_profile :: RiscvIsaProfile:
     def half_extensions = match half_precision

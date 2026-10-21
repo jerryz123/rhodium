@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand-decode.rhdl") open
+  lib("cores/operand.rhdl") as scalar_operands
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus.bits.(<<) as <<
@@ -91,7 +93,7 @@ fun has_rv32_domain(cases):
 
 def complete_relations = [
   alu_controls.RV64ICompleteAluCases,
-  operand_controls.RV64IOperandCases,
+  RV64IOperandCases,
   branch_controls.RV64IBranchCases,
   memory_controls.RV64IMemoryCases,
   writeback_controls.RV64IWritebackCases,
@@ -101,7 +103,7 @@ def complete_relations = [
 ]
 def rv32_complete_relations = [
   alu_controls.RV32ICompleteAluCases,
-  operand_controls.RV32IOperandCases,
+  RV32IOperandCases,
   branch_controls.RV32IBranchCases,
   memory_controls.RV32IMemoryCases,
   writeback_controls.RV32IWritebackCases,
@@ -197,12 +199,12 @@ def vector_load_control = control_for_instruction(controls.VectorCoreControlCase
 def vector_store_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSE64_V)
 def vector_config_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSETVLI)
 
-def addi_operand = operand_controls.RV5StageOperandControl():
+def addi_operand = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#false)
-  left: operand_controls.OperandASelect.Register
-  right: operand_controls.OperandBSelect.Immediate
-  immediate: operand_controls.RV5StageImmediateSelect.I
+  left: scalar_operands.OperandASelect.Register
+  right: scalar_operands.OperandBSelect.Immediate
+  immediate: scalar_operands.OperandImmediate.I
 
 def lbu_memory = memory_controls.RV5StageMemoryControl():
   access: core_memory.CacheOperation.Load
@@ -310,40 +312,40 @@ for (fp in [FloatingPointProfile.None, FloatingPointProfile.D]):
   for (instruction in SvinvalH.instructions):
     check: catalog.contains(instruction) ~is #true
 
-def jal_operand_a = operand_controls.RV5StageOperandControl():
+def jal_operand_a = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
-  left: operand_controls.OperandASelect.Zero
-  right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.RV5StageImmediateSelect.J
+  left: scalar_operands.OperandASelect.Zero
+  right: scalar_operands.OperandBSelect.Register
+  immediate: scalar_operands.OperandImmediate.J
 
-def jal_operand_b = operand_controls.RV5StageOperandControl():
+def jal_operand_b = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
-  left: operand_controls.OperandASelect.Register
-  right: operand_controls.OperandBSelect.Immediate
-  immediate: operand_controls.RV5StageImmediateSelect.J
+  left: scalar_operands.OperandASelect.Register
+  right: scalar_operands.OperandBSelect.Immediate
+  immediate: scalar_operands.OperandImmediate.J
 
-def add_operand_a = operand_controls.RV5StageOperandControl():
+def add_operand_a = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#true)
-  left: operand_controls.OperandASelect.Register
-  right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.RV5StageImmediateSelect.None
+  left: scalar_operands.OperandASelect.Register
+  right: scalar_operands.OperandBSelect.Register
+  immediate: scalar_operands.OperandImmediate.Zero
 
-def add_operand_b = operand_controls.RV5StageOperandControl():
+def add_operand_b = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#true)
-  left: operand_controls.OperandASelect.Register
-  right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.RV5StageImmediateSelect.I
+  left: scalar_operands.OperandASelect.Register
+  right: scalar_operands.OperandBSelect.Register
+  immediate: scalar_operands.OperandImmediate.I
 
-def no_operand_sources = operand_controls.RV5StageOperandControl():
+def no_operand_sources = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
-  left: operand_controls.OperandASelect.Zero
-  right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.RV5StageImmediateSelect.None
+  left: scalar_operands.OperandASelect.Zero
+  right: scalar_operands.OperandBSelect.Register
+  immediate: scalar_operands.OperandImmediate.Zero
 
 def no_branch_a = branch_value(#false, #false, #false, #false, #false, #false)
 def no_branch_b = branch_value(#false, #true, #true, #true, #true, #true)
@@ -393,19 +395,19 @@ check:
   has_rv5stage_domain(controls.RV64RV5StageControlCases) ~is #true
   has_rv32_rv5stage_domain(controls.RV32RV5StageControlCases) ~is #true
   has_canonical_domain(
-    operand_controls.RV64IOperandCases.drop(1)
+    RV64IOperandCases.drop(1)
   ) ~is #false
   has_canonical_domain(
-    operand_controls.RV64IOperandCases.drop(1) ++ [
-      operand_controls.RV64IOperandCases[1]
+    RV64IOperandCases.drop(1) ++ [
+      RV64IOperandCases[1]
     ]
   ) ~is #false
-  control_for(operand_controls.RV64IOperandCases, "ADDI").matches(addi_operand) ~is #true
+  control_for(RV64IOperandCases, "ADDI").matches(addi_operand) ~is #true
   // JAL needs its immediate and register-use bits, but not ALU operand routing.
-  control_for(operand_controls.RV64IOperandCases, "JAL").matches(jal_operand_a) ~is #true
-  control_for(operand_controls.RV64IOperandCases, "JAL").matches(jal_operand_b) ~is #true
-  control_for(operand_controls.RV64IOperandCases, "ADD").matches(add_operand_a) ~is #true
-  control_for(operand_controls.RV64IOperandCases, "ADD").matches(add_operand_b) ~is #true
+  control_for(RV64IOperandCases, "JAL").matches(jal_operand_a) ~is #true
+  control_for(RV64IOperandCases, "JAL").matches(jal_operand_b) ~is #true
+  control_for(RV64IOperandCases, "ADD").matches(add_operand_a) ~is #true
+  control_for(RV64IOperandCases, "ADD").matches(add_operand_b) ~is #true
   control_for(memory_controls.RV64IMemoryCases, "LBU").matches(lbu_memory) ~is #true
   control_for(memory_controls.RV64IMemoryCases, "LB").matches(lbu_memory) ~is #false
   // Store signedness, inactive branch targets, and disabled writeback sources

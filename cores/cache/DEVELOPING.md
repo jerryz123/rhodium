@@ -20,6 +20,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | File | Responsibility |
 |---|---|
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
+| `udb.rhm` | Reservation and cache-maintenance policy declarations; integrating cores retain split-access and alignment-fault guarantees |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
 | `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |

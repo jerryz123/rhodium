@@ -26,6 +26,7 @@ entry storage, replacement, walk frames, and response ownership stay here.
 | `protocol.rhdl` | Host-only request, leaf result, and PTE-memory contracts |
 | `translation.rhdl` | Host/guest lookup, mapping, fill, typed faults, PBMT-aware memory, host projections |
 | `context.rhdl` | Stateless host/guest lookup construction from caller-selected effective controls |
+| `udb.rhm` | Bare/Sv39 and guest translation modes and identifier capacities, excluding pipeline fault-precision claims |
 | `vector.rhdl` | Core-neutral range certificates, context identity, and page-probe interfaces |
 | `vector-window.rhdl` | Two-page certification and pinned mappings; failed proof selects precise fallback |
 | `tlb.rhdl` | Associative bank, current permission checks, probes, refill, and host-port adapter |

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/register-write.rhdl") open
   "memory-context.rhdl" open
@@ -24,7 +25,6 @@ import:
   "../cache-prefetch.rhdl" open
   "../load-store.rhdl" open
   "../cache/operation.rhdl" open
-  "decode/operand-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/multiply-ctrl.rhdl" open
   "decode/divide-ctrl.rhdl" open

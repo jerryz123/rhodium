@@ -1,0 +1,65 @@
+#lang rhombus
+/* Defines the explicit precise execution and split-access UDB contract that integrating cores opt into. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/udb.rhm") open
+
+/* Claims precise faults, split-access behavior, trap provenance, and nonfinite WFI; callers establish these guarantees. */
+fun precise_core_udb_parameters(hypervisor :: Boolean) :: NonemptyList.of(UdbParameter):
+  def mutable result = [
+    boolean_parameter("MISALIGNED_LDST", #true),
+    string_parameter("MISALIGNED_LDST_EXCEPTION_PRIORITY", "high"),
+    natural_parameter("MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE", 0),
+    string_parameter("MISALIGNED_SPLIT_STRATEGY", "custom"),
+    boolean_parameter("MISALIGNED_AMO", #false),
+    string_parameter("AMO_MISALIGNED_BEHAVIOR", "always raise misaligned exception"),
+    string_parameter("LRSC_MISALIGNED_BEHAVIOR", "always raise misaligned exception"),
+    boolean_parameter("WFI_FINITE", #false),
+    boolean_parameter("TRAP_ON_UNIMPLEMENTED_INSTRUCTION", #true),
+    boolean_parameter("TRAP_ON_RESERVED_INSTRUCTION", #true),
+    boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_BREAKPOINT", #false),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_BREAKPOINT", #false),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_LOAD_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_LOAD_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_LOAD_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION", #true)
+  ]
+  when hypervisor
+  | block:
+      result := result ++ [
+        boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_ILLEGAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_VA_IN_VSTVAL_ON_BREAKPOINT", #false),
+        boolean_parameter("REPORT_GPA_IN_TVAL_ON_INTERMEDIATE_GUEST_PAGE_FAULT", #true)
+      ]
+      for (kind in ["LOAD", "STORE_AMO", "INSTRUCTION"]):
+        for (cause in ["MISALIGNED", "ACCESS_FAULT", "PAGE_FAULT"]):
+          result := result ++ [boolean_parameter("REPORT_VA_IN_VSTVAL_ON_" ++ kind ++ "_" ++ cause, #true)]
+
+        result := result ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_" ++ kind ++ "_GUEST_PAGE_FAULT", #true), string_parameter("TINST_VALUE_ON_FINAL_" ++ kind ++ "_GUEST_PAGE_FAULT", "always zero")]
+
+      for (cause in ["BREAKPOINT", "INSTRUCTION_ADDRESS_MISALIGNED", "LOAD_ACCESS_FAULT", "LOAD_ADDRESS_MISALIGNED", "LOAD_PAGE_FAULT", "MCALL", "SCALL", "STORE_AMO_ACCESS_FAULT", "STORE_AMO_ADDRESS_MISALIGNED", "STORE_AMO_PAGE_FAULT", "UCALL", "VIRTUAL_INSTRUCTION", "VSCALL"]):
+        result := result ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
+
+  result
+
+export precise_core_udb_parameters

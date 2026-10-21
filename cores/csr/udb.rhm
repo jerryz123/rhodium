@@ -12,7 +12,33 @@ import:
 fun riscv_csr_udb_parameters(config :: RiscvCsrConfig) :: NonemptyList.of(UdbParameter):
   def hpm_counters = for List (index in 0..32): config.sscofpmf && index == 3
   def delegatable_counters = for List (index in 0..32): index < 3 || (config.sscofpmf && index == 3)
+  def xlen = config.xlen.width
   def base = [
+    boolean_parameter("WFI_U_MODE", #false),
+    boolean_parameter("MEI_INTR_IMPL", #true),
+    boolean_parameter("MSI_INTR_IMPL", #true),
+    boolean_parameter("MTI_INTR_IMPL", #true),
+    boolean_parameter("SEI_INTR_IMPL", #true),
+    boolean_parameter("SSI_INTR_IMPL", #true),
+    boolean_parameter("STI_INTR_IMPL", #true),
+    boolean_parameter("TRAP_ON_ECALL_FROM_M", #true),
+    boolean_parameter("TRAP_ON_EBREAK", #true),
+    boolean_parameter("TRAP_ON_ILLEGAL_WLRL", #false),
+    boolean_parameter("TRAP_ON_UNIMPLEMENTED_CSR", #true),
+    natural_parameter("MTVAL_WIDTH", xlen),
+    string_parameter("M_MODE_ENDIANNESS", "little"),
+    boolean_parameter("MUTABLE_MISA_M", #false),
+    boolean_parameter("MUTABLE_MISA_A", #false),
+    boolean_parameter("MUTABLE_MISA_B", #false),
+    boolean_parameter("MUTABLE_MISA_U", #false),
+    string_parameter("U_MODE_ENDIANNESS", "little"),
+    natural_list_parameter("UXLEN", [xlen]),
+    boolean_parameter("TRAP_ON_ECALL_FROM_U", #true),
+    boolean_parameter("MUTABLE_MISA_S", #false),
+    string_parameter("S_MODE_ENDIANNESS", "little"),
+    natural_list_parameter("SXLEN", [xlen]),
+    natural_parameter("STVAL_WIDTH", xlen),
+    boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
     boolean_parameter("MARCHID_IMPLEMENTED", #false),
     boolean_parameter("MIMPID_IMPLEMENTED", #false),
     natural_parameter("CONFIG_PTR_ADDRESS", 0),
@@ -39,6 +65,18 @@ fun riscv_csr_udb_parameters(config :: RiscvCsrConfig) :: NonemptyList.of(UdbPar
     | [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
     | []
 
-  base ++ hpm ++ (if config.smstateen | [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")] | [])
+  def fp = if floating_point_supports_f(config.floating_point) | [boolean_parameter("MUTABLE_MISA_F", #false), string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")] | []
+  def double = if floating_point_supports_d(config.floating_point) | [boolean_parameter("MUTABLE_MISA_D", #false)] | []
+  def masking = if config.ssnpm | [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])] | []
+  def guest = if config.hypervisor | [
+    boolean_parameter("MUTABLE_MISA_H", #false), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
+    string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"),
+    natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0]),
+    boolean_parameter("VSEI_INTR_IMPL", #true), boolean_parameter("VSSI_INTR_IMPL", #true), boolean_parameter("VSTI_INTR_IMPL", #true),
+    boolean_list_parameter("HCOUNTENABLE_EN", delegatable_counters),
+    boolean_parameter("IGNORE_INVALID_VSATP_MODE_WRITES_WHEN_V_EQ_ZERO", #true), boolean_parameter("TRAP_ON_ECALL_FROM_VS", #true)
+  ] ++ (if config.smstateen | [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")] | []) | []
+
+  base ++ hpm ++ fp ++ double ++ masking ++ guest ++ (if config.smstateen | [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")] | [])
 
 export riscv_csr_udb_parameters

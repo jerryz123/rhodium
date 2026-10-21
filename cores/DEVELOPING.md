@@ -109,6 +109,21 @@ feed-forward multiplication, with explicit scheduled or buffered return adapters
 physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
 
+`operand.rhdl` owns scalar source-use, ALU routing, and immediate controls;
+`operand-decode.rhdl` owns the common I/B relations and reusable partial
+patterns. Named decoders compose their domains and retain different MOP and
+multiply routing policies. Preserve care masks when moving relations: sharing
+a type is not permission to constrain an unobserved field.
+
+UDB declarations follow implementation ownership: `csr/udb.rhm` describes the
+bank, `cache/udb.rhm` describes L1D reservation/maintenance policies, and
+`mmu/udb.rhm` describes translation modes. `udb.rhm` defines an explicitly
+selected precise-execution and split-access contract, not a guarantee inferred
+from instantiating those components. Named
+projections retain address/map constraints and responsibility for satisfying
+that execution contract. `vector/profile.rhm` validates scalar/vector execution
+compatibility without selecting either core's ISA defaults or scheduling.
+
 Keep accepted split-access fragments irrevocable and retain their owner until
 the response. Translation/PMA checks, interrupt/drain policy, and retirement
 belong to the caller. Keep vector row geometry pure host code with an explicit

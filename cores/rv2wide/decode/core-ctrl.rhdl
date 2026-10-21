@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("cores/vector/instruction-metadata.rhm") open
   "../profile.rhm".RV2WideConfig
   lib("riscv/isa/rv32i.rhm") as rv32
@@ -62,7 +63,7 @@ bundle RV2WideFpControl():
 /* Carries independently authored physical controls without an instruction-kind enum. */
 bundle RV2WideControl():
   alu: AluControl()
-  operand: RV2WideOperandControl()
+  operand: OperandControl()
   branch: RiscvBranchControl()
   memory: RV2WideMemoryControl()
   guest_access: RiscvGuestMemoryAccess
@@ -88,7 +89,7 @@ fun rv2wide_vector_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
     def output = pattern(RV2WideControl()):
       alu: unused_alu
       operand:
-        partial_pattern(RV2WideOperandControl()):
+        partial_pattern(OperandControl()):
           uses_rs1: Bool(metadata.uses_rs1)
           uses_rs2: Bool(metadata.uses_rs2)
 
@@ -219,12 +220,12 @@ def RV2WidePrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperati
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
     operand:
-      pattern(RV2WideOperandControl()):
+      pattern(OperandControl()):
         uses_rs1: Bool(#true)
         uses_rs2: Bool(#false)
-        left: RV2WideLeft.Register
-        right_immediate: Bool(#true)
-        immediate: RV2WideImmediate.Prefetch
+        left: OperandASelect.Register
+        right: OperandBSelect.Immediate
+        immediate: OperandImmediate.Prefetch
 
     branch: inactive_branch
     memory: inactive_core_memory
@@ -257,7 +258,7 @@ def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WR
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
     operand:
-      partial_pattern(RV2WideOperandControl()):
+      partial_pattern(OperandControl()):
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
 
@@ -287,7 +288,7 @@ def pause_control = pattern(RV2WideControl()):
   guest_access: RiscvGuestMemoryAccess.Normal
   alu: unused_alu
   operand:
-    partial_pattern(RV2WideOperandControl()):
+    partial_pattern(OperandControl()):
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
 
@@ -312,7 +313,7 @@ def RV2WideLocalityCases = for List (entry in [[NTL_P1, RiscvMemoryLocality.P1],
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
     operand:
-      partial_pattern(RV2WideOperandControl()):
+      partial_pattern(OperandControl()):
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
 
@@ -338,7 +339,7 @@ def RV2WideInvalidationControlCases = for List (instruction in SvinvalInstructio
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
     operand:
-      partial_pattern(RV2WideOperandControl()):
+      partial_pattern(OperandControl()):
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
 
@@ -392,16 +393,16 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
     def memory = load || store
     def integer_source = instruction.operands.filter(~keep: fun (operand): operand.name == "rs1" && operand.role == "source" && operand.bank == RegisterBank.Integer).length() > 0
     def integer_destination = instruction.operands.filter(~keep: fun (operand): operand.role == "destination" && operand.bank == RegisterBank.Integer).length() > 0
-    def operands = partial_pattern(RV2WideOperandControl()):
+    def operands = partial_pattern(OperandControl()):
       uses_rs1: Bool(integer_source)
       uses_rs2: Bool(#false)
 
-    def memory_operands = partial_pattern(RV2WideOperandControl()):
+    def memory_operands = partial_pattern(OperandControl()):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
-      left: RV2WideLeft.Register
-      right_immediate: Bool(#true)
-      immediate: if load | RV2WideImmediate.I | RV2WideImmediate.S
+      left: OperandASelect.Register
+      right: OperandBSelect.Immediate
+      immediate: if load | OperandImmediate.I | OperandImmediate.S
 
     def memory_control = partial_pattern(RV2WideMemoryControl()):
       enable: Bool(#true)
@@ -448,12 +449,12 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
     def output = pattern(RV2WideControl()):
       alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
       operand:
-        pattern(RV2WideOperandControl()):
+        pattern(OperandControl()):
           uses_rs1: Bool(#true)
           uses_rs2: Bool(store)
-          left: RV2WideLeft.Register
-          right_immediate: Bool(#true)
-          immediate: RV2WideImmediate.Zero
+          left: OperandASelect.Register
+          right: OperandBSelect.Immediate
+          immediate: OperandImmediate.Zero
 
       branch: inactive_branch
       memory: component_output(RV2WideMemoryCases, input)

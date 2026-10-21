@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -16,7 +17,6 @@ import:
   "../../cache/operation.rhdl" open
   "../decode/hint-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
-  "../decode/operand-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
@@ -33,7 +33,7 @@ def pause_control = partial_pattern(RV5StageControl()):
       action: RV5StageFenceOperation.None
 
   operand:
-    partial_pattern(RV5StageOperandControl()):
+    partial_pattern(OperandControl()):
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
 

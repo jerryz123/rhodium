@@ -1,0 +1,39 @@
+#lang rhombus
+/* Validates scalar/vector execution compatibility and selects shared half-precision capability. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+
+/* Enforces vector ELEN, scalar FP, and half-precision dependencies for the selected XLEN. */
+fun check_vector_profile(xlen :: XLen,
+                         floating_point :: FloatingPointProfile,
+                         half_precision :: HalfPrecisionProfile,
+                         vector :: VectorProfile,
+                         vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+  validate_vector_extensions(vector, vector_extensions)
+  when vector_profile_supports_integer64(vector) && xlen != XLen.X64
+  | error(~who: #'check_vector_profile, "64-bit vector elements require RV64")
+
+  when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
+  | error(~who: #'check_vector_profile, "Zve64d and V require scalar D")
+
+  when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
+  | error(~who: #'check_vector_profile, "floating-point vector profiles require scalar F or D")
+
+  when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
+  | error(~who: #'check_vector_profile, "Zvfh requires scalar Zfhmin or Zfh")
+
+/* Chooses the shared FP execution capability needed by scalar and vector instructions. */
+fun vector_execution_half_precision(half_precision :: HalfPrecisionProfile,
+                                    vector_extensions :: List.of(VectorExtension)) :: HalfPrecisionProfile:
+  cond
+  | half_precision_supports_zfh(half_precision) || vector_extensions_support_zvfh(vector_extensions): HalfPrecisionProfile.Zfh
+  | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
+  | ~else: HalfPrecisionProfile.None
+
+export:
+  check_vector_profile
+  vector_execution_half_precision

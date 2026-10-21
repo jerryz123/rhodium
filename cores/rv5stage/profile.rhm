@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../vector/profile.rhm".check_vector_profile
   "../csr/config.rhm".RiscvCsrConfig
   "../fp/profile.rhm".check_fp_profile
   "../cache/config.rhm" open
@@ -174,33 +175,6 @@ class RV5StageCacheGeometry(instruction :: CacheConfig,
   reconstructor (instruction, data):
     RV5StageCacheGeometry(~instruction: instruction, ~data: data)
 
-/* Enforces vector ELEN, scalar FP, and half-precision dependencies for the selected XLEN. */
-fun check_rv5stage_vector_profile(xlen :: XLen,
-                                  floating_point :: FloatingPointProfile,
-                                  half_precision :: HalfPrecisionProfile,
-                                  vector :: VectorProfile,
-                                  vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
-  validate_vector_extensions(vector, vector_extensions)
-  when vector_profile_supports_integer64(vector) && xlen != XLen.X64
-  | error(~who: #'check_rv5stage_vector_profile, "64-bit vector elements require RV64")
-
-  when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
-  | error(~who: #'check_rv5stage_vector_profile, "Zve64d and V require scalar D")
-
-  when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
-  | error(~who: #'check_rv5stage_vector_profile, "floating-point vector profiles require scalar F or D")
-
-  when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
-  | error(~who: #'check_rv5stage_vector_profile, "Zvfh requires scalar Zfhmin or Zfh")
-
-/* Chooses the shared FP execution capability needed by scalar and vector instructions. */
-fun rv5stage_execution_half_precision(half_precision :: HalfPrecisionProfile,
-                                      vector_extensions :: List.of(VectorExtension)) :: HalfPrecisionProfile:
-  cond
-  | half_precision_supports_zfh(half_precision) || vector_extensions_support_zvfh(vector_extensions): HalfPrecisionProfile.Zfh
-  | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
-  | ~else: HalfPrecisionProfile.None
-
 /* Owns validated ISA selection, cache geometry, and scalar/vector execution capacities. */
 class RV5StageConfig(xlen :: XLen,
                      extensions :: RV5StageExtensions,
@@ -251,7 +225,7 @@ class RV5StageConfig(xlen :: XLen,
     when extensions.hypervisor && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
     | error(~who: #'RV5StageConfig, "H requires RV64 Sv39")
 
-    check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
+    check_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
     when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
     | error(~who: #'RV5StageConfig, "the integrated vector pipeline requires at least two XLEN-wide rows per register")
 
@@ -338,5 +312,3 @@ export:
   RV5StageExtensions
   RV5StageCacheGeometry
   RV5StageConfig
-  check_rv5stage_vector_profile
-  rv5stage_execution_half_precision

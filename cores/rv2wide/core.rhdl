@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   "profile.rhm" open
   "bundles.rhdl" open
@@ -29,7 +30,6 @@ import:
   lib("riscv/rtl/floating-point.rhdl") open
   "../cosim-source.rhm".describe_cosim_hart
   "decode/core-ctrl.rhdl" open
-  "decode/operand-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/long-ctrl.rhdl" open
   lib("cores/multiplier.rhdl").MultiplierRequest
@@ -640,7 +640,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => RV2WideExecute(xlen)):
       fetched: fetched
       control: rr_controls[lane].updated(
-        ~operand: rr_controls[lane].operand.updated(~right_immediate: rr_controls[lane].operand.right_immediate & !rr_auipc_addi),
+        ~operand: rr_controls[lane].operand.updated(~right: mux(rr_auipc_addi, OperandBSelect.Register, rr_controls[lane].operand.right)),
         ~memory: rr_controls[lane].memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
       )
 
@@ -706,12 +706,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def ex_is_vector = ex.control.vector.integer ||| ex.control.vector.memory ||| ex.control.vector.floating_point ||| ex.control.vector.multiply_divide
     def ex_vector_illegal = (ex_is_vector & !ex_vector_legality.legal) ||| (ex_is_vector_config & ex_configuration.illegal)
     def ex_executable = !ex.illegal & !ex_vector_illegal & !ex.virtual_instruction & !ex.fetched.fault.valid
-    def ex_immediate = ex.control.operand.immediate.decode(ex.fetched.instruction, xlen)
+    def ex_immediate = ex.control.operand.immediate.decode(ex.fetched.instruction, xlen.width)
     ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.rs1):
-      RV2WideLeft.Pc: ex.fetched.pc
-      RV2WideLeft.Zero: Bits(xlen.width)(0)
+      OperandASelect.Pc: ex.fetched.pc
+      OperandASelect.Zero: Bits(xlen.width)(0)
 
-    ex_alu.right <== mux(ex.control.operand.right_immediate, ex_immediate, ex.rs2)
+    ex_alu.right <== mux(ex.control.operand.right === OperandBSelect.Immediate, ex_immediate, ex.rs2)
     ex_alu.control <== ex.control.alu
 
     /* Effective data address and guest context.

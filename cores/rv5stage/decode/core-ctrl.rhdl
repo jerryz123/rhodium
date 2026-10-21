@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand-decode.rhdl") open
+  lib("cores/operand.rhdl") open
   lib("cores/vector/instruction-metadata.rhm") open
   lib("cores/memory-decode.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
@@ -64,7 +66,7 @@ import:
 bundle RV5StageControl():
   guest_access: RiscvGuestMemoryAccess
   alu: AluControl()
-  operand: RV5StageOperandControl()
+  operand: OperandControl()
   branch: RiscvBranchControl()
   memory: RV5StageMemoryControl()
   prefetch: CachePrefetchOperation
@@ -152,9 +154,9 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
       )
 
       def immediate = cond
-      | load: RV5StageImmediateSelect.I
-      | store: RV5StageImmediateSelect.S
-      | ~else: RV5StageImmediateSelect.None
+      | load: OperandImmediate.I
+      | store: OperandImmediate.S
+      | ~else: OperandImmediate.Zero
 
       def memory_width = cond
       | double: MemoryWidth.Double
@@ -164,13 +166,13 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
       def alu_control = if memory | scalar_address_alu | unused_scalar_alu
       def operand_control:
         if memory
-        | pattern(RV5StageOperandControl()):
+        | pattern(OperandControl()):
             uses_rs1: Bool(#true)
             uses_rs2: Bool(#false)
             left: OperandASelect.Register
             right: OperandBSelect.Immediate
             immediate: immediate
-        | partial_pattern(RV5StageOperandControl()):
+        | partial_pattern(OperandControl()):
             uses_rs1: Bool(!integer_sources.is_empty())
             uses_rs2: Bool(#false)
 
@@ -211,12 +213,12 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
 /* Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
    after the ordinary scalar control columns have been composed. */
 
-def zicbop_operand_control = pattern(RV5StageOperandControl()):
+def zicbop_operand_control = pattern(OperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
-  immediate: RV5StageImmediateSelect.Prefetch
+  immediate: OperandImmediate.Prefetch
 
 /* Maps the three prefetch catalog entries to instruction, read, or write intent. */
 fun zicbop_operation(instruction :: InstructionSpec):
@@ -253,7 +255,7 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperat
     partial_pattern(RV5StageControl()):
       guest_access: RiscvGuestMemoryAccess.Normal
       operand:
-        partial_pattern(RV5StageOperandControl()):
+        partial_pattern(OperandControl()):
           uses_rs1: Bool(#false)
           uses_rs2: Bool(#false)
 
@@ -302,12 +304,12 @@ def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_rea
     guest_access: if execute_read | RiscvGuestMemoryAccess.GuestExecuteRead | RiscvGuestMemoryAccess.Guest
     alu: scalar_address_alu
     operand:
-      pattern(RV5StageOperandControl()):
+      pattern(OperandControl()):
         uses_rs1: Bool(#true)
         uses_rs2: Bool(store)
         left: OperandASelect.Register
         right: OperandBSelect.Immediate
-        immediate: RV5StageImmediateSelect.None
+        immediate: OperandImmediate.Zero
 
     branch: inactive_branch_control
     memory: component_output(RV64IMemoryCases, instruction_pattern(ordinary))
@@ -343,12 +345,12 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
     def input = instruction_pattern(instruction)
     def operand_control:
       if memory
-      | partial_pattern(RV5StageOperandControl()):
+      | partial_pattern(OperandControl()):
           uses_rs1: Bool(#true)
           uses_rs2: Bool(metadata.uses_rs2)
           left: OperandASelect.Register
           right: OperandBSelect.Immediate
-      | partial_pattern(RV5StageOperandControl()):
+      | partial_pattern(OperandControl()):
           uses_rs1: Bool(metadata.uses_rs1)
           uses_rs2: Bool(metadata.uses_rs2)
 

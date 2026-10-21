@@ -34,6 +34,12 @@ source, writeback, and system columns. `register-file.rhdl`, `packing.rhdl`, and
 `instruction-metadata.rhm` provides the selected base vector instruction domain
 and scalar source/configuration/destination roles without choosing core controls.
 
+[`profile.rhm`](profile.rhm) provides `check_vector_profile` for ELEN and scalar
+FP dependencies, and `vector_execution_half_precision` for the union of scalar
+and vector half-precision execution needs. That execution capability does not
+enable additional scalar ISA instructions. Named cores still choose VLEN,
+queue capacities, scheduling, and their advertised ISA profile.
+
 ## Ownership and timing
 
 The current implementation has the following structure:

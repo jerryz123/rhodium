@@ -4,7 +4,7 @@
 
 import:
   "decode/core-ctrl.rhdl".RV2WideControl
-  "decode/operand-ctrl.rhdl".RV2WideImmediate
+  lib("cores/operand.rhdl").OperandImmediate
   "decode/system-ctrl.rhdl" open
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
@@ -32,13 +32,13 @@ bundle RV2WidePairing():
 fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool, ~xlen: xlen :: XLen = XLen.X64) :: RV2WidePairing():
   def older :: RV2WideControl() = controls[0]
   def younger :: RV2WideControl() = controls[1]
-  def immediate :: RV2WideImmediate = younger.operand.immediate
+  def immediate :: OperandImmediate = younger.operand.immediate
   def writes = valid[0] & older.writeback.enable & destination.or_reduce()
   def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
   def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
   def producer = writes & !older_deferred & !older.fp.valid & !older.system.serializing() & !older.branch.resolver.enable
   def integer_memory = !younger.fp.valid & younger.memory.enable
-  def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen).or_reduce()
+  def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen.width).or_reduce()
   def store_data = integer_memory & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
   def is_auipc = DecodeGen([DecodeCase(instruction_pattern(rv32.AUIPC), Bool(#true))], ~default: Bool(#false))

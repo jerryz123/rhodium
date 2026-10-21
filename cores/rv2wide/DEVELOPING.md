@@ -137,7 +137,7 @@ Keep broader ISA qualification in the existing software suites.
 
 | Owner | Responsibility |
 |---|---|
-| `decode/operand-ctrl.rhdl` | Source-use bits, ALU operands, canonical immediate selection |
+| `decode/operand-ctrl.rhdl` | Composes shared operand relations with RV2Wide MOP and dedicated-multiply routing policy |
 | `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
 | `decode/system-ctrl.rhdl` | Architectural CSR operation/source, trap/return/wait, and serialized fence columns |
 | `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |

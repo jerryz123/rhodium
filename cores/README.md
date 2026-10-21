@@ -20,6 +20,12 @@ Reusable execution datapaths expose already-decoded physical controls. Their cal
 instruction recognition, operand selection, pipeline scheduling, and
 architectural result selection.
 
+[`operand.rhdl`](operand.rhdl) provides `OperandControl`, `OperandASelect`,
+`OperandBSelect`, and `OperandImmediate`. Import
+[`operand-decode.rhdl`](operand-decode.rhdl) for canonical RV32/RV64 I/B operand
+relations and partial source-use patterns. Inactive fields remain don't-cares;
+each core composes its extension domains and dedicated execution-unit routing.
+
 | Component | Interface and parameters | Timing contract | Component owns | Caller owns |
 |---|---|---|---|---|
 | [`ALU(xlen)`](alu.rhdl) | `XLen.X32` or `XLen.X64`; `left`, `right`, and `AluControl` to `result` | Combinational; no ready/valid state | Modular arithmetic, logic, shifts/rotates, comparisons, counts, unary transforms, RV64 word shaping, and the shared Zba/Zbb/Zbs/Zicond datapaths | Decode, operand routing, and result use |

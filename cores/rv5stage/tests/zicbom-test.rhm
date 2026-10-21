@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
   "../../../rhodium/std/decode.rhdl" open
   "../../../riscv/isa/zicbom.rhm" open
@@ -12,7 +13,6 @@ import:
   "../profile.rhm" open
   "../../cache/operation.rhdl" open
   "../decode/core-ctrl.rhdl" open
-  "../decode/operand-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../../alu.rhdl" open
@@ -26,12 +26,12 @@ for (entry in [[CBO_INVAL, CacheOperation.CacheBlockInvalidate], [CBO_CLEAN, Cac
         word: Bool(#false)
 
     operand:
-      pattern(RV5StageOperandControl()):
+      pattern(OperandControl()):
         uses_rs1: Bool(#true)
         uses_rs2: Bool(#false)
         left: OperandASelect.Register
         right: OperandBSelect.Immediate
-        immediate: RV5StageImmediateSelect.None
+        immediate: OperandImmediate.Zero
 
     memory:
       partial_pattern(RV5StageMemoryControl()):

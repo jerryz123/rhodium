@@ -510,6 +510,19 @@ state-enable banks' read-value union, retaining zero when no banks are present.
 `cores/csr/udb.rhm` consumes shared CSR config, FP/vector descriptors, and that
 pure UDB model. Named UDB projections compose these instead of reauthoring
 architectural versions or CSR-bank facts. Precise faults remain core-owned claims.
+`cores/cache/udb.rhm` imports only the pure UDB model for reservation/maintenance
+policy;
+`cores/mmu/udb.rhm` additionally imports the architectural MMU selection.
+`cores/udb.rhm` declares the precise-execution/split-access contract each named
+core explicitly opts into, without importing any named-core configuration.
+`cores/operand.rhdl` consumes architectural immediate formats and extraction;
+`cores/operand-decode.rhdl` adds canonical I/B instruction catalogs, the public
+RISC-V decode adapter, and `std/decode.rhdl`. Named decoders consume these
+controls and relations directly rather than re-exporting them.
+`cores/vector/profile.rhm` consumes pure XLEN, FP, and vector descriptors;
+both named profiles and RV5Stage's FP service selection consume its helpers.
+Both named profiles also consume `cores/fp/profile.rhm` for the implemented
+scalar FP/half-precision/Zfa combinations.
 `cores/cache/uncached-arbiter.rhdl` consumes shared physical protocols, XLEN,
 and `flow/main.rhdl`; both named cores specialize it alongside the common CHI
 transport without another named-core import.

@@ -1,0 +1,49 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../decode/operand-ctrl.rhdl".rv2wide_operand_cases
+  "../../operand.rhdl" open
+  "../../operand-decode.rhdl" open
+  lib("rhodium/std/decode.rhdl") open
+  lib("rhodium/frontend/layers/bool.rhm").Bool
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/a.rhm") open
+  lib("riscv/isa/zimop.rhm") open
+
+fun output_for(cases, instruction):
+  cases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output
+
+fun check_pattern(actual, expected):
+  check:
+    actual.value_bits ~is expected.value_bits
+    actual.care_bits ~is expected.care_bits
+
+def multiply_sources = partial_pattern(OperandControl()):
+  uses_rs1: Bool(#true)
+  uses_rs2: Bool(#true)
+
+def mop_operands = pattern(OperandControl()):
+  uses_rs1: Bool(#false)
+  uses_rs2: Bool(#false)
+  left: OperandASelect.Zero
+  right: OperandBSelect.Immediate
+  immediate: OperandImmediate.Zero
+
+for (xlen in [XLen.X32, XLen.X64]):
+  def cases = rv2wide_operand_cases(xlen)
+  def base = if xlen == XLen.X32 | RV32IOperandCases ++ RV32BOperandCases | RV64IOperandCases ++ RV64BOperandCases
+  for (row in base):
+    def matches = cases.filter(~keep: fun (candidate): candidate.input.value_bits == row.input.value_bits && candidate.input.care_bits == row.input.care_bits)
+    check: matches.length() ~is 1
+    check_pattern(matches[0].output, row.output)
+
+  for (instruction in (if xlen == XLen.X32 | RV32MInstructions | RV64MInstructions)):
+    check_pattern(output_for(cases, instruction), multiply_sources)
+
+  for (instruction in ZimopInstructions):
+    check_pattern(output_for(cases, instruction), mop_operands)
+
+  check_pattern(output_for(cases, LR_W), load_reserved_operands)
+  check_pattern(output_for(cases, SC_W), atomic_operands)

@@ -42,6 +42,7 @@ introduce buffering or lossy arbitration on a nonstallable return.
 | `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
 | `instruction-metadata.rhm` | Canonical base decode domains and scalar operand/destination metadata |
 | `udb.rhm` | Shared execution geometry and architectural policy for named-core UDB projections |
+| `profile.rhm` | Shared scalar/vector capability validation and execution half-precision selection |
 | `fp.rhdl`, `muldiv.rhdl` | Shared arithmetic operands and tagged result conversion |
 
 `../mmu/vector.rhdl` owns certification/probe contracts and

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/vector/profile.rhm").vector_execution_half_precision
   "../profile.rhm" open
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
@@ -70,9 +71,9 @@ check:
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.isa_extensions.contains("zvkt") ~is #true
   RV5StageConfig(~xlen: XLen.X64).isa_profile.isa_extensions.contains("zvkt") ~is #false
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)).isa_profile.isa_extensions.contains("zvfhmin") ~is #true
-  rv5stage_execution_half_precision(HalfPrecisionProfile.None, vector_extensions(VectorExtension.Zvfhmin)) ~is HalfPrecisionProfile.Zfhmin
-  rv5stage_execution_half_precision(HalfPrecisionProfile.Zfh, NoVectorExtensions) ~is HalfPrecisionProfile.Zfh
-  rv5stage_execution_half_precision(HalfPrecisionProfile.Zfhmin, vector_extensions(VectorExtension.Zvfh)) ~is HalfPrecisionProfile.Zfh
+  vector_execution_half_precision(HalfPrecisionProfile.None, vector_extensions(VectorExtension.Zvfhmin)) ~is HalfPrecisionProfile.Zfhmin
+  vector_execution_half_precision(HalfPrecisionProfile.Zfh, NoVectorExtensions) ~is HalfPrecisionProfile.Zfh
+  vector_execution_half_precision(HalfPrecisionProfile.Zfhmin, vector_extensions(VectorExtension.Zvfh)) ~is HalfPrecisionProfile.Zfh
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.misa_extension_bits ~is 0x34112b
   RV5StageConfig(~xlen: XLen.X64, ~vector_length: 192) ~throws "VectorLength"
   RV5StageConfig(~xlen: XLen.X64, ~vector: VectorProfile.V) ~throws "require scalar D"

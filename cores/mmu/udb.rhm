@@ -1,0 +1,24 @@
+#lang rhombus
+/* Describes the shared Bare/Sv39 MMU and two-stage translation modes for UDB. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  lib("riscv/udb.rhm") open
+
+/* Publishes translation modes and identifier capacities, not fault precision of an integrating pipeline. */
+fun mmu_udb_parameters(mmu_type :: RiscvMmuType, hypervisor :: Boolean) :: NonemptyList.of(UdbParameter):
+  def base = [
+    natural_parameter("ASID_WIDTH", 0),
+    boolean_parameter("SATP_MODE_BARE", #true)
+  ] ++ (if mmu_type == RiscvMmuType.Bare | [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #false)] | [])
+  def mutable guest = []
+  when hypervisor
+  | block:
+      guest := [natural_parameter("VMID_WIDTH", 0), boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true)]
+      for (mode in ["SV39", "SV48", "SV57"]):
+        guest := guest ++ [boolean_parameter(mode ++ "X4_TRANSLATION", mode == "SV39"), boolean_parameter(mode ++ "_VSMODE_TRANSLATION", mode == "SV39")]
+
+  base ++ guest
+
+export mmu_udb_parameters

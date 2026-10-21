@@ -13,8 +13,10 @@ owns reusable state implementation, not a core's pipeline policy.
   RTL and resolved configuration metadata consume the same values.
 - `decode.rhdl` owns the six CSR operation/source rows; named decoders retain
   serialization and privileged action mapping.
-- `udb.rhm` projects bank-owned storage and WARL facts from `RiscvCsrConfig`.
-  Both cores\' host profiles expose that same configuration used to instantiate RTL.
+- `udb.rhm` projects bank-owned storage, interrupt sources, endian/XLEN choices,
+  and WARL facts from `RiscvCsrConfig`, including guest-state and counter enables.
+  Both cores' host profiles expose that same configuration used to instantiate RTL.
+  Pipeline precision and trap-value provenance remain explicit caller claims.
 - `protocol.rhdl` defines the neutral command and architectural action enum.
 - `file.rhdl` owns state, CSR dispatch, trap/return transitions, interrupt
   selection, FP state, counters, and passive cosim observations.
