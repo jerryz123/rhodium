@@ -921,6 +921,10 @@ divide owners remain with the shared divider until accepted completion.
 follows the aligned owner directly from EX multiply launch, or the retained
 service and completion pipeline from WB load/divide acceptance, without
 intermediate service events.
+Vector `vector/s1.sequence` transfers and stalls inherit the selected
+`core/s3.mem.slotN` occurrence through WB admission and the descriptor queue.
+This follows the accepted instruction, not its PC: faultable vector memory can
+start sequencing before its later WB retirement event.
 RR inherits the one or two `frontend/s2.outcome` blocks contributing to its
 assembled packet through the assembler and issue window. Packet assembly has
 no separate trace checkpoint. RR stall observations share their corresponding

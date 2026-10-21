@@ -226,6 +226,10 @@ Shared instruction mappings and row geometry use
 Tagged integer service changes use `rv5stage-integer-execution` for held
 results and scheduled returns, and `rv2wide-core-vector` for shared-client
 ownership and scalar WB authorization.
+Shared test-only [`tests/rsim/port-observers.rhm`](tests/rsim/port-observers.rhm)
+adds clocked scalar-field observations of public component ports for both named
+cores. Keep architectural and occurrence scoreboards with each caller's tests;
+the helper changes no functional signature and belongs to no production core.
 CSR, translation, and floating-point checks are routed by their respective
 [CSR](csr/DEVELOPING.md#change-workflow-and-validation) and
 [MMU](mmu/DEVELOPING.md#validation) and [FP](fp/DEVELOPING.md#validation) guides. For shared split-engine changes,

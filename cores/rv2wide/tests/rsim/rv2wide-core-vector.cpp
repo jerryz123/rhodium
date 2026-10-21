@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "../../../../rheg/runtime/rheg.h"
+#include "test-sites.h"
 #include <array>
 #include <deque>
 #include <map>
@@ -27,6 +29,124 @@ struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
 std::uint64_t last_cause = 0, last_tval = 0, last_fault_pc = 0;
+
+namespace vector_trace {
+struct Owner {
+  rheg::Ref parent{};
+  std::uint64_t pc = 0, instruction = 0;
+  unsigned lane = 0;
+};
+struct Offer { bool accepted = false; std::uint64_t pc = 0, instruction = 0; };
+std::array<std::optional<Owner>, 2> wb, next_wb;
+std::array<std::uint64_t, 2> mem_sequences{};
+std::deque<Owner> admitted;
+std::optional<Owner> active;
+Offer admission, dispatch;
+bool released = false;
+std::uint64_t trace_cycle = 0, sequence = 0, stall = 0;
+unsigned admissions = 0, dispatches = 0, queued = 0, replacements = 0;
+std::array<unsigned, 2> lanes{};
+std::map<rheg::Ref, unsigned> beats;
+constexpr unsigned mem_sites[] = {rv2wide_vector_sites::mem0, rv2wide_vector_sites::mem1};
+
+bool equal(rheg::Ref a, rheg::Ref b) {
+  return a.site == b.site && a.sequence == b.sequence;
+}
+void sample() {
+  next_wb = {};
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    const auto &port = lane ? memory_stage_1_out : memory_stage_0_out;
+    if (port.pvalid)
+      next_wb[lane] = Owner{{}, port.pbits.ppc, port.pbits.praw_uinstruction, lane};
+  }
+}
+void check_occurrence(unsigned site, std::uint64_t &serial) {
+  const auto &graph = rheg::graph();
+  rheg::Ref child{site, serial};
+  auto found = graph.nodes.find(child);
+  if (found == graph.nodes.end()) return;
+  CHECK(active && found->second.cycle == trace_cycle && !found->second.ancestry_unknown);
+  unsigned parents = 0;
+  for (const auto &edge : graph.edges) if (equal(edge.second, child)) {
+    CHECK(equal(edge.first, active->parent));
+    ++parents;
+  }
+  if (parents != 1)
+    std::cerr << "vector trace site " << site << " cycle " << trace_cycle
+              << " parents " << parents << " expected " << active->parent.site
+              << ':' << active->parent.sequence << '\n';
+  CHECK(parents == 1);
+  CHECK(graph.field(child, "pc").unsigned_value() == active->pc);
+  CHECK(graph.field(child, "instruction").unsigned_value() == active->instruction);
+  CHECK(graph.nodes.at(active->parent).cycle < found->second.cycle);
+  if (site == rv2wide_vector_sites::sequence) ++beats[active->parent];
+  ++serial;
+}
+void check() {
+  if (reset) {
+    wb = {}; next_wb = {}; mem_sequences = {};
+    admitted.clear(); active.reset();
+    trace_cycle = sequence = stall = 0;
+    return;
+  }
+  const auto &graph = rheg::graph();
+  // Public MEM observations identify the live WB owner one cycle later.
+  // Accepted descriptors enter an independent FIFO; PC is only a checked capture.
+  if (admission.accepted) {
+    std::optional<Owner> owner;
+    for (const auto &candidate : wb) if (candidate && candidate->pc == admission.pc) {
+      CHECK(!owner && candidate->instruction == admission.instruction);
+      owner = candidate;
+    }
+    CHECK(owner);
+    admitted.push_back(*owner);
+    ++lanes[owner->lane]; ++admissions;
+  }
+  // A replacement edge still sequences/stalls the old registered descriptor.
+  check_occurrence(rv2wide_vector_sites::sequence, sequence);
+  check_occurrence(rv2wide_vector_sites::stall, stall);
+  if (released) { CHECK(active); active.reset(); }
+  if (dispatch.accepted) {
+    CHECK(!active && !admitted.empty());
+    const auto owner = admitted.front(); admitted.pop_front();
+    CHECK(owner.pc == dispatch.pc && owner.instruction == dispatch.instruction);
+    if (trace_cycle > graph.nodes.at(owner.parent).cycle + 1) ++queued;
+    if (released) ++replacements;
+    active = owner; ++dispatches;
+  }
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    rheg::Ref ref{mem_sites[lane], mem_sequences[lane]};
+    auto found = graph.nodes.find(ref);
+    if (found == graph.nodes.end()) { next_wb[lane].reset(); continue; }
+    CHECK(next_wb[lane] && found->second.cycle == trace_cycle);
+    CHECK(graph.field(ref, "pc").unsigned_value() == next_wb[lane]->pc);
+    CHECK(graph.field(ref, "instruction").unsigned_value() == next_wb[lane]->instruction);
+    next_wb[lane]->parent = ref;
+    ++mem_sequences[lane];
+  }
+  wb = next_wb;
+  ++trace_cycle;
+}
+void finish() {
+  rheg::graph().validate();
+  CHECK(admissions == dispatches && admitted.empty() && !active);
+  CHECK(lanes[0] && lanes[1] && queued && replacements && stall);
+  CHECK(std::any_of(beats.begin(), beats.end(), [](const auto &item) { return item.second > 1; }));
+  std::cout << "RV2Wide vector lineage: " << admissions << " admissions, "
+            << sequence << " beats, " << stall << " stalls, " << queued
+            << " queued dispatches, " << replacements << " replacements\n";
+}
+}
+
+extern "C" void rv2wide_vector_admission(std::uint64_t resetting, std::uint64_t valid,
+    std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction) {
+  vector_trace::admission = {!resetting && valid && ready, pc, instruction};
+}
+extern "C" void rv2wide_vector_dispatch(std::uint64_t resetting, std::uint64_t valid,
+    std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction, std::uint64_t released) {
+  vector_trace::dispatch = {!resetting && valid && ready, pc, instruction};
+  vector_trace::released = !resetting && released;
+}
 
 std::uint32_t vi(unsigned funct6, unsigned vs2, unsigned vs1,
                  unsigned funct3, unsigned vd) {
@@ -142,7 +262,9 @@ void step() {
   const bool proof_return = vector_precheck_in.presponse.pvalid && vector_precheck_out.presponse.pready;
   const auto next_lookup = pipeline_out.prequest.pbits;
   const auto next_live = pipeline_out.prequest.pvalid;
+  vector_trace::sample();
   tick_model();
+  vector_trace::check();
   commit_owner = lookup;
   lookup = next_lookup;
   lookup_live = next_live;
@@ -682,6 +804,7 @@ void extract(unsigned vector_register, unsigned rd, std::uint64_t value,
 }
 int main() {
   return run_test([] {
+    rheg::graph().bind_manifest(rheg_generated::manifest());
     reset = 1;
     instructions_in = {};
     step(); step();
@@ -803,5 +926,7 @@ int main() {
     vector_memory_fast_path();
     paired_vector_configurations();
     paired_vector_arithmetic();
+    run(100);
+    vector_trace::finish();
   });
 }

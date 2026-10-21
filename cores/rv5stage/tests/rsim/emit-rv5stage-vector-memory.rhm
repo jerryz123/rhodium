@@ -4,7 +4,7 @@
 import:
   lib("rhodium/backend/rsim-target.rhm").rsim_target
   lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
-  "port-observers.rhm".port_observer_pass
+  lib("cores/tests/rsim/port-observers.rhm").port_observer_pass
   "../../../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
   "../../../../riscv/isa/vector-profile.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate

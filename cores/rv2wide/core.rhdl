@@ -205,7 +205,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
     observed |> fork_valid(4)
 
-  def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(2)
+  def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(3)
   def ex_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(RV2WideResult(xlen)))
   def mem_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(RV2WideResult(xlen)))
   def ex_results :: List.of(Endpoint) = for List (link in ex_links): link.right
@@ -1153,6 +1153,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vector_certified = wb_vector.vector.precertified & vector_fast.candidate_current & wb_vector_masking_current
   vector.request.valid <== wb_vector_offer & wb_vector_ordered & wb_vector_results_available & wb_vector_fpr_available
   vector.request.bits <== wb_vector.vector.updated(~precertified: wb_vector_certified)
+  // Admission retains the live lane's owner even when vector memory retires later.
+  describe_interface_selection([wb_vector_lane === Bits(1)(0), wb_vector_lane === Bits(1)(1)], ~name: "vector-lane")
+  describe_interface_contract(Array(wb_paths[0][2], wb_paths[1][2]), vector.request, "vector-lane", ~trace_model: interface_trace_selection(~name: "vector-lane", ~pending: #true))
   def wb_vector_accepted = vector.request.fire()
   def wb_vector_capture = wb_vector_accepted & wb_vector.vector.control.memory & !wb_vector_certified
   def wb_vector_replay = wb_vector_offer & !wb_vector_accepted

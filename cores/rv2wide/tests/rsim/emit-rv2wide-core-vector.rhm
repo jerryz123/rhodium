@@ -3,6 +3,9 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/event/main.rhm") open
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  lib("cores/tests/rsim/port-observers.rhm").port_observer_pass
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/vector-profile.rhm") open
@@ -12,6 +15,38 @@ import:
 // Scalar Zfhmin plus full Zvfh exercises the wider execution capability without scalar Zfh.
 def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true)))
 def rv32_program = elaborate(RV2WideCore(RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)))
+
+fun site_header(manifest):
+  def sequence = manifest.sites.find(fun (site): site.label == "vector/s1.sequence")
+  for (child in [sequence.id, sequence.id ++ "/stall"]):
+    def parents = manifest.dependencies.filter(~keep: fun (edge): edge.child == child).map(fun (edge): manifest.site(edge.parent).label).sort()
+    unless parents == ["core/s3.mem.slot0", "core/s3.mem.slot1"]
+    | error("vector sequencing and stalls must inherit either live MEM lane")
+
+  for (gap in manifest.gaps):
+    when gap.site == sequence.id || manifest.site(gap.site).observation_of == sequence.id
+    | error("vector sequencing has incomplete admission ancestry")
+
+  "\nnamespace rv2wide_vector_sites {\n" ++ String.join(
+    for List (label in ["core/s3.mem.slot0", "core/s3.mem.slot1", "vector/s1.sequence", "vector/s1.sequence.stall"], name in ["mem0", "mem1", "sequence", "stall"]):
+      def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
+      unless matches.length() == 1 | error("expected one vector admission trace site: " ++ label)
+      "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
+    ""
+  ) ++ "}\n"
+
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
+  ["RV2WideVectorPipeline", "rv2wide_vector_admission", [
+    ["request_in", "valid"], ["request_out", "ready"],
+    ["request_in", "bits", "pc"], ["request_in", "bits", "instruction"]
+  ]],
+  ["VectorSequencer", "rv2wide_vector_dispatch", [
+    ["request_in", "valid"], ["request_out", "ready"],
+    ["request_in", "bits", "descriptor", "pc"], ["request_in", "bits", "descriptor", "instruction"],
+    ["sequencing_done_out", "valid"]
+  ]]
+])])
 export:
   program
   rv32_program
+  target

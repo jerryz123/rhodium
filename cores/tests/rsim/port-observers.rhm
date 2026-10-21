@@ -7,8 +7,8 @@ import:
   lib("rhodium/event/copy.rhm").copy_module
   lib("rhodium/compile/pipeline.rhm") open
 
-// Replace the old SV bind monitors with clocked observations of the same public
-// component ports. Each specification names one module definition, one callback,
+// Observe public component ports without changing their functional signatures.
+// Each specification names one module definition, one callback,
 // and scalar field paths; every callback receives reset followed by uint64 words.
 // Copy before adding effects so fixture elaboration and other targets stay intact.
 fun port_observer_pass(specs):

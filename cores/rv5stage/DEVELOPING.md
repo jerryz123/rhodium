@@ -612,7 +612,7 @@ The RV32F/RV64D complete-core fixtures share `tests/rsim/core-wb-behavior.hpp`;
 vector-memory and one-slot configurations share `tests/rsim/vector-memory-behavior.hpp`.
 Keep the same complete workload in each parameter configuration.
 
-[`tests/rsim/port-observers.rhm`](tests/rsim/port-observers.rhm) is test-only
+[`../tests/rsim/port-observers.rhm`](../tests/rsim/port-observers.rhm) is shared test-only
 instrumentation replacing the former SV bind/hierarchical monitors. It copies
 the prepared hierarchy and adds clocked callbacks at the same public component
 ports, without changing functional ports, state, or production generators.

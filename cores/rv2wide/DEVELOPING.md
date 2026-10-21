@@ -100,7 +100,11 @@ selects the one/two retained or live block owners contributing bytes to each pac
 EX/MEM mapping and lane grants certify manually authored combinational regions.
 Split ownership uses its actual capture/release/pending controls. Successful WB
 parents accepted load/divide requests; EX parents the multiply's existing owner
-path, whose WB authorization filter discards killed products. Do not add a whole
+path, whose WB authorization filter discards killed products. Vector admission
+has its own live-WB fork branch and pending-safe lane-selection contract, so
+stalls retain the offered owner's ancestry too. Its descriptor queue
+and sequencer retain that MEM occurrence, independently of eventual retirement;
+never qualify vector admission with final WB retirement feedback. Do not add a whole
 module trace contract across already contracted Flow children. The shared divider
 owns its intrinsic retained request-to-response contract.
 
@@ -885,6 +889,11 @@ Paired streams check both lane orders, slot-one MEM/WB state forwarding,
 same-pair legality and memory geometry, scalar RAW/WAW splits, precise younger
 traps, replayed suffixes under injected rejection and full descriptor credit,
 and retained older vector memory.
+Both core-vector fixtures run the event pass and production collector. Public
+MEM observations, accepted descriptor requests, and sequencer dispatch/release
+ports form an independent occurrence FIFO. It checks exact MEM parents for every
+sequence transfer and stall across both lanes, queued dispatch, and replacement;
+the existing replay/fault streams retain their architectural checks.
 Scalar/vector arithmetic streams check same-cycle MEM/retirement, add/sub and
 vector multiply/divide consumers, LUI/AUIPC and XLEN-width values, x0, a producer
 waiting on a delayed load, late multiply interlocks, and either lane's fault/replay.
