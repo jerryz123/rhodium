@@ -75,8 +75,8 @@ def sail_default():
         },
         "base": {
             "independent_context_csrs": False,
-            "scontext_writable_mask": {"len": 64, "value": "0xffffffff"},
-            "mcontext_writable_mask": {"len": 64, "value": "0x3fff"},
+            "scontext_writable_mask": {"len": "xlen", "value": "0xffffffff"},
+            "mcontext_writable_mask": {"len": "xlen", "value": "0x3fff"},
             "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xcb1ff"}},
             "hpm_events": {"restricted": False, "supported": []},
             "pmm_unsupported_write_to_disabled": False,

@@ -321,8 +321,8 @@ def project_architecture(default, udb, csr_warl=None):
         stateen["mstateen0"]["CONTEXT"] = context
         stateen["hstateen0"]["CONTEXT"] = context
         base["independent_context_csrs"] = csr_warl["stateen_context"]
-        base["scontext_writable_mask"] = bits((1 << (16 if params["MXLEN"] == 32 else 32)) - 1, params["MXLEN"])
-        base["mcontext_writable_mask"] = bits((1 << ((6 if params["MXLEN"] == 32 else 13) + ("H" in extensions))) - 1, params["MXLEN"])
+        base["scontext_writable_mask"]["value"] = hex((1 << (16 if params["MXLEN"] == 32 else 32)) - 1)
+        base["mcontext_writable_mask"]["value"] = hex((1 << ((6 if params["MXLEN"] == 32 else 13) + ("H" in extensions))) - 1)
     hpm_present = any(params["HPM_COUNTER_EN"][3:])
     events = params.get("HPM_EVENTS", [])
     if hpm_present and (not isinstance(events, list) or not events or 0 not in events):

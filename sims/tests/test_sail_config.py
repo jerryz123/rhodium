@@ -121,23 +121,41 @@ class SailConfigurationTest(unittest.TestCase):
         self.assertFalse(other["base"]["pmm_unsupported_write_to_disabled"])
 
     def test_context_state_enables_follow_static_implementation_policy(self):
-        udb = vector_udb()
-        udb["implemented_extensions"] += [{"name": "S", "version": "1.13.0"}, {"name": "Smstateen", "version": "1.0.0"}]
-        udb["params"]["MSTATEEN_ENVCFG_TYPE"] = "rw"
-        default = self.default()
-        default["extensions"]["S"] = {"supported": False}
-        for context in (False, True):
-            policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled", "stateen_context": context}
-            act = ACT["sail_config"](default, udb, 0x80000000, 0x40000000, policy)
-            cosim = project_architecture(default, udb, policy)
-            for model in (act, cosim):
-                self.assertFalse(model["extensions"]["Sdtrig"]["supported"])
-                expected = "CSRBit_Writable" if context else "CSRBit_ReadOnlyZero"
-                self.assertEqual(model["extensions"]["Stateen"]["mstateen0"]["CONTEXT"], expected)
-                self.assertEqual(model["extensions"]["Stateen"]["hstateen0"]["CONTEXT"], expected)
-                self.assertEqual(model["base"]["independent_context_csrs"], context)
-                self.assertEqual(model["base"]["scontext_writable_mask"]["value"], "0xffffffff")
-                self.assertEqual(model["base"]["mcontext_writable_mask"]["value"], "0x1fff")
+        for xlen, hypervisor in ((32, False), (32, True), (64, False), (64, True)):
+            udb = vector_udb()
+            udb["implemented_extensions"] += [{"name": "S", "version": "1.13.0"}, {"name": "Smstateen", "version": "1.0.0"}]
+            udb["params"].update(MXLEN=xlen, MSTATEEN_ENVCFG_TYPE="rw")
+            if hypervisor:
+                udb["implemented_extensions"].append({"name": "H", "version": "1.0.0"})
+                udb["params"].update(
+                    VSSTATUS_VS_EXISTS=True, VSXLEN=[xlen], VUXLEN=[xlen],
+                    VS_MODE_ENDIANNESS="little", VU_MODE_ENDIANNESS="little",
+                    VSSTAGE_MODE_BARE=True, GSTAGE_MODE_BARE=True, VMID_WIDTH=0,
+                    NUM_EXTERNAL_GUEST_INTERRUPTS=0, REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT=True,
+                    HCOUNTENABLE_EN=[False] * 32, VSTVEC_MODES=[0], HSTATEEN_ENVCFG_TYPE="rw",
+                    REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION=True,
+                )
+                udb["params"].update(dict.fromkeys(TRANSFORMED_INSTRUCTION_PARAMETERS.values(), "always zero"))
+            default = self.default()
+            default["extensions"]["S"] = {"supported": False}
+            saved = copy.deepcopy(default)
+            for context in (False, True):
+                with self.subTest(xlen=xlen, hypervisor=hypervisor, context=context):
+                    policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0xcb1ff if hypervisor else 0,
+                              "pmm_unsupported_write": "disabled", "stateen_context": context}
+                    act = ACT["sail_config"](default, udb, 0x80000000, 0x40000000, policy)
+                    cosim = COSIM["project_environment"](project_architecture(default, udb, policy), environment())
+                    for model in (act, cosim):
+                        self.assertFalse(model["extensions"]["Sdtrig"]["supported"])
+                        expected = "CSRBit_Writable" if context else "CSRBit_ReadOnlyZero"
+                        self.assertEqual(model["extensions"]["Stateen"]["mstateen0"]["CONTEXT"], expected)
+                        self.assertEqual(model["extensions"]["Stateen"]["hstateen0"]["CONTEXT"], expected)
+                        self.assertEqual(model["base"]["independent_context_csrs"], context)
+                        self.assertEqual(model["base"]["scontext_writable_mask"],
+                                         {"len": "xlen", "value": hex((1 << (16 if xlen == 32 else 32)) - 1)})
+                        self.assertEqual(model["base"]["mcontext_writable_mask"],
+                                         {"len": "xlen", "value": hex((1 << ((6 if xlen == 32 else 13) + hypervisor)) - 1)})
+                    self.assertEqual(default, saved)
 
     def test_csr_warl_rejects_invalid_delegation(self):
         udb = vector_udb()
