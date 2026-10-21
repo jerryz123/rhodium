@@ -8,10 +8,10 @@ import:
   "../../../cores/rv5stage/memory-context.rhdl" open
   "../vector/capture.rhdl" open
 
-/* Normalizes RV5Stage memory provenance for the shared vector observer. */
+/* Supplies RV5Stage's fixed two-entry dispatch queue and normalized memory provenance. */
 fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, instance :: Bits(64), active :: Bool):
   def slots = profile.vector_completion_slots
-  cosim_vector(profile.xlen, profile.vector_length, slots, types, mmu, instance, active)
+  cosim_vector(profile.xlen, profile.vector_length, slots, 2, types, mmu, instance, active)
   if types.has_key("mmu_request")
   | block:
       def request :: PhysicalMemoryReq(profile.xlen, RV5StageMemoryContext(slots)) = mmu["mmu_request"]

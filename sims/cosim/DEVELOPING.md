@@ -53,6 +53,12 @@ independent of callback order and native type-map order. `vector/capture.rhdl`
 and `vector/adapter.h` / `vector/vector-adapter.cc` own common vector taps and reconstruction; named-core
 capture modules supply translated physical request/fragment provenance.
 
+The passive cycle capture carries descriptor dispatch depth separately from
+execution-slot capacity. RV2Wide supplies its configured depth; RV5Stage supplies
+its fixed two-entry depth. Both remain stable within a reset epoch. The native
+pending-identity FIFO checks that depth, allowing simultaneous admission/dispatch
+without conflating queued descriptors with already-dispatched execution owners.
+
 `SailChecker::check` captures reference pre-state, prepares environmental inputs,
 steps Sail, then compares control flow, traps, registers, reported FP flag effects,
 and memory. Sail owns deterministic CSR evolution, privilege transitions, and

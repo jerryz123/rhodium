@@ -57,17 +57,18 @@ void VectorAdapter::finish_sample(observation::Collector& collector) {
     const auto& cycle = std::get<std::optional<Cycle>>(frame.events);
     require(cycle.has_value(), "missing active-cycle sample");
     require((cycle->xlen == 32 || cycle->xlen == 64) && cycle->vlen >= cycle->xlen &&
-            std::has_single_bit(cycle->vlen) && std::has_single_bit(cycle->slots), "invalid vector geometry");
+            std::has_single_bit(cycle->vlen) && std::has_single_bit(cycle->slots) && cycle->dispatch_depth > 0, "invalid vector geometry");
     auto found = harts_.find(instance);
     if (found == harts_.end() || found->second.epoch != frame.epoch) {
       Hart initial{};
       initial.epoch = frame.epoch; initial.xlen = cycle->xlen; initial.vlen = cycle->vlen; initial.capacity = cycle->slots;
+      initial.dispatch_depth = cycle->dispatch_depth;
       initial.owners.resize(cycle->slots); initial.slots.resize(cycle->slots);
       initial.services.resize(cycle->slots);
       found = harts_.insert_or_assign(instance, std::move(initial)).first;
     }
     auto& hart = found->second;
-    require(hart.xlen == cycle->xlen && hart.vlen == cycle->vlen && hart.capacity == cycle->slots, "geometry changed within an epoch");
+    require(hart.xlen == cycle->xlen && hart.vlen == cycle->vlen && hart.capacity == cycle->slots && hart.dispatch_depth == cycle->dispatch_depth, "geometry changed within an epoch");
     resolve(collector, instance, hart, frame);
   }
   frames_.clear();
@@ -195,7 +196,7 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
     require(allocation->allocated, "vector admission has no WB identity");
     const Id id{hart.epoch, allocation->order};
     if (allocation->admitted) {
-      require(hart.pending.size() < 2 || event.template operator()<Dispatch>().has_value(), "admission FIFO overflow");
+      require(hart.pending.size() < hart.dispatch_depth || event.template operator()<Dispatch>().has_value(), "admission FIFO overflow");
       hart.pending.push_back(id);
     } else collector.seal(instance, id, 5, 0);
   }
@@ -260,9 +261,9 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
   hart.hit_physical = cycle.pipeline_address;
 }
 
-extern "C" void rhodium_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
+extern "C" void rhodium_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t dispatch_depth, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
   observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
-    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Cycle{Word(xlen), Word(vlen), Word(slots), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Cycle{Word(xlen), Word(vlen), Word(slots), Word(dispatch_depth), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
   });
 }
 extern "C" void rhodium_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept {

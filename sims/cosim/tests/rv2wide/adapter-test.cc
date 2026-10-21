@@ -45,7 +45,7 @@ void vector_owners(unsigned seed) {
   constexpr Word instruction = 0x02000457; // vadd.vv v8,v0,v0
   for (Word cycle=0;cycle<4;++cycle) {
     Sample s;
-    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,0,0,0,1,0); }};
+    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,2,0,0,0,1,0); }};
     if (cycle==0) {
       auto& lane=s.retire(0,0x8000); lane.vector=1; lane.encoding=instruction;
       s.retire(1,0x8004,1,7);
@@ -63,6 +63,62 @@ void vector_owners(unsigned seed) {
   require(write.bank==Bank::Vector && write.index==8 && write.value==0x44332211);
   require(std::get<RegisterWrite>(records[1].effects.at({0,0})).value==7);
   c.finish();
+}
+void vector_admission_depth(unsigned seed, Word depth, unsigned xlen) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},xlen,2*xlen}); DpiBinding binding(c); std::mt19937 random(seed);
+  constexpr Word instruction=0x02000457; // vadd.vv v8,v0,v0
+  std::vector<Record> records;
+  Word cycle=0;
+  auto frame=[&](bool admit, bool dispatch, bool drain, Word order) {
+    Sample s;
+    std::vector<std::function<void()>> calls = {[=]{ rhodium_vector_cycle(0,xlen,2*xlen,8,depth,0,0,0,0,0); }};
+    if (admit) {
+      auto& lane=s.retire(0,0x8000+4*order); lane.vector=1; lane.encoding=instruction;
+      calls.push_back([]{ rhodium_vector_admission(0); });
+    }
+    if (drain) {
+      calls.push_back([=]{ rhodium_vector_write(0,16,xlen==32?UINT32_MAX:UINT64_MAX,order,1,0,0,0,0,0); });
+      calls.push_back([]{ rhodium_vector_drain(0,0); });
+    }
+    if (dispatch) calls.push_back([]{ rhodium_vector_dispatch(0,0,0,0,instruction,0); });
+    auto emitted=sample(c,binding,cycle++,s,random,std::move(calls));
+    records.insert(records.end(),emitted.begin(),emitted.end());
+  };
+  for (Word order=0;order<depth;++order) frame(true,false,false,order);
+  require(records.empty());
+  // A full queue can replace its dispatched head on the same sample. Reuse
+  // execution owner zero while its former instruction's last write drains.
+  frame(true,true,false,depth);
+  for (Word order=1;order<=depth;++order) frame(false,true,true,order);
+  frame(false,false,true,depth+1);
+  require(records.size()==depth+1);
+  for (Word order=0;order<records.size();++order) {
+    require(records[order].id.order==order);
+    require(std::get<Instruction>(records[order].event).pc==0x8000+4*order);
+    const auto& write=std::get<RegisterWrite>(records[order].effects.at({5,0}));
+    require(write.bank==Bank::Vector && write.index==8 && write.value==order+1);
+  }
+  c.finish();
+}
+void reject_bad_vector_depth(Word depth, bool changed, bool overflow) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},32,64}); DpiBinding binding(c); std::mt19937 random(0);
+  bool rejected=false;
+  try {
+    const Word samples=changed ? 2 : overflow ? depth+1 : 1;
+    for (Word cycle=0;cycle<samples;++cycle) {
+      Sample s;
+      if (overflow) {
+        auto& lane=s.retire(0,0x8000+4*cycle); lane.vector=1; lane.encoding=0x02000457;
+      }
+      std::vector<std::function<void()>> calls = {[=]{ rhodium_vector_cycle(0,32,64,8,depth+(changed?cycle:0),0,0,0,0,0); }};
+      if (overflow) calls.push_back([]{ rhodium_vector_admission(0); });
+      sample(c,binding,cycle,s,random,std::move(calls));
+    }
+  } catch (const std::runtime_error& error) {
+    const auto expected=changed ? "geometry changed within an epoch" : overflow ? "admission FIFO overflow" : "invalid vector geometry";
+    rejected=std::string(error.what()).find(expected)!=std::string::npos;
+  }
+  require(rejected);
 }
 void rv32_boundaries() {
   Collector c; c.reset(0,0,{0,0x8000,{3,false},32,0}); DpiBinding binding(c); std::mt19937 random(0);
@@ -91,7 +147,7 @@ void vector_fault(unsigned seed) {
   constexpr Word instruction=(1U<<25)|(6<<15)|(8<<7)|7; // vle8.v v8,(x6)
   for (Word cycle=0;cycle<5;++cycle) {
     Sample s;
-    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,0,0,0,1,0); }};
+    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,2,0,0,0,1,0); }};
     if (cycle==0) {
       auto& lane=s.lanes[0]; lane.split=1; lane.vector=1; lane.encoding=instruction; lane.pc=0x8000;
       calls.push_back([]{ rhodium_vector_admission(0); });
@@ -310,6 +366,12 @@ void guest_context_and_hpm() {
 }
 int main() {
   rv32_boundaries();
+  for (Word depth : {1,2,3,4,7}) {
+    for (unsigned seed=0;seed<20;++seed) for (unsigned xlen : {32,64}) vector_admission_depth(seed,depth,xlen);
+    reject_bad_vector_depth(depth,false,true);
+    reject_bad_vector_depth(depth,true,false);
+  }
+  reject_bad_vector_depth(0,false,false);
   for (unsigned seed=0;seed<100;++seed) vector_owners(seed);
   for (unsigned seed=0;seed<100;++seed) vector_fault(seed);
   guest_context_and_hpm();

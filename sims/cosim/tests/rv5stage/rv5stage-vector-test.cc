@@ -12,7 +12,7 @@ using namespace rhodium::cosim;
 using namespace rhodium::cosim::rv5stage;
 void test_rv5stage_vector_cycle(std::int64_t instance, std::int64_t epoch, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
   observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
-    adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), Cycle{Word(xlen), Word(vlen), Word(slots), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
+    adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), Cycle{Word(xlen), Word(vlen), Word(slots), 2, Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
   });
 }
 void test_rv5stage_vector_allocate(std::int64_t instance, std::int64_t epoch, std::int64_t order, std::int64_t allocated, std::int64_t admitted, std::int64_t instruction) noexcept {
@@ -246,7 +246,7 @@ std::string fp_services(unsigned seed,unsigned mutation=0,bool reduction=false) 
   const Word code=(reduction?3U<<26:0)|(1U<<25)|(8<<20)|(12<<15)|(1<<12)|(16<<7)|0x57;
   auto frame=[&](FpService fp,std::vector<std::function<void()>> calls) {
     collector.begin_sample(cycle++);
-    calls.push_back([]{rhodium_vector_cycle(0,64,128,2,0,0,0,0,1);});
+    calls.push_back([]{rhodium_vector_cycle(0,64,128,2,2,0,0,0,0,1);});
     calls.push_back([&]{rhodium_vector_fp(0,fp.allocated,fp.owner,fp.tag,fp.launch,fp.launch_tag,fp.returned,fp.return_tag,fp.flags_valid,fp.flags);});
     std::shuffle(calls.begin(),calls.end(),random);
     for(auto& call:calls) call();

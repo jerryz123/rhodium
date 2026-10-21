@@ -12,6 +12,8 @@ import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/compile/pipeline.rhm").RTLPass
+  lib("rhodium/compile/pipeline.rhm").RTLPassResult
   lib("rhodium/backend/circt-target.rhm").circt_target
   lib("rhodium/backend/verilog-target.rhm").verilog_target
   lib("rhodium/event/trace-pass.rhm").event_trace_pass
@@ -21,6 +23,7 @@ import:
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector-profile.rhm").VectorProfile
+  lib("riscv/isa/vector-profile.rhm").vector_profile_enabled
   lib("socs/configs/rv2wide-core-profile.rhm").rv2wide_soc_profile
   lib("socs/configs/selection.rhm") open
 
@@ -62,13 +65,26 @@ for (backend in [circt_target, verilog_target]):
 
 // The production contract must preserve the authored graph and public ports on
 // both targets, rather than adding functional observation ports during elaboration.
-for (profile in [rv2wide_soc_profile(SoCShape.Simple, IsaPreset.RV64Max), RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F, ~vector: VectorProfile.Zve32f, ~vector_length: 64)] ++ (for List (fp in [FloatingPointProfile.None, FloatingPointProfile.D]): RV2WideConfig(~floating_point: fp, ~hypervisor: fp == FloatingPointProfile.D, ~ssnpm: #true, ~sscofpmf: #true, ~smstateen: #true, ~zicbom: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true))):
+for (profile in [rv2wide_soc_profile(SoCShape.Simple, IsaPreset.RV64Max), RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F, ~vector: VectorProfile.Zve32f, ~vector_length: 64, ~vector_dispatch_depth: 3)] ++ (for List (fp in [FloatingPointProfile.None, FloatingPointProfile.D]): RV2WideConfig(~floating_point: fp, ~hypervisor: fp == FloatingPointProfile.D, ~ssnpm: #true, ~sscofpmf: #true, ~smstateen: #true, ~zicbom: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true))):
   def rv2wide = elaborate(RV2WideCore(profile))
   def rv2wide_before = dump_ir(rv2wide.design)
   def rv2wide_program = rv2wide
+  fun check_vector_depth(prepared):
+    def mutable cycle_calls = 0
+    for (module_def in prepared.rtl.design.modules):
+      for (operation in module_def.operations.filter(~keep: fun (operation): operation.opcode == "sim.dpi_call" && operation.attribute("dpi_import").name == "rhodium_vector_cycle")):
+        cycle_calls := cycle_calls + 1
+        def depth = module_def.find_operation(operation.operands[6].defining_op_id)
+        check:
+          operation.attribute("dpi_import").input_names[4] ~is "dispatch_depth"
+          depth.opcode ~is "rtl.constant"
+          depth.attribute("value") ~is profile.vector_dispatch_depth
+    check:
+      cycle_calls ~is (if vector_profile_enabled(profile.vector) | 1 | 0)
+    RTLPassResult(prepared.rtl)
   for (backend in [circt_target, verilog_target]):
     def normal = compile_program(rv2wide_program, backend)
-    def observed = compile_program(rv2wide_program, rtl_pipeline_target(backend, [cosim_pass()]))
+    def observed = compile_program(rv2wide_program, rtl_pipeline_target(backend, [cosim_pass(), RTLPass("check-vector-depth", check_vector_depth)]))
     check:
       observed.manifest.signature ~is normal.manifest.signature
       observed.artifacts[0].content.contains("rhodium_rv2wide_lane") ~is #true

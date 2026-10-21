@@ -153,7 +153,7 @@ void vector_identity(unsigned seed) {
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls;
     capture(calls,s,0,0,cycle);
-    calls.push_back([] { rhodium_vector_cycle(0,64,128,2,0,0,0,0,0); });
+    calls.push_back([] { rhodium_vector_cycle(0,64,128,2,2,0,0,0,0,0); });
     if(cycle==1) {
       // Fast vector enqueue is not the retained-memory WB admission signal.
       calls.push_back([] { rhodium_vector_admission(0); });
@@ -186,7 +186,7 @@ void vector_scalar_return(unsigned xlen, bool floating) {
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls; capture(calls,s,0,0,cycle);
     for(auto& call:calls) call();
-    rhodium_vector_cycle(0,xlen,64,2,0,0,0,0,0);
+    rhodium_vector_cycle(0,xlen,64,2,2,0,0,0,0,0);
     if(cycle==0) {
       rhodium_vector_admission(0);
       rhodium_vector_dispatch(0,0,0,0,s.header.instruction,0);
@@ -224,7 +224,7 @@ void vector_fp_flags(unsigned seed) {
     collector.begin_sample(cycle);
     std::vector<std::function<void()>> calls;
     capture(calls,s,0,0,cycle);
-    calls.push_back([]{rhodium_vector_cycle(0,64,128,2,0,0,0,0,0);});
+    calls.push_back([]{rhodium_vector_cycle(0,64,128,2,2,0,0,0,0,0);});
     calls.push_back([&]{rhodium_vector_fp(0,cycle==0,0,0,cycle==0,0,cycle==2,0,1,16);});
     if(cycle==0) {
       calls.push_back([]{rhodium_vector_admission(0);});
