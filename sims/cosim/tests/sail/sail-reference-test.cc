@@ -434,6 +434,60 @@ void check_sstc_software_pending() {
   CHECK((model.integer_register(13) & 0x20) == 0);
 }
 
+void check_scalar_vector_moves(unsigned xlen) {
+  for (bool floating : {false, true}) for (unsigned lmul : {0, 3})
+    for (unsigned length : {0, 1, 2}) for (unsigned start : {0, 1, 2}) {
+      auto config = jsoncons::json::parse(configuration(xlen));
+      config["extensions"]["V"]["vstart"]["zero_required"]["scalar_move"] = false;
+      config["extensions"]["V"]["reserved_behavior"]["vstart_out_of_bounds"] = "Vstart_Ignore";
+      SailReference model(config.to_string(), ram, backing);
+      const auto vtype = (floating ? 16U : 0U) | lmul; // e32 or e8, tail undisturbed.
+      program(model, ram, {0x000062b7, addi(5, 5, 0x600), csrw(0x300, 5),
+                          floating ? 0x3f8000b7U : addi(1, 0, 0x5a),
+                          floating ? 0xf00080d3U : 0x00000013U, // fmv.w.x f1,x1
+                          0xc0007057U | vtype << 20 | length << 15,
+                          addi(2, 0, start), csrw(8, 2),
+                          floating ? 0x4200d457U : 0x4200e457U});
+      for (unsigned i = 0; i < 8; ++i) CHECK(model.step().retired);
+      auto expected = model.vector_register(8);
+      if (start < length) {
+        const auto value = floating ? 0x3f800000U : 0x5aU;
+        for (unsigned byte = 0; byte < (floating ? 4U : 1U); ++byte)
+          expected.at(byte) = value >> (8 * byte);
+      }
+      CHECK(model.step().retired);
+      CHECK(model.vector_register(8) == expected && model.csr(8) == 0);
+    }
+}
+
+void check_independent_context(unsigned xlen) {
+  auto config = jsoncons::json::parse(configuration(xlen));
+  config["extensions"]["Sdtrig"]["supported"] = false;
+  config["base"]["independent_context_csrs"] = true;
+  config["base"]["scontext_writable_mask"]["value"] = xlen == 32 ? "0xffff" : "0xffffffff";
+  config["base"]["mcontext_writable_mask"]["value"] = xlen == 32 ? "0x3f" : "0x3fff";
+  config["extensions"]["Stateen"]["mstateen0"]["CONTEXT"] = "CSRBit_Writable";
+  config["extensions"]["Stateen"]["hstateen0"]["CONTEXT"] = "CSRBit_Writable";
+  SailReference model(config.to_string(), ram, backing);
+  const unsigned stateen = xlen == 32 ? 0x31c : 0x30c;
+  program(model, ram, {addi(1, 0, 1), xlen == 32 ? 0x01909093U : 0x03909093U,
+                      csrw(stateen, 1), stateen << 20 | 13 << 7 | 0x2073,
+                      addi(1, 0, -1), csrw(0x5a8, 1), 0x5a8026f3,
+                      csrw(0x7a8, 1), 0x7a8026f3,
+                      xlen == 64 ? csrw(0x6a8, 0) : 0x00000013U,
+                      0x7a8026f3, 0x7a0026f3});
+  for (unsigned i = 0; i < 4; ++i) CHECK(model.step().retired);
+  CHECK(model.integer_register(13) == (UINT64_C(1) << (xlen == 32 ? 25 : 57)));
+  for (unsigned i = 0; i < 3; ++i) CHECK(model.step().retired);
+  CHECK(model.integer_register(13) == (xlen == 32 ? 0xffff : UINT32_MAX));
+  for (unsigned i = 0; i < 2; ++i) CHECK(model.step().retired);
+  CHECK(model.integer_register(13) == (xlen == 32 ? 0x3f : 0x3fff));
+  for (unsigned i = 0; i < 2; ++i) CHECK(model.step().retired);
+  CHECK(model.integer_register(13) == (xlen == 32 ? 0x3f : 0)); // H/M alias.
+  const auto trigger = model.step();
+  CHECK(trigger.trap && trigger.trap->cause == 2); // No trigger selection CSR.
+}
+
 void check_fesvr_coexistence() {
   // Construct the actual existing transport while Sail is live. No second host
   // service or loader belongs to the reference model, and no target is launched.
@@ -454,6 +508,7 @@ int main() {
       check_scalar(xlen); check_mmio(xlen); check_time(xlen); check_machine_counters(xlen);
       check_external_memory(xlen); check_tselect(xlen);
       check_csr_warl(xlen); check_sstc_host_time(xlen);
+      check_scalar_vector_moves(xlen); check_independent_context(xlen);
     }
     check_faults();
     check_guest_sstc_host_time();

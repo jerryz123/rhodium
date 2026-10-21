@@ -63,7 +63,7 @@ class SailConfigurationTest(unittest.TestCase):
                     self.assertEqual(model_defaults("sail", xlen), default)
                     args = invoke.call_args.args[0]
                     self.assertEqual("--rv32" in args, xlen == 32)
-            for key in ("mcountinhibit", "transformed_instruction", "Sdtrig", "hedeleg", "hpm_events", "pmm_unsupported_write_to_disabled"):
+            for key in ("mcountinhibit", "transformed_instruction", "Sdtrig", "hedeleg", "hpm_events", "pmm_unsupported_write_to_disabled", "independent_context_csrs"):
                 old = copy.deepcopy(default)
                 target = old["extensions"]["H"] if key == "transformed_instruction" else old["extensions"] if key == "Sdtrig" else old["base"]
                 del target[key]
@@ -107,7 +107,7 @@ class SailConfigurationTest(unittest.TestCase):
 
     def test_explicit_csr_warl_is_shared_by_act_and_cosim(self):
         udb = vector_udb()
-        policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled"}
+        policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled", "stateen_context": False}
         common = project_architecture(self.default(), udb, policy)
         act = ACT["sail_config"](self.default(), udb, 0x80000000, 0x40000000, policy)
         cosim = COSIM["project_environment"](common, environment())
@@ -120,12 +120,31 @@ class SailConfigurationTest(unittest.TestCase):
         self.assertEqual(other["base"]["medeleg"]["delegatable_bits"]["value"], "0x8b3fe")
         self.assertFalse(other["base"]["pmm_unsupported_write_to_disabled"])
 
+    def test_context_state_enables_follow_static_implementation_policy(self):
+        udb = vector_udb()
+        udb["implemented_extensions"] += [{"name": "S", "version": "1.13.0"}, {"name": "Smstateen", "version": "1.0.0"}]
+        udb["params"]["MSTATEEN_ENVCFG_TYPE"] = "rw"
+        default = self.default()
+        default["extensions"]["S"] = {"supported": False}
+        for context in (False, True):
+            policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled", "stateen_context": context}
+            act = ACT["sail_config"](default, udb, 0x80000000, 0x40000000, policy)
+            cosim = project_architecture(default, udb, policy)
+            for model in (act, cosim):
+                self.assertFalse(model["extensions"]["Sdtrig"]["supported"])
+                expected = "CSRBit_Writable" if context else "CSRBit_ReadOnlyZero"
+                self.assertEqual(model["extensions"]["Stateen"]["mstateen0"]["CONTEXT"], expected)
+                self.assertEqual(model["extensions"]["Stateen"]["hstateen0"]["CONTEXT"], expected)
+                self.assertEqual(model["base"]["independent_context_csrs"], context)
+                self.assertEqual(model["base"]["scontext_writable_mask"]["value"], "0xffffffff")
+                self.assertEqual(model["base"]["mcontext_writable_mask"]["value"], "0x1fff")
+
     def test_csr_warl_rejects_invalid_delegation(self):
         udb = vector_udb()
-        policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled"}
+        policy = {"medeleg_mask": 0xcb3fe, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled", "stateen_context": False}
         for name, value in (("medeleg_mask", 1 << 11), ("medeleg_mask", 1 << 16),
                             ("medeleg_mask", -1), ("medeleg_mask", True),
-                            ("hedeleg_mask", 1), ("pmm_unsupported_write", "unknown")):
+                            ("hedeleg_mask", 1), ("pmm_unsupported_write", "unknown"), ("stateen_context", 1), ("stateen_context", True)):
             with self.assertRaises(ValueError):
                 project_architecture(self.default(), udb, {**policy, name: value})
         udb["implemented_extensions"] += [{"name": "H", "version": "1.0.0"}, {"name": "C", "version": "2.0"}]

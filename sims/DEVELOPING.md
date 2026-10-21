@@ -546,8 +546,10 @@ groups. Native privileged generators use record-counted trap signature storage,
 UDB counter guards, and bounded LR/SC retries. Do not restore the retired
 replacement FP generators, word-count sizing, or zeroed LR/SC result patches.
 Native generators also supply vector crypto/bitmanip, valid SEW expansion,
-and ordered-index alignment. The three remaining patches add legal whole-register
-vill setup, base delegation coverage, and direct S/U timer programming.
+and ordered-index alignment. The remaining patches add legal whole-register
+vill setup, base delegation coverage, direct S/U timer programming, and race-free
+RV32 HPM preloading. The preload saves the selector's high half, inhibits M/S/U
+counting during both counter writes, and restores the filter/OF bits before the workload.
 Generated UDB headers live in `work/<config>/env`. Keep the native all-suite
 selection and required Sail 0.16 check unchanged; refresh dependencies against
 ACT's lockfile before generation. The platform provides both external-interrupt

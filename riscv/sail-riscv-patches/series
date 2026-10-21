@@ -9,3 +9,5 @@
 0010-sstc-host-time.patch
 0011-embedded-wrs-early-wake.patch
 0012-embedded-hpm-inputs.patch
+0013-scalar-move-start-semantics.patch
+0014-independent-context-csrs.patch

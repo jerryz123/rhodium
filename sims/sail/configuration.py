@@ -208,8 +208,12 @@ def project_pointer_masking(model_extensions, extensions, params):
 
 def project_csr_warl(base, policy, extensions, xlen):
     """Apply static implementation choices, validating architectural constraints."""
-    if not isinstance(policy, dict) or set(policy) != {"medeleg_mask", "hedeleg_mask", "pmm_unsupported_write"}:
-        raise ValueError("csr_warl must specify delegation masks and unsupported PMM writes")
+    if not isinstance(policy, dict) or set(policy) != {"medeleg_mask", "hedeleg_mask", "pmm_unsupported_write", "stateen_context"}:
+        raise ValueError("csr_warl must specify delegation masks, unsupported PMM writes, and context state enables")
+    if type(policy["stateen_context"]) is not bool:
+        raise ValueError("stateen_context must be Boolean")
+    if policy["stateen_context"] and not {"S", "Smstateen"} <= extensions.keys():
+        raise ValueError("stateen_context requires S and Smstateen")
     for name in ("medeleg_mask", "hedeleg_mask"):
         value = policy[name]
         if type(value) is not int or not 0 <= value < (1 << xlen):
@@ -313,6 +317,12 @@ def project_architecture(default, udb, csr_warl=None):
                                writable_bits=bits(sum(1 << i for i, enabled in enumerate(inhibit_bits) if enabled), 32))
     if csr_warl is not None:
         project_csr_warl(base, csr_warl, extensions, params["MXLEN"])
+        context = writable if csr_warl["stateen_context"] else zero
+        stateen["mstateen0"]["CONTEXT"] = context
+        stateen["hstateen0"]["CONTEXT"] = context
+        base["independent_context_csrs"] = csr_warl["stateen_context"]
+        base["scontext_writable_mask"] = bits((1 << (16 if params["MXLEN"] == 32 else 32)) - 1, params["MXLEN"])
+        base["mcontext_writable_mask"] = bits((1 << ((6 if params["MXLEN"] == 32 else 13) + ("H" in extensions))) - 1, params["MXLEN"])
     hpm_present = any(params["HPM_COUNTER_EN"][3:])
     events = params.get("HPM_EVENTS", [])
     if hpm_present and (not isinstance(events, list) or not events or 0 not in events):

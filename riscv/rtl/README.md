@@ -199,9 +199,10 @@ privilege. `inhibit` suppresses counting independently of the mode filters.
 The `hypervisor` specialization enables separate VS/VU filters; otherwise
 those selector bits read zero and virtualization is ignored.
 
-`counter_write` and `selector_write` take `Valid(RiscvHpmWrite(xlen))`.
-RV32 adds a `high` field and preserves the untouched half; RV64 writes the
-whole register. Either write suppresses the same-cycle event, and simultaneous
+`counter_write` takes `Valid(RiscvHpmWrite(xlen))`: RV32 adds a `high`
+field and preserves the untouched half; RV64 writes the whole register.
+`selector_write` takes `Valid(Bits(64))`, so the caller can merge RV32 half-writes
+and legalize the complete event encoding atomically. Either write suppresses the same-cycle event, and simultaneous
 writes update both registers. Selector bits 57:56 are zero; bits 55:0 retain
 the caller's implementation-defined event encoding. The caller legalizes
 unsupported encodings and supplies no events when counting is disabled.

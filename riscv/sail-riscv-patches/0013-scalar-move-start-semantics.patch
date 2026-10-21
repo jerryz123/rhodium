@@ -1,0 +1,37 @@
+Subject: [PATCH] Use scalar-move bounds instead of generic prestart masking
+
+Purpose: Copies element zero for scalar-to-vector moves when vstart is below vl.
+SPDX-License-Identifier: BSD-2-Clause
+
+VMVSX and VFMVSF transfer element zero whenever vstart < vl, regardless of
+LMUL. Generic vector prestart masking instead suppresses that element for
+every nonzero vstart. Keep legality, tail policy, and vstart cleanup intact.
+
+diff --git a/model/extensions/V/vext_arith_insts.sail b/model/extensions/V/vext_arith_insts.sail
+--- a/model/extensions/V/vext_arith_insts.sail
++++ b/model/extensions/V/vext_arith_insts.sail
+@@ -2484,8 +2484,7 @@
+-  let (initial_result, mask) : (vector('n, bits('m)), bits('n)) = init_masked_result(num_elem, SEW, 0, vd_val, ones());
+-  var result = initial_result;
++  var result = vd_val;
+ 
+   // one body element
+-  if mask[0] == 0b1 then result[0] = rs1_val;
++  if get_start_element() <= get_end_element() then result[0] = rs1_val;
+ 
+   // others treated as tail elements
+   let tail_ag : agtype = get_vtype_vta();
+diff --git a/model/extensions/V/vext_fp_insts.sail b/model/extensions/V/vext_fp_insts.sail
+--- a/model/extensions/V/vext_fp_insts.sail
++++ b/model/extensions/V/vext_fp_insts.sail
+@@ -1451,8 +1451,7 @@
+-  let (initial_result, mask) : (vector('n, bits('m)), bits('n)) = init_masked_result(num_elem, SEW, 0, vd_val, ones());
+-  var result = initial_result;
++  var result = vd_val;
+ 
+   // one body element
+-  if mask[0] == 0b1 then result[0] = rs1_val;
++  if get_start_element() <= get_end_element() then result[0] = rs1_val;
+ 
+   // others treated as tail elements
+   let tail_ag : agtype = get_vtype_vta();

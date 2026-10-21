@@ -24,7 +24,8 @@ fun spike_csr_warl_policy(profile :: SpikeConfig) :: Map:
   def guest_causes = DelegatableExceptionCauses.filter(~keep: fun (cause): cause != ExceptionCause.EnvironmentCallFromSupervisor)
   {"medeleg_mask": exception_mask(causes ++ (if hypervisor | HypervisorExceptionCauses | [])),
    "hedeleg_mask": if hypervisor | exception_mask(guest_causes) | 0,
-   "pmm_unsupported_write": "disabled"}
+   "pmm_unsupported_write": "disabled",
+   "stateen_context": advertised.contains("smstateen")}
 
 /* Construct one explicitly versioned UDB extension claim. */
 fun extension(name :: NonemptyString, version :: NonemptyString) :: UdbExtension:

@@ -25,6 +25,7 @@ for (compressed in [[], CCompressedExtensions]):
       config.warl_policy()["medeleg_mask"] ~is config.medeleg_mask
       config.warl_policy()["hedeleg_mask"] ~is config.hedeleg_mask
       config.warl_policy()["pmm_unsupported_write"] ~is "disabled"
+      config.warl_policy()["stateen_context"] ~is #false
 
 def rv64_design = compile_program(elaborate(csr.RiscvCsrFile(RiscvCsrConfig(csr_test_isa(XLen.X64)))), rtl_target).report.design
 def rv64 = rv64_design.modules[0]

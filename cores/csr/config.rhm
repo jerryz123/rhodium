@@ -69,7 +69,7 @@ class RiscvCsrConfig(isa_profile :: RiscvIsaProfile,
 
   /* Exports static WARL choices not expressible in UDB, without exposing live CSR state. */
   method warl_policy() :: Map:
-    {"medeleg_mask": medeleg_mask, "hedeleg_mask": hedeleg_mask, "pmm_unsupported_write": "disabled"}
+    {"medeleg_mask": medeleg_mask, "hedeleg_mask": hedeleg_mask, "pmm_unsupported_write": "disabled", "stateen_context": #false}
 
 export:
   RiscvCsrConfig

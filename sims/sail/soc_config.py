@@ -38,6 +38,7 @@ def model_defaults(sail, xlen):
             or not TRANSFORMED_INSTRUCTION_PARAMETERS.keys() <= transformed.keys()
             or "Sdtrig" not in default.get("extensions", {})
             or "delegatable_bits" not in default.get("base", {}).get("hedeleg", {})
+            or not {"independent_context_csrs", "scontext_writable_mask", "mcontext_writable_mask"} <= default.get("base", {}).keys()
             or not {"restricted", "supported"} <= default.get("base", {}).get("hpm_events", {}).keys()
             or type(default.get("base", {}).get("pmm_unsupported_write_to_disabled")) is not bool):
         raise ValueError("Sail lacks pinned CSR/transformed-instruction controls; rebuild with arch-test-sail-setup")

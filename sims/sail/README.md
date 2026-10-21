@@ -23,7 +23,9 @@ and reservation constraints. It leaves memory regions and reference devices
 untouched for the caller to replace. Unsupported mappings fail explicitly.
 The projection preserves `mcountinhibit` presence and its exact writable mask.
 Resolved config metadata supplies implementation-owned `medeleg`/`hedeleg`
-writable masks and unsupported PMM-write behavior in `csr_warl`. The shared
+writable masks and unsupported PMM-write behavior in `csr_warl`. This static
+policy also selects independent context CSRs and their Stateen gates; Spike
+implements these without debug triggers, while the RTL harts omit them. The shared
 RTL CSR bank exports its specialization's masks; Spike exports the pinned
 implementation's different mask. These are static parameters, never DUT state.
 Both ACT and cosim apply the same policy. Unsupported HPM event IDs become
@@ -68,6 +70,6 @@ publish these differences without changing the config's UDB or disabling
 extensions. A future comparison engine must explicitly handle or reject each
 difference; configuration acceptance alone is not full-profile validation.
 
-The current Spike projection also leaves Stateen `CONTEXT` read-only zero,
-although Spike exposes writable context state. Full ACT walking-bit checks
-report this mismatch; disabling Sdtrig is not a complete context-CSR model.
+The independent-context model preserves the `mcontext`/`hcontext` alias and
+the target's RV32/RV64 writable widths. It does not enable trigger selection
+or change a hart's advertised extensions.

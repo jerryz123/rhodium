@@ -28,7 +28,10 @@ void step(bool pulse = 0, std::uint8_t mode = 3, bool guest = 0,
   event_count = amount;
   inhibit = stopped;
   counter_write_in = write_port(cw, ch, cv);
-  selector_write_in = write_port(sw, sh, sv);
+  const auto selector_value = XLEN == 64 ? sv : sh
+      ? (expected_control & UINT32_MAX) | (std::uint64_t(std::uint32_t(sv)) << 32)
+      : (expected_control & ~std::uint64_t(UINT32_MAX)) | std::uint32_t(sv);
+  selector_write_in = {std::uint8_t(sw), selector_value};
   int filter_bit = mode == 3 ? 62 : mode == 1 ? 61 : 60;
   if (HYPERVISOR && guest && mode != 3)
     filter_bit -= 2;
@@ -140,7 +143,7 @@ int main() {
     event_in = {1, {3, 0}};
     inhibit = 0;
     counter_write_in = write_port(1, 0, UINT64_MAX);
-    selector_write_in = write_port(1, 0, UINT64_MAX);
+    selector_write_in = {1, UINT64_MAX};
     tick_model();
     CHECK(counter == 0 && selector == 0);
   });

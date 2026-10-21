@@ -884,14 +884,13 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   hpm.counter_write.valid <== Bool(sscofpmf) & csr_write & csr.is_one_of(csr_bits(CsrId.Mhpmcounter3), csr_bits(CsrId.Mhpmcounter3h))
   hpm.counter_write.bits.value <== csr_replacement
   hpm.selector_write.valid <== Bool(sscofpmf) & csr_write & csr.is_one_of(csr_bits(CsrId.Mhpmevent3), csr_bits(CsrId.Mhpmevent3h))
-  def event_width = if xlen == XLen.X32 | 32 | 56
-  def event_replacement :: Bits(event_width) = if xlen == XLen.X32 | csr_replacement | csr_replacement[0..56]
-  def legal_event = mux(event_replacement <= bits(2, event_width), event_replacement, bits(0, event_width))
-  hpm.selector_write.bits.value <== if xlen == XLen.X32 | mux(csr === csr_bits(CsrId.Mhpmevent3h), csr_replacement, legal_event) | csr_replacement[56..64] ++ legal_event
+  def selector_replacement = if xlen == XLen.X32 | mux(csr === csr_bits(CsrId.Mhpmevent3h), csr_replacement ++ hpm_selector[0..32], hpm_selector[32..64] ++ csr_replacement) | csr_replacement
+  def event_replacement = selector_replacement[0..56]
+  def legal_event = mux(event_replacement <= bits(2, 56), event_replacement, bits(0, 56))
+  hpm.selector_write.bits <== selector_replacement[56..64] ++ legal_event
   if xlen == XLen.X32
   | block:
       hpm.counter_write.bits.high <== csr === csr_bits(CsrId.Mhpmcounter3h)
-      hpm.selector_write.bits.high <== csr === csr_bits(CsrId.Mhpmevent3h)
   | #void
 
 

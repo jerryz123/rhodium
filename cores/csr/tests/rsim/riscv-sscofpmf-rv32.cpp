@@ -165,6 +165,17 @@ int main() {
     else
       illegal_access(UINT64_C(0x723));
     rd(UINT64_C(0xda0), 8);
+    if (XLEN == 32) {
+      wr(UINT64_C(0x323), 1);
+      wr(UINT64_C(0x723), UINT32_MAX);
+      rd(UINT64_C(0x723), UINT64_C(0xf0000000));
+      rd(UINT64_C(0x323), 0);
+      wr(UINT64_C(0x323), 2);
+      rd(UINT64_C(0x323), 2);
+      wr(UINT64_C(0x723), UINT64_C(0x40000001));
+      rd(UINT64_C(0x723), UINT64_C(0x40000000));
+      rd(UINT64_C(0x323), 0);
+    }
     wr64(UINT64_C(0x323), UINT64_C(18446744073709551615));
     rd(UINT64_C(0x323),
        XLEN == 64 ? word_t(HYPERVISOR ? UINT64_C(18158513697557839872)

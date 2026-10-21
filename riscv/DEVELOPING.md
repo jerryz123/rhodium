@@ -134,7 +134,7 @@ At pin `cd3f185e3a40cd402632d78a2bc213d62ae6f753`, the model reports version
 0.16 and still requires Sail compiler 0.20.3. Native fault-address reporting
 uses `memory.invalid_physical_address`; `None` preserves full transformed
 addresses. Native Sdtrig support makes trigger CSRs absent when disabled.
-Their former downstream patches are retired. The nine remaining patches provide
+Their former downstream patches are retired. The remaining patches provide
 default-disabled host memory/interrupt hooks, host time, exact subpage device
 PMAs, explicit interrupt boundaries, empty whole-register memory `vstart`
 cleanup, and external HPM inputs. Shared UDB projection disables Sdtrig for
@@ -149,6 +149,10 @@ clearing reservations; standalone behavior and timeout exception checks remain
 unchanged. Embedded callers distinguish early release from timeout explicitly.
 Native event counting remains enabled for standalone execution; host-supplied
 counters bypass native event increments without bypassing CSR or overflow policy.
+Scalar-to-vector moves use their scalar-move bounds rather than generic prestart
+masking when nonzero `vstart` is permitted. Independent context CSR support keeps
+Spike's context state and Stateen permissions separate from absent debug triggers;
+resolved static policy supplies its writable masks without changing RTL harts.
 PTW callbacks include translation stage and level. Adapt these signatures in
 the embedding without inferring guest state from a host physical address.
 Keep the executable and embedded library in one identity-scoped package.

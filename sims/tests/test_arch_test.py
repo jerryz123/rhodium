@@ -74,6 +74,9 @@ def sail_default():
             "Sdtrig": {"supported": True}, "Sscofpmf": {"supported": False},
         },
         "base": {
+            "independent_context_csrs": False,
+            "scontext_writable_mask": {"len": 64, "value": "0xffffffff"},
+            "mcontext_writable_mask": {"len": 64, "value": "0x3fff"},
             "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xcb1ff"}},
             "hpm_events": {"restricted": False, "supported": []},
             "pmm_unsupported_write_to_disabled": False,
@@ -329,7 +332,7 @@ class ArchTestConfigTest(unittest.TestCase):
             if extension:
                 udb["implemented_extensions"].append({"name": extension, "version": "= 1.0.0"})
             with self.subTest(extension=extension):
-                policy = {"medeleg_mask": 0xcb3ff, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled"}
+                policy = {"medeleg_mask": 0xcb3ff, "hedeleg_mask": 0, "pmm_unsupported_write": "disabled", "stateen_context": False}
                 config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000, policy)
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
 

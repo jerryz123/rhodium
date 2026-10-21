@@ -83,7 +83,7 @@ bundle VectorControl():
   floating_point: Bool
   fp_service: Bool
   fp_zvfhmin_e16: Bool
-  fp_zvfh_e8: Bool
+  fp_wide_float: Bool
   multiply_divide: Bool
   divide: Bool
   left_signed: Bool
@@ -806,7 +806,7 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
                         ~widening: widening :: Boolean = #false,
                         ~narrowing: narrowing :: Boolean = #false,
                         ~zvfhmin_e16: zvfhmin_e16 :: Boolean = #false,
-                        ~zvfh_e8: zvfh_e8 :: Boolean = #false,
+                        ~wide_float: wide_float :: Boolean = #false,
                         ~wide_vs2: wide_vs2 :: Boolean = #false):
   DecodeCase(
     instruction_pattern(instruction),
@@ -816,7 +816,7 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
       floating_point: Bool(#true)
       fp_service: Bool(#true)
       fp_zvfhmin_e16: Bool(zvfhmin_e16)
-      fp_zvfh_e8: Bool(zvfh_e8)
+      fp_wide_float: Bool(wide_float)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
       operand: operand
@@ -942,19 +942,19 @@ def VectorFloatingPointCases = [
   floating_point_case(VFCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
   floating_point_case(VFWCVT_XU_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
   floating_point_case(VFWCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_F_XU_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~zvfh_e8: #true),
-  floating_point_case(VFWCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~zvfh_e8: #true),
+  floating_point_case(VFWCVT_F_XU_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
+  floating_point_case(VFWCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
   floating_point_case(VFWCVT_F_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~widening: #true, ~zvfhmin_e16: #true),
   floating_point_case(VFWCVT_RTZ_XU_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
   floating_point_case(VFWCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
-  floating_point_case(VFNCVT_XU_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~zvfh_e8: #true),
-  floating_point_case(VFNCVT_X_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~zvfh_e8: #true),
+  floating_point_case(VFNCVT_XU_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
+  floating_point_case(VFNCVT_X_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
   floating_point_case(VFNCVT_F_XU_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
   floating_point_case(VFNCVT_F_X_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
   floating_point_case(VFNCVT_F_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~narrowing: #true, ~zvfhmin_e16: #true),
   floating_point_case(VFNCVT_ROD_F_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~rounding: VectorFloatRounding.RoundToOdd, ~narrowing: #true),
-  floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~zvfh_e8: #true),
-  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~zvfh_e8: #true)
+  floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true),
+  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true)
 ]
 /* Builds FP move/merge/slide controls that use vector routing without issuing FP arithmetic. */
 fun floating_move_case(instruction :: InstructionSpec,
@@ -972,7 +972,7 @@ fun floating_move_case(instruction :: InstructionSpec,
       floating_point: Bool(#true)
       fp_service: Bool(#false)
       fp_zvfhmin_e16: Bool(#false)
-      fp_zvfh_e8: Bool(#false)
+      fp_wide_float: Bool(#false)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
       operand: if floating_scalar_destination | VectorOperandMode.Vector | VectorOperandMode.FloatingScalar
@@ -1261,10 +1261,11 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def fp_widening_overlap_legal = mux(control.wide_vs2, Bool(#true), widening_overlap_legal(source2)) & (!control.fp_uses_vs1 ||| widening_overlap_legal(source1))
   def fp_zvfhmin = Bool(vector_extensions_support_zvfhmin(extensions))
   def fp_zvfh = Bool(vector_extensions_support_zvfh(extensions))
-  def fp_e8_legal = (config.sew === bits(0, 2)) & control.fp_zvfh_e8 & fp_zvfh
-  def fp_e16_legal = (config.sew === bits(1, 2)) & (fp_zvfh ||| (control.fp_zvfhmin_e16 & fp_zvfhmin))
-  def fp_width_change_profile_legal = mux_lookup(config.sew, ~default: Bool(vector_profile_supports_fp64(profile)), [[0, fp_e8_legal], [1, fp_e16_legal]])
-  def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew <= bits(2, 2)) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
+  def fp_e8_legal = (config.sew === bits(0, 2)) & control.fp_wide_float & fp_zvfh
+  def fp_e16_legal = (config.sew === bits(1, 2)) & (control.fp_wide_float ||| fp_zvfh ||| (control.fp_zvfhmin_e16 & fp_zvfhmin))
+  def fp_narrow_float = (fp_widening & (control.fp_result === VectorFloatResult.Integer)) ||| (fp_narrowing & (control.fp_source === VectorFloatSource.Integer))
+  def fp_width_change_profile_legal = mux_lookup(config.sew, ~default: Bool(vector_profile_supports_fp64(profile)) ||| fp_narrow_float, [[0, fp_e8_legal], [1, fp_e16_legal]])
+  def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew < elen) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
   def fp_move_sources_legal = (control.element_move ||| !control.uses_vs2 ||| source2_aligned) & (!control.slide ||| slide_overlap_legal)
   def fp_move_destination_legal = control.floating_scalar_destination ||| control.element_move ||| (destination_aligned & !(masked & !destination.or_reduce()))
   def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| fp_width_change_profile_legal) & fp_sources_legal & fp_destination_legal & fp_width_change_legal

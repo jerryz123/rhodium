@@ -46,7 +46,7 @@ std::uint32_t vector_fp_conversion(int selector, int source, int destination,
          (UINT64_C(1) << 12) | (((destination)&low_mask(32)) << 7) |
          UINT64_C(87);
 }
-int zvfh_e8_selector(int index) {
+int wide_float_selector(int index) {
   return index < 2 ? 10 + index : index < 4 ? 14 + index : 18 + index;
 }
 std::uint32_t whole_register_vmem(std::uint8_t store, int width, int registers,
@@ -822,18 +822,32 @@ void stimulus() {
       }
     }
 
-    // Width-changing FP conversions normally use RV64D E32<->E64. Zvfhmin
-    // additionally admits only the FP-to-FP E16<->E32 pair.
+    // The FP operand, not the narrower integer width, selects the required
+    // profile. These float-to-integer narrowing cases also admit FP32->INT16.
     for (int narrow = 0; narrow < 2; narrow++) {
       for (int sew = 0; sew < 4; sew++) {
         for (int lm = -3; lm <= 3; lm++) {
-          bool expected_legal = 64 == 64 && sew == 2 && lm >= -1 && lm <= 2;
+          bool expected_legal = (sew == 2 && lm >= -1 && lm <= 2) || (narrow && sew == 1 && lm >= -2 && lm <= 2);
           test_vtype = (word_t(sew) << 3) | (word_t(lm) & 7);
           instruction = vector_fp_conversion(narrow != 0 ? 16 : 8, 16, 8);
           settle();
           CHECK(decoded_valid && widening == (narrow == 0) &&
                 narrowing == (narrow != 0) && legal == expected_legal);
           checks++;
+        }
+      }
+    }
+    test_vtype = UINT64_C(8); // e16,m1
+    for (int selector : {8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 22, 23}) {
+      const bool wide_float = selector == 10 || selector == 11 || selector == 16 || selector == 17 || selector == 22 || selector == 23;
+      for (int sew = 0; sew < 4; ++sew) {
+        for (int lm = -3; lm <= 3; ++lm) {
+          test_vtype = (word_t(sew) << 3) | (word_t(lm) & 7);
+          instruction = vector_fp_conversion(selector, 16, 8);
+          settle();
+          CHECK(base_fp_legal == (wide_float && sew == 1 && lm >= -1 && lm <= 2));
+          CHECK(wide_integer_fp_legal == (lm <= 2 && (wide_float ? sew == 1 && lm >= -2 : sew == 2 && lm >= -1)));
+          ++checks;
         }
       }
     }
@@ -856,14 +870,14 @@ void stimulus() {
     checks += 4;
     test_vtype = UINT64_C(0); // e8,m1
     for (int index = 0; index < 6; index++) {
-      instruction = vector_fp_conversion(zvfh_e8_selector(index), 16, 8);
+      instruction = vector_fp_conversion(wide_float_selector(index), 16, 8);
       settle();
-      CHECK(decoded_valid && !legal && full_half_legal && fp_zvfh_e8);
+      CHECK(decoded_valid && !legal && full_half_legal && fp_wide_float);
       checks++;
     }
     instruction = vector_fp_conversion(8, 16, 8);
     settle();
-    CHECK(decoded_valid && !legal && !full_half_legal && !fp_zvfh_e8);
+    CHECK(decoded_valid && !legal && !full_half_legal && !fp_wide_float);
     checks++;
     test_vtype = UINT64_C(16); // e32,m1
     instruction = vector_fp_conversion(8, 9, 8);
