@@ -80,7 +80,7 @@ void vector_admission_depth(unsigned seed, Word depth, unsigned xlen) {
       calls.push_back([=]{ rhodium_vector_write(0,16,xlen==32?UINT32_MAX:UINT64_MAX,order,1,0,0,0,0,0); });
       calls.push_back([]{ rhodium_vector_drain(0,0); });
     }
-    if (dispatch) calls.push_back([]{ rhodium_vector_dispatch(0,0,0,0,instruction,0); });
+    if (dispatch) calls.push_back([=]{ rhodium_vector_dispatch(0,0,0,0,instruction,0); });
     auto emitted=sample(c,binding,cycle++,s,random,std::move(calls));
     records.insert(records.end(),emitted.begin(),emitted.end());
   };
