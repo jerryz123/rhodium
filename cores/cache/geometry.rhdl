@@ -19,13 +19,11 @@ fun cache_lane_mask(config :: CacheConfig,
                     way :: Bits(config.way_width),
                     lanes :: PosInt,
                     lane_mask :: Mask(lanes)) :: Mask(config.ways * lanes):
-  def lane_bits = lane_mask.as_bits().as_vec(Bool)
-  def mutable expanded = []
-  for (way_index in 0..config.ways):
-    def selected_way = way === Bits(config.way_width)(way_index)
-    for (lane in 0..lanes):
-      expanded := expanded ++ [selected_way & lane_bits[lane]]
-  vec(expanded).into(Mask(config.ways * lanes))
+  vec(
+    for List (index in 0..(config.ways * lanes)):
+      def selected_way = way === Bits(config.way_width)(index div lanes)
+      selected_way & lane_mask[index mod lanes]
+  ).into(Mask(config.ways * lanes))
 
 export:
   CacheLineBytes

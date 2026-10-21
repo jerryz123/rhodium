@@ -122,8 +122,8 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def preparing_read = state === RiscvPageWalkState.PrepareRead
   def zero_leaf = Bits(64)(0).into(Sv39Pte())
   def empty_mapping :: RiscvTlbMapping() = literal(RiscvTlbMapping(), 0)
-  def vs_pte = (memory.response.bits[6..64] ++ (frame.global_mapping ||| pte.global_mapping).into(Bits(1)) ++ memory.response.bits[0..5]).into(Sv39Pte())
-  def g_pte = (memory.response.bits[6..64] ++ Bits(1)(0) ++ memory.response.bits[0..5]).into(Sv39Pte())
+  def vs_pte = pte.updated(~global_mapping: frame.global_mapping ||| pte.global_mapping)
+  def g_pte = pte.updated(~global_mapping: Bool(#false))
 
   /* Starts a three-level traversal at the selected root without inherited global permissions. */
   fun root_frame(address :: Bits(64), ppn :: Bits(44)) :~ RiscvPageWalkFrame():

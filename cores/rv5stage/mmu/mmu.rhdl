@@ -112,7 +112,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_mode = pipeline.request |> map_valid(request => if hypervisor | request.translation | RiscvGuestMemoryAccess.Normal) |> valid_pipe(1)
   def incoming_mode = if hypervisor | data.request.bits.translation | RiscvGuestMemoryAccess.Normal
   def request_mode = mux(misaligned.busy, split_mode, incoming_mode)
-  def demand_mode = mux(misaligned.busy ||| data.request.valid, request_mode, mux(!page_probe.request.valid & load_request.egress.valid, load_mode.bits, RiscvGuestMemoryAccess.Normal))
+  def wb_translation_owner = misaligned.busy ||| data.request.valid
+  def pipeline_translation_eligible = !page_probe.request.valid & load_request.egress.valid
+  def demand_mode = priority_mux(~default: RiscvGuestMemoryAccess.Normal):
+    wb_translation_owner: request_mode
+    pipeline_translation_eligible: load_mode.bits
   def explicit_guest = demand_mode =/= RiscvGuestMemoryAccess.Normal
   def execute_read = demand_mode === RiscvGuestMemoryAccess.GuestExecuteRead
 
@@ -424,7 +428,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     RiscvGuestException():
       page_fault: mapping.fault === RiscvTranslationFault.GuestPageFault
       details: mapping.fault_details.updated(~guest_virtual_address: guest)
-  def instruction_guest_exception = guest_exception(mux(instruction_fault_cache_hit, instruction_fault_mapping, mux(latched_instruction_fault, fault_mapping, itlb.translation)), instruction_guest)
+  def instruction_exception_mapping = priority_mux(~default: itlb.translation):
+    instruction_fault_cache_hit: instruction_fault_mapping
+    latched_instruction_fault: fault_mapping
+  def instruction_guest_exception = guest_exception(instruction_exception_mapping, instruction_guest)
   if hypervisor
   | block:
       output request_guest_fault: RiscvGuestException()

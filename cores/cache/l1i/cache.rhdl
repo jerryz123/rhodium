@@ -232,11 +232,8 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def install = refill_complete & refill_installing & !refill_completion_discard
   def install_way_mask = cache_way_mask(cache, completion_way)
   def refill_word_bytes = completion_words[refill_install_index].as_vec(Bits(8))
-  def line_write_mask = cache_lane_mask(cache, completion_way, word_bytes, (!Bits(word_bytes)(0)).into(Mask(word_bytes)))
-  def mutable line_write_bytes = []
-  for (_way in 0..ways):
-    for (byte in 0..word_bytes):
-      line_write_bytes := line_write_bytes ++ [refill_word_bytes[byte]]
+  def line_write_mask = cache_lane_mask(cache, completion_way, word_bytes, !Mask(word_bytes)(0))
+  def line_write_bytes = for List (lane in 0..data_lanes): refill_word_bytes[lane mod word_bytes]
 
 
   /* Tag and data SRAM port arbitration

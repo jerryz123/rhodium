@@ -19,9 +19,13 @@ sync_circuit TMDSChannelEncoder():
   output symbol_valid: Bool
   output symbol: Bits(10)
 
-  reg disparity(~init: sint(0, 6))
+  reg disparity(~init: SInt(6)(0))
   reg encoded(~init: Bits(10)(0b1101010100))
   reg encoded_valid(~init: Bool(#false))
+
+
+  /* Transition minimization.
+     The ordered XOR/XNOR recurrence determines each bit from its predecessor. */
 
   def ones = popcount(data)
   def input_bits = data.as_vec(Bool)
@@ -33,27 +37,44 @@ sync_circuit TMDSChannelEncoder():
     transitions := transitions ++ [previous]
   def minimized :: Bits(8) = vec(transitions).as_bits()
   def xor_mode = !use_xnor
+
+
+  /* Active-symbol disparity control.
+     The retained balance chooses inversion; flag bits contribute +2, zero, or -2. */
+
   def minimized_count :: Bits(4) = popcount(minimized)
   def minimized_ones = minimized_count.zext(6).into(SInt(6))
-  def balance = minimized_ones + minimized_ones - sint(8, 6)
-  def neutral = (disparity === sint(0, 6)) ||| (balance === sint(0, 6))
-  def same_sign = ((disparity > sint(0, 6)) & (balance > sint(0, 6))) ||| ((disparity < sint(0, 6)) & (balance < sint(0, 6)))
+  def balance = minimized_ones + minimized_ones - SInt(6)(8)
+  def neutral = (disparity === SInt(6)(0)) ||| (balance === SInt(6)(0))
+  def same_sign = ((disparity > SInt(6)(0)) & (balance > SInt(6)(0))) ||| ((disparity < SInt(6)(0)) & (balance < SInt(6)(0)))
   def invert = mux(neutral, !xor_mode, same_sign)
   def payload = mux(invert, !minimized, minimized)
   def active_symbol = invert ++ xor_mode ++ payload
-  // The two flag bits add +2, zero, or -2 to the payload disparity.
-  def flag_balance = mux(invert, mux(xor_mode, sint(2, 6), sint(0, 6)), mux(xor_mode, sint(0, 6), sint(-2, 6)))
+  def positive_flags = invert & xor_mode
+  def negative_flags = !invert & !xor_mode
+  def flag_balance = priority_mux(~default: SInt(6)(0)):
+    positive_flags: SInt(6)(2)
+    negative_flags: SInt(6)(-2)
   def next_disparity = disparity + mux(invert, -balance, balance) + flag_balance
+
+
+  /* Blanking control symbols.
+     HS/VS select a fixed symbol instead of the active pixel's minimized payload. */
+
   def control_symbol = mux_lookup(control, ~default: Bits(10)(0b1101010100)):
     0: Bits(10)(0b1101010100)
     1: Bits(10)(0b0010101011)
     2: Bits(10)(0b0101010100)
     3: Bits(10)(0b1010101011)
 
+
+  /* Registered output and running disparity.
+     Invalid cycles hold both; accepted blanking resets disparity for the next active byte. */
+
   encoded_valid <== valid
   when valid:
     encoded <== mux(data_enable, active_symbol, control_symbol)
-    disparity <== mux(data_enable, next_disparity, sint(0, 6))
+    disparity <== mux(data_enable, next_disparity, SInt(6)(0))
   symbol_valid <== encoded_valid
   symbol <== encoded
 

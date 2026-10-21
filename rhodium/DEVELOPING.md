@@ -496,6 +496,8 @@ which owns the pure `riscv/isa/profile.rhm` catalog dependency.
 A/H/CMO catalogs, and `std/decode.rhdl`. `cores/csr/decode.rhdl` imports the
 Zicsr catalog, CSR RTL controls, and `std/decode.rhdl`. Both generate partial
 relations into caller-shaped bundles without a named-core dependency.
+`cores/csr/file.rhdl` additionally imports `std/reduction.rhdl` to balance the
+state-enable banks' read-value union, retaining zero when no banks are present.
 `riscv/udb-profile.rhm` consumes only architectural hart/profile and UDB models;
 `cores/csr/udb.rhm` consumes shared CSR config, FP/vector descriptors, and that
 pure UDB model. Named UDB projections compose these instead of reauthoring

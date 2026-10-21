@@ -40,13 +40,22 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   output response_valid: Bool
   output response: Vec(ways, Entry)
 
+
+  /* Reset sweep and arbitration state.
+     Lookup/commit service begins only after every SRAM set has been cleared. */
+
   reg swept(~init: Bool(#false))
   reg sweep_set(~init: Bits(set_width)(0))
   reg commit_priority(~init: Bits(slot_width)(0))
   reg prefer_commit(~init: Bool(#false))
+
+
+  /* Cycle-local arbitration.
+     Round-robin selects a committer; alternating preference arbitrates it against lookup. */
+
   def running = !reset_active().into(Bool)
   def ready = running & swept
-  def choice = circular_priority_onehot(commit_valid, commit_priority)
+  def choice :: CircularPriorityChoice(slots, slot_width) = circular_priority_onehot(commit_valid, commit_priority)
   def write = ready & choice.valid & (!lookup_valid ||| prefer_commit)
   def read = ready & lookup_valid & !write
   def sweep = running & !swept
@@ -54,18 +63,29 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   def zero_entry = Bits(Entry.packed_width())(0).into(Entry)
   def write_mask = vec(for List (way in 0..ways): selected.way === Bits(index_width(ways))(way)).into(Mask(ways))
 
+
+  /* Single read/write SRAM port.
+     Sweep outranks normal service; reads return one cycle after acceptance. */
+
+  def storage_set = priority_mux(~default: selected.set):
+    sweep: sweep_set
+    read: lookup_set
   inst storage(SyncRam1RW(sets, Entry, ways))
   storage.port.request.valid <== sweep ||| read ||| write
   storage.port.request.bits <== ReadWriteRequest(set_width, Entry, ways):
-    address: mux(sweep, sweep_set, mux(read, lookup_set, selected.set))
+    address: storage_set
     write: sweep ||| write
     data: vec(for List (_way in 0..ways): mux(sweep, zero_entry, selected.entry))
     mask: mux(sweep, !Mask(ways)(0), write_mask)
   initialized <== ready
   lookup_accepted <== read
-  commit_accepted <== vec(for List (slot in 0..slots): write & choice.grant.as_bits().as_vec(Bool)[slot]).into(Mask(slots))
+  commit_accepted <== vec(for List (slot in 0..slots): write & choice.grant[slot]).into(Mask(slots))
   response_valid <== ready & storage.port.response.valid
   response <== storage.port.response.bits
+
+
+  /* Sweep completion and fairness updates.
+     Only accepted service advances arbitration; sweep and normal service are disjoint. */
 
   when sweep:
     swept <== sweep_set === Bits(set_width)(sets - 1)

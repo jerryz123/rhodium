@@ -90,22 +90,22 @@ class CHIResponseProfile(name :: NonemptyString,
       result bits.or milestone_mask(milestone)
 
   /*
-   * Decode a wire RSP opcode into milestone bits, returning zero for unmatched or retry-only
+   * Decode a wire RSP opcode into a milestone set, empty for unmatched or retry-only
    * opcodes.
    */
-  method effects(opcode :: CHIRspOpcode) :~ Bits(effect_width):
+  method effects(opcode :: CHIRspOpcode) :~ Mask(effect_width):
     def cases:
       for List:
         each rule in rules
         each rule_opcode in rule.opcodes
-        [rule_opcode, Bits(effect_width)(rule_effect_mask(rule))]
+        [rule_opcode, Mask(effect_width)(rule_effect_mask(rule))]
     if cases.length() == 0
-    | Bits(effect_width)(0)
-    | mux_lookup(opcode, ~default: Bits(effect_width)(0), cases)
+    | Mask(effect_width)(0)
+    | mux_lookup(opcode, ~default: Mask(effect_width)(0), cases)
 
-  /* Test a declared milestone in the hardware effect vector. */
-  method milestone(effects :: Bits(effect_width), milestone :: NonemptyString) :~ Bool:
-    effects[milestone_index(milestone)].into(Bool)
+  /* Tests membership of a declared milestone in the hardware effect set. */
+  method milestone(effects :: Mask(effect_width), milestone :: NonemptyString) :~ Bool:
+    effects[milestone_index(milestone)]
 
 /* Expand named milestones, response rules, and an optional retry clause into a validated profile. */
 expr.macro 'response_profile($name): $clause; ...':
@@ -169,7 +169,7 @@ bundle CHIRequestAttempt():
  */
 bundle CHIResponseEvent(p :: CHIFlitParams, effect_width :: PosInt):
   flit: CHIRspFlit(p)
-  effects: Bits(effect_width)
+  effects: Mask(effect_width)
   retry_ack: Bool
   protocol_credit: Bool
 
@@ -186,11 +186,11 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
   interface event(Valid(CHIResponseEvent(p, profile.effect_width)), ~role: producer)
   output active: Bool
   output attempt_outstanding: Bool
-  output received: Bits(profile.effect_width)
+  output received: Mask(profile.effect_width)
 
   reg active_state(~init: Bool(#false))
   reg attempt_sent(~init: Bool(#false))
-  reg received_state(~init: Bits(profile.effect_width)(0))
+  reg received_state(~init: Mask(profile.effect_width)(0))
   reg irreversible_progress(~init: Bool(#false))
   reg retry_received(~init: Bool(#false))
   reg retry_credit_received(~init: Bool(#false))
@@ -257,7 +257,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
     attempt_sent <== Bool(#true)
 
   when (start ||| finish):
-    received_state <== Bits(profile.effect_width)(0)
+    received_state <== Mask(profile.effect_width)(0)
   elsewhen progress_fire:
     received_state <== received_state ||| response_effects
 

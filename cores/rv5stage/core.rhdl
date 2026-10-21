@@ -990,14 +990,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
          pointer_masking: wb_vector_context.pointer_masking
   def wb_vector_needs_fp_reservation = wb_vector_launch.bits.control.floating_scalar_destination
   def wb_vector_sink_ready = wb_vector.request.ready & (!wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready)
-  def wb_vector_accepted = wb_vector_launch.valid & wb_vector_sink_ready
+  wb_vector_launch |> filter_valid(_descriptor => !wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready) |> offer_decoupled() |> wb_vector.request
+  wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination & wb_vector.request.ready) |> map_valid(_descriptor => wb_vector_vd) |> offer_decoupled() |> wb_fp.vector_reserve
+  def wb_vector_accepted = wb_vector.request.fire()
   wb_vector_fast <== wb_vector_accepted & wb_vector_fast_candidate & wb_vector_launch.bits.control.memory
   wb_vector_slow_admission <== wb_vector_accepted & wb_vector_launch.bits.control.memory & !wb_vector_fast
   wb_vector_slow_restart <== wb_vector_slow_admission & (mem_input.valid ||| ex_input.valid)
   vector_fast.pipeline_physical <== wb_vector.pipeline_physical
   vector_fast.request_physical <== wb_vector.request_physical
-  wb_vector_launch |> filter_valid(_descriptor => !wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready) |> offer_decoupled() |> wb_vector.request
-  wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination & wb_vector.request.ready) |> map_valid(_descriptor => wb_vector_vd) |> offer_decoupled() |> wb_fp.vector_reserve
   wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
   wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.or_reduce()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
   wb_vector.floating_result |> wb_fp.vector_write

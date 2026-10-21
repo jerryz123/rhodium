@@ -33,6 +33,7 @@ import:
   "../../riscv/rtl/svpbmt.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
 
 /* Retains machine/supervisor state plus profile-selected timers, state-enable, and guest trap
    banks. */
@@ -685,11 +686,10 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
      State-enable, timer, and hypervisor banks override the base bank in that
      order. Absent encodings and disabled extension state remain unrecognized. */
 
-  def mutable stateen_selected = Bool(#false)
-  def mutable stateen_read_value = zero
-  for (entry :: CsrBank in stateen_banks):
-    stateen_selected := stateen_selected ||| entry.recognized
-    stateen_read_value := stateen_read_value ||| entry.read_value
+  def stateen_selected = or_reduce(for List (entry :: CsrBank in stateen_banks): entry.recognized)
+  // Disabled state-enable support leaves no banks; zero is the read-union identity.
+  def stateen_values = for List (entry :: CsrBank in stateen_banks): entry.read_value
+  def stateen_read_value = tree_reduce([zero] ++ stateen_values, fun (left, right): left ||| right)
   def stateen_access :: RiscvStateEnableAccess():
     if smstateen
     | state_enable_access(context, csr, state.mstateen, if hypervisor | state.hstateen | literal(Vec(4, Bits(64)), 0))

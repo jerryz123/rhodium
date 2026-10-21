@@ -41,9 +41,7 @@ circuit SelectiveJoin(T :: DataType, n :: PosInt):
   interface ingress[n](Decoupled(T), ~role: consumer)
   interface egress(Decoupled(SelectedValues(T, n)), ~role: producer)
 
-  def selected = vec(
-    for List (index in 0..n): selection.bits.as_bits()[index].into(Bool)
-  )
+  def selected :: Mask(n) = selection.bits
   def valid_reduction = and_exclusion_reduce(vec(
     for List (index in 0..n): !selected[index] ||| ingress[index].valid
   ))

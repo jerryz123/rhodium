@@ -21,10 +21,10 @@ def profile = response_profile("profile_decode"):
 
 circuit CHIResponseProfileFixture():
   input opcode: CHIRspOpcode
-  output effects: Bits(2)
+  output effects: Mask(2)
   output dbid: Bool
   output completion: Bool
-  output retry_only: Bits(1)
+  output retry_only: Mask(1)
   effects <== profile.effects(opcode)
   dbid <== profile.milestone(effects, "dbid")
   completion <== profile.milestone(effects, "completion")

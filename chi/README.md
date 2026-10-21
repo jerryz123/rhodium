@@ -348,10 +348,11 @@ cleared. `external_progress` prevents retry after another channel has advanced
 the transaction. Addresses, TxnIDs, DBIDs, payload storage, response metadata,
 and the final completion condition remain endpoint-owned.
 
-Profiles expose `effects(opcode)` to decode an RSP into milestone bits and
-`milestone(effects, name)` to test one named bit. Milestone names must be
-nonempty and declared by the profile. Unknown opcodes decode to zero; a
-retry-only profile has a one-bit zero effect vector.
+Profiles expose `effects(opcode)` to decode an RSP into a milestone `Mask` and
+`milestone(effects, name)` to test membership. Milestone names must be
+nonempty and declared by the profile. Unknown opcodes decode to an empty set;
+see the [transaction contract](transactions/README.md#public-contract) for
+effect-set types and retry-only profiles.
 
 [`transactions/read-once.rhdl`](transactions/read-once.rhdl) composes that
 control into a complete one-outstanding RN-I `ReadOnce` requester. It accepts

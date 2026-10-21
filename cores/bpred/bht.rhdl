@@ -16,21 +16,23 @@ sync_circuit Bht(row_bits :: PosInt = 10):
   def rows = 1 << row_bits
   def cold = vec(for List (_ in 0..4): Bits(2)(1))
   mem storage(rows, Vec(4, Bits(2)))
-  reg valid_rows(~init: Bits(rows)(0))
-  counters <== mux((valid_rows >> row)[0].into(Bool) & !clear.valid, storage[row], cold)
-  prefix_counter <== mux((valid_rows >> prefix_row)[0].into(Bool) & !clear.valid, storage[prefix_row][3], Bits(2)(1))
+  reg valid_rows(~init: literal(Vec(rows, Bool), 0))
+  counters <== mux(valid_rows[row] & !clear.valid, storage[row], cold)
+  prefix_counter <== mux(valid_rows[prefix_row] & !clear.valid, storage[prefix_row][3], Bits(2)(1))
   def write_row = update.bits.index[2..row_bits + 2]
   def bank = update.bits.index[0..2]
-  def previous = mux((valid_rows >> write_row)[0].into(Bool), storage[write_row], cold)
+  def previous = mux(valid_rows[write_row], storage[write_row], cold)
   def counter = previous[bank]
   def incremented = mux(counter === Bits(2)(3), counter, counter + Bits(2)(1))
   def decremented = mux(counter === Bits(2)(0), counter, counter - Bits(2)(1))
   def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), mux(update.bits.taken, incremented, decremented), previous[lane]))
-  when (clear.valid):
-    valid_rows <== Bits(rows)(0)
-  elsewhen (update.valid):
+  when (!clear.valid & update.valid):
     storage.write(write_row, written)
-    valid_rows <== valid_rows ||| (Bits(rows)(1) << write_row)
+  for (index in 0..rows):
+    when (clear.valid):
+      valid_rows[index] <== Bool(#false)
+    elsewhen (update.valid & (write_row === Bits(row_bits)(index))):
+      valid_rows[index] <== Bool(#true)
 
 /* Retains the BHT port shape without allocating counter state. */
 sync_circuit DisabledBht(row_bits :: PosInt = 10):

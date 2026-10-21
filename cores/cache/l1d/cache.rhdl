@@ -763,7 +763,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def install_way_mask = cache_way_mask(cache, refill_way)
   def local_mutation_way_mask = cache_way_mask(cache, pending_mutation_way)
   def snoop_update_way_mask = cache_way_mask(cache, snoop_way)
-  def full_byte_mask = (!Bits(word_bytes)(0)).into(Mask(word_bytes))
+  def full_byte_mask = !Mask(word_bytes)(0)
   def refill_lane_mask = cache_lane_mask(cache, refill_way, word_bytes, full_byte_mask)
   def local_mutation_lane_mask = cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, pending_mutation_request.byte_mask.into(Mask(word_bytes))))
   def line_write_bytes = priority_mux(~default: refill_install_data):
@@ -771,10 +771,7 @@ sync_circuit L1DCache(xlen :: XLen,
     local_mutation_commit: local_store_word_data
   def store_way_mask = cache_way_mask(cache, stores.drain.bits.way)
   def store_lane_mask = cache_lane_mask(cache, stores.drain.bits.way, word_bytes, stores.drain.bits.mask.into(Mask(word_bytes)))
-  def mutable repeated_line_write_bytes = []
-  for (_way in 0..ways):
-    for (byte in 0..word_bytes):
-      repeated_line_write_bytes := repeated_line_write_bytes ++ [line_write_bytes[byte]]
+  def repeated_line_write_bytes = for List (lane in 0..data_lanes): line_write_bytes[lane mod word_bytes]
 
   def tag_port_owner = priority_mux(~default: L1DArrayOwner.Pipeline):
     install_refill: L1DArrayOwner.Refill

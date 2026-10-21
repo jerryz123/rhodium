@@ -21,8 +21,12 @@ sync_circuit Uart8N1Transmitter():
   reg phase(~init: Bits(4)(0))
   reg subtick(~init: Bits(4)(0))
 
+
+  /* Byte admission and serial output.
+     Idle and stop drive high; an accepted byte supplies eight LSB-first data phases. */
+
   bytes.ready <== !active
-  def accept = fire(bytes)
+  def accept = bytes.fire()
   def data_index = phase - Bits(4)(1)
   def serial_bit = priority_mux(~default: Bool(#true)):
     !active: Bool(#true)
@@ -32,23 +36,26 @@ sync_circuit Uart8N1Transmitter():
   tx <== serial_bit.as_bits()
   busy <== active
 
+
+  /* Oversample timing and frame progress.
+     Acceptance initializes all frame state; active cycles advance independent counters. */
+
   def phase_boundary = subtick === Bits(4)(UartOversampleCount - 1)
+  def bit_complete = active & oversample_tick & phase_boundary
+  def stop_complete = bit_complete & (phase === Bits(4)(9))
   when accept:
     active <== Bool(#true)
-  elsewhen (active & oversample_tick & phase_boundary & (phase === Bits(4)(9))):
-    active <== Bool(#false)
-  when accept:
     data <== bytes.bits
-  when accept:
     phase <== Bits(4)(0)
-  elsewhen (active & oversample_tick & phase_boundary & (phase =/= Bits(4)(9))):
-    phase <== phase + Bits(4)(1)
-  when accept:
     subtick <== Bits(4)(0)
-  elsewhen (active & oversample_tick):
-    subtick <== mux(phase_boundary,
-                    Bits(4)(0),
-                    subtick + Bits(4)(1))
+  otherwise:
+    data <== data
+    when stop_complete:
+      active <== Bool(#false)
+    when (bit_complete & (phase =/= Bits(4)(9))):
+      phase <== phase + Bits(4)(1)
+    when (active & oversample_tick):
+      subtick <== mux(phase_boundary, Bits(4)(0), subtick + Bits(4)(1))
 
 /* Separates idle/start validation, bit capture, stop checking, and recovery from a low stop. */
 hardware_enum UartReceiverState:

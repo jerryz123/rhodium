@@ -25,6 +25,12 @@ checking. Retry control associates `RetryAck` and `PCrdGrant` but leaves
 payload storage and final completion policy with its caller. Read requesters
 retain caller-supplied IDs and routing rather than allocating them.
 
+`CHIResponseProfile.effects(opcode)` returns a `Mask(profile.effect_width)` of
+named completion milestones. `CHIResponseEvent.effects` and retry control's
+`received` output preserve that set type; `profile.milestone(effects, name)`
+tests membership. Retry-only profiles retain a one-lane empty mask. Profile
+mask-building helpers return ordinary host integers, not hardware values.
+
 ## Complete-line ReadOnce requester
 
 [`read-once.rhdl`](read-once.rhdl) provides a one-outstanding RN-I requester
