@@ -10,5 +10,6 @@ import:
 def program = elaborate(CacheCopyBackFixture())
 fun site_header(manifest):
   ""
+
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 export program target

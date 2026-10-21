@@ -26,6 +26,7 @@ fun max_length(items :: List.of(RouterPlan), project :: Function.of_arity(1)):
     def count = project(item).length()
     when count > maximum
     | maximum := count
+
   maximum
 
 /* Moves set bits from dense local target positions into uniform family slots. */
@@ -34,6 +35,7 @@ fun remap_mask(local_mask :: Nat, target_slots :: List.of(Nat)):
   for (local_bit in 0..target_slots.length()):
     when (local_mask bits.and (1 << local_bit)) != 0
     | family_mask := family_mask bits.or (1 << target_slots[local_bit])
+
   family_mask
 
 /* Returns the complement of used indices within one uniform port array. */
@@ -43,6 +45,7 @@ fun unused_slots(count :: Nat,
   for (index in 0..count):
     unless used_slots.find(fun (used): used == index)
     | unused := unused ++ [index]
+
   unused
 
 /* Maps one router's dense local ports into shared family input and target slots. */
@@ -162,6 +165,7 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
       router_plans,
       fun (plan): plan.origins.drop(plan.injection_terminals.length())
     )
+
     def egress_count = max_length(router_plans, fun (plan): plan.output_vcs)
     def ejection_count = max_length(router_plans, fun (plan): plan.ejection_terminals)
     def input_count = injection_count + ingress_count
@@ -179,11 +183,13 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
         ) ++ (
           for List (index in 0..local_ingress_count): injection_count + index
         )
+
         def target_slots = (
           for List (index in 0..local_egress_count): index
         ) ++ (
           for List (index in 0..local_ejection_count): egress_count + index
         )
+
         _RouterFamilyMember(site_key, router_plan, origin_slots, target_slots)
 
     def mutable rows = []
@@ -280,8 +286,10 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
     def found = members.find(
       fun (candidate): node_id_equal(candidate.router_plan.node, node)
     )
+
     unless found
     | error(~who: #'RouterFamilyPlan, "unknown router-family node")
+
     found
 
   /* Returns the deterministic constant selecting one physical router occurrence. */
@@ -297,8 +305,10 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
     def found = sites.find(
       fun (candidate): node_id_equal(candidate.node, node)
     )
+
     unless found
     | error(~who: #'RouterFamilyPlan, "unknown router-family site")
+
     found
 
   /* Resolves an injection terminal to its static site and uniform input assignment. */
@@ -306,9 +316,11 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
     def found = injection_ports.find(
       fun (port): injection_id_equal(port.terminal.id, id)
     )
+
     unless found
     | error(~who: #'RouterFamilyPlan,
             "unknown router-family injection terminal")
+
     found
 
   /* Resolves an ejection terminal to its static site and uniform target assignment. */
@@ -316,9 +328,11 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
     def found = ejection_ports.find(
       fun (port): ejection_id_equal(port.terminal.id, id)
     )
+
     unless found
     | error(~who: #'RouterFamilyPlan,
             "unknown router-family ejection terminal")
+
     found
 
   /* Returns a site's physical ingress groups with uniform VC slots. */

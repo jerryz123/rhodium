@@ -10,6 +10,7 @@ class ExtensionType(name):
   override method describe(): "extension<" ++ name ++ ">"
   override method type_equal(other):
     other is_a ExtensionType && name == other.name
+
   override method packed_width(): #false
 
 class ExtensionBits(name):
@@ -17,6 +18,7 @@ class ExtensionBits(name):
   override method describe(): "extension-bits<" ++ name ++ ">"
   override method type_equal(other):
     other is_a ExtensionBits && name == other.name
+
   override method packed_width(): 1
 
 class InvalidExtensionBits(width):
@@ -24,6 +26,7 @@ class InvalidExtensionBits(width):
   override method describe(): "invalid-extension-bits"
   override method type_equal(other):
     other is_a InvalidExtensionBits && width == other.width
+
   override method packed_width(): width
 
 class ExtensionScalar(name, width):
@@ -31,6 +34,7 @@ class ExtensionScalar(name, width):
   override method describe(): "extension-scalar<" ++ name ++ ">"
   override method type_equal(other):
     other is_a ExtensionScalar && name == other.name && width == other.width
+
   override method packed_width(): width
 
 class PackedExtension(width):
@@ -38,6 +42,7 @@ class PackedExtension(width):
   override method describe(): "packed-extension"
   override method type_equal(other):
     other is_a PackedExtension && width == other.width
+
   override method packed_width(): width
 
 class AsymmetricExtension(accepts_other :: Boolean):
@@ -45,6 +50,7 @@ class AsymmetricExtension(accepts_other :: Boolean):
   override method describe(): "asymmetric-extension"
   override method type_equal(other):
     other is_a AsymmetricExtension && accepts_other
+
   override method packed_width(): #false
 
 def bits8 = Bits(8)
@@ -94,9 +100,11 @@ for (width in [0, -1, "wide", 1/2, #true, #false]):
       cast_compatible(type, type) ~is #false
       cast_compatible(type, Bits(1)) ~is #false
       cast_compatible(Bits(1), type) ~is #false
+
   check:
     record.packed_width() ~is #false
     vector.packed_width() ~is #false
+
   // Opaque DataType is valid, but all non-false malformed widths are rejected.
   def packed = PackedExtension(width)
   check:
@@ -246,6 +254,7 @@ block:
   for (width in [0, -1, "wide", 1/2, #true]):
     check:
       builder.input(module_def, "invalid", PackedExtension(width)) ~throws "well-formed HardwareType"
+
   check:
     builder.input(module_def, "zero", zero_width_extension) ~throws "well-formed HardwareType"
     builder.input(module_def, "negative", negative_width_extension) ~throws "well-formed HardwareType"
@@ -262,6 +271,7 @@ block:
     builder.add(module_def, value, value) ~throws "same arithmetic type and width"
     builder.bit_and(module_def, value, value) ~throws "bitwise"
     builder.cast(module_def, value, ExtensionScalar("invalid", 0)) ~throws "cast"
+
   builder.finish(module_def)
   verify_design(design)
 
@@ -307,6 +317,7 @@ block:
     type_equal(converted_bits.type, Bits(1)) ~is #true
     type_equal(inverted.type, extension_bits) ~is #true
     type_equal(combined.type, extension_bits) ~is #true
+
   def finished = builder.finish(module_def)
   verify_design(design)
 
@@ -354,9 +365,11 @@ block:
     module_def.operations.filter(
       ~keep: fun (operation): operation.opcode == "rtl.record_create"
     ).length() ~is 3
+
     module_def.operations.filter(
       ~keep: fun (operation): operation.opcode == "rtl.drive" && operation.places[0] === output
     ).length() ~is 1
+
     verify_design(design) ~is #void
 
 block:
@@ -413,6 +426,7 @@ block:
     module_def.operations.filter(
       ~keep: fun (operation): operation.opcode == "rtl.vector_create"
     ).length() ~is 5
+
     dump_ir(design).contains("rtl.vector_get %initial[1]") ~is #true
     dump_ir(design).contains("rtl.vector_index %initial[%index]") ~is #true
     dump_ir(design).contains("rtl.vector_inject %initial[%index] = %first") ~is #true

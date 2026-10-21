@@ -25,17 +25,22 @@ def top = view.module("DiagramFlow")
 def flow_blocks = top.blocks.filter(
   ~keep: fun (block): block.kind == "flow"
 )
+
 def flow_kinds = flow_blocks.map(fun (block): block.label)
 def flow_behaviors = flow_blocks.map(fun (block): block.behavior)
 def boundary_behaviors = top.blocks.filter(
   ~keep: fun (block): block.kind == "boundary" || block.kind == "boundary-array"
 ).map(fun (block): block.behavior)
+
 def all_channels_typed = for all (channel in top.channels):
   channel.protocol.contains("bits<8>")
+
 def all_channels_backpressured = for all (channel in top.channels):
   channel.backpressured
+
 def all_channels_are_interfaces = for all (channel in top.channels):
   channel.kind == "interface"
+
 def json = diagram_to_json(view)
 def parsed_json = parse_json(json)
 def module_json = diagram_module_to_json(top)
@@ -57,9 +62,11 @@ def reconvergent_top = diagram(fixture.reconvergent_logical).module(
 def stateful_instance = behavior_top.blocks.find(
   fun (block): block.id == "instance:stateful"
 )
+
 def combinational_instance = behavior_top.blocks.find(
   fun (block): block.id == "instance:combinational"
 )
+
 def channel_style_module = DiagramModule(
   "channel-styles",
   "ChannelStyles",
@@ -120,6 +127,7 @@ check:
   transparent_link_top.blocks.find(
     fun (block): block.label == "first_bridge" || block.label == "second_bridge"
   ) ~is #false
+
   transparent_link_dot.contains("style=dashed") ~is #true
   json.contains("\"top\":\"DiagramFlow\"") ~is #true
   json.contains("\"modules\":[{") ~is #true

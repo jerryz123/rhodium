@@ -137,10 +137,12 @@ check:
     selected,
     Injection(source_id)
   ).map(fun (vc): vc.describe()) ~is [source_middle_adaptive.describe()]
+
   materialized.allowed_candidates(
     selected,
     HeldVC(source_middle_adaptive)
   ).map(fun (vc): vc.describe()) ~is [middle_destination_escape.describe()]
+
   materialized.allowed_candidates(
     other,
     Injection(source_id)
@@ -177,6 +179,7 @@ def observed_policy = custom_policy(
     observed_context := context
     context.candidate_vc.group == "adaptive"
 )
+
 def observed_relation = lower_routing_policy(lowered_routes, observed_policy)
 
 check:
@@ -231,6 +234,7 @@ check:
   custom_policy("non-boolean", fun (_): "yes").evaluate(
     direct_context
   ).allowed ~throws "must return a Boolean"
+
   lower_routing_policy("not lowered routes", allow_all) ~throws "LoweredRouteClasses"
   lower_routing_policy(lowered_routes, "not a policy") ~throws "RoutingPolicy"
   lower_routing_policy(

@@ -17,6 +17,7 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
   def initial_pending = vec(
     for List (_ in 0..n): Bool(#false)
   )
+
   reg pending(~init: initial_pending)
   reg payload(T)
 
@@ -24,6 +25,7 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
   def all_pending_ready = and_reduce(vec(
     for List (index in 0..n): !pending[index] ||| egress[index].ready
   ))
+
   for (index in 0..n):
     egress[index].valid <== pending[index]
     egress[index].bits <== payload
@@ -55,12 +57,14 @@ sync_circuit CtrlBroadcast(n :: PosInt):
   def initial_pending = vec(
     for List (_ in 0..n): Bool(#false)
   )
+
   reg pending(~init: initial_pending)
 
   def any_pending = pending.or_reduce()
   def all_pending_ready = and_reduce(vec(
     for List (index in 0..n): !pending[index] ||| egress[index].ready
   ))
+
   for (index in 0..n):
     egress[index].valid <== pending[index]
 

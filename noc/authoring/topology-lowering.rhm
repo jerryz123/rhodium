@@ -102,6 +102,7 @@ class LoweredTopology(spec :: TopologySpec,
     def found = find_node_binding_by_ref(node_bindings, ref)
     unless found
     | error(~who: #'node_id, "unknown node " ++ ref.describe())
+
     found.id
 
   /* Recovers a symbolic router reference from its normalized identity. */
@@ -109,6 +110,7 @@ class LoweredTopology(spec :: TopologySpec,
     def found = find_node_binding_by_id(node_bindings, id)
     unless found
     | error(~who: #'node_ref, "unknown node " ++ id.describe())
+
     found.ref
 
   /* Resolves an authored injection name to its normalized terminal attachment. */
@@ -117,6 +119,7 @@ class LoweredTopology(spec :: TopologySpec,
     unless found
     | error(~who: #'injection_terminal,
             "unknown injection terminal " ++ ref.describe())
+
     found.terminal
 
   /* Returns the injection provenance binding, or false when the name is absent. */
@@ -129,6 +132,7 @@ class LoweredTopology(spec :: TopologySpec,
     unless found
     | error(~who: #'injection_ref,
             "unknown injection terminal " ++ id.describe())
+
     found.spec.ref
 
   /* Resolves an authored ejection name to its normalized terminal attachment. */
@@ -137,6 +141,7 @@ class LoweredTopology(spec :: TopologySpec,
     unless found
     | error(~who: #'ejection_terminal,
             "unknown ejection terminal " ++ ref.describe())
+
     found.terminal
 
   /* Returns the ejection provenance binding, or false when the name is absent. */
@@ -149,6 +154,7 @@ class LoweredTopology(spec :: TopologySpec,
     unless found
     | error(~who: #'ejection_ref,
             "unknown ejection terminal " ++ id.describe())
+
     found.spec.ref
 
   /* Resolves an authored physical link to its normalized edge identity. */
@@ -156,6 +162,7 @@ class LoweredTopology(spec :: TopologySpec,
     def found = find_link_binding_by_ref(link_bindings, ref)
     unless found
     | error(~who: #'link_id, "unknown link " ++ ref.describe())
+
     found.id
 
   /* Recovers an authored physical-link name from its normalized edge identity. */
@@ -163,6 +170,7 @@ class LoweredTopology(spec :: TopologySpec,
     def found = find_link_binding_by_id(link_bindings, id)
     unless found
     | error(~who: #'link_ref, "unknown link " ++ id.describe())
+
     found.ref
 
   /* Resolves a symbolic link/group/index VC to its normalized identity. */
@@ -170,6 +178,7 @@ class LoweredTopology(spec :: TopologySpec,
     def found = find_vc_binding_by_ref(vc_bindings, ref)
     unless found
     | error(~who: #'vc_id, "unknown VC " ++ ref.describe())
+
     found.id
 
   /* Recovers a symbolic link/group/index VC from its normalized identity. */
@@ -177,6 +186,7 @@ class LoweredTopology(spec :: TopologySpec,
     def found = find_vc_binding_by_id(vc_bindings, id)
     unless found
     | error(~who: #'vc_ref, "unknown VC " ++ id.describe())
+
     found.ref
 
   /* Validates a nonempty unique group selection and returns matching VCs in binding order. */
@@ -185,12 +195,15 @@ class LoweredTopology(spec :: TopologySpec,
       unless name.length() > 0 && !name.contains("/")
       | error(~who: #'vc_ids_in_groups,
               "VC-group selection must contain names without '/'")
+
       when duplicate_name(names, name)
       | error(~who: #'vc_ids_in_groups,
               "duplicate VC-group selection " ++ name)
+
       unless topology_has_vc_group(spec, name)
       | error(~who: #'vc_ids_in_groups,
               "unknown VC group " ++ name)
+
     vc_bindings.filter(
       ~keep: fun (binding): names.find(
         fun (name): name == binding.ref.group

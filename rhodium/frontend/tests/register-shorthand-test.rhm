@@ -38,6 +38,7 @@ check:
   explicit_registers.map(fun (operation): operation.opcode) ~is ["rtl.register_reset", "rtl.register", "rtl.register_reset", "rtl.register", "rtl.register_reset"]
   (for all (operation in explicit_registers):
      operation.operands[0] === explicit.find_input("clock").value) ~is #true
+
   explicit_registers[0].operands[1] === explicit.find_input("reset").value ~is #true
   explicit_registers[2].operands[1] === explicit.find_input("reset").value ~is #true
   explicit_registers[4].operands[1] === explicit.find_input("reset").value ~is #true
@@ -46,6 +47,7 @@ check:
   explicit_registers[4].operands[2] === explicit.find_input("init_value").value ~is #true
   (for all (operation in explicit_registers):
      operation.places[0].driver === explicit.find_input("data_in").value) ~is #true
+
   verify_design(ambient_design) ~is #void
   verify_design(explicit_design) ~is #void
   elaborate(fixture.DoubleDrive()) ~throws "already has a driver"

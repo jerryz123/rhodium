@@ -22,6 +22,7 @@ def requester_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 2
 )
+
 def subordinate_endpoint = CHIICNPortParams(
   "home-subordinate",
   9,
@@ -38,6 +39,7 @@ def subordinate_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 2
 )
+
 def second_subordinate_endpoint = CHIICNPortParams(
   "home-subordinate-1",
   10,
@@ -54,12 +56,14 @@ def second_subordinate_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 2
 )
+
 def home = CHIHomeParams(
   "test-hni",
   5,
   CHINodeKind.HNI,
   ~max_outstanding: 2
 )
+
 def subordinate_service = CHISubordinateServiceParams(
   subordinate_endpoint,
   [AddressSet(0x80000000, 0x0fffffff)],

@@ -21,11 +21,13 @@ def buffered_middle = compile_simple_router(fixture.middle_plan, ~input_buffer_d
 def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFixture"
 )
+
 def router_modules = fixture_design.modules.filter(
   ~keep: fun (module_def): module_def.name.starts_with("SimpleRouter") && (
     module_def.name != "SimpleRouterFixture"
   )
 )
+
 def allocator_compiled = compile_program(elaborate(RouterAllocator(2, 2)), rtl_target)
 def escape_n0 = NodeId(10)
 def escape_n1 = NodeId(11)
@@ -43,6 +45,7 @@ fun escape_allows(_route_class, origin, candidate):
   | origin is_a HeldVC && link_id_equal(origin.vc.link_id, adaptive_loop.id):
       link_id_equal(candidate.link_id, adaptive_loop.id) || link_id_equal(candidate.link_id, escape_link.id)
   | ~else: #false
+
 def escape_routing = compile_routing(
   RoutingProblem(
     escape_topology,
@@ -54,9 +57,11 @@ def escape_routing = compile_routing(
     [VCId(escape_link.id, 0)]
   )
 )
+
 unless escape_routing is_a ValidatedRouting
 | error(~who: #'noc_router_test,
         "small adaptive routing must pass escape validation")
+
 def escape_plan = RouterPlan(
   escape_routing,
   escape_n0
@@ -92,6 +97,7 @@ check:
   escape_plan.rows.find(
     fun (row): row.target_mask != row.fallback_mask
   ) != #false ~is #true
+
   (for all (row in escape_plan.rows):
      row.fallback_mask != 0 && (
        (row.fallback_mask bits.and row.target_mask) == row.fallback_mask
@@ -106,12 +112,14 @@ check:
     "destination_ingress_0_in", "destination_ingress_1_in",
     "destination_egress_0_in"
   ]
+
   top.outputs.map(fun (port): port.name) ~is [
     "middle_ingress_0_out", "middle_ingress_1_out",
     "middle_egress_0_out", "middle_egress_1_out",
     "destination_ingress_0_out", "destination_ingress_1_out",
     "destination_egress_0_out"
   ]
+
   router_modules.length() ~is 2
   router_modules.map(
     fun (module_def):
@@ -119,12 +127,14 @@ check:
         ~keep: fun (operation): operation.opcode.starts_with("rtl.register")
       ).length()
   ) ~is [0, 0]
+
   router_modules.map(
     fun (module_def):
       module_def.operations.filter(
         ~keep: fun (operation): operation.opcode == "rtl.instance"
       ).length()
   ) ~is [4, 4]
+
   router_modules.map(assertion_labels) ~is [
     ["simple_router_ingress_valid_route_0",
      "simple_router_ingress_valid_route_1"],

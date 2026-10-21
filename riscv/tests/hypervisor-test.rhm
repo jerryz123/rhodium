@@ -38,6 +38,7 @@ check:
 for (spec in RV64HInstructions):
   check:
     catalog.matching(spec.encoding.value) === spec ~is #true
+
   for (bit in 0..32):
     when (spec.encoding.care bits.and (1 bits.(<<) bit)) != 0
     | check:

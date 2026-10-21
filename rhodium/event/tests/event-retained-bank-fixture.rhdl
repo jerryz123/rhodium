@@ -23,22 +23,27 @@ sync_circuit RetainedBank(intrinsic :: Boolean, residency :: Boolean, invalid ::
       payload[index] <== admitted.bits
     elsewhen (releases[index]):
       occupied[index] <== Bool(#false)
+
   def outputs = for Array (index in 0..2):
     if invalid in ["parents", "label"]
     | def link = interface_link(Valid(Bits(8)), "attempt" ++ to_string(index))
       link.right |> trace_valid_event(if invalid == "label" | "resident[" ++ to_string(index) ++ "]" | "selected" ++ to_string(index), ~parents: [admitted]) |> attempts[index]
       link.left
     | attempts[index]
+
   for (index in 0..2):
     outputs[index].field("valid") <== emit[index] & (selection[index] < Bits(2)(3)) & occupied[selection[index]]
     outputs[index].field("bits") <== payload[selection[index]]
+
   def grants = for List (output in 0..2):
     for List (index in 0..3): emit[output] & (selection[output] === Bits(2)(index))
+
   describe_interface_retained_bank(if invalid == "length" | captures.take(2) | captures,
                                    releases,
                                    if invalid == "width" | [allocation, allocation, allocation] | (for List (index in 0..3): occupied[index]),
                                    ~grants: if invalid == "grants" | [[Bool(#false)]] | grants,
                                    ~name: "owners")
+
   if intrinsic
   | describe_interface_contract(admitted, if invalid == "outputs" | outputs[0] | outputs, "attempts", ~trace_model: interface_trace_retained_bank(~name: "owners"))
   | #void
@@ -58,9 +63,11 @@ sync_circuit EventRetainedBank(intrinsic :: Boolean = #true, residency :: Boolea
   source |> trace_event("parent", ~payload: #true) |> bank.command
   unless intrinsic
   | describe_interface_transform(InterfaceHandle(bank.command, bank.attempts), "bank", {}, if invalid == "owner" | #false | bank, ~trace_model: interface_trace_retained_bank(bank, ~name: "owners"))
+
   for (index in 0..2):
     bank.attempts[index] |> trace_valid_event("child" ++ to_string(index), ~payload: #true) |> sinks[index]
 
 fun bank(intrinsic :: Boolean = #true, residency :: Boolean = #true, invalid :: String = ""):
   elaborate(EventRetainedBank(intrinsic, residency, invalid))
+
 export bank

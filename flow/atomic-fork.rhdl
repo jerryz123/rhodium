@@ -19,6 +19,7 @@ circuit AtomicFork(T :: DataType, n :: PosInt):
   def ready_reduction = and_exclusion_reduce(vec(
     for List (index in 0..n): egress[index].ready
   ))
+
   ingress.ready <== ready_reduction.all
   for (index in 0..n):
     egress[index].valid <== ingress.valid & ready_reduction.except[index]
@@ -36,6 +37,7 @@ circuit SelectiveAtomicFork(T :: DataType, n :: PosInt):
   def ready_reduction = and_exclusion_reduce(vec(
     for List (index in 0..n): !selection[index] ||| egress[index].ready
   ))
+
   ingress.ready <== ready_reduction.all
   for (index in 0..n):
     egress[index].valid <== ingress.valid & selection[index] & ready_reduction.except[index]
@@ -51,6 +53,7 @@ circuit CtrlAtomicFork(n :: PosInt):
   def ready_reduction = and_exclusion_reduce(vec(
     for List (index in 0..n): egress[index].ready
   ))
+
   ingress.ready <== ready_reduction.all
   for (index in 0..n):
     egress[index].valid <== ingress.valid & ready_reduction.except[index]

@@ -33,9 +33,11 @@ fun block_port_anchor(block :: DiagramBlock, port_id :: String):
   for (port in block.ports, index in 0..block.ports.length()):
     when port.id == port_id
     | anchor := "p" ++ to_string(index)
+
   unless anchor
   | error(~who: #'diagram_module_to_dot,
           "diagram channel references an unknown block port")
+
   anchor
 
 /* Renders one aligned table cell with a named port anchor and escaped display name. */
@@ -49,9 +51,11 @@ fun block_rows(block :: DiagramBlock):
   def inputs = block.ports.filter(
     ~keep: fun (port): port.direction == "input"
   )
+
   def outputs = block.ports.filter(
     ~keep: fun (port): port.direction == "output"
   )
+
   def maximum = if inputs.length() > outputs.length() | inputs.length() | outputs.length()
   def row_count = if maximum == 0 | 1 | maximum
   for List (index in 0..row_count):
@@ -59,15 +63,18 @@ fun block_rows(block :: DiagramBlock):
       if index < inputs.length()
       | port_cell(block, inputs[index], "LEFT")
       | "<TD></TD>"
+
     def output_cell:
       if index < outputs.length()
       | port_cell(block, outputs[index], "RIGHT")
       | "<TD></TD>"
+
     def name_cell:
       if index == 0
       | String.append("<TD ROWSPAN=\"", to_string(row_count),
                       "\"><B>", html_escape(block.label), "</B></TD>")
       | ""
+
     "<TR>" ++ input_cell ++ name_cell ++ output_cell ++ "</TR>"
 
 /* Renders the block's port table, adding a gray outer enclosure for sequential behavior. */
@@ -113,6 +120,7 @@ fun combo_ether_edge(block :: DiagramBlock, port :: DiagramPort):
     if port.direction == "input"
     | [ether_endpoint, block_endpoint]
     | [block_endpoint, ether_endpoint]
+
   endpoints[0] ++ " -> " ++ endpoints[1] ++ (
     " [style=dotted, color=gray50, arrowsize=0.6];"
   )
@@ -158,6 +166,7 @@ fun boundary_channel_endpoint(block :: DiagramBlock, port_id :: String):
   unless port
   | error(~who: #'diagram_module_to_dot,
           "diagram channel references an unknown boundary port")
+
   dot_quote(boundary_anchor_id(block, port))
 
 /* Resolves a channel end to a boundary anchor or internal table port, falling back to the block ID if absent. */
@@ -167,6 +176,7 @@ fun channel_endpoint(module_diagram :: DiagramModule,
   def block = module_diagram.blocks.find(
     fun (candidate): candidate.id == block_id
   )
+
   if !block
   | dot_quote(block_id)
   | if boundary_block(block)
@@ -180,10 +190,12 @@ fun channel_edge(module_diagram :: DiagramModule, channel :: DiagramChannel):
     | ["dir=both", "arrowtail=none"]
     | []
   ) ++ channel_protocol_attributes(channel)
+
   def attribute_text:
     if attributes.length() == 0
     | ""
     | " [" ++ String.join(attributes, ", ") ++ "]"
+
   String.append(
     "    ",
     channel_endpoint(module_diagram, channel.source_block, channel.source_port),
@@ -199,6 +211,7 @@ fun diagram_module_to_dot(module_diagram :: DiagramModule):
   def internal_blocks = module_diagram.blocks.filter(
     ~keep: fun (block): !boundary_block(block)
   )
+
   def internal_nodes = internal_blocks.map(block_node)
   def mutable combo_ether_nodes = []
   def mutable combo_ether_edges = []
@@ -212,6 +225,7 @@ fun diagram_module_to_dot(module_diagram :: DiagramModule):
           combo_ether_edges := combo_ether_edges ++ [
             combo_ether_edge(block, port)
           ]
+
   def mutable boundary_nodes = []
   def mutable input_anchors = []
   def mutable output_anchors = []
@@ -223,19 +237,23 @@ fun diagram_module_to_dot(module_diagram :: DiagramModule):
         if port.direction == "output"
         | input_anchors := input_anchors ++ [dot_quote(anchor_id)]
         | output_anchors := output_anchors ++ [dot_quote(anchor_id)]
+
   def source_rank:
     if input_anchors.length() == 0
     | []
     | ["    { rank=source; " ++ String.join(input_anchors, "; ") ++ "; }"]
+
   def sink_rank:
     if output_anchors.length() == 0
     | []
     | ["    { rank=sink; " ++ String.join(output_anchors, "; ") ++ "; }"]
+
   def edges = module_diagram.channels.filter(
     ~keep: fun (channel): channel.kind == "interface"
   ).map(
     fun (channel): channel_edge(module_diagram, channel)
   )
+
   String.join(
     ["digraph " ++ dot_quote(module_diagram.name) ++ " {",
      "  rankdir=LR;",

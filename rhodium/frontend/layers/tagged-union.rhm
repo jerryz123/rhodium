@@ -40,17 +40,20 @@ class TaggedUnionType(schema :: VariantSchema,
   /* Requires equal nominal schemas, including realized member payload types and tag encodings. */
   override method type_equal(other :: HardwareType):
     tagged_union_type(other) && variant_schema_equal(schema, other.schema)
+
   /* Returns the combined tag and maximum-payload widths. */
   override method packed_width(): schema.width + payload_width
   /* Delegates typed tag extraction for this union. */
   override method hardware_variant_tag(entity :: HardwareEntity,
                                        location :: Location):
     tagged_union_value_tag(entity, location)
+
   /* Delegates membership testing against one constructor of this union. */
   override method hardware_variant_is(entity :: HardwareEntity,
                                       variant :: TaggedUnionVariant,
                                       location :: Location):
     tagged_union_value_is(entity, variant, location)
+
   /* Delegates payload projection paired with this variant's validity predicate. */
   override method hardware_variant_view(entity :: HardwareEntity,
                                         variant :: TaggedUnionVariant,
@@ -80,9 +83,11 @@ fun build_tagged_union_type(schema :: VariantSchema):
     | unless packable_type(member.payload_type)
       | error(~who: #'tagged_union,
               "variant payloads must have packable DataType types")
+
       def width = member.payload_type.packed_width()
       when width > maximum_payload_width
       | maximum_payload_width := width
+
   TaggedUnionType(schema,
                   enum_type_from_schema(tag_schema(schema)),
                   maximum_payload_width)
@@ -118,9 +123,11 @@ fun union_member(type :: TaggedUnionType, member_name :: String):
   def member = type.schema.members.find(
     fun (candidate): candidate.name == member_name
   )
+
   unless member
   | error(~who: #'tagged_union,
           "tagged union " ++ type.schema.name ++ " has no variant named " ++ member_name)
+
   member
 
 /* Packs the tag above a zero-filled or zero-extended payload and restores the union's nominal type. */
@@ -141,6 +148,7 @@ fun materialize_union_bits(type :: TaggedUnionType,
             if width == type.payload_width
             | packed
             | kernel.zext(packed, type.payload_width, #false, location)
+
       kernel.cast(kernel.concat([tag_bits, payload_bits], #false, location),
                   type,
                   #false,
@@ -196,6 +204,7 @@ class PayloadUnionVariant(type :: TaggedUnionType,
     unless type_equal(payload_type, member.payload_type)
     | error(~who: #'tagged_union,
             "variant payload has the wrong hardware type")
+
     if payload is_a HardwareLiteral
     | UnionLiteral(type, member, payload)
     | DeferredUnionValue(type, member, payload)
@@ -218,6 +227,7 @@ fun require_union_value(entity :: HardwareEntity, location :: Location):
   def value = kernel.read(entity, location)
   unless tagged_union_type(value.type)
   | error(~who: #'tagged_union, "expected tagged-union hardware data")
+
   value
 
 /* Selects the high tag field, or uses the complete packed image when no payload bits exist. */
@@ -264,6 +274,7 @@ fun tagged_union_value_view(entity :: HardwareEntity,
   unless type_equal(value.type, variant.type)
   | error(~who: #'view,
           "variant must belong to the viewed tagged-union type")
+
   def packed = hardware_as_bits(value, #'view, "value", #false, location)
   def valid = union_variant_valid(value, packed, variant, location)
   def payload:
@@ -279,6 +290,7 @@ fun tagged_union_value_view(entity :: HardwareEntity,
                     variant.member.payload_type,
                     #false,
                     location)
+
   HardwareVariantView(valid, payload)
 
 /* Checks variant ownership and constructs its packed-tag equality predicate. */
@@ -290,6 +302,7 @@ fun tagged_union_value_is(entity :: HardwareEntity,
   unless type_equal(value.type, variant.type)
   | error(~who: #'is,
           "variant must belong to the tested tagged-union type")
+
   def packed = hardware_as_bits(value, #'is, "value", #false, location)
   union_variant_valid(value, packed, variant, location)
 
@@ -327,6 +340,7 @@ meta:
             "expected a nullary variant or a variant with one payload type",
             item
           )
+
     members
 
   /* Parses automatic or explicit variant tags, rejecting mixed encoding modes. */
@@ -338,24 +352,28 @@ meta:
       | '$(member :: Identifier)':
           when mode == "explicit"
           | syntax_meta.error("cannot mix automatic and explicit variant encodings", item)
+
           mode := "automatic"
           def member_name = member.to_source_string()
           members := members ++ ['[$member_name, #false]']
       | '$(member :: Identifier)($payload_type)':
           when mode == "explicit"
           | syntax_meta.error("cannot mix automatic and explicit variant encodings", item)
+
           mode := "automatic"
           def member_name = member.to_source_string()
           members := members ++ ['[$member_name, $payload_type]']
       | '$(member :: Identifier) = $encoding':
           when mode == "automatic"
           | syntax_meta.error("cannot mix automatic and explicit variant encodings", item)
+
           mode := "explicit"
           def member_name = member.to_source_string()
           members := members ++ ['[$member_name, $encoding, #false]']
       | '$(member :: Identifier)($payload_type) = $encoding':
           when mode == "automatic"
           | syntax_meta.error("cannot mix automatic and explicit variant encodings", item)
+
           mode := "explicit"
           def member_name = member.to_source_string()
           members := members ++ ['[$member_name, $encoding, $payload_type]']
@@ -364,6 +382,7 @@ meta:
             "expected a nullary variant or a variant with one payload type",
             item
           )
+
     [mode == "explicit", members]
 
 defn.macro
@@ -376,6 +395,7 @@ defn.macro
     def members = parsed[1]
     when members.length() == 0
     | syntax_meta.error("tagged_union requires at least one variant", name)
+
     let [member_spec, ...] = members
     def constructor:
       if explicit
@@ -389,6 +409,7 @@ defn.macro
            $identity,
            [$member_spec, ...]
          )'
+
     '«
        def $identity = VariantIdentity()
        /* Constructs one parameterized union specialization using this declaration's shared nominal identity. */
@@ -410,6 +431,7 @@ defn.macro
     def members = parse_union_members([clause, ...])
     when members.length() == 0
     | syntax_meta.error("tagged_union requires at least one variant", name)
+
     let [member_spec, ...] = members
     '«
        annot.macro '$name':
@@ -427,6 +449,7 @@ defn.macro
     def members = parsed[1]
     when members.length() == 0
     | syntax_meta.error("tagged_union requires at least one variant", name)
+
     let [member_spec, ...] = members
     if explicit
     | '«
@@ -456,6 +479,7 @@ defn.macro
     def members = parsed[1]
     when members.length() == 0
     | syntax_meta.error("tagged_union requires at least one variant", name)
+
     let [member_spec, ...] = members
     if explicit
     | '«

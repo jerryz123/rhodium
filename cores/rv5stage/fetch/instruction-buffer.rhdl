@@ -38,6 +38,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     ~zicbom: extensions.zicbom, ~svinval: extensions.svinval, ~hypervisor: hypervisor,
     ~zawrs: extensions.zawrs, ~zihintpause: extensions.zihintpause, ~zihintntl: extensions.zihintntl
   ).map(fun (instruction): instruction.name)
+
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
@@ -55,6 +56,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def halfword :: Bits(16) = priority_mux(~default: packets.bits.word[0..16]):
     residual_valid: residual.halfword
     upper: packets.bits.word[16..32]
+
   def compressed = if compressed_enabled | halfword[0..2] =/= Bits(2)(3) | Bool(#false)
   def packet_fault = packets.bits.page_fault ||| packets.bits.access_fault
   def head_fault = !residual_valid & packet_fault
@@ -65,6 +67,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def raw :: Bits(32) = priority_mux(~default: packets.bits.word):
     compressed: halfword.zext(32)
     straddle: packets.bits.word[0..16] ++ halfword
+
   def instruction_is_compressed = compressed & !head_fault
   wire expanded_instruction: Bits(32)
   wire compressed_legal: Bool
@@ -89,6 +92,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def prediction :: BranchPrediction(xlen) = priority_mux(~default: packets.bits.prediction):
     continuation_prediction: packets.bits.prediction
     residual_valid: residual.prediction
+
   def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !(instruction_is_compressed & !compressed_legal)
   fetched.valid <== available & !clear.valid
   fetched.bits.pc <== pc
@@ -130,6 +134,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     1, packets.fire() & (capture_partial ||| keep_upper), (residual_valid & fetched.fire()).as_bits(),
     residual_valid.as_bits(), clear.valid, [residual_valid], ~live: !residual_valid ||| straddle
   )
+
   describe_interface_contract(packets, fetched, "instruction-assembly", ~trace_model: interface_trace_window())
   when (clear.valid):
     residual_valid <== Bool(#false)
@@ -141,6 +146,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
       prediction: packets.bits.prediction
   elsewhen (fetched.fire()):
     residual_valid <== Bool(#false)
+
   when (fetched.valid & straddle):
     assert(packets.bits.mask[0].into(Bool) & (packets.bits.pc.align_down(4) === (pc.align_down(4) + Bits(width)(4))), "ibuf_contiguous_instruction")
 

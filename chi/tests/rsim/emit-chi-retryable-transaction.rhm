@@ -12,8 +12,10 @@ def profile = response_profile("retryable_transaction_fixture"):
   milestone completion
   response [CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd]:
     completes [dbid]
+
   response [CHIRspOpcode.Comp]:
     completes [completion]
+
   response [CHIRspOpcode.CompDBIDResp]:
     completes [dbid, completion]
 

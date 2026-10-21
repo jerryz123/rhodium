@@ -40,6 +40,7 @@ fun checked_csr_field_width(value :: Bits,
   def width = value.type.packed_width()
   unless field.high < width
   | error(~who: who, "CSR field must fit the packed value")
+
   width
 
 /* Extracts a descriptor-selected CSR slice after checking width containment. */
@@ -53,6 +54,7 @@ fun csr_flag(value :: Bits,
              field :: BitField) :~ Bool:
   unless field.width == 1
   | error(~who: #'csr_flag, "CSR flag must be a one-bit field")
+
   csr_field(value, field).into(Bool)
 
 /* Places a field-width value into a zero-filled CSR image of the selected width. */
@@ -61,6 +63,7 @@ fun csr_field_value(field :: BitField,
                     width :: PosInt) :~ Bits(width):
   unless field.high < width
   | error(~who: #'csr_field_value, "CSR field must fit the result width")
+
   value.zext(width) << field.low
 
 /* Replaces one CSR slice while preserving every bit outside its mask. */
@@ -77,6 +80,7 @@ fun csr_flag_replace(original :: Bits,
                      enabled :: Bool) :~ Bits(original.type.packed_width()):
   unless field.width == 1
   | error(~who: #'csr_flag_replace, "CSR flag must be a one-bit field")
+
   csr_field_replace(original, field, mux(enabled, Bits(1)(1), Bits(1)(0)))
 
 /* Preserves only the selected architectural CSR fields, clearing all other bits. */
@@ -86,6 +90,7 @@ fun csr_keep_fields(value :: Bits,
   for (field in fields):
     unless field.high < width
     | error(~who: #'csr_keep_fields, "CSR field must fit the packed value")
+
   value & Bits(width)(csr_fields_mask(fields))
 
 /* Constructs an XLEN-positioned summary-dirty bit from the supplied dirty condition. */
@@ -102,12 +107,15 @@ fun build_csr_bank(selector :: Bits(12),
     for List (entry in entries):
       unless entry is_a List && entry.length() == 2 && entry[0] is_a CsrId
       | error(~who: #'csr_bank, "CSR entries must use CsrId identifiers")
+
       entry[0]
+
   for (left in 0..ids.length()):
     for (right in (left + 1)..ids.length()):
       if ids[left] == ids[right]
       | error(~who: #'csr_bank, "CSR identifiers must be unique")
       | #void
+
   CsrBank(
     selector.is_one_of(ids.map(csr_bits)),
     mux_lookup(
@@ -151,12 +159,15 @@ expr.macro 'csr_bank($selector, ~default: $default_value): $clause; ...':
           "expected storage, read, read_all, or read/write CSR entry",
           item
         )
+
   if read_entries.length() == 0
   | syntax_meta.error("csr_bank requires at least one CSR entry", '$selector')
   | #void
+
   def mutable combined_entries = '[]'
   for (entries in read_entries):
     combined_entries := '$combined_entries ++ $entries'
+
   def mutable writer_body = '#void'
   if write_clauses.length() > 0
   | block:
@@ -165,6 +176,7 @@ expr.macro 'csr_bank($selector, ~default: $default_value): $clause; ...':
                         $write_clause
                         ...'
   | #void
+
   'build_csr_bank(
      $selector,
      $default_value,

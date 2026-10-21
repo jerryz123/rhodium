@@ -18,6 +18,7 @@ check:
   params.test_rv5stage_uncached_config.home_map.entries.map(
     fun (entry): entry.address_set
   ) ~is [AddressSet(0, 0x7fff), AddressSet(0x8000, 0x3fff), AddressSet(0xc000, 0x3fff)]
+
   params.test_rv5stage_uncached_config.physical_map.regions[1].attributes.device ~is #true
   params.test_rv5stage_uncached_config.physical_map.regions[1].attributes.read_idempotent ~is #false
   params.test_rv5stage_uncached_config.physical_map.regions[2].attributes.device ~is #false

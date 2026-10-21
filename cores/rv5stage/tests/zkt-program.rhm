@@ -36,8 +36,10 @@ fun zkt_compressed_probe_word(instruction :: CompressedInstructionSpec, ~nop: no
             | ~else: actual == 8 || actual == 0
           ) && (!target.immediate || (if nop | target.immediate.decode(expanded) == 0 | target.immediate.decode(expanded) != 0))
   )
+
   unless word
   | error(~who: #'zkt_compressed_probe_word, "no non-HINT operand probe for " ++ instruction.name)
+
   word
 
 class ZktProgram(words :: NonemptyList.of(Nat), probes :: NonemptyList.of(String))
@@ -59,6 +61,7 @@ fun zkt_program(profile :: RV5StageConfig) :: ZktProgram:
   def mutable halves = []
   fun append_word(word :: Nat, size :: PosInt = 4):
     halves := halves ++ [word bits.and 0xffff] ++ (if size == 4 | [word bits.(>>) 16] | [])
+
   for (encoding in encodings):
     append_word(load.encode([rd.constrain(8), rs1.constrain(0)], ~immediate: 0))
     append_word(load.encode([rd.constrain(9), rs1.constrain(0)], ~immediate: 8))
@@ -68,9 +71,11 @@ fun zkt_program(profile :: RV5StageConfig) :: ZktProgram:
     append_word(encoding[0], encoding[1])
     append_word(catalog.find("ADD").encode([rd.constrain(12), rs1.constrain(8), rs2.constrain(9)]))
     append_word(store.encode([rs1.constrain(0), rs2.constrain(12)], ~immediate: 16))
+
   append_word(catalog.find("JAL").encode([rd.constrain(0)], ~immediate: 0))
   when halves.length() mod 2 == 1
   | halves := halves ++ [0x0001]
+
   ZktProgram(for List (index in 0..(halves.length() / 2)): halves[index * 2] bits.or (halves[index * 2 + 1] bits.(<<) 16), probes)
 
 export:

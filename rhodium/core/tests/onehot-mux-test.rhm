@@ -70,6 +70,7 @@ block:
                             [result],
                             [],
                             {"name": "result"})
+
   selector.add_user(operation_id)
   choice.add_user(operation_id)
   module_def.add_value(result)
@@ -99,6 +100,7 @@ for (feedback in ["independent", "same-field", "selector"]):
   for (name in ["a", "b"]):
     builder.drive(builder.project(instance.input(name), "left"), if feedback == "same-field" | left | zero)
     builder.drive(builder.project(instance.input(name), "right"), if feedback == "independent" | left | zero)
+
   builder.finish(top)
   if feedback == "independent"
   | check: verify_design(design) ~is #void

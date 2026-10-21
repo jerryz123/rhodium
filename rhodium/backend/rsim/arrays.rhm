@@ -29,6 +29,7 @@ fun plan_array(operands :: List.of(Nat), bindings :: Map) :: List.of(ArrayElemen
     def mutable end = start + 1
     while end < operands.length() && operands[end] == first:
       end := end + 1
+
     def mutable gather = #false
     when end == start + 1 && end < operands.length()
     | def a = scratch_slot(bindings.get(first, #false))
@@ -42,10 +43,14 @@ fun plan_array(operands :: List.of(Nat), bindings :: Map) :: List.of(ArrayElemen
           if next && next.group == a.group && next.indirect == a.indirect && next.index == a.index + (end - start) * stride
           | end := end + 1
           | matching := #false
+
         gather := ArrayGather(start, end - start, a, stride)
+
     if end - start >= 4
     | runs.add(gather || ArrayFill(start, end - start, first))
     | runs.add(ArrayElement(start, first))
       end := start + 1
+
     start := end
+
   runs.snapshot()

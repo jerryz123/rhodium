@@ -17,6 +17,7 @@ def top = design.modules[0]
 def change_source = design.modules.find(
   fun (module_def): module_def.name == "StateChangeSource"
 )
+
 def state_replica = design.modules.find(
   fun (module_def): module_def.name == "StateReplica"
 )
@@ -34,6 +35,7 @@ check:
   operations(change_source, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is ["state_change_priority_in_range"]
+
   state_replica.find_output("current").type.packed_width() ~is 4
   verify_design(design) ~is #void
 

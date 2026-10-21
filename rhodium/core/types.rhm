@@ -132,12 +132,14 @@ class RecordType(fields :: NonemptyList.of(RecordField),
     unless !preferred_name || preferred_name is_a AsciiIdentifier
     | error(~who: #'RecordType,
             "preferred name must be an ASCII identifier or #false")
+
     for (field in fields):
       when fields.filter(
         ~keep: fun (candidate): candidate.name == field.name
       ).length() != 1
       | error(~who: #'RecordType,
               "record field names must be unique")
+
     super(fields, preferred_name)
 
   /* Finds a field by name, returning false when the record has no such field. */
@@ -170,6 +172,7 @@ class RecordType(fields :: NonemptyList.of(RecordField),
       if !field_width
       | packable := #false
       | width := width + field_width
+
     if packable | width | #false
 
 /*
@@ -281,6 +284,7 @@ fun count_index_width(count :: PosInt) :: PosInt:
     | block:
         if width == 0 | 1 | width
     | loop(capacity * 2, width + 1)
+
   loop(1, 0)
 
 /* Checks every declared field's data type recursively. */

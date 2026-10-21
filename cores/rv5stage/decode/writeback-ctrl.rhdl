@@ -40,24 +40,31 @@ bundle RV5StageWritebackControl():
 def alu_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.Alu
+
 def memory_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.Memory
+
 def link_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.SequentialPc
+
 def multiply_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.Multiply
+
 def divide_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.Divide
+
 def csr_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.Csr
+
 def zero_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
   source: RV5StageWritebackSelect.Zero
+
 def no_writeback = partial_pattern(RV5StageWritebackControl()):
   enable: Bool(#false)
 

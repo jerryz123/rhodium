@@ -20,9 +20,11 @@ def buffered_config = compile_simple_router_family(family, ~input_buffer_depth: 
 def top = rtl_fixture_design.modules.find(
   fun (module_def): module_def.name == "RouterFamilyFixture"
 )
+
 def router = rtl_fixture_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFamily"
 )
+
 def router_instances = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.instance" && (
     operation.attribute("module") === router
@@ -33,6 +35,7 @@ fun pattern_field(cube, field_name):
   def field = cube.value.fields.find(
     fun (candidate): candidate[0] == field_name
   )
+
   field[1].packed_value()
 
 check:
@@ -71,11 +74,14 @@ check:
   router_instances.map(fun (instance): instance.attribute("name")) ~is [
     "source", "hub"
   ]
+
   (for all (instance in router_instances):
      instance.attribute("module") === router) ~is #true
+
   rtl_fixture_design.modules.filter(
     ~keep: fun (module_def): module_def.name.starts_with("SimpleRouterFamily")
   ).length() ~is 1
+
   verify_design(rtl_fixture_design) ~is #void
 
 check:

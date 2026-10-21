@@ -41,6 +41,7 @@ def steps = [
   RsimStep("rtl.vector_get", byte, [23], {"index": 0}),
   RsimStep("rtl.vector_get", byte, [23], {"index": 1})
 ]
+
 def imp = Builder(Design()).dpi_import_results("cse_foreign", ["arg"], [byte], [DpiResult("result", byte, "return")])
 def memories = [RsimMemory(["first"], "ram", 256, byte), RsimMemory(["second"], "ram", 256, byte)]
 def original = RsimSchedule("CSE", [RsimPort("a", byte, 4), RsimPort("b", byte, 10)],
@@ -72,8 +73,10 @@ check:
   optimized.steps[18].operands ~is [4, 4]
   optimized.steps[19].attributes ~is {"index": 0}
   optimized.steps[20].attributes ~is {"index": 1}
+
 for (step in optimized.steps, index in 0..optimized.steps.length()):
   check: (for all (operand in step.operands): operand < index) ~is #true
+
 def evaluation = build_evaluation_plan(optimized)
 check:
   evaluation.pre_edge.sinks.map(fun (sink): sink.kind) ~is ["foreign", "foreign", "assertion", "assertion", "register", "register", "sync_read", "write", "write"]
@@ -91,8 +94,10 @@ def typed_steps = [RsimStep("rtl.constant", Token("first"), [], {"value": 1}),
                    RsimStep("rtl.constant", Token("second"), [], {"value": 1}),
                    RsimStep("rtl.constant", Token("first"), [], {"value": 1}),
                    RsimStep("rtl.constant", Bits(8), [], {"value": 1})]
+
 def typed = RsimSchedule("Types", [], for List (step in typed_steps, index in 0..typed_steps.length()): RsimPort(to_string(index), step.type, index),
                          typed_steps, [], [], [], [], [], [])
+
 check: share_scalar_expressions(typed).outputs.map(fun (port): port.value) ~is [0, 1, 0, 2]
 
 // Verified casts erase representation work, not nominal type distinctions
@@ -107,6 +112,7 @@ for (width in [1, 8, 32, 64, 65, 129]):
     RsimStep("rtl.cast", vector, [2], {}),
     RsimStep("rtl.cast", bits, [3], {})
   ]
+
   def aliases = RsimSchedule("Aliases", [RsimPort("input", bits, 0)],
                              [RsimPort("aliased", bits, 2), RsimPort("packed", bits, 4)],
                              alias_steps, [], [], [], [], [], [])
@@ -116,6 +122,7 @@ for (width in [1, 8, 32, 64, 65, 129]):
     result.outputs.map(fun (port): port.value) ~is [0, 2]
     result.inputs ~is aliases.inputs
     result ~is share_scalar_expressions(result)
+
 def nominal_aliases = RsimSchedule("NominalAliases", [], [RsimPort("token", Token("second"), 2)], [typed_steps[0], RsimStep("rtl.cast", Token("second"), [0], {}), RsimStep("rtl.cast", Token("second"), [1], {})], [], [], [], [], [], [])
 check:
   share_scalar_expressions(nominal_aliases).outputs ~is [RsimPort("token", Token("second"), 0)]

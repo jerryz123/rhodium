@@ -42,12 +42,15 @@ class HDMIVideoTiming(pixel_clock_hz :: PosInt,
   /* Counts active pixels and all horizontal blanking clocks per line. */
   property horizontal_total :: PosInt:
     horizontal_active + horizontal_front_porch + horizontal_sync + horizontal_back_porch
+
   /* Counts active rows and all vertical blanking lines per frame. */
   property vertical_total :: PosInt:
     vertical_active + vertical_front_porch + vertical_sync + vertical_back_porch
+
   /* Counts pixel-clock enables required for one complete frame. */
   property frame_cycles :: PosInt:
     horizontal_total * vertical_total
+
   /* Derives exact frame frequency from the pixel clock and total raster size. */
   property refresh_hz:
     pixel_clock_hz / frame_cycles
@@ -60,6 +63,7 @@ class HDMIFixedFramebufferMode(timing :: HDMIVideoTiming,
   /* Returns the pixel storage width in bytes. */
   property bytes_per_pixel :: PosInt:
     HDMIPixelFormat.bytes_per_pixel(pixel_format)
+
   /* Derives row stride without padding from active width and pixel size. */
   property pitch_bytes :: PosInt: timing.horizontal_active * bytes_per_pixel
   /* Returns the contiguous active-frame byte count. */
@@ -76,6 +80,7 @@ class HDMIFixedFramebufferMode(timing :: HDMIVideoTiming,
     unless pitch_bytes mod HDMIFetchLineBytes == 0
     | error(~who: #'HDMIFixedFramebufferMode,
             "contiguous framebuffer pitch must contain complete fetch lines")
+
     super(timing, pixel_format)
 
   /* Tests the required 64-byte physical framebuffer alignment. */
@@ -97,12 +102,15 @@ class HDMIFrameReaderConfig(flit :: CHIFlitParams,
     unless slots <= 1024
     | error(~who: #'HDMIFrameReaderConfig,
             "reader slots must fit the CHI requester outstanding limit")
+
     unless txn_base + slots <= 4096
     | error(~who: #'HDMIFrameReaderConfig,
             "reader transaction-ID range must fit the 12-bit CHI field")
+
     unless bits.length(mode.frame_bytes) <= flit.request_address_width
     | error(~who: #'HDMIFrameReaderConfig,
             "frame byte count must fit the CHI request address width")
+
     super(flit, mode, slots, txn_base)
 
 /* Carries requester and Home NodeIDs for the frame reader's fabric attachment. */
@@ -167,6 +175,7 @@ sync_circuit HDMIFrameReader(config :: HDMIFrameReaderConfig):
     frame_end: reader.line.bits.last
     error: reader.line.bits.error
     poisoned: reader.line.bits.poisoned
+
   reader.line.ready <== line.ready
 
   def command_fire = command.fire()
@@ -182,6 +191,7 @@ sync_circuit HDMIFrameReader(config :: HDMIFrameReaderConfig):
     row_fetch_index <== Bits(row_index_width)(0)
   elsewhen line_fire:
     row_fetch_index <== mux(row_end, Bits(row_index_width)(0), row_fetch_index + Bits(row_index_width)(1))
+
   when command_fire:
     failure_seen <== Bool(#false)
   elsewhen line_failed:

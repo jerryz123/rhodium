@@ -20,6 +20,7 @@ def queue_options_program = elaborate(
         ~pipe: #true,
         ~flow: #true)
 )
+
 def arbiter_program = elaborate(Arbiter(Bits(8), 3))
 def chain_program = elaborate(BufferedLink())
 

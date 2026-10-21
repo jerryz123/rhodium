@@ -49,9 +49,11 @@ check:
   lowered_routes.specs.map(
     fun (spec): spec.ref.describe()
   ) ~is ["traffic/local", "traffic/remote"]
+
   lowered_routes.route_classes.map(
     fun (route_class): route_class.id.value
   ) ~is [0, 1]
+
   lowered_routes.route_class(local_ref).source.router.value ~is lowered_topology.node_id(source).value
   lowered_routes.route_class(local_ref).destination.router.value ~is lowered_topology.node_id(source).value
   lowered_routes.route_class(remote_ref).source.router.value ~is lowered_topology.node_id(source).value
@@ -69,6 +71,7 @@ check:
 def relation = RoutingRelation(
   fun (_, _, _): #true
 )
+
 def problem = RoutingProblem(
   lowered_topology.topology,
   lowered_routes.route_classes,
@@ -81,6 +84,7 @@ check:
     lowered_routes.route_class(remote_ref),
     Injection(lowered_topology.node_id(source))
   ).map(fun (vc): vc.describe()) ~is ["l1.vc0"]
+
   problem.candidates(
     lowered_routes.route_class(local_ref),
     Injection(lowered_topology.node_id(source))

@@ -4,5 +4,6 @@ import:
   "../vector-memory-fixture.rhdl" open
   lib("riscv/isa/xlen.rhm") open
   lib("rhodium/frontend/foundation.rhm").elaborate
+
 def program = elaborate(RV2WideVectorMemoryFixture(XLen.X32, 1))
 export program

@@ -14,6 +14,7 @@ def circt = emit_circt(fixture_design)
 def pair_call = fixture_design.modules[0].operations.find(
   fun (op): op.opcode == "sim.dpi_register" && op.attribute("dpi_import").name == "rhodium_step_pair"
 )
+
 def return_id = to_string(pair_call.results[1].id)
 
 check:

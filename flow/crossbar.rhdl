@@ -38,9 +38,11 @@ circuit GrantCrossbar(T :: DataType,
       for List (input_index in 0..input_count):
         grants[input_index][output_index]
     ).into(MaybeOneHot(input_count))
+
     for (input_index in 0..input_count):
       input_stages[input_index].egress[output_index]
         |> output_stage.ingress[input_index]
+
     output_stage.egress |> egress[output_index]
     output_stage
 
@@ -55,6 +57,7 @@ fun grant_crossbar(output_count :: PosInt,
     unless inputs is_a Array && inputs.length() > 0
     | error(~who: #'grant_crossbar,
             "grant crossbar requires at least one input endpoint or type")
+
     def T = flow_payload_type(inputs[0])
     inst crossbar_stage(GrantCrossbar(T, inputs.length(), output_count))
     crossbar_stage.grants <== grants

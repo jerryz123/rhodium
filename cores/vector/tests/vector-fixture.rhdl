@@ -80,6 +80,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     left_wide: left_wide
     left_signed: left_signed
     right_signed: right_signed
+
   context.ingress.bits <== VectorFixtureContext(vlen):
     control: packing_control
     scalar: scalar
@@ -87,9 +88,11 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     operation: operation
     destination: destination
     mask_destination: mask_destination
+
   for (port in 0..3):
     bank.reads[port].valid <== read_valid
     bank.reads[port].bits <== [read_a, read_b, read_c][port][0..address_width]
+
   bank.mask_read.valid <== read_valid
   bank.mask_read.bits <== mask_read_address[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)]
   read_a_result <== bank.results[0].bits
@@ -128,6 +131,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     arithmetic_shift: Bool(#false)
     rotate: Bool(#false)
     invert_right: Bool(#false)
+
   inst assemble(VectorResult(XLen.X64, vlen))
   assemble.destination <== c.destination
   assemble.first_element <== prepare.operands.first_element
@@ -149,6 +153,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     address: write_address[0..address_width]
     data: write_data
     mask: write_mask
+
   bank.write.bits <== mux(committing, assemble.write, initialization)
 
 sync_circuit VectorFixture():

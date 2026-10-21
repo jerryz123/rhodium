@@ -65,10 +65,12 @@ class VectorLiteral(type :: VectorType, elements :: List):
   constructor (type :: VectorType, elements :: List):
     unless elements.length() == type.length
     | error(~who: #'vec, "literal element count must equal vector length")
+
     for (element in elements):
       def element_literal = require_hardware_literal(element, #'vec)
       unless type_equal(element_literal.literal_type(), type.element_type)
       | error(~who: #'vec, "literal elements must have exactly the same hardware type")
+
     super(type, elements)
 
   /* Returns the vector descriptor without elaboration. */
@@ -80,6 +82,7 @@ class VectorLiteral(type :: VectorType, elements :: List):
     def mutable packed = 0
     for (element in elements, index in 0..elements.length()):
       packed := packed + (element.packed_value() << (index * element_width))
+
     packed
 
 /*
@@ -92,8 +95,10 @@ fun build_vec(entity :: HardwareFields || NonemptyList.of(HardwareFields), ...) 
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
+
   unless entities.length() >= 1
   | error(~who: #'vec, "vec requires at least one element")
+
   if for all (element in entities): element is_a HardwareLiteral
   | VectorLiteral(VectorType(entities.length(), entities[0].literal_type()),
                   entities)

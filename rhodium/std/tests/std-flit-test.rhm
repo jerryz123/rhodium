@@ -17,9 +17,11 @@ def fixed_top = fixed_design.modules[0]
 def packetizer = packet_design.modules.find(
   fun (module_def): module_def.name == "Packetizer"
 )
+
 def reassembler = packet_design.modules.find(
   fun (module_def): module_def.name == "Reassembler"
 )
+
 def variable_top = variable_design.modules[0]
 def structural_fixed_flit = fixture.FixedFlitImpostor(Bits(8))
 
@@ -36,33 +38,40 @@ check:
   operations(packetizer, "rtl.instance").map(
     fun (operation): operation.attribute("name")
   ) ~is ["payload_queue", "phase_counter"]
+
   operations(reassembler, "rtl.instance").map(
     fun (operation): operation.attribute("name")
   ) ~is ["completed", "phase_counter"]
+
   operations(reassembler, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is ["reassembler_first_matches_phase",
          "reassembler_last_matches_phase"]
+
   verify_design(packet_design) ~is #void
 
   fixed_design.modules.map(fun (module_def): module_def.name) ~is [
     "FixedFramingRoundTrip", "Counter"
   ]
+
   operations(fixed_top, "rtl.instance").length() ~is 2
   operations(fixed_top, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is ["fixed_flit_first_matches_phase",
          "fixed_flit_last_matches_phase"]
+
   verify_design(fixed_design) ~is #void
 
   variable_design.modules.map(fun (module_def): module_def.name) ~is [
     "VariableFixedRoundTrip", "Counter"
   ]
+
   operations(variable_top, "rtl.instance").length() ~is 1
   operations(variable_top, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is ["fixed_flit_first_matches_phase",
          "fixed_flit_last_matches_phase"]
+
   verify_design(variable_design) ~is #void
 
   type_equal(structural_fixed_flit, flit.FixedFlit(Bits(8))) ~is #true

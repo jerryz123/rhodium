@@ -31,6 +31,7 @@ fun unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
 circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   unless integer_width >= 3
   | error(~who: #'RecFNToInteger, "integer width must be at least three")
+
   input value: RecFloat(format)
   input rounding_mode: RoundingMode
   input signed_output: Bool
@@ -47,6 +48,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
     if (format.exponent_width - 1) < index_width(integer_width)
     | format.exponent_width - 1
     | index_width(integer_width)
+
   def shift_amount = mux(
     magnitude_at_least_one,
     raw_exponent[0..exponent_index_width],
@@ -65,6 +67,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
     if aligned_significand.type.packed_width() < integer_width + 2
     | aligned_significand.zext(integer_width + 2)
     | aligned_significand
+
   def unrounded_integer = aligned_for_integer[2..=(integer_width + 1)]
   def common_inexact = mux(
     magnitude_at_least_one,

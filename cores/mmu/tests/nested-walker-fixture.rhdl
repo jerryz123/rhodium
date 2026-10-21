@@ -60,12 +60,14 @@ sync_circuit RiscvNestedWalkerFixture():
     hs_mxr: hs_mxr
     vs_pbmte: vs_pbmte
     g_pbmte: g_pbmte
+
   walker.request.bits <== RiscvTlbLookup():
     execute_read: Bool(#false)
     virtualized: virtualized
     virtual_address: address
     access: access
     context: context
+
   command_ready <== walker.request.ready
   walker.memory.request.ready <== memory_ready
   walker.memory.request_access_fault <== memory_fault

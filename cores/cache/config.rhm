@@ -18,9 +18,11 @@ class CacheConfig(sets :: Pow2Int, ways :: PosInt):
     unless sets >= 2
     | error(~who: #'CacheConfig,
             "set count must be a power of two of at least two")
+
     unless sets * CacheLineBytes <= 4096
     | error(~who: #'CacheConfig,
             "VIPT requires sets * line bytes <= 4096 (at most 4 KiB per way)")
+
     super(sets, ways)
 
   /* Revalidates geometry when either count is replaced. */

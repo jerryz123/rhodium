@@ -29,6 +29,7 @@ fun inclusive_home_base_config_with_slots(transaction_slots :: Int.in(1 ..= 64))
     base.coherent_home_config.service_requests,
     ~transaction_slots: transaction_slots
   )
+
 def inclusive_home_base_config = inclusive_home_base_config_with_slots(2)
 def inclusive_home_serial_base_config = inclusive_home_base_config_with_slots(1)
 def inclusive_home_config = CHIInclusiveHNFConfig(
@@ -39,6 +40,7 @@ def inclusive_home_config = CHIInclusiveHNFConfig(
   ~comp_ack_entries: 2,
   ~victim_writeback_entries: 1
 )
+
 def inclusive_home_serial_config = CHIInclusiveHNFConfig(
   inclusive_home_serial_base_config,
   inclusive_home_addressing,
@@ -46,6 +48,7 @@ def inclusive_home_serial_config = CHIInclusiveHNFConfig(
   ~ways: 2,
   ~comp_ack_entries: 2
 )
+
 def inclusive_home_program = elaborate(CHIInclusiveHNF(inclusive_home_config))
 
 export:

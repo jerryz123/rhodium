@@ -34,6 +34,7 @@ check:
   left.find_link(LinkRef(["left", "forward"])).virtual_channels().map(
     fun (vc): vc.describe()
   ) ~is ["left/forward/escape[0]"]
+
   system.nodes.length() ~is 4
   system.links.length() ~is 4
   system.find_link(LinkRef("left-to-right")).source.describe() ~is "left/finish"
@@ -45,11 +46,13 @@ check:
   ) ~is lowered_reversed_system.node_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   lowered_system.link_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is lowered_reversed_system.link_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   lowered_system.vc_ref(
     lowered_system.vc_id(
       VCRef(LinkRef(["left", "forward"]), "escape", 0)
@@ -79,6 +82,7 @@ def parallel_and_loop = compose_topologies(
     directed_link(LinkRef("loop"), finish, finish, vcs)
   ]
 )
+
 def bad_cross_link = directed_link(
   LinkRef("bad-cross-link"),
   left_finish,

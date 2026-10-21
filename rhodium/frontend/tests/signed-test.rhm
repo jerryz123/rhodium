@@ -47,6 +47,7 @@ check:
   operations("rtl.constant").find(
     fun (operation): operation.attribute("value") == 255
   ) != #false ~is #true
+
   verify_design(fixture_design) ~is #void
 
   3 frontend.(<) 4 ~is #true

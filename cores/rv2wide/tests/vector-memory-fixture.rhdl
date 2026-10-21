@@ -55,6 +55,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
     address: address
     store_data: store_data
     completion_tag: tag
+
   dut.pointer_masking <== literal(PointerMaskControl(), 0)
   issue_ready <== dut.issue.ready
   lookup <== dut.pipeline.request.valid
@@ -66,6 +67,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
     outcome: lookup_outcome
     data: lookup_data
     guest: literal(RiscvGuestFault(), 0)
+
   dut.pipeline.commit_ready <== commit_ready
   committed <== dut.pipeline.commit
   dut.memory.request.ready <== request_ready & !request_fault
@@ -75,6 +77,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
     cause: fault_cause
     value: fault_address
     guest: literal(RiscvGuestFault(), 0)
+
   dut.memory.response.valid <== response_valid
   dut.memory.response.bits <== response_data
   dut.memory.drained <== Bool(#true)
@@ -94,6 +97,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
         data: split_data
         access_fault: split_access_fault
         context: Bool(#false)
+
     page_fault: split_page_fault
     fault_address: split_fault_address
     guest:
@@ -104,6 +108,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
             guest_virtual_address: split_guest_fault
             guest_physical_address: Bits(64)(0x2345)
             access: RiscvGuestFaultAccess.Explicit
+
   split_requested <== dut.split.request.valid
   split_store <== dut.split.request.bits.data
   feedback_valid <== dut.feedback.valid

@@ -88,6 +88,7 @@ sync_circuit DetachedFlowBoundary():
 
   def sink = Decoupled(Bits(8)) |> pipe(1)
     |> eject_interface(~valid: sink_valid, ~bits: sink_bits, ~ready: sink_ready)
+
   inject_interface(
     Decoupled(Bits(8)),
     ~valid: source_valid,

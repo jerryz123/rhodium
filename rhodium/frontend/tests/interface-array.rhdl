@@ -48,6 +48,7 @@ circuit InterfaceArrayTypeOnce(n):
   peers <=> links
   unless evaluations == 1
   | error("interface array type expression was evaluated more than once")
+
   #void
 
 // Direct handle-end access keeps endpoint field information for local links.

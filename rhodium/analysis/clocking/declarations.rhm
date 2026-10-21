@@ -20,6 +20,7 @@ fun remap_environment(environment :: TemporalEnvironment, remap :: Function.of_a
       def timing = contract.timing
       TopInputContract(remap(contract.input), contract.path, if timing is_a SynchronousInputTiming | SynchronousInputTiming(remap(timing.clock)) | timing)
   )
+
   def relationships = environment.clock_relationships.map(
     fun (relationship):
       cond
@@ -33,6 +34,7 @@ fun remap_environment(environment :: TemporalEnvironment, remap :: Function.of_a
           ExclusiveClockRelationship(remap(relationship.left), remap(relationship.right), relationship.description)
       | ~else: error(~who: #'clocking_target, "unsupported clock relationship")
   )
+
   TemporalEnvironment(inputs, relationships)
 
 /* Stores timing assumptions as module metadata without running analysis.
@@ -61,4 +63,5 @@ fun module_clocking_environment(module_def :: Module):
   for (entry in module_def.metadata_for(namespace)):
     for (contract in entry.environment.input_contracts): inputs.add(contract)
     for (relationship in entry.environment.clock_relationships): relationships.add(relationship)
+
   TemporalEnvironment(inputs.snapshot(), relationships.snapshot())

@@ -66,6 +66,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
       context: descriptor.pc
       descriptor: descriptor
   ) |> gate_flow(certification_ready & memory_dispatch_ready) |> dispatch
+
   packed_memory <== head_certified & head.bits.control.memory & (head.bits.control.memory_addressing === VectorMemoryAddressing.UnitStride)
   precheck.request.valid <== head.valid & needs_check & !check_started
   precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| Bits(64)(xlen.width / 8 - 1))
@@ -92,13 +93,16 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   bundle Retirement():
     value: VectorCommit(xlen, slots)
     fault: Fault
+
   def early = early_outcome |> map_valid(value => Retirement()):
     value: value
     fault: literal(Fault, 0)
+
   def final_outcome = precise |> filter_valid(_event => !captured_certificate)
   def final_retirement = final_outcome |> map_valid(value => Retirement()):
     value: value
     fault: precise_fault
+
   def retirement = Array(early, final_retirement) |> valid_arbiter() |> valid_pipe(1)
   retirement |> map_valid(event => event.value) |> outcome
   outcome_fault <== retirement.bits.fault
@@ -113,6 +117,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     waiting_retirement <== Bool(#true)
   elsewhen (outcome.valid):
     waiting_retirement <== Bool(#false)
+
   when memory_accepted:
     uncertified_memory <== !request.bits.precertified & !early_outcome.valid
   elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)) ||| outcome.valid):
@@ -132,6 +137,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   elsewhen (checked.valid):
     check_complete <== Bool(#true)
     certified <== checked.bits
+
   when (dispatch.fire()):
     captured_pointer_masking <== head.bits.pointer_masking
     captured_certificate <== head_certified
@@ -139,6 +145,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     active_precheck <== needs_check
   elsewhen (precheck.release.valid):
     active_precheck <== Bool(#false)
+
   when (precheck.response.fire()):
     assert(head.valid & needs_check, "vector_precheck_has_pending_descriptor")
 
@@ -156,6 +163,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   /* Encodes a transfer in the inclusive occupancy width, including a one-entry queue. */
   fun count_event(event :: Bool):
     if count_width == 1 | event.as_bits() | event.as_bits().zext(count_width)
+
   queued_loads <== queued_loads + count_event(descriptor_enqueued & incoming.memory & !incoming.store) - count_event(descriptor_dequeued & outgoing.memory & !outgoing.store)
   queued_stores <== queued_stores + count_event(descriptor_enqueued & incoming.memory & incoming.store) - count_event(descriptor_dequeued & outgoing.memory & outgoing.store)
   queued_fp <== queued_fp + count_event(descriptor_enqueued & incoming.floating_point) - count_event(descriptor_dequeued & outgoing.floating_point)

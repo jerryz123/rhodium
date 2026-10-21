@@ -9,10 +9,12 @@ hardware_enum CosimRegisterBank:
   Integer = 0
   FloatingPoint = 1
   Vector = 2
+
 hardware_enum CosimCsrOperation:
   AssignMasked = 0
   SetBits = 1
   ClearBits = 2
+
 hardware_enum CosimAccessKind:
   Load = 0
   Store = 1
@@ -20,6 +22,7 @@ hardware_enum CosimAccessKind:
   Lr = 3
   Sc = 4
   CacheOperation = 5
+
 hardware_enum CosimAccessResult:
   Success = 0
   Fault = 1
@@ -28,11 +31,13 @@ hardware_enum CosimAccessResult:
 bundle CosimInstructionId():
   epoch: Bits(64)
   order: Bits(64)
+
 bundle CosimEnvironment():
   interrupts: Bits(64)
   time: Bits(64)
   cycle: Bits(64)
   interrupt_boundary: Bool
+
 bundle CosimEffectId():
   producer: Bits(6)
   index: Bits(64)

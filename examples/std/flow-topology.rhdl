@@ -85,6 +85,7 @@ sync_circuit FanInProjectTopology():
            (TaggedByte() |> map_flow(tagged => tagged.from_second))
              |> origin_egress
          )
+
   ingress |> path
 
 /* Array-shaped inputs can also rendezvous through a heterogeneous zip. The
@@ -109,6 +110,7 @@ sync_circuit ZipRouteTopology():
            (Irrevocable(RoutedByte()) |> map_flow(~stable: #true, routed => routed.data))
              |> egress[1]
          )
+
   Array(data_ingress, destination_ingress) |> path
 
 def rr_arbiter_program = elaborate(RRArbiter(Bits(8), 3))

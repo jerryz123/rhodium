@@ -44,6 +44,7 @@ block:
                             [result],
                             [],
                             {"name": "result"})
+
   module_def.add_value(result)
   module_def.add_operation(operation)
   builder.finish(module_def)

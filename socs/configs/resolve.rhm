@@ -32,6 +32,7 @@ class ResolvedSoCConfig(selection :: SoCSelection, hart :: RiscvHartImplementati
     | CoreKind.RV5Stage: rv5stage_hart(rv5stage_soc_profile(selection.shape, selection.isa))
     | CoreKind.Spike: spike_hart(spike_soc_profile(selection.isa))
     | CoreKind.RV2Wide: rv2wide_hart(rv2wide_soc_profile(selection.shape, selection.isa))
+
     super(selection, hart)
 
   property key :: String: selection.key

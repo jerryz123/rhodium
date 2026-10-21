@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_scalar make_swap make_arithmetic
 
 class Signed(width :: PosInt):
@@ -47,6 +48,7 @@ fun make_arithmetic(width :: PosInt):
      ["widened_shift", b.zext(top, b.shl(top, base_a, amount), extended_width)],
      ["constant_left", b.shl(top, a, huge)], ["constant_right", b.shru(top, a, huge)],
      ["constant_signed", b.shrs(top, signed_a, huge)]]
+
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   b.finish(top)
   DesignElaboration(design, top)
@@ -74,6 +76,7 @@ fun make_scalar(width :: PosInt, consumed_ids :: Nat = 0):
   for (instance in [first, second]):
     b.drive(instance.input("left"), a)
     b.drive(instance.input("right"), z)
+
   def sum = first.output("sum")
   b.drive(forward, sum)
   def outputs = [["sum", sum], ["inverted", inverted], ["difference", b.sub(top, a, z)],
@@ -119,8 +122,10 @@ fun make_swap(width :: PosInt):
     for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],
                   ["a", if name == "first" | ta | tb], ["b", if name == "first" | tb | ta]]):
       b.drive(child.input(pair[0]), pair[1])
+
     for (output in ["left", "right"]):
       b.drive(b.output(top, name ++ "_" ++ output, Bits(width)), child.output(output))
+
   def count = b.register(top, "qcount", Bits(width), tc, tr, b.constant(top, Bits(width), 0))
   b.drive(count.next, b.add(top, count.current, b.constant(top, Bits(width), 1)))
   b.drive(b.output(top, "count", Bits(width)), count.current)

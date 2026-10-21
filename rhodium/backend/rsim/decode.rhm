@@ -17,6 +17,7 @@ fun field_offset(type :: HardwareType, name :: String) :: Nat:
   for (field in type.fields):
     offset := offset - field.type.packed_width()
     when field.name == name | found := offset
+
   found
 
 /* Describe constructor pieces in high-to-low order as operand, low bit, width. */
@@ -42,6 +43,7 @@ fun known_bits(step :: RsimStep, steps :: MutableList, known :: MutableList) :: 
       for (part in pieces(step, steps)):
         care := care bits.or (known[part[0]][0] bits.(<<) part[1])
         value := value bits.or (known[part[0]][1] bits.(<<) part[1])
+
       [care, value]
   | "rtl.cast" || "rtl.trunc" || "rtl.extract" || "rtl.record_get" || "rtl.vector_get":
       def offset = match step.opcode
@@ -49,6 +51,7 @@ fun known_bits(step :: RsimStep, steps :: MutableList, known :: MutableList) :: 
       | "rtl.record_get": field_offset(steps[step.operands[0]].type, step.attributes["field"])
       | "rtl.vector_get": width * step.attributes["index"]
       | ~else: 0
+
       [(args[0][0] bits.(>>) offset) bits.and full, (args[0][1] bits.(>>) offset) bits.and full]
   | "rtl.zext" || "rtl.sext":
       def old_width = steps[step.operands[0]].type.packed_width()
@@ -79,6 +82,7 @@ fun compress_bits(value :: Nat, positions :: List) :: Nat:
   def mutable result = 0
   for (position in positions, index in 0..positions.length()):
     when (value bits.and (2 ** position)) != 0 | result := result bits.or (2 ** index)
+
   result
 
 /* Rewrite each decode after its producers, then remap every state/effect sink.
@@ -96,6 +100,7 @@ fun specialize_decodes(schedule :: RsimSchedule) :: RsimSchedule:
     steps.add(step)
     known.add(fact)
     index
+
   /* Resolve old indices only after their producer has been rewritten. */
   fun remap(index :: Nat) :: Nat: refs[index]
   /* Extract a packed slice without keeping unrelated constructor fields live.
@@ -109,6 +114,7 @@ fun specialize_decodes(schedule :: RsimSchedule) :: RsimSchedule:
           def begin = if low > part[1] | low | part[1]
           def end = if low + width < part[1] + part[2] | low + width | part[1] + part[2]
           when begin < end | parts.add(slice(part[0], begin - part[1], end - begin, occurrence))
+
         if parts.length() == 1 | parts[0] | add(RsimStep("rtl.concat", Bits(width), parts.snapshot(), {}, occurrence))
     | step.opcode in ["rtl.cast", "rtl.trunc", "rtl.extract", "rtl.record_get", "rtl.vector_get"]:
         def offset = match step.opcode
@@ -116,12 +122,14 @@ fun specialize_decodes(schedule :: RsimSchedule) :: RsimSchedule:
         | "rtl.record_get": field_offset(steps[step.operands[0]].type, step.attributes["field"])
         | "rtl.vector_get": step.type.packed_width() * step.attributes["index"]
         | ~else: 0
+
         slice(step.operands[0], low + offset, width, occurrence)
     | ~else:
         def scalar = if scalar_width(step.type) != #false | index | add(RsimStep("rtl.cast", Bits(step.type.packed_width()), [index], {}, occurrence))
         if low == 0 && width == steps[scalar].type.packed_width()
         | scalar
         | add(RsimStep("rtl.extract", Bits(width), [scalar], {"low": low}, occurrence))
+
   for (original in schedule.steps, index in 0..schedule.steps.length()):
     def step = RsimStep(original.opcode, original.type, original.operands.map(remap), original.attributes, original.occurrence)
     if step.opcode != "rtl.decode"
@@ -139,6 +147,7 @@ fun specialize_decodes(schedule :: RsimSchedule) :: RsimSchedule:
         | relevant == 0: rows[0][2] bits.and rows[0][3]
         | (for all (row in rows): (row[2] bits.and row[3]) == default): default
         | ~else: #false
+
         if constant != #false
         | refs[index] := add(RsimStep("rtl.constant", step.type, [], {"value": constant}, step.occurrence))
           changed := #true
@@ -153,11 +162,14 @@ fun specialize_decodes(schedule :: RsimSchedule) :: RsimSchedule:
                 cursor := cursor + 1
                 while cursor < positions.length() && positions[cursor] == positions[cursor - 1] + 1:
                   cursor := cursor + 1
+
                 chunks.add(slice(selector, positions[start], cursor - start, step.occurrence))
+
               def selected = if chunks.length() == 1 | chunks[0] | add(RsimStep("rtl.concat", Bits(positions.length()), chunks.snapshot().reverse(), {}, step.occurrence))
               def attrs = step.attributes ++ {"cases": rows.map(fun (row): [compress_bits(row[0], positions), compress_bits(row[1], positions), row[2], row[3]])}
               refs[index] := add(RsimStep("rtl.decode", step.type, [selected], attrs, step.occurrence))
               changed := #true
+
   if changed | remap_schedule(schedule, steps.snapshot(), remap) | schedule
 
 /* Select tables only for small scalar residual domains. Bound enumeration work,
@@ -183,14 +195,17 @@ fun plan_decode_tables(schedule :: RsimSchedule) :: RsimSchedule:
                 def entries = for List (input in 0..(2 ** width)):
                   def found = rows.find(fun (row): (input bits.and row[1]) == (row[0] bits.and row[1]))
                   if found == #false | default | found[2] bits.and found[3]
+
                 def unique = (for Set (value in entries): value).length()
                 def bytes = entries.length() * (if unique <= 256 | 1 | 2) + unique * 8
                 if bytes <= 65536 && bytes <= remaining_bytes
                 | tables[key] := entries
                   remaining_bytes := remaining_bytes - bytes
                 | tables[key] := #false
+
             def table = tables[key]
             if table == #false
             | step
             | RsimStep(step.opcode, step.type, step.operands, step.attributes ++ {"rsim_table": table}, step.occurrence)
+
   remap_schedule(schedule, steps, fun (value): value)

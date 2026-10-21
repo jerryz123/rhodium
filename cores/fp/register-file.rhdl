@@ -30,6 +30,7 @@ sync_circuit FloatingPointRegisterFile(profile :: FloatingPointProfile):
   def Array(first_write, second_write) = writes
   when (first_write.valid):
     registers[first_write.bits.address] <== first_write.bits.data
+
   when (second_write.valid):
     registers[second_write.bits.address] <== second_write.bits.data
 
@@ -45,6 +46,7 @@ sync_circuit FloatingPointRegisterFile(profile :: FloatingPointProfile):
         registers[address]
       )
     )
+
   read_data_1 <== read_value(read_address_1)
   read_data_2 <== read_value(read_address_2)
   read_data_3 <== read_value(read_address_3)

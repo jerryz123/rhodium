@@ -20,8 +20,10 @@ def proved_constant = check_output_property(constant_seven, seven_target)
 def elaboration_proved:
   check_output_property(DesignElaboration(constant_seven.design, constant_seven),
                         seven_target)
+
 def constant_counterexample:
   check_output_property(constant_seven, FormalOutputPattern("result", 8))
+
 def partial_constant:
   check_output_property(constant_module("PropertyPartialConstant", 0b1010),
                         FormalOutputPattern("result", 0b1000, 0b1100))
@@ -42,12 +44,16 @@ def assumed_add:
                         FormalOutputPattern("sum", 5),
                         FormalQuery([FormalInputAssumption("a", 1),
                                      FormalInputAssumption("b", 4)]))
+
 def add_counterexample:
   check_output_property(add, FormalOutputPattern("sum", 0, 0b1000))
+
 def property_a:
   add_counterexample.assignments.find(fun (entry): entry.port == "a")
+
 def property_b:
   add_counterexample.assignments.find(fun (entry): entry.port == "b")
+
 def vacuous_add:
   check_output_property(add,
                         FormalOutputPattern("sum", 5),
@@ -110,10 +116,13 @@ def proved_onehot:
                                      FormalInputAssumption("a", 7),
                                      FormalInputAssumption("b", 7),
                                      FormalInputAssumption("c", 7)]))
+
 def onehot_counterexample:
   check_output_property(onehot, FormalOutputPattern("result", 7), onehot_query)
+
 def property_selector:
   onehot_counterexample.assignments.find(fun (entry): entry.port == "selector")
+
 def unsupported_onehot:
   check_output_property(onehot, FormalOutputPattern("result", 7))
 

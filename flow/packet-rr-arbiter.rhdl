@@ -33,6 +33,7 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   def owner_grant :: MaybeOneHot(n) = if owner_capacity == n
   | one_hot(owner).into(MaybeOneHot(n))
   | trunc(one_hot(owner).into(Bits(owner_capacity)), n).into(MaybeOneHot(n))
+
   def grant :: MaybeOneHot(n) = mux(locked, owner_grant, choice.grant)
   def selected_index = mux(locked, owner, choice.index)
   def selected_valid = grant.mask(requests.into(Mask(n))).valid
@@ -43,11 +44,13 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
 
   for (index in 0..n):
     ingress[index].ready <== egress.ready & grant[index]
+
   egress.valid <== selected_valid
   egress.bits <== grant.mux(
     for List (index in 0..n): ingress[index].bits,
     ~default: ingress[0].bits
   )
+
   chosen <== selected_index
 
   def transfer = egress.fire()

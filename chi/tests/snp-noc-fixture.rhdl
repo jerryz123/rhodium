@@ -13,6 +13,7 @@ import:
 def snp_noc_flit = CHIFlitParams()
 def snp_noc_topology = topology:
   node xbar
+
 def snp_noc_router = snp_noc_topology.node("xbar")
 def snp_noc_home = CHIRNICNSite(NamePath(["home", "requesters"]),
                                 5,

@@ -22,6 +22,7 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   /* Projects an extended cursor onto physical storage, including the depth-one case. */
   fun request_index(cursor :: Bits(bits.length(slots))) :~ Bits(index_width(slots)):
     if slots == 1 | Bits(1)(0) | cursor[0..index_width(slots)]
+
   reg requests(Vec(slots, Token))
   reg head(~init: Bits(Cursor.width)(0))
   reg tail(~init: Bits(Cursor.width)(0))
@@ -43,17 +44,20 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
     describe_interface_retained_storage(entry.valid, release & (request_index(head) === index), present, ~name: name)
     describe_interface_contract(entry, offered, name, ~trace_model: interface_trace_retained(~name: name))
     offered
+
   def bypassed = live |> filter_valid(_token => !pending & !recover & !blocked)
   Array(retained |> valid_arbiter(), bypassed) |> valid_arbiter() |> attempt
   when (capture.valid):
     requests[request_index(tail)] <== capture.bits
     tail <== tail + Bits(Cursor.width)(1)
+
   when (skip & occupied):
     next_request <== head + Bits(Cursor.width)(1)
   elsewhen (retry & occupied):
     next_request <== head
   elsewhen (attempt.valid):
     next_request <== next_request + Bits(Cursor.width)(1)
+
   when release:
     head <== head + Bits(Cursor.width)(1)
 
@@ -73,6 +77,7 @@ sync_circuit VectorStoreAcknowledgements(xlen :: XLen, slots :: Pow2Int):
     def value = VectorCompletion(xlen, slots):
       tag: tag
       data: Bits(xlen.width)(0)
+
     def offered = inject_interface(Decoupled(VectorCompletion(xlen, slots)), ~valid: acknowledgements[slot], ~bits: value, ~ready: ready[slot])
     def name = "ack-" ++ to_string(slot)
     describe_interface_retained_storage(entry.valid, offered.fire(), acknowledgements[slot], ~name: name)
@@ -81,9 +86,12 @@ sync_circuit VectorStoreAcknowledgements(xlen :: XLen, slots :: Pow2Int):
       acknowledgements[slot] <== Bool(#false)
     elsewhen (entry.valid):
       acknowledgements[slot] <== Bool(#true)
+
     when (entry.valid):
       assert(!acknowledgements[slot], "vector_store_ack_has_unique_owner")
+
     offered
+
   entries |> arbiter() |> completion
 
 export:

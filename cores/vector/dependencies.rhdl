@@ -39,7 +39,9 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
     def mutable total :: Bits(6) = group
     for (_ in 0..n):
       total := total + group
+
     total
+
   def extent = mux_lookup(control.memory_nf, ~default: group, for List (n in 1..8): [n, extent_for(n)])
 
 
@@ -55,6 +57,7 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
     control.integer & control.whole_register_move: control.whole_register_count.zext(6)
     singleton: Bits(6)(1)
     memory: extent
+
   def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
   vec(for List (r in 0..32): writes & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < vd.zext(6) + count)).as_bits()

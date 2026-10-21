@@ -61,6 +61,7 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
   constructor (vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
     unless vector_element_bits(sew) <= 64 * vector_lmul(lmul)
     | error(~who: #'VectorConfig, "unsupported SEW/LMUL combination")
+
     super(vlen, sew, lmul)
 
   property element_bits :: PosInt: vector_element_bits(sew)
@@ -80,12 +81,14 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
   method bit_offset(base :: Nat, element :: Nat) :: Nat:
     unless legal_group(base) && element < vlmax
     | error(~who: #'VectorConfig.bit_offset, "element or register group out of range")
+
     base * vlen + element * element_bits
 
   /* Tests mask enable and the vstart-to-vl active interval, rejecting vl beyond VLMAX. */
   method active(element :: Nat, vl :: Nat, vstart :: Nat, enabled :: Boolean) :: Boolean:
     unless vl <= vlmax
     | error(~who: #'VectorConfig.active, "vl exceeds VLMAX")
+
     enabled && vstart <= element && element < vl
 
   /* EEW changes EMUL while preserving the number of elements in the group. */
@@ -94,6 +97,7 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
     def matches = VectorRegisterGroups.filter(~keep: fun (group): vector_lmul(group) == ratio)
     unless matches.length() == 1
     | error(~who: #'VectorConfig.with_eew, "effective register group is not representable")
+
     VectorConfig(vlen, eew, matches[0])
 
 /* Returns the architectural vsew field encoding for the selected element width. */
@@ -132,6 +136,7 @@ fun vector_data_overlap_legal(source :: VectorConfig, source_base :: Nat,
                               destination :: VectorConfig, destination_base :: Nat) :: Boolean:
   unless source.vlen == destination.vlen && source.legal_group(source_base) && destination.legal_group(destination_base)
   | error(~who: #'vector_data_overlap_legal, "invalid register groups")
+
   def source_start = source_base * source.vlen
   def destination_start = destination_base * destination.vlen
   def source_end = source_start + source.group_bits

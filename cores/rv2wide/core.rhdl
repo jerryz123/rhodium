@@ -77,6 +77,7 @@ fun forwarded_operand(xlen :: XLen, address :: Bits(5), stored :: Bits(xlen.widt
     def matched = producer.valid & token.write & (token.rd === address)
     value := mux(matched, token.data, value)
     blocked := mux(matched, (token.resolution.disposition =/= RV2WideDisposition.Continue) ||| !token.result_ready, blocked)
+
   RV2WideOperand(xlen):
     data: mux(address.or_reduce(), value, Bits(xlen.width)(0))
     blocked: address.or_reduce() & blocked
@@ -86,6 +87,7 @@ fun pending_destination(xlen :: XLen, address :: Bits(5), producers :: List.of(E
   def matches = for List (producer in producers):
     def token :: RV2WideResult(xlen) = producer.bits
     producer.valid & token.write & !token.result_ready & (token.rd === address)
+
   address.or_reduce() & or_reduce(matches)
 
 
@@ -189,7 +191,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def observed = ex_pipe[lane].egress |> filter_valid(_token => !rr_squash) |> trace_valid_event("core/s2.ex.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
+
     observed |> fork_valid(4)
+
   def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(2)
   def ex_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(RV2WideResult(xlen)))
   def mem_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(RV2WideResult(xlen)))
@@ -214,6 +218,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     mstatus: wb_csrs.mstatus
     satp: wb_csrs.satp
     pbmte: wb_csrs.pbmte
+
   translation_flush <== wb_csrs.translation_flush
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id[0..xlen.width]
@@ -235,6 +240,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       fp.vector_result.ready <== Bool(#true)
       fp.vector_write.valid <== Bool(#false)
       fp.vector_write.bits <== dont_care(fp.vector_write.bits.type)
+
   // Fixed FP and multiply share the younger RF port, booked at RR before EX launch.
   inst wb_gpr_calendar(WritebackCalendar(4, gpr_span))
   wire wb_completion_priority: Bool
@@ -287,12 +293,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   for (source in [wb_load_response.completed, wb_divide.completed], index in 0..2):
     source |> rr_completions.ingress[index]
+
   def rr_completion = rr_completions.egress |> gate_flow(!wb_gpr_calendar.occupied[3].into(Bool) & (!rr_vector_writeback_waiting ||| wb_completion_priority)) |> to_valid()
   reg rr_completion_age(~init: Bits(3)(0))
   when (!rr_completions.egress.valid ||| rr_completions.egress.fire()):
     rr_completion_age <== Bits(3)(0)
   elsewhen (!rr_completion_age.and_reduce()):
     rr_completion_age <== rr_completion_age + Bits(3)(1)
+
   wb_completion_priority <== rr_completion_age.and_reduce()
   wb_gpr_calendar.pause <== Bool(#false)
   inst ex_completion_pipe(ValidPipe(RV2WideRetirement(xlen), 1))
@@ -309,21 +317,25 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     write: result.address.or_reduce()
     data: result.data
     deferred: Bool(#false)
+
   def rr_returns :: List.of(Endpoint) = [wb_gpr_return, mem_completion_pipe.egress, ex_completion_pipe.egress, rr_completion]
   reg wb_completion_count(~init: Bits(2)(0))
   when (rr_completion.valid ^ wb_completion.valid):
     wb_completion_count <== mux(rr_completion.valid, wb_completion_count + Bits(2)(1), wb_completion_count - Bits(2)(1))
+
   def wb_fp_return = wb_fp_late_gpr |> map_valid(result => RV2WideRetirement(xlen)):
     fetched: result.tag.fetched
     rd: result.tag.rd
     write: Bool(#true)
     data: result.integer_value
     deferred: Bool(#false)
+
   (Array(wb_gpr_return, wb_fp_return, wb_vector_return) |> valid_arbiter() |> trace_valid_event("core/s4.wb.deferred", ~fields: result):
     pc: result.fetched.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
     rd: result.rd
   ) |> completed
+
   wb_scoreboard.clear.valid <== wb_gpr_return.valid & wb_gpr_return.bits.write
   wb_scoreboard.clear.bits <== wb_gpr_return.bits.rd
   reg rr_registers(~init: vec(for List (_ in 0..32): Bits(xlen.width)(0)))
@@ -343,6 +355,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_vector = for List (lane in 0..2):
     def control = rr_controls[lane].vector
     control.integer ||| control.memory ||| control.floating_point ||| control.multiply_divide
+
   def rr_vector_illegal = for List (lane in 0..2):
     inst legality(VectorOperationLegality(xlen, profile.vector_length, if vector_enabled | profile.vector | VectorProfile.Zve32x, profile.vector_extensions))
     legality.instruction <== rr_head.entries[lane].instruction
@@ -354,6 +367,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def rounding_illegal = control.fp_service & control.fp_execution.uses_rounding_mode & (wb_csrs.frm > Bits(3)(4))
     def floating_point_illegal = control.floating_point & (!wb_csrs.fp_enabled ||| rounding_illegal)
     vector_state_disabled ||| (rr_vector[lane] & (!legality.legal ||| floating_point_illegal))
+
   // At most one memory instruction issues per group; the older CMO owns the
   // shared permission probe. A retained younger candidate is probed again.
   def rr_cbo_older_access :: CacheOperation = rr_controls[0].memory.access
@@ -361,16 +375,19 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_csrs.cbo_operation <== mux_lookup(rr_controls[rr_cbo_lane].memory.access, ~default: CboManagementOperation.Clean):
     CacheOperation.CacheBlockInvalidate: CboManagementOperation.Invalidate
     CacheOperation.CacheBlockFlush: CboManagementOperation.Flush
+
   def rr_rounding :: Vec(2, RiscvRoundingMode()) = vec(for List (lane in 0..2): riscv_rounding_mode(rr_head.entries[lane].instruction[12..15], wb_csrs.frm))
   def rr_fp_illegal = for List (lane in 0..2): rr_controls[lane].fp.valid & (!wb_csrs.fp_enabled ||| (rr_controls[lane].fp.bits.execution.uses_rounding_mode & !rr_rounding[lane].valid))
   def rr_cbo_illegal = for List (lane in 0..2):
     def access :: CacheOperation = rr_controls[lane].memory.access
     rr_controls[lane].memory.enable & ((access.is_cache_block_zero() & (wb_csrs.cbo_zero_access =/= CboAccess.Allowed)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access =/= CboAccess.Allowed)))
+
   def rr_explicit_guest = for List (lane in 0..2): rr_controls[lane].guest_access =/= RiscvGuestMemoryAccess.Normal
   def rr_guest_illegal = for List (lane in 0..2): rr_explicit_guest[lane] & !guest_state.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(guest_state.hstatus, HstatusHU)
   def rr_virtual_instruction = for List (lane in 0..2):
     def access :: CacheOperation = rr_controls[lane].memory.access
     (rr_explicit_guest[lane] & guest_state.virtualized) ||| (rr_controls[lane].memory.enable & ((access.is_cache_block_zero() & (wb_csrs.cbo_zero_access === CboAccess.VirtualInstruction)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access === CboAccess.VirtualInstruction))))
+
   def rr_decodable :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decoded[lane].valid & !rr_head.entries[lane].fault.valid & !rr_head.entries[lane].compressed_illegal & !rr_fp_illegal[lane] & !rr_vector_illegal[lane] & !rr_cbo_illegal[lane] & !rr_guest_illegal[lane] & !rr_virtual_instruction[lane])
   def rr_rs1 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
   def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
@@ -378,6 +395,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_wb_producers = for List (lane in 0..2):
     def returned = wb_fp_gpr.valid & wb_fp_gpr.bits.tag.direct & (wb_fp_gpr.bits.tag.lane === Bits(1)(lane))
     wb_pipe[lane].egress |> map_valid(token => token.updated(~data: mux(returned, wb_fp_gpr.bits.integer_value, token.data), ~result_ready: token.result_ready ||| returned))
+
   def rr_producers :: List.of(Endpoint) = [rr_wb_producers[0], rr_wb_producers[1], mem_results[0], mem_results[1], ex_results[0], ex_results[1]]
 
   /* Floating-point reads and destination interlocks.
@@ -401,9 +419,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def producer_matches = for List (producer in rr_producers):
       def token :: RV2WideResult(xlen) = producer.bits
       producer.valid & ((token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (token.vector.control.floating_point & token.vector.control.floating_scalar_destination)) & (token.rd === address)
+
     def pending = registered_pending ||| or_reduce(producer_matches)
     def returned = (fp.completion.valid & (fp.completion.bits.tag.destination === FloatDestination.FloatingPoint) & (fp.completion.bits.tag.rd === address)) ||| (fp.load_write.valid & (fp.load_write.bits.owner.rd === address))
     pending & !returned
+
   def rr_fp_fixed :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_controls[lane].fp.valid & !rr_controls[lane].fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot))
   def rr_fp_late_gpr :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_fp_fixed[lane] & (rr_controls[lane].fp.bits.registers.destination === FloatDestination.Integer) & rr_rd[lane].or_reduce() & (fp_timing.latency(rr_controls[lane].fp.bits.execution) > Bits(fp_timing.width)(2)))
   // An older MEM divide owns next cycle's shared request input at WB.
@@ -411,6 +431,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_fp_data_blocked = for List (lane in 0..2):
     def control :: FloatingPointControl() = rr_controls[lane].fp.bits
     rr_controls[lane].fp.valid & ((control.registers.uses_frs1 & rr_fp_busy(rr_rs1[lane])) ||| (control.registers.uses_frs2 & rr_fp_busy(rr_rs2[lane])) ||| (control.registers.uses_frs3 & rr_fp_busy(rr_head.entries[lane].instruction[27..32])) ||| ((control.registers.destination === FloatDestination.FloatingPoint) & rr_fp_busy(rr_rd[lane])))
+
   def rr_fp_structural_blocked = for List (lane in 0..2): rr_decodable[lane] & rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !rr_fp_gpr_available))
 
   /* Deferred returns forward at RR admission and again at the reserved write edge. */
@@ -419,6 +440,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     for (source in rr_returns):
       def returned :: RV2WideRetirement(xlen) = source.bits
       value := mux(source.valid & returned.write & (returned.rd === address), returned.data, value)
+
     value
 
   /* Completion frees the registered reservation for same-cycle reads and younger writes. */
@@ -434,6 +456,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def return_matches = for List (source in rr_returns):
       def owner :: RV2WideRetirement(xlen) = source.bits
       source.valid & owner.write & (owner.rd === address)
+
     def returned = or_reduce(return_matches)
     (rr_busy(address) & !returned) ||| (scoreboard_busy(32, wb_vector_scoreboard.busy, address) & !(vector.scalar_result.valid & (vector.scalar_result.bits.address === address)))
 
@@ -468,9 +491,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     for (lane in 0..2):
       def branch :: Bool = if stage_index == 2 | stage[lane].egress.valid & !stage[lane].egress.bits.illegal & !stage[lane].egress.bits.fetched.fault.valid & stage[lane].egress.bits.control.branch.resolver.enable | stage[lane].egress.valid & stage[lane].egress.bits.branch.update.branch
       arrivals := arrivals + branch.as_bits().zext(4)
+
     def offered :: Bits(4) = rr_training_projected + arrivals
     rr_training_projected := mux(offered.or_reduce(), offered - Bits(4)(1), Bits(4)(0))
     assert(rr_training_projected <= Bits(4)(2), "rv2wide_branch_training_projection")
+
   def rr_branch :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].branch.resolver.enable)
   def rr_training_blocked = [rr_branch[0] & (rr_training_projected >= Bits(4)(3)), rr_branch[1] & (rr_training_projected + rr_branch[0].as_bits().zext(4) >= Bits(4)(3))]
   def rr_pair_memory = rr_controls[0].memory.enable & rr_controls[1].memory.enable
@@ -479,6 +504,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_system = for List (lane in 0..2):
     def system :: RV2WideSystemControl() = rr_controls[lane].system
     rr_decodable[lane] & system.serializing()
+
   def rr_pairing = rv2wide_pairing(rr_controls, rr_decodable, rr_rd[0], vec(rr_rs1[1], rr_rs2[1]), vec(rr_head.entries[0].instruction, rr_head.entries[1].instruction), rr_older_deferred, ~xlen: xlen)
   def rr_replaced = rr_pairing.replaced()
   def rr_pair_raw = rr_pairing.unresolved.or_reduce()
@@ -487,6 +513,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def rs2_blocked = rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & rr_replaced[1]) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))
     def destination_blocked = rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(xlen, rr_rd[lane], rr_producers))
     rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| rs1_blocked ||| rs2_blocked ||| destination_blocked)
+
   // Fold both immediates before EX so the paired ALUs remain independent.
   def rr_pair_offset = instruction_immediate(fields.UImmediate, rr_head.entries[0].instruction, xlen.width) + instruction_immediate(fields.IImmediate, rr_head.entries[1].instruction, xlen.width)
   def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
@@ -499,6 +526,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def floating_result_pending = wb_vector_fpr_pending & control.fp.valid
     def memory_order_blocked = control.memory.enable & (vector.stores_pending ||| (control.memory.access.store_fault_class() & vector.loads_pending))
     vector.certification_pending ||| vector_execution_blocked ||| integer_destination_pending ||| floating_result_pending ||| memory_order_blocked
+
   def rr_capacity_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| rr_training_blocked[lane]
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_capacity_blocked[lane] ||| rr_vector_blocked[lane]
   def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
@@ -515,6 +543,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   reg rr_pause_cycles(~init: Bits(5)(0))
   def rr_pause_lanes = for List (lane in 0..2):
     (ex_pipe[lane].egress.valid & ex_pipe[lane].egress.bits.control.pause) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.pause) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.pause)
+
   def rr_pause_blocked = vec(rr_pause_lanes).or_reduce() ||| rr_pause_cycles.or_reduce()
   def rr_serialization_ready = rr_pipeline_empty & wb_drained
   def rr_serialization_clear = for List (lane in 0..2): !rr_system[lane] ||| rr_serialization_ready
@@ -540,6 +569,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_gpr_calendar.reserve[0].bits <== wb_gpr_calendar.probe_delay
   when (wb_gpr_calendar.reserve[0].valid):
     assert(wb_gpr_calendar.reserve[0].ready, "rv2wide_fp_booked_gpr_writeback")
+
   wb_gpr_calendar.reserve[1].valid <== (rr_first & rr_multiply[0]) ||| (rr_second & rr_multiply[1])
   wb_gpr_calendar.reserve[1].bits <== Bits(gpr_delay_width)(PipelinedMultiplierStages + 1)
   ex_multiply.book.valid <== wb_gpr_calendar.reserve[1].valid
@@ -547,19 +577,23 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     rr_vector_multiply_turn <== Bool(#false)
   elsewhen (wb_gpr_calendar.reserve[1].fire()):
     rr_vector_multiply_turn <== Bool(#true)
+
   // Ordinary younger writes and deferred ingress also occupy this same physical port.
   wb_gpr_calendar.reserve[3].valid <== rr_second ||| rr_completion.valid
   wb_gpr_calendar.reserve[3].bits <== Bits(gpr_delay_width)(3)
   when (wb_gpr_calendar.reserve[3].valid):
     assert(wb_gpr_calendar.reserve[3].ready, "rv2wide_younger_write_port_reserved")
+
   when (wb_gpr_calendar.reserve[1].valid):
     assert(wb_gpr_calendar.reserve[1].ready, "rv2wide_multiply_booked_writeback")
+
   def rr_fp_request = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpSchedule()):
     tag:
       RV2WideFpSchedule():
         lane: rr_fp_lane
         speculative: rr_fp_fixed[rr_fp_lane]
         direct: fp_timing.latency(rr_fp_control.execution) === Bits(fp_timing.width)(2)
+
     control: rr_fp_control
     left: fp.read_values[0]
     right: fp.read_values[1]
@@ -587,18 +621,21 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def older_structural_hazard = if lane == 0
     | Bool(#false)
     | rr_structural_blocked[0] ||| rr_younger_prefix_excluded ||| rr_pair_resources_blocked ||| rr_younger_return_reserved
+
     def structural_hazard = rr_structural_blocked[lane] ||| older_structural_hazard
     def rr_observed = rr_window.candidates[lane] |> offer_decoupled() |> trace_event("core/s1.rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
       pc: fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): fetched.raw_instruction
       data_hazard: data_hazard
       structural_hazard: structural_hazard ||| rr_pause_blocked ||| (Bool(lane == 1) & rr_decodable[0] & rr_controls[0].pause)
+
     (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => RV2WideExecute(xlen)):
       fetched: fetched
       control: rr_controls[lane].updated(
         ~operand: rr_controls[lane].operand.updated(~right_immediate: rr_controls[lane].operand.right_immediate & !rr_auipc_addi),
         ~memory: rr_controls[lane].memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
       )
+
       rs1: mux(rr_auipc_addi, rr_head.entries[0].pc, rr_left[lane].data)
       rs2: mux(rr_auipc_addi, rr_pair_offset, rr_right[lane].data)
       pair_routes: if lane == 1 | rr_pairing.routes | vec(RV2WidePairRoute.Register, RV2WidePairRoute.Register)
@@ -642,6 +679,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.rs1):
       RV2WideLeft.Pc: ex.fetched.pc
       RV2WideLeft.Zero: Bits(xlen.width)(0)
+
     ex_alu.right <== mux(ex.control.operand.right_immediate, ex_immediate, ex.rs2)
     ex_alu.control <== ex.control.alu
 
@@ -659,8 +697,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
           def guest_mask = wb_csrs.guest_pointer_masking.updated(
             ~mode: mux(execute_read, PointerMaskMode.Disabled, wb_csrs.guest_pointer_masking.mode)
           )
+
           mux(ex_explicit_guest, guest_mask, wb_csrs.pointer_masking)
       | wb_csrs.pointer_masking
+
     def ex_address = apply_pointer_mask(xlen, ex_raw_address, ex_mask)
     def ex_data_guest:
       if profile.hypervisor
@@ -692,10 +732,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       ex_bad_pc: exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, xlen.width)
       ex_bad_address: ex_address_cause
       ex.virtual_instruction: exception_cause_bits(ExceptionCause.VirtualInstruction, xlen.width)
+
     def ex_fault_value = priority_mux(~default: if xlen == XLen.X32 | ex.fetched.raw_instruction | ex.fetched.raw_instruction.zext(64)):
       ex.fetched.fault.valid: ex.fetched.fault.value
       ex_bad_pc: ex.fetched.pc
       ex_bad_address: ex_address
+
     def ex_store_data = priority_mux(~default: ex.rs2):
       ex.control.fp.valid: ex.fp_request.right[0..xlen.width]
       ex.pair_routes[1] === RV2WidePairRoute.StoreData: ex_alu_older.result
@@ -728,6 +770,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
               ras_action: ex_actual_action
               predicted_ras_action: ex.fetched.speculated_ras_action
               return_address: ex.fetched.sequential_pc
+
       memory: ex.control.memory.updated(~enable: ex_memory)
       guest_access: ex.control.guest_access
       prefetch: ex.control.prefetch
@@ -751,6 +794,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
           cause: ex_fault_cause
           value: ex_fault_value
     ) |> ex_output
+
     ex_results[lane] |> mem_pipe[lane].ingress
     mem_pipe[lane].flush <== rr_squash
 
@@ -773,6 +817,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       def result = ex_results[lane]
       result.bits
   )
+
   def ex_lookup :: RV2WideResult(xlen) = ex_result_tokens[ex_memory_lane]
   def ex_multiply_lane = mux(ex_older.egress.valid & (ex_tokens[0].control.muldiv.service === RV2WideLongOperation.Multiply), Bits(1)(0), Bits(1)(1))
   def ex_multiply_link = interface_link(Valid(RV2WideExecute(xlen)))
@@ -786,12 +831,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
         left: operation.rs1
         right: operation.rs2
         mode: operation.control.muldiv.multiply.mode
+
       def owner = RV2WideRetirement(xlen):
         fetched: operation.fetched
         rd: operation.rd
         write: Bool(#true)
         data: dont_care(Bits(xlen.width))
         deferred: Bool(#false)
+
       RV2WideMultiplyIssue(xlen):
         request: request
         control: operation.control.muldiv.multiply
@@ -817,6 +864,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     mask: ex_store.mask.as_bits()
     locality: RiscvMemoryLocality.Default
     pbmt: PageMemoryType.PMA
+
   describe_interface_selection([ex_memory_lane === Bits(1)(0), ex_memory_lane === Bits(1)(1)], ~name: "lookup")
   describe_interface_contract(Array(ex_paths[0][2], ex_paths[1][2]), scalar_pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
 
@@ -843,23 +891,27 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       right: mux(mem.branch.operands_from_older[1], mem_older.egress.bits.data, mem.right)
       control: mem.branch.control
     ) |> mem_resolver.request
+
     (mem_context |> map_valid(token): token.into(RV2WideResult(xlen)).fetched) |> memory_stage[lane]
     def mem_lookup = mem.memory.enable & (mem.resolution.disposition === RV2WideDisposition.Continue)
     def mem_misaligned = mem.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.memory.width.is_aligned(mem.address)
     def mem_outcome = priority_mux(~default: RV2WideCacheOutcome.Replay):
       mem_misaligned: RV2WideCacheOutcome.Slow
       scalar_pipeline.response.valid: scalar_pipeline.response.bits.outcome
+
     def mem_hit = mem_lookup & (mem.memory.access === CacheOperation.Load) & (mem_outcome === RV2WideCacheOutcome.LoadHit)
     def mem_page_fault = mem_outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.GuestPageFault)
     def mem_fault = mem_outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.GuestPageFault, RV2WideCacheOutcome.AccessFault)
     def mem_disposition = priority_mux(~default: RV2WideDisposition.Continue):
       mem_fault: RV2WideDisposition.Fault
       mem_outcome === RV2WideCacheOutcome.Replay: RV2WideDisposition.Replay
+
     def mem_lookup_resolution = RV2WideResolution(xlen):
       guest: scalar_pipeline.response.bits.guest
       disposition: mem_disposition
       cause: memory_fault_cause(mem.memory.access, mem_outcome === RV2WideCacheOutcome.GuestPageFault, mem_page_fault)
       value: mem.address
+
     def mem_taken = mem.branch.update.branch & mem_resolver.result.bits.taken
     def mem_next_pc = mux(mem_taken, mem.branch.target, mem.fetched.sequential_pc)
     def mem_predicted_pc = mux(mem.fetched.prediction.valid, mem.fetched.prediction.target, mem.fetched.sequential_pc)
@@ -879,6 +931,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       mem_bad_target: mem_target_resolution
       resolution[lane].valid: resolution[lane].bits
       mem_lookup: mem_lookup_resolution
+
     mem_resolved[lane] <== mem.updated(
       ~resolution: mem_final_resolution,
       ~branch: mem.branch.updated(
@@ -890,6 +943,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       ~result_ready: mem.result_ready ||| mem_hit,
       ~cache_outcome: mem_outcome
     )
+
     mem_input |> filter_valid(_operation => !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].branch.mispredicted & mem_older.egress.valid))) |> map_valid(_operation => mem_resolved[lane]) |> mem_output
     (mem_results[lane] |> trace_valid_event("core/s3.mem.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
@@ -901,6 +955,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       predicted_target: token.fetched.prediction.target
       taken: token.branch.taken
     ) |> wb_pipe[lane].ingress
+
     wb_pipe[lane].flush <== wb_squash
 
   /* MEM branch recovery.
@@ -963,15 +1018,18 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     disposition: mux(wb_split_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
     cause: memory_fault_cause(wb_retained_owner.memory.access, scalar_split.response.bits.guest.page_fault, scalar_split.response.bits.page_fault)
     value: scalar_split.response.bits.fault_address[0..xlen.width]
+
   def wb_vector_resolution = RV2WideResolution(xlen):
     guest: vector.outcome_guest
     disposition: mux(vector.outcome.bits.disposition === VectorDisposition.Fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
     cause: vector.outcome.bits.cause
     value: vector.outcome.bits.fault_address
+
   def wb_retained_resolution = priority_mux(~default: wb_split_resolution):
     wb_retained_vector: wb_vector_resolution
     wb_reservation_waiting: wb_wait_resolution
     wb_management: mux(wb_management_fault, scalar_memory.fault.bits, wb_retained_owner.resolution)
+
   def wb_retained_result = wb_retained_owner.updated(
     ~data: scalar_split.response.bits.response.data,
     ~result_ready: Bool(#true),
@@ -1018,6 +1076,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vectors = for List (lane in 0..2):
     def control = wb_live_group[lane].vector.control
     control.integer ||| control.memory ||| control.floating_point ||| control.multiply_divide
+
   def wb_vector_lane = mux(wb_live_valid[0] & wb_vectors[0], Bits(1)(0), Bits(1)(1))
   def wb_vector = wb_live_group[wb_vector_lane]
   def wb_vector_offer = wb_dispatch[wb_vector_lane] & (if vector_enabled | mux(wb_vector_lane === Bits(1)(0), wb_vectors[0], wb_vectors[1]) | Bool(#false))
@@ -1041,10 +1100,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_vector_scalar_owner <== wb_vector.fetched
   elsewhen (vector.scalar_result.valid):
     wb_vector_scalar_pending <== Bool(#false)
+
   when (fp.vector_reserve.valid):
     wb_vector_fpr_pending <== Bool(#true)
   elsewhen (fp.vector_written.valid):
     wb_vector_fpr_pending <== Bool(#false)
+
   wb_csrs.vector_retire.valid <== vector.retire.valid ||| (wb_vector_accepted & !wb_vector.vector.control.memory)
 
   /* Ordinary scalar memory admission selects live WB context independently
@@ -1101,6 +1162,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     byte_mask: dont_care(Bits(xlen.width / 8))
     context: Bool(#false)
     locality: wb_retained_locality
+
   def wb_retained_accepted = scalar_split.request.fire() ||| wb_management_accepted
   def wb_retained_drained = (wb_retained_state === RV2WideRetainedState.Draining) & wb_prior_drained
   when wb_retained_capture:
@@ -1114,10 +1176,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_retained_state <== RV2WideRetainedState.Accepted
   elsewhen wb_retained_drained:
     wb_retained_state <== RV2WideRetainedState.Ready
+
   when wb_wait_capture:
     wb_wait_count <== Bits(12)(0)
   elsewhen (wb_reservation_waiting & !wb_wait_complete & !wb_wait_count.and_reduce()):
     wb_wait_count <== wb_wait_count + Bits(12)(1)
+
   when (scalar_split.response.valid):
     assert(wb_retained_pending & wb_retained_sent, "rv2wide_split_response_has_retirement_owner")
 
@@ -1141,6 +1205,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     mask: wb_store.mask.as_bits()
     locality: mux(wb_request_owner.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store), wb_memory_locality, RiscvMemoryLocality.Default)
     pbmt: PageMemoryType.PMA
+
   scalar_pipeline.commit <== wb_store_hit & !wb_memory_blocked
   // The physical service's drain may depend on today's admission. Sample a
   // quiet boundary before allowing a vector descriptor to begin page proof.
@@ -1156,12 +1221,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_ordered_memory_pending <== Bool(#true)
   elsewhen (wb_load_response.ordered_completed.valid):
     wb_ordered_memory_pending <== Bool(#false)
+
   assert(!(scalar_memory.request.fire() & wb_admission_fault), "rv2wide_fault_prevents_acceptance")
   def wb_memory_resolution = RV2WideResolution(xlen):
     guest: literal(RiscvGuestFault(), 0)
     disposition: RV2WideDisposition.Replay
     cause: dont_care(Bits(xlen.width))
     value: dont_care(Bits(xlen.width))
+
   def wb_fp_lane = mux(wb_valid[0] & wb_group[0].fp.valid, Bits(1)(0), Bits(1)(1))
   def wb_fp_token :: RV2WideResult(xlen) = wb_group[wb_fp_lane]
   def wb_fp_prefix = (wb_fp_lane === Bits(1)(0)) ||| (!wb_older_stop & !(wb_memory_active & (wb_memory_lane === Bits(1)(0)) & (wb_memory_replay ||| wb_admission_fault ||| wb_retained_capture)))
@@ -1190,17 +1257,20 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       dividend: mux(control.word_result, word_left, operation.left)
       divisor: mux(control.word_result, word_right, operation.right)
       signed_mode: control.signed_mode
+
     def owner = RV2WideRetirement(xlen):
       fetched: operation.fetched
       rd: operation.rd
       write: operation.write
       data: dont_care(Bits(xlen.width))
       deferred: Bool(#false)
+
     RV2WideDivideIssue(xlen):
       request: request
       control: control
       owner: owner
   ) |> wb_divide.issue
+
   def wb_divide_accepted = wb_divide_link.right.fire()
   def wb_divide_replay = wb_divide_link.right.valid & !wb_divide_accepted
   def wb_long_accepted = wb_multiply_accepted ||| wb_divide_accepted
@@ -1220,12 +1290,15 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       def resolved = priority_mux(~default: token.resolution):
         selected & wb_admission_fault: scalar_memory.fault.bits
         replay: wb_memory_resolution
+
       token.updated(
         ~resolution: resolved
       )
   )
+
   def wb_stop = for List (lane in 0..2):
     wb_retirement_unblocked & wb_valid[lane] & (wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue) & !(wb_retained_capture & (wb_retained_lane === Bits(1)(0)))
+
   def wb_selected :: RV2WideResult(xlen) = mux(wb_stop[0], wb_tokens[0], wb_tokens[1])
   def wb_stop_valid = wb_stop[0] ||| wb_stop[1]
   wb_drained <== wb_prior_drained & !wb_accepted & !wb_divide_accepted & !wb_retained_pending & !wb_retained_capture & !wb_fp_variable_accepted & !wb_fp_fixed_authorized
@@ -1235,6 +1308,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_fault_retention.update.bits <== mux(wb_interrupt_stop, wb_group[0].updated(~fetched: wb_group[0].fetched.updated(~pc: wb_interrupt_pc)), wb_selected)
   when wb_hold_fault:
     wb_pending_interrupt <== wb_interrupt_stop
+
   wb_fault_retention.egress.ready <== wb_drained
   def wb_fault :: RV2WideResult(xlen) = mux(wb_fault_pending, wb_fault_retention.egress.bits, wb_selected)
   def wb_system_control :: RV2WideSystemControl() = wb_group[0].system
@@ -1254,6 +1328,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     exception_valid: wb_fault_command
     exception_cause: wb_fault.resolution.cause
     exception_value: wb_fault.resolution.value
+
   if profile.hypervisor
   | block:
       wb_csrs.guest_fault.valid <== wb_fault_command
@@ -1277,24 +1352,28 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_redirect_disposition = priority_mux(~default: RV2WideDisposition.System):
     wb_csrs.trap_event.valid & !wb_interrupt_boundary: RV2WideDisposition.Fault
     wb_replay: RV2WideDisposition.Replay
+
   def wb_redirect_bits = RV2WideRedirect(xlen):
     pc:
       priority_mux(~default: wb_command.fetched.pc):
         wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
         wb_replay: wb_selected.fetched.pc
+
     target:
       priority_mux(~default: wb_command.fetched.sequential_pc):
         wb_csrs.redirect.valid: wb_csrs.redirect.bits
         wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
         wb_replay: wb_selected.fetched.pc
+
     resolution:
       RV2WideResolution(xlen):
         guest: literal(RiscvGuestFault(), 0)
         disposition: wb_redirect_disposition
         cause: wb_csrs.trap_event.cause
         value: wb_csrs.trap_event.value
+
   def wb_redirect = inject_interface(Valid(RV2WideRedirect(xlen)), ~valid: wb_redirect_valid, ~bits: wb_redirect_bits)
   wb_squash <== wb_stop_valid ||| wb_fault_pending ||| wb_interrupt_stop ||| wb_system ||| wb_sleeping ||| wb_retained_capture ||| wb_retained_pending
   rr_squash <== wb_squash ||| mem_branch_redirect
@@ -1317,6 +1396,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def token :: RV2WideResult(xlen) = wb_tokens[lane]
     def retained = wb_retained_capture & (if lane == 0 | wb_retained_lane === Bits(1)(0) | Bool(#true))
     !retained & wb_retirement_unblocked & wb_valid[lane] & (token.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | !wb_system ||| wb_csrs.command_success | !wb_stop[0] & !wb_system)
+
   def wb_retirement_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2):
     def wb :: RV2WideResult(xlen) = wb_tokens[lane]
     def next_pc = mux(wb.branch.taken, wb.branch.target, wb.fetched.sequential_pc)
@@ -1332,7 +1412,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       bimodal_taken: result.fetched.direction.base_taken
       gshare_taken: result.fetched.direction.gshare_taken
       direction_taken: result.fetched.direction.taken
+
     observed |> fork_valid(4)
+
   for (lane in 0..2):
     def wb :: RV2WideResult(xlen) = wb_tokens[lane]
     def wb_eligible = wb_retire[lane]
@@ -1342,6 +1424,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def wb_data = priority_mux(~default: wb.data):
       wb_system: wb_csrs.writeback_value
       wb_fp_direct & wb.write: fp.completion.bits.integer_value
+
     def retirement = wb_retirement_links[lane].left
     retirement.valid <== wb_eligible
     retirement.bits <== RV2WideRetirement(xlen):
@@ -1350,6 +1433,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       write: wb.write
       data: wb_data
       deferred: wb_deferred
+
     describe_interface_contract(if lane == 0 | wb_owners.right | wb_paths[1][0], retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     wb_retirement_paths[lane][0] |> retired[lane]
     wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_system ||| wb_csrs.writeback_valid)
@@ -1365,6 +1449,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_retirement_paths[lane][2] |> filter_valid(_retired => token.prefetch.is_prefetch()) |> map_valid(_retired => CachePrefetchReq(64)):
       address: if xlen == XLen.X64 | token.address | token.address.zext(64)
       operation: token.prefetch
+
   Array(wb_prefetch_paths[0], wb_prefetch_paths[1]) |> valid_arbiter() |> prefetch
   def wb_training :: Vec(2, RV2WideBranchTraining(xlen)) = vec(
     for List (lane in 0..2):
@@ -1379,8 +1464,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
             gshare_taken: wb_tokens[lane].fetched.direction.gshare_taken
             taken: wb_tokens[lane].branch.update.taken
   )
+
   for (lane in 0..2):
     wb_retirement_paths[lane][3] |> filter_valid(_retired => wb_tokens[lane].branch.update.branch) |> map_valid(_retired => wb_training[lane]) |> branch_training.incoming[lane]
+
   branch_training.clear.valid <== predictor_clear.valid
   def wb_training_head :: RV2WideBranchTraining(xlen) = branch_training.training.bits
   branch_update.valid <== branch_training.training.valid
@@ -1396,11 +1483,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       RasUpdate(xlen):
         action: wb_ras_branch.ras_action
         return_address: wb_ras_branch.return_address
+
     predicted_action: wb_ras_branch.predicted_ras_action
+
   history_commit.valid <== wb_train.or_reduce()
   history_commit.bits <== RV2WideHistoryCommit():
     enable: vec(for List (lane in 0..2): wb_train[lane] & wb_training[lane].direction_valid)
     taken: vec(for List (lane in 0..2): wb_tokens[lane].branch.update.taken)
+
   // A MEM correction keeps its branch. WB rejection is older and instead
   // restores the checkpoint before the oldest instruction being discarded.
   history_restore.valid <== mem_branch_redirect ||| wb_stop_valid ||| wb_retained_capture ||| wb_system
@@ -1408,6 +1498,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_stop_valid: wb_selected.fetched.direction.history
     wb_retained_capture: wb_memory.fetched.direction.history
     wb_system: wb_group[0].fetched.direction.history
+
   predictor_restore.valid <== wb_squash ||| wb_recover_ras.or_reduce()
   assert(!(wb_ras[0] & wb_ras[1]), "rv2wide_one_ras_resolution_per_group")
 
@@ -1432,6 +1523,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     owner: rv2wide_fp_owner(xlen, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
     precision: wb_fp_token.fp.bits.execution.destination_precision
     data: if xlen == XLen.X64 | wb_fp_token.data | wb_fp_token.data.zext(64)
+
   // Accepted services inherit successful WB, never a live lane's later payload.
   def wb_service = interface_link(Valid(RV2WideRetirement(xlen)))
   def wb_service_lane = mux(wb_accepted, wb_memory_lane, wb_long_lane)
@@ -1451,16 +1543,19 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     vector.scalar_result.valid: vector.scalar_result.bits.address
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.tag.rd
     wb_completion_write: wb_gpr_return.bits.rd
+
   def wb_second_data = priority_mux(~default: retired[1].bits.data):
     vector.scalar_result.valid: vector.scalar_result.bits.data
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.integer_value
     wb_completion_write: wb_gpr_return.bits.data
+
   def wb_second_write = wb_completion_write ||| wb_writes[1] ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.or_reduce())
   assert(!(vector.scalar_result.valid & (wb_completion_write ||| wb_younger.egress.valid ||| wb_fp_late_gpr.valid)), "rv2wide_vector_reserved_younger_slot")
   assert(!(wb_fp_late_gpr.valid & (wb_completion_write ||| wb_younger.egress.valid)), "rv2wide_fixed_fp_reserved_younger_slot")
   assert(!(ex_multiply.completed.valid & (wb_completion.valid ||| wb_younger.egress.valid)), "rv2wide_multiply_reserved_younger_slot")
   when (ex_multiply.completed.valid):
     assert(wb_gpr_calendar.occupied[0].into(Bool), "rv2wide_multiply_booked_return")
+
   // Coalesce successful same-group writes, not retirement. A fault/replay/deferred
   // younger instruction must leave the older write intact; completion is not younger.
   def wb_first_write = wb_writes[0] & !(wb_writes[1] & (wb_tokens[0].rd === wb_tokens[1].rd))
@@ -1468,8 +1563,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   assert(!(wb_first_write & wb_second_write & (wb_tokens[0].rd === wb_second_address)), "rv2wide_two_write_ports_distinct")
   when (wb_first_write):
     rr_registers[wb_tokens[0].rd] <== retired[0].bits.data
+
   when wb_second_write:
     rr_registers[wb_second_address] <== wb_second_data
+
   retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
   wb_csrs.retire_count <== retired_count
 
@@ -1481,6 +1578,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_pending_locality <== RiscvMemoryLocality.Default
   elsewhen (retired[0].valid):
     wb_pending_locality <== mux(retired[1].valid, wb_tokens[1].locality_hint, wb_tokens[0].locality_hint)
+
   def wb_pause_commit = (retired[0].valid & wb_tokens[0].pause) ||| (retired[1].valid & wb_tokens[1].pause)
   when (rr_squash ||| wb_csrs.interrupt_request):
     rr_pause_cycles <== Bits(5)(0)
@@ -1488,6 +1586,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     rr_pause_cycles <== Bits(5)(16)
   elsewhen (rr_pause_cycles.or_reduce()):
     rr_pause_cycles <== rr_pause_cycles - Bits(5)(1)
+
   when (wb_redirect.valid):
     wb_resume_pc <== wb_redirect.bits.target
     wb_pc_known <== Bool(#true)

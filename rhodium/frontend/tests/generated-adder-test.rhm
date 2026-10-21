@@ -17,12 +17,15 @@ def child = design.modules.find(fun (module_def): module_def.name == "FullAdder"
 def instances = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.instance"
 )
+
 def wires = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.wire"
 )
+
 def vector_creates = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.vector_create"
 )
+
 def carry_wire = wires[0]
 def carry_assembly = top.find_operation(
   carry_wire.places[0].driver.defining_op_id

@@ -39,6 +39,7 @@ class SyncCircuitMetadata(clock_port :: AsciiIdentifier,
   /* Recheck the destination body against its declared clock/reset after graph copying. */
   override method check_materialized(module_def :: Module):
     verify_single_clock(module_def, module_def.find_input(clock_port).value, module_def.find_input(reset_port).value)
+
   /* Copy the detached port-name contract; it contains no live IR to rebind. */
   override method remap_ir(remap :: Function.of_arity(1)):
     SyncCircuitMetadata(clock_port, reset_port)
@@ -67,6 +68,7 @@ class SyncCircuitDefinition(module_def :: Module,
     clock_port,
     reset_port
   )
+
   /* Returns the stable signature-bearing reference for this synchronous wrapper. */
   override method definition_reference(): reference
 
@@ -88,6 +90,7 @@ fun require_sync_domain(location :: Location = Location()):
   def domain = active_sync_domain(location)
   unless domain
   | sync_fail("implicit clock/reset use requires an active sync_circuit", location)
+
   domain
 
 /* Rejects explicit clock/reset overrides inside an ambient sync_circuit. */
@@ -107,6 +110,7 @@ fun ambient_reset_when(condition :: HardwareEntity,
   unless (data_type(condition_value.type) || reset_type(condition_value.type)) && condition_value.type.packed_width() == 1
   | sync_fail("reset_when condition must be readable one-bit data or Reset",
               location)
+
   def ambient_bits = kernel.cast(domain.reset, Bits(1), #false, location)
   def condition_bits = kernel.cast(condition_value, Bits(1), #false, location)
   def combined_bits = kernel.bit_or(ambient_bits,
@@ -150,6 +154,7 @@ fun build_sync_circuit(identity :: kernel.CircuitIdentity,
         kernel.run_circuit_finalizers(),
     location
   )
+
   verify_single_clock(module_def,
                       module_def.find_input("clock").value,
                       module_def.find_input("reset").value)
@@ -253,6 +258,7 @@ fun instantiate(name :: AsciiIdentifier,
                 location :: Location = Location()):
   when clock || reset
   | reject_explicit_sync_control(location)
+
   def reference = kernel.circuit_reference(child, location)
   if reference.clock_port
   | block:
@@ -262,8 +268,10 @@ fun instantiate(name :: AsciiIdentifier,
             unless clock && reset
             | sync_fail("explicit sync child wiring requires both clock and reset",
                         location)
+
             SyncDomain(clock, reset)
         | require_sync_domain(location)
+
       def instance = kernel.inst(name, reference, location)
       kernel.connect(instance.input(reference.clock_port), domain.clock, location)
       kernel.connect(instance.input(reference.reset_port), domain.reset, location)
@@ -271,6 +279,7 @@ fun instantiate(name :: AsciiIdentifier,
   | block:
       when clock || reset
       | sync_fail("clock/reset overrides require a sync_circuit child", location)
+
       kernel.inst(name, reference, location)
 
 /* Instantiates a declared sync child under a locally strengthened reset, preserving ordinary eager recipe order. */
@@ -281,6 +290,7 @@ fun instantiate_reset_when(name :: AsciiIdentifier,
   def reference = kernel.circuit_reference(child, location)
   unless reference.clock_port
   | sync_fail("~reset_when requires a sync_circuit child", location)
+
   // Realize the recipe outside the local reset scope to preserve declaration order.
   require_sync_domain(location)
   kernel.materialize_circuit(reference, location)

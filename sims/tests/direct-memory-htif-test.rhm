@@ -14,10 +14,12 @@ def fesvr_import = fesvr.design.dpi_imports[0]
 def fesvr_module = fesvr.design.modules.find(
   fun (module_def): module_def.name == "DirectMemoryHTIF"
 )
+
 def fesvr_rv32_compiled = compile_program(elaborate(fesvr.DirectMemoryHTIF(XLen.X32, 0x4000)), rtl_target)
 def fesvr_register = fesvr_module.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register"
 )
+
 def result_names = ["request_valid",
                     "request_write",
                     "request_address",

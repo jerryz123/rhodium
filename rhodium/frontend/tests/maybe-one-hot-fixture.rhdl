@@ -33,6 +33,7 @@ circuit MaybeOneHotFixture():
     for List (lane in 0..3): choices[lane],
     ~default: fallback
   )
+
   exact_result <== exact.mux(for List (lane in 0..3): choices[lane])
 
 circuit ExactSelectorWithDefault():

@@ -14,12 +14,14 @@ sync_circuit EventPipelineChild(~flushable: flushable :: Boolean = #false):
         input flush: Bool
         flush
     | #false
+
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress(Valid(Bits(8)), ~role: producer)
   inst storage(ValidPipeAlwaysCapture(Bits(8), 2, ~flushable: flushable))
   if flushable
   | storage.flush <== clear
   | #void
+
   ingress |> storage.ingress
   storage.egress
     |> trace_valid_event("middle", ~payload: #true)
@@ -34,12 +36,14 @@ sync_circuit EventPipeline(~flushable: flushable :: Boolean = #false):
         input flush: Bool
         flush
     | #false
+
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Valid(Bits(8)), ~role: producer)
   inst child(EventPipelineChild(~flushable: flushable))
   if flushable
   | child.flush <== clear
   | #void
+
   // A presentation wrapper must delegate through, not bypass, the middle site.
   describe_interface_transform(InterfaceHandle(child.ingress, child.egress), "pipeline-wrapper", {}, child)
   source
@@ -47,6 +51,7 @@ sync_circuit EventPipeline(~flushable: flushable :: Boolean = #false):
     |> filter_valid(payload => !(payload === Bits(8)(0)))
     |> valid_pipe(1, ~flush: clear)
     |> child.ingress
+
   child.egress
     |> filter_valid(payload => !(payload === Bits(8)(4)))
     |> trace_valid_event("completed", ~payload: #true)
@@ -88,6 +93,7 @@ interface EventNestedBus():
   requester -> responder:
     request: Decoupled(Bits(8))
     auxiliary: Decoupled(Bits(8))
+
   responder -> requester:
     response: Valid(Bits(8))
 
@@ -191,8 +197,10 @@ sync_circuit EventNamedStorage(intrinsic :: Boolean, invalid :: String = ""):
       occupied[index] <== input_endpoint.field("valid")
       when (input_endpoint.field("valid")):
         payload[index] <== input_endpoint.field("bits")
+
     describe_interface_elastic_stages([advance], [input_endpoint.field("valid")], ~name: name)
     interface_trace_elastic(~name: name)
+
   for (index in 0..2):
     def name = "lane" ++ to_string(index)
     if intrinsic
@@ -207,9 +215,11 @@ sync_circuit EventNamedStorage(intrinsic :: Boolean, invalid :: String = ""):
       if invalid == "duplicate-inline"
       | describe_interface_transform(handle, "duplicate", ~trace_model: model)
       | #void
+
   if invalid == "duplicate-boundary"
   | describe_interface_contract(ingress[0], egress[0], "duplicate", ~trace_model: interface_trace_elastic(~name: "lane0"))
   | #void
+
   if invalid == "missing-name"
   | interface_trace_elastic(~name: "absent")
   | #void
@@ -221,6 +231,7 @@ sync_circuit EventNamedContracts(intrinsic :: Boolean, wrapped :: Boolean):
   if wrapped
   | describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "named-wrapper", {}, storage)
   | #void
+
   for (index in 0..2):
     sources[index] |> trace_event("before" ++ to_string(index)) |> storage.ingress[index]
     storage.egress[index] |> trace_event("after" ++ to_string(index)) |> sinks[index]

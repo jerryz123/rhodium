@@ -11,10 +11,13 @@ class ActPlatform(ram :: SoCAddressRegion, test_base :: Nat, access_fault_addres
     def mutable mapped = description.memory_regions ++ [description.boot.rom, description.aclint.region]
     when description.boot.address_register is_a SoCAddressRegion
     | mapped := mapped ++ [description.boot.address_register]
+
     when description.plic is_a RiscvPlicDescription
     | mapped := mapped ++ [description.plic.region]
+
     when description.uart is_a RiscvUartDescription
     | mapped := mapped ++ [description.uart.region]
+
     // Each overlap advances past at least one region; one page covers ACT's
     // scalar and vector fault probes for the supported SoC presets.
     def size = 4096
@@ -23,8 +26,10 @@ class ActPlatform(ram :: SoCAddressRegion, test_base :: Nat, access_fault_addres
       for (region in mapped):
         when address < region.base + region.size_bytes && region.base < address + size
         | address := math.ceiling((region.base + region.size_bytes) / size) * size
+
     unless address + size <= (1 bits.(<<) description.hart.xlen.width)
     | error(~who: #'ActPlatform, "no addressable page is available for ACT fault tests")
+
     super(ram, description.boot.payload_address, address, size)
 
   method to_json(name :: String) :: String:

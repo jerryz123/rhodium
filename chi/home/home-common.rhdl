@@ -43,13 +43,16 @@ class CHIHNFConfig(flit :: CHIFlitParams,
     unless bits.length(service_mask) <= flit.request_address_width
     | error(~who: #'CHIHNFConfig,
             "service mask must fit the request address width")
+
     for (endpoint in requester_endpoints):
       unless [CHINodeKind.RNI, CHINodeKind.RNF].contains(endpoint.kind)
       | error(~who: #'CHIHNFConfig,
               "requester endpoints must be RN-I or RN-F")
+
       unless bits.length(endpoint.node_id) <= flit.node_id_width
       | error(~who: #'CHIHNFConfig,
               "requester NodeIDs must fit the physical NodeID width")
+
       def allowed_requests:
         if endpoint.kind == CHINodeKind.RNI
         | [CHIReqOpcode.ReadOnce, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp,
@@ -58,43 +61,55 @@ class CHIHNFConfig(flit :: CHIFlitParams,
         | [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
            CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.WriteBackFull, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
+
       unless endpoint.supports.req.length() > 0 && for all (opcode in endpoint.supports.req):
                allowed_requests.contains(opcode)
       | error(~who: #'CHIHNFConfig,
               "requester endpoint advertises an unsupported request opcode")
+
       def maintenance_opcodes = [CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
       def maintenance_requests = endpoint.supports.req.filter(~keep: fun (opcode): maintenance_opcodes.contains(opcode))
       unless maintenance_requests.length() == 0 || (service_mask bits.and 63) == 63
       | error(~who: #'CHIHNFConfig, "maintenance requires complete cache-line service regions")
+
       def packet_writes = service_requests.filter(
         ~keep: fun (support): support.opcode == CHIReqOpcode.WriteNoSnpFull && support.sizes.min_bytes <= flit.data_bytes && support.sizes.max_bytes >= flit.data_bytes
       )
+
       unless maintenance_requests.length() == 0 || packet_writes.length() > 0
       | error(~who: #'CHIHNFConfig, "maintenance requires full snoop-packet backing writes")
+
       def line_writes = service_requests.filter(
         ~keep: fun (support): support.opcode == CHIReqOpcode.WriteNoSnpFull && support.sizes.min_bytes <= 64 && support.sizes.max_bytes >= 64
       )
+
       unless (!endpoint.supports.req.contains(CHIReqOpcode.WriteBackFull)) || line_writes.length() > 0
       | error(~who: #'CHIHNFConfig, "copyback requires full cache-line backing writes")
+
       unless (!endpoint.supports.req.contains(CHIReqOpcode.WriteBackFull)) || (
         endpoint.supports.dat.contains(CHIDatOpcode.CopyBackWriteData) && endpoint.emits.rsp.contains(CHIRspOpcode.CompDBIDResp)
       )
       | error(~who: #'CHIHNFConfig, "copyback requires CompDBIDResp and CopyBackWriteData capabilities")
+
     for (left_index in 0..requester_endpoints.length()):
       for (right_index in (left_index + 1)..requester_endpoints.length()):
         if requester_endpoints[left_index].node_id == requester_endpoints[right_index].node_id
         | error(~who: #'CHIHNFConfig,
                 "requester NodeIDs must be unique")
         | #void
+
     for (endpoint in requester_endpoints):
       unless endpoint.kind != CHINodeKind.RNF || endpoint.emits.contains_all(CHIChannelCapabilities(~snp: chi_rnf_snoop_opcodes))
       | error(~who: #'CHIHNFConfig, "RN-F Home traffic must retain snoop capabilities")
+
     def snoop_endpoints = requester_endpoints.filter(
       ~keep: fun (endpoint): endpoint.kind == CHINodeKind.RNF
     )
+
     unless snoop_endpoints.length() > 0
     | error(~who: #'CHIHNFConfig,
             "the coherent Home requires at least one RN-F requester")
+
     super(flit, requester_endpoints, service_mask, service_requests, transaction_slots)
 
 /*
@@ -120,32 +135,39 @@ class CHIHNFParams(home :: CHIHomeParams,
     def subordinate_endpoint = subordinate_service.endpoint
     unless home.kind == CHINodeKind.HNF
     | error(~who: #'CHIHNFParams, "home kind must be HN-F")
+
     unless home.max_outstanding == config.transaction_slots
     | error(~who: #'CHIHNFParams,
             "the HN-F advertised capacity must match its transaction slots")
+
     unless CHINodeKind.is_subordinate(subordinate_endpoint.kind)
     | error(~who: #'CHIHNFParams,
             "subordinate endpoint must describe an SN-F or SN-I")
+
     unless subordinate_service.address_sets.length() == 1 && (
       subordinate_service.address_sets[0].mask == config.service_mask
     ) && subordinate_service.requests == config.service_requests
     | error(~who: #'CHIHNFParams,
             "subordinate service must match the HN-F structural configuration")
+
     unless chi_initial_subordinate_capabilities(subordinate_endpoint.supports,
                                                 subordinate_endpoint.emits)
     | error(~who: #'CHIHNFParams,
             "subordinate endpoint must use the initial non-coherent capabilities")
+
     unless bits.length(home.node_id) <= config.flit.node_id_width && (
       bits.length(subordinate_endpoint.node_id) <= config.flit.node_id_width
     )
     | error(~who: #'CHIHNFParams,
             "Home and subordinate NodeIDs must fit the physical NodeID width")
+
     for (endpoint in config.requester_endpoints):
       unless endpoint.node_id != home.node_id && (
         endpoint.node_id != subordinate_endpoint.node_id
       )
       | error(~who: #'CHIHNFParams,
               "requester, Home, and subordinate NodeIDs must be distinct")
+
     super(home, config, subordinate_service)
 
 /*
@@ -217,6 +239,7 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
     for List (support in config.service_requests):
       support.matches(opcode, size)
   )
+
   def maintenance_supported = chi_cache_maintenance(request.opcode) & request.address.is_aligned(64) & (
     chi_req_size(p, request) === CHITransferSize.Bytes64
   ) & !request.exp_comp_ack & !request.multi_req
@@ -274,6 +297,7 @@ fun chi_hnf_upstream_read_data(p :: CHIFlitParams,
     state: mux(request.opcode === CHIReqOpcode.ReadUnique,
                CHIResponseState.Unique,
                CHIResponseState.SharedClean)
+
   chi_home_upstream_read_data(p, home_node_id, request, mux(coherent, coherent_response.as_bits(), Bits(3)(0)), data)
 
 

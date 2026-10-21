@@ -31,6 +31,7 @@ for (register in 0..32):
     word ~is (0x0040200f bits.or (register << 15))
     rs1.extract(word) ~is register
     Zicboz.matching(word) === CBO_ZERO ~is #true
+
   for (bit in 0..32):
     unless bit >= 15 && bit < 20
     | check:

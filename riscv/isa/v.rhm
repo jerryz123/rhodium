@@ -59,12 +59,15 @@ def VectorIndexedStoreFormat = InstructionFormat("vector-indexed-store", [Regist
 /* Builds a nonsegmented unit-stride vector load/store descriptor with variable mask control. */
 fun unit_stride(name :: String, store :: Boolean, width :: Nat):
   InstructionSpec(name, if store | VectorStoreFormat | VectorLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew/mop", 31, 26).constrain(0), BitField("lumop/sumop", 24, 20).constrain(0)])
+
 /* Builds a nonsegmented vector load/store descriptor with a scalar stride register. */
 fun strided(name :: String, store :: Boolean, width :: Nat):
   InstructionSpec(name, if store | VectorStridedStoreFormat | VectorStridedLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew", 31, 28).constrain(0), BitField("mop", 27, 26).constrain(2)])
+
 /* Builds a nonsegmented indexed vector load/store descriptor with selected ordering. */
 fun indexed(name :: String, store :: Boolean, width :: Nat, ordered :: Boolean):
   InstructionSpec(name, if store | VectorIndexedStoreFormat | VectorIndexedLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew", 31, 28).constrain(0), BitField("mop", 27, 26).constrain(if ordered | 3 | 1)])
+
 /* Builds a named unit-stride segmented load/store descriptor with fixed field count and element width. */
 fun unit_stride_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_bits :: PosInt):
   InstructionSpec(
@@ -72,6 +75,7 @@ fun unit_stride_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_
     if store | VectorStoreFormat | VectorLoadFormat,
     [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), nf.constrain(fields - 1), BitField("mew/mop", 28, 26).constrain(0), BitField("lumop/sumop", 24, 20).constrain(0)]
   )
+
 /* Builds a named segmented load/store descriptor with a scalar stride register and fixed field count. */
 fun strided_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_bits :: PosInt):
   InstructionSpec(
@@ -79,6 +83,7 @@ fun strided_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_bits
     if store | VectorStridedStoreFormat | VectorStridedLoadFormat,
     [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), nf.constrain(fields - 1), BitField("mew", 28, 28).constrain(0), BitField("mop", 27, 26).constrain(2)]
   )
+
 /* Builds a named ordered or unordered segmented indexed load/store descriptor. */
 fun indexed_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_bits :: PosInt, ordered :: Boolean):
   InstructionSpec(
@@ -86,6 +91,7 @@ fun indexed_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_bits
     if store | VectorIndexedStoreFormat | VectorIndexedLoadFormat,
     [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), nf.constrain(fields - 1), BitField("mew", 28, 28).constrain(0), BitField("mop", 27, 26).constrain(if ordered | 3 | 1)]
   )
+
 /* Builds an ordinary or segmented fault-only-first load descriptor for the selected element width. */
 fun fault_only_first(fields :: PosInt, width :: Nat, width_bits :: PosInt):
   InstructionSpec(
@@ -93,6 +99,7 @@ fun fault_only_first(fields :: PosInt, width :: Nat, width_bits :: PosInt):
     VectorLoadFormat,
     [opcode.constrain(0x07), funct3.constrain(width), nf.constrain(fields - 1), BitField("mew/mop", 28, 26).constrain(0), BitField("lumop", 24, 20).constrain(16)]
   )
+
 /* Builds the unmasked vector-mask load/store descriptor with its fixed memory subopcode. */
 fun mask_memory(name :: String, store :: Boolean):
   InstructionSpec(
@@ -100,6 +107,7 @@ fun mask_memory(name :: String, store :: Boolean):
     if store | VectorMaskStoreFormat | VectorMaskLoadFormat,
     [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(0), nf.constrain(0), BitField("mew/mop", 28, 26).constrain(0), vm.constrain(1), BitField("lumop/sumop", 24, 20).constrain(11)]
   )
+
 /* Builds an unmasked whole-register load descriptor with fixed register count and element-width hint. */
 fun whole_register_load(registers :: PosInt, width :: Nat, width_bits :: PosInt):
   InstructionSpec(
@@ -107,6 +115,7 @@ fun whole_register_load(registers :: PosInt, width :: Nat, width_bits :: PosInt)
     VectorWholeRegisterLoadFormat,
     [opcode.constrain(0x07), funct3.constrain(width), nf.constrain(registers - 1), BitField("mew/mop", 28, 26).constrain(0), vm.constrain(1), BitField("lumop", 24, 20).constrain(8)]
   )
+
 /* Builds an unmasked whole-register store descriptor with fixed register count. */
 fun whole_register_store(registers :: PosInt):
   InstructionSpec(
@@ -114,6 +123,7 @@ fun whole_register_store(registers :: PosInt):
     VectorWholeRegisterStoreFormat,
     [opcode.constrain(0x27), funct3.constrain(0), nf.constrain(registers - 1), BitField("mew/mop", 28, 26).constrain(0), vm.constrain(1), BitField("sumop", 24, 20).constrain(8)]
   )
+
 def VLE8_V = unit_stride("VLE8.V", #false, 0)
 def VLE16_V = unit_stride("VLE16.V", #false, 5)
 def VLE32_V = unit_stride("VLE32.V", #false, 6)
@@ -163,21 +173,27 @@ fun unit_stride_segments(store :: Boolean):
   for (fields in 2..9):
     for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
       instructions := instructions ++ [unit_stride_segment(fields, store, width, width_bits)]
+
   instructions
+
 /* Enumerates strided segment descriptors for two through eight fields and each standard memory element width. */
 fun strided_segments(store :: Boolean):
   def mutable instructions = []
   for (fields in 2..9):
     for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
       instructions := instructions ++ [strided_segment(fields, store, width, width_bits)]
+
   instructions
+
 /* Enumerates indexed segment descriptors across field counts, index widths, and the selected ordering contract. */
 fun indexed_segments(store :: Boolean, ordered :: Boolean):
   def mutable instructions = []
   for (fields in 2..9):
     for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
       instructions := instructions ++ [indexed_segment(fields, store, width, width_bits, ordered)]
+
   instructions
+
 def VectorUnitStrideFaultOnlyFirstLoadInstructions = [VLE8FF_V, VLE16FF_V, VLE32FF_V, VLE64FF_V]
 /* Enumerates segmented fault-only-first loads for two through eight fields and each standard element width. */
 fun fault_only_first_segments():
@@ -185,7 +201,9 @@ fun fault_only_first_segments():
   for (fields in 2..9):
     for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
       instructions := instructions ++ [fault_only_first(fields, width, width_bits)]
+
   instructions
+
 def VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions = fault_only_first_segments()
 def VectorFaultOnlyFirstLoadInstructions = VectorUnitStrideFaultOnlyFirstLoadInstructions ++ VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions
 def VectorMaskLoadInstructions = [VLM_V]
@@ -197,10 +215,13 @@ fun whole_register_loads():
   for (registers in [1, 2, 4, 8]):
     for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
       instructions := instructions ++ [whole_register_load(registers, width, width_bits)]
+
   instructions
+
 def VectorWholeRegisterLoadInstructions = whole_register_loads()
 def VectorWholeRegisterStoreInstructions = for List (registers in [1, 2, 4, 8]):
   whole_register_store(registers)
+
 def VectorWholeRegisterMemoryInstructions = VectorWholeRegisterLoadInstructions ++ VectorWholeRegisterStoreInstructions
 def VectorUnitStrideSegmentLoadInstructions = unit_stride_segments(#false)
 def VectorUnitStrideSegmentStoreInstructions = unit_stride_segments(#true)
@@ -224,6 +245,7 @@ def VectorMemoryInstructions = VectorUnitStrideMemoryInstructions ++ VectorStrid
 /* Builds a vector arithmetic descriptor from its operation code and operand-format selector. */
 fun vector_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
+
 /* Builds a fixed-mask arithmetic descriptor, optionally fixing vs2 to zero for a move alias. */
 fun fixed_mask_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat, mask_bit :: Nat, ~move: move :: Boolean = #false):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code), vm.constrain(mask_bit)] ++ (if move | [vs2.constrain(0)] | []))
@@ -359,6 +381,7 @@ def VectorCarryBorrowInstructions = [VADC_VVM, VADC_VXM, VADC_VIM, VMADC_VVM, VM
 /* Builds a vector integer-extension descriptor with its fixed unary source selector. */
 fun vector_extension(name :: String, selector :: Nat):
   InstructionSpec(name, VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x12), vs1.constrain(selector)])
+
 def VZEXT_VF8 = vector_extension("VZEXT.VF8", 2)
 def VSEXT_VF8 = vector_extension("VSEXT.VF8", 3)
 def VZEXT_VF4 = vector_extension("VZEXT.VF4", 4)
@@ -398,6 +421,7 @@ fun whole_register_move(registers :: PosInt):
     VectorWholeRegisterMoveFormat,
     [opcode.constrain(0x57), funct3.constrain(3), funct6.constrain(0x27), vm.constrain(1), vs1.constrain(registers - 1)]
   )
+
 def VMV1R_V = whole_register_move(1)
 def VMV2R_V = whole_register_move(2)
 def VMV4R_V = whole_register_move(4)
@@ -424,6 +448,7 @@ def VectorFloatingPointMoveInstructions = [VFMERGE_VFM, VFMV_V_F, VFMV_F_S, VFMV
 /* Builds a mask/index unary descriptor, fixing vs2 to zero when the index-only format omits it. */
 fun mask_unary(name :: String, code :: Nat, selector :: Nat, form :: InstructionFormat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(code), vs1.constrain(selector)] ++ (if form == VectorIndexFormat | [vs2.constrain(0)] | []))
+
 def VCPOP_M = mask_unary("VCPOP.M", 0x10, 0x10, VectorMaskScalarFormat)
 def VFIRST_M = mask_unary("VFIRST.M", 0x10, 0x11, VectorMaskScalarFormat)
 def VMSBF_M = mask_unary("VMSBF.M", 0x14, 1, VectorMaskUnaryFormat)
@@ -525,6 +550,7 @@ def VFWREDOSUM_VS = vector_arithmetic("VFWREDOSUM.VS", 0x33, VectorVVFormat, 1)
 /* Builds a vector floating-point conversion descriptor with its fixed conversion selector. */
 fun vector_fp_conversion(name :: String, selector :: Nat):
   InstructionSpec(name, VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x12), vs1.constrain(selector)])
+
 def VFCVT_XU_F_V = vector_fp_conversion("VFCVT.XU.F.V", 0)
 def VFCVT_X_F_V = vector_fp_conversion("VFCVT.X.F.V", 1)
 def VFCVT_F_XU_V = vector_fp_conversion("VFCVT.F.XU.V", 2)

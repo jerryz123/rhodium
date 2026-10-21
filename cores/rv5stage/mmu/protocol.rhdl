@@ -24,6 +24,7 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
   provider requester
   requester -> responder:
     request: Decoupled(RV5StageGuestMemoryReq(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))))
+
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
@@ -39,6 +40,7 @@ interface RV5StageGuestPipelineAccess(xlen :: XLen):
   requester -> responder:
     request: Valid(RV5StageGuestMemoryReq(CachePipelineReq(xlen)))
     commit: Bool
+
   responder -> requester:
     response: Valid(CachePipelineResult(xlen))
     commit_ready: Bool

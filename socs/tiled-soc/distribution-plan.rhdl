@@ -97,6 +97,7 @@ fun compile_tiled_distribution(
         EjectionTerminalSpec(tiled_distribution_ejection_ref("external-interrupt", index), router)
     )
   )
+
   def routes = (
     for List (_router in hart_routers, index in 0..hart_routers.length()):
       RouteClassSpec(
@@ -119,12 +120,14 @@ fun compile_tiled_distribution(
         tiled_distribution_ejection_ref("external-interrupt", index)
       )
   )
+
   def network = compile_network(
     mesh.spec,
     terminals,
     routes,
     xy_dimension_order(mesh, ~vc_groups: ["transport"])
   )
+
   def family = RouterFamilyPlan(network.network_plan)
   def physical = RouterFamilyPhysicalPlan(family)
   def router = compile_simple_router_family(family)
@@ -137,6 +140,7 @@ fun compile_tiled_distribution(
     plan.route_key(
       network.lowered_routes.route_class(tiled_distribution_route_ref(owner, kind, index))
     )
+
   def time_port = family.injection_port(network.injection_terminal(time_source).id)
   def interrupt_port = family.injection_port(network.injection_terminal(interrupt_source).id)
   def external_interrupt_port = family.injection_port(
@@ -160,6 +164,7 @@ fun compile_tiled_distribution(
         interrupt_port.target_index - family.egress_count,
         external_interrupt_port.target_index - family.egress_count
       )
+
   TiledDistributionPlan(
     network,
     family,

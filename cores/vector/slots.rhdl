@@ -23,10 +23,13 @@ sync_circuit VectorSlots(slots :: Pow2Int):
   accepted <== owners
   when (reserve.valid):
     assert(!reservations[reserve.bits], "vector_slot_reserved_once")
+
   when (accept.valid):
     assert(reservations[accept.bits] & !owners[accept.bits], "vector_accept_has_reservation")
+
   when (release.valid):
     assert(owners[release.bits] ||| (accept.valid & (accept.bits === release.bits)), "vector_release_has_accepted_owner")
+
   for (slot in 0..slots):
     def tag = Bits(index_width(slots))(slot)
     when (release.valid & (release.bits === tag)):

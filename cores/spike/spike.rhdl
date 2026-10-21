@@ -30,12 +30,14 @@ fun spike_address_response(physical_map :: RiscvPhysicalMemoryMap, request :: Sp
     def mutable run_mask = 0
     while ((region.address_set.mask bits.and (run_mask + 1)) != 0):
       run_mask := run_mask * 2 + 1
+
     def base = request.address & !Bits(64)(run_mask)
     def limit = base ||| Bits(64)(run_mask)
     def matches = classified.mapped & region.address_set.matches(request.address) & (last_address <= limit.zext(65))
     grant_valid := grant_valid ||| matches
     grant_base := mux(matches, base, grant_base)
     grant_limit := mux(matches, limit, grant_limit)
+
   SpikeAddressResponse():
     grant_valid: grant_valid
     grant_base: grant_base

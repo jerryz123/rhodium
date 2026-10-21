@@ -13,11 +13,13 @@ def endpoint = CHIICNPortParams(
   ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl], ~rsp: [CHIRspOpcode.SnpResp], ~dat: [CHIDatOpcode.NonCopyBackWriteData]),
   ~max_outstanding: 1
 )
+
 def io = CHIRequesterHomeParams(
   endpoint,
   ~emits: CHIChannelCapabilities(~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp], ~dat: [CHIDatOpcode.CompData]),
   ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl], ~dat: [CHIDatOpcode.NonCopyBackWriteData])
 )
+
 check:
   io.endpoint === endpoint ~is #true
   io.node_id ~is 1
@@ -28,8 +30,10 @@ check:
   chi_initial_requester_capabilities(io.supports, io.emits) ~is #true
   CHIRequesterHomeParams(endpoint, ~emits: io.emits,
                          ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadUnique])) ~throws "subset"
+
   CHIRequesterHomeParams(endpoint, ~emits: CHIChannelCapabilities(~rsp: [CHIRspOpcode.RetryAck]),
                          ~supports: io.supports) ~throws "subset"
+
   CHIHNFConfig(CHIFlitParams(), [io], 0xfff,
                [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64))]) ~throws "unsupported request opcode"
   CHIHNFConfig(

@@ -41,6 +41,7 @@ check:
   network.validated_routing.dependency_graph.vertices.map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc0"]
+
   network.router_id(physical.node("source_router")).describe() ~is "n1"
   network.router_id(physical.node("destination_router")).describe() ~is "n0"
   network.injection_port(source).input_index ~is 0

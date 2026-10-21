@@ -21,6 +21,7 @@ fun fixture(site :: Nat) :: RsimSchedule:
                RsimStep("rtl.constant", Bits(3), [], {"value": 0}),
                RsimStep("rtl.record_create", key_type, [1, 0, 2], {}),
                RsimStep("rtl.decode", result_type, [3], {"cases": cases, "default_value": 7, "default_care": 509})]
+
   RsimSchedule("Decode" ++ to_string(site), [RsimPort("route", Bits(8), 0)], [RsimPort("result", result_type, 4)], steps, [], [], [], [], [], [])
 
 // Evaluate canonical integers independently of specialization or C++ rendering.
@@ -53,6 +54,7 @@ fun evaluate(schedule :: RsimSchedule, input :: Nat) :: Nat:
         for (field in schedule.steps[step.operands[0]].type.fields):
           offset := offset - field.type.packed_width()
           when field.name == step.attributes["field"] | result := args[0] bits.(>>) offset
+
         result
     | "rtl.not": (2 ** step.type.packed_width() - 1) bits.xor args[0]
     | "rtl.and": args[0] bits.and args[1]
@@ -62,7 +64,9 @@ fun evaluate(schedule :: RsimSchedule, input :: Nat) :: Nat:
         def row = step.attributes["cases"].find(fun (row): (args[0] bits.and row[1]) == (row[0] bits.and row[1]))
         if row == #false | step.attributes["default_value"] bits.and step.attributes["default_care"] | row[2] bits.and row[3]
     | ~else: error("oracle opcode " ++ step.opcode)
+
     entries.add(value bits.and (2 ** step.type.packed_width() - 1))
+
   entries[schedule.outputs[0].value]
 
 for (site in [1, 2, 16]):
@@ -71,9 +75,11 @@ for (site in [1, 2, 16]):
   def planned = plan_decode_tables(specialized)
   for (route in 0..256):
     check: evaluate(planned, route) ~is evaluate(raw, route)
+
   check:
     raw ~is fixture(site)
     specialize_decodes(specialized) ~is specialized
+
   if site == 16
   | check: specialized.steps[specialized.outputs[0].value].opcode ~is "rtl.constant"
   | block:
@@ -83,8 +89,10 @@ for (site in [1, 2, 16]):
         decoded.operands ~is [0]
         decoded.attributes["cases"].length() ~is 16
         planned.steps[planned.outputs[0].value].attributes["rsim_table"].length() ~is 256
+
       for (route in 0..256):
         check: planned.steps[planned.outputs[0].value].attributes["rsim_table"][route] ~is evaluate(raw, route)
+
   when current_command_line().length() == 1
   | block:
       def output = emit_rsim(planned, ~region_budget: 4)
@@ -103,6 +111,7 @@ for (op in ["rtl.and", "rtl.or", "rtl.xor"]):
                RsimStep("rtl.cast", Bits(16), [5], {}),
                RsimStep("rtl.zext", Bits(129), [6], {}),
                RsimStep("rtl.decode", Bits(9), [7], {"cases": for List (x in [0, 1, 4, 5]): [0xa500 + x, 2 ** 128 + 0xff05, x + 256, 509], "default_value": 17, "default_care": 511})]
+
   def raw = RsimSchedule("Transfer", [RsimPort("x", Bits(8), 0)], [RsimPort("result", Bits(9), 8)], steps, [], [], [], [], [], [])
   def optimized = prune_schedule(specialize_decodes(raw))
   for (x in 0..256):
@@ -119,6 +128,7 @@ for (sign in [0, 128]):
                RsimStep("rtl.vector_create", VectorType(2, Bits(129)), [5, 5], {}),
                RsimStep("rtl.vector_get", Bits(129), [6], {"index": 1}),
                RsimStep("rtl.decode", Bits(8), [7], {"cases": [[0, 2 ** 128 + 0x55, 17, 255], [1, 2 ** 128 + 0x55, 19, 255]], "default_value": 42, "default_care": 255})]
+
   def raw = RsimSchedule("Signed", [RsimPort("x", Bits(8), 0)], [RsimPort("y", Bits(8), 8)], steps, [], [], [], [], [], [])
   def optimized = prune_schedule(specialize_decodes(raw))
   for (x in 0..256):
@@ -129,6 +139,7 @@ for (width in [13, 64, 129]):
   def rows = for List (value in [0, 1, 2, 2 ** (width - 1)]): [value, 2 ** width - 1, value mod 256, 255]
   def steps = [RsimStep("input", Bits(width), [], {"name": "x"}),
                RsimStep("rtl.decode", Bits(8), [0], {"cases": rows, "default_value": 77, "default_care": 255})]
+
   def raw = RsimSchedule("Wide", [RsimPort("x", Bits(width), 0)], [RsimPort("y", Bits(8), 1)], steps, [], [], [], [], [], [])
   def optimized = plan_decode_tables(specialize_decodes(raw))
   check: optimized ~is raw
@@ -170,10 +181,12 @@ def dense_rows = for List (x in 0..512): [x, 511, x * 17, 65535]
 def dense_steps = [RsimStep("input", Bits(9), [], {"name": "x"}),
                    RsimStep("rtl.decode", Bits(16), [0], {"cases": dense_rows, "default_value": 0, "default_care": 65535}),
                    RsimStep("rtl.decode", Bits(16), [0], {"cases": dense_rows, "default_value": 0, "default_care": 65535})]
+
 def dense = plan_decode_tables(RsimSchedule("Dense", [RsimPort("x", Bits(9), 0)], [RsimPort("y", Bits(16), 1), RsimPort("z", Bits(16), 2)], dense_steps, [], [], [], [], [], []))
 check: dense.steps[1].attributes["rsim_table"] === dense.steps[2].attributes["rsim_table"] ~is #true
 for (x in 0..512):
   check: dense.steps[1].attributes["rsim_table"][x] ~is x * 17
+
 when current_command_line().length() == 1
 | block:
     def output = emit_rsim(dense, ~region_budget: 4)
@@ -184,5 +197,6 @@ when current_command_line().length() == 1
 def costly_rows = for List (x in 0..65): [x, 4095, x, 255]
 def costly_steps = [RsimStep("input", Bits(12), [], {"name": "x"}),
                     RsimStep("rtl.decode", Bits(8), [0], {"cases": costly_rows, "default_value": 77, "default_care": 255})]
+
 def costly = RsimSchedule("Costly", [RsimPort("x", Bits(12), 0)], [RsimPort("y", Bits(8), 1)], costly_steps, [], [], [], [], [], [])
 check: plan_decode_tables(costly) ~is costly

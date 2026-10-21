@@ -39,11 +39,13 @@ sync_circuit EventPartialLane(traced :: Boolean):
   if traced
   | middle |> pipe(1) |> trace_event("after") |> egress[0]
   | middle |> pipe(1) |> egress[0]
+
   ingress[4] |> isolated.ingress
   def isolated_output = isolated.egress |> shift_queue(2, ~flow: #true)
   if traced
   | isolated_output |> trace_event("isolated", ~stalls: #true) |> egress[1]
   | isolated_output |> egress[1]
+
   selected_fire <== select.egress.fire()
   joined_fire <== joined.fire()
   middle_fire <== middle.fire()

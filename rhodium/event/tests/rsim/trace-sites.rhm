@@ -14,6 +14,7 @@ fun traced_target(site_header, config = EventInstrumentationConfig(), ~before: b
     def result = tracing.transform(prepared)
     def bindings = Artifact("test-sites.h", "text/x-c++hdr", "// Resolves test observations against the emitted event descriptor.\n#pragma once\n#include \"events.h\"\n" ++ site_header(result.report.manifest))
     RTLPassResult(result.rtl, result.artifacts ++ [bindings], result.report, result.diagnostics)
+
   rtl_pipeline_target(rsim_target, before ++ [RTLPass("event-trace", transform)])
 
 export traced_target

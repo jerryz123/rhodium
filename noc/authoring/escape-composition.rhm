@@ -25,6 +25,7 @@ fun validate_group_names(subject :: String,
     unless !name.contains("/")
     | error(~who: #'with_escape,
             subject ++ " must contain names without '/'")
+
     when duplicate_name(names, name)
     | error(~who: #'with_escape,
             "duplicate " ++ subject ++ " " ++ name)
@@ -53,6 +54,7 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
     )
     | error(~who: #'with_escape,
             "adaptive and escape VC groups must be disjoint")
+
     super(adaptive_policy,
           escape_policy,
           adaptive_vc_groups.sort(fun (left, right): left < right),
@@ -63,9 +65,11 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
     /* Tests candidate membership and child policy permission for adaptive acquisition. */
     def adaptive_allowed = fun ():
       policies_allow(adaptive_policy, adaptive_vc_groups, context)
+
     /* Tests candidate membership and child policy permission for escape acquisition. */
     def escape_allowed = fun ():
       policies_allow(escape_policy, escape_vc_groups, context)
+
     cond
     | context.origin is_a RoutingInjection:
         adaptive_allowed() || escape_allowed()
@@ -85,6 +89,7 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
     unless result is_a Boolean
     | error(~who: #'evaluate,
             "routing policy " ++ describe() ++ " must return a Boolean")
+
     RoutingPolicyEvaluation(result, [])
 
   /* Renders both child policies and their explicit resource-class selections. */

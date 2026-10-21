@@ -37,47 +37,58 @@ class CHIHNIParams(home :: CHIHomeParams,
     def flit = subordinate_map.flit
     unless home.kind == CHINodeKind.HNI
     | error(~who: #'CHIHNIParams, "home kind must be HN-I")
+
     for (endpoint in requester_endpoints):
       unless [CHINodeKind.RNI, CHINodeKind.RNF].contains(endpoint.kind)
       | error(~who: #'CHIHNIParams,
               "requester endpoints must describe RN-I or RN-F Home traffic")
+
     unless bits.length(home.node_id) <= flit.node_id_width
     | error(~who: #'CHIHNIParams,
             "Home NodeID must fit the physical NodeID width")
+
     for (left_index in 0..requester_endpoints.length()):
       for (right_index in (left_index + 1)..requester_endpoints.length()):
         if requester_endpoints[left_index].node_id == requester_endpoints[right_index].node_id
         | error(~who: #'CHIHNIParams, "requester NodeIDs must be unique")
         | #void
+
     for (endpoint in requester_endpoints):
       unless bits.length(endpoint.node_id) <= flit.node_id_width
       | error(~who: #'CHIHNIParams,
               "requester NodeIDs must fit the physical NodeID width")
+
       if endpoint.node_id == home.node_id
       | error(~who: #'CHIHNIParams,
               "requester and Home NodeIDs must be distinct")
       | #void
+
       unless chi_initial_requester_capabilities(endpoint.supports, endpoint.emits)
       | error(~who: #'CHIHNIParams,
               "requester endpoints must use the initial non-coherent capabilities")
+
     for (service in subordinate_map.services):
       def subordinate_endpoint = service.endpoint
       unless subordinate_endpoint.kind == CHINodeKind.SNI
       | error(~who: #'CHIHNIParams,
               "subordinate endpoints must describe SN-Is")
+
       if subordinate_endpoint.node_id == home.node_id
       | error(~who: #'CHIHNIParams,
               "subordinate and Home NodeIDs must be distinct")
       | #void
+
       for (requester_endpoint in requester_endpoints):
         if subordinate_endpoint.node_id == requester_endpoint.node_id
         | error(~who: #'CHIHNIParams,
                 "requester and subordinate NodeIDs must be distinct")
         | #void
+
       unless chi_initial_subordinate_capabilities(subordinate_endpoint.supports,
                                                   subordinate_endpoint.emits)
       | error(~who: #'CHIHNIParams,
               "subordinate endpoints must use the initial non-coherent capabilities")
+
     // Individual services may implement different address-local capabilities,
     // but the service union must cover everything advertised to each requester.
     for (requester_endpoint in requester_endpoints):
@@ -86,6 +97,7 @@ class CHIHNIParams(home :: CHIHomeParams,
                  for any (request in service.requests): request.opcode == opcode
         | error(~who: #'CHIHNIParams,
                 "requester opcode must be supported by at least one subordinate service")
+
     super(home, requester_endpoints, subordinate_map)
 
 /* Match a request's address, opcode, and Size against the mapped subordinate service profiles. */
@@ -353,6 +365,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
           allocate_here: Bits(4)(0)
           data_here: next_write_data_ids
   )
+
   when (allocate_write ||| write_data_transfer):
     received_write_data_ids <== next_received_write_data_ids
 
@@ -366,6 +379,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
           allocate_here: Bits(4)(0)
           data_here: next_read_data_ids
   )
+
   when (allocate_read ||| read_data_transfer):
     received_read_data_ids <== next_received_read_data_ids
 

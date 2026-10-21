@@ -121,6 +121,7 @@ interface UncachedMemoryAccess(xlen :: XLen, Context :: DataType):
   provider requester
   requester -> responder:
     request: Decoupled(UncachedMemoryReq(xlen, Context))
+
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool

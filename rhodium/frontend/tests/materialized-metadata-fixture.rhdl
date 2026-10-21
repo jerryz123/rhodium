@@ -17,6 +17,7 @@ sync_circuit MetadataLane():
   interface egress(Decoupled(Bits(8)), ~role: producer)
   def accepted = ingress |> trace_event("accepted", ~stalls: #true, ~fields: value):
     captured: value
+
   def buffered = accepted |> queue(3, ~flow: #true, ~pipe: #true) |> pipe(1)
   buffered |> trace_event("completed", ~payload: #true, ~stalls: #true) |> egress
 

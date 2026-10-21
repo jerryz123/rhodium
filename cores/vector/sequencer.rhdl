@@ -156,6 +156,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def slide_valid = vec(for List (byte in 0..vector_slide_bytes(xlen)):
                           def element = slide_first + (Bits(xlen.width + 2)(byte) >> sew)
                           element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
+
   def slide_base = vs2.zext(row_base_width) << register_row_shift
   def slide_address = slide_base + slide_chunk[0..row_base_width]
   def index_chunk = cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - index_sew)
@@ -168,6 +169,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def first_source_chunk = priority_mux(~default: source_chunk):
     extension: extension_source_chunk
     wide_vs2 ||| fp_narrowing: wide_source_chunk
+
   def first_source_register = mux(descriptor.control.memory, memory_register, vs2)
   def first_source_base = first_source_register.zext(row_base_width) << register_row_shift
   def ordinary_first_address = first_source_base + first_source_chunk[0..row_base_width]
@@ -189,6 +191,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def second_address = priority_mux(~default: ordinary_second_address):
     compress: compress_address
     slide: mux(slide_valid[vector_word_bytes(xlen)..vector_slide_bytes(xlen)].or_reduce(), slide_address + Bits(row_base_width)(1), slide_base)
+
   def destination_base = vd.zext(row_base_width) << register_row_shift
   def destination_address = destination_base + destination_chunk[0..row_base_width]
 
@@ -201,6 +204,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def write_chunk = priority_mux(~default: cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - write_width)):
     reduction ||| element_move: Bits(index_width(vlen + 1))(0)
     descriptor.control.mask_destination ||| mask_logic: cursor >> vector_bit_offset_width(xlen)
+
   def write_register = mux(segmented_memory, memory_register, vd)
   def write_base = write_register.zext(row_base_width) << register_row_shift
   def write_address = write_base + write_chunk[0..row_base_width]
@@ -250,6 +254,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     prepare_reads[port].valid <== preparation.reads[port].valid ||| (Bool(port == 1) & gather_read)
     prepare_reads[port].bits <== mux(Bool(port == 1) & gather_read, second_address, preparation.reads[port].bits)
     prepare_results[port] |> preparation.results[port]
+
   preparation.mask_read |> prepare_mask_read
   prepare_mask_result |> preparation.mask_result
   preparation.alignment |> prepare_alignment
@@ -283,7 +288,9 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     mask_enabled: vec(for List (bit_index in 0..xlen.width):
                         def element = cursor.zext(index_width(vlen + 1) + 1) + Bits(index_width(vlen + 1) + 1)(bit_index)
                         !empty & (element >= minimum.zext(index_width(vlen + 1) + 1)) & (element < end.zext(index_width(vlen + 1) + 1))).as_bits()
+
     destination: mux(segmented_memory, memory_register, vd)
+
   sequence_offer.left.bits.context <== mux(suffix.valid, suffix.bits, beat_context)
   sequence_offer.left.bits.enables <== mux(suffix.valid, Bits(3)(0), mux(packed_mode, preparation.read_enables, vec([!empty, !empty & second_source & !gather_vector, !empty & destination_source]).as_bits()))
   sequence_offer.left.bits.addresses <== mux(packed_mode, preparation.read_addresses, vec([mux(gather_vector, gather_address, first_address), second_address, destination_address]))
@@ -305,6 +312,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     mask_wait: mux(packed_mode, !preparation.ready & !preparation.masks_ready_out, read_source_blocked[3].into(Bool))
     gather_source_wait: !packed_mode & read_source_blocked[4].into(Bool)
     fetch_wait: !sequence_request.ready
+
   def Array(sequence_transfer, source_permission, setup_permission) = offered_sequence |> atomic_fork(3)
   source_permission.ready <== read_sources_ready
   setup_permission.ready <== read_setup_ready
@@ -339,6 +347,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     assert(feedback.bits.context === descriptor.pc, "vector_feedback_matches_active_macro")
     assert(feedback.bits.sequence === authorized_sequence, "vector_feedback_is_oldest_unauthorized_operation")
     assert(packed_mode ||| empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)) ||| (compress & feedback.bits.last & (feedback.bits.first === feedback.bits.end) & (feedback.bits.end === authorized)), "vector_feedback_is_oldest_unauthorized_beat")
+
   when (retry & !cancel.valid):
     assert(packed_mode ||| (feedback.bits.end <= limit), "vector_retry_stays_within_active_body")
 
@@ -378,6 +387,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
       word_schedule: start.align_down(xlen.width)
       single_schedule: start
       request_width_change: width_change_start
+
     cursor <== initial_cursor
     field <== Bits(3)(0)
     sequence <== Bits(vector_sequence_width(vlen))(0)
@@ -403,6 +413,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
       mask_word: authorized.align_down(xlen.width)
       singleton: authorized
       width_change: width_change_restart
+
     cursor <== restart_cursor
     field <== authorized_field
     sequence <== mux(packed_mode, feedback.bits.sequence, authorized_sequence)
@@ -416,19 +427,23 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
       memory_setup_remaining <== memory_setup_remaining - Bits(index_width(vlen + 1))(1)
     elsewhen (launch & descriptor.control.memory & !indexed_memory & last_field):
       memory_element_address <== memory_element_address + memory_element_step
+
     when (memory_setup_remaining.or_reduce()):
       authorized_memory_element_address <== authorized_memory_element_address + memory_element_step
     elsewhen (authorized_event & descriptor.control.memory & !indexed_memory & authorized_last_field):
       authorized_memory_element_address <== authorized_memory_element_address + memory_element_step
+
     when launch:
       sequence <== sequence + Bits(vector_sequence_width(vlen))(1)
       all_issued <== mux(packed_mode, preparation.candidate.last, beat_last)
+
     when (launch & !packed_mode & !suffix.valid):
       when (!empty & segmented_memory & !last_field):
         field <== field + Bits(3)(1)
       elsewhen (empty ||| !segmented_memory ||| last_field):
         cursor <== end
         field <== Bits(3)(0)
+
     when authorized_event:
       authorized_sequence <== authorized_sequence + Bits(vector_sequence_width(vlen))(1)
       when (!feedback.bits.last & segmented_memory & (authorized_field =/= descriptor.control.memory_nf)):
@@ -436,6 +451,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
       elsewhen (feedback.bits.last ||| !segmented_memory ||| (authorized_field === descriptor.control.memory_nf)):
         authorized <== feedback.bits.end
         authorized_field <== Bits(3)(0)
+
     when (sequence_tail ||| (authorized_event & feedback.bits.last)):
       occupied <== Bool(#false)
 
@@ -447,6 +463,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   elsewhen (gather_pending & prepare_results[1].valid):
     gather_index_word <== prepare_results[1].bits
     gather_index_valid <== Bool(#true)
+
   when (gather_pending & !clear):
     assert(prepare_results[1].valid, "vector_gather_index_matches_preparation")
 
@@ -465,6 +482,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
       field: Bits(3)(0)
       byte: Bits(vector_byte_offset_width(xlen))(0)
       leading: origin[0..vector_byte_offset_width(xlen)]
+
     packed_phase <== VectorPreparePhase.Map
   elsewhen clear:
     packed_phase <== VectorPreparePhase.Map

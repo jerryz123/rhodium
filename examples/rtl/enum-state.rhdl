@@ -25,6 +25,7 @@ circuit StateMachineLookup():
     State.Idle: State.Running
     State.Running: State.Done
     State.Done: State.Idle
+
   state_out <== current
 
 /* This statement form has the same transition and invalid-encoding behavior
@@ -39,12 +40,15 @@ circuit StateMachine():
   switch current:
     case State.Idle:
       current <== State.Running
+
     case State.Running:
       current <== State.Done
+
     case State.Done:
       current <== State.Idle
     otherwise:
       current <== State.Idle
+
   state_out <== current
 
 /* Exposes is_load, next_opcode for this enum state example. */

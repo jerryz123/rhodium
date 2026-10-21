@@ -25,6 +25,7 @@ def requester = chi.CHIICNPortParams(
   ),
   ~max_outstanding: 4
 )
+
 def memory = chi.CHIICNPortParams(
   "memory-port",
   9,
@@ -35,6 +36,7 @@ def memory = chi.CHIICNPortParams(
   ~supports: chi.CHIChannelCapabilities(),
   ~max_outstanding: 4
 )
+
 def requester_port = chi.CHIFabricPortParams(
   requester,
   chi.CHIRNILinkParams(flit)
@@ -51,6 +53,7 @@ def home = chi.CHIHomeParams(
   chi.CHINodeKind.HNI,
   ~max_outstanding: 4
 )
+
 def home_service = chi.CHIHomeServiceParams(
   home,
   [chi.AddressSet(0x80000000, 0x0fffffff)],
@@ -122,6 +125,7 @@ check:
        chi.CHIHomeParams("wide-home", 128, chi.CHINodeKind.HNI, ~max_outstanding: 1)
      )]
   ) ~throws "fit the physical NodeID width"
+
   chi.CHISubordinateServiceParams(
     memory,
     [chi.AddressSet(0, 0xfff)],
@@ -147,6 +151,7 @@ check:
     [home_service],
     [memory_service]
   ) ~throws "NodeIDs must be unique"
+
   chi.CHIFabricParams(
     flit,
     [requester_port, memory_port],
@@ -154,6 +159,7 @@ check:
     [home_service],
     [memory_service]
   ) ~throws "NodeIDs must be unique"
+
   chi.CHIFabricParams(
     flit,
     [requester_port,
@@ -173,6 +179,7 @@ check:
     [home_service],
     [memory_service]
   ) ~throws "fit the physical NodeID width"
+
   chi.CHIFabricParams(
     flit,
     [requester_port,
@@ -182,6 +189,7 @@ check:
     [home_service],
     [memory_service]
   ) ~throws "physical flit parameters"
+
   chi.CHIFabricParams(
     flit,
     [requester_port],

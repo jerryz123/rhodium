@@ -38,6 +38,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     size_or_num_req(~format: "unsigned"): flit.size_or_num_req
     allow_retry: flit.allow_retry
     exp_comp_ack: flit.exp_comp_ack
+
   requests |> request_sink
 
   for (channel in ["requester_responses", "responses"], suffix in ["txrsp", "rxrsp"], outgoing in [#true, #false]):
@@ -54,6 +55,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
       resp(~format: "unsigned"): flit.resp
       resp_err(~format: "unsigned"): flit.resp_err
       pcrd_type(~format: "unsigned"): flit.pcrd_type
+
     responses |> sink
 
   for (channel in ["request_data", "response_data"], suffix in ["txdat", "rxdat"], outgoing in [#true, #false]):
@@ -71,6 +73,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
       resp(~format: "unsigned"): flit.resp
       resp_err(~format: "unsigned"): flit.resp_err
       byte_enable: flit.byte_enable
+
     data |> sink
 
   if snoopable
@@ -81,6 +84,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
         txn_id(~format: "unsigned"): flit.txn_id
         src_id(~format: "unsigned"): flit.src_id
         ret_to_src: flit.ret_to_src
+
       snoops |> cache.field("snoops")
   | #void
 
@@ -95,6 +99,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'RV5Stage,
           "RV5Stage requires 64-byte CHI cache lines")
+
   def vector_completion_slots = profile.vector_completion_slots
   def xlen = profile.xlen
   def extensions = profile.extensions
@@ -106,8 +111,10 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
     def attributes = region.physical.attributes
     unless (!attributes.cacheable) || (!extensions.ziccif) || attributes.executable
     | error(~who: #'RV5Stage, "Ziccif requires executable cacheable coherent memory")
+
     unless (!attributes.cacheable) || (!extensions.ziccamoa) || attributes.atomic
     | error(~who: #'RV5Stage, "Ziccamoa requires AMOArithmetic in cacheable coherent memory")
+
     unless (!attributes.cacheable) || (!extensions.ziccrse) || (attributes.readable && attributes.writable && attributes.atomic && attributes.read_idempotent)
     | error(~who: #'RV5Stage, "Ziccrse requires readable, writable, atomic-capable, read-idempotent cacheable coherent memory")
 
@@ -130,6 +137,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
       core.request_guest_fault <== mmu.request_guest_fault
       core.pipeline_guest_fault <== mmu.pipeline_guest_fault
   | #void
+
   inst l1i(L1ICache(xlen, profile.cache_geometry.instruction, ~chi: config, ~fetch_bits: 32))
   inst l1d(L1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~context: RV5StageMemoryContext(vector_completion_slots)))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))

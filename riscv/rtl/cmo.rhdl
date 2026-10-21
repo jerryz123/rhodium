@@ -69,6 +69,7 @@ fun cbo_management_permission(xlen :: XLen, operation :: CboManagementOperation,
                        mux(invalidate, machine_invalidate_enabled, menvcfg[6].into(Bool)),
                        mux(invalidate, hypervisor_invalidate_enabled, henvcfg[6].into(Bool)),
                        mux(invalidate, supervisor_invalidate_enabled, senvcfg[6].into(Bool)))
+
     operation: mux(invalidate & force_flush, CboManagementOperation.Flush, operation)
 
 /* Checks CBO.ZERO authorization through machine, hypervisor, and supervisor xenvcfg controls. */

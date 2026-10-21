@@ -37,9 +37,11 @@ check:
     "clock", "reset", "ingress_0_in", "ingress_1_in", "ingress_2_in",
     "ends_packet", "egress_in"
   ]
+
   packet_module.outputs.map(fun (port): port.name) ~is [
     "ingress_0_out", "ingress_1_out", "ingress_2_out", "egress_out", "chosen"
   ]
+
   packet_module.find_output("chosen").type.width ~is 2
   assertion_labels(packet_module) ~is [
     "packet_rr_priority_in_range",
@@ -50,6 +52,7 @@ check:
   chain_design.modules.map(fun (module_def): module_def.name) ~is [
     "PacketRRArbiterChain", "PacketRRArbiter"
   ]
+
   disconnected_design.modules.map(fun (module_def): module_def.name) ~is [
     "DisconnectedPacketRRArbiterChain", "PacketRRArbiter", "Pipe"
   ]

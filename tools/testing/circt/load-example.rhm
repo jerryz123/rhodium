@@ -12,6 +12,7 @@ import:
 def arguments = current_command_line()
 unless arguments.length() >= 2 && arguments[0] == "materialize"
 | error("expected materialize OUTPUT-DIRECTORY followed by program, golden, or emitter specifications")
+
 def output_directory = arguments[1]
 file.#{make-directory*}(output_directory)
 
@@ -33,8 +34,10 @@ fun materialize(remaining :: List):
     | "program": 4
     | "emitter": 3
     | ~else: 0
+
     unless count > 0 && remaining.length() >= count
     | error("each fixture must be tagged as program, golden, or emitter with its required arguments")
+
     def fixture = remaining[1]
     def source = remaining[2]
     def started = rkt.#{current-inexact-monotonic-milliseconds}()
@@ -46,6 +49,7 @@ fun materialize(remaining :: List):
           parameterize { rkt.#{current-output-port}: out }:
             dynamic_require(source, #false)
       )
+
       def manifest = rkt.#{dynamic-require}(source, #'event_manifest_cpp, fun (): #false)
       when manifest | write_artifact(fixture ++ "_manifest.h", manifest)
     | def program = dynamic_require(source, rkt.#{string->symbol}(remaining[3]))
@@ -53,6 +57,7 @@ fun materialize(remaining :: List):
       write_artifact(fixture ++ ".mlir", compiled.artifacts[0].content)
       when kind == "golden"
       | write_artifact(fixture ++ ".expected.sv", dynamic_require(source, rkt.#{string->symbol}(remaining[4])))
+
     report_materialization(fixture, started)
     materialize(remaining.drop(count))
 

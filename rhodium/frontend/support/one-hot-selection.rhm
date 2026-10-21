@@ -37,10 +37,12 @@ fun build_one_hot_mux(selector :: HardwareEntity,
   unless value.type is_a mux_support.OneHotSelectorType
   | error(~who: #'mux,
           location.describe() ++ ": selector without a default must have an exactly-one selector type")
+
   def width = value.type.one_hot_selector_width()
   unless choices.length() == width
   | error(~who: #'mux,
           location.describe() ++ ": choice count must equal the one-hot selector width")
+
   def selector_bits = hardware_as_bits(value,
                                        #'mux,
                                        "one-hot selector",
@@ -65,10 +67,12 @@ fun build_maybe_one_hot_mux(selector :: HardwareEntity,
   unless value.type is_a MaybeOneHotSelectorType
   | error(~who: #'mux,
           location.describe() ++ ": selector with a default must have a MaybeOneHot type")
+
   def width = value.type.maybe_one_hot_selector_width()
   unless choices.length() == width
   | error(~who: #'mux,
           location.describe() ++ ": choice count must equal the MaybeOneHot width")
+
   def selector_bits = hardware_as_bits(value,
                                        #'mux,
                                        "MaybeOneHot selector",
@@ -97,18 +101,23 @@ fun build_keyed_one_hot_mux(selector :: HardwareEntity,
   unless value.type is_a mux_support.OneHotSelectorType
   | error(~who: #'mux,
           location.describe() ++ ": keyed mux arms require an exact one-hot selector")
+
   def width = value.type.one_hot_selector_width()
   unless cases.length() == width
   | error(~who: #'mux,
           location.describe() ++ ": keyed mux arms must cover every one-hot selector lane exactly once")
+
   def normalized_cases = for List ((key, choice) in cases):
     [value.type.normalize_mux_lookup_key(key), choice]
+
   def ordered_cases = normalized_cases.sort(
     fun (left, right): left[0] < right[0]
   )
+
   for (index in 0..width):
     unless ordered_cases[index][0] == (1 << index)
     | error(~who: #'mux,
             location.describe() ++ ": keyed mux arms must cover every one-hot selector lane exactly once")
+
   def ordered_choices = ordered_cases.map(fun (arm): arm[1])
   build_one_hot_mux(value, ordered_choices, mux_name, location)

@@ -169,6 +169,7 @@ fun spike_chi_request(p :: CHIFlitParams,
     cacheable: cacheable
     device: device
     early_write_acknowledge: Bool(#false)
+
   def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
   inactive.updated(
     ~tag_op: CHITagOp.Invalid,

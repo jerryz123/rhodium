@@ -38,6 +38,7 @@ check:
     0x60c, 0x60d, 0x60e, 0x60f, 0x61c, 0x61d, 0x61e, 0x61f,
     0x10c, 0x10d, 0x10e, 0x10f
   ]
+
   csr_address(CsrId.Fflags) ~is 0x001
   csr_address(CsrId.Frm) ~is 0x002
   csr_address(CsrId.Fcsr) ~is 0x003
@@ -79,6 +80,7 @@ check:
 for (family in [HpmCounterIds, HpmCounterHighIds, MachineHpmCounterIds, MachineHpmCounterHighIds, MachineHpmEventIds]):
   check:
     family.length() ~is 29
+
   for (id in family):
     check:
       id is_a CsrId ~is #true

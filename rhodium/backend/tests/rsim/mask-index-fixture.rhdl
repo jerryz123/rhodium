@@ -19,6 +19,7 @@ sync_circuit RsimMaskIndex():
           scoreboard_busy(3, packed[0..3].into(Mask(3)), narrow_index),
           scoreboard_busy(32, packed[0..32].into(Mask(32)), index[0..5])]
   ).as_bits()
+
   reg held(~init: Bits(14)(0))
   when enable: held <== selected
   result <== selected

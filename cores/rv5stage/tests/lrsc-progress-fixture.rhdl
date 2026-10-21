@@ -37,9 +37,11 @@ sync_circuit RV5StageLRSCProgress():
     home_node_id: Bits(p.node_id_width)(1)
     subordinate_node_id: Bits(p.node_id_width)(9)
     service_base: Bits(p.request_address_width)(0)
+
   ram.identity <== CHIRamIdentity(p):
     node_id: Bits(p.node_id_width)(9)
     base_address: Bits(p.request_address_width)(0)
+
   // Registered channel boundaries model fabric transport and separate the
   // packed bidirectional ports' independent ready paths for RTL simulation.
   home.port.subordinate.req |> queue(1) |> ram.port.req

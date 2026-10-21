@@ -42,6 +42,7 @@ circuit VectorMaskScan(xlen :: XLen):
       | current
       | def lower :: Bits(vector_bit_offset_width(xlen) + 1) = previous[index - distance]
         current + lower
+
   def prefixes = [Bits(vector_bit_offset_width(xlen) + 1)(0)] ++ sums
   def total :: Bits(vector_bit_offset_width(xlen) + 1) = sums[xlen.width - 1]
   def count = carry + total.zext(xlen.width)
@@ -50,11 +51,13 @@ circuit VectorMaskScan(xlen :: XLen):
   def mask = vec(for List (index in 0..xlen.width):
                    def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[index]
                    !carry.or_reduce() & !preceding.or_reduce() & mux(control.only_first, selected[index].into(Bool), control.include_first ||| !selected[index].into(Bool))).as_bits()
+
   def elements = for List (format in 0..vector_format_count(xlen)):
     def width = 8 * (2 ** format)
     vec(for List (lane in 0..(xlen.width / width)):
           def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[lane]
           mux(control.index, first + Bits(xlen.width)(lane), carry + preceding.zext(xlen.width))[0..width]).as_bits()
+
   def packed = mux_lookup(element_width, ~default: elements[0], for List (format in 1..vector_format_count(xlen)): [SimdElementWidth.values()[format], elements[format]])
   next_carry <== mux(control.result === VectorScanResult.First, first_result, count)
   data <== mux_lookup(control.result, ~default: count, [[VectorScanResult.First, first_result], [VectorScanResult.Mask, mask], [VectorScanResult.Elements, packed]])

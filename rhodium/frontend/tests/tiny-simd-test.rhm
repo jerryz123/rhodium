@@ -30,6 +30,7 @@ def program = top.memories[0]
 def lane_lookup = operations(lane, "rtl.mux_lookup").find(
   fun (operation): operation.attribute("keys", []) == [0, 1, 2, 3, 8]
 )
+
 def no_multiply_lookup = operations(no_multiply_lane, "rtl.mux_lookup").find(
   fun (operation): operation.attribute("keys", []) == [0, 1, 2, 3]
 )

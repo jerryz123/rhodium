@@ -27,6 +27,7 @@ interface InstructionCacheLookup(address_width :: PosInt, fetch_bits :: PosInt):
     invalidate_all: Bool
     s1_kill: Bool
     request: Valid(InstructionCacheReq(address_width))
+
   responder -> requester:
     response: Valid(InstructionCacheResult(fetch_bits))
 

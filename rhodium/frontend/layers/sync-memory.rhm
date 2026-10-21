@@ -25,9 +25,11 @@ fun declare_sync_memory(name :: AsciiIdentifier,
                         ~mask_granularity: mask_granularity :: maybe(PosInt) = #false):
   when clock
   | reject_explicit_sync_control()
+
   when mask_granularity && !has_write && !has_read_write
   | error(~who: #'sync_mem,
           "mask granularity requires a write or read-write port")
+
   if clock
   | kernel.sync_memory(name,
                        depth,
@@ -49,12 +51,14 @@ fun declare_sync_memory(name :: AsciiIdentifier,
 fun sync_memory_read_port(memory :: SyncMemory):
   unless memory.read_port
   | error(~who: #'read, "synchronous memory has no read port")
+
   memory.read_port
 
 /* Returns the memory's declared write port, rejecting memories without one. */
 fun sync_memory_write_port(memory :: SyncMemory):
   unless memory.write_port
   | error(~who: #'write, "synchronous memory has no write port")
+
   memory.write_port
 
 /* Returns the memory's declared shared read/write port, rejecting memories without one. */
@@ -62,6 +66,7 @@ fun sync_memory_read_write_port(memory :: SyncMemory):
   unless memory.read_write_port
   | error(~who: #'read_write,
           "synchronous memory has no read-write port")
+
   memory.read_write_port
 
 /* Exposes the read address input with the common hardware surface. */
@@ -81,7 +86,9 @@ fun sync_memory_write_mask(port :: SyncMemoryWritePort) :~ HardwareFields:
   unless port.mask
   | error(~who: #'mask,
           "synchronous memory write port has no mask")
+
   port.mask
+
 /* Exposes the shared address input with the common hardware surface. */
 fun sync_memory_read_write_address(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.address
 /* Exposes the shared-port enable input with the common hardware surface. */
@@ -95,7 +102,9 @@ fun sync_memory_read_write_write_mask(port :: SyncMemoryReadWritePort) :~ Hardwa
   unless port.write_mask
   | error(~who: #'write_mask,
           "synchronous memory read-write port has no write mask")
+
   port.write_mask
+
 /* Exposes the shared-port registered read-data output with the common hardware surface. */
 fun sync_memory_read_write_read_data(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.read_data
 

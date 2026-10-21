@@ -15,11 +15,13 @@ for (xlen in [XLen.X32, XLen.X64]):
       ~xlen: xlen,
       ~extensions: RV5StageExtensions(~floating_point: fp, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb))
     ))
+
     check:
       program.probes.length() ~is (if xlen == XLen.X32 | 50 | 66)
       program.probes.contains("C.NOP") ~is #true
       program.probes.contains("C.MUL") ~is #true
       program.probes.contains("CZERO.EQZ") ~is #true
       program.probes.contains("CZERO.NEZ") ~is #true
+
     for (name in program.probes):
       check: program.probes.filter(~keep: fun (candidate): candidate == name).length() ~is 1

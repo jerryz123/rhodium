@@ -65,6 +65,7 @@ def builder_spec = compose_topologies(
   [builder_left, builder_right],
   ~links: [builder_bridge]
 )
+
 def builder_topology = lower_topology(with_router_terminals(builder_spec))
 def builder_route_ref = RouteClassRef("system")
 def builder_routes = lower_route_classes(
@@ -111,6 +112,7 @@ def syntax_fragment = topology:
   directed internal:
     start -> finish
     vcs [data]
+
 def syntax_left = prefix_topology("left", syntax_fragment)
 def syntax_right = prefix_topology("right", syntax_fragment)
 def syntax_spec = compose_topologies(
@@ -124,6 +126,7 @@ def syntax_spec = compose_topologies(
     )
   ]
 )
+
 def syntax_topology = lower_topology(with_router_terminals(syntax_spec))
 def syntax_route_ref = RouteClassRef("system")
 def syntax_routes = lower_route_classes(
@@ -138,12 +141,15 @@ def syntax_policy = routing:
   rule left:
     origin injection
     candidate_links [syntax_spec.link(["left", "internal"])]
+
   rule bridge:
     origin forwarding
     candidate_links [syntax_spec.link("bridge")]
+
   rule right:
     origin forwarding
     candidate_links [syntax_spec.link(["right", "internal"])]
+
 def syntax_problem = RoutingProblem(
   syntax_topology.topology,
   syntax_routes.route_classes,
@@ -164,11 +170,13 @@ check:
   ) ~is syntax_topology.node_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   builder_topology.link_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is syntax_topology.link_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   builder_topology.vc_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is syntax_topology.vc_bindings.map(

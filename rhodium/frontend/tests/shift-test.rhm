@@ -17,6 +17,7 @@ def module_def = fixture_design.modules[0]
 def shifts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.shl" || operation.opcode == "rtl.shru"
 )
+
 def host_module = host_fixture.design.modules[0]
 
 fun shift_operation(operation):
@@ -29,6 +30,7 @@ fun shift_operation(operation):
 def host_shifts = host_module.operations.filter(
   ~keep: shift_operation
 )
+
 def host_shift_constants = host_module.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.constant"
 )
@@ -60,5 +62,6 @@ check:
   host_shift_constants.map(
     fun (operation): operation.attribute("value")
   ) ~is [0, 3, 3, 3, 3, 3]
+
   verify_design(host_fixture.design) ~is #void
   elaborate(host_fixture.NegativeHostShift()) ~throws "shift amount must be a host natural number or hardware Bits"

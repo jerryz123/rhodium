@@ -24,12 +24,15 @@ circuit StateMachine():
   switch current:
     case State.Idle:
       current <== State.Running
+
     case State.Running:
       current <== State.Done
+
     case State.Done:
       current <== State.Idle
     otherwise:
       current <== State.Idle
+
   state_out <== current
 
 def design = compile_program(elaborate(StateMachine()), rtl_target).report.design

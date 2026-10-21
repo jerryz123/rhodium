@@ -30,6 +30,7 @@ check:
                      "union", "intersection", "difference", "complement",
                      "shifted"]):
      type_equal(module_def.find_output(name).type, fixture.Mask4)) ~is #true
+
   bool.bool_type(module_def.find_output("lane_two").type) ~is #true
   bool.bool_type(module_def.find_output("dynamic_lane").type) ~is #true
   type_equal(module_def.find_output("packed").type, Bits(4)) ~is #true

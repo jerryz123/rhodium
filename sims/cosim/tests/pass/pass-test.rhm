@@ -39,6 +39,7 @@ for (backend in [circt_target, verilog_target]):
     observed.artifacts[1].content ~is "{\"epoch\":\"host-reset\",\"harts\":[{\"instance\":0,\"path\":[\"left\"]},{\"instance\":1,\"path\":[\"right\"]}]}"
     selected.artifacts[1].content.contains("left") ~is #false
     selected.artifacts[1].content.contains("right") ~is #true
+
   for (passes in [[cosim_pass(~adapters: adapters), event_trace_pass()], [event_trace_pass(), cosim_pass(~adapters: adapters)]]):
     def result = compile_program(source, rtl_pipeline_target(backend, passes))
     check:
@@ -47,6 +48,7 @@ for (backend in [circt_target, verilog_target]):
       result.artifacts[0].content.contains("rheg_node") ~is #true
       result.artifacts.find(fun (item): item.name == "cosim.json").content ~is observed.artifacts[1].content
       result.artifacts.length() ~is 4
+
   check:
     compile_program(source, rtl_pipeline_target(backend, [cosim_pass(~adapters: {})])) ~throws "no adapter for observation contract"
     dump_ir(source.design) ~is before

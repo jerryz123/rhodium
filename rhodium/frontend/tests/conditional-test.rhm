@@ -18,6 +18,7 @@ def priority = priority_design.modules[0]
 def priority_muxes = priority.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def priority_final = priority.find_output("selected").place.driver
 def priority_outer = priority.find_operation(priority_final.defining_op_id)
 def priority_inner = priority.find_operation(priority_outer.operands[1].defining_op_id)
@@ -33,6 +34,7 @@ def projected_hold = projected_hold_design.modules[0]
 def projected_hold_mux = projected_hold.operations.find(
   fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def projected_hold_get = projected_hold.operations.find(
   fun (operation): operation.opcode == "rtl.record_get"
 )
@@ -42,6 +44,7 @@ def nested_projected_hold = nested_projected_hold_design.modules[0]
 def nested_projected_hold_mux = nested_projected_hold.operations.find(
   fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def nested_projected_hold_get = nested_projected_hold.find_operation(
   nested_projected_hold_mux.operands[1].defining_op_id
 )
@@ -51,6 +54,7 @@ def indexed_hold = indexed_hold_design.modules[0]
 def indexed_hold_mux = indexed_hold.operations.find(
   fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def indexed_hold_get = indexed_hold.find_operation(
   indexed_hold_mux.operands[1].defining_op_id
 )
@@ -62,11 +66,13 @@ def multiport_dynamic = multiport_dynamic_design.modules[0]
 def multiport_dynamic_write = multiport_dynamic.operations.find(
   fun (operation): operation.opcode == "rtl.vector_write_set"
 )
+
 def exclusive_dynamic_design = compile_program(elaborate(fixture.ExclusiveDynamicRegisterIndex()), rtl_target).report.design
 def exclusive_dynamic = exclusive_dynamic_design.modules[0]
 def exclusive_dynamic_write = exclusive_dynamic.operations.find(
   fun (operation): operation.opcode == "rtl.vector_write_set"
 )
+
 def state_oriented_design = compile_program(elaborate(fixture.StateOrientedRegisterUpdates()), rtl_target).report.design
 def state_oriented = state_oriented_design.modules[0]
 def state_oriented_registers = state_oriented.operations.filter(
@@ -78,9 +84,11 @@ def conditional_memory = conditional_memory_design.modules[0]
 def conditional_memory_writes = conditional_memory.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.memory_write"
 )
+
 def conditional_memory_muxes = conditional_memory.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def conditional_memory_write = conditional_memory_writes[0]
 
 def conditional_ports_design = compile_program(elaborate(fixture.ConditionalMemoryWritePorts()), rtl_target).report.design
@@ -97,9 +105,11 @@ def shift = shift_design.modules[0]
 def shift_registers = shift.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.register_reset"
 )
+
 def shift_muxes = shift.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def composed = composed_fixture.design.modules[0]
 
 check:
@@ -115,30 +125,37 @@ check:
   dynamic_register.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_write_set"
   ).length() ~is 1
+
   multiport_dynamic_write.operands[1].type.length ~is 2
   exclusive_dynamic_write.operands[1].type.length ~is 1
   state_oriented_registers.map(fun (operation): operation.attribute("name")) ~is [
     "active", "count", "result"
   ]
+
   (for all (register in state_oriented_registers):
      state_oriented.find_operation(register.places[0].driver.defining_op_id).opcode == "rtl.mux_lookup") ~is #true
+
   conditional_memory_writes.length() ~is 1
   conditional_memory_muxes.length() ~is 6
   (for all (operand in [conditional_memory_write.operands[0],
                         conditional_memory_write.operands[1],
                         conditional_memory_write.operands[3]]):
      defined_by_mux(conditional_memory, operand)) ~is #true
+
   conditional_port_writes.length() ~is 2
   (for all (write in conditional_port_writes):
      write.operands[2] === conditional_ports.find_input("clock").value) ~is #true
+
   shift_registers.length() ~is 4
   shift_muxes.length() ~is 4
   composed.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
   ).length() ~is 1
+
   (for all (register in shift_registers,
             mux in shift_muxes):
      mux.operands[1] === register.results[0] && register.places[0].driver === mux.results[0]) ~is #true
+
   verify_design(priority_design) ~is #void
   verify_design(nested_design) ~is #void
   verify_design(projected_hold_design) ~is #void

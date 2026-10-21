@@ -51,6 +51,7 @@ sync_circuit AclintTile(params :: AclintTileParams):
         machine_software: aclint.machine_software[index]
         machine_timer: aclint.machine_timer[index]
   )
+
   interrupt_source.egress <=> interrupt_update
   router.incoming_links <=> incoming_links
   router.outgoing_links <=> outgoing_links

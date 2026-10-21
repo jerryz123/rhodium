@@ -90,6 +90,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(XLen.X64, result.fault_address, split_mask))) |> split.response
   when (split.request.fire()):
     split_mode <== split_guest_access
+
   def split_request = misaligned.request |> map_flow(request => RV2WideMemoryReq(XLen.X64, 64)):
     guest_access: split_mode
     address: request.address
@@ -135,12 +136,14 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
       width: MemoryWidth.Double
       unsigned: Bool(#true)
       data: request.data
+
   early_index |> map_valid(request => cache_request(request)) |> pipeline_lookup
   def mem_request = retained_request |> valid_pipe(1)
   def mem :: RV2WideMemoryReq(XLen.X64, 64) = mem_request.bits
   def data_request :: RV2WideMemoryReq(XLen.X64, 64) = priority_mux(~default: mem):
     split_request.valid: split_request.bits
     memory.request.valid: memory.request.bits
+
   def data_virtual_address = mux(split_request.valid, split_fault_address, data_request.address)
   def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
   def vector_probe = vector_window.translation.request.valid & !data_demand & !misaligned.busy
@@ -153,6 +156,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def data_access = priority_mux(~default: Sv39Access.Load):
     data_request.access.is_cache_management(): Sv39Access.CacheManagement
     data_request.access.store_fault_class(): Sv39Access.Store
+
   def explicit_guest_privilege = mux(csr_flag(guest_state.hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User)
   def selected_data_privilege = mux(explicit_guest, explicit_guest_privilege, data_privilege)
   def normal_lookup = lookup(data_virtual_address, data_access, selected_data_privilege, data_guest).updated(~execute_read: execute_read)
@@ -189,6 +193,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     CachePrefetchOperation.Instruction: prefetch_region.executable
     CachePrefetchOperation.Read: prefetch_region.readable
     CachePrefetchOperation.Write: prefetch_region.writable
+
   def prefetch_cacheable = mux(instruction_prefetch, prefetch_attributes.instruction_cacheable, prefetch_attributes.cacheable)
   def prefetch_ordinary_memory = prefetch_region.mapped & prefetch_cacheable & !prefetch_attributes.strongly_ordered & prefetch_attributes.read_idempotent
   def prefetch_eligible = !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_ordinary_memory & prefetch_permission
@@ -249,6 +254,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     CachePipelineOutcome.Slow: RV2WideCacheOutcome.Slow
     CachePipelineOutcome.LoadHit: RV2WideCacheOutcome.LoadHit
     CachePipelineOutcome.StoreHit: RV2WideCacheOutcome.StoreHit
+
   wire outcome: RV2WideCacheOutcome
   when (data_demand ||| vector_probe ||| misaligned.busy):
     outcome <== RV2WideCacheOutcome.Replay
@@ -266,11 +272,13 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     outcome <== RV2WideCacheOutcome.Slow
   otherwise:
     outcome <== mux(physical_pipeline.response.valid, cache_outcome, RV2WideCacheOutcome.Replay)
+
   pipeline.response.valid <== mem_request.valid
   pipeline.response.bits <== RV2WideLookupResult(XLen.X64):
     guest: data_guest_fault
     outcome: outcome
     data: physical_pipeline.response.bits.data
+
   physical_pipeline.commit <== pipeline.commit & !misaligned.busy
   pipeline.commit_ready <== physical_pipeline.commit_ready & !misaligned.busy
 
@@ -294,6 +302,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def fill = RiscvTlbFill():
     request: walk_lookup
     result: walker.completion.bits
+
   itlb.fill.valid <== walker.completion.valid & walk_live & !walk_data & !invalidate
   dtlb.fill.valid <== walker.completion.valid & walk_live & walk_data & !invalidate
   itlb.fill.bits <== fill
@@ -306,16 +315,19 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     walk_lookup <== walker.request.bits
   elsewhen (walker.completion.valid):
     walk_live <== Bool(#false)
+
   when (invalidate ||| (walker.request.fire() & choose_data)):
     pending_data <== Bool(#false)
   elsewhen (data_miss & !same_active_data & !pending_data):
     pending_data <== Bool(#true)
     pending_lookup <== data_lookup
+
   when invalidate:
     instruction_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & !walk_data):
     instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
     instruction_fault <== fill
+
   when invalidate:
     data_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & walk_data):
@@ -389,6 +401,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def core_fault_cause = priority_mux(~default: physical_memory.fault.bits.cause):
     !data_ok: riscv_translation_fault_cause(data_result)
     core_execute_denied: exception_cause_bits(ExceptionCause.LoadAccessFault, 64)
+
   memory.fault.bits <== RV2WideResolution(XLen.X64):
     guest: data_guest_fault
     disposition: RV2WideDisposition.Fault
@@ -401,6 +414,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   misaligned.request_guest <== RiscvGuestException():
     page_fault: data_result.fault === RiscvTranslationFault.GuestPageFault
     details: data_guest_fault
+
   misaligned.request_fault <== split_request.valid & data_known & data_result.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
   def split_translation_fault = data_result.fault =/= RiscvTranslationFault.None
   def split_physical_fault = physical_memory.fault.valid & split_selected
@@ -419,6 +433,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     RV2WidePhysicalResponse():
       data: data
       origin: origin
+
   def Array(core_response, split_response, pte_response) = responses |> demux_flow(3, response => response.origin.as_bits())
   core_response |> map_flow(response => response.data) |> memory.response
   (split_response |> map_flow(response => PhysicalMemoryResp(XLen.X64, Bool)):
@@ -426,6 +441,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     context: Bool(#false)
     access_fault: Bool(#false)
   ) |> misaligned.physical_response
+
   pte_response |> map_flow(response => response.data) |> to_valid() |> walker.memory.response
 
 

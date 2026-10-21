@@ -13,6 +13,7 @@ sync_circuit SyncRam1RW(depth :: PosInt, T :: DataType, n :: PosInt):
   interface port(ReadWritePort(address_width, T, n), ~role: responder)
   sync_mem storage(depth, Data, ~mask_granularity: T.packed_width()):
     read_write
+
   reg response_valid(~init: Bool(#false))
 
   storage.read_write.address <== port.request.bits.address

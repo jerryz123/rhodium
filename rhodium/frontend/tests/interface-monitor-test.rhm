@@ -34,22 +34,28 @@ check:
   producer.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "stream_in"
   ]
+
   producer.outputs.map(fun (port): port.name) ~is [
     "stream_out"
   ]
+
   assertions(producer).map(
     fun (operation): operation.attribute("label")
   ) ~is ["producer_ready_requires_valid"]
+
   assertions(consumer).map(
     fun (operation): operation.attribute("label")
   ) ~is ["consumer_ready_requires_valid"]
+
   assertions(unmonitored) ~is []
   assertions(array).map(
     fun (operation): operation.attribute("label")
   ) ~is ["producer_ready_requires_valid", "producer_ready_requires_valid"]
+
   assertions(refined).map(
     fun (operation): operation.attribute("label")
   ) ~is ["producer_ready_requires_valid"]
+
   verify_design(producer_design) ~is #void
   verify_design(consumer_design) ~is #void
   verify_design(unmonitored_design) ~is #void

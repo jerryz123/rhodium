@@ -114,10 +114,13 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     def mutable single_letter = ["i", "m", "a"]
     when floating_point_supports_f(floating_point)
     | single_letter := single_letter ++ ["f"]
+
     when floating_point_supports_d(floating_point)
     | single_letter := single_letter ++ ["d"]
+
     when compressed.contains(CompressedExtension.C)
     | single_letter := single_letter ++ ["c"]
+
     single_letter := single_letter ++ ["b"]
     when hypervisor
     | single_letter := single_letter ++ ["h"]
@@ -126,24 +129,31 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     multi_letter := multi_letter ++ ["za64rs", "zba", "zbb", "zbs"]
     when !compressed.contains(CompressedExtension.C) && compressed.contains(CompressedExtension.Zca)
     | multi_letter := multi_letter ++ ["zca"]
+
     when compressed.contains(CompressedExtension.Zcb)
     | multi_letter := multi_letter ++ ["zcb"]
+
     unless compressed.contains(CompressedExtension.C)
     | block:
         when compressed.contains(CompressedExtension.Zcd)
         | multi_letter := multi_letter ++ ["zcd"]
+
         when compressed.contains(CompressedExtension.Zcf)
         | multi_letter := multi_letter ++ ["zcf"]
+
     when compressed.contains(CompressedExtension.Zcmop)
     | multi_letter := multi_letter ++ ["zcmop"]
+
     when zfa
     | multi_letter := multi_letter ++ ["zfa"]
+
     cond
     | half_precision == HalfPrecisionProfile.Zfh:
         multi_letter := multi_letter ++ ["zfh"]
     | half_precision == HalfPrecisionProfile.Zfhmin:
         multi_letter := multi_letter ++ ["zfhmin"]
     | ~else: #void
+
     def cache_block = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
     def main_memory = (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ ["zicclsm"] ++ (if ziccrse | ["ziccrse"] | [])
     def pointer_masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
@@ -173,10 +183,13 @@ fun check_rv5stage_vector_profile(xlen :: XLen,
   validate_vector_extensions(vector, vector_extensions)
   when vector_profile_supports_integer64(vector) && xlen != XLen.X64
   | error(~who: #'check_rv5stage_vector_profile, "64-bit vector elements require RV64")
+
   when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
   | error(~who: #'check_rv5stage_vector_profile, "Zve64d and V require scalar D")
+
   when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
   | error(~who: #'check_rv5stage_vector_profile, "floating-point vector profiles require scalar F or D")
+
   when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
   | error(~who: #'check_rv5stage_vector_profile, "Zvfh requires scalar Zfhmin or Zfh")
 
@@ -218,22 +231,30 @@ class RV5StageConfig(xlen :: XLen,
       extensions.half_precision,
       ~zfa: extensions.zfa
     )
+
     extensions.compressed_misa_c(xlen)
     when xlen == XLen.X32 && extensions.ssnpm
     | error(~who: #'RV5StageConfig, "Ssnpm requires RV64")
+
     when extensions.supm && !extensions.ssnpm
     | error(~who: #'RV5StageConfig, "Supm requires Ssnpm hardware")
+
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
+
     when extensions.svpbmt && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
     | error(~who: #'RV5StageConfig, "Svpbmt requires RV64 Sv39")
+
     when extensions.svnapot && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
     | error(~who: #'RV5StageConfig, "Svnapot requires RV64 Sv39")
+
     when extensions.hypervisor && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
     | error(~who: #'RV5StageConfig, "H requires RV64 Sv39")
+
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
     when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
     | error(~who: #'RV5StageConfig, "the integrated vector pipeline requires at least two XLEN-wide rows per register")
+
     super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
 
   /* Reapplies configuration checks after a specialization parameter changes. */
@@ -264,14 +285,19 @@ class RV5StageConfig(xlen :: XLen,
     def mutable misa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
     when floating_point_supports_f(extensions.floating_point)
     | misa := misa ++ [MisaExtension.F]
+
     when floating_point_supports_d(extensions.floating_point)
     | misa := misa ++ [MisaExtension.D]
+
     when extensions.compressed_misa_c(xlen)
     | misa := misa ++ [MisaExtension.C]
+
     when vector_profile_is_v(vector)
     | misa := misa ++ [MisaExtension.V]
+
     when extensions.hypervisor
     | misa := misa ++ [MisaExtension.H]
+
     RiscvIsaProfile(xlen, names, misa)
 
   /* Selects architectural CSR banks without exporting pipeline, cache, or execution configuration. */

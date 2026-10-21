@@ -21,7 +21,9 @@ class ObservedMetadata(value :: Value):
     check:
       module_def.design.sealed ~is #true
       value.module_def === module_def ~is #true
+
     certifications := certifications + 1
+
   override method remap_ir(remap :: Function.of_arity(1)):
     remappings := remappings + 1
     ObservedMetadata(remap(value))
@@ -45,6 +47,7 @@ for (name in ["left", "right"]):
   def child = builder.instance(top, shared_child, name, Location("prepared-fixture", 7, 2))
   builder.drive(child.input("input"), input)
   builder.drive(builder.output(top, name, Bits(8)), child.output("output"))
+
 builder.finish(top)
 def shared = DesignElaboration(design, top)
 
@@ -61,6 +64,7 @@ for (program in [concrete, shared]):
     certifications ~is before_certifications + 1
     prepared.rtl.design === program.design ~is #false
     prepared.rtl.design.sealed ~is #true
+
   for (target in [circt_target, verilog_target], emitter in [emit_circt, emit_verilog]):
     def plan = target.plan(prepared)
     def artifacts = plan.emit()
@@ -75,6 +79,7 @@ for (program in [concrete, shared]):
       dump_ir(prepared.rtl.design) ~is prepared_before
       dump_ir(program.design) ~is before
       program.design.sealed ~is #false
+
   for (target in [circt_target, verilog_target, rsim_target, RsimTarget(~partitioning: "module")]):
     def before_copies = remappings
     def before_checks = certifications

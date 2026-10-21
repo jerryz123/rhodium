@@ -22,6 +22,7 @@ circuit ValidArbiter(T :: DataType, n :: PosInt):
     for List (index in 0..n): ingress[index].bits,
     ~default: ingress[0].bits
   )
+
   chosen <== grant.index
   describe_interface_selection(for List (index in 0..n): grant[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "valid-arbiter", ~trace_model: interface_trace_selection(~pending: #true))
@@ -44,6 +45,7 @@ circuit Arbiter(T :: DataType, n :: PosInt):
     for List (index in 0..n): ingress[index].bits,
     ~default: ingress[0].bits
   )
+
   chosen <== grant.index
   describe_interface_selection(for List (index in 0..n): grant[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "arbiter", ~trace_model: interface_trace_selection(~pending: #true))
@@ -70,6 +72,7 @@ fun arbiter(n :: maybe(PosInt) = #false)
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:
       if source is_a Handle | source.right | source
+
     def typed = !(inputs is_a Array)
     def input_count:
       if typed
@@ -77,19 +80,24 @@ fun arbiter(n :: maybe(PosInt) = #false)
           unless n is_a PosInt
           | error(~who: #'arbiter,
                   "typed fixed-priority arbitration requires a positive input count")
+
           n
       | block:
           unless inputs.length() > 0
           | error(~who: #'arbiter,
                   "fixed-priority arbitration requires at least one input endpoint")
+
           if n
           | unless n == inputs.length()
             | error(~who: #'arbiter,
                     "configured input count does not match the endpoint array")
           | #void
+
           inputs.length()
+
     def T:
       if typed | source | flow_payload_type(inputs[0])
+
     inst arbiter_stage(Arbiter(T, input_count))
     finish_interface_transform(
       source,
@@ -106,6 +114,7 @@ fun valid_arbiter(n :: maybe(PosInt) = #false)
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:
       if source is_a Handle | source.right | source
+
     def typed = !(inputs is_a Array)
     def input_count:
       if typed
@@ -113,21 +122,26 @@ fun valid_arbiter(n :: maybe(PosInt) = #false)
           unless n is_a PosInt
           | error(~who: #'valid_arbiter,
                   "typed Valid arbitration requires a positive input count")
+
           n
       | block:
           unless inputs.length() > 0
           | error(~who: #'valid_arbiter,
                   "Valid arbitration requires at least one input endpoint")
+
           if n
           | unless n == inputs.length()
             | error(~who: #'valid_arbiter,
                     "configured input count does not match the endpoint array")
           | #void
+
           inputs.length()
+
     def T:
       if typed
       | valid_flow_payload_type(source)
       | valid_flow_payload_type(inputs[0])
+
     inst valid_arbiter_stage(ValidArbiter(T, input_count))
     finish_interface_transform(
       source,

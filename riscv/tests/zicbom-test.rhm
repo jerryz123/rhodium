@@ -24,6 +24,7 @@ check:
   Zicbom.instructions.map(fun (instruction): instruction.name) ~is [
     "CBO.INVAL", "CBO.CLEAN", "CBO.FLUSH"
   ]
+
   ZicbomInstructions.map(fun (instruction): instruction.encoding.value) ~is expected_encodings
   CBO_INVAL.encode([rs1.constrain(1)]) ~is 0x0000a00f
   CBO_CLEAN.encode([rs1.constrain(2)]) ~is 0x0011200f
@@ -54,6 +55,7 @@ for (index in 0..ZicbomInstructions.length()):
       rs1.extract(word) ~is register
       Zicbom.matching(word) === instruction ~is #true
       memory_catalog.matching(word) === instruction ~is #true
+
     for (bit in 0..32):
       unless bit >= 15 && bit < 20
       | check:

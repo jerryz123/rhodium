@@ -20,9 +20,11 @@ fun build_switch(selector :~ HardwareEntity,
                  otherwise_body :: maybe(Function.of_arity(0)) = #false):
   unless selector is_a HardwareEntity
   | kernel.frontend_fail("switch selector must be a hardware value")
+
   for (case in cases):
     unless case.length() == 2
     | kernel.frontend_fail("switch cases must contain a key and branch body")
+
   def selector_value = kernel.read(selector)
   def selector_bits:
     if bits_type(selector_value.type)
@@ -32,6 +34,7 @@ fun build_switch(selector :~ HardwareEntity,
       | kernel.frontend_fail(
           "switch selector must be Bits or a typed mux-key selector"
         )
+
   def normalized_cases:
     if bits_type(selector_value.type)
     | cases.map(fun (case): [case[0](), case[1]])
@@ -39,6 +42,7 @@ fun build_switch(selector :~ HardwareEntity,
         fun (case):
           [selector_value.type.normalize_mux_lookup_key(case[0]()), case[1]]
       )
+
   kernel.switch_chain(selector_bits, normalized_cases, otherwise_body)
 
 defn.sequence_macro 'when $condition: $body; ...
@@ -80,6 +84,7 @@ defn.sequence_macro 'when $condition: $body; ...
            )',
           remaining
         )
+
   expand_chain(
     [
       '[fun (): $condition,
@@ -109,22 +114,27 @@ defn.macro 'switch $selector: $clause; ...':
     | 'case $(key :: expr_meta.Parsed): $body; ...':
         when otherwise_entry
         | syntax_meta.error("switch case cannot follow otherwise", item)
+
         def case_entry:
           '[fun (): $key,
             fun ():
               $body
               ...]'
+
         case_entries := case_entries ++ [case_entry]
     | 'otherwise: $body; ...':
         when otherwise_entry
         | syntax_meta.error("switch can have only one otherwise", item)
+
         otherwise_entry := 'fun ():
                               $body
                               ...'
     | ~else:
         syntax_meta.error("expected switch case or otherwise", item)
+
   when case_entries.length() == 0
   | syntax_meta.error("switch requires at least one case", '$selector')
+
   let [case_entry, ...] = case_entries
   if otherwise_entry
   | 'build_switch($selector, [$case_entry, ...], $otherwise_entry)'

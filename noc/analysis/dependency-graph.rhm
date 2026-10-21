@@ -39,6 +39,7 @@ class VCDependencyEdge(source_vc :: VCId,
         fun (route_class): route_class === decision.route_class
       )
       | route_classes := route_classes ++ [decision.route_class]
+
     route_classes
 
   /* Formats both resources and the routes contributing this dependency. */
@@ -46,6 +47,7 @@ class VCDependencyEdge(source_vc :: VCId,
     def route_names = route_classes().map(
       fun (route_class): route_class.id.describe()
     )
+
     String.append(source_vc.describe(), " -> ", target_vc.describe(), " [",
                   String.join(route_names, ", "), "]")
 
@@ -87,10 +89,12 @@ class VCDependencyGraph(reachable :: ReachableRouting,
     def found = edges.find(
       fun (edge): edge_matches(edge, source_vc, target_vc)
     )
+
     unless found
     | error(~who: #'VCDependencyGraph,
             String.append("unknown dependency edge ", source_vc.describe(),
                           " -> ", target_vc.describe()))
+
     found
 
   /* Returns dependencies requesting another resource while holding the selected VC. */
@@ -113,11 +117,13 @@ class VCDependencyGraph(reachable :: ReachableRouting,
       unless contains_vertex(vc)
       | error(~who: #'project,
               "projection VC is not a dependency-graph vertex: " ++ vc.describe())
+
       when selected_vertices.filter(
         ~keep: fun (candidate): vc_id_equal(candidate, vc)
       ).length() > 1
       | error(~who: #'project,
               "duplicate dependency-graph projection VC " ++ vc.describe())
+
     def sorted_vertices = selected_vertices.sort(vc_id_less)
     def projected_edges = edges.filter(
       ~keep: fun (edge): contains_vc(sorted_vertices, edge.source_vc) && contains_vc(
@@ -125,6 +131,7 @@ class VCDependencyGraph(reachable :: ReachableRouting,
         edge.target_vc
       )
     )
+
     _VCDependencyGraph(reachable, sorted_vertices, projected_edges)
 
   /* Lists dependencies in stable source/target order. */
@@ -139,6 +146,7 @@ fun add_dependency(edges :: List.of(VCDependencyEdge),
   def existing = edges.find(
     fun (edge): edge_matches(edge, source_vc, target_vc)
   )
+
   if existing
   | edges.map(
       fun (edge):
@@ -156,10 +164,12 @@ fun build_dependency_graph(reachable :: ReachableRouting):
   for (route in reachable.routes):
     for (vc in route.reachable_vcs):
       vertices := append_unique_vc(vertices, vc)
+
     for (decision in route.reachable_decisions):
       // Injection acquires the first VC while holding no VC resource.
       when decision.origin is_a HeldVC
       | edges := add_dependency(edges, decision)
+
   _VCDependencyGraph(
     reachable,
     vertices.sort(vc_id_less),

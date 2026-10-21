@@ -12,9 +12,11 @@ check:
   RV32Zmmul.instructions.map(fun (instruction): instruction.name) ~is [
     "MUL", "MULH", "MULHSU", "MULHU"
   ]
+
   RV64Zmmul.instructions.map(fun (instruction): instruction.name) ~is [
     "MUL", "MULH", "MULHSU", "MULHU", "MULW"
   ]
+
   RV32Zmmul.matching(0x023100B3) === MUL ~is #true
   RV32Zmmul.matching(0x023110B3) === MULH ~is #true
   RV32Zmmul.matching(0x023120B3) === MULHSU ~is #true

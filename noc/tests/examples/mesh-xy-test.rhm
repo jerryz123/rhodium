@@ -19,6 +19,7 @@ def corner_route_ref = example_traffic.find(
       example_mesh.node_at(1, 1)
     )
 ).ref
+
 def corner_route = example_lowered_traffic.route_class(corner_route_ref)
 def source_id = example_topology.node_id(example_mesh.node_at(0, 0))
 def east_escape = example_topology.vc_id(

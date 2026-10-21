@@ -30,6 +30,7 @@ class CHIAddressProjectorConfig(flit :: CHIFlitParams,
     def layout = StripedAddressLayout(local_bytes, stripe_bytes, bank_count)
     unless layout.fits_unsigned_width(flit.request_address_width)
     | error(~who: #'CHIAddressProjectorConfig, "striped memory size must fit the request address width")
+
     super(flit, layout)
 
   /* Describe the global addresses assigned to one bank of the striped layout. */
@@ -69,10 +70,12 @@ class CHIAddressProjectorParams(config :: CHIAddressProjectorConfig,
     )
     | error(~who: #'CHIAddressProjectorParams,
             "downstream service must be one dense local memory region")
+
     for (request in downstream_service.requests):
       unless request.sizes.max_bytes <= config.stripe_bytes
       | error(~who: #'CHIAddressProjectorParams,
               "request size must not exceed the address stripe size")
+
     super(config, downstream_service, global_base, bank_index)
 
   /* Translate a host address in this stripe bank into the downstream dense region. */
@@ -108,6 +111,7 @@ circuit CHIAddressProjector(config :: CHIAddressProjectorConfig):
     upstream.req |> map_flow(request):
       request.updated(~address: chi_projected_address(config, identity, request.address))
   ) <=> downstream.req
+
   upstream.rsp <=> downstream.rsp
   upstream.dat <=> downstream.dat
 

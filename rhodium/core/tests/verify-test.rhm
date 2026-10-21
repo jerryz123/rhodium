@@ -99,6 +99,7 @@ block:
                             [result],
                             [],
                             {"name": "result"})
+
   source.add_user(operation_id)
   module_def.add_value(result)
   module_def.add_operation(operation)
@@ -135,6 +136,7 @@ block:
                             [result],
                             [],
                             {"name": "result", "high": 5, "low": 2})
+
   operand.add_user(operation_id)
   module_def.add_value(result)
   module_def.add_operation(operation)
@@ -159,8 +161,10 @@ block:
                             [result],
                             [],
                             {"name": "result", "keys": [1, 0]})
+
   for (operand in operation.operands):
     operand.add_user(operation_id)
+
   module_def.add_value(result)
   module_def.add_operation(operation)
   def finished = builder.finish(module_def)
@@ -182,6 +186,7 @@ block:
                             [result],
                             [],
                             {"name": "result"})
+
   left.add_user(operation_id)
   right.add_user(operation_id)
   module_def.add_value(result)
@@ -204,6 +209,7 @@ block:
                             [result],
                             [],
                             {"name": "result", "target_width": 4})
+
   operand.add_user(operation_id)
   module_def.add_value(result)
   module_def.add_operation(operation)
@@ -225,6 +231,7 @@ block:
                             [result],
                             [],
                             {"name": "result", "target_width": 8})
+
   operand.add_user(operation_id)
   module_def.add_value(result)
   module_def.add_operation(operation)
@@ -295,6 +302,7 @@ block:
                                 [result],
                                 [],
                                 {"name": "result"})
+
   result.add_user(operation_id)
   result.add_user(operation_id)
   module_def.add_value(result)
@@ -463,6 +471,7 @@ block:
         [["left", builder.record_get(leaf, element, "left")],
          ["right", builder.record_get(leaf, element, "right")]]
       )
+
   builder.drive(leaf_output,
                 builder.vector_create(leaf, pair_vector_type, rebuilt_pairs))
   builder.finish(leaf)
@@ -487,6 +496,7 @@ block:
       builder.project(input_element, "right"),
       if index == 1 | output_left | zero
     )
+
   builder.finish(top)
   check:
     // Nested output[0].left cannot depend on the feedback at input[1].right.
@@ -602,6 +612,7 @@ block:
     reserved.operation.attribute("name") ~is "adder_2"
     fourth.operation.attribute("name") ~is "adder_3"
     builder.instance(top, child, "adder") ~throws "duplicate instance name adder"
+
   builder.finish(top)
   check:
     verify_design(design) ~is #void
@@ -619,6 +630,7 @@ block:
                         [],
                         [],
                         {"name": "same", "module": child})
+
   def second = Operation(design.fresh_id(),
                          "rtl.instance",
                          top,
@@ -626,6 +638,7 @@ block:
                          [],
                          [],
                          {"name": "same", "module": child})
+
   top.add_operation(first)
   top.add_operation(second)
   builder.finish(top)
@@ -706,6 +719,7 @@ block:
                             [result],
                             [],
                             {"name": "constant"})
+
   module_def.add_value(result)
   module_def.add_operation(operation)
   module_def.mark_finished()

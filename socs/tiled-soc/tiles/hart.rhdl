@@ -55,6 +55,7 @@ sync_circuit HartTile(params :: HartTileParams, ~reset_address: reset_address ::
     machine_timer: interrupt_replica.current.machine_timer
     supervisor_external: external_interrupt_replica.current.supervisor_external
     machine_external: external_interrupt_replica.current.machine_external
+
   hart.hart_id <== identity.hart_id
   hart.time_counter <== time_receiver.value
   time_beat <=> time_receiver.ingress

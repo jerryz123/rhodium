@@ -21,6 +21,7 @@ def control_fields = [
 def record_extracts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.record_get"
 )
+
 def muxes = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
 )
@@ -30,10 +31,12 @@ check:
   control_type.fields.map(fun (field): field.name) ~is control_fields
   (for all (field in control_type.fields):
      type_equal(field.type, bool.Bool)) ~is #true
+
   control_type.packed_width() ~is 5
   request_payload_type.fields.map(fun (field): field.name) ~is [
     "left", "right", "control"
   ]
+
   type_equal(request_payload_type.field("left").type, Bits(64)) ~is #true
   type_equal(request_payload_type.field("right").type, Bits(64)) ~is #true
   type_equal(request_payload_type.field("control").type, control_type) ~is #true
@@ -55,15 +58,19 @@ check:
     "bits", "left", "right", "control", "signed_mode", "compare_equal",
     "unconditional", "invert", "enable", "valid"
   ]
+
   muxes.length() ~is 2
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.eq"
   ).length() ~is 1
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.ult"
   ).length() ~is 1
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
   ).length() ~is 0
+
   verify_design(design) ~is #void
   elaborate(branch.BranchResolver(0)) ~throws "PosInt"

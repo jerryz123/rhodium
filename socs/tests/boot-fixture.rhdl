@@ -35,6 +35,7 @@ def description = RiscvSoCDescription(
     SoCAddressRegion(AddressSet(0x02000000, 0xffff))
   )
 )
+
 def image = boot.image_for(description)
 
 export:

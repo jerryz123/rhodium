@@ -34,6 +34,7 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
     count <== next_count[0..2]
     when (next_count > Bits(3)(0)):
       entries[0] <== mux(remaining.or_reduce(), entries[1], mux(bypass, incoming[1].bits, first))
+
     when (next_count === Bits(3)(2)):
       entries[1] <== mux(remaining.or_reduce(), first, incoming[1].bits)
 

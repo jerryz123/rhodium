@@ -121,6 +121,7 @@ check:
   escape_semantics.proof.find(
     fun (row): row == "escape-vcs=[l0.vc1, l1.vc1, l2.vc1]"
   ) != #false ~is #true
+
   escape_semantics.route_table_rows.length() ~is 5
   escape_semantics.validator_kind ~is "vc-escape-subnetwork"
   escape_semantics.assumptions.contains(

@@ -23,6 +23,7 @@ circuit HostControl():
 
   unless signal
   | error("a hardware object must be truthy in host control")
+
   unless_selected <== signal
 
   cond

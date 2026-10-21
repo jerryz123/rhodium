@@ -21,10 +21,12 @@ def steps = [RsimStep("input", Reset, [], {"name": "reset"}),
              RsimStep("rtl.vector_inject", vector, [1, 2, 3], {}),
              RsimStep("rtl.vector_inject", vector, [4, 2, 3], {}),
              RsimStep("rtl.mux_lookup", vector, [2, 1, 5], {"keys": [1]})]
+
 def inputs = for List (step in steps.take(4), index in 0..4): RsimPort(step.attributes["name"], step.type, index)
 fun fixture(shared :: maybe(Nat) = #false):
   RsimSchedule("ArrayAssignment", inputs, if shared == #false | [] | [RsimPort("shared", vector, shared)],
                steps, [RsimRegister([], "q", vector, 6, 0, 1)], [], [], [], [], [])
+
 def original = fixture()
 def evaluation = build_evaluation_plan(original)
 def sink = evaluation.pre_edge.sinks[0]
@@ -39,12 +41,14 @@ check:
   pre_edge_sinks(original)[0].dependencies.values ~is [6, 0, 1]
   compact_array_updates(original) === original ~is #true
   build_evaluation_plan(original) ~is evaluation
+
 // Shared leaves, including the next-value itself, still serve output evaluation.
 for (shared in [4, 5, 6]):
   def selected = build_evaluation_plan(fixture(shared))
   check:
     shared in selected.pre_edge.steps ~is #true
     shared in selected.outputs.steps ~is #true
+
   if shared >= 5
   | check: selected.pre_edge.sinks[0].array ~is #false
   | check:
@@ -62,16 +66,20 @@ for (body in [planned.pre_edge, planned.outputs]):
   for (step in body.steps):
     for (operand in planned.dependencies[step].values):
       check: operand in available ~is #true
+
     available.add(step)
+
   for (sink in body.sinks):
     for (value in sink.dependencies.values):
       check: value in available ~is #true
+
   for (budget in [1, 24, 1000000]):
     for (region in build_regions(schedule, planned, body, ~budget: budget)):
       def visible = for Set (value in region.steps ++ region.inputs ++ region.constants): value
       for (sink in region.sinks):
         for (value in sink.dependencies.values):
           check: value in visible ~is #true
+
 for (budget in [1, 1000000]):
   def emitted = emit_rsim(original, ~region_budget: budget)[1]
   check:
@@ -93,6 +101,7 @@ check:
   before_forward.pre_edge.sinks[0].array.steps.length() ~is 2
   after_plan.pre_edge.sinks[0].array.steps.length() ~is 3
   after_forward ~is compact_array_updates(after_forward)
+
 // A genuine output of the same whole version still stops fusion.
 def shared_observed = RsimSchedule(observed.name, inputs, observed.outputs ++ [RsimPort("whole", vector, 4)], observed_steps,
                                    original.registers, [], [], [], [], [])

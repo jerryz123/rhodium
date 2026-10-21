@@ -28,6 +28,7 @@ check:
   module_def.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "set_in", "clear_in"
   ]
+
   module_def.outputs.map(fun (port): port.name) ~is ["busy"]
   module_def.find_input("set_in").type.field("valid").type.packed_width() ~is 1
   module_def.find_input("set_in").type.field("bits").type.width ~is 3
@@ -37,6 +38,7 @@ check:
   operations(module_def, "rtl.register_reset").map(
     fun (operation): operation.attribute("name")
   ) ~is ["state"]
+
   operations(module_def, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is [
@@ -45,8 +47,10 @@ check:
     "scoreboard_clear_index_in_range",
     "scoreboard_clear_busy"
   ]
+
   (for all (module in [lookup_module, nonpower_lookup_module, single_lookup_module]):
      bool.bool_type(module.find_output("result").type)) ~is #true
+
   verify_design(design) ~is #void
   nonpower_compiled.has_errors ~is #false
   single_compiled.has_errors ~is #false

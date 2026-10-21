@@ -61,6 +61,7 @@ block:
   check:
     scalar_read.module_def.find_operation(scalar_read.defining_op_id).opcode ~is "rtl.wire"
     builder.drive(scalar, other) ~throws "already has a driver"
+
   builder.drive(builder.project_vector(partial, 0), source)
   check:
     builder.finish(module_def) ~throws "incomplete element-wise drivers"

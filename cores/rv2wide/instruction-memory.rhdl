@@ -55,6 +55,7 @@ sync_circuit RV2WideInstructionMemory():
     data: Bits(64)(0)
     access_fault: Bool(#false)
     replay: Bool(#true)
+
   def cached_result = mux(cache.response.valid, cache.response.bits, unavailable)
   def uncached_result = mux(completed_match, response, unavailable)
   s2.egress |> filter_valid(_request => !flush)

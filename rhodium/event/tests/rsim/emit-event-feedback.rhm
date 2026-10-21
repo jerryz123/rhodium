@@ -10,6 +10,8 @@ fun site_header(manifest):
     def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
     unless matches.length() == 1 | error("expected one feedback site: " ++ label)
     to_string(matches[0])
+
   "\nconstexpr unsigned feedback_sites[5] = {" ++ String.join(indices, ",") ++ "};\n"
+
 def target = traced_target(site_header)
 export program target

@@ -38,6 +38,7 @@ sync_circuit TiledDistributionRouter(config :: SimpleRouterFamilyConfig):
   router.site_key <== site_key
   for (index in 0..family.injection_count):
     injection[index] <=> router.ingress[index]
+
   for (index in 0..family.ingress_count):
     def input :: Endpoint = router.ingress[family.injection_count + index]
     input.valid <== incoming_links[index].beat.valid
@@ -46,14 +47,17 @@ sync_circuit TiledDistributionRouter(config :: SimpleRouterFamilyConfig):
     incoming_links[index].vc_ready <== vec([input.ready])
     assert(!incoming_links[index].beat.valid ||| (incoming_links[index].beat.bits.vc === Bits(1)(0)),
            "tiled_distribution_vc_is_zero")
+
   for (index in 0..family.egress_count):
     def target :: Endpoint = router.target[index]
     outgoing_links[index].beat.valid <== target.egress.valid
     outgoing_links[index].beat.bits <== VcBeat(Beat, 1):
       vc: Bits(1)(0)
       payload: target.egress.bits
+
     target.egress.ready <== outgoing_links[index].beat.ready
     target.available <== outgoing_links[index].vc_ready[0]
+
   for (index in 0..family.ejection_count):
     def target :: Endpoint = router.target[family.egress_count + index]
     target.egress <=> ejection[index]
@@ -65,9 +69,11 @@ fun distribution_link_index(connections :: List.of(RouterFamilyLinkConnection),
   def found = connections.find_index(
     fun (candidate): link_id_equal(candidate.link.id, connection.link.id)
   )
+
   unless found
   | error(~who: #'TiledDistributionNetwork,
           "distribution link is absent from its router site")
+
   found
 
 /* Owns the platform overlay's router instances and links, injecting updates by compiled per-hart keys and exposing independently backpressured typed ejections. */
@@ -88,6 +94,7 @@ sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
 
   def routers = for InstanceArray (_ in plan.family.members):
     inst router(TiledDistributionRouter(config))
+
   inst time_injector(RoutedFlowInjector(TiledTimeBeat(hart_count), TiledDistributionMessage, route_width))
   inst interrupt_injector(RoutedFlowInjector(IndexedState(TiledHartInterrupts(), hart_count), TiledDistributionMessage, route_width))
   inst external_interrupt_injector(RoutedFlowInjector(IndexedState(TiledExternalInterrupts(), hart_count), TiledDistributionMessage, route_width))
@@ -125,13 +132,16 @@ sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
       )) || (member.site_key == plan.external_source_site_key && index == plan.external_interrupt_input_index)
       | router.injection[index].valid <== Bool(#false)
         router.injection[index].bits <== dont_care(Beat)
+
     def site = family.sites[member.site_key]
     for (index in site.incoming_links.length()..family.ingress_count):
       router.incoming_links[index].beat.valid <== Bool(#false)
       router.incoming_links[index].beat.bits <== dont_care(VcBeat(Beat, 1))
+
     for (index in site.outgoing_links.length()..family.egress_count):
       router.outgoing_links[index].beat.ready <== Bool(#false)
       router.outgoing_links[index].vc_ready <== vec([Bool(#false)])
+
     for (index in 0..family.ejection_count):
       unless plan.harts.find(
         fun (hart): hart.site_key == member.site_key && (

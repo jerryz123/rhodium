@@ -37,6 +37,7 @@ circuit ExplicitClockTop(width :: PosInt):
   inst counter(CounterModule,
                ~clock: source_clock,
                ~reset: source_reset)
+
   count <== counter.count
 
 def program = elaborate(CounterTop(8))

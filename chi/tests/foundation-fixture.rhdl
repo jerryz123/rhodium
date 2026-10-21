@@ -47,6 +47,7 @@ circuit CHIFoundationFixture():
   def homes:
     for List (index in 0..3):
       CHIHomeParams("decode-home-" ++ to_string(index), index * 3, CHINodeKind.HNI, ~max_outstanding: 1)
+
   def home_map = CHIHomeMap(params, for List (region in regions, home in homes): CHIHomeMapEntry(region, home))
   def services:
     for List (region in regions, index in 0..3):
@@ -56,6 +57,7 @@ circuit CHIFoundationFixture():
                          ~supports: CHIChannelCapabilities(~dat: [CHIDatOpcode.CompData]),
                          ~max_outstanding: 1),
         [region], supports)
+
   def subordinate_map = CHISubordinateMap(params, services)
   home_lookup <== home_map.lookup(map_address)
   subordinate_lookup <== subordinate_map.lookup(map_address)

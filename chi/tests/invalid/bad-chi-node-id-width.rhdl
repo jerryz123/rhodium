@@ -14,6 +14,7 @@ def node = CHINodeParams(
   ~supports: fixture.rni_node.supports,
   ~max_outstanding: fixture.rni_node.max_outstanding
 )
+
 def icn = CHIICNPortParams(
   "requester-port",
   128,
@@ -22,5 +23,6 @@ def icn = CHIICNPortParams(
   ~supports: fixture.rni_icn.supports,
   ~max_outstanding: fixture.rni_icn.max_outstanding
 )
+
 def link = CHIRNILinkParams(CHIFlitParams(~node_id_width: 7))
 elaborate(fixture.CHIRNILinkAdapter(link, node, link, icn))

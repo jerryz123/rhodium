@@ -22,6 +22,7 @@ for (vlen in [64, 128, 256, 512, 65536]):
     check:
       layout.rows_per_register * row_bits ~is vlen
       layout.depth * row_bits ~is 32 * vlen
+
     for (sew in VectorElementWidths):
       for (lmul in VectorRegisterGroups):
         when vector_element_bits(sew) <= math.min(row_bits, 64 * vector_lmul(lmul))
@@ -36,6 +37,7 @@ for (vlen in [64, 128, 256, 512, 65536]):
                       location.row * row_bits + location.bit_offset ~is base * vlen + element * config.element_bits
                       location.row < layout.depth ~is #true
                       location.bit_offset + config.element_bits <= row_bits ~is #true
+
     for (base in [0, 31]):
       for (element in [0, row_bits - 1, vlen - 1]):
         def location = layout.mask_location(base, element)

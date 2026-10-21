@@ -34,10 +34,12 @@ sync_circuit SpikeInstructionCHI(config :: RiscvHartCHIConfig):
     qos: Bits(4)(0)
     context: Bits(1)(0)
   ) |> read.command
+
   (read.completion |> map_flow(result => SpikeInstructionResponse()):
     line: result.line
     access_fault: (result.error =/= CHIRespErr.OK) ||| result.poisoned
   ) |> transaction.response
+
   read.requests |> requests
   read.acknowledgements |> acknowledgements
   responses |> read.responses

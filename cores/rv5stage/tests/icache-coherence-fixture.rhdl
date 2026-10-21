@@ -56,9 +56,11 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
     home_node_id: Bits(p.node_id_width)(1)
     subordinate_node_id: Bits(p.node_id_width)(9)
     service_base: Bits(p.request_address_width)(0)
+
   ram.identity <== CHIRamIdentity(p):
     node_id: Bits(p.node_id_width)(9)
     base_address: Bits(p.request_address_width)(0)
+
   home.port.subordinate.req |> queue(1) |> ram.port.req
   home.port.subordinate.dat.request |> queue(1) |> ram.port.dat.request
   ram.port.rsp |> queue(1) |> home.port.subordinate.rsp
@@ -71,6 +73,7 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   home.port.requester.snoops |> queue(1) |> map_flow(dispatch => dispatch.flit) |> dcache.chi.snoops
   when (home.port.requester.snoops.valid):
     assert(home.port.requester.snoops.bits.target_id === Bits(p.node_id_width)(3), "instruction_snapshot_has_no_snoop_target")
+
   instruction_request <== icache.chi.req.fire()
   instruction_fence <== fetch.invalidate_all
 

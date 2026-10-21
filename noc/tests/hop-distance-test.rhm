@@ -50,9 +50,11 @@ check:
   distances.minimal_outgoing_links(n0, n3).map(
     fun (link): link.id.value
   ) ~is [0, 1, 4]
+
   distances.minimal_outgoing_links(n2, n3).map(
     fun (link): link.id.value
   ) ~is [3]
+
   distances.minimal_outgoing_links(n3, n3) ~is []
   distances.minimal_outgoing_links(n4, n3) ~is []
 
@@ -70,6 +72,7 @@ check:
   reordered.minimal_outgoing_links(n0, n3).map(
     fun (link): link.id.value
   ) ~is [0, 1, 4]
+
   distances.entries.map(fun (entry): entry.describe()) ~is reordered.entries.map(
     fun (entry): entry.describe()
   )

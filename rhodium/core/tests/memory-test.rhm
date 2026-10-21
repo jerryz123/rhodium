@@ -53,11 +53,13 @@ block:
     module_def.operations.filter(
       ~keep: fun (operation): operation.opcode == "rtl.memory_read_async"
     ).length() ~is 2
+
     write.opcode ~is "rtl.memory_write"
     second_write.opcode ~is "rtl.memory_write"
     module_def.operations.filter(
       ~keep: fun (operation): operation.opcode == "rtl.memory_write"
     ).length() ~is 2
+
     dump_ir(design).contains("@storage = rtl.memory depth 5 : bits<8>") ~is #true
     dump_ir(design).contains("rtl.memory_read_async @storage[%read_address]") ~is #true
     dump_ir(design).contains("rtl.memory_write @storage[%write_address] = %write_data") ~is #true
@@ -82,6 +84,7 @@ block:
     builder.memory_write(module_def, storage, address, bad_data, clock, enable) ~throws "wrong DataType"
     builder.memory_write(module_def, storage, address, data, enable, enable) ~throws "clock must be Clock"
     builder.memory_write(module_def, storage, address, data, clock, bad_enable) ~throws "one-bit ScalarDataType"
+
   def valid_write = builder.memory_write(module_def, storage, address, data, clock, enable)
   check:
     valid_write.opcode ~is "rtl.memory_write"

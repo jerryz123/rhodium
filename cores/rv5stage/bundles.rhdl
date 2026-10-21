@@ -103,6 +103,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
     guest: RiscvGuestException()
     guest_access: RiscvGuestMemoryAccess
     virtual_instruction: Bool
+
   vector_launch: Bool
   pointer_masking: PointerMaskControl()
   pc: Bits(xlen.width)
@@ -156,6 +157,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   if hypervisor:
     guest: RiscvGuestException()
     guest_access: RiscvGuestMemoryAccess
+
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_first: Bits(xlen.width)
@@ -194,6 +196,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   if hypervisor:
     guest: RiscvGuestException()
     guest_access: RiscvGuestMemoryAccess
+
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_valid: Bool

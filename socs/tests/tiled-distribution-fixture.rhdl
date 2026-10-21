@@ -56,6 +56,7 @@ sync_circuit TiledTimeFixture():
     inst receiver(TiledTimeReceiver())
     lanes[index] |> gate_flow(accepting[index]) |> map_flow(beat => beat.flit) |> receiver.ingress
     hart_time[index] <== receiver.value
+
   transferred <== sweeper.egress.fire()
 
 def time_program = elaborate(TiledTimeFixture())

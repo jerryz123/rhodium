@@ -76,6 +76,7 @@ fun required_variant_width(maximum_encoding :: Nat):
     if maximum_encoding < capacity
     | width
     | loop(width + 1, capacity * 2)
+
   loop(1, 2)
 
 /* Rejects malformed triples, duplicate names/encodings, and insufficient tag widths before constructing the schema. */
@@ -88,6 +89,7 @@ fun validate_variant_specs(name :: String,
     unless spec.length() == 3 && spec[0] is_a String && spec[1] is_a Nat
     | error(~who: #'variant_schema,
             "variant specifications must be [name, encoding, payload type] triples")
+
   def names = specs.map(fun (spec): spec[0])
   def encodings = specs.map(fun (spec): spec[1])
   for (member_name in names):
@@ -95,15 +97,18 @@ fun validate_variant_specs(name :: String,
       ~keep: fun (candidate): candidate == member_name
     ).length() != 1
     | error(~who: #'variant_schema, "variant names must be unique")
+
   for (encoding in encodings):
     when encodings.filter(
       ~keep: fun (candidate): candidate == encoding
     ).length() != 1
     | error(~who: #'variant_schema, "variant encodings must be unique")
+
   def mutable maximum_encoding = 0
   for (encoding in encodings):
     when encoding > maximum_encoding
     | maximum_encoding := encoding
+
   def minimum_width = required_variant_width(maximum_encoding)
   def width:
     if !requested_width
@@ -112,7 +117,9 @@ fun validate_variant_specs(name :: String,
         when requested_width < minimum_width
         | error(~who: #'variant_schema,
                 "variant encoding does not fit the declared width")
+
         requested_width
+
   VariantSchema(
     name,
     identity,
@@ -175,16 +182,19 @@ class EnumType(schema :: VariantSchema):
   /* Compares nominal declaration identity against either supported enum descriptor family. */
   override method type_equal(other :: HardwareType):
     enum_type(other) && schema.identity === other.schema.identity
+
   /* Returns the schema's packed tag width. */
   override method packed_width(): schema.width
   /* Returns every declared member's integer encoding in declaration order. */
   override method enum_encodings():
     schema.members.map(fun (member): member.encoding)
+
   /* Rejects untyped or foreign-enum keys and returns the matching member's packed encoding. */
   override method normalize_mux_lookup_key(key :: mux_support.MuxLookupKey || Nat):
     unless key is_a mux_support.MuxLookupKey && this.type_equal(key.mux_lookup_key_type())
     | error(~who: #'mux_lookup,
             "enum mux lookup keys must be members of the selector's enum type")
+
     key.mux_lookup_key_encoding()
 
 /* Implements a nominal one-hot enum with finite encodings and exact lane selection. */
@@ -208,17 +218,21 @@ class OneHotEnumType(schema :: VariantSchema):
   /* Compares nominal declaration identity against either supported enum descriptor family. */
   override method type_equal(other :: HardwareType):
     enum_type(other) && schema.identity === other.schema.identity
+
   /* Returns the schema's packed tag width. */
   override method packed_width(): schema.width
   /* Returns every declared member's integer encoding in declaration order. */
   override method enum_encodings():
     schema.members.map(fun (member): member.encoding)
+
   /* Rejects untyped or foreign-enum keys and returns the matching member's packed encoding. */
   override method normalize_mux_lookup_key(key :: mux_support.MuxLookupKey || Nat):
     unless key is_a mux_support.MuxLookupKey && this.type_equal(key.mux_lookup_key_type())
     | error(~who: #'mux_lookup,
             "enum mux lookup keys must be members of the selector's enum type")
+
     key.mux_lookup_key_encoding()
+
   /* Returns the schema width as the exact selector lane count. */
   override method one_hot_selector_width(): schema.width
 
@@ -234,30 +248,36 @@ fun enum_type(type :: HardwareType):
 fun enum_width(type :: HardwareType):
   unless enum_type(type)
   | error(~who: #'enum_width, "expected a hardware enum type")
+
   type.schema.width
 
 /* Returns enum member names in declaration order, rejecting non-enum types. */
 fun enum_members(type :: HardwareType):
   unless enum_type(type)
   | error(~who: #'enum_members, "expected a hardware enum type")
+
   type.schema.members.map(fun (member): member.name)
 
 /* Returns enum member names in declaration order, rejecting non-enum types. */
 fun enum_names(type :: HardwareType):
   unless enum_type(type)
   | error(~who: #'enum_names, "expected a hardware enum type")
+
   type.schema.members.map(fun (member): member.name)
 
 /* Resolves one named member to its integer encoding, rejecting unknown members or non-enum types. */
 fun enum_encoding(type :: HardwareType, member_name :: String):
   unless enum_type(type)
   | error(~who: #'enum_encoding, "expected a hardware enum type")
+
   def member = type.schema.members.find(
     fun (candidate): candidate.name == member_name
   )
+
   unless member
   | error(~who: #'enum_encoding,
           "enum " ++ type.schema.name ++ " has no member named " ++ member_name)
+
   member.encoding
 
 /* Carries one named immutable enum encoding as a materializable literal and typed mux key. */
@@ -278,10 +298,12 @@ class EnumValue(type :: EnumType || OneHotEnumType,
 fun enum_value(type :: HardwareType, member_name :: String):
   unless enum_type(type)
   | error(~who: #'hardware_enum, "member access requires an enum type")
+
   EnumValue(type, member_name, enum_encoding(type, member_name))
 
 /* Builds all typed enum member literals in declaration order. */
 fun enum_values(type :: HardwareType) :~ List.of(EnumValue):
   unless enum_type(type)
   | error(~who: #'enum_values, "expected a hardware enum type")
+
   type.schema.members.map(fun (member): EnumValue(type, member.name, member.encoding))

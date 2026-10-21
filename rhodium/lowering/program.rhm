@@ -39,7 +39,9 @@ fun materialize_reachable_rtl(program :: DesignElaboration) :: DesignElaboration
   fun copy_import(original :: DpiImport):
     unless objects.has_key(original)
     | objects[original] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
+
     objects[original]
+
   def remap = make_ir_remapper(objects, copy_import)
   /* Allocate a shell before recursively copying children, preserving shared definitions. */
   fun copy(original :: Module):
@@ -48,14 +50,18 @@ fun materialize_reachable_rtl(program :: DesignElaboration) :: DesignElaboration
       objects[original] := target
       copy_module_body(builder, original, target, fun (op): copy(op.attribute("module")), objects, remap)
       copied.add(original)
+
     objects[original]
+
   def top = copy(program.top)
   for (original in copied):
     def target = objects[original]
     for (place in original.places):
       for (projected in place.projected_places): objects[place].add_projected_place(remap(projected))
+
     for (entry in original.metadata):
       target.add_metadata(entry.namespace, remap(entry.payload))
+
   for (original in copied): builder.finish(objects[original])
   verify_design(builder.design)
   check_materialized_design(builder.design)

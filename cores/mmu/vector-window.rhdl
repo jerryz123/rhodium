@@ -27,6 +27,7 @@ fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bit
     if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
     | permitted := permitted ||| (region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable)))
     | #void
+
   def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
   permitted & fits
 
@@ -68,6 +69,7 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   translation.request.bits <== RiscvPageProbeRequest():
     address: mux(lookup_second, lookup_span.last, lookup_span.first)
     store: lookup_span.store
+
   owned <== (state === VectorWindowState.Owned) & safe
   for (index in 0..2):
     def address = addresses[index]
@@ -102,12 +104,15 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
     assert((state === VectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
     when (check.request.fire()):
       span <== check.request.bits
+
     when (!lookup_second):
       first_ppn <== result.physical_address[12..56]
+
     safe <== success & (lookup_second ||| !split ||| shared_leaf_permitted)
     state <== mux(needs_second, VectorWindowState.Request, VectorWindowState.Complete)
     when (lookup_second ||| (success & split & same_leaf)):
       last_ppn <== mux(lookup_second, result.physical_address[12..56], next_page[12..56])
+
     second <== needs_second
   elsewhen (check.request.fire()):
     span <== check.request.bits

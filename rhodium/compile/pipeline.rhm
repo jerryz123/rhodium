@@ -22,6 +22,7 @@ class RTLPass(name :: String, transform :: Function.of_arity(1)):
   constructor (name :: String, transform :: Function.of_arity(1)):
     unless name != ""
     | error(~who: #'RTLPass, "pass name must be nonempty")
+
     super(name, transform)
 
 /* Returns instrumented RTL with existing instance paths and top ports preserved.
@@ -43,6 +44,7 @@ class RTLPipelineReport(stages :: List.of(RTLPassReport), backend :: maybe(Compi
 fun rtl_occurrences(rtl :: DesignElaboration):
   unless rtl.top.design === rtl.design && rtl.design.owns_module(rtl.top)
   | error(~who: #'rtl_pipeline_target, "pass top must belong to its output design")
+
   def paths = MutableMap{}
   def visited = MutableSet.by(===){}
   /* Visit each occurrence while counting definitions only for the closure check. */
@@ -52,9 +54,11 @@ fun rtl_occurrences(rtl :: DesignElaboration):
     for (operation in module_def.operations):
       when operation.opcode == "rtl.instance"
       | visit(operation.attribute("module"), path ++ [operation.attribute("name")])
+
   visit(rtl.top, [])
   unless visited.length() == rtl.design.modules.length()
   | error(~who: #'rtl_pipeline_target, "pass output must contain only reachable modules")
+
   paths.snapshot()
 
 /* Refresh physical module names while keeping source occurrence attribution.
@@ -74,9 +78,11 @@ class RTLPipelinePlan(backend_plan :: TargetPlan, passes :: List.of(RTLPass),
   override method report():
     def stages = for List (pass in passes, result in results): RTLPassReport(pass.name, result.report)
     RTLPipelineReport(stages, backend_plan.report())
+
   /* Preserve stage order and the ordinary backend's diagnostics. */
   override method diagnostics():
     (for values(messages = []) (result in results): messages ++ result.diagnostics) ++ backend_plan.diagnostics()
+
   /* Emit final RTL first and detached sidecars in pass order, atomically in memory. */
   override method emit():
     backend_plan.emit() ++ (for values(artifacts = []) (result in results): artifacts ++ result.artifacts)
@@ -90,7 +96,9 @@ fun rtl_pipeline_target(backend :: RTLTarget, passes :: List.of(RTLPass)):
   for (pass in passes):
     when pass.name in seen
     | error(~who: #'rtl_pipeline_target, "duplicate pass: " ++ pass.name)
+
     seen.add(pass.name)
+
   /* Prepare once, verify each transformation, and construct one final backend plan. */
   fun prepare(program :: DesignElaboration):
     def initial = prepare_rtl(program)
@@ -103,13 +111,17 @@ fun rtl_pipeline_target(backend :: RTLTarget, passes :: List.of(RTLPass)):
       def next_modules = rtl_occurrences(result.rtl)
       unless signature_equal(module_signature(result.rtl.top), initial.manifest.signature)
       | error(~who: #'rtl_pipeline_target, "instrumentation must preserve the functional top signature")
+
       for (path in modules.keys()):
         unless next_modules.has_key(path)
         | error(~who: #'rtl_pipeline_target, "instrumentation must preserve existing instance paths")
+
       current := pipeline_prepared(result.rtl)
       modules := next_modules
       results.add(result)
+
     RTLPipelinePlan(backend.plan(current), passes, results.snapshot())
+
   if passes.length() == 0
   | backend
   | CompilationTarget(backend.name ++ "+" ++ String.join(names, "+"), prepare)

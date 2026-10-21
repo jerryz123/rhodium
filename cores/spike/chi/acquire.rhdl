@@ -95,6 +95,7 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
     state: response_state
     pass_dirty: pass_dirty
     access_fault: access_fault
+
   def completion_fire = completion.fire()
   control.start <== command_fire
   control.finish <== completion_fire

@@ -60,6 +60,7 @@ fun transform_port(block :: DiagramBlock,
     if count == 1
     | side
     | side ++ "[" ++ to_string(index) ++ "]"
+
   block.ports.find(
     fun (port): port.compound && port.id == port_id
   )
@@ -122,6 +123,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
     | unsupported_by_output.has_key(vertex): "unmodeled-transform"
     | incoming.get(vertex, []).length() == 0: (if vertex in roots | "unannotated-input" | "opaque-boundary")
     | ~else: #false
+
   /* Records one boundary diagnostic per consuming site without duplicating repeated traversal findings. */
   fun record_gap(vertex :: String):
     unless gaps.find(fun (gap): gap.site == current_site && gap.boundary == vertex)
@@ -145,6 +147,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
         for (port in boundary.ports):
           when port.compound && boundary_external_name(boundary, port)
           | roots.add(terminal_id(instance_path, boundary.id, port.id))
+
     for (channel in module_diagram.channels):
       when channel.kind == "interface"
       | add_arc(
@@ -163,6 +166,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
       when child in explicit_children
       | error(~who: #'infer_event_manifest,
               "trace edge child has more than one parent: " ++ child)
+
       explicit_children.add(child)
       explicit_edges := explicit_edges ++ [
         ExplicitTraceEdge(parent,
@@ -179,20 +183,25 @@ fun infer_event_manifest(logical :: DesignElaboration,
             port.id == "in" || port.id.starts_with("in[")
           )
         ).length()
+
         def output_count = flow_block.ports.filter(
           ~keep: fun (port): port.compound && (
             port.id == "out" || port.id.starts_with("out[")
           )
         ).length()
+
         when input_count == 0 || output_count == 0
         | error(~who: #'infer_event_manifest,
                 "flow transform " ++ flow_block.label ++ " has no flat interface route")
+
         def input_ports:
           for List (input_index in 0..input_count):
             transform_port(flow_block, "in", input_index, input_count)
+
         def output_ports:
           for List (output_index in 0..output_count):
             transform_port(flow_block, "out", output_index, output_count)
+
         when input_ports.find(fun (port): !port) || output_ports.find(fun (port): !port)
         | error(~who: #'infer_event_manifest,
                 "flow transform " ++ flow_block.label ++ " uses a nested or incomplete endpoint shape")
@@ -206,6 +215,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               def width = field.value.type.packed_width()
               capture_offset := capture_offset - width
               EventField(field.name, field.value.type.describe(), width, capture_offset, field.encoding, field.isa, field.pc, field.symbols, field.label)
+
             def site = EventSite(site_id,
                                  annotation.label,
                                  module_diagram.name,
@@ -217,6 +227,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  annotation.location.describe(),
                                  captures,
                                  if annotation.residency_storage() | "residency" | "transfer")
+
             def bank = annotation.residency_bank()
             def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
             def output = terminal_id(instance_path, flow_block.id, output_ports[0].id)
@@ -234,15 +245,18 @@ fun infer_event_manifest(logical :: DesignElaboration,
                   site_inputs[resident.id] := [entry_input]
                   when annotation.parents
                   | selected_parents[resident.id] := annotation.parents.map(fun (parent): occurrence_prefix(instance_path) ++ "/event:" ++ to_string(parent))
+
                   event_by_output[entry_output] := resident
                   add_arc(entry_input, entry_output)
                   add_arc(entry_output, output)
                   entry_output
+
                 selections[output] := FlowSelection(instance_path, captures, entry_outputs, #false)
             | block:
                 sites := sites ++ [site]
                 when annotation.parents
                 | selected_parents[site.id] := annotation.parents.map(fun (index): occurrence_prefix(instance_path) ++ "/event:" ++ to_string(index))
+
                 when annotation.stalls | stalled_sites.add(site.id)
                 site_inputs[site.id] := [input]
                 event_by_output[output] := site
@@ -277,25 +291,30 @@ fun infer_event_manifest(logical :: DesignElaboration,
                   def owner_path = if flow_block.implementation_name | instance_path ++ [flow_block.implementation_name] | instance_path
                   for List (_ in 0..trace_model.latency_cycles()): EventTraceStage(owner_path, #false, #false, trace_model.fixed_latency_flush())
               | ~else: #false
+
             when trace_model.atomic_join_inputs()
             | def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
               joins[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := inputs
+
             when trace_model.selection_grants()
             | def owner_path = instance_path ++ trace_model.owner_path()
               def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
               selections[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := FlowSelection(owner_path, trace_model.selection_grants(), inputs, trace_model.selection_pending())
+
             when trace_model.routing_predicates()
             | def routing_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
               def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
               for (port in output_ports, index in 0..output_count):
                 def routing = FlowRouting(instance_path, routing_id, trace_model.routing_predicates(), input, index)
                 routings[terminal_id(instance_path, flow_block.id, port.id)] := routing
+
             when trace_model.atomic_fork_outputs()
             | def replication_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
               def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
               for (port in output_ports, index in 0..output_count):
                 def replication = FlowReplication(replication_id, input, index)
                 replications[terminal_id(instance_path, flow_block.id, port.id)] := replication
+
             // Multiple retained outputs replicate the current owner, not the
             // live input. Keep one shared storage vertex before that fanout.
             def retained_output = if trace_model.retained_storage() && output_count > 1 | terminal_id(instance_path, flow_block.id, "retained-owner") | #false
@@ -305,6 +324,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                       trace_model.latency_cycles(), stages)
               for (port in output_ports, index in 0..output_count):
                 replications[terminal_id(instance_path, flow_block.id, port.id)] := FlowReplication(retained_output, retained_output, index)
+
             when trace_model.broadcast_storage()
             | def storage = trace_model.broadcast_storage()
               def owner_path = instance_path ++ trace_model.owner_path()
@@ -313,6 +333,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               for (port in output_ports, index in 0..output_count):
                 def broadcast = FlowBroadcast(owner_path, broadcast_id, storage.accept, storage.pending[index], input, index)
                 broadcasts[terminal_id(instance_path, flow_block.id, port.id)] := broadcast
+
             // Expand indexed ownership into ordinary routed scalar owners and
             // independently selected outputs. No new runtime storage semantics.
             when trace_model.retained_bank()
@@ -328,6 +349,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 add_arc(input, allocated)
                 add_arc(allocated, resident, bank_id, #false, [EventTraceRetained(owner_path, entry.capture, entry.release, entry.active)])
                 resident
+
               for (port in output_ports, output_index in 0..output_count):
                 def output = terminal_id(instance_path, flow_block.id, port.id)
                 def branches = for List (resident in residents, index in 0..residents.length()):
@@ -336,7 +358,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
                   add_arc(resident, branch)
                   add_arc(branch, output)
                   branch
+
                 selections[output] := FlowSelection(owner_path, bank.grants[output_index], branches, #false)
+
             for (route in (if trace_model.retained_bank() | [] | trace_model.routes)):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
@@ -360,6 +384,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
         unless child
         | error(~who: #'infer_event_manifest,
                 "event analysis cannot find child module " ++ instance_block.child_module)
+
         def child_path = instance_path ++ [instance_block.implementation_name || instance_block.label]
         expand(child, child_path)
         def mutable child_boundary_ports = []
@@ -370,10 +395,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
             | child_boundary_ports := child_boundary_ports ++ [
                 [external_name, child_block, child_port]
               ]
+
         for (parent_port in instance_block.ports):
           def matched = child_boundary_ports.find(
             fun (entry): entry[0] == (instance_block.delegate_ports?.get(parent_port.id, #false) || parent_port.name)
           )
+
           when matched
           | def parent_terminal = terminal_id(instance_path, instance_block.id, parent_port.id)
             def child_terminal = terminal_id(child_path, matched[1].id, matched[2].id)
@@ -385,12 +412,14 @@ fun infer_event_manifest(logical :: DesignElaboration,
   unless top
   | error(~who: #'infer_event_manifest,
           "event analysis cannot find top module " ++ logical.top.name)
+
   expand(top, [logical.top.name])
   def labels = MutableSet{}
   for (site in sites):
     def key = [site.instance_path, site.label]
     when key in labels
     | error(~who: #'infer_event_manifest, "expanded event label must be unique within a module: " ++ site.label)
+
     labels.add(key)
 
   /* Walks backward to matching checkpoints on acyclic paths, accumulating transform witnesses, latency, and storage projections. */
@@ -412,8 +441,10 @@ fun infer_event_manifest(logical :: DesignElaboration,
         when unsupported
         | error(~who: #'infer_event_manifest,
                 "event dependency crosses transform without " ++ (if dynamic | "dynamic trace semantics: " | "a trace model: ") ++ unsupported)
+
         when dynamic && incoming.get(vertex, []).length() == 0 && !(vertex in roots)
         | error(~who: #'infer_event_manifest, "event dependency reaches an opaque or disconnected boundary: " ++ vertex)
+
         if vertex in visiting
         | if dynamic
           | error(~who: #'infer_event_manifest, "dynamic event lineage requires an acyclic combinational path: " ++ vertex)
@@ -425,6 +456,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 if arc.transform
                 | reverse_transform_path ++ [arc.transform]
                 | reverse_transform_path
+
               candidates := candidates ++ nearest_events(
                 arc.source,
                 visiting ++ [vertex],
@@ -433,6 +465,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 if trace_stages && arc.trace_stages | arc.trace_stages ++ trace_stages | #false,
                 wanted
               )
+
             candidates
 
   /*
@@ -460,12 +493,16 @@ fun infer_event_manifest(logical :: DesignElaboration,
           def unsupported = unsupported_by_output.get(vertex, #false)
           when unsupported
           | error(~who: #'infer_event_manifest, "event dependency crosses transform without " ++ (if dynamic | "dynamic trace semantics: " | "a trace model: ") ++ unsupported)
+
           when dynamic && incoming.get(vertex, []).length() == 0 && !(vertex in roots)
           | error(~who: #'infer_event_manifest, "event dependency reaches an opaque or disconnected boundary: " ++ vertex)
+
           colors[vertex] := 1
           for (arc in incoming.get(vertex, [])):
             visit(arc.source, if arc.transform | reverse_path ++ [arc.transform] | reverse_path)
+
           colors[vertex] := 2
+
     visit(vertex)
     if cyclic | candidates | nearest_events(vertex, [], [], 0, [], wanted)
 
@@ -484,6 +521,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
             fun (existing): same_dependency(existing, dependency)
           )
           | dependencies := dependencies ++ [dependency]
+
   for (edge in explicit_edges):
     def dependency = EventDependency(edge.parent,
                                      edge.child,
@@ -506,9 +544,11 @@ fun infer_event_manifest(logical :: DesignElaboration,
     def local_gaps = gaps.filter(~keep: fun (gap): gap.site == site.id)
     when local_gaps.length() > 0 && !dependencies.find(fun (edge): edge.child == site.id) && (for all (gap in local_gaps): gap.reason == "unannotated-input")
     | inferred_roots.add(site.id)
+
   gaps := gaps.filter(~keep: fun (gap): !(gap.site in inferred_roots))
   for (edge in explicit_edges):
     explicit_plans[edge.child] := EventTracePipeline(EventTraceSource(edge.parent), [edge.stage])
+
   /* Memoizes vertex/selected-parent lineage plans, resolving feedback links and preserving storage, selection, routing, and ancestry gaps. */
   fun trace_plan(vertex :: String, visiting :: List.of(String) = [], wanted :: maybe(String) = #false):
     def key = [vertex, wanted]
@@ -516,6 +556,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
     | vertex in visiting:
         unless back_references.has_key(key)
         | back_references[key] := EventTraceLink(vertex)
+
         back_references[key]
     | ~else:
         unless cached_plans.has_key(key)
@@ -552,17 +593,22 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 | upstream
                 | EventTracePipeline(upstream, arcs[0].trace_stages)
             | ~else: error(~who: #'infer_event_manifest, "event path requires certified selection or storage semantics: " ++ vertex)
+
           cached_plans[key] := plan
           when back_references.has_key(key) | back_references[key].target := plan
+
         cached_plans[key]
+
   when dynamic
   | for (site in sites):
       def plan:
         cond
         | explicit_plans.has_key(site.id): explicit_plans[site.id]
         | ~else: trace_plan(site_inputs[site.id][0])
+
       validate_event_trace_feedback(plan)
       plans[site.id] := (if site.id in inferred_roots | EventTraceSource(#false) | plan)
+
   // Keep physical nearest-checkpoint topology for fanout certification.
   // Requested ancestry changes emission, never the connectivity being validated.
   def topology_dependencies = dependencies
@@ -572,21 +618,25 @@ fun infer_event_manifest(logical :: DesignElaboration,
     | current_site := site.id
       when site.id in explicit_children
       | error(~who: #'infer_event_manifest, "selected parents conflict with a retained trace edge")
+
       dependencies := dependencies.filter(~keep: fun (edge): edge.child != site.id)
       def requested = selected_parents[site.id]
       for (parent in requested):
         def candidates = discover_nearest(site_inputs[site.id][0], parent)
         unless candidates.length() > 0
         | error(~who: #'infer_event_manifest, "selected parent is not upstream: " ++ parent)
+
         for (candidate in candidates):
           def dependency = EventDependency(candidate.site.id, site.id, candidate.transform_path, candidate.latency_cycles, candidate.trace_stages)
           unless dependencies.find(fun (existing): same_dependency(existing, dependency))
           | dependencies := dependencies ++ [dependency]
+
       when dynamic
       | def inputs = requested.map(fun (parent): EventTraceRequire(trace_plan(site_inputs[site.id][0], [], parent)))
         def plan = if inputs.length() == 1 | inputs[0] | EventTraceJoin(inputs)
         validate_event_trace_feedback(plan)
         plans[site.id] := plan
+
   // Append observations after transfer sites, preserving existing site numbering.
   // They never enter event_by_output: a stall cannot cut or advance lineage.
   for (site in sites):
@@ -605,10 +655,13 @@ fun infer_event_manifest(logical :: DesignElaboration,
       def parents = dependencies.filter(~keep: fun (edge): edge.child == site.id && (edge.trace_stages != #false || pending_safe))
       for (edge in parents):
         dependencies := dependencies ++ [edge with (child = stall.id, latency_cycles = #false)]
+
       when dynamic
       | def unknown = partial && nodes.find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
         plans[stall.id] := (if parents.length() > 0 || (unknown && pending_safe) | plans[site.id] | (if unknown | EventTraceSource(#false, site.id) | EventTraceSource(#false)))
+
       gaps := gaps ++ gaps.filter(~keep: fun (gap): gap.site == site.id).map(fun (gap): gap with (site = stall.id))
+
   // Expand scope declarations independently of Flow: hierarchy, not causal
   // edges, determines ownership of each module-local declaration.
   def mutable instances = []
@@ -617,9 +670,11 @@ fun infer_event_manifest(logical :: DesignElaboration,
     for (scope in module_trace_instances(module_def)):
       when sites.find(fun (site): site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path)
       | instances := instances ++ [EventInstance(occurrence_prefix(path), scope.label, path, scope.value)]
+
     for (op in module_def.operations):
       when op.opcode == "rtl.instance"
       | collect_instances(op.attribute("module"), path ++ [op.attribute("name")])
+
   collect_instances(logical.top, [logical.top.name])
   // Canonical ancestor-first order keeps scope indices stable.
   instances := instances.sort(fun (a, b): a.path.length() < b.path.length() || (a.path.length() == b.path.length() && a.id < b.id))

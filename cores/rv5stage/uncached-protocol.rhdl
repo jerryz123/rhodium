@@ -29,6 +29,7 @@ interface RV5StagePhysicalDataAccess(xlen :: XLen, slots :: Pow2Int):
   provider requester
   requester -> responder:
     request: Decoupled(RV5StagePhysicalDataReq(xlen, slots))
+
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool

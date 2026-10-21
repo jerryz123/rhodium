@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_sync_memory
 
 fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe(PosInt) = #false, width :: PosInt = 64):
@@ -20,8 +21,10 @@ fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe
   b.drive(alias, clock)
   def addresses = for Map (name in ["read_address", "write_address", "shared_address"]):
     values(name, b.input(leaf, name, address_type))
+
   def controls = for Map (name in ["read_enable", "write_enable", "shared_enable", "write_mode", "copy", "feedback", "mask_from_read"]):
     values(name, b.input(leaf, name, Bits(1)))
+
   def write_mask = b.input(leaf, "write_mask", Bits(mask_width))
   def data = b.input(leaf, "data", element_type)
   def zero = b.constant(leaf, Bits(width), 0)
@@ -56,11 +59,13 @@ fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe
     b.drive(wp.mask, b.mux_lookup(leaf, controls["mask_from_read"], write_mask, [[1, b.extract(leaf, mask_source, mask_width - 1, 0)]]))
     b.drive(rw.write_mask, b.mux_lookup(leaf, controls["mask_from_read"], write_mask, [[1, b.extract(leaf, shared_source, mask_width - 1, 0)]]))
     b.drive(writeonly.write_ports[0].mask, write_mask)
+
   for (name in ["separate", "shared", "readonly"], value in [rp.data, rw.read_data, readonly.read_ports[0].data]):
     def sample = b.register(leaf, "q_" ++ name, element_type, b.read(alias), reset, zero_element)
     b.drive(sample.next, value)
     b.drive(b.output(leaf, name ++ "_result", element_type), value)
     b.drive(b.output(leaf, name ++ "_sample", element_type), sample.current)
+
   def ro = readonly.read_ports[0].data
   def masked = if aggregate | b.vector_get(leaf, b.record_get(leaf, ro, "lanes"), 0) | ro
   b.drive(b.output(leaf, "masked", Bits(width)), b.bit_and(leaf, masked, zero))
@@ -78,6 +83,7 @@ fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe
     if aggregate
     | b.record_create(top, element_type, [["tag", b.extract(top, first, 4, 0)], ["lanes", b.vector_create(top, lanes, [first, second])]])
     | first
+
   def packets = [payload(a, z), payload(z, a)]
   for (side in 0..2):
     def child = b.instance(top, leaf, "side" ++ to_string(side))
@@ -88,5 +94,6 @@ fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe
     for ((name, value) in top_addresses): b.drive(child.input(name), value)
     for ((name, value) in top_controls): b.drive(child.input(name), b.extract(top, value, side, side))
     for (port in leaf.outputs): b.drive(b.output(top, "side" ++ to_string(side) ++ "_" ++ port.name, port.type), child.output(port.name))
+
   b.finish(top)
   DesignElaboration(design, top)

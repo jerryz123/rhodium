@@ -23,6 +23,7 @@ fun zvkt_probe_word(instruction :: InstructionSpec, ~masked: masked :: Boolean =
       def value = if field.name == "vd" | 24 | (if field.name == "vs2" | 8 | (if field.name == "vs1" | 16 | (if field.name == "rs1" | 16 | 1)))
       field.constrain(value)
   )
+
   def auxiliary = instruction.format.auxiliary_fields.map(fun (field): field.constrain(if field.name == "vm" | (if masked | 0 | 1) | 0))
   instruction.encode(fields ++ auxiliary, ~immediate: if instruction.immediate | 1 | #false)
 
@@ -48,9 +49,11 @@ fun zvkt_probes() :: NonemptyList.of(ZvktProbe):
         controls.contains(ZvktControlOperand.Vs1),
         controls.contains(ZvktControlOperand.Rs1)
       )
+
     probes := probes ++ [probe(#false)]
     when instruction.format.auxiliary_fields.filter(~keep: fun (field): field.name == "vm").length() != 0
     | probes := probes ++ [probe(#true)]
+
   probes
 
 export:

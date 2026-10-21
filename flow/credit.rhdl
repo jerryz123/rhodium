@@ -98,17 +98,21 @@ fun credited_stage_protocol(source_or_type :: FlowSource, credit_limit :: PosInt
         unless source_or_type.right is_a Endpoint
         | error(~who: #'credit_buffer,
                 "credited handle output must be one interface endpoint")
+
         source_or_type.right.type
     | source_or_type is_a InterfaceType: source_or_type
     | ~else:
         Credited(source_or_type, credit_limit)
+
   def normalized = credited_protocol_type(protocol)
   unless normalized
   | error(~who: #'credit_buffer,
           "credited-flow chaining requires a Credited protocol")
+
   unless normalized.specialization_arguments[1] == credit_limit
   | error(~who: #'credit_buffer,
           "credit buffer depth must match the protocol credit limit")
+
   normalized
 
 /* Configures a fresh sender whose registered credit balance gates input

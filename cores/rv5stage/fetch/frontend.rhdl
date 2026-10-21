@@ -96,11 +96,13 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
     admitted: admitted
     page_fault: admitted & memory.response.bits.response.page_fault
     access_fault: admitted & memory.response.bits.response.access_fault
+
   def Array(replay_outcomes, packet_outcomes) = outcome |> fork_valid(2)
   def replays = replay_outcomes |> filter_valid(_attempt => !fallback_redirect.valid & memory.response.valid & memory.response.bits.replay)
   replays |> source.replay
   def lookup = source.stage1 |> trace_valid_event("frontend/s1.lookup", ~fields: attempt):
     pc: attempt.pc
+
   lookup |> filter_valid(_attempt => !command & !replays.valid & !fallback_redirect.valid) |> s2.ingress
 
 
@@ -116,14 +118,17 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
          packet.mask <== priority_mux(~default: Bits(2)(3)):
            attempt.continuation: Bits(2)(1)
            attempt.pc[1].into(Bool): Bits(2)(2)
+
          packet.page_fault <== memory.response.bits.response.page_fault
          packet.access_fault <== memory.response.bits.response.access_fault
          packet.prediction <== attempt.prediction
          if hypervisor
          | packet.guest <== memory.response.bits.response.guest
          | #void
+
          packet
   ) |> scan.ingress
+
   scan.egress |> to_decoupled() |> queue.ingress
 
 
@@ -136,6 +141,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
          action: packet.prediction.ras_action
          return_address: packet.prediction.pc + mux(packet.prediction.compressed, Bits(xlen.width)(2), Bits(xlen.width)(4))
   ) |> source.ras_speculate
+
   memory.flush <== command
   memory.invalidate_all <== control.invalidate_all.valid
   memory.s1_kill <== command ||| replays.valid ||| fallback_redirect.valid

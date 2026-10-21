@@ -21,6 +21,7 @@ fun formal_subject_top(subject :: DesignElaboration || Module || Design):
       unless subject.finished && subject.design.modules.find(fun (candidate): candidate === subject)
       | error(~who: #'formal_snapshot,
               "formal subject must be a completed module owned by its design")
+
       subject
   | subject is_a Design:
       error(~who: #'formal_snapshot,
@@ -147,6 +148,7 @@ fun reachable_modules(top :: Module):
       for (operation in module_def.operations):
         when operation.opcode == "rtl.instance"
         | visit(operation.attribute("module"))
+
   visit(top)
   modules
 

@@ -47,6 +47,7 @@ check:
 
   (for all (instruction in common.RVIntegerCommonInstructions):
      RV32I.find(instruction.name) === instruction && rv64.RV64I.find(instruction.name) === instruction) ~is #true
+
   SLLI === rv64.SLLI ~is #false
   SRLI === rv64.SRLI ~is #false
   SRAI === rv64.SRAI ~is #false

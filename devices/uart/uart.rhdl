@@ -52,8 +52,10 @@ sync_circuit Uart8N1Transmitter():
     data <== data
     when stop_complete:
       active <== Bool(#false)
+
     when (bit_complete & (phase =/= Bits(4)(9))):
       phase <== phase + Bits(4)(1)
+
     when (active & oversample_tick):
       subtick <== mux(phase_boundary, Bits(4)(0), subtick + Bits(4)(1))
 

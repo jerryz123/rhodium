@@ -24,16 +24,19 @@ fun print_dpi_import(dpi_import :: DpiImport):
   def inputs:
     for List (name in dpi_import.input_names, type in dpi_import.input_types):
       "input " ++ name ++ ": " ++ type.describe()
+
   def results:
     dpi_import.results.map(
       fun (result): result.direction ++ " " ++ result.name ++ ": " ++ result.type.describe()
     )
+
   def result_text:
     if results == []
     | ""
     | if results.length() == 1
       | " -> " ++ results[0]
       | " -> (" ++ String.join(results, ", ") ++ ")"
+
   String.append("sim.dpi_import ", dpi_import.ref(), "(",
                 String.join(inputs, ", "), ")", result_text, "\n")
 
@@ -65,6 +68,7 @@ fun print_operation(operation :: Operation):
             String.append(to_string(case[0]), "/", to_string(case[1]), " -> ",
                           to_string(case[2]), "/", to_string(case[3]))
         )
+
       String.append("    ", operation.results[0].ref(), " = rtl.decode ",
                     operation.operands[0].ref(), " [", String.join(cases, ", "),
                     "] default ", to_string(operation.attribute("default_value")), "/",
@@ -79,6 +83,7 @@ fun print_operation(operation :: Operation):
         for List (key in operation.attribute("keys"),
                   value in operation.operands.drop(2)):
           to_string(key) ++ ": " ++ value.ref()
+
       String.append("    ", operation.results[0].ref(), " = rtl.mux_lookup ",
                     operation.operands[0].ref(), " [", String.join(cases, ", "),
                     "] default ", operation.operands[1].ref(), " : ",
@@ -107,6 +112,7 @@ fun print_operation(operation :: Operation):
         for List (field_name in operation.attribute("fields"),
                   operand in operation.operands):
           field_name ++ ": " ++ operand.ref()
+
       String.append("    ", operation.results[0].ref(),
                     " = rtl.record_create {", String.join(fields, ", "),
                     "} : ", operation.results[0].type.describe())
@@ -180,6 +186,7 @@ fun print_operation(operation :: Operation):
             result_index := result_index + 1
             text
         | ""
+
       def write_text:
         if has_write
         | block:
@@ -191,9 +198,11 @@ fun print_operation(operation :: Operation):
                                      | ", mask " ++ operation.places[place_index + 3].ref()
                                      | "",
                                      ")")
+
             place_index := place_index + 3 + (if has_mask | 1 | 0)
             text
         | ""
+
       def read_write_text:
         if has_read_write
         | String.append(" read_write(address ",
@@ -206,6 +215,7 @@ fun print_operation(operation :: Operation):
                         | "",
                         ") -> ", operation.results[result_index].ref())
         | ""
+
       String.append("    rtl.sync_memory @", operation.attribute("name"),
                     " depth ", to_string(operation.attribute("depth")),
                     if has_mask
@@ -272,6 +282,7 @@ fun dump_module_ir(module_def :: Module):
     ) ++ module_def.outputs.map(
       fun (port): "out " ++ port.place.ref() ++ ": " ++ port.type.describe()
     )
+
   def body = String.join(module_def.operations.map(print_operation), "\n")
   String.append("rhodium.module @", module_def.name, "(",
                 String.join(ports, ", "), ") {\n",

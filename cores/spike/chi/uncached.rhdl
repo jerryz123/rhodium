@@ -50,6 +50,7 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
     Bits(12)(0), Bool(#false), Bool(#false), Bool(#false), Bits(4)(0),
     ~cacheable: Bool(#false), ~device: request.device
   )
+
   def request_fire = chi.req.fire()
 
   def incoming_response = chi.rsp.response.bits
@@ -90,9 +91,11 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
     data: mux(read_expected,
               incoming_data.data.as_vec(Bits(64))[lane],
               Bits(64)(0))
+
     access_fault: mux(read_expected,
                       incoming_data.resp_err =/= CHIRespErr.OK,
                       incoming_response.resp_err =/= CHIRespErr.OK)
+
   chi.rsp.requester.valid <== Bool(#false)
   chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
 
@@ -116,6 +119,7 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
   when (chi.rsp.response.valid & response_ordinary):
     assert(response_expected, "spike_uncached_response_expected")
     assert(incoming_response.src_id === home_id, "spike_uncached_response_home")
+
   when (chi.dat.response.valid & data_ordinary):
     assert(read_expected, "spike_uncached_data_expected")
     assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,

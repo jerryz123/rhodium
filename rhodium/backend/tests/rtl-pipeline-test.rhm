@@ -15,6 +15,7 @@ import:
 class Observation(value :: Value):
   implements ModuleMetadataPayload
   override method remap_ir(remap :: Function.of_arity(1)): Observation(remap(value))
+
 class StageReport(rtl :: DesignElaboration):
   implements CompilationReport
 
@@ -25,6 +26,7 @@ fun make_child(builder :: Builder):
   child.add_metadata("source", Observation(input))
   builder.finish(child)
   child
+
 def design = Design()
 def builder = Builder(design)
 def shared_child = make_child(builder)
@@ -34,6 +36,7 @@ for (name in ["left", "right"]):
   def instance = builder.instance(top, shared_child, name, Location("pipeline-fixture", 9, 3))
   builder.drive(instance.input("input"), input)
   builder.drive(builder.output(top, name, Bits(8)), instance.output("output"))
+
 builder.finish(top)
 def program = DesignElaboration(design, top)
 def source_before = dump_ir(design)
@@ -59,6 +62,7 @@ fun instrument(prepared :: PreparedRTL, tag :: String):
     def instance = builder.instance(top, child, name)
     builder.drive(instance.input("input"), input)
     builder.drive(builder.output(top, output.name, Bits(8)), instance.output("output"))
+
   builder.finish(top)
   def rtl = DesignElaboration(design, top)
   RTLPassResult(rtl, [Artifact(tag ++ ".json", "application/json", "{}")], StageReport(rtl), [Diagnostic(tag ++ ".observed", "note", "observer installed")])
@@ -68,12 +72,15 @@ class CountedPlan(delegate :: TargetPlan, calls :: MutableList):
   override method manifest():
     calls.add("manifest")
     delegate.manifest()
+
   override method report():
     calls.add("report")
     delegate.report()
+
   override method diagnostics():
     calls.add("diagnostics")
     [Diagnostic("backend.note", "note", "backend prepared")]
+
   override method emit():
     calls.add("emit")
     delegate.emit()
@@ -86,13 +93,16 @@ for (backend in [circt_target, verilog_target, rsim_target, rtl_target]):
     calls.add("plan")
     graphs.add(prepared)
     CountedPlan(backend.plan(prepared), calls)
+
   def target = RTLTarget(backend.name, make_plan)
   fun pass(tag :: String):
     fun transform(prepared :: PreparedRTL):
       calls.add(tag)
       snapshots.add([prepared.rtl.design, dump_ir(prepared.rtl.design)])
       instrument(prepared, tag)
+
     RTLPass(tag, transform)
+
   def result = compile_program(program, rtl_pipeline_target(target, [pass("first"), pass("second")]))
   def final = graphs[0]
   def backend_artifacts = backend.plan(final).emit()
@@ -108,13 +118,16 @@ for (backend in [circt_target, verilog_target, rsim_target, rtl_target]):
     dump_ir(design) ~is source_before
     design.sealed ~is #false
     rtl_pipeline_target(backend, []) === backend ~is #true
+
   if backend === rtl_target
   | check:
       report.backend is_a RTLReport ~is #true
       report.backend.elaboration === final.rtl ~is #true
   | check: report.backend ~is #false
+
   for (snapshot in snapshots):
     check: dump_ir(snapshot[0]) ~is snapshot[1]
+
   for (stage in report.stages, tags in [["source", "first"], ["source", "first", "second"]]):
     def findings :: StageReport = stage.findings
     check: findings.rtl.design.sealed ~is #true
@@ -122,6 +135,7 @@ for (backend in [circt_target, verilog_target, rsim_target, rtl_target]):
       check: module_def.metadata.map(fun (entry): entry.namespace) ~is tags
       for (entry in module_def.metadata):
         check: entry.payload.value.module_def === module_def ~is #true
+
   check: report.stages[0].findings.rtl.design === final.rtl.design ~is #false
   // Exercise the actual target's prepared-RTL interface, not just the counting
   // RTLTarget wrapper. Both paths preserve the same artifacts.
@@ -140,6 +154,7 @@ def mutable planned = 0
 fun counted_plan(prepared :: PreparedRTL):
   planned := planned + 1
   circt_target.plan(prepared)
+
 def counted = RTLTarget("counted", counted_plan)
 def broken = RTLPass("broken", fun (prepared): error("pass failed deliberately"))
 check:
@@ -149,10 +164,12 @@ check:
 fun duplicate_artifact(prepared :: PreparedRTL):
   def result = instrument(prepared, "duplicate")
   RTLPassResult(result.rtl, [Artifact("first.json", "application/json", "{}")])
+
 def duplicate = RTLPass("duplicate", duplicate_artifact)
 def mutable published = #false
 fun publish():
   published := compile_program(program, rtl_pipeline_target(circt_target, [first, duplicate]))
+
 check:
   publish() ~throws "unique artifact names"
   published ~is #false
@@ -172,6 +189,7 @@ fun add_observer(prepared :: PreparedRTL):
   builder.instance(top, observer, "observer")
   builder.finish(top)
   RTLPassResult(DesignElaboration(design, top))
+
 def observer_pass = RTLPass("observe", add_observer)
 def retain_observer = RTLPass("retain", fun (prepared): RTLPassResult(prepared.rtl))
 for (backend in [circt_target, verilog_target]):
@@ -179,6 +197,7 @@ for (backend in [circt_target, verilog_target]):
   check:
     observed.manifest.modules ~is ["Observer", "Observed"]
     observed.artifacts.length() ~is 1
+
 check:
   compile_program(empty_program, rtl_pipeline_target(circt_target, [observer_pass, RTLPass("omit", fun (prepared): RTLPassResult(DesignElaboration(empty_design, empty_top)))])) ~throws "preserve existing instance paths"
 
@@ -191,10 +210,13 @@ fun invalid_graph(kind :: String):
   | kind == "undriven": builder.output(top, "undriven", Bits(1))
   | kind == "unreachable": builder.finish(builder.module("Unused"))
   | ~else: #void
+
   builder.finish(top)
   RTLPassResult(DesignElaboration(design, top))
+
 fun invalid_target(kind :: String):
   rtl_pipeline_target(counted, [RTLPass("invalid", fun (prepared): invalid_graph(kind))])
+
 check:
   compile_program(empty_program, invalid_target("signature")) ~throws "preserve the functional top signature"
   compile_program(empty_program, invalid_target("undriven")) ~throws "undriven"

@@ -19,6 +19,7 @@ def example_xy_policy = xy_dimension_order(
   example_mesh,
   ~vc_groups: ["escape"]
 )
+
 def example_xy_problem = RoutingProblem(
   example_topology.topology,
   example_lowered_traffic.route_classes,

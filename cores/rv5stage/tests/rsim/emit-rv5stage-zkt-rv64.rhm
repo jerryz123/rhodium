@@ -18,5 +18,6 @@ def profile = RV5StageConfig(
     ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb)
   )
 )
+
 def program = elaborate(RV5StageZkt(profile))
 export program

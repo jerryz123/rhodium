@@ -29,12 +29,16 @@ fun long_cases(instructions :: List.of(InstructionSpec), ~xlen: xlen :: XLen = X
     def output = partial_pattern(RV2WideLongControl()):
       service: RV2WideLongOperation.Multiply
       multiply: row.output
+
     DecodeCase(row.input, output)
+
   def divide = for List (row in (if xlen == XLen.X32 | RV32MDivideControlCases | RV64MDivideControlCases)):
     def output = partial_pattern(RV2WideLongControl()):
       service: RV2WideLongOperation.Divide
       divide: row.output
+
     DecodeCase(row.input, output)
+
   multiply ++ divide ++ instruction_cases(excluding_instructions(instructions, if xlen == XLen.X32 | RV32MInstructions | RV64MInstructions), partial_pattern(RV2WideLongControl()): service: RV2WideLongOperation.None)
 
 export:

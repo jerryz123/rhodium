@@ -56,8 +56,10 @@ fun frontend_memory_write(memory :: Memory,
                           clock :: maybe(HardwareEntity) = #false):
   when clock
   | reject_explicit_sync_control()
+
   def resolved_enable:
     if enable | enable | kernel.literal(Bits(1), 1)
+
   if clock
   | kernel.memory_write(memory, address, data, clock, resolved_enable)
   | ambient_memory_write(memory, address, data, resolved_enable)

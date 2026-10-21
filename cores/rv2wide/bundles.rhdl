@@ -47,6 +47,7 @@ interface RV2WideInstructionTranslation(xlen :: XLen):
   provider requester
   requester -> responder:
     request: Valid(Bits(xlen.width))
+
   responder -> requester:
     address: Bits(64)
     resolution: RV2WideResolution(xlen)
@@ -68,6 +69,7 @@ interface RV2WideInstructionLookup():
     invalidate_all: Bool
     s1_kill: Bool
     request: Valid(RV2WidePhysicalInstructionReq())
+
   responder -> requester:
     response: Valid(InstructionCacheResult(64))
 
@@ -79,6 +81,7 @@ interface RV2WideUncachedInstruction():
   requester -> responder:
     flush: Bool
     request: Decoupled(RV2WidePhysicalInstructionReq())
+
   responder -> requester:
     response: Decoupled(InstructionCacheResult(64))
 
@@ -281,6 +284,7 @@ interface RV2WidePipelineAccess(xlen :: XLen):
   requester -> responder:
     request: Valid(RV2WideMemoryReq(xlen, xlen.width))
     commit: Bool
+
   responder -> requester:
     response: Valid(RV2WideLookupResult(xlen))
     commit_ready: Bool
@@ -298,6 +302,7 @@ interface RV2WideMemory(xlen :: XLen, address_width :: PosInt):
   provider requester
   requester -> responder:
     request: Decoupled(RV2WideMemoryReq(xlen, address_width))
+
   responder -> requester:
     fault: Valid(RV2WideResolution(xlen))
     response: Decoupled(Bits(xlen.width))

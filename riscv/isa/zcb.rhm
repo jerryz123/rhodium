@@ -39,6 +39,7 @@ fun zcb_memory(name :: NonemptyString,
   def requirements = [zcb_funct6.constrain(funct6), compressed_quadrant.constrain(0)] ++ (
     if half | [zcb_bit6.constrain(if signed | 1 | 0)] | []
   )
+
   def bindings = if store | [bind(rs1, zcb_compact_rs1), bind(rs2, zcb_compact_rd_rs2)] | [bind(rd, zcb_compact_rd_rs2), bind(rs1, zcb_compact_rs1)]
   compressed_instruction(name,
                          requirements,

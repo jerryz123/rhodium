@@ -46,7 +46,9 @@ class RTLTarget(build_plan :: Function.of_arity(1)):
     /* Require the same prepared input and plan result on both entry paths. */
     fun make_plan(prepared :: PreparedRTL) :: TargetPlan:
       build_plan(prepared)
+
     super(name, fun (program): make_plan(prepare_rtl(program)))(make_plan)
+
   /* Reuse the checked plan factory without copying the supplied graph. */
   method plan(prepared :: PreparedRTL) :: TargetPlan:
     build_plan(prepared)

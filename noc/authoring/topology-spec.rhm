@@ -67,6 +67,7 @@ class TopologyLink(ref :: LinkRef,
       | error(~who: #'TopologyLink,
               String.append("duplicate VC group ", group.name,
                             " on link ", ref.describe()))
+
     super(ref,
           source,
           destination,
@@ -77,6 +78,7 @@ class TopologyLink(ref :: LinkRef,
     def mutable count = 0
     for (group in vc_groups):
       count := count + group.count
+
     count
 
   /* Enumerates symbolic VCs in group-name, then group-local index order. */
@@ -85,6 +87,7 @@ class TopologyLink(ref :: LinkRef,
     for (group in vc_groups):
       for (index in 0..group.count):
         vcs := vcs ++ [VCRef(ref, group.name, index)]
+
     vcs
 
   /* Resolves a declared VC group or reports a missing group. */
@@ -94,6 +97,7 @@ class TopologyLink(ref :: LinkRef,
     | error(~who: #'find_vc_group,
             String.append("link ", ref.describe(),
                           " has no VC group ", name))
+
     found
 
   /* Formats the edge name, endpoint names, and VC-group declarations. */
@@ -121,37 +125,45 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
       when duplicate_node_ref(nodes, node)
       | error(~who: #'TopologySpec,
               "duplicate topology node " ++ node.describe())
+
     for (link in links):
       when duplicate_link_ref(links, link.ref)
       | error(~who: #'TopologySpec,
               "duplicate topology link " ++ link.ref.describe())
+
       unless contains_node_ref(nodes, link.source)
       | error(~who: #'TopologySpec,
               String.append("link ", link.ref.describe(),
                             " has unknown source ", link.source.describe()))
+
       unless contains_node_ref(nodes, link.destination)
       | error(~who: #'TopologySpec,
               String.append("link ", link.ref.describe(),
                             " has unknown destination ",
                             link.destination.describe()))
+
     for (terminal in injections):
       when duplicate_injection_ref(injections, terminal.ref)
       | error(~who: #'TopologySpec,
               "duplicate injection terminal " ++ terminal.ref.describe())
+
       unless contains_node_ref(nodes, terminal.router)
       | error(~who: #'TopologySpec,
               String.append("injection terminal ", terminal.ref.describe(),
                             " has unknown router ",
                             terminal.router.describe()))
+
     for (terminal in ejections):
       when duplicate_ejection_ref(ejections, terminal.ref)
       | error(~who: #'TopologySpec,
               "duplicate ejection terminal " ++ terminal.ref.describe())
+
       unless contains_node_ref(nodes, terminal.router)
       | error(~who: #'TopologySpec,
               String.append("ejection terminal ", terminal.ref.describe(),
                             " has unknown router ",
                             terminal.router.describe()))
+
     super(nodes.sort(node_ref_less),
           links.sort(fun (left, right): link_ref_less(left.ref, right.ref)),
           injections.sort(
@@ -170,6 +182,7 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
     def found = nodes.find(fun (node): node_ref_equal(node, ref))
     unless found
     | error(~who: #'find_node, "unknown node " ++ ref.describe())
+
     found
 
   /* Normalizes a user-facing name and returns its declared router reference. */
@@ -181,6 +194,7 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
     def found = links.find(fun (link): link_ref_equal(link.ref, ref))
     unless found
     | error(~who: #'find_link, "unknown link " ++ ref.describe())
+
     found
 
   /* Validates a user-facing link name and returns its reference. */
@@ -194,9 +208,11 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
     def found = injections.find(
       fun (terminal): injection_ref_equal(terminal.ref, ref)
     )
+
     unless found
     | error(~who: #'find_injection,
             "unknown injection terminal " ++ ref.describe())
+
     found
 
   /* Validates a user-facing injection name and returns its reference. */
@@ -210,9 +226,11 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
     def found = ejections.find(
       fun (terminal): ejection_ref_equal(terminal.ref, ref)
     )
+
     unless found
     | error(~who: #'find_ejection,
             "unknown ejection terminal " ++ ref.describe())
+
     found
 
   /* Validates a user-facing ejection name and returns its reference. */

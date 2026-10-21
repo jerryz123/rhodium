@@ -19,8 +19,10 @@ fun require_node_index(nodes :: List.of(NodeId), node :: NodeId):
   def found = nodes.find_index(
     fun (candidate): node_id_equal(candidate, node)
   )
+
   unless found
   | error(~who: #'NetworkPlan, "internal error: missing topology node")
+
   found
 
 /* Maps one external injection terminal to a router input slot. */
@@ -118,6 +120,7 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
             router_plan.origin_key(Injection(terminal))
           )
         ]
+
       for (terminal in router_plan.ejection_terminals):
         ejection_ports := ejection_ports ++ [
           _NetworkEjectionPort(
@@ -173,6 +176,7 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
   method router_plan(node :: NodeId):
     unless validated_routing.topology.contains_node(node)
     | error(~who: #'NetworkPlan, "unknown network-plan node")
+
     router_plans[require_node_index(validated_routing.topology.nodes, node)]
 
   /* Resolves an external injection identity to its router/input assignment. */
@@ -180,9 +184,11 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
     def found = injection_ports.find(
       fun (port): injection_id_equal(port.terminal.id, id)
     )
+
     unless found
     | error(~who: #'NetworkPlan,
             "unknown external injection terminal")
+
     found
 
   /* Resolves an external ejection identity to its router/target assignment. */
@@ -190,9 +196,11 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
     def found = ejection_ports.find(
       fun (port): ejection_id_equal(port.terminal.id, id)
     )
+
     unless found
     | error(~who: #'NetworkPlan,
             "unknown external ejection terminal")
+
     found
 
   /* Resolves one logical VC's source/destination wiring assignment. */
@@ -200,8 +208,10 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
     def found = vc_connections.find(
       fun (connection): vc_id_equal(connection.vc, vc)
     )
+
     unless found
     | error(~who: #'NetworkPlan, "unknown network-plan VC")
+
     found
 
   /* Resolves a physical link's ordered VC wiring group. */
@@ -209,8 +219,10 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
     def found = link_connections.find(
       fun (connection): link_id_equal(connection.link.id, id)
     )
+
     unless found
     | error(~who: #'NetworkPlan, "unknown network-plan link")
+
     found
 
   /* Summarizes the router, terminal, and logical-connection counts. */

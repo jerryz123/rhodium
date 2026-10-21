@@ -58,12 +58,15 @@ class ReachableRouting(materialized :: MaterializedRouting,
     unless materialized.contains_route_class(route_class)
     | error(~who: #'ReachableRouting,
             "route class does not belong to this reachable routing")
+
     def found = routes.find(
       fun (route): route.route_class === route_class
     )
+
     unless found
     | error(~who: #'ReachableRouting,
             "route class has no reachability result")
+
     found
 
   /* Concatenates per-route decisions in deterministic route order. */
@@ -71,6 +74,7 @@ class ReachableRouting(materialized :: MaterializedRouting,
     def mutable decisions = []
     for (route in routes):
       decisions := decisions ++ route.reachable_decisions
+
     decisions
 
   /* Lists the per-route reachability summaries. */
@@ -111,8 +115,10 @@ fun analyze_route(materialized :: MaterializedRouting, route_class :: RouteClass
         def allowed = materialized.decisions_for(route_class, origin).filter(
           ~keep: fun (decision): decision.allowed
         )
+
         when allowed.length() == 0
         | dead_end(route_class, origin)
+
         for (decision in allowed):
           reachable_decisions := reachable_decisions ++ [decision]
           unless contains_vc(reachable_vcs, decision.candidate_vc)
@@ -121,11 +127,13 @@ fun analyze_route(materialized :: MaterializedRouting, route_class :: RouteClass
 
   unless reached_destination
   | destination_unreachable(route_class)
+
   _RouteReachability(route_class, reachable_vcs, reachable_decisions)
 
 /* Analyzes each owned route without invoking a routing callback. */
 fun analyze_reachability(materialized :: MaterializedRouting):
   def routes = for List (route_class in materialized.route_classes):
     analyze_route(materialized, route_class)
+
   // MaterializedRouting contains no callback, so this result cannot re-run one.
   _ReachableRouting(materialized, routes)

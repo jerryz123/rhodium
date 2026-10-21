@@ -44,14 +44,17 @@ fun validate_vc_groups(lowered_topology :: LoweredTopology,
     unless name.length() > 0 && !name.contains("/")
     | error(~who: #'up_down,
             "up/down VC groups must contain names without '/'")
+
     when duplicate_name(vc_groups, name)
     | error(~who: #'up_down,
             "duplicate up/down VC group " ++ name)
+
     unless lowered_topology.spec.links.find(
       fun (link): link.vc_groups.find(fun (group): group.name == name)
     )
     | error(~who: #'up_down,
             "topology has no up/down VC group " ++ name)
+
     for (link in lowered_topology.spec.links):
       unless link.vc_groups.find(fun (group): group.name == name)
       | error(~who: #'up_down,
@@ -67,6 +70,7 @@ fun validate_suitable_topology(lowered_topology :: LoweredTopology):
               "up/down routing does not support self-loop link ",
               lowered_topology.link_ref(link.id).describe()
             ))
+
     unless reverse_link_exists(lowered_topology.topology, link)
     | error(~who: #'up_down,
             String.append(
@@ -98,6 +102,7 @@ fun unique_sorted_neighbors(lowered_topology :: LoweredTopology,
     def neighbor = lowered_topology.node_ref(link.destination)
     unless contains_node_ref(neighbors, neighbor)
     | neighbors := neighbors ++ [neighbor]
+
   neighbors.sort(node_ref_less)
 
 /* Builds a rooted deterministic BFS total order and rejects disconnected routers. */
@@ -114,12 +119,15 @@ fun build_node_orders(lowered_topology :: LoweredTopology, root :: NodeRef):
           UpDownNodeOrder(neighbor, order.depth + 1, orders.length(), node)
         ]
         pending := pending ++ [neighbor]
+
   unless orders.length() == lowered_topology.spec.nodes.length()
   | def missing = lowered_topology.spec.nodes.find(
       fun (node): !find_node_order(orders, node)
     )
+
     error(~who: #'up_down,
           "up/down root cannot reach disconnected node " ++ missing.describe())
+
   orders
 
 /* Classifies an edge as up toward lower rank or down toward higher rank. */
@@ -214,6 +222,7 @@ fun build_viable_states(lowered_topology :: LoweredTopology,
                 UpDownViableState(node, destination, phase)
               ]
               changed := #true
+
   states
 
 /* Synthesizes rank-oriented, viability-filtered up/down routing without granting proof authority. */
@@ -230,6 +239,7 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
     unless contains_node_ref(lowered_topology.spec.nodes, root)
     | error(~who: #'up_down,
             "up/down root is not in topology: " ++ root.describe())
+
     validate_vc_groups(lowered_topology, vc_groups)
     validate_suitable_topology(lowered_topology)
     def sorted_groups = vc_groups.sort(fun (left, right): left < right)
@@ -243,6 +253,7 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
     unless found
     | error(~who: #'node_order,
             "node is not in up/down topology: " ++ node.describe())
+
     found
 
   /* Returns the rank-oriented direction of a symbolic physical link. */
@@ -256,6 +267,7 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
     unless phase == up_phase || phase == down_phase
     | error(~who: #'viable,
             "up/down phase must be 'up' or 'down'")
+
     node_order(node)
     node_order(destination)
     viable_state_exists(viable_states, node, destination, phase)

@@ -50,9 +50,11 @@ class InstructionFieldBinding(target :: BitField,
     unless target.high < 32
     | error(~who: #'InstructionFieldBinding,
             "expansion target field must fit a 32-bit instruction")
+
     unless source.maximum() <= width_mask(target.width)
     | error(~who: #'InstructionFieldBinding,
             "expansion source does not fit its target instruction field")
+
     super(target, source)
 
 /* Masks the compact immediate and sign- or zero-extends it to a nonnarrower target width. */
@@ -63,6 +65,7 @@ fun resize_immediate_value(value :: Nat,
   unless source_width <= target_width
   | error(~who: #'resize_immediate_value,
           "expanded immediate cannot narrow its source value")
+
   def masked = value bits.and width_mask(source_width)
   if signed && bits.field(masked, source_width - 1, source_width) == 1
   | masked bits.or (width_mask(target_width) bits.xor width_mask(source_width))
@@ -81,22 +84,28 @@ class InstructionExpansion(target :: InstructionSpec,
       unless operand_fields.contains(binding.target)
       | error(~who: #'InstructionExpansion,
               "expansion binding does not target an instruction operand")
+
     for (field in operand_fields):
       unless bindings.filter(~keep: fun (binding): binding.target == field).length() == 1
       | error(~who: #'InstructionExpansion,
               "expansion must bind every target operand exactly once")
+
     when immediate && !target.immediate
     | error(~who: #'InstructionExpansion,
             "expansion supplies an immediate to a target without one")
+
     when !immediate && target.immediate
     | error(~who: #'InstructionExpansion,
             "expansion must supply every target immediate")
+
     when immediate is_a ImmediateLayout && immediate.width > target.immediate.width
     | error(~who: #'InstructionExpansion,
             "expansion immediate is wider than its target immediate")
+
     when immediate is_a Nat && immediate > width_mask(target.immediate.width)
     | error(~who: #'InstructionExpansion,
             "constant expansion immediate does not fit its target")
+
     super(target, bindings, immediate)
 
   /* Assembles the canonical host instruction from fixed bits, decoded operands, and a resized/scattered immediate. */
@@ -106,6 +115,7 @@ class InstructionExpansion(target :: InstructionSpec,
       instruction := instruction bits.or (
         binding.source.decode(word) bits.(<<) binding.target.low
       )
+
     if immediate is_a ImmediateLayout
     | block:
         def target_immediate :: ImmediateLayout = target.immediate

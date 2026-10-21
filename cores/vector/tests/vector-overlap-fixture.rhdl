@@ -48,6 +48,7 @@ sync_circuit VectorOverlap():
             vstart: Bits(64)(0)
             vxrm: Bits(2)(0)
             vxsat: Bool(#false)
+
         control: decode.control
         scalar: scalar
         floating_scalar: Bits(64)(0)
@@ -58,6 +59,7 @@ sync_circuit VectorOverlap():
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
+
   vector.packed_memory <== packed_memory
   vector.issue |> to_valid() |> tokens.ingress
   def Array(observed, feedback) = tokens.egress |> fork_valid(2)
@@ -74,6 +76,7 @@ sync_circuit VectorOverlap():
       cause: Bits(64)(0)
       fault_address: Bits(64)(0)
   ) |> vector.decision
+
   response |> vector.completion
   vector.memory_drained <== Bool(#true)
   vector.fp_request |> fp_request

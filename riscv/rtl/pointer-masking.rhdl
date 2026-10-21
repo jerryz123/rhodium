@@ -81,6 +81,7 @@ fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: Poi
         [PointerMaskMode.Bits7, mux(sign7, Bits(7)(0x7f), Bits(7)(0)) ++ address[48..57]],
         [PointerMaskMode.Bits16, mux(sign16, Bits(16)(0xffff), Bits(16)(0))]
       ])
+
       upper ++ address[0..48]
 
 export:

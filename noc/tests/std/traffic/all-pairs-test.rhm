@@ -29,6 +29,7 @@ check:
     "all-pairs/from/terminal=group/terminal=c/to/terminal=a",
     "all-pairs/from/terminal=group/terminal=c/to/terminal=b"
   ]
+
   nonlocal_pairs[0].source.describe() ~is "a"
   nonlocal_pairs[0].destination.describe() ~is "b"
   pairs_with_local.filter(
@@ -54,6 +55,7 @@ check:
     ~include_local: #true,
     ~prefix: ["traffic", "local"]
   )[0].ref.describe() ~is "traffic/local/from/terminal=only/to/terminal=only"
+
   all_pairs_route_ref(
     InjectionRef(a.path),
     EjectionRef(b.path),

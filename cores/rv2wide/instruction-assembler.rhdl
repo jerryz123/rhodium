@@ -115,6 +115,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
       immediate_control_flow: immediate_target
       returning: ras_head
       known: predicted.target
+
     actions[lane] <== action
     // Fresh direction metadata recognizes a not-taken conditional too; it is not a stale BTB entry.
     known_predictions[lane] <== known ||| bht_branch
@@ -134,8 +135,10 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
           target: prediction_target
           compressed: compressed
           ras_action: action
+
       speculated_ras_action: mux(Bool(profile.ras_entries > 0), action, RasAction.None)
       direction: direction
+
     instructions.bits.entries[lane] <== fetched[lane]
 
 
@@ -149,6 +152,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def known = ((owner.prediction.pc === fetched[0].pc) & known_predictions[0]) ||| (second_valid & (owner.prediction.pc === fetched[1].pc) & known_predictions[1])
     def visited = if index == 0 | first_present | second_present & uses_second
     visited & owner.prediction.valid & (owner.prediction.pc >= first_pc) & (owner.prediction.pc < tail_pc) & !known & !owner.fault.valid
+
   def packet_fault = fetched[0].fault.valid ||| (second_valid & fetched[1].fault.valid)
   def bad_entry = (bad_entries[0] ||| bad_entries[1]) & !packet_fault
   def selected :: RV2WideInstruction(xlen) = mux(first_cut, fetched[0], fetched[1])
@@ -159,12 +163,14 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   def repair_entry :: Bits(xlen.width) = priority_mux(~default: second_block.prediction.pc):
     target_repair: selected.pc
     bad_entries[0]: first_block.prediction.pc
+
   repair.valid <== advance & (bad_entry ||| fallback ||| target_repair)
   repair.bits <== RV2WideFetchRepair(xlen):
     target: mux(cut, selected.prediction.target, tail_pc)
     invalidate: bad_entry ||| entry_repair
     entry: repair_entry
     history: rv2wide_history_after(accepted_tail.direction, accepted_tail.direction.taken)
+
   // A local repair preserves this edge's accepted prefix; discard its queued
   // suffix on the following edge, not during the transfer that owns the repair.
   repairing <== repair.valid
@@ -182,6 +188,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
 
   def exhausted = priority_mux(~default: (end >> 2)[0..2]):
     cut ||| packet_fault: mux(uses_second, Bits(2)(2), Bits(2)(1))
+
   def released = mux(advance, exhausted, Bits(2)(0))
   def resident_release = mux(released > count, count, released)
   def remaining = count - resident_release
@@ -206,13 +213,16 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
         retained[index] <== blocks.bits
       elsewhen (position < remaining):
         retained[index] <== retained[(position + resident_release)[0..2]]
+
     when (advance & !repair.valid):
       def next_consumed :: Bits(3) = priority_mux(~default: consumed + used[0..3]):
         cut ||| packet_fault: Bits(3)(0)
         released.or_reduce(): (end - (released.zext(4) << 2))[0..3]
+
       consumed <== next_consumed
     elsewhen (repair.valid):
       consumed <== Bits(3)(0)
+
   assert(count <= Bits(2)(3), "rv2wide_assembly_capacity")
 
 export:

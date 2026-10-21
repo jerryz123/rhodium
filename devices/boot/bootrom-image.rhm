@@ -27,6 +27,7 @@ class BootROMImage(bytes :: NonemptyList.of(Nat)):
     for (byte in bytes):
       unless byte < 0x100
       | error(~who: #'BootROMImage, "image elements must be bytes")
+
     super(bytes)
 
   /* Returns the unpadded image length. */
@@ -37,6 +38,7 @@ class BootROMImage(bytes :: NonemptyList.of(Nat)):
   method padded_bytes(window_bytes :: PosInt):
     unless size_bytes <= window_bytes
     | error(~who: #'padded_bytes, "image must fit in the BootROM window")
+
     bytes ++ for List (_index in size_bytes..window_bytes): 0
 
 /* Serializes encoded 32-bit instruction words in little-endian byte order. */
@@ -45,6 +47,7 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
   for (word in words):
     for (byte_index in 0..4):
       bytes := bytes ++ [bits.field(word, byte_index * 8, (byte_index + 1) * 8)]
+
   bytes
 
 /* The generated reset program is equivalent to this simple assembly:
@@ -91,10 +94,13 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
                         ~boot_address_register: boot_address_register :: maybe(Nat) = #false):
   unless reset_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "reset address must be four-byte aligned")
+
   unless !boot_address_register || boot_address_register mod 8 == 0
   | error(~who: #'riscv_bootrom_image, "boot-address register must be eight-byte aligned")
+
   unless payload_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "payload address must be four-byte aligned")
+
   unless device_tree_address mod 8 == 0
   | error(~who: #'riscv_bootrom_image, "device-tree address must be eight-byte aligned")
 
@@ -108,6 +114,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
     unless upper >= -(1 << 19) && upper < (1 << 19)
     | error(~who: #'riscv_bootrom_image,
             target_name ++ " is outside the AUIPC PC-relative range")
+
     [upper << 12, delta - (upper << 12)]
 
   def mutable words = [CSRRS.encode([
@@ -122,6 +129,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
     def device_tree_immediates = pc_relative_immediates(reset_address + 8, device_tree_address, "device tree")
     words := words ++ [AUIPC.encode([rd.constrain(11)], ~immediate: device_tree_immediates[0]),
                        ADDI.encode([rd.constrain(11), rs1.constrain(11)], ~immediate: device_tree_immediates[1])]
+
     def payload_immediates = pc_relative_immediates(reset_address + (words.length() * 4), payload_address, "payload")
     words := words ++ [AUIPC.encode([rd.constrain(5)], ~immediate: payload_immediates[0]),
                        JALR.encode([rd.constrain(0), rs1.constrain(5)], ~immediate: payload_immediates[1]),
@@ -135,6 +143,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
         CSRRC.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMstatusCSR)]),
         CSRRS.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMieCSR)])
       ]
+
       def interrupt_immediates = pc_relative_immediates(
         reset_address + (words.length() * 4),
         AclintBase,
@@ -147,6 +156,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
         ADD.encode([rd.constrain(28), rs1.constrain(28), rs2.constrain(28)]),
         ADD.encode([rd.constrain(5), rs1.constrain(5), rs2.constrain(28)])
       ]
+
       def boot_immediates = pc_relative_immediates(
         reset_address + (words.length() * 4),
         boot_address_register,
@@ -168,6 +178,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
         SW.encode([rs1.constrain(5), rs2.constrain(0)], ~immediate: 0),
         CSRRC.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMieCSR)])
       ]
+
       def device_tree_immediates = pc_relative_immediates(
         reset_address + (words.length() * 4),
         device_tree_address,
@@ -178,6 +189,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
         ADDI.encode([rd.constrain(11), rs1.constrain(11)], ~immediate: device_tree_immediates[1]),
         JALR.encode([rd.constrain(0), rs1.constrain(6)], ~immediate: 0)
       ]
+
   BootROMImage(instruction_words_to_bytes(words))
 
 def DefaultRiscvBootROMImage = riscv_bootrom_image()

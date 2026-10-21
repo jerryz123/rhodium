@@ -67,6 +67,7 @@ class PlicParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+
   /* Derives the fabric-facing counterpart of the PLIC node. */
   property icn_port: node.icn_peer()
   /* Maps the PLIC window to its four-byte register service. */
@@ -85,12 +86,15 @@ class PlicParams(name :: NonemptyString,
     unless base_address mod PlicWindowBytes == 0
     | error(~who: #'PlicParams,
             "base address must be aligned to the PLIC window size")
+
     unless bits.length((base_address + PlicWindowBytes) - 1) <= config.flit.request_address_width
     | error(~who: #'PlicParams,
             "PLIC window must fit in the CHI request address width")
+
     unless bits.length(node_id) <= config.flit.node_id_width
     | error(~who: #'PlicParams,
             "NodeID must fit in the physical NodeID width")
+
     super(name, node_id, config, base_address)
 
 /* Carries the occurrence's NodeID and register-window base. */
@@ -213,11 +217,13 @@ sync_circuit Plic(config :: PlicConfig):
             valid: pending[source] & context_enables[source] & (
               priority =/= Bits(priority_width)(0)
             )
+
             priority: priority
             source_id: Bits(source_id_width)(source + 1),
         prefer_candidate
       )
   )
+
   def selected_winner = winners[active_context]
   context_interrupts <== vec(for List (context in 0..context_count): winners[context].valid & (winners[context].priority > thresholds[context]))
 
@@ -287,6 +293,7 @@ sync_circuit Plic(config :: PlicConfig):
       )
       (pending[source] ||| forwarded) & !claimed
   ).into(Mask(source_count))
+
   // Claim leaves the gateway busy. Completion frees it; a still-high source
   // can forward again on a later edge, independently of the claim context.
   def next_gateway_busy = vec(
@@ -295,6 +302,7 @@ sync_circuit Plic(config :: PlicConfig):
       def completed = completion_fire & (completion_source_id === Bits(32)(source + 1))
       (gateway_busy[source] ||| forwarded) & !completed
   ).into(Mask(source_count))
+
   def next_enable = vec(
     for List (source in 0..source_count):
       def source_id = source + 1
@@ -312,8 +320,10 @@ sync_circuit Plic(config :: PlicConfig):
   gateway_busy <== next_gateway_busy
   when (write_data_fire & priority_access):
     priorities[priority_index] <== write_value[0..priority_width]
+
   when (write_data_fire & enable_access):
     enables[enable_context] <== next_enable
+
   when (write_data_fire & threshold_access):
     thresholds[active_context] <== write_value[0..priority_width]
 

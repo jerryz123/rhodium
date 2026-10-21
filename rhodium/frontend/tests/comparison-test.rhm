@@ -15,9 +15,11 @@ def module_def = comparison_fixture_design.modules[0]
 def comparisons = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.ult"
 )
+
 def negations = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.not"
 )
+
 def conversions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )

@@ -52,6 +52,7 @@ sync_circuit RiscvTranslationTestService(entry_count :: Pow2Int = 8, ~svnapot: s
            request: operation
            result: completed
   ) |> to_valid() |> tlb.fill
+
   completion.valid <== (state === RiscvTranslationTestServiceState.Complete) & !killed
   completion.bits <== result
 

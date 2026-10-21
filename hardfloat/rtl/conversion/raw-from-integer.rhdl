@@ -16,6 +16,7 @@ fun raw_float_from_integer(signed_input :: Bool,
   def integer_width = input.type.packed_width()
   unless integer_width >= 2
   | error(~who: #'raw_float_from_integer, "integer width must be at least two")
+
   def exponent_width = index_width(integer_width) + 1
   def extended_integer_width = 1 << (exponent_width - 1)
   def sign = signed_input & input[integer_width - 1].into(Bool)
@@ -24,6 +25,7 @@ fun raw_float_from_integer(signed_input :: Bool,
     if integer_width == extended_integer_width
     | magnitude
     | magnitude.zext(extended_integer_width)
+
   def normalization_distance = extended_magnitude.count_leading_zeros()
   def normalized = extended_magnitude << normalization_distance
   def significand = normalized[(extended_integer_width - integer_width)..extended_integer_width]

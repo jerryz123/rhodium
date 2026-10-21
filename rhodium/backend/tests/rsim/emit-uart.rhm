@@ -13,6 +13,7 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[1] in ["native", "differential"]
 | error("expected OUTPUT_DIRECTORY native|differential")
+
 def before = dump_ir(program.design)
 def was_sealed = program.design.sealed
 def native = compile_program(program, rsim_target)
@@ -22,7 +23,9 @@ def results:
   | def reference = compile_program(program, verilog_target)
     unless native.manifest.top == reference.manifest.top && native.manifest.signature == reference.manifest.signature && native.manifest.modules == reference.manifest.modules
     | error("UART compilation target manifests disagree")
+
     [native, reference]
+
 unless dump_ir(program.design) == before && program.design.sealed == was_sealed | error("UART compilation changed source RTL")
 for (result in results):
   for (artifact in result.artifacts):

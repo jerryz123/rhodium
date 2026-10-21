@@ -23,6 +23,7 @@ class PlicTileParams(plic :: PlicConfig,
     unless plic.context_count == hart_count * 2
     | error(~who: #'PlicTileParams,
             "PLIC tile requires machine and supervisor contexts for every hart")
+
     super(plic, router, hart_count)
 
 /* Supplies the runtime router site, PLIC NodeID, and MMIO base. */
@@ -57,6 +58,7 @@ sync_circuit PlicTile(params :: PlicTileParams):
         machine_external: device.context_interrupts[hart * 2]
         supervisor_external: device.context_interrupts[(hart * 2) + 1]
   )
+
   interrupt_source.egress <=> external_interrupt_update
   router.site_key <== identity.site_key
   device.port <=> router.sn_local[0]

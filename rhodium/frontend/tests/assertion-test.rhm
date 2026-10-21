@@ -14,12 +14,15 @@ def ambient = fixture.design.modules[0]
 def assertions = ambient.operations.filter(
   ~keep: fun (operation): operation.opcode == "verif.assert"
 )
+
 def always_assert = assertions.find(
   fun (operation): operation.attribute("label", #false) == "always_holds"
 )
+
 def request_assert = assertions.find(
   fun (operation): operation.attribute("label", #false) == "request_holds"
 )
+
 def always_guard = ambient.find_operation(always_assert.operands[3].defining_op_id)
 def request_guard = ambient.find_operation(request_assert.operands[3].defining_op_id)
 def priority_design = compile_program(elaborate(fixture.PriorityAssertions()), rtl_target).report.design
@@ -27,10 +30,12 @@ def priority = priority_design.modules[0]
 def priority_assertions = priority.operations.filter(
   ~keep: fun (operation): operation.opcode == "verif.assert"
 )
+
 fun assertion_with_label(assertions, label):
   assertions.find(
     fun (operation): operation.attribute("label", #false) == label
   )
+
 def first_guard = priority.find_operation(
   assertion_with_label(priority_assertions, "first_holds").operands[3].defining_op_id
 )
@@ -70,4 +75,5 @@ check:
   composed.design.modules[0].operations.find(
     fun (operation): operation.opcode == "verif.assert"
   ).attribute("label") ~is "composed_holds"
+
   verify_design(composed.design) ~is #void

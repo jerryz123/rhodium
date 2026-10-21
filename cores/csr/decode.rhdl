@@ -17,6 +17,7 @@ fun csr_access_cases(Control :: DataType, inactive :: Pattern) :: List.of(Decode
     def access = partial_pattern(Control):
       csr: operation
       immediate: Bool(immediate)
+
     DecodeCase(instruction_pattern(instruction), access.intersection(inactive).terms[0])
 
 export csr_access_cases

@@ -15,9 +15,11 @@ fun fork_valid(n :: PosInt)
     def input_link = interface_link(protocol, "fork_valid_input")
     def output_links :: Array.later_of(Handle) = for Array (index in 0..n):
       interface_link(protocol, "fork_valid_output_" ++ to_string(index))
+
     for (output_link in output_links):
       output_link.left.field("valid") <== input_link.right.field("valid")
       output_link.left.field("bits") <== input_link.right.field("bits")
+
     finish_interface_transform(
       source,
       describe_interface_transform(

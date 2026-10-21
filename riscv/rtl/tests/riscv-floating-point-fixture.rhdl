@@ -43,10 +43,12 @@ circuit RiscvFloatingPointFixture():
     overflow: overflow
     underflow: underflow
     inexact: inexact
+
   def conversion_flags = IntegerExceptionFlags():
     invalid: invalid
     overflow: overflow
     inexact: inexact
+
   boxed <== riscv_nan_box(FloatFormat.F32, ieee, 64)
   box_valid <== riscv_nan_box_valid(FloatFormat.F32, 64, container)
   unboxed <== riscv_unbox(FloatFormat.F32, 64, container).as_bits()

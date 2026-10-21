@@ -8,6 +8,7 @@ interface Link(T):
   role consumer
   producer -> consumer:
     bits: T
+
   consumer -> producer:
     ready: Bool
 

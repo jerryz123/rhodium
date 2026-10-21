@@ -36,6 +36,7 @@ class MiniSoCConfig(hart :: RiscvHartImplementation, ram :: CHIRamParams, clocks
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: ram.base_address)):
     unless ram.base_address + ram.config.size_bytes <= (1 << hart.description.xlen.width)
     | error(~who: #'MiniSoCConfig, "Mini RAM must fit the hart's address range")
+
     super(hart, ram, clocks, boot)
 
   property fabric :: SingleCoreSystemParams:

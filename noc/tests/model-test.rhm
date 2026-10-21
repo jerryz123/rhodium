@@ -37,6 +37,7 @@ def route1 = RouteClass(RouteClassId(1), n1, n1)
 def relation = RoutingRelation(
   fun (_, _, _): #true
 )
+
 def problem = RoutingProblem(topology, [route1, route0], relation)
 def injection_candidate_names = problem.candidates(route0, Injection(n0)).map(
   fun (vc): vc.describe()
@@ -48,6 +49,7 @@ check:
   problem.candidates(route0, HeldVC(VCId(LinkId(0), 1))).map(
     fun (vc): vc.describe()
   ) ~is ["l1.vc0", "l2.vc0", "l2.vc1", "l2.vc2"]
+
   problem.at_destination(route0, HeldVC(VCId(LinkId(1), 0))) ~is #true
   problem.candidates(route0, HeldVC(VCId(LinkId(1), 0))) ~is []
   problem.candidates(route1, Injection(n1)) ~is []

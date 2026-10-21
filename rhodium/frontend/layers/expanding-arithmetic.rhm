@@ -38,10 +38,12 @@ fun add_expanding(left :: HardwareEntity,
   def right_value = read(right)
   unless bits_type(left_value.type) && bits_type(right_value.type)
   | error(~who: #'add_expanding, "expanding arithmetic operands must be Bits")
+
   def result_width:
     if left_value.type.width > right_value.type.width
     | left_value.type.width + 1
     | right_value.type.width + 1
+
   def (wide_left, wide_right) = widen_unsigned_operands(left_value,
                                                         right_value,
                                                         result_width)
@@ -58,6 +60,7 @@ fun mul_expanding(left :: HardwareEntity,
   unless unsigned_operands || signed_operands
   | error(~who: #'mul_expanding,
           "expanding multiplication operands must both be Bits or signed arithmetic values")
+
   def result_width = scalar_width(left_value.type) + scalar_width(right_value.type)
   def (wide_left, wide_right):
     if unsigned_operands
@@ -69,7 +72,9 @@ fun mul_expanding(left :: HardwareEntity,
         unless type_equal(left_result_type, right_result_type)
         | error(~who: #'mul_expanding,
                 "signed expanding multiplication operands must have compatible signed arithmetic types")
+
         widen_signed_operands(left_value, right_value, result_width)
+
   hw_mul(wide_left, wide_right, name)
 
 operator (left +& right) :~ HardwareFields:

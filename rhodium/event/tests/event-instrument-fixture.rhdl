@@ -62,6 +62,7 @@ sync_circuit EventRuntime():
     |> trace_valid_event("wide-output", ~fields: payload):
          low: payload[0..37]
          high: payload[64]
+
   observed_wide |> wide_sink
 
 circuit EventWrongDomain():

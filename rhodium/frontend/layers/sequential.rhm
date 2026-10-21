@@ -34,14 +34,19 @@ fun declare_register(name :: String,
                      ~init: init :: maybe(HardwareFields) = #false):
   when clock || reset
   | reject_explicit_sync_control()
+
   when type && next
   | register_form_error()
+
   unless type || next || init
   | register_form_error()
+
   when reset && !clock
   | register_form_error()
+
   when clock && ((reset && !init) || (!reset && init))
   | register_form_error()
+
   def next_value = next ?> kernel.read
   def init_value = init ?> kernel.read
   def state_type:
@@ -49,14 +54,17 @@ fun declare_register(name :: String,
     | type: type
     | next_value: next_value.type
     | ~else: init_value.type
+
   def register:
     if clock
     | kernel_reg(name, state_type, clock, reset, init_value)
     | if init_value
       | ambient_reset_register(name, state_type, init_value)
       | ambient_register(name, state_type)
+
   when next_value
   | kernel.connect(register.next, next_value)
+
   register
 
 defn.macro

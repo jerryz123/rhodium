@@ -14,6 +14,7 @@ def icn = CHIICNPortParams(
   ~supports: fixture.rni_icn.supports,
   ~max_outstanding: fixture.rni_icn.max_outstanding
 )
+
 elaborate(
   fixture.CHIRNILinkAdapter(fixture.rni_link,
                             fixture.rni_node,

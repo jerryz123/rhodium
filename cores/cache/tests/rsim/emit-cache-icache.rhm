@@ -8,5 +8,6 @@ import:
   "../../config.rhm" open
   "../../l1i/cache.rhdl" open
   "../params.rhdl" open
+
 def program = elaborate(L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_instruction_cache_config, ~fetch_bits: 32))
 export program

@@ -23,6 +23,7 @@ check:
   counter_one.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "enable"
   ]
+
   counter_one.outputs.map(fun (port): port.name) ~is ["value", "wrap"]
   counter_one.find_output("value").type.width ~is 1
   counter_ten.find_output("value").type.width ~is 4
@@ -33,9 +34,11 @@ check:
   operations(counter_one, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is ["counter_state_in_range"]
+
   operations(counter_ten, "verif.assert").map(
     fun (operation): operation.attribute("label")
   ) ~is ["counter_state_in_range"]
+
   verify_design(counter_one_design) ~is #void
   verify_design(counter_ten_design) ~is #void
   elaborate(counter.Counter(0)) ~throws "PosInt"

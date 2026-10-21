@@ -57,6 +57,7 @@ fun canonical_wire_value(value :: Value):
         if operation && operation.opcode == "rtl.wire" && operation.places[0].driver
         | loop(operation.places[0].driver, visited ++ [current])
         | current
+
   loop(value, [])
 
 /* Compares physical clock sources by identity after resolving transparent wire aliases. */
@@ -70,19 +71,24 @@ fun check_schema(operation :: Operation):
   def schema = schema_for(operation.opcode)
   unless schema
   | fail_operation(operation, "unknown operation " ++ operation.opcode)
+
   when schema.operand_count && operation.operands.length() != schema.operand_count
   | fail_operation(operation,
                    operation.opcode ++ " has the wrong number of operands")
+
   when schema.result_count && operation.results.length() != schema.result_count
   | fail_operation(operation,
                    operation.opcode ++ " has the wrong number of results")
+
   when schema.place_count && operation.places.length() != schema.place_count
   | fail_operation(operation,
                    operation.opcode ++ " has the wrong number of places")
+
   for (attribute_name in schema.required_attributes):
     unless attribute_name in operation.attributes
     | fail_operation(operation,
                      operation.opcode ++ " requires attribute " ++ attribute_name)
+
   schema
 
 /* Checks the schema's opcode-specific type, attribute, resource, hierarchy, and CDC-chain invariants. */
@@ -104,6 +110,7 @@ fun check_operation_types(module_def :: Module,
       def integer = operation.attribute("value", #false)
       unless bits_type(result.type)
       | fail_operation(operation, "constant result must have a valid Bits type")
+
       unless integer is_a Nat && bits.length(integer) <= result.type.width
       | fail_operation(operation, "constant does not fit its result width")
   | "bits_dont_care":
@@ -116,21 +123,27 @@ fun check_operation_types(module_def :: Module,
       def output_width = result.type.packed_width()
       unless data_type(selector.type) && input_width is_a PosInt
       | fail_operation(operation, "decode selector must have a packable DataType")
+
       unless data_type(result.type) && output_width is_a PosInt
       | fail_operation(operation, "decode result must have a packable DataType")
+
       def cases = operation.attribute("cases", #false)
       unless cases is_a List
       | fail_operation(operation, "decode cases must be a List")
+
       for (case in cases, index in 0..cases.length()):
         unless case is_a List && case.length() == 4
         | fail_operation(operation,
                          "decode case " ++ to_string(index) ++ " is malformed")
+
         unless case[0] is_a Nat && case[1] is_a Nat && packed_pattern_well_formed(case[0], case[1], input_width)
         | fail_operation(operation,
                          "decode case " ++ to_string(index) ++ " input is malformed")
+
         unless case[2] is_a Nat && case[3] is_a Nat && packed_pattern_well_formed(case[2], case[3], output_width)
         | fail_operation(operation,
                          "decode case " ++ to_string(index) ++ " output is malformed")
+
       for (left_index in 0..cases.length()):
         for (right_index in (left_index + 1)..cases.length()):
           def left = cases[left_index]
@@ -139,6 +152,7 @@ fun check_operation_types(module_def :: Module,
           | fail_operation(operation,
                            String.append("decode cases ", to_string(left_index),
                                          " and ", to_string(right_index), " overlap"))
+
       def default_value = operation.attribute("default_value", #false)
       def default_care = operation.attribute("default_care", #false)
       unless default_value is_a Nat && default_care is_a Nat && packed_pattern_well_formed(default_value,
@@ -174,6 +188,7 @@ fun check_operation_types(module_def :: Module,
       unless arithmetic_type(value.type) && arithmetic_type(result.type) && type_equal(value.type, result.type)
       | fail_operation(operation,
                        operation.opcode ++ " shifted value and result must have exactly the same ArithmeticType")
+
       unless bits_type(amount.type)
       | fail_operation(operation,
                        operation.opcode ++ " shift amount must be Bits")
@@ -184,6 +199,7 @@ fun check_operation_types(module_def :: Module,
       unless bits_type(value.type) && bits_type(result.type) && type_equal(value.type, result.type)
       | fail_operation(operation,
                        operation.opcode ++ " shifted value and result must have the same Bits width")
+
       unless bits_type(amount.type)
       | fail_operation(operation,
                        operation.opcode ++ " shift amount must be Bits")
@@ -194,6 +210,7 @@ fun check_operation_types(module_def :: Module,
       unless bits_type(left.type) && bits_type(right.type) && type_equal(left.type, right.type)
       | fail_operation(operation,
                        operation.opcode ++ " operands must have the same Bits width")
+
       unless bits_type(result.type) && result.type.width == 1
       | fail_operation(operation,
                        operation.opcode ++ " result must be Bits(1)")
@@ -204,6 +221,7 @@ fun check_operation_types(module_def :: Module,
       unless signed_arithmetic_type(value.type) && signed_arithmetic_type(result.type) && type_equal(value.type, result.type)
       | fail_operation(operation,
                        operation.opcode ++ " shifted value and result must have exactly the same SignedArithmeticType")
+
       unless bits_type(amount.type)
       | fail_operation(operation,
                        operation.opcode ++ " shift amount must be Bits")
@@ -214,6 +232,7 @@ fun check_operation_types(module_def :: Module,
       unless signed_arithmetic_type(left.type) && signed_arithmetic_type(right.type) && type_equal(left.type, right.type)
       | fail_operation(operation,
                        operation.opcode ++ " operands must have exactly the same SignedArithmeticType")
+
       unless bits_type(result.type) && result.type.width == 1
       | fail_operation(operation,
                        operation.opcode ++ " result must be Bits(1)")
@@ -224,15 +243,18 @@ fun check_operation_types(module_def :: Module,
       unless signed_arithmetic_type(operand.type) && signed_arithmetic_type(result.type)
       | fail_operation(operation,
                        "rtl.sext operand and result must be SignedArithmeticType values")
+
       unless target_width is_a PosInt && target_width > scalar_width(operand.type)
       | fail_operation(operation,
                        "rtl.sext target width must be larger than the source width")
+
       unless scalar_width(result.type) == target_width && type_equal(result.type, operand.type.with_bit_width(target_width))
       | fail_operation(operation,
                        "rtl.sext result must preserve the signed arithmetic type at the target width")
   | "data_mux_lookup":
       unless operation.operands.length() >= 3
       | fail_operation(operation, "mux lookup requires a selector, default, and at least one case")
+
       def selector = operation.operands[0]
       def default_value = operation.operands[1]
       def case_values = operation.operands.drop(2)
@@ -240,37 +262,48 @@ fun check_operation_types(module_def :: Module,
       def keys = operation.attribute("keys", #false)
       unless mux_selector_type(selector.type)
       | fail_operation(operation, "mux lookup selector must be Bits")
+
       unless keys is_a List && keys.length() == case_values.length()
       | fail_operation(operation, "mux lookup keys must match its case values")
+
       def width = selector_width(selector.type)
       def mutable previous_key = #false
       for (key in keys):
         unless key is_a Nat
         | fail_operation(operation, "mux lookup keys must be host natural numbers")
+
         unless bits.length(key) <= width
         | fail_operation(operation, "mux lookup key does not fit its selector type")
+
         when previous_key && previous_key >= key
         | fail_operation(operation, "mux lookup keys must be unique and increasing")
+
         previous_key := key
+
       unless data_type(default_value.type) && type_equal(default_value.type, result.type)
       | fail_operation(operation, "mux lookup default and result must have the same DataType")
+
       for (case_value in case_values):
         unless data_type(case_value.type) && type_equal(case_value.type, result.type)
         | fail_operation(operation, "mux lookup cases and result must have the same DataType")
   | "onehot_mux":
       unless operation.operands.length() >= 2
       | fail_operation(operation, "one-hot mux requires a selector and choices")
+
       def selector = operation.operands[0]
       def choices = operation.operands.drop(1)
       def result = operation.results[0]
       unless bits_type(selector.type)
       | fail_operation(operation, "one-hot mux selector must be Bits")
+
       unless choices.length() == selector.type.width
       | fail_operation(operation,
                        "one-hot mux choice count must equal selector width")
+
       unless data_type(result.type) && packable_type(result.type)
       | fail_operation(operation,
                        "one-hot mux result must have a packable DataType")
+
       for (choice in choices):
         unless data_type(choice.type) && type_equal(choice.type, result.type)
         | fail_operation(operation,
@@ -286,11 +319,14 @@ fun check_operation_types(module_def :: Module,
   | "bits_concat":
       unless operation.operands.length() >= 2
       | fail_operation(operation, "concat requires at least two operands")
+
       def mutable expected_width = 0
       for (operand in operation.operands):
         unless bits_type(operand.type)
         | fail_operation(operation, "concat operands must have valid Bits types")
+
         expected_width := expected_width + operand.type.width
+
       def result = operation.results[0]
       unless bits_type(result.type) && result.type.width == expected_width
       | fail_operation(operation,
@@ -302,9 +338,11 @@ fun check_operation_types(module_def :: Module,
       def low = operation.attribute("low", #false)
       unless high is_a Nat && low is_a Nat
       | fail_operation(operation, "extract indices must be host natural numbers")
+
       unless bits_type(operand.type) && low <= high && high < operand.type.width
       | fail_operation(operation,
                        "extract indices must satisfy 0 <= low <= high < source width")
+
       unless bits_type(result.type) && result.type.width == high - low + 1
       | fail_operation(operation, "extract result width does not match its indices")
   | "bits_zext" || "bits_trunc":
@@ -313,10 +351,13 @@ fun check_operation_types(module_def :: Module,
       def target_width = operation.attribute("target_width", #false)
       unless target_width is_a PosInt
       | fail_operation(operation, operation.opcode ++ " target width must be a positive host integer")
+
       unless bits_type(operand.type) && bits_type(result.type) && result.type.width == target_width
       | fail_operation(operation, operation.opcode ++ " result must match its target width")
+
       when schema.type_rule == "bits_zext" && target_width <= operand.type.width
       | fail_operation(operation, "zext target width must be larger than the source width")
+
       when schema.type_rule == "bits_trunc" && target_width >= operand.type.width
       | fail_operation(operation, "trunc target width must be smaller than the source width")
   | "record_create":
@@ -324,10 +365,13 @@ fun check_operation_types(module_def :: Module,
       def fields = operation.attribute("fields", #false)
       unless record_type(result.type) && type_well_formed(result.type)
       | fail_operation(operation, "record_create result must have a well-formed RecordType")
+
       unless fields is_a List && fields == result.type.fields.map(fun (field): field.name)
       | fail_operation(operation, "record_create fields must match its result type")
+
       unless operation.operands.length() == result.type.fields.length()
       | fail_operation(operation, "record_create requires exactly one operand per field")
+
       for (operand in operation.operands,
            field in result.type.fields):
         unless type_equal(operand.type, field.type)
@@ -339,19 +383,24 @@ fun check_operation_types(module_def :: Module,
       def field_name = operation.attribute("field", #false)
       unless record_type(record.type)
       | fail_operation(operation, "record_get operand must have a RecordType")
+
       unless field_name is_a String
       | fail_operation(operation, "record_get field must be a String")
+
       def field = record.type.field(field_name)
       unless field
       | fail_operation(operation, "record_get names an unknown field")
+
       unless type_equal(result.type, field.type)
       | fail_operation(operation, "record_get result has the wrong field type")
   | "vector_create":
       def result = operation.results[0]
       unless vector_type(result.type) && type_well_formed(result.type)
       | fail_operation(operation, "vector_create result must have a well-formed VectorType")
+
       unless operation.operands.length() == result.type.length
       | fail_operation(operation, "vector_create requires exactly one operand per element")
+
       for (operand in operation.operands):
         unless type_equal(operand.type, result.type.element_type)
         | fail_operation(operation, "vector_create element has the wrong type")
@@ -361,8 +410,10 @@ fun check_operation_types(module_def :: Module,
       def index = operation.attribute("index", #false)
       unless vector_type(vector.type)
       | fail_operation(operation, "vector_get operand must have a VectorType")
+
       unless index is_a Int.in(0, vector.type.length ~exclusive)
       | fail_operation(operation, "vector_get index is outside its vector type")
+
       unless type_equal(result.type, vector.type.element_type)
       | fail_operation(operation, "vector_get result has the wrong element type")
   | "vector_index":
@@ -371,10 +422,13 @@ fun check_operation_types(module_def :: Module,
       def result = operation.results[0]
       unless vector_type(vector.type)
       | fail_operation(operation, "vector_index operand must have a VectorType")
+
       def expected_width:
         if vector_type(vector.type) | count_index_width(vector.type.length) | #false
+
       unless bits_type(index.type) && index.type.width == expected_width
       | fail_operation(operation, "vector_index selector has the wrong Bits width")
+
       unless vector_type(vector.type) && type_equal(result.type, vector.type.element_type)
       | fail_operation(operation, "vector_index result has the wrong element type")
   | "vector_inject":
@@ -384,12 +438,16 @@ fun check_operation_types(module_def :: Module,
       def result = operation.results[0]
       unless vector_type(vector.type)
       | fail_operation(operation, "vector_inject operand must have a VectorType")
+
       def expected_width:
         if vector_type(vector.type) | count_index_width(vector.type.length) | #false
+
       unless bits_type(index.type) && index.type.width == expected_width
       | fail_operation(operation, "vector_inject selector has the wrong Bits width")
+
       unless vector_type(vector.type) && type_equal(element.type, vector.type.element_type)
       | fail_operation(operation, "vector_inject element has the wrong type")
+
       unless type_equal(result.type, vector.type)
       | fail_operation(operation, "vector_inject result has the wrong vector type")
   | "vector_write_set":
@@ -400,28 +458,37 @@ fun check_operation_types(module_def :: Module,
       def result = operation.results[0]
       unless vector_type(vector.type)
       | fail_operation(operation, "vector_write_set base must have a VectorType")
+
       def port_count:
         if vector_type(enables.type) | enables.type.length | 0
+
       unless vector_type(enables.type) && port_count > 0 && type_equal(enables.type.element_type, Bits(1))
       | fail_operation(operation, "vector_write_set enables must be a nonempty Vec of Bits(1)")
+
       def expected_index_width:
         if vector_type(vector.type) | count_index_width(vector.type.length) | #false
+
       unless vector_type(indices.type) && indices.type.length == port_count && bits_type(indices.type.element_type) && indices.type.element_type.width == expected_index_width
       | fail_operation(operation, "vector_write_set indices have the wrong vector type")
+
       unless vector_type(elements.type) && elements.type.length == port_count && vector_type(vector.type) && type_equal(elements.type.element_type, vector.type.element_type)
       | fail_operation(operation, "vector_write_set elements have the wrong vector type")
+
       unless type_equal(result.type, vector.type)
       | fail_operation(operation, "vector_write_set result has the wrong vector type")
   | "memory":
       def memory = operation.attribute("memory", #false)
       unless memory is_a Memory && memory.module_def === module_def && module_def.owns_memory(memory)
       | fail_operation(operation, "memory allocation references an invalid memory")
+
       unless memory.defining_op_id == operation.id
       | fail_operation(operation, "memory has the wrong defining operation")
+
       def attribute_type = operation.attribute("element_type", #false)
       def attributes_agree = operation.attribute("name", #false) == memory.name && operation.attribute("depth", #false) == memory.depth && type_equal(attribute_type, memory.element_type)
       unless attributes_agree
       | fail_operation(operation, "memory attributes disagree with the memory resource")
+
       unless data_type(memory.element_type) && type_well_formed(memory.element_type)
       | fail_operation(operation, "memory element type must be a well-formed DataType")
   | "memory_read_async":
@@ -430,10 +497,12 @@ fun check_operation_types(module_def :: Module,
       def result = operation.results[0]
       unless memory is_a Memory && memory.module_def === module_def && module_def.owns_memory(memory)
       | fail_operation(operation, "memory read references an invalid memory")
+
       def valid_depth = memory is_a Memory
       def expected_width = if valid_depth | memory_address_width(memory.depth) | #false
       unless bits_type(address.type) && address.type.width == expected_width
       | fail_operation(operation, "memory read address has the wrong Bits width")
+
       unless memory is_a Memory && data_type(result.type) && type_equal(result.type, memory.element_type)
       | fail_operation(operation, "memory read result has the wrong DataType")
   | "memory_write":
@@ -444,16 +513,21 @@ fun check_operation_types(module_def :: Module,
       def enable = operation.operands[3]
       unless memory is_a Memory && memory.module_def === module_def && module_def.owns_memory(memory)
       | fail_operation(operation, "memory write references an invalid memory")
+
       def valid_depth = memory is_a Memory
       def expected_width = if valid_depth | memory_address_width(memory.depth) | #false
       unless bits_type(address.type) && address.type.width == expected_width
       | fail_operation(operation, "memory write address has the wrong Bits width")
+
       unless memory is_a Memory && data_type(data.type) && type_equal(data.type, memory.element_type)
       | fail_operation(operation, "memory write data has the wrong DataType")
+
       unless clock_type(clock.type)
       | fail_operation(operation, "memory write clock must be Clock")
+
       unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
       | fail_operation(operation, "memory write enable must be a one-bit ScalarDataType")
+
       unless module_def.memory_write_clock_consistent(memory)
       | fail_operation(operation, "memory write ports must use the same clock")
   | "sync_memory":
@@ -465,35 +539,45 @@ fun check_operation_types(module_def :: Module,
       def mask_granularity = operation.attribute("mask_granularity", #false)
       unless depth is_a PosInt
       | fail_operation(operation, "synchronous memory depth must be positive")
+
       unless data_type(element_type) && type_well_formed(element_type)
       | fail_operation(operation, "synchronous memory element type must be a DataType")
+
       unless has_read is_a Boolean && has_write is_a Boolean && has_read_write is_a Boolean && (has_read || has_write || has_read_write)
       | fail_operation(operation,
                        "synchronous memory requires a read, write, or read-write port")
+
       when has_read_write && (has_read || has_write)
       | fail_operation(operation,
                        "a read-write port cannot be combined with separate read or write ports yet")
+
       when mask_granularity
       | unless mask_granularity is_a PosInt
         | fail_operation(operation,
                          "synchronous memory mask granularity must be positive")
+
         unless has_write || has_read_write
         | fail_operation(operation,
                          "synchronous memory masking requires a write-capable port")
+
         def element_width = element_type.packed_width()
         unless element_width is_a PosInt
         | fail_operation(operation,
                          "masked synchronous memory element type must have a packed width")
+
         unless element_width mod mask_granularity == 0
         | fail_operation(operation,
                          "synchronous memory mask granularity must divide the packed element width")
+
       unless clock_type(operation.operands[0].type)
       | fail_operation(operation, "synchronous memory clock must be Clock")
+
       def has_mask = mask_granularity != #false
       def expected_places = (if has_read | 2 | 0) + (if has_write | 3 + (if has_mask | 1 | 0) | 0) + (if has_read_write | 4 + (if has_mask | 1 | 0) | 0)
       def expected_results = (if has_read | 1 | 0) + (if has_read_write | 1 | 0)
       unless operation.places.length() == expected_places && operation.results.length() == expected_results
       | fail_operation(operation, "synchronous memory port shape is malformed")
+
       def address_width = memory_address_width(depth)
       def mutable place_index = 0
       def mutable result_index = 0
@@ -503,29 +587,38 @@ fun check_operation_types(module_def :: Module,
         def data = operation.results[result_index]
         unless bits_type(address.type) && address.type.width == address_width
         | fail_operation(operation, "synchronous memory read address has the wrong width")
+
         unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
         | fail_operation(operation, "synchronous memory read enable must be one bit")
+
         unless type_equal(data.type, element_type)
         | fail_operation(operation, "synchronous memory read data has the wrong type")
+
         place_index := place_index + 2
         result_index := result_index + 1
+
       when has_write
       | def address = operation.places[place_index]
         def data = operation.places[place_index + 1]
         def enable = operation.places[place_index + 2]
         unless bits_type(address.type) && address.type.width == address_width
         | fail_operation(operation, "synchronous memory write address has the wrong width")
+
         unless type_equal(data.type, element_type)
         | fail_operation(operation, "synchronous memory write data has the wrong type")
+
         unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
         | fail_operation(operation, "synchronous memory write enable must be one bit")
+
         when has_mask
         | def mask = operation.places[place_index + 3]
           def expected_mask_width = element_type.packed_width() / mask_granularity
           unless bits_type(mask.type) && mask.type.width == expected_mask_width
           | fail_operation(operation,
                            "synchronous memory write mask has the wrong Bits width")
+
         place_index := place_index + 3 + (if has_mask | 1 | 0)
+
       when has_read_write
       | def address = operation.places[place_index]
         def enable = operation.places[place_index + 1]
@@ -535,18 +628,23 @@ fun check_operation_types(module_def :: Module,
         unless bits_type(address.type) && address.type.width == address_width
         | fail_operation(operation,
                          "synchronous memory read-write address has the wrong width")
+
         unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
         | fail_operation(operation,
                          "synchronous memory read-write enable must be one bit")
+
         unless scalar_data_type(write.type) && scalar_width(write.type) == 1
         | fail_operation(operation,
                          "synchronous memory read-write selector must be one bit")
+
         unless type_equal(write_data.type, element_type)
         | fail_operation(operation,
                          "synchronous memory read-write input data has the wrong type")
+
         unless type_equal(read_data.type, element_type)
         | fail_operation(operation,
                          "synchronous memory read-write output data has the wrong type")
+
         when has_mask
         | def write_mask = operation.places[place_index + 4]
           def expected_mask_width = element_type.packed_width() / mask_granularity
@@ -562,13 +660,17 @@ fun check_operation_types(module_def :: Module,
       unless scalar_data_type(condition.type) && scalar_width(condition.type) == 1
       | fail_operation(operation,
                        "assert condition must be a one-bit ScalarDataType")
+
       unless clock_type(clock.type)
       | fail_operation(operation, "assert clock must be Clock")
+
       unless reset_type(reset.type)
       | fail_operation(operation, "assert reset must be Reset")
+
       unless scalar_data_type(guard.type) && scalar_width(guard.type) == 1
       | fail_operation(operation,
                        "assert guard must be a one-bit ScalarDataType")
+
       unless !label || (label is_a String && assertion_label_identifier.is_match(label))
       | fail_operation(operation,
                        "assert label must be an ASCII identifier")
@@ -576,28 +678,37 @@ fun check_operation_types(module_def :: Module,
       def dpi_import = operation.attribute("dpi_import", #false)
       unless dpi_import is_a DpiImport && dpi_import.design === module_def.design && module_def.design.owns_dpi_import(dpi_import)
       | fail_operation(operation, "DPI operation references an invalid import")
+
       unless operation.operands.length() >= 3
       | fail_operation(operation, "DPI operation requires a clock, enable, and input operands")
+
       def clock = operation.operands[0]
       def enable = operation.operands[1]
       def inputs = operation.operands.drop(2)
       unless clock_type(clock.type)
       | fail_operation(operation, "DPI operation clock must be Clock")
+
       unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
       | fail_operation(operation, "DPI operation enable must be a one-bit ScalarDataType")
+
       unless dpi_import is_a DpiImport && inputs.length() == dpi_import.input_types.length()
       | fail_operation(operation, "DPI operation input count does not match its import")
+
       when dpi_import is_a DpiImport
       | for (input in inputs, expected_type in dpi_import.input_types):
           unless type_equal(input.type, expected_type)
           | fail_operation(operation, "DPI operation input has the wrong hardware type")
+
         when schema.type_rule == "dpi_call" && dpi_import.has_result()
         | fail_operation(operation, "DPI call requires a result-less procedure import")
+
         when schema.type_rule == "dpi_register"
         | unless dpi_import.has_result()
           | fail_operation(operation, "DPI register requires a result-bearing function import")
+
           unless operation.results.length() == dpi_import.results.length()
           | fail_operation(operation, "DPI register result count does not match its import")
+
           for (result in operation.results, expected in dpi_import.results):
             unless type_equal(result.type, expected.type)
             | fail_operation(operation, "DPI register result has the wrong hardware type")
@@ -607,44 +718,56 @@ fun check_operation_types(module_def :: Module,
       def next = operation.places[0]
       unless clock_type(clock.type)
       | fail_operation(operation, "register clock must be Clock")
+
       unless data_type(current.type) && data_type(next.type) && type_equal(current.type, next.type)
       | fail_operation(operation, "register current and next-state types differ")
+
       when schema.type_rule == "data_register_reset"
       | def reset = operation.operands[1]
         def reset_value = operation.operands[2]
         unless reset_type(reset.type)
         | fail_operation(operation, "register reset must be Reset")
+
         unless data_type(reset_value.type) && type_equal(current.type, reset_value.type)
         | fail_operation(operation, "register reset value has the wrong hardware type")
   | "sync_level_crossing":
       unless operation.operands.length() >= 4
       | fail_operation(operation,
                        "sync-level crossing requires a source, destination clock, and at least two stages")
+
       def source = operation.operands[0]
       def destination_clock = operation.operands[1]
       def stages = operation.operands.drop(2)
       unless bits_type(source.type) && source.type.width == 1
       | fail_operation(operation, "sync-level crossing source must be Bits(1)")
+
       unless clock_type(destination_clock.type)
       | fail_operation(operation, "sync-level crossing destination must be Clock")
+
       unless operation.attribute("promise", #false) == "stable_level"
       | fail_operation(operation, "sync-level crossing must carry the stable-level promise")
+
       def mutable prior = source
       def seen_stages = MutableSet.by(===){}
       for (stage in stages,
            index in 0..stages.length()):
         when stage in seen_stages
         | fail_operation(operation, "sync-level crossing stages must be distinct")
+
         seen_stages.add(stage)
         def stage_operation = module_def.find_operation(stage.defining_op_id)
         unless stage_operation && stage_operation.opcode == "rtl.register" && stage_operation.results[0] === stage
         | fail_operation(operation, "sync-level crossing stages must be resetless registers")
+
         unless bits_type(stage.type) && stage.type.width == 1
         | fail_operation(operation, "sync-level crossing stages must be Bits(1)")
+
         unless same_wire_value(stage_operation.operands[0], destination_clock)
         | fail_operation(operation, "sync-level crossing stages must use the destination clock")
+
         unless stage_operation.places[0].driver === prior
         | fail_operation(operation, "sync-level crossing stages must form a direct register chain")
+
         when index + 1 < stages.length()
         | def next_stage_operation = module_def.find_operation(
             stages[index + 1].defining_op_id
@@ -653,35 +776,44 @@ fun check_operation_types(module_def :: Module,
           fun unexpected_user(user_id :: Nat):
             def user = module_def.find_operation(user_id)
             !(user === operation || (user && user.opcode == "rtl.drive" && user.places[0] === next_stage_operation.places[0]))
+
           def functional_users = stage.users().filter(~keep: unexpected_user)
           when functional_users.length() != 0
           | fail_operation(operation,
                            "sync-level crossing intermediate stages must not have functional fanout")
+
         unless module_def.sync_crossing_use_count(stage) == 1
         | fail_operation(operation, "a register stage may belong to exactly one sync-level crossing")
+
         prior := stage
   | "type_equal_drive":
       def value = operation.operands[0]
       def place = operation.places[0]
       unless type_equal(place.type, value.type)
       | fail_operation(operation, "drive source and target types differ")
+
       unless place.driver && place.driver.id == value.id
       | fail_operation(operation, "drive operation disagrees with the place driver")
   | "instance":
       def child = operation.attribute("module", #false)
       unless child is_a Module && child.finished
       | fail_operation(operation, "instance target is not a finished module")
+
       def child_owned = child.design === module_def.design && module_def.design.owns_module(child)
       unless child_owned
       | fail_operation(operation, "instance target belongs to a different design")
+
       unless operation.places.length() == child.inputs.length()
       | fail_operation(operation, "instance input count does not match its module")
+
       unless operation.results.length() == child.outputs.length()
       | fail_operation(operation, "instance output count does not match its module")
+
       for (place in operation.places,
            port in child.inputs):
         unless type_equal(place.type, port.type)
         | fail_operation(operation, "instance input type does not match its port")
+
       for (value in operation.results,
            port in child.outputs):
         unless type_equal(value.type, port.type)
@@ -699,8 +831,10 @@ fun verify_module_structure(module_def :: Module):
   def module_owned = module_def.design is_a Design && module_def.design.owns_module(module_def)
   unless module_owned
   | fail("module belongs to a different design")
+
   unless module_def.finished
   | fail("module " ++ module_def.name ++ " has not been finished")
+
   def instance_name_counts = MutableMap{}
   def sync_memory_name_counts = MutableMap{}
   def drive_counts = MutableMap{}
@@ -709,88 +843,117 @@ fun verify_module_structure(module_def :: Module):
     when operation is_a Operation
     | when operation.opcode == "rtl.instance"
       | increment_count(instance_name_counts, operation.attribute("name", #false))
+
       when operation.opcode == "rtl.sync_memory"
       | increment_count(sync_memory_name_counts, operation.attribute("name", #false))
+
       when operation.opcode == "rtl.drive" && operation.places.length() == 1
       | increment_count(drive_counts, operation.places[0].id)
+
   for (memory in module_def.memories):
     when memory is_a Memory
     | increment_count(memory_name_counts, memory.name)
+
   for (port in module_def.inputs):
     def input_valid = type_well_formed(port.type) && port.value && !port.place && port.value.module_def === module_def && module_def.owns_value(port.value)
     unless input_valid
     | fail("input " ++ module_def.name ++ "." ++ port.name ++ " is malformed")
+
   for (port in module_def.outputs):
     def output_valid = type_well_formed(port.type) && port.place && !port.value && port.place.module_def === module_def && module_def.owns_place(port.place)
     unless output_valid
     | fail("output " ++ module_def.name ++ "." ++ port.name ++ " is malformed")
+
   for (operation in module_def.operations):
     unless operation is_a Operation && operation.module_def === module_def
     | fail("operation belongs to a different module")
+
     def schema = check_schema(operation)
     when operation.opcode == "rtl.instance"
     | unless instance_name_counts.get(operation.attribute("name", #false), 0) == 1
       | fail_operation(operation,
                        "instance name " ++ operation.attribute("name") ++ " is not unique")
+
     when operation.opcode == "rtl.sync_memory"
     | unless sync_memory_name_counts.get(operation.attribute("name", #false), 0) == 1
       | fail_operation(operation,
                        "synchronous memory name " ++ operation.attribute("name") ++ " is not unique")
+
     for (operand in operation.operands):
       def operand_owned = operand is_a Value && operand.module_def === module_def && module_def.owns_value(operand)
       unless operand_owned
       | fail_operation(operation, "operand belongs to a different module")
+
       unless operand.has_user(operation.id)
       | fail_operation(operation, "operand is missing its use-def link")
+
     for (result in operation.results):
       def result_owned = result is_a Value && result.module_def === module_def && module_def.owns_value(result)
       unless result_owned
       | fail_operation(operation, "result belongs to a different module")
+
       unless result.defining_op_id == operation.id
       | fail_operation(operation, "result has the wrong defining operation")
+
     for (place in operation.places):
       def place_owned = place is_a Place && place.module_def === module_def && module_def.owns_place(place)
       unless place_owned
       | fail_operation(operation, "place belongs to a different module")
+
     check_operation_types(module_def, operation, schema)
+
   for (place in module_def.places):
     unless place.module_def === module_def
     | fail("place " ++ place.name ++ " belongs to a different module")
+
     def owner = module_def.find_operation(place.owner_op_id)
     unless owner && contains_identity(owner.places, place)
     | fail("place " ++ place.name ++ " has an invalid owner")
+
     unless type_well_formed(place.type)
     | fail("place " ++ place.name ++ " does not have a well-formed HardwareType")
+
     unless place.driver
     | fail("place " ++ place.name ++ " is undriven")
+
     def driver_owned = place.driver.module_def === module_def && module_def.owns_value(place.driver)
     unless driver_owned
     | fail("place " ++ place.name ++ " is driven from a different module")
+
     unless type_equal(place.type, place.driver.type)
     | fail("place " ++ place.name ++ " and its driver have different types")
+
     def drive_count = drive_counts.get(place.id, 0)
     unless drive_count == 1
     | fail("place " ++ place.name ++ " must have exactly one drive operation")
+
   for (memory in module_def.memories):
     unless memory is_a Memory && memory.module_def === module_def
     | fail("memory belongs to a different module")
+
     def defining_operation = module_def.find_operation(memory.defining_op_id)
     unless defining_operation && defining_operation.opcode == "rtl.memory" && defining_operation.attribute("memory", #false) === memory
     | fail("memory " ++ memory.name ++ " has an invalid defining operation")
+
     unless memory_name_counts.get(memory.name, 0) == 1
     | fail("memory name " ++ memory.name ++ " is not unique")
+
   for (value in module_def.values):
     unless value.module_def === module_def
     | fail("value " ++ value.name ++ " belongs to a different module")
+
     def defining_operation = module_def.find_operation(value.defining_op_id)
     unless defining_operation && contains_identity(defining_operation.results, value)
     | fail("value " ++ value.name ++ " has an invalid defining operation")
+
     for (user_id in value.users()):
       def user = module_def.find_operation(user_id)
       unless user && contains_identity(user.operands, value)
       | fail("value " ++ value.name ++ " has an invalid user")
+
     unless type_well_formed(value.type)
     | fail("value " ++ value.name ++ " does not have a well-formed HardwareType")
+
   #void
 
 /* Checks a concrete module and all reachable child definitions, then rejects hierarchical combinational cycles. */
@@ -806,6 +969,7 @@ fun verify_module(module_def :: Module):
       for (operation in candidate.operations):
         when operation.opcode == "rtl.instance"
         | visit(operation.attribute("module"))
+
   visit(module_def)
   verify_combinational_cycles(reachable_modules.snapshot())
 
@@ -817,60 +981,81 @@ fun verify_design_structure(design :: Design):
   for (dpi_import in design.dpi_imports):
     when dpi_import is_a DpiImport
     | increment_count(dpi_name_counts, dpi_import.name)
+
   for (module_def in design.modules):
     when module_def is_a Module
     | increment_count(module_name_counts, module_def.name)
+
   for (dpi_import in design.dpi_imports):
     unless dpi_import is_a DpiImport && dpi_import.design === design
     | fail("DPI import belongs to a different design")
+
     def import_label:
       if dpi_import.name is_a String | dpi_import.name | "<unnamed>"
+
     unless dpi_import.name is_a String && dpi_import.input_names is_a List && dpi_import.input_types is_a List && dpi_import.input_names.length() == dpi_import.input_types.length() && dpi_import.input_names.length() >= 1
     | fail("DPI import " ++ import_label ++ " has a malformed signature")
+
     unless dpi_import.results is_a List
     | fail("DPI import " ++ import_label ++ " has malformed results")
+
     def input_names_seen = MutableSet{}
     for (input_name in dpi_import.input_names, input_type in dpi_import.input_types):
       unless input_name is_a String && scalar_data_type(input_type) && type_well_formed(input_type)
       | fail("DPI import " ++ import_label ++ " has a malformed input")
+
       when input_name in input_names_seen
       | fail("DPI import " ++ import_label ++ " has duplicate input names")
+
       input_names_seen.add(input_name)
+
     def result_names_seen = MutableSet{}
     for (result in dpi_import.results):
       unless result is_a DpiResult && result.name is_a String && scalar_data_type(result.type) && type_well_formed(result.type) && (result.direction == "out" || result.direction == "return")
       | fail("DPI import " ++ import_label ++ " has a malformed result")
+
       when result.name in result_names_seen
       | fail("DPI import " ++ import_label ++ " has duplicate result names")
+
       result_names_seen.add(result.name)
       when dpi_import.input_names.find(fun (candidate): candidate == result.name)
       | fail("DPI import " ++ import_label ++ " reuses an input name as a result")
+
     when dpi_import.results.length() != 0
     | def returns = dpi_import.results.filter(~keep: fun (result): result.direction == "return")
       unless returns.length() == 1 && dpi_import.results[dpi_import.results.length() - 1].direction == "return"
       | fail("DPI import " ++ import_label ++ " must have exactly one final return result")
+
     unless dpi_name_counts.get(dpi_import.name, 0) == 1
     | fail("duplicate DPI import name " ++ import_label)
+
   for (module_def in design.modules):
     unless module_def is_a Module && module_def.design === design
     | fail("module belongs to a different design")
+
     unless module_name_counts.get(module_def.name, 0) == 1
     | fail("duplicate module name " ++ module_def.name)
+
     verify_module_structure(module_def)
+
   def entity_ids = MutableSet{}
   /* Rejects repeated IDs across the design's declarations, operations, values, root places, and memories. */
   fun verify_unique_id(id :: Nat):
     when id in entity_ids
     | fail("duplicate IR id " ++ to_string(id))
+
     entity_ids.add(id)
+
   for (dpi_import in design.dpi_imports):
     verify_unique_id(dpi_import.id)
+
   for (module_def in design.modules):
     verify_unique_id(module_def.id)
     for (operation in module_def.operations): verify_unique_id(operation.id)
     for (value in module_def.values): verify_unique_id(value.id)
     for (place in module_def.places): verify_unique_id(place.id)
     for (memory in module_def.memories): verify_unique_id(memory.id)
+
   #void
 
 /*
@@ -888,4 +1073,5 @@ fun verify_design(design :: Design):
     verify_design_combinational(design)
     design.seal()
     verified_designs.add(design)
+
   #void

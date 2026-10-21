@@ -48,6 +48,7 @@ def RV64IMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~double: #tr
   excluding_instructions(RV64IInstructions, rv64_memory_instructions),
   no_memory
 )
+
 def RV32AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~double: #false)
 def RV64AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~double: #true)
 def RV32RV5StageMemoryCases = RV32IMemoryCases ++ instruction_cases(

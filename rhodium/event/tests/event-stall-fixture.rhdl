@@ -15,13 +15,16 @@ sync_circuit EventStallLane(mode :: Nat, traced :: Boolean):
     | ingress |> trace_event("accepted", ~stalls: #true, ~fields: value):
         value: value
     | ingress
+
   def held = match mode
   | 0: accepted
   | 1: accepted |> pipe(2)
   | ~else: accepted |> queue(3, ~flow: #true, ~pipe: #true)
+
   if traced
   | def completed = held |> trace_event("completed", ~stalls: #true, ~fields: value):
       value: value
+
     completed |> egress
   | held |> egress
 

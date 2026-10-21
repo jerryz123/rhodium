@@ -21,14 +21,17 @@ def family_ejection = fixture.family_noc_family_adapters.ejection(
 def top = fixture_family_noc_design.modules.find(
   fun (module_def): module_def.name == "CHIFamilyNoCFixture"
 )
+
 def router = fixture_family_noc_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFamily"
 )
+
 def router_instances = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.instance" && (
     operation.attribute("module") === router
   )
 )
+
 def physical = RouterFamilyPhysicalPlan(fixture.family_noc_router_family)
 
 check:
@@ -60,7 +63,9 @@ check:
   router_instances.map(fun (instance): instance.attribute("name")) ~is [
     "source", "middle", "target"
   ]
+
   fixture_family_noc_design.modules.filter(
     ~keep: fun (module_def): module_def.name.starts_with("SimpleRouterFamily")
   ).length() ~is 1
+
   verify_design(fixture_family_noc_design) ~is #void

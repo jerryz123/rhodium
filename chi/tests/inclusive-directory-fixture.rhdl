@@ -27,6 +27,7 @@ sync_circuit CHIDirectoryFixture(slots :: PosInt, sets :: Pow2Int = 4):
       set: commit_sets[(2 * slot)..(2 * slot + set_width)]
       way: commit_ways[slot..(slot + 1)]
       entry: commit_entries[(16 * slot)..(16 * slot + 16)].into(Entry)
+
   directory.commits <== vec(entries)
   initialized <== directory.initialized
   lookup_accepted <== directory.lookup_accepted

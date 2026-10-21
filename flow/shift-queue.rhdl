@@ -37,6 +37,7 @@ sync_circuit ShiftQueue(T :: DataType,
   mask <== occupied.as_bits()
   def count_bits = for List (index in 0..depth):
     if depth == 1 | occupied[index].as_bits() | occupied[index].as_bits().zext(index_width(depth + 1))
+
   count <== tree_reduce(count_bits, fun (left, right): left + right)
   def accepted = ingress.fire()
 
@@ -56,6 +57,7 @@ sync_circuit ShiftQueue(T :: DataType,
       when append:
         occupied[index] <== Bool(#true)
         payload[index] <== ingress.bits
+
     if index > 0
     | assert(!occupied[index] ||| occupied[index - 1], "shift_queue_valids_are_compact")
     | #void
@@ -79,6 +81,7 @@ fun shift_queue(depth :: PosInt,
     if flush != #false
     | shift_queue_stage.flush <== flush
     | #void
+
     finish_interface_transform(
       source,
       describe_interface_transform(

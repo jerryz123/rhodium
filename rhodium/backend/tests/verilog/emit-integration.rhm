@@ -14,11 +14,13 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[0] in ["direct", "circt"]
 | error("expected direct|circt uart-dpi|event-runtime|event-elastic")
+
 def fixture = match arguments[1]
 | "uart-dpi": ["devices/tests/uart-dpi-fixture.rhdl", #'program]
 | "event-runtime": ["rhodium/event/tests/event-instrument-fixture.rhdl", #'runtime]
 | "event-elastic": ["rhodium/event/tests/event-elastic-fixture.rhdl", #'elastic]
 | ~else: error("unknown integration fixture")
+
 def tracing = arguments[1].starts_with("event-")
 def program :: DesignElaboration = dynamic_require(fixture[0], fixture[1])
 def design = program.design
@@ -29,6 +31,7 @@ def passes = if tracing | [event_trace_pass()] | []
 def direct = compile_program(program, rtl_pipeline_target(verilog_target, passes))
 unless direct.manifest.top == top.name && direct.manifest.signature == module_signature(top)
 | error("direct target changed the authored fixture boundary")
+
 def result:
   if arguments[0] == "direct"
   | direct
@@ -39,9 +42,13 @@ def result:
       def reference = compile_program(program, rtl_pipeline_target(target, passes))
       unless direct.manifest.top == reference.manifest.top && direct.manifest.signature == reference.manifest.signature && direct.manifest.modules == reference.manifest.modules
       | error("integration target manifests disagree")
+
       when tracing && direct.artifacts.drop(1) != reference.artifacts.drop(1)
       | error("trace descriptors disagree between backends")
+
       reference
+
 unless dump_ir(design) == before && design.sealed == was_sealed
 | error("compilation mutated the authored fixture")
+
 print(result.artifacts[0].content)

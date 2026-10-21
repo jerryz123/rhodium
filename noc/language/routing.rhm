@@ -40,8 +40,10 @@ meta:
           "duplicate " ++ subject ++ " " ++ identifier_name(group),
           group
         )
+
       seen := seen ++ [group]
       strings := strings ++ [identifier_name(group)]
+
     strings
 
   /* Intersects one named rule's constraints and labels the result through public policy
@@ -57,6 +59,7 @@ meta:
             "routing rule " ++ identifier_name(name) ++ " must contain at least one constraint",
             name
           )
+
         def mutable lowered = []
         def mutable origin = #false
         for (constraint in constraints):
@@ -69,6 +72,7 @@ meta:
                   "routing rule " ++ identifier_name(name) ++ " has more than one origin constraint",
                   constraint
                 )
+
               origin := constraint
               lowered := lowered ++ ['injection_policy']
           | 'origin forwarding':
@@ -77,6 +81,7 @@ meta:
                   "routing rule " ++ identifier_name(name) ++ " has more than one origin constraint",
                   constraint
                 )
+
               origin := constraint
               lowered := lowered ++ ['forwarding_policy']
           | 'origin $bad ...':
@@ -127,6 +132,7 @@ meta:
                 "expected use, origin, routes, current_vcs, candidate_vcs, or candidate_links routing constraint",
                 constraint
               )
+
         let [policy, ...] = lowered
         def rule_name = identifier_name(name)
         'routing_phase(
@@ -144,6 +150,7 @@ expr.macro 'routing:
   def rules = [rule, ...]
   when rules.length() == 0
   | syntax_meta.error("routing requires at least one rule", self)
+
   def mutable names = []
   def mutable lowered = []
   for (rule_form in rules):
@@ -156,9 +163,11 @@ expr.macro 'routing:
             "duplicate routing rule " ++ identifier_name(name),
             name
           )
+
         names := names ++ [name]
         lowered := lowered ++ [lower_rule(rule_form)]
     | ~else:
         syntax_meta.error("expected a named routing rule", rule_form)
+
   let [policy, ...] = lowered
   'policy_union([$policy, ...])'

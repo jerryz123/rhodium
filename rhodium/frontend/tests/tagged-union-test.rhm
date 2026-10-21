@@ -24,12 +24,15 @@ def tag_type = union_type.tag_type
 def extracts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.extract"
 )
+
 def equalities = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.eq"
 )
+
 def concats = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.concat"
 )
+
 def nested_module = nested_fixture_design.modules[0]
 check:
   union_type.variants ~is ["Idle", "Read", "Write"]

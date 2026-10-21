@@ -16,6 +16,7 @@ fun require_counterexample(label, left, right, query = FormalQuery()):
   unless result.counterexample()
   | error(~who: #'replay_models,
           label ++ " did not produce a counterexample: " ++ result.describe())
+
   result
 
 fun require_reachable(label, subject, target, query = FormalQuery()):
@@ -23,6 +24,7 @@ fun require_reachable(label, subject, target, query = FormalQuery()):
   unless result.reachable()
   | error(~who: #'replay_models,
           label ++ " did not produce a reachability witness: " ++ result.describe())
+
   result
 
 fun require_property_proved(label, subject, target, query = FormalQuery()):
@@ -37,18 +39,21 @@ fun require_property_counterexample(label, subject, target,
   unless result.counterexample()
   | error(~who: #'replay_models,
           label ++ " did not produce a property counterexample: " ++ result.describe())
+
   result
 
 fun assignment(result, port):
   def found = result.assignments.find(fun (candidate): candidate.port == port)
   unless found
   | error(~who: #'replay_models, "counterexample omitted input " ++ port)
+
   found.packed_value
 
 fun difference(result, port):
   def found = result.differences.find(fun (candidate): candidate.port == port)
   unless found
   | error(~who: #'replay_models, "counterexample omitted differing output " ++ port)
+
   found
 
 fun emit(name, value):
@@ -66,6 +71,7 @@ require_equivalent("one-hot selection",
 
 def shift_result:
   require_counterexample("shift defect", fixture.shift_reference, fixture.shift_defect)
+
 def shift_difference = difference(shift_result, "left")
 emit("SHIFT_VALUE", assignment(shift_result, "value"))
 emit("SHIFT_AMOUNT", assignment(shift_result, "amount"))
@@ -76,6 +82,7 @@ def aggregate_result:
   require_counterexample("aggregate defect",
                          fixture.aggregate_reference,
                          fixture.aggregate_defect)
+
 def aggregate_difference = difference(aggregate_result, "record_bits")
 emit("RECORD_HIGH", assignment(aggregate_result, "high"))
 emit("RECORD_LOW", assignment(aggregate_result, "low"))
@@ -86,6 +93,7 @@ def hierarchy_result:
   require_counterexample("hierarchy defect",
                          fixture.hierarchy_reference,
                          fixture.hierarchy_defect)
+
 def hierarchy_difference = difference(hierarchy_result, "difference")
 emit("PAIR_LEFT", assignment(hierarchy_result, "left"))
 emit("PAIR_RIGHT", assignment(hierarchy_result, "right"))
@@ -94,6 +102,7 @@ emit("PAIR_DEFECT", hierarchy_difference.right_value)
 
 def decode_result:
   require_counterexample("decode defect", fixture.decode_reference, fixture.decode_defect)
+
 def decode_difference = difference(decode_result, "result")
 emit("DECODE_SELECTOR", assignment(decode_result, "selector"))
 emit("DECODE_REFERENCE", decode_difference.left_value)
@@ -104,6 +113,7 @@ def onehot_result:
                          fixture.onehot_reference,
                          fixture.onehot_defect,
                          onehot_query)
+
 def onehot_difference = difference(onehot_result, "result")
 emit("ONEHOT_SELECTOR", assignment(onehot_result, "selector"))
 emit("ONEHOT_A", assignment(onehot_result, "a"))
@@ -117,6 +127,7 @@ def reachability_result:
                     fixture.onehot_candidate,
                     FormalOutputPattern("result", 7),
                     onehot_query)
+
 emit("REACH_SELECTOR", assignment(reachability_result, "selector"))
 emit("REACH_A", assignment(reachability_result, "a"))
 emit("REACH_B", assignment(reachability_result, "b"))
@@ -136,6 +147,7 @@ def property_result:
                                   fixture.onehot_candidate,
                                   FormalOutputPattern("result", 7),
                                   onehot_query)
+
 emit("PROPERTY_SELECTOR", assignment(property_result, "selector"))
 emit("PROPERTY_A", assignment(property_result, "a"))
 emit("PROPERTY_B", assignment(property_result, "b"))

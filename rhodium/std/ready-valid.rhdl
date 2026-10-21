@@ -69,6 +69,7 @@ fun decoupled_protocol_type(protocol :: InterfaceType):
   def payload_member = protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits" && data_type(member.type)
   )
+
   if !payload_member
   | #false
   | block:
@@ -86,6 +87,7 @@ fun valid_protocol_type(protocol :: InterfaceType):
   def payload_member = protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits" && data_type(member.type)
   )
+
   if payload_member && interface_type_supports(
     protocol,
     Valid(payload_member.type)
@@ -108,6 +110,7 @@ fun decoupled_payload_type(endpoint :: Endpoint):
   unless protocol
   | error(~who: #'decoupled_payload_type,
           "flow-control chaining requires a Decoupled or Irrevocable endpoint")
+
   protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits"
   ).type
@@ -121,6 +124,7 @@ fun ctrl_endpoint(endpoint :: Endpoint) :~ Endpoint:
   )
   | error(~who: #'ctrl_endpoint,
           "control-flow chaining requires a DecoupledCtrl or IrrevocableCtrl endpoint")
+
   endpoint
 
 export:

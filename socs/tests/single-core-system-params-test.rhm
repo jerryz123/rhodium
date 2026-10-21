@@ -30,6 +30,7 @@ def memory = CHIICNPortParams(
   ),
   ~max_outstanding: 2
 )
+
 def service = CHISubordinateServiceParams(
   memory, [AddressSet(0x40000000, 0x1ffff)],
   [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
@@ -90,6 +91,7 @@ check:
   params.compilations.req.routes.map(fun (route): [route.source.node_id, route.destination.node_id]) ~is (
     [[16, 20], [16, 24], [16, 21], [16, 23], [16, 22], [13, 15], [12, 16], [12, 15], [14, 16], [14, 15], [11, 16], [11, 15]]
   )
+
   system_params(0x50000000).memory_region ~throws "memory service must cover"
   system_params(0x40000000, 12, 0x50000000).memory_region ~throws "payload address"
   system_params(0x40000000, 11).home_config ~throws "requester NodeIDs must be unique"

@@ -74,6 +74,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def first_halfword :: Bits(16) = priority_mux(~default: packet.word[0..16]):
     partial: partial_halfword
     first_upper: packet.word[16..32]
+
   def first_compressed = if compressed_enabled | first_halfword[0..2] =/= Bits(2)(3) | Bool(#false)
   def first_complete = first_compressed ||| partial ||| !first_upper
   def first_instruction = mux(partial, packet.word[0..16] ++ partial_halfword, packet.word)
@@ -122,10 +123,12 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     target: fallback_target
     compressed: mux(first_fallback, first_compressed, Bool(#true))
     ras_action: mux(first_fallback, first_action, second_action)
+
   def refreshed_prediction = prediction.updated(~target: ras_head)
   def effective_prediction :: BranchPrediction(xlen) = priority_mux(~default: prediction):
     return_repair: refreshed_prediction
     fallback_prediction.valid: fallback_prediction
+
   def redirect_prediction :: BranchPrediction(xlen) = priority_mux(~default: fallback_prediction):
     continued_return_repair: partial_return_prediction
     return_repair: refreshed_prediction

@@ -17,6 +17,7 @@ def tiny_boot = boot.SoCBootConfig(
   ~device_tree_offset: 32,
   ~program: BootROMImage(for List (_index in 0..32): 0)
 )
+
 def tiny_description = RiscvSoCDescription(
   ~model: "Rhodium tiny-ROM fixture",
   ~compatible: ["rhodium,tiny-rom-fixture"],

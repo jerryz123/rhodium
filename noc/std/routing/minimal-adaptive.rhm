@@ -29,9 +29,11 @@ fun validate_vc_groups(lowered_topology :: LoweredTopology,
     unless name.length() > 0 && !name.contains("/")
     | error(~who: #'minimal_adaptive,
             "minimal-adaptive VC groups must contain names without '/'")
+
     when duplicate_name(vc_groups, name)
     | error(~who: #'minimal_adaptive,
             "duplicate minimal-adaptive VC group " ++ name)
+
     unless topology_has_vc_group(lowered_topology.spec, name)
     | error(~who: #'minimal_adaptive,
             "topology has no VC group " ++ name)
@@ -48,6 +50,7 @@ class MinimalAdaptivePolicy(lowered_topology :: LoweredTopology,
     unless distances.topology === lowered_topology.topology
     | error(~who: #'minimal_adaptive,
             "hop distances must belong to the lowered topology")
+
     validate_vc_groups(lowered_topology, vc_groups)
     super(lowered_topology,
           distances,
@@ -68,6 +71,7 @@ class MinimalAdaptivePolicy(lowered_topology :: LoweredTopology,
     def group_allowed = vc_groups.find(
       fun (name): name == context.candidate_vc.group
     ) != #false
+
     node_id_equal(candidate_link.source, current_node) && group_allowed && distances.link_is_minimal(
       candidate_link_id,
       destination

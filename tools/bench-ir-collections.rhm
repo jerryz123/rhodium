@@ -1,5 +1,5 @@
 #lang rhombus
-// Measures fresh Rhodium IR collection construction and finalization at a chosen size.
+/* Measures fresh Rhodium IR collection construction and finalization at a chosen size. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -24,6 +24,7 @@ def module_def = builder.module("CollectionBenchmark")
 for (index in 0..count_value):
   builder.input(module_def, "value_" ++ to_string(index), Bits(1))
   #void
+
 def after_construction = rkt.#{current-inexact-milliseconds}()
 def finished = builder.finish(module_def)
 def after_finish = rkt.#{current-inexact-milliseconds}()

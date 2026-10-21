@@ -30,6 +30,7 @@ class RiscvHartImplementation(name :: NonemptyString,
                circuit_factory :: Function.of_arity(3)):
     unless profile.hart_description == description
     | error(~who: #'RiscvHartImplementation, "hart description must match the implementation profile")
+
     super(name, key, profile, description, cache_line_bytes, chi_factory, circuit_factory)
 
   /* Resolves the selected hart's CHI attachment using the fabric configuration and instruction, data, and uncached NodeIDs. */

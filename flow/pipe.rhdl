@@ -18,12 +18,14 @@ sync_circuit Pipe(T :: DataType, stages :: PosInt):
   def initial_valid = vec(
     for List (_ in 0..stages): Bool(#false)
   )
+
   reg stage_valid(~init: initial_valid)
   reg stage_bits(Vec(stages, T))
 
   def valid_sources = [ingress.valid] ++ (
     for List (index in 0..(stages - 1)): stage_valid[index]
   )
+
   def bits_sources = [ingress.bits] ++ (
     for List (index in 0..(stages - 1)): stage_bits[index]
   )
@@ -60,6 +62,7 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt, ~flushable: flushable ::
         input flush: Bool
         flush
     | Bool(#false)
+
   reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
   stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
   reg stage_bits(Vec(stages, T))
@@ -67,6 +70,7 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt, ~flushable: flushable ::
   def valid_sources = [ingress.valid] ++ (
     for List (index in 0..(stages - 1)): stage_valid[index]
   )
+
   def bits_sources = [ingress.bits] ++ (
     for List (index in 0..(stages - 1)): stage_bits[index]
   )
@@ -93,6 +97,7 @@ sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt, ~flushable:
         input flush: Bool
         flush
     | Bool(#false)
+
   reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
   stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
   shift_register stage_bits(ingress.bits, stages)
@@ -113,6 +118,7 @@ sync_circuit CtrlPipe(stages :: PosInt):
   def initial_valid = vec(
     for List (_ in 0..stages): Bool(#false)
   )
+
   reg stage_valid(~init: initial_valid)
   def valid_sources = [ingress.valid] ++ (
     for List (index in 0..(stages - 1)): stage_valid[index]
@@ -160,6 +166,7 @@ fun valid_pipe(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
     if flush != #false
     | valid_pipe_stage.flush <== flush
     | #void
+
     finish_interface_transform(
       source,
       describe_interface_transform(
@@ -180,6 +187,7 @@ fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: maybe(Bool) = #
     if flush != #false
     | valid_pipe_always_capture_stage.flush <== flush
     | #void
+
     finish_interface_transform(
       source,
       describe_interface_transform(

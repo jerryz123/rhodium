@@ -43,6 +43,7 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
   when (reserve.valid):
     assert(free_entries.or_reduce(), "chi_home_comp_ack_table_available")
     requester_ids <== requester_ids.updated(next_slot, reserve.bits)
+
   when (publish.valid):
     assert(scoreboard_busy(entries, occupancy.busy, publish.bits),
            "chi_home_comp_ack_table_publish_reserved")
@@ -53,11 +54,13 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
     if entries == (1 << index_width(entries))
     | Bool(#true)
     | response.txn_id < Bits(12)(entries)
+
   def response_published = scoreboard_busy(entries, published.busy, response_slot)
   def expected_requester = requester_ids.lookup(
     response_slot,
     ~default: Bits(p.node_id_width)(0)
   )
+
   acknowledgement.ready <== Bool(#true)
   def acknowledgement_fire = acknowledgement.fire()
 

@@ -119,6 +119,7 @@ fun circuit_reference(definition :: Module || CircuitDefinition,
       def reference = definition.definition_reference()
       unless reference is_a CircuitReference
       | frontend_fail("circuit definition must provide a circuit reference", location)
+
       reference
 
 /* Inspects the normalized reference's physical signature without materializing its recipe. */
@@ -137,6 +138,7 @@ fun materialize_circuit(definition :: Module || CircuitDefinition,
   | block:
       when reference in context.materializing_circuits
       | frontend_fail("recursive materialization of circuit " ++ reference.identity.name, location)
+
       context.materializing_circuits.add(reference)
       try:
         def implementation = reference.implementation()
@@ -145,12 +147,16 @@ fun materialize_circuit(definition :: Module || CircuitDefinition,
           | implementation is_a Module: implementation
           | implementation is_a CircuitDefinition: materialize_circuit(implementation, location)
           | ~else: frontend_fail("circuit implementation must return a module or circuit definition", location)
+
         unless module_def.design === context.design && context.design.owns_module(module_def)
         | frontend_fail("circuit implementation belongs to a different design", location)
+
         unless module_def.finished
         | frontend_fail("circuit implementation must be a finished module", location)
+
         unless signature_equal(reference.signature, module_signature(module_def))
         | frontend_fail("circuit implementation does not match the declared signature of " ++ reference.identity.name, location)
+
         for (declaration in reference.declarations): declaration.validate_implementation(module_def)
         context.materialized_circuits[reference] := module_def
         module_def
@@ -206,7 +212,9 @@ class RegisterPath(materialize_current :: Function.of_arity(0),
   override method materialize_hardware(location :: Location):
     unless current
     | current := materialize_current()
+
     current
+
   /* Returns the stored next-state place without reading the register. */
   override method drive_hardware(location :: Location): next
 
@@ -236,10 +244,13 @@ fun validate_declarations(signature :: ModuleSignature, declarations :: List.of(
     for (name in declaration.member_names()):
       when name in members || signature.input(name) || signature.output(name)
       | frontend_fail("duplicate or shadowed declared circuit member " ++ name)
+
       members.add(name)
+
     for (name in declaration.port_names()):
       when name in ports | frontend_fail("overlapping circuit declaration port " ++ name)
       ports.add(name)
+
     declaration.validate_signature(signature)
 
 /* Attaches detached member descriptions to one exact parent-owned instance operation. */
@@ -255,6 +266,7 @@ fun declared_instance_member(instance :: Instance, name :: String):
   def payload = instance.operation.module_def.metadata_for("rhodium.circuit.declarations").find(
     fun (entry): entry.operation === instance.operation
   )
+
   if payload
   | def declaration = payload.declarations.find(fun (entry): name in entry.member_names())
     declaration && declaration.member(instance, name)
@@ -279,11 +291,13 @@ class CircuitReference(identity :: CircuitIdentity,
     validate_declarations(signature, declarations)
     unless (!clock_port && !reset_port) || (clock_port && reset_port)
     | frontend_fail("sync circuit signature requires both clock and reset ports")
+
     when clock_port && reset_port
     | def clock = signature.input(clock_port)
       def reset = signature.input(reset_port)
       unless clock && clock_type(clock.type) && reset && reset_type(reset.type)
       | frontend_fail("sync circuit signature requires Clock and Reset input ports")
+
     super(identity, signature, implementation, clock_port, reset_port, declarations)
 
   /* Keep the detached recipe available for specialization and instance construction. */
@@ -301,6 +315,7 @@ class.together:
                                data :: Value,
                                enable :: Value,
                                location :: Location)
+
 /* Pairs normalized stable generator arguments with their finished reusable module. */
 class CircuitSpecialization(arguments :: List, module_def :: Module)
 
@@ -323,6 +338,7 @@ class FrontendContext(design :: Design,
     def count = allocated_symbols.filter(
       ~keep: fun (symbol): symbol == base
     ).length()
+
     allocated_symbols := allocated_symbols ++ [base]
     if count == 0
     | base
@@ -382,6 +398,7 @@ class ConditionalBranch(
     when this.assignment_for(place)
     | frontend_fail("conditional branch assigns " ++ place.name ++ " more than once",
                     location)
+
     assignments := assignments ++ [ConditionalAssignment(place, value)]
 
   /* Appends a memory write to this branch's ordered effect list. */
@@ -414,6 +431,7 @@ fun require_context(location :: Location = Location()):
   def context = current_context()
   unless context is_a FrontendContext && context.active
   | frontend_fail("circuit generators may only be called during elaborate", location)
+
   context
 
 /* Requires a current module for hardware construction. */
@@ -421,6 +439,7 @@ fun require_module(location :: Location = Location()):
   def module_def = current_module()
   unless module_def is_a Module
   | frontend_fail("hardware construction requires an active circuit", location)
+
   module_def
 
 /* Returns the current module after checking the elaboration context is still active. */
@@ -457,6 +476,7 @@ fun defer_circuit_finalizer(finalizer :: Function.of_arity(0),
   def context = require_context(location)
   unless context.active_circuits.length() > 0
   | frontend_fail("circuit finalizer requires an active circuit", location)
+
   def active = context.active_circuits[context.active_circuits.length() - 1]
   active.finalizers := active.finalizers ++ [finalizer]
   #void
@@ -466,6 +486,7 @@ fun run_circuit_finalizers(location :: Location = Location()):
   def context = require_context(location)
   unless context.active_circuits.length() > 0
   | frontend_fail("circuit finalizers require an active circuit", location)
+
   def active = context.active_circuits[context.active_circuits.length() - 1]
   def finalizers = active.finalizers
   active.finalizers := []
@@ -512,12 +533,14 @@ fun build_circuit(identity :: CircuitIdentity,
   for (argument in arguments, index in 0..arguments.length()):
     when argument is_a HardwareEntity && !(argument is_a StaticHardwareValue)
     | frontend_fail("circuit parameter " ++ to_string(index) ++ " must be a host value, not live hardware", location)
+
   def reusable = for all (argument in arguments): stable_circuit_param_value(argument)
   def specializations = reusable && context.specializations_by_circuit.get(identity, #false)
   def cached = specializations && specializations.find(
     fun (specialization):
       circuit_argument_lists_same(specialization.arguments, arguments)
   )
+
   if cached
   | cached.module_def
   | block:
@@ -525,6 +548,7 @@ fun build_circuit(identity :: CircuitIdentity,
         fun (active): active.identity === identity
       )
       | frontend_fail("recursive elaboration of circuit " ++ name, location)
+
       def active_circuit = ActiveCircuit(identity, name)
       context.active_circuits := context.active_circuits ++ [active_circuit]
       def module_def = context.builder.module(context.allocate_symbol(name))
@@ -533,16 +557,19 @@ fun build_circuit(identity :: CircuitIdentity,
         // Direct kernel clients get a fallback flush. Frontend circuit wrappers
         // flush earlier while their ambient layer parameters are still active.
         run_circuit_finalizers(location)
+
       context.builder.finish(module_def)
       context.active_circuits := context.active_circuits.filter(
         ~keep: fun (active): !(active.identity === identity)
       )
+
       when reusable
       | block:
           def specialization = CircuitSpecialization(arguments, module_def)
           if specializations
           | specializations.add(specialization)
           | context.specializations_by_circuit[identity] := MutableList[specialization]
+
       module_def
 
 /* Creates a named typed input in the active module with frontend provenance. */
@@ -1107,6 +1134,7 @@ fun project(entity :: HardwareEntity,
     | entity is_a Register: entity.next
     | entity is_a RegisterPathValue: entity.drive_hardware(location)
     | ~else: #false
+
   cond
   | entity is_a Place:
       context.builder.project(entity, field_name)
@@ -1169,6 +1197,7 @@ fun vector_project(entity :: HardwareEntity,
     | entity is_a Register: entity.next
     | entity is_a RegisterPathValue: entity.drive_hardware(location)
     | ~else: #false
+
   cond
   | entity is_a Place:
       context.builder.project_vector(entity, element_index)
@@ -1188,6 +1217,7 @@ fun index(entity :: HardwareEntity,
     | entity is_a Place: entity.type
     | entity is_a Register: entity.current.type
     | ~else: read(entity, location).type
+
   cond
   | bits_type(type): extract(entity, element_index, element_index, #false, location)
   | vector_type(type): vector_project(entity, element_index, location)
@@ -1203,9 +1233,11 @@ fun vector_lookup(entity :: HardwareEntity,
   def vector_value = read(entity, location)
   unless vector_type(vector_value.type)
   | frontend_fail("vector lookup requires a VectorType value", location)
+
   def cases:
     for List (element_index in 0..vector_value.type.length):
       [element_index, vector_get(vector_value, element_index, #false, location)]
+
   hw_mux_lookup(selector,
                 default_value,
                 cases,
@@ -1219,8 +1251,10 @@ fun validate_dynamic_vector_selector(vector_value :: Value,
                                      location :: Location):
   unless vector_type(vector_value.type)
   | frontend_fail("hardware vector indexing requires a VectorType value", location)
+
   unless bits_type(selector_value.type)
   | frontend_fail("hardware vector index must have a Bits type", location)
+
   unless selector_value.type.width == count_index_width(vector_value.type.length)
   | frontend_fail(
       "hardware vector index must have Bits(index_width(vector length)) type",
@@ -1285,11 +1319,14 @@ fun vector_updated(entity :: HardwareEntity,
   def replacement_value = read(replacement, location)
   unless vector_type(vector_value.type)
   | frontend_fail("vector update requires a VectorType value", location)
+
   unless bits_type(selector_value.type)
   | frontend_fail("vector update selector must have a Bits type", location)
+
   unless type_equal(replacement_value.type, vector_value.type.element_type)
   | frontend_fail("vector update replacement must have the vector element type",
                   location)
+
   def elements:
     for List (element_index in 0..vector_value.type.length):
       def existing = vector_get(vector_value,
@@ -1307,6 +1344,7 @@ fun vector_updated(entity :: HardwareEntity,
                     #false,
                     location,
                     Origin("embedded vector update", to_string(element_index)))
+
   vector_create(vector_value.type, elements, name, location)
 
 /*
@@ -1326,6 +1364,7 @@ class DynamicVectorRegisterPath(register :: Register,
                                selector_value,
                                #false,
                                location)
+
     current
 
   /* Checks the replacement element type and records an enabled dynamic register write. */
@@ -1335,6 +1374,7 @@ class DynamicVectorRegisterPath(register :: Register,
     unless type_equal(replacement.type, vector_value.type.element_type)
     | frontend_fail("dynamic vector assignment requires the vector element type",
                     location)
+
     emit_vector_register_write(
       ConditionalVectorWrite(register,
                              selector_value,
@@ -1399,6 +1439,7 @@ fun inst(name :: AsciiIdentifier,
   def instance = context.builder.suggested_instance(require_module(location), materialize_circuit(reference, location), name, location, Origin("embedded instance", name))
   when reference.declarations.length() > 0
   | instance.operation.module_def.add_metadata("rhodium.circuit.declarations", CircuitInstanceDeclarations(instance.operation, reference.declarations))
+
   instance
 
 /* Resolves frontend lvalues, enforces exact type matching, and either records a conditional assignment or drives its place. */
@@ -1415,13 +1456,16 @@ fun connect(place :: HardwareEntity,
         | place is_a Register: place.next
         | place is_a RegisterPathValue: place.drive_hardware(location)
         | ~else: place
+
       unless target is_a Place
       | frontend_fail("connection target must be a driveable hardware place",
                       location)
+
       def value = read(entity, location)
       unless type_equal(target.type, value.type)
       | frontend_fail("connection source and target must have exactly the same hardware type",
                       location)
+
       def conditional_branch = current_conditional_branch()
       if conditional_branch is_a ConditionalBranch
       | conditional_branch.add(target, value, location)
@@ -1490,8 +1534,10 @@ fun emit_vector_register_write(write :: ConditionalVectorWrite):
       unless context.active_circuits.length() > 0
       | frontend_fail("vector register write requires an active circuit",
                       write.location)
+
       def active = context.active_circuits[context.active_circuits.length() - 1]
       active.vector_writes := active.vector_writes ++ [write]
+
   #void
 
 /*
@@ -1508,10 +1554,12 @@ fun flush_vector_register_writes(active :: ActiveCircuit,
       fun (register): register === write.register
     )
     | registers := registers ++ [write.register]
+
   for (register in registers):
     def register_writes = writes.filter(
       ~keep: fun (write): write.register === register
     )
+
     def representative = register_writes[0]
     def port_count = register_writes.length()
     def enables = vector_create(
@@ -1522,6 +1570,7 @@ fun flush_vector_register_writes(active :: ActiveCircuit,
       #false,
       representative.location
     )
+
     def indices = vector_create(
       VectorType(port_count, representative.index.type),
       register_writes.map(
@@ -1530,6 +1579,7 @@ fun flush_vector_register_writes(active :: ActiveCircuit,
       #false,
       representative.location
     )
+
     def elements = vector_create(
       VectorType(port_count, representative.data.type),
       register_writes.map(
@@ -1538,6 +1588,7 @@ fun flush_vector_register_writes(active :: ActiveCircuit,
       #false,
       representative.location
     )
+
     def next_value = require_context(representative.location).builder.vector_write_set(
       require_module(representative.location),
       register.current,
@@ -1554,6 +1605,7 @@ fun flush_vector_register_writes(active :: ActiveCircuit,
       representative.location,
       Origin("embedded vector register write set", register.next.name)
     )
+
   #void
 
 /*
@@ -1600,9 +1652,11 @@ fun validate_conditional_value(condition :~ HardwareEntity,
                                location :: Location = Location()):
   unless condition is_a HardwareEntity
   | frontend_fail("hardware condition must be a hardware value", location)
+
   def value = read(condition, location)
   unless scalar_data_type(value.type) && scalar_width(value.type) == 1
   | frontend_fail("hardware condition must have a one-bit ScalarDataType", location)
+
   value
 
 /* Elaborates a body while collecting its assignments and supported effects without final drives. */
@@ -1613,6 +1667,7 @@ fun collect_conditional_branch(body :: Function.of_arity(0),
   parameterize { current_conditional_branch: branch,
                  current_conditional_form: form }:
     body()
+
   branch
 
 /*
@@ -1630,6 +1685,7 @@ fun resolve_conditional_branches(
   for (branch_result in branch_results):
     when branch_result.assertions.length() > 0
     | has_assertions := #true
+
   when otherwise_result && otherwise_result.assertions.length() > 0
   | has_assertions := #true
 
@@ -1643,6 +1699,7 @@ fun resolve_conditional_branches(
       for (branch_result in branch_results, branch_guard in branch_guards):
         for (assertion in branch_result.assertions):
           emit_conditional_assertion(assertion, branch_guard)
+
       when otherwise_result
       | for (assertion in otherwise_result.assertions):
           emit_conditional_assertion(assertion, otherwise_guard)
@@ -1652,10 +1709,12 @@ fun resolve_conditional_branches(
     for (assignment in branch_result.assignments):
       unless places.find(fun (place): place === assignment.place)
       | places := places ++ [assignment.place]
+
   when otherwise_result
   | for (assignment in otherwise_result.assignments):
       unless places.find(fun (place): place === assignment.place)
       | places := places ++ [assignment.place]
+
   for (place in places):
     def hold = register_hold_value(place, location)
     def fallback:
@@ -1667,6 +1726,7 @@ fun resolve_conditional_branches(
                                         place.name,
                                         " is missing from otherwise"),
                           location)
+
           assignment.value
       | if hold
         | hold
@@ -1674,6 +1734,7 @@ fun resolve_conditional_branches(
                                       place.name,
                                       " requires otherwise"),
                         location)
+
     def branch_values:
       for List (branch_result in branch_results):
         def assignment = branch_result.assignment_for(place)
@@ -1683,6 +1744,7 @@ fun resolve_conditional_branches(
           | hold
           | frontend_fail("conditional branch does not assign " ++ place.name,
                           location)
+
     def selected = select_values(
       branch_values,
       fallback,
@@ -1700,8 +1762,10 @@ fun resolve_conditional_branches(
           fun (resource): resource === write.resource
         )
         | memories := memories ++ [write.resource]
+
   for (branch_result in branch_results):
     include_branch_memories(branch_result)
+
   include_branch_memories(otherwise_result)
 
   /* Returns a branch's source-ordered write port for a resource, or false when absent. */
@@ -1721,12 +1785,14 @@ fun resolve_conditional_branches(
       def count = branch_result.memory_writes_for(resource).length()
       when count > port_count
       | port_count := count
+
     for (port_index in 0..port_count):
       def mutable representative = #false
       for (branch_result in all_results):
         def candidate = memory_write_at(branch_result, resource, port_index)
         when candidate && !representative
         | representative := candidate
+
       unless (for all (branch_result in all_results):
                 def candidate = memory_write_at(branch_result,
                                                 resource,
@@ -1736,19 +1802,24 @@ fun resolve_conditional_branches(
                                     resource.name,
                                     " must use the same clock"),
                       location)
+
       def disabled = literal(Bits(1), 0, #false, location)
       def fallback_write = memory_write_at(otherwise_result,
                                            resource,
                                            port_index)
       def fallback_address:
         fallback_write?.address || representative.address
+
       def fallback_data:
         fallback_write?.data || representative.data
+
       def fallback_enable:
         (fallback_write ?> fun (write): cast(write.enable, Bits(1), #false, location)) || disabled
+
       def branch_writes:
         for List (branch_result in branch_results):
           memory_write_at(branch_result, resource, port_index)
+
       def selected_address = select_values(
         branch_writes.map(
           fun (write):
@@ -1757,6 +1828,7 @@ fun resolve_conditional_branches(
         fallback_address,
         Origin(origin_description ++ " memory address", resource.name)
       )
+
       def selected_data = select_values(
         branch_writes.map(
           fun (write):
@@ -1765,6 +1837,7 @@ fun resolve_conditional_branches(
         fallback_data,
         Origin(origin_description ++ " memory data", resource.name)
       )
+
       def selected_enable = select_values(
         branch_writes.map(
           fun (write):
@@ -1773,6 +1846,7 @@ fun resolve_conditional_branches(
         fallback_enable,
         Origin(origin_description ++ " memory enable", resource.name)
       )
+
       emit_conditional_memory_write(
         ConditionalMemoryWrite(resource,
                                selected_address,
@@ -1792,8 +1866,10 @@ fun resolve_conditional_branches(
           fun (register): register === write.register
         )
         | vector_registers := vector_registers ++ [write.register]
+
   for (branch_result in branch_results):
     include_branch_vector_registers(branch_result)
+
   include_branch_vector_registers(otherwise_result)
 
   /* Returns a branch's source-ordered vector-register write, or false when absent. */
@@ -1813,25 +1889,31 @@ fun resolve_conditional_branches(
       def count = branch_result.vector_writes_for(register).length()
       when count > port_count
       | port_count := count
+
     for (port_index in 0..port_count):
       def mutable representative = #false
       for (branch_result in all_results):
         def candidate = vector_write_at(branch_result, register, port_index)
         when candidate && !representative
         | representative := candidate
+
       def disabled = literal(Bits(1), 0, #false, location)
       def fallback_write = vector_write_at(otherwise_result,
                                            register,
                                            port_index)
       def fallback_index:
         fallback_write?.index || representative.index
+
       def fallback_data:
         fallback_write?.data || representative.data
+
       def fallback_enable:
         fallback_write?.enable || disabled
+
       def branch_writes:
         for List (branch_result in branch_results):
           vector_write_at(branch_result, register, port_index)
+
       /* Avoids a mux when every present branch value is the identical fallback object. */
       fun select_write_value(branch_values :: List.of(maybe(Value)),
                              fallback :: Value,
@@ -1842,6 +1924,7 @@ fun resolve_conditional_branches(
            )
         | select_values(branch_values, fallback, origin)
         | fallback
+
       def selected_index = select_write_value(
         branch_writes.map(
           fun (write):
@@ -1850,6 +1933,7 @@ fun resolve_conditional_branches(
         fallback_index,
         Origin(origin_description ++ " vector write index", register.next.name)
       )
+
       def selected_data = select_write_value(
         branch_writes.map(
           fun (write):
@@ -1858,6 +1942,7 @@ fun resolve_conditional_branches(
         fallback_data,
         Origin(origin_description ++ " vector write data", register.next.name)
       )
+
       def selected_enable = select_values(
         branch_writes.map(
           fun (write):
@@ -1866,6 +1951,7 @@ fun resolve_conditional_branches(
         fallback_enable,
         Origin(origin_description ++ " vector write enable", register.next.name)
       )
+
       emit_vector_register_write(
         ConditionalVectorWrite(register,
                                selected_index,
@@ -1873,6 +1959,7 @@ fun resolve_conditional_branches(
                                selected_enable,
                                representative.location)
       )
+
   #void
 
 /* Elaborates an ordered hardware-conditional chain into priority mux trees. */
@@ -1882,11 +1969,14 @@ fun conditional_chain(branches :: NonemptyList.of(List),
   def conditions:
     for List (branch in branches):
       validate_conditional_value(branch[0](), location)
+
   def branch_results:
     for List (branch in branches):
       collect_conditional_branch(branch[1], "when", location)
+
   def otherwise_result:
     otherwise_body ?> collect_conditional_branch(_, "when", location)
+
   /* Builds first-match priority muxes for the branch values that are present. */
   fun select_values(branch_values :: List.of(maybe(Value)),
                     fallback :: Value,
@@ -1903,7 +1993,9 @@ fun conditional_chain(branches :: NonemptyList.of(List),
           location,
           origin
         )
+
     selected
+
   /* Builds mutually exclusive first-match activation guards and any unmatched otherwise guard. */
   fun build_assertion_guards(needs_otherwise :: Boolean):
     def mutable unmatched_guard = #false
@@ -1918,8 +2010,11 @@ fun conditional_chain(branches :: NonemptyList.of(List),
           unmatched_guard := combine_assertion_guards(unmatched_guard,
                                                       condition_false,
                                                       location)
+
         branch_guard
+
     [branch_guards, unmatched_guard]
+
   resolve_conditional_branches(branch_results,
                                otherwise_result,
                                select_values,
@@ -1938,23 +2033,30 @@ fun switch_chain(selector :: HardwareEntity,
   def selector_value = read(selector, location)
   unless bits_type(selector_value.type)
   | frontend_fail("switch selector must lower to Bits", location)
+
   def width = scalar_width(selector_value.type)
   def mutable keys = []
   for (case in cases):
     unless case.length() == 2 && case[0] is_a Nat
     | frontend_fail("switch cases must contain host natural-number keys and branch bodies",
                     location)
+
     def key = case[0]
     unless bits.length(key) <= width
     | frontend_fail("switch case key does not fit the selector width", location)
+
     when keys.find(fun (existing): existing == key)
     | frontend_fail("switch case keys must be unique", location)
+
     keys := keys ++ [key]
+
   def branch_results:
     for List (case in cases):
       collect_conditional_branch(case[1], "switch", location)
+
   def otherwise_result:
     otherwise_body ?> collect_conditional_branch(_, "switch", location)
+
   /* Builds a direct keyed mux for present case values, retaining the explicit fallback. */
   fun select_values(branch_values :: List.of(maybe(Value)),
                     fallback :: Value,
@@ -1963,6 +2065,7 @@ fun switch_chain(selector :: HardwareEntity,
     for (key in keys, branch_value in branch_values):
       when branch_value
       | selected_cases := selected_cases ++ [[key, branch_value]]
+
     if selected_cases.length() == 0
     | fallback
     | hw_mux_lookup(selector_value,
@@ -1971,6 +2074,7 @@ fun switch_chain(selector :: HardwareEntity,
                     #false,
                     location,
                     origin)
+
   /* Builds exact-key assertion guards and an optional guard for values matching no case. */
   fun build_assertion_guards(needs_otherwise :: Boolean):
     def branch_guards:
@@ -1979,6 +2083,7 @@ fun switch_chain(selector :: HardwareEntity,
               literal(Bits(width), key, #false, location),
               #false,
               location)
+
     def mutable otherwise_guard = #false
     when needs_otherwise
     | for (branch_guard in branch_guards):
@@ -1987,7 +2092,9 @@ fun switch_chain(selector :: HardwareEntity,
           bit_not(branch_guard, #false, location),
           location
         )
+
     [branch_guards, otherwise_guard]
+
   resolve_conditional_branches(branch_results,
                                otherwise_result,
                                select_values,
@@ -2003,8 +2110,10 @@ fun run_program_body(program :: Function.of_arity(0), context :: FrontendContext
       def result = program()
       unless result is_a Module || result is_a CircuitDefinition
       | error(~who: #'rhodium, "elaboration did not select a top circuit")
+
       def reference = circuit_reference(result)
       materialize_circuit(reference)
+
     ~finally:
       context.active := #false
 

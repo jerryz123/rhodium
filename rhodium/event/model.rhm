@@ -90,12 +90,14 @@ class EventTraceRetained(instance_path :: List.of(String), capture :: Value, rel
 /* Represents a checkpoint reference, supported parentless root, unknown boundary, or absent selected-parent contribution. */
 class EventTraceSource(site :: maybe(String), unknown :: maybe(String) = #false, absent :: Boolean = #false):
   implements EventTracePlan
+
 /*
  * Require a selected contribution only at its consuming checkpoint, not while
  * unrelated transactions traverse shared storage on a filtered-out branch.
  */
 class EventTraceRequire(input :: EventTracePlan):
   implements EventTracePlan
+
 /*
  * Occurrence-scoped back references are resolved once after graph discovery.
  * Acyclic paths keep their existing expression shape.
@@ -103,23 +105,28 @@ class EventTraceRequire(input :: EventTracePlan):
 class EventTraceLink(vertex :: String, mutable target :: maybe(EventTracePlan) = #false):
   implements EventTracePlan
   reconstructor ~none
+
 /* Composes ordered fixed, elastic, queue, retained-owner, or window stages after an upstream lineage plan. */
 class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)):
   implements EventTracePlan
+
 /* Selects one input lineage with occurrence-owned grants, optionally certified valid even for pending offers. */
 class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan), pending :: Boolean = #false):
   implements EventTracePlan
   /* Returns functional grant signals needed to observe which input lineage is selected. */
   method controls(): grants
+
 /* Gates an upstream lineage onto one output using original routing predicates and a shared divergence certificate. */
 class EventTraceRouting(input :: EventTracePlan, instance_path :: List.of(String),
                         routing_id :: String, predicates :: NonemptyList.of(Value), output_index :: Nat):
   implements EventTracePlan
   /* Returns the original route predicates used for branch gating and exclusivity checks. */
   method controls(): predicates
+
 /* Marks one output of a certified synchronous or retained-owner fanout without introducing trace storage. */
 class EventTraceReplication(input :: EventTracePlan, replication_id :: String, output_index :: Nat):
   implements EventTracePlan
+
 /* Retains accepted lineage for one recipient using original acceptance and per-recipient pending controls. */
 class EventTraceBroadcast(input :: EventTracePlan, instance_path :: List.of(String),
                           broadcast_id :: String, accept :: Value, pending :: Value, output_index :: Nat):
@@ -151,6 +158,7 @@ fun event_trace_nodes(plan :: EventTracePlan):
     | seen[node] := #true
       for (input in event_trace_inputs(node)): visit(input)
       nodes := nodes ++ [node]
+
   visit(plan)
   nodes
 
@@ -163,6 +171,7 @@ fun event_trace_registered(stage :: EventTraceStage || EventTraceQueue || EventT
     | op.opcode == "rtl.constant": op.attribute("value") == 0
     | op.opcode == "rtl.cast": zero(op.operands[0])
     | ~else: #false
+
   cond
   | stage is_a EventTraceQueue: zero(stage.bypass)
   | stage is_a EventTraceWindow: !stage.live || zero(stage.live)
@@ -176,12 +185,15 @@ fun validate_event_trace_feedback(plan :: EventTracePlan):
   fun visit(node :: EventTracePlan):
     when colors.get(node, 0) == 1
     | error(~who: #'infer_event_manifest, "same-cycle event lineage cycle; add registered storage or disable queue bypass")
+
     unless colors.has_key(node)
     | colors[node] := 1
       def registered = node is_a EventTraceBroadcast || (node is_a EventTracePipeline && node.stages.find(event_trace_registered) != #false)
       unless registered
       | for (input in event_trace_inputs(node)): visit(input)
+
       colors[node] := 2
+
   // Visit storage inputs too: cutting one edge must not hide another cycle.
   for (node in nodes): visit(node)
   def cyclic = nodes.find(fun (node): node is_a EventTraceLink) != #false
@@ -209,6 +221,7 @@ fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
             def mutable count = capacities[node.input]
             for (stage in node.stages):
               when stage is_a EventTraceWindow | count := count * (stage.selected.length() + (if stage.live | 1 | 0))
+
             count
         | node is_a EventTraceJoin:
             def mutable total = 0
@@ -219,14 +232,19 @@ fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
             for (input in node.inputs):
               def count = capacities[input]
               when count > largest | largest := count
+
             largest
         | ~else: capacities[event_trace_inputs(node)[0]]
+
       when count != capacities[node] | changed := #true
       capacities[node] := count
+
     when changed
     | when pass >= nodes.length()
       | error(~who: #'infer_event_manifest, "unbounded feedback lineage capacity; insert a checkpoint to bound accumulated parents")
+
       solve(pass + 1)
+
   solve(0)
   capacities[plan]
 

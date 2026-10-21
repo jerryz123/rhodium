@@ -741,6 +741,7 @@ fun csr_fields_mask(fields :: List.of(BitField)) :: Nat:
   def mutable mask = 0
   for (field in fields):
     mask := mask bits.or field.mask()
+
   mask
 
 export:

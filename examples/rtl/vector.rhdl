@@ -37,6 +37,7 @@ circuit VectorDatapath():
   assembled <== initial
   selected <== mux_lookup(selector, ~default: initial):
     1: alternate
+
   chosen <== initial[selector]
 
   packed <== initial.as_bits()

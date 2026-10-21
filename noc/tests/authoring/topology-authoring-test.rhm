@@ -43,17 +43,20 @@ check:
     "mesh/router[1]",
     "monitor"
   ]
+
   spec.links.map(fun (link): link.ref.describe()) ~is [
     "mesh/east",
     "mesh/west",
     "monitor-loop"
   ]
+
   east.vc_groups.map(fun (group): group.name) ~is ["adaptive", "escape"]
   east.virtual_channels().map(fun (vc): vc.describe()) ~is [
     "mesh/east/adaptive[0]",
     "mesh/east/adaptive[1]",
     "mesh/east/escape[0]"
   ]
+
   lowered.topology.nodes.map(fun (node): node.value) ~is [0, 1, 2]
   lowered.topology.links.map(fun (link): link.id.value) ~is [0, 1, 2]
   lowered.topology.find_link(LinkId(0)).source.value ~is 0

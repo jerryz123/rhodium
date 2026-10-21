@@ -85,6 +85,7 @@ circuit LoadGen(xlen :: XLen,
       [MemoryWidth.Word, signed_word]
     ]
   )
+
   def unsigned_value :: Bits(xlen_bits) = mux_lookup(
     width,
     ~default: double_value,
@@ -94,6 +95,7 @@ circuit LoadGen(xlen :: XLen,
       [MemoryWidth.Word, unsigned_word]
     ]
   )
+
   value <== mux(unsigned_load, unsigned_value, signed_value)
 
 /* Position an XLEN value and width-selected byte mask in one beat; callers validate access legality. */
@@ -122,10 +124,12 @@ circuit StoreGen(xlen :: XLen,
       [MemoryWidth.Word, Bits(beat_bytes)(0x0f)]
     ]
   )
+
   def beat_value:
     if beat_bits == xlen_bits
     | value
     | value.zext(beat_bits)
+
   data <== beat_value << shift
   mask <== (base_mask << offset).into(Mask(beat_bytes))
 

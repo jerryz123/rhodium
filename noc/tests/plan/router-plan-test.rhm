@@ -62,6 +62,7 @@ check:
     "hold(l0.vc0)",
     "hold(l0.vc1)"
   ]
+
   middle_plan.output_vcs.map(fun (vc): vc.describe()) ~is ["l1.vc0", "l1.vc1"]
   middle_plan.rows.map(fun (row): row.origin_key) ~is [0, 1]
   middle_plan.rows.map(fun (row): row.target_mask) ~is [0b01, 0b10]
@@ -76,6 +77,7 @@ check:
     "hold(l1.vc0)",
     "hold(l1.vc1)"
   ]
+
   destination_plan.output_vcs ~is []
   destination_plan.rows.map(fun (row): row.target_mask) ~is [1, 1]
   destination_plan.rows.map(fun (row): row.route_row.ejection_terminal.id.value) ~is [2, 2]

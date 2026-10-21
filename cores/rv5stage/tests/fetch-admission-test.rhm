@@ -23,12 +23,14 @@ fun flatten(lists):
   def mutable result = []
   for (items in lists):
     result := result ++ items
+
   result
 
 fun inputs_of(value, path):
   def paths = summaries.get(value, #false)
   unless paths
   | summaries[value] := MutableMap{}
+
   def cached = summaries[value].get(path, #false)
   if cached
   | cached
@@ -52,14 +54,17 @@ fun inputs_of(value, path):
               def child_index = identity_index(child.inputs.map(fun (port): port.value), port.value)
               def source = place_leaf_driver(operation.places[child_index], leaf[1])
               inputs_of(source.value, source.path)
+
             flatten(groups)
         | ~else: []
+
       def seen = MutableSet{}
       def unique = MutableList[]
       for (leaf in found):
         unless leaf in seen
         | seen.add(leaf)
           unique.add(leaf)
+
       def result = unique.snapshot()
       summaries[value][path] := result
       result
@@ -69,6 +74,7 @@ fun check_dependency(top, output_name, output_path, input_name, input_path, expe
   def input = top.inputs.find(fun (port): port.name == input_name)
   unless output && input && output_path in leaf_paths(output.type) && input_path in leaf_paths(input.type)
   | error(~who: #'fetch_admission, "timing contract references a missing port leaf")
+
   def driver = place_leaf_driver(output.place, output_path)
   def found = [input_name, input_path] in inputs_of(driver.value, driver.path)
   unless found == expected
@@ -77,6 +83,7 @@ fun check_dependency(top, output_name, output_path, input_name, input_path, expe
 def fetch = compile_program(elaborate(RV5StageFrontend(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))), rtl_target).report.elaboration
 for (path in [["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(fetch.top, "memory_out", path, "packets_in", ["ready"])
+
 check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["active"], #true)
 check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["restart", "valid"], #true)
 check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "control_in", ["restart", "bits"], #true)
@@ -84,20 +91,24 @@ check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "contr
 // choose a saved PC, but cannot turn current result data into new capacity.
 for (path in [["response", "valid"], ["response", "bits", "replay"]]):
   check_dependency(fetch.top, "memory_out", ["request", "valid"], "memory_in", path)
+
 for (path in [["request", "valid"], ["request", "bits", "address"]]):
   for (field in ["word", "page_fault", "access_fault"]):
     check_dependency(fetch.top, "memory_out", path, "memory_in", ["response", "bits", "response", field])
+
 check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "memory_in", ["response", "bits", "replay"], #true)
 
 def mmu = compile_program(elaborate(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map)), rtl_target).report.elaboration
 for (path in [["valid"], ["bits"]]):
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_in", ["s1_kill"])
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["response", "bits", "replay"])
+
 check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_memory_in", ["response", "bits", "replay"])
 
 def cache = compile_program(elaborate(L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config, ~fetch_bits: 32)), rtl_target).report.elaboration
 for (path in [["s1_kill"], ["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", path)
+
 check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"], #true)
 
 // Physical S1 data must cross a register before affecting the S2 result.

@@ -21,6 +21,7 @@ bundle Control():
 def add_input = pattern(Instruction()):
   opcode: Bits(4)(0)
   mode: _
+
 def sub_input = pattern(Instruction()):
   opcode: Bits(4)(1)
   mode: _

@@ -69,15 +69,18 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
       base_index: address[1..13]
       base_taken: base
       gshare_taken: history_direction
+
     if slot == 0
     | prefix_direction <== metadata
     | directions[parcel] <== metadata
+
     def selected = BranchPrediction(xlen):
       valid: Bool(#true)
       pc: address
       target: mux(decoded.immediate, address + decoded.offset, candidate.target)
       compressed: decoded.compressed
       ras_action: decoded.action
+
     effective := mux(live & complete & decoded.control_flow & taken, selected, effective)
     checkpoint := mux(live & complete, rv2wide_history_after(metadata, taken), checkpoint)
     matched := matched ||| known ||| (live & !complete & candidate.valid & (candidate.pc === address) & !candidate.compressed)
@@ -87,6 +90,7 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
     if slot > 0
     | boundary := mux(live, Bits(3)(parcel) + mux(decoded.compressed, Bits(3)(1), Bits(3)(2)), boundary)
     | #void
+
   // An incomplete byte-six branch is still provisional until its upper parcel
   // arrives. Its original row and BTB metadata remain attached to that prefix.
   corrected <== mux(pending & prediction.valid & !prediction.compressed & (prediction.pc === (pc.align_down(8) + Bits(xlen.width)(6))), prediction, effective)

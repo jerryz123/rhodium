@@ -163,9 +163,11 @@ check:
   pipe_one.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in", "egress_in"
   ]
+
   pipe_one.outputs.map(fun (port): port.name) ~is [
     "ingress_out", "egress_out"
   ]
+
   operations(pipe_one, "rtl.register_reset").length() ~is 1
   operations(pipe_one, "rtl.register").length() ~is 1
   operations(pipe_three, "rtl.register_reset")[0].results[0].type.length ~is 3
@@ -174,10 +176,12 @@ check:
   valid_pipe_one.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in"
   ]
+
   valid_pipe_one.outputs.map(fun (port): port.name) ~is ["egress_out"]
   valid_pipe_one.find_output("egress_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid", "bits"]
+
   operations(valid_pipe_one, "rtl.register_reset").length() ~is 1
   operations(valid_pipe_one, "rtl.register").length() ~is 1
   operations(valid_pipe_three, "rtl.register_reset")[0].results[0].type.length ~is 3
@@ -203,6 +207,7 @@ check:
   queue_options.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in", "egress_in"
   ]
+
   queue_options.outputs.map(fun (port): port.name) ~is [
     "ingress_out", "egress_out", "count"
   ]
@@ -211,21 +216,26 @@ check:
   valid_arbiter_three.inputs.map(fun (port): port.name) ~is [
     "ingress_0_in", "ingress_1_in", "ingress_2_in"
   ]
+
   valid_arbiter_three.outputs.map(fun (port): port.name) ~is [
     "egress_out", "chosen"
   ]
+
   valid_arbiter_three.find_output("chosen").type.width ~is 2
   arbiter_three.inputs.map(fun (port): port.name) ~is [
     "ingress_0_in", "ingress_1_in", "ingress_2_in", "egress_in"
   ]
+
   arbiter_three.outputs.map(fun (port): port.name) ~is [
     "ingress_0_out", "ingress_1_out", "ingress_2_out", "egress_out", "chosen"
   ]
+
   arbiter_three.find_output("chosen").type.width ~is 2
 
   rr_arbiter_three.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_0_in", "ingress_1_in", "ingress_2_in", "egress_in"
   ]
+
   rr_arbiter_three.find_output("chosen").type.width ~is 2
   assertion_labels(rr_arbiter_three) ~is ["rr_priority_in_range"]
   operations(rr_arbiter_three, "rtl.register_reset").length() ~is 1
@@ -235,6 +245,7 @@ check:
   demux_three.inputs.map(fun (port): port.name) ~is [
     "ingress_in", "select", "egress_0_in", "egress_1_in", "egress_2_in"
   ]
+
   demux_three.outputs.map(fun (port): port.name) ~is [
     "ingress_out", "egress_0_out", "egress_1_out", "egress_2_out"
   ]
@@ -255,6 +266,7 @@ check:
   output_greedy_matcher_module.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "requests", "accepts"
   ]
+
   output_greedy_matcher_module.find_input("requests").type.length ~is 3
   output_greedy_matcher_module.find_input("requests").type.element_type.length ~is 2
   output_greedy_matcher_module.find_input("accepts").type.length ~is 2
@@ -271,17 +283,21 @@ check:
     "ingress_in", "grants",
     "egress_0_in", "egress_1_in", "egress_2_in"
   ]
+
   grant_demux_module.outputs.map(fun (port): port.name) ~is [
     "ingress_out", "egress_0_out", "egress_1_out", "egress_2_out"
   ]
+
   bool.maybe_one_hot_type(grant_demux_module.find_input("grants").type) ~is #true
   bool.maybe_one_hot_width(grant_demux_module.find_input("grants").type) ~is 3
   grant_merge_module.inputs.map(fun (port): port.name) ~is [
     "ingress_0_in", "ingress_1_in", "ingress_2_in", "grants", "egress_in"
   ]
+
   grant_merge_module.outputs.map(fun (port): port.name) ~is [
     "ingress_0_out", "ingress_1_out", "ingress_2_out", "egress_out"
   ]
+
   bool.maybe_one_hot_type(grant_merge_module.find_input("grants").type) ~is #true
   bool.maybe_one_hot_width(grant_merge_module.find_input("grants").type) ~is 3
   operations(grant_merge_module, "rtl.onehot_mux").length() ~is 1
@@ -290,10 +306,12 @@ check:
     "ingress_0_in", "ingress_1_in", "grants",
     "egress_0_in", "egress_1_in", "egress_2_in"
   ]
+
   crossbar_module.outputs.map(fun (port): port.name) ~is [
     "ingress_0_out", "ingress_1_out",
     "egress_0_out", "egress_1_out", "egress_2_out"
   ]
+
   crossbar_module.find_input("grants").type.element_type.length ~is 3
   bool.bool_type(
     crossbar_module.find_input("grants").type.element_type.element_type
@@ -308,6 +326,7 @@ check:
   broadcast_three.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in", "egress_0_in", "egress_1_in", "egress_2_in"
   ]
+
   operations(broadcast_three, "rtl.register_reset").length() ~is 1
   operations(broadcast_three, "rtl.register").length() ~is 1
 
@@ -316,6 +335,7 @@ check:
   ctrl_pipe_three.find_output("egress_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid"]
+
   operations(ctrl_pipe_three, "rtl.register_reset").length() ~is 1
   operations(ctrl_pipe_three, "rtl.register").length() ~is 0
   operations(ctrl_pipe_three, "rtl.register_reset")[0].results[0].type.length ~is 3
@@ -339,9 +359,11 @@ check:
   ctrl_demux_three.find_output("egress_0_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid"]
+
   ctrl_join_three.find_output("egress_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid"]
+
   operations(ctrl_broadcast_three, "rtl.register_reset").length() ~is 1
   operations(ctrl_broadcast_three, "rtl.register").length() ~is 0
 
@@ -349,14 +371,17 @@ check:
   atomic_fork_three.inputs.map(fun (port): port.name) ~is [
     "ingress_in", "egress_0_in", "egress_1_in", "egress_2_in"
   ]
+
   atomic_fork_three.outputs.map(fun (port): port.name) ~is [
     "ingress_out", "egress_0_out", "egress_1_out", "egress_2_out"
   ]
+
   operations(atomic_fork_three, "rtl.register_reset").length() ~is 0
   operations(atomic_fork_three, "rtl.register").length() ~is 0
   ctrl_atomic_fork_three.find_output("egress_0_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid"]
+
   operations(ctrl_atomic_fork_three, "rtl.register_reset").length() ~is 0
   verify_design(pipe_one_design) ~is #void
   verify_design(pipe_three_design) ~is #void

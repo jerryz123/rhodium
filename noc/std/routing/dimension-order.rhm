@@ -27,14 +27,17 @@ fun validate_vc_groups(mesh :: RectangularMesh, vc_groups :: maybe(List)):
   unless !vc_groups || (vc_groups is_a List && vc_groups.length() > 0)
   | error(~who: #'dimension_order,
           "dimension-order VC groups must be #false or a nonempty List")
+
   when vc_groups
   | for (name in vc_groups):
       unless name is_a String && name.length() > 0 && !name.contains("/")
       | error(~who: #'dimension_order,
               "dimension-order VC groups must contain names without '/'")
+
       when duplicate_name(vc_groups, name)
       | error(~who: #'dimension_order,
               "duplicate dimension-order VC group " ++ name)
+
       unless mesh.vc_groups.find(fun (group): group.name == name)
       | error(~who: #'dimension_order,
               "mesh has no VC group " ++ name)
@@ -69,6 +72,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
     unless valid_dimension_order(dimensions)
     | error(~who: #'dimension_order,
             "dimension order must be ['x', 'y'] or ['y', 'x']")
+
     validate_vc_groups(mesh, vc_groups)
     super(mesh,
           dimensions,
@@ -83,6 +87,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
     def active_dimension = dimensions.find(
       fun (axis): coordinate_differs(axis, current, destination)
     )
+
     if !active_dimension
     | #false
     | block:
@@ -95,6 +100,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
         def group_allowed = vc_groups == #false || vc_groups.find(
           fun (name): name == context.candidate_vc.group
         ) != #false
+
         mesh_direction_equal(required_direction, candidate_direction) && group_allowed
 
   /* Returns the dimension-order decision without matched-rule labels. */
@@ -107,6 +113,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
       if !vc_groups
       | "all"
       | String.join(vc_groups, ",")
+
     String.append("dimension-order(", String.join(dimensions, ","),
                   "; vc-groups=", group_description, ")")
 

@@ -89,8 +89,10 @@ class UdbConfiguration(name :: NonemptyString,
                parameters :: NonemptyList.of(UdbParameter)):
     when duplicate_extension(extensions)
     | error(~who: #'UdbConfiguration, "extension names must be unique")
+
     when duplicate_parameter(parameters)
     | error(~who: #'UdbConfiguration, "parameter names must be unique")
+
     super(name, description, extensions, parameters)
 
   /* Serializes the complete configuration deterministically in supplied inventory order with its schema and generated-output header. */

@@ -43,6 +43,7 @@ fun chi_cache_maintenance_request(p :: CHIFlitParams, Context :: DataType,
     cacheable: Bool(#true)
     device: Bool(#false)
     early_write_acknowledge: Bool(#false)
+
   inactive.updated(
     ~tag_op: CHITagOp.Invalid,
     ~excl_snoop_me_cah: command.snoop_me,
@@ -88,6 +89,7 @@ sync_circuit CHICacheMaintenance(p :: CHIFlitParams, Context :: DataType):
   completion.bits <== CHICacheMaintenanceResult(Context):
     context: saved.context
     error: response_error
+
   control.finish <== completion.fire()
   when command_fire:
     assert(chi_cache_maintenance(command.bits.opcode), "chi_maintenance_opcode")
@@ -102,6 +104,7 @@ sync_circuit CHICacheMaintenance(p :: CHIFlitParams, Context :: DataType):
     assert(response.tgt_id === saved_node, "chi_maintenance_response_target")
     when (!control.event.bits.protocol_credit):
       assert(response.txn_id === saved_txn, "chi_maintenance_response_txn")
+
     when (response.opcode === CHIRspOpcode.Comp):
       response_error <== response.resp_err
 

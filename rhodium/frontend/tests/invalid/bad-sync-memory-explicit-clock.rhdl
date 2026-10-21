@@ -8,6 +8,7 @@ sync_circuit ExplicitMemoryClock():
   output data: Bits(1)
   sync_mem storage(2, Bits(1), ~clock: other_clock):
     read
+
   storage.read.address <== Bits(1)(0)
   storage.read.enable <== Bits(1)(1)
   data <== storage.read.data

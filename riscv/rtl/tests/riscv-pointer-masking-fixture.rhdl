@@ -35,6 +35,7 @@ circuit PointerMaskingFixture():
   def context = RiscvExecutionContext():
     privilege: privilege
     virtualized: virtualized
+
   def guest_control = hypervisor_pointer_mask_control(context, mstatus, satp, senvcfg, hstatus, vsstatus, vsatp, henvcfg, access, ~enabled: #true)
   guest_policy <== guest_control
   guest_masked <== apply_pointer_mask(XLen.X64, address, guest_control)

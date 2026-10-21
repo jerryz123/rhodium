@@ -9,6 +9,7 @@ fun wrap_around(n :: Bits,
   def width = n.type.width
   def comparable_max:
     if (max.type.width == width) | max | max.zext(width)
+
   mux(n > comparable_max, Bits(width)(0), n)
 
 /* This is an ordinary host function, but calling it during elaboration creates

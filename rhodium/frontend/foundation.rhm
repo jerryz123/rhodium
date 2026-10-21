@@ -6,6 +6,7 @@ import:
   rhombus/meta open
   "../core/types.rhm" open:
     except: Bits
+
   "support/bits-type.rhm".Bits
   "kernel.rhm".StableCircuitParam
   "kernel.rhm".CircuitIdentity
@@ -71,6 +72,7 @@ export:
   data_type
   rename:
     HardwareFields as Hardware
+
   input
   output
   <==
@@ -119,6 +121,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
     | 'fun $(local_name :: Identifier) $tail ...':
         body_local_names := body_local_names ++ [local_name.to_source_string()]
     | ~else: #void
+
   /* Recognizes type syntax available outside the circuit body, excluding body-local definitions. */
   fun static_type_available(port_type :: Syntax):
     match port_type
@@ -131,8 +134,10 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
         for (item in [type_argument, ...]):
           unless static_type_available(item)
           | available := #false
+
         available
     | ~else: #false
+
   def mutable member_entries = []
   def mutable fallback_member_entries = []
   /* Detects generator-dependent type syntax to separate precise call-site surfaces from safe fallback members. */
@@ -148,8 +153,10 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
         for (item in [type_argument, ...]):
           when type_depends_on_parameter(item)
           | depends := #true
+
         depends
     | ~else: #true
+
   /* Records a data port's static surface when its type can be referenced outside the circuit body. */
   fun retain_data_member(member_name :: Syntax, member_type :: Syntax):
     when static_type_available(member_type)
@@ -157,6 +164,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
       member_entries := member_entries ++ [entry]
       unless type_depends_on_parameter(member_type)
       | fallback_member_entries := fallback_member_entries ++ [entry]
+
   /* Records a scalar or array interface surface, retaining parameter-independent fallback members. */
   fun retain_interface_member(member_name :: Syntax,
                               member_type :: Syntax,
@@ -167,9 +175,11 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
         | ['$member_name: Array.later_of(ValueSurfaceFields($member_type))']
         | ['$member_name: ValueSurfaceFields($member_type)']
       )
+
       member_entries := member_entries ++ entries
       unless type_depends_on_parameter(member_type)
       | fallback_member_entries := fallback_member_entries ++ entries
+
   for (item in [body, ...]):
     match item
     | 'input $(port_name :: Identifier): $port_type':
@@ -187,6 +197,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
     | 'interface $(member_name :: Identifier)[$length]($member_type, ~role: $role)':
         retain_interface_member(member_name, member_type, #true)
     | ~else: #void
+
   let [member_entry, ...] = member_entries
   let [fallback_member_entry, ...] = fallback_member_entries
   let [parameter_binding, ...] = [argument.binding, ...]
@@ -204,6 +215,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
         'Array.later_of(ValueSurfaceFields($substituted_type))'
     | ~else:
         substitute_generator_parameters(form, [parameter_binding, ...])
+
   let [substituted_member_entry, ...]:
     for List (entry in member_entries):
       match entry
@@ -211,18 +223,21 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
           def substituted_annotation = substitute_parameters(annotation)
           '$member_name: $substituted_annotation'
       | ~else: syntax_meta.error("invalid circuit member surface", entry)
+
   let [implementation_argument, ...]:
     for List (parameter in [argument, ...]):
       match parameter
       | '$(keyword :: Keyword): $(binding :: Identifier) $tail ...':
           '$keyword: $binding'
       | ~else: parameter.binding
+
   def mutable required_positional = #true
   for (parameter in [argument, ...]):
     match parameter
     | '$(binding :: Identifier)': #void
     | '$(binding :: Identifier) :: $annotation': #void
     | ~else: required_positional := #false
+
   def definition = '«
      def circuit_identity = kernel_new_circuit_identity($circuit_name)
      /* Normalizes generator arguments and delegates module specialization to the shared elaboration kernel. */

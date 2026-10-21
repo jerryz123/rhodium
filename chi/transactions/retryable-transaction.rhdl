@@ -49,12 +49,14 @@ class CHIResponseProfile(name :: NonemptyString,
                ~retryable: retryable :: Boolean = #false):
     unless (for Set (milestone in milestones): milestone).length() == milestones.length()
     | error(~who: #'response_profile, "milestone names must be unique")
+
     def mutable seen_opcodes = []
     for (rule in rules):
       for (milestone in rule.milestones):
         unless milestones.contains(milestone)
         | error(~who: #'response_profile,
                 "response rule names an undeclared milestone")
+
       for (opcode in rule.opcodes):
         unless ![
           CHIRspOpcode.RespLCrdReturn,
@@ -63,13 +65,17 @@ class CHIResponseProfile(name :: NonemptyString,
         ].contains(opcode)
         | error(~who: #'response_profile,
                 "link credit and retry opcodes use their dedicated clauses")
+
         unless !seen_opcodes.contains(opcode)
         | error(~who: #'response_profile,
                 "response opcodes must be unique across rules")
+
         seen_opcodes := seen_opcodes ++ [opcode]
+
     unless retryable || rules.length() > 0
     | error(~who: #'response_profile,
             "a response profile must accept at least one response")
+
     super(name, milestones, rules, retryable)
 
   /* Resolve a declared milestone name to its effect-bit index, rejecting unknown names. */
@@ -78,6 +84,7 @@ class CHIResponseProfile(name :: NonemptyString,
     unless result is_a Nat
     | error(~who: #'CHIResponseProfile,
             "profile has no such milestone")
+
     result
 
   /* Return the host one-bit mask for a declared milestone. */
@@ -99,6 +106,7 @@ class CHIResponseProfile(name :: NonemptyString,
         each rule in rules
         each rule_opcode in rule.opcodes
         [rule_opcode, Mask(effect_width)(rule_effect_mask(rule))]
+
     if cases.length() == 0
     | Mask(effect_width)(0)
     | mux_lookup(opcode, ~default: Mask(effect_width)(0), cases)
@@ -117,6 +125,7 @@ expr.macro 'response_profile($name): $clause; ...':
     | 'retryable':
         when retryable
         | syntax_meta.error("response profile repeats retryable", item)
+
         retryable := #true
     | 'milestone $(milestone :: Identifier)':
         def milestone_name = milestone.to_source_string()
@@ -133,6 +142,7 @@ expr.macro 'response_profile($name): $clause; ...':
           "expected retryable, milestone, or response profile clause",
           item
         )
+
   let [milestone_name, ...] = milestones
   def rule_list:
     if rules.length() == 0
@@ -140,6 +150,7 @@ expr.macro 'response_profile($name): $clause; ...':
     | block:
         let [rule, ...] = rules
         '[$rule, ...]'
+
   'CHIResponseProfile(
      $name,
      [$milestone_name, ...],
@@ -207,6 +218,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
   attempt.bits <== CHIRequestAttempt():
     allow_retry: Bool(profile.retryable) & !retry_received
     pcrd_type: mux(retry_received, retry_credit_type, Bits(4)(0))
+
   def attempt_fire = attempt.fire()
 
   def incoming_response = response.bits
@@ -222,10 +234,12 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
     if profile.retryable
     | active_state & response_retry & attempt_sent & !irreversible_progress
     | Bool(#false)
+
   def protocol_credit_expected:
     if profile.retryable
     | active_state & response_protocol_credit & (attempt_sent ||| retry_received)
     | Bool(#false)
+
   def response_expected = progress_expected ||| retry_expected ||| protocol_credit_expected
   response.ready <== !response_ordinary ||| response_expected
   def response_fire = response.fire() & response_ordinary
@@ -242,6 +256,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
 
   when (response.valid & response_ordinary):
     assert(response_expected, profile.name ++ "_response_expected")
+
   when (retry_received & retry_credit_received):
     assert(retry_credit_type === granted_credit_type,
            profile.name ++ "_retry_credit_type_matches")

@@ -18,6 +18,7 @@ sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boole
   bundle Owner():
     client: Bool
     token: Bits(8)
+
   interface first(Decoupled(Request), ~role: consumer)
   interface second(Decoupled(Request), ~role: consumer)
   interface first_result(if scheduled_writeback | Decoupled(Result) | Irrevocable(Result), ~role: producer)
@@ -30,6 +31,7 @@ sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boole
           Owner():
             client: Bool(client)
             token: issued.tag
+
         control: issued.control
         left: issued.left
         left_precision: issued.left_precision
@@ -40,6 +42,7 @@ sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boole
         integer_operand: issued.integer_operand
         immediate_index: issued.immediate_index
         rounding_mode: issued.rounding_mode
+
   fun untagged_result():
     map_flow(~stable: #true, completed):
       FpExecutionResult(xlen, profile, Bits(8)):

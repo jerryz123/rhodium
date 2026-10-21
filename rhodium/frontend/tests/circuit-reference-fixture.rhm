@@ -30,6 +30,7 @@ def reference = CircuitReference(
     constructions := constructions + 1
     Leaf()
 )
+
 def inspected_signature = circuit_signature(reference)
 def constructions_after_inspection = constructions
 fun construction_count(): constructions
@@ -66,6 +67,7 @@ def sync_reference = CircuitReference(
     SyncLeaf(),
   "clock", "reset"
 )
+
 fun sync_construction_count(): sync_constructions
 
 sync_circuit SyncParent(use_reference):
@@ -109,6 +111,7 @@ def interface_reference = CircuitReference(
   circuit_signature(interface_design.modules[0]),
   fun (): ReadyValidAdapter(8)
 )
+
 circuit InterfaceParent(use_reference):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)

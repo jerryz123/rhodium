@@ -85,6 +85,7 @@ sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyStrin
 
   when (port.req.valid & ordinary_request):
     assert(request_supported, label ++ "_request_supported")
+
   when (port.dat.request.valid & ordinary_data):
     assert(write_data_expected, label ++ "_write_data_expected")
     assert(supported, label ++ "_write_data_supported")

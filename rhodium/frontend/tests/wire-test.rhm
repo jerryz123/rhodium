@@ -17,6 +17,7 @@ def module_def = fixture_design.modules[0]
 def wires = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.wire"
 )
+
 def vector_creates = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.vector_create"
 )

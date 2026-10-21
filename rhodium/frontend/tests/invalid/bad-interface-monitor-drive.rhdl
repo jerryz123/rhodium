@@ -8,6 +8,7 @@ interface BadObservationDrive():
   role consumer
   producer -> consumer:
     valid: Bool
+
   consumer -> producer:
     ready: Bool
 

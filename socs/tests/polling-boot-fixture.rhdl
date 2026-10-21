@@ -32,6 +32,7 @@ sync_circuit RV5StagePollingBoot():
       test_rv5stage_uncached_home
     )]
   )
+
   def p = config.flit
   def image = riscv_bootrom_image(0xc000, 0xc100, ~device_tree_address: 0xc180, ~boot_address_register: 0x8000)
   input hart_id: Bits(64)
@@ -42,6 +43,7 @@ sync_circuit RV5StagePollingBoot():
   output boot_words: Vec(image.size_bytes / 4, Bits(32))
   def words = for List (index in 0..(image.size_bytes / 4)):
     Bits(32)(image.bytes[index * 4] + (image.bytes[index * 4 + 1] << 8) + (image.bytes[index * 4 + 2] << 16) + (image.bytes[index * 4 + 3] << 24))
+
   boot_words <== vec(words)
   inst core(RV5Stage(RV5StageConfig(~xlen: XLen.X64), ~chi: config, ~reset_address: 0xc000))
   core.hart_id <== hart_id
@@ -52,11 +54,13 @@ sync_circuit RV5StagePollingBoot():
     machine_timer: Bool(#false)
     supervisor_external: Bool(#false)
     machine_external: Bool(#false)
+
   core.time_counter <== Bits(64)(0)
   core.chi_identity <== RiscvHartCHIIdentity(p):
     instruction_node_id: Bits(p.node_id_width)(2)
     data_node_id: Bits(p.node_id_width)(3)
     uncached_node_id: Bits(p.node_id_width)(5)
+
   imem <=> core.imem
   dmem <=> core.dmem
   umem <=> core.umem

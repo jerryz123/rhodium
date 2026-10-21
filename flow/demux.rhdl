@@ -62,6 +62,7 @@ fun finish_demux_flow_handle(input_link :: Handle,
       output_endpoint.field("bits") <== input_endpoint.field("bits")
       selected & output_endpoint.field("ready")
   ))
+
   input_endpoint.field("ready") <== selected_ready
   describe_interface_transform(
     interface_transform(input_link, output_links),

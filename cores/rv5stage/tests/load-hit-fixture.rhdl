@@ -88,6 +88,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
     address: request.address
     opcode(~format: "enum"): request.opcode
     allow_retry: request.allow_retry
+
   traced_requests |> chi.requests
   cache.chi.requester_responses |> chi.requester_responses
   cache.chi.request_data |> chi.request_data

@@ -40,15 +40,18 @@ def flat_result = check_equivalent(flat_reference, flat_candidate, onehot_query)
 def defect_result = check_equivalent(flat_reference, flat_defect, onehot_query)
 def defect_selector:
   defect_result.assignments.find(fun (assignment): assignment.port == "selector")
+
 def missing_assumption = check_equivalent(flat_reference, flat_candidate)
 def insufficient_assumption:
   check_equivalent(flat_reference,
                    flat_candidate,
                    FormalQuery([FormalInputAssumption("selector", 1, 1)]))
+
 def exact_assumption:
   check_equivalent(flat_reference,
                    flat_candidate,
                    FormalQuery([FormalInputAssumption("selector", 1)]))
+
 def contradictory_assumptions:
   check_equivalent(flat_reference,
                    flat_candidate,
@@ -107,6 +110,7 @@ def hierarchy_result:
   check_equivalent(flat_reference,
                    hierarchical_module("HierarchicalOneHot"),
                    onehot_query)
+
 def hierarchy_unsupported:
   check_equivalent(flat_reference, hierarchical_module("UnprovedHierarchicalOneHot"))
 

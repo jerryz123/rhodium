@@ -45,6 +45,7 @@ fun normalize_decode_pattern(value :: Nat,
                              role :: String):
   unless bits.length(value) <= width && bits.length(care) <= width
   | fail(who, role ++ " value or care does not fit its packed width")
+
   [value bits.and care, care]
 
 /* Tests whether two cared input patterns can match the same packed value. */
@@ -104,16 +105,20 @@ fun check_dpi_operands(design :: Design,
   ensure_dpi_import_in(design, dpi_import, who)
   unless inputs.length() == dpi_import.input_types.length()
   | fail(who, "DPI input count does not match its import")
+
   for (input in inputs, expected_type in dpi_import.input_types):
     ensure_value_in(module_def, input, who)
     unless type_equal(input.type, expected_type)
     | fail(who, "DPI input has the wrong hardware type")
+
   ensure_value_in(module_def, clock, who)
   unless clock_type(clock.type)
   | fail(who, "DPI clock must be Clock")
+
   ensure_value_in(module_def, enable, who)
   unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
   | fail(who, "DPI enable must be a one-bit ScalarDataType")
+
   [clock, enable] ++ inputs
 
 /* Follows aggregate projections to their owning root IR place. */
@@ -196,8 +201,10 @@ fun build_value_operation(design :: Design,
                             attributes ++ {"name": value_name},
                             location,
                             origin)
+
   for (operand in operands):
     operand.add_user(operation_id)
+
   module_def.add_value(value)
   module_def.add_operation(operation)
   value
@@ -219,6 +226,7 @@ fun build_arithmetic_same_type_binary(design :: Design,
   unless arithmetic_type(left.type) && arithmetic_type(right.type) && type_equal(left.type, right.type)
   | fail(who,
          opcode ++ " operands must have exactly the same arithmetic type and width")
+
   build_value_operation(design,
                         module_def,
                         opcode,
@@ -246,6 +254,7 @@ fun build_bitwise_same_type_binary(design :: Design,
   unless bitwise_type(left.type) && bitwise_type(right.type) && type_equal(left.type, right.type)
   | fail(who,
          opcode ++ " operands must have exactly the same bitwise type")
+
   build_value_operation(design,
                         module_def,
                         opcode,
@@ -272,8 +281,10 @@ fun build_bits_shift(design :: Design,
   ensure_value_in(module_def, amount, who)
   unless bits_type(value.type)
   | fail(who, opcode ++ " shifted value must be Bits")
+
   unless bits_type(amount.type)
   | fail(who, opcode ++ " shift amount must be Bits")
+
   build_value_operation(design,
                         module_def,
                         opcode,
@@ -300,8 +311,10 @@ fun build_arithmetic_shift(design :: Design,
   ensure_value_in(module_def, amount, who)
   unless arithmetic_type(value.type)
   | fail(who, opcode ++ " shifted value must have an ArithmeticType")
+
   unless bits_type(amount.type)
   | fail(who, opcode ++ " shift amount must be Bits")
+
   build_value_operation(design,
                         module_def,
                         opcode,
@@ -328,8 +341,10 @@ fun build_signed_arithmetic_shift(design :: Design,
   ensure_value_in(module_def, amount, who)
   unless signed_arithmetic_type(value.type)
   | fail(who, opcode ++ " shifted value must have a SignedArithmeticType")
+
   unless bits_type(amount.type)
   | fail(who, opcode ++ " shift amount must be Bits")
+
   build_value_operation(design,
                         module_def,
                         opcode,
@@ -356,29 +371,38 @@ fun build_mux_lookup(design :: Design,
   ensure_value_in(module_def, default_value, who)
   unless mux_selector_type(selector.type)
   | fail(who, "mux lookup selector must be Bits")
+
   unless data_type(default_value.type)
   | fail(who, "mux lookup values must have a DataType")
+
   def width = selector_width(selector.type)
   for (case in cases):
     unless case.length() == 2
     | fail(who, "mux lookup cases must be [key, value] pairs")
+
     def key = case[0]
     def value = case[1]
     unless key is_a Nat
     | fail(who, "mux lookup keys must be host natural numbers")
+
     unless bits.length(key) <= width
     | fail(who, "mux lookup key does not fit its selector type")
+
     ensure_value_in(module_def, value, who)
     unless data_type(value.type) && type_equal(default_value.type, value.type)
     | fail(who, "mux lookup cases and default must have exactly the same DataType")
+
   def normalized_cases = cases.sort(
     fun (left, right): left[0] < right[0]
   )
+
   def mutable previous_key = #false
   for (case in normalized_cases):
     when previous_key && previous_key == case[0]
     | fail(who, "mux lookup keys must be unique")
+
     previous_key := case[0]
+
   build_value_operation(design,
                         module_def,
                         "rtl.mux_lookup",
@@ -410,16 +434,21 @@ fun build_onehot_mux(design :: Design,
   ensure_value_in(module_def, selector, who)
   unless bits_type(selector.type)
   | fail(who, "one-hot mux selector must be Bits")
+
   unless choices.length() == selector.type.width
   | fail(who, "one-hot mux choice count must equal selector width")
+
   for (choice in choices):
     ensure_value_in(module_def, choice, who)
+
   def result_type = choices[0].type
   unless data_type(result_type) && packable_type(result_type)
   | fail(who, "one-hot mux choices must have a packable DataType")
+
   for (choice in choices):
     unless data_type(choice.type) && type_equal(choice.type, result_type)
     | fail(who, "one-hot mux choices must have exactly the same DataType")
+
   build_value_operation(design,
                         module_def,
                         "rtl.onehot_mux",
@@ -444,10 +473,12 @@ class Builder(design :: Design):
                     location :: Location = Location()):
     unless (!result_name && !result_type) || (result_name && result_type)
     | fail(#'dpi_import, "DPI result name and type must be supplied together")
+
     def results:
       if !result_type
       | []
       | [DpiResult(result_name, result_type, "return")]
+
     this.dpi_import_results(name,
                             input_names,
                             input_types,
@@ -463,47 +494,59 @@ class Builder(design :: Design):
     ensure_hardware_name(name, #'dpi_import)
     unless input_names.length() == input_types.length()
     | fail(#'dpi_import, "DPI input names and types must be equal-length Lists")
+
     for (input_name in input_names):
       ensure_hardware_name(input_name, #'dpi_import)
       when input_names.filter(
         ~keep: fun (candidate): candidate == input_name
       ).length() != 1
       | fail(#'dpi_import, "DPI input names must be unique")
+
     for (input_type in input_types):
       unless scalar_data_type(input_type) && type_well_formed(input_type)
       | fail(#'dpi_import, "DPI inputs must have well-formed ScalarDataType types")
+
     for (result in results):
       ensure_hardware_name(result.name, #'dpi_import)
       unless scalar_data_type(result.type) && type_well_formed(result.type)
       | fail(#'dpi_import, "DPI results must have well-formed ScalarDataType types")
+
       unless result.direction == "out" || result.direction == "return"
       | fail(#'dpi_import, "DPI result direction must be out or return")
+
     def result_names = results.map(fun (result): result.name)
     for (result_name in result_names):
       when result_names.filter(
         ~keep: fun (candidate): candidate == result_name
       ).length() != 1
       | fail(#'dpi_import, "DPI result names must be unique")
+
       when input_names.find(
         fun (candidate): candidate == result_name
       )
       | fail(#'dpi_import, "DPI input and result names must be unique")
+
     when results.length() != 0
     | def return_results = results.filter(
         ~keep: fun (result): result.direction == "return"
       )
+
       unless return_results.length() == 1
       | fail(#'dpi_import, "DPI function requires exactly one return result")
+
       unless results[results.length() - 1].direction == "return"
       | fail(#'dpi_import, "DPI return result must be last")
+
     def existing = design.find_dpi_import(name)
     if existing
     | block:
         def same_results:
           existing.results.length() == results.length() && (for all (existing_result in existing.results, result in results): existing_result.name == result.name && existing_result.direction == result.direction && type_equal(existing_result.type, result.type))
+
         def same_signature = existing.input_names == input_names && existing.input_types.length() == input_types.length() && (for all (existing_type in existing.input_types, input_type in input_types): type_equal(existing_type, input_type)) && same_results
         unless same_signature
         | fail(#'dpi_import, "DPI import " ++ name ++ " has conflicting signatures")
+
         existing
     | block:
         def dpi_import = DpiImport(design.fresh_id(),
@@ -532,16 +575,22 @@ class Builder(design :: Design):
     ensure_open(module_def, #'assert)
     for (operand in [condition, clock, reset, guard]):
       ensure_value_in(module_def, operand, #'assert)
+
     unless scalar_data_type(condition.type) && scalar_width(condition.type) == 1
     | fail(#'assert, "assert condition must be a one-bit ScalarDataType")
+
     unless clock_type(clock.type)
     | fail(#'assert, "assert clock must be Clock")
+
     unless reset_type(reset.type)
     | fail(#'assert, "assert reset must be Reset")
+
     unless scalar_data_type(guard.type) && scalar_width(guard.type) == 1
     | fail(#'assert, "assert guard must be a one-bit ScalarDataType")
+
     when label
     | ensure_hardware_name(label, #'assert)
+
     def operation_id = design.fresh_id()
     def operands = [condition, clock, reset, guard]
     def operation = Operation(operation_id,
@@ -553,8 +602,10 @@ class Builder(design :: Design):
                               {"label": label},
                               location,
                               origin)
+
     for (operand in operands):
       operand.add_user(operation_id)
+
     module_def.add_operation(operation)
     operation
 
@@ -572,6 +623,7 @@ class Builder(design :: Design):
     ensure_dpi_import_in(design, dpi_import, #'dpi_call)
     when dpi_import.has_result()
     | fail(#'dpi_call, "result-bearing DPI functions must be instantiated with dpi_register")
+
     def operands = check_dpi_operands(design,
                                       module_def,
                                       dpi_import,
@@ -589,8 +641,10 @@ class Builder(design :: Design):
                               {"dpi_import": dpi_import},
                               location,
                               origin)
+
     for (operand in operands):
       operand.add_user(operation_id)
+
     module_def.add_operation(operation)
     operation
 
@@ -608,6 +662,7 @@ class Builder(design :: Design):
                       origin :: Origin = Origin("DPI register")):
     unless dpi_import.results.length() == 1
     | fail(#'dpi_register, "dpi_register requires a function with exactly one result")
+
     this.dpi_register_results(module_def,
                               [name],
                               dpi_import,
@@ -629,6 +684,7 @@ class Builder(design :: Design):
     ensure_dpi_import_in(design, dpi_import, #'dpi_register)
     unless dpi_import.has_result()
     | fail(#'dpi_register, "DPI register requires a result-bearing function")
+
     def operands = check_dpi_operands(design,
                                       module_def,
                                       dpi_import,
@@ -639,13 +695,16 @@ class Builder(design :: Design):
     unless result_names.length() == dpi_import.results.length()
     | fail(#'dpi_register,
            "DPI register result names must match the function result count")
+
     for (value_name in result_names):
       ensure_hardware_name(value_name, #'dpi_register)
       when result_names.filter(
         ~keep: fun (candidate): candidate == value_name
       ).length() != 1
       | fail(#'dpi_register, "DPI register result names must be unique")
+
       ensure_unique_hardware_name(module_def, value_name, #'dpi_register)
+
     def operation_id = design.fresh_id()
     def result_values:
       for List (result in dpi_import.results,
@@ -655,6 +714,7 @@ class Builder(design :: Design):
               result.type,
               module_def,
               operation_id)
+
     def operation = Operation(operation_id,
                               "sim.dpi_register",
                               module_def,
@@ -664,10 +724,13 @@ class Builder(design :: Design):
                               {"dpi_import": dpi_import, "name": result_names[0]},
                               location,
                               origin)
+
     for (operand in operands):
       operand.add_user(operation_id)
+
     for (result in result_values):
       module_def.add_value(result)
+
     module_def.add_operation(operation)
     result_values
 
@@ -676,6 +739,7 @@ class Builder(design :: Design):
     ensure_hardware_name(name, #'module)
     when design.find_module_named(name)
     | fail(#'module, "duplicate module name " ++ name)
+
     def module_def = Module(design, design.fresh_id(), name)
     design.add_module(module_def)
     module_def
@@ -695,9 +759,11 @@ class Builder(design :: Design):
         if suffix == 0
         | base_name
         | base_name ++ "_" ++ to_string(suffix)
+
       if instance_name_used(module_def, candidate)
       | find_available(suffix + 1)
       | candidate
+
     find_available(0)
 
   /* Creates an input port and its module-owned SSA value with a well-formed hardware type. */
@@ -722,6 +788,7 @@ class Builder(design :: Design):
                               {"name": name},
                               location,
                               origin)
+
     module_def.add_value(value)
     module_def.add_operation(operation)
     module_def.add_input(Port(name, "input", type, value, #false))
@@ -749,6 +816,7 @@ class Builder(design :: Design):
                               {"name": name},
                               location,
                               origin)
+
     module_def.add_place(place)
     module_def.add_operation(operation)
     module_def.add_output(Port(name, "output", type, #false, place))
@@ -781,6 +849,7 @@ class Builder(design :: Design):
                               {"name": name},
                               location,
                               origin)
+
     module_def.add_place(place)
     module_def.add_value(value)
     module_def.add_operation(operation)
@@ -799,6 +868,7 @@ class Builder(design :: Design):
     unless bits.length(integer) <= type.width
     | fail(#'constant,
            "constant " ++ to_string(integer) ++ " does not fit " ++ type.describe())
+
     def operation_id = design.fresh_id()
     def value_name = name || "v" ++ to_string(operation_id)
     ensure_hardware_name(value_name, #'constant)
@@ -813,6 +883,7 @@ class Builder(design :: Design):
                               {"value": integer, "name": value_name},
                               location,
                               origin)
+
     module_def.add_value(value)
     module_def.add_operation(operation)
     value
@@ -856,6 +927,7 @@ class Builder(design :: Design):
     ensure_packable_data_type(input_type, #'decode)
     unless type_equal(selector.type, input_type)
     | fail(#'decode, "decode selector has the wrong DataType")
+
     ensure_packable_data_type(result_type, #'decode)
     def input_width = input_type.packed_width()
     def output_width = result_type.packed_width()
@@ -870,6 +942,7 @@ class Builder(design :: Design):
         | fail(#'decode,
                String.append("decode case ", to_string(index),
                              " must be [input value, input care, output value, output care]"))
+
         def input_pattern = normalize_decode_pattern(case[0],
                                                      case[1],
                                                      input_width,
@@ -881,6 +954,7 @@ class Builder(design :: Design):
                                                       #'decode,
                                                       "decode case " ++ to_string(index) ++ " output")
         input_pattern ++ output_pattern
+
     for (left_index in 0..normalized_cases.length()):
       for (right_index in (left_index + 1)..normalized_cases.length()):
         when decode_patterns_overlap(normalized_cases[left_index],
@@ -888,6 +962,7 @@ class Builder(design :: Design):
         | fail(#'decode,
                String.append("decode cases ", to_string(left_index), " and ",
                              to_string(right_index), " overlap"))
+
     build_value_operation(design,
                           module_def,
                           "rtl.decode",
@@ -946,6 +1021,7 @@ class Builder(design :: Design):
     ensure_value_in(module_def, operand, #'bit_not)
     unless bitwise_type(operand.type)
     | fail(#'bit_not, "bit_not operand must have a bitwise type")
+
     build_value_operation(design,
                           module_def,
                           "rtl.not",
@@ -1039,6 +1115,7 @@ class Builder(design :: Design):
     ensure_value_in(module_def, right, #'eq)
     unless bits_type(left.type) && bits_type(right.type) && type_equal(left.type, right.type)
     | fail(#'eq, "eq operands must have exactly the same Bits width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.eq",
@@ -1062,6 +1139,7 @@ class Builder(design :: Design):
     ensure_value_in(module_def, right, #'ult)
     unless bits_type(left.type) && bits_type(right.type) && type_equal(left.type, right.type)
     | fail(#'ult, "ult operands must have exactly the same Bits width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.ult",
@@ -1085,6 +1163,7 @@ class Builder(design :: Design):
     ensure_value_in(module_def, right, #'slt)
     unless signed_arithmetic_type(left.type) && signed_arithmetic_type(right.type) && type_equal(left.type, right.type)
     | fail(#'slt, "slt operands must have exactly the same signed arithmetic type and width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.slt",
@@ -1143,6 +1222,7 @@ class Builder(design :: Design):
     unless cast_compatible(value.type, target_type)
     | fail(#'cast,
            "cast requires source and target types with the same canonical packed width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.cast",
@@ -1163,12 +1243,15 @@ class Builder(design :: Design):
     ensure_open(module_def, #'concat)
     unless operands.length() >= 2
     | fail(#'concat, "concat requires at least two operands")
+
     def mutable result_width = 0
     for (value in operands):
       ensure_value_in(module_def, value, #'concat)
       unless bits_type(value.type)
       | fail(#'concat, "concat operands must have Bits types")
+
       result_width := result_width + value.type.width
+
     build_value_operation(design,
                           module_def,
                           "rtl.concat",
@@ -1192,9 +1275,11 @@ class Builder(design :: Design):
     ensure_value_in(module_def, value, #'extract)
     unless bits_type(value.type)
     | fail(#'extract, "extract operand must have a Bits type")
+
     unless low <= high && high < value.type.width
     | fail(#'extract,
            "extract indices must satisfy 0 <= low <= high < source width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.extract",
@@ -1218,8 +1303,10 @@ class Builder(design :: Design):
     ensure_value_in(module_def, value, #'zext)
     unless bits_type(value.type)
     | fail(#'zext, "zext operand must have a Bits type")
+
     unless target_width > value.type.width
     | fail(#'zext, "zext target width must be larger than the source width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.zext",
@@ -1243,11 +1330,14 @@ class Builder(design :: Design):
     ensure_value_in(module_def, value, #'sext)
     unless signed_arithmetic_type(value.type)
     | fail(#'sext, "sext operand must have a SignedArithmeticType")
+
     unless target_width > scalar_width(value.type)
     | fail(#'sext, "sext target width must be larger than the source width")
+
     def result_type = value.type.with_bit_width(target_width)
     unless signed_arithmetic_type(result_type) && scalar_width(result_type) == target_width
     | fail(#'sext, "sext operand type must preserve its signed arithmetic type when widened")
+
     build_value_operation(design,
                           module_def,
                           "rtl.sext",
@@ -1271,8 +1361,10 @@ class Builder(design :: Design):
     ensure_value_in(module_def, value, #'trunc)
     unless bits_type(value.type)
     | fail(#'trunc, "trunc operand must have a Bits type")
+
     unless target_width < value.type.width
     | fail(#'trunc, "trunc target width must be smaller than the source width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.trunc",
@@ -1295,31 +1387,40 @@ class Builder(design :: Design):
     ensure_open(module_def, #'record_create)
     unless record_type(type) && type_well_formed(type)
     | fail(#'record_create, "record_create type must be a well-formed RecordType")
+
     for (binding in field_values):
       unless binding.length() == 2 && binding[0] is_a String
       | fail(#'record_create, "record fields must be [name, value] pairs")
+
       unless type.field(binding[0])
       | fail(#'record_create, "record has no field named " ++ binding[0])
+
       when field_values.filter(
         ~keep: fun (candidate): candidate[0] == binding[0]
       ).length() != 1
       | fail(#'record_create, "record field values must be unique")
+
     unless field_values.length() == type.fields.length()
     | fail(#'record_create, "record_create requires exactly one value for every field")
+
     def normalized_values:
       type.fields.map(
         fun (field):
           def binding = field_values.find(
             fun (candidate): candidate[0] == field.name
           )
+
           unless binding
           | fail(#'record_create, "record_create is missing field " ++ field.name)
+
           ensure_value_in(module_def, binding[1], #'record_create)
           unless type_equal(field.type, binding[1].type)
           | fail(#'record_create,
                  "record field " ++ field.name ++ " has the wrong hardware type")
+
           binding[1]
       )
+
     build_value_operation(design,
                           module_def,
                           "rtl.record_create",
@@ -1345,9 +1446,11 @@ class Builder(design :: Design):
     ensure_value_in(module_def, record, #'record_get)
     unless record_type(record.type)
     | fail(#'record_get, "record_get operand must have a RecordType")
+
     def field = record.type.field(field_name)
     unless field
     | fail(#'record_get, "record has no field named " ++ field_name)
+
     build_value_operation(design,
                           module_def,
                           "rtl.record_get",
@@ -1370,12 +1473,15 @@ class Builder(design :: Design):
     ensure_open(module_def, #'vector_create)
     unless vector_type(type) && type_well_formed(type)
     | fail(#'vector_create, "vector_create type must be a well-formed VectorType")
+
     unless elements.length() == type.length
     | fail(#'vector_create, "vector_create requires exactly one value per element")
+
     for (element in elements):
       ensure_value_in(module_def, element, #'vector_create)
       unless type_equal(element.type, type.element_type)
       | fail(#'vector_create, "vector element has the wrong hardware type")
+
     build_value_operation(design,
                           module_def,
                           "rtl.vector_create",
@@ -1398,8 +1504,10 @@ class Builder(design :: Design):
     ensure_value_in(module_def, vector, #'vector_get)
     unless vector_type(vector.type)
     | fail(#'vector_get, "vector_get operand must have a VectorType")
+
     unless index < vector.type.length
     | fail(#'vector_get, "vector index must satisfy 0 <= index < vector length")
+
     build_value_operation(design,
                           module_def,
                           "rtl.vector_get",
@@ -1427,8 +1535,10 @@ class Builder(design :: Design):
     ensure_value_in(module_def, index, #'vector_index)
     unless vector_type(vector.type)
     | fail(#'vector_index, "vector_index operand must have a VectorType")
+
     unless bits_type(index.type) && index.type.width == count_index_width(vector.type.length)
     | fail(#'vector_index, "vector_index selector has the wrong Bits width")
+
     build_value_operation(design,
                           module_def,
                           "rtl.vector_index",
@@ -1457,10 +1567,13 @@ class Builder(design :: Design):
     ensure_value_in(module_def, element, #'vector_inject)
     unless vector_type(vector.type)
     | fail(#'vector_inject, "vector_inject operand must have a VectorType")
+
     unless bits_type(index.type) && index.type.width == count_index_width(vector.type.length)
     | fail(#'vector_inject, "vector_inject selector has the wrong Bits width")
+
     unless type_equal(element.type, vector.type.element_type)
     | fail(#'vector_inject, "vector_inject element has the wrong hardware type")
+
     build_value_operation(design,
                           module_def,
                           "rtl.vector_inject",
@@ -1491,13 +1604,17 @@ class Builder(design :: Design):
     ensure_value_in(module_def, elements, #'vector_write_set)
     unless vector_type(vector.type)
     | fail(#'vector_write_set, "vector_write_set base must have a VectorType")
+
     unless vector_type(enables.type) && enables.type.length > 0 && type_equal(enables.type.element_type, Bits(1))
     | fail(#'vector_write_set, "vector_write_set enables must be a nonempty Vec of Bits(1)")
+
     def port_count = if vector_type(enables.type) | enables.type.length | 0
     unless vector_type(indices.type) && indices.type.length == port_count && bits_type(indices.type.element_type) && indices.type.element_type.width == count_index_width(vector.type.length)
     | fail(#'vector_write_set, "vector_write_set indices have the wrong vector type")
+
     unless vector_type(elements.type) && elements.type.length == port_count && type_equal(elements.type.element_type, vector.type.element_type)
     | fail(#'vector_write_set, "vector_write_set elements have the wrong vector type")
+
     build_value_operation(design,
                           module_def,
                           "rtl.vector_write_set",
@@ -1516,9 +1633,11 @@ class Builder(design :: Design):
     ensure_place_in(module_def, place, #'project)
     unless record_type(place.type)
     | fail(#'project, "field projection target must have a RecordType")
+
     def field = place.type.field(field_name)
     unless field
     | fail(#'project, "record has no field named " ++ field_name)
+
     def existing = place.projected_place(field_name)
     if existing
     | existing
@@ -1542,8 +1661,10 @@ class Builder(design :: Design):
     ensure_place_in(module_def, place, #'project_vector)
     unless vector_type(place.type)
     | fail(#'project_vector, "vector projection target must have a VectorType")
+
     unless index < place.type.length
     | fail(#'project_vector, "vector index must satisfy 0 <= index < vector length")
+
     def existing = place.projected_place(index)
     if existing
     | existing
@@ -1573,7 +1694,9 @@ class Builder(design :: Design):
               if projected.driver
               | projected.driver
               | this.assemble_aggregate_place(projected, location)
+
             bindings := bindings ++ [[field.name, field_value]]
+
           this.record_create(place.module_def,
                              place.type,
                              bindings,
@@ -1587,6 +1710,7 @@ class Builder(design :: Design):
               if projected.driver
               | projected.driver
               | this.assemble_aggregate_place(projected, location)
+
           this.vector_create(place.module_def,
                              place.type,
                              elements,
@@ -1611,6 +1735,7 @@ class Builder(design :: Design):
                    Origin("aggregate place canonicalization", place.name))
         when preserve_projections
         | place.replace_projected_places(projections)
+
         assembled
     | #false
 
@@ -1648,6 +1773,7 @@ class Builder(design :: Design):
                                "element_type": element_type},
                               location,
                               origin)
+
     module_def.add_memory(memory)
     module_def.add_operation(operation)
     memory
@@ -1667,6 +1793,7 @@ class Builder(design :: Design):
     unless bits_type(address.type) && address.type.width == expected_width
     | fail(#'memory_read_async,
            "memory address must be Bits(" ++ to_string(expected_width) ++ ")")
+
     build_value_operation(design,
                           module_def,
                           "rtl.memory_read_async",
@@ -1698,18 +1825,24 @@ class Builder(design :: Design):
     unless bits_type(address.type) && address.type.width == expected_width
     | fail(#'memory_write,
            "memory address must be Bits(" ++ to_string(expected_width) ++ ")")
+
     unless data_type(data.type) && type_equal(data.type, memory.element_type)
     | fail(#'memory_write, "memory write data has the wrong DataType")
+
     unless clock_type(clock.type)
     | fail(#'memory_write, "memory write clock must be Clock")
+
     unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
     | fail(#'memory_write, "memory write enable must be a one-bit ScalarDataType")
+
     def existing_write = module_def.operations.find(
       fun (operation):
         operation.opcode == "rtl.memory_write" && operation.attribute("memory", #false) === memory
     )
+
     when existing_write && !(existing_write.operands[2] === clock)
     | fail(#'memory_write, "memory write ports must use the same clock")
+
     def operation_id = design.fresh_id()
     def operands = [address, data, clock, enable]
     def operation = Operation(operation_id,
@@ -1721,8 +1854,10 @@ class Builder(design :: Design):
                               {"memory": memory},
                               location,
                               origin)
+
     for (operand in operands):
       operand.add_user(operation_id)
+
     module_def.add_operation(operation)
     operation
 
@@ -1749,32 +1884,40 @@ class Builder(design :: Design):
     ensure_value_in(module_def, clock, #'sync_memory)
     unless clock_type(clock.type)
     | fail(#'sync_memory, "synchronous memory clock must be Clock")
+
     unless has_read || has_write || has_read_write
     | fail(#'sync_memory,
            "synchronous memory requires a read, write, or read-write port")
+
     when has_read_write && (has_read || has_write)
     | fail(#'sync_memory,
            "a read-write port cannot be combined with separate read or write ports yet")
+
     when mask_granularity
     | unless mask_granularity is_a PosInt
       | fail(#'sync_memory,
              "synchronous memory mask granularity must be PosInt")
+
       unless has_write || has_read_write
       | fail(#'sync_memory,
              "synchronous memory masking requires a write-capable port")
+
       def element_width = element_type.packed_width()
       unless element_width is_a PosInt
       | fail(#'sync_memory,
              "masked synchronous memory element type must have a packed width")
+
       unless element_width mod mask_granularity == 0
       | fail(#'sync_memory,
              "synchronous memory mask granularity must divide the packed element width")
+
     def operation_id = design.fresh_id()
     def address_type = Bits(memory_address_width(depth))
     def mask_type:
       if !mask_granularity
       | #false
       | Bits(element_type.packed_width() / mask_granularity)
+
     def mutable places = []
     def mutable results = []
     def read_port:
@@ -1799,6 +1942,7 @@ class Builder(design :: Design):
           results := results ++ [data]
           SyncMemoryReadPort(address, enable, data)
       | #false
+
     def write_port:
       if has_write
       | block:
@@ -1825,9 +1969,11 @@ class Builder(design :: Design):
                     module_def,
                     operation_id)
             | #false
+
           places := places ++ [address, data, enable] ++ (if mask | [mask] | [])
           SyncMemoryWritePort(address, data, enable, mask)
       | #false
+
     def read_write_port:
       if has_read_write
       | block:
@@ -1864,6 +2010,7 @@ class Builder(design :: Design):
                     module_def,
                     operation_id)
             | #false
+
           places := places ++ [address, enable, write, write_data] ++ (if write_mask | [write_mask] | [])
           results := results ++ [read_data]
           SyncMemoryReadWritePort(address,
@@ -1873,6 +2020,7 @@ class Builder(design :: Design):
                                   read_data,
                                   write_mask)
       | #false
+
     def operation = Operation(operation_id,
                               "rtl.sync_memory",
                               module_def,
@@ -1888,6 +2036,7 @@ class Builder(design :: Design):
                                "mask_granularity": mask_granularity},
                               location,
                               origin)
+
     clock.add_user(operation_id)
     for (place in places): module_def.add_place(place)
     for (result in results): module_def.add_value(result)
@@ -1918,16 +2067,20 @@ class Builder(design :: Design):
     ensure_value_in(module_def, clock, #'register)
     unless clock_type(clock.type)
     | fail(#'register, "register clock must be Clock")
+
     unless (reset && reset_value) || (!reset && !reset_value)
     | fail(#'register,
            "synchronous reset and reset value must be supplied together")
+
     when reset
     | ensure_value_in(module_def, reset, #'register)
       ensure_value_in(module_def, reset_value, #'register)
       unless reset_type(reset.type)
       | fail(#'register, "register reset must be Reset")
+
       unless data_type(reset_value.type) && type_equal(type, reset_value.type)
       | fail(#'register, "register reset value has the wrong hardware type")
+
     ensure_unique_hardware_name(module_def, name, #'register)
     ensure_unique_hardware_name(module_def, name ++ ".next", #'register)
     def operation_id = design.fresh_id()
@@ -1943,8 +2096,10 @@ class Builder(design :: Design):
                               {"name": name},
                               location,
                               origin)
+
     for (operand in operands):
       operand.add_user(operation_id)
+
     module_def.add_value(current)
     module_def.add_place(next)
     module_def.add_operation(operation)
@@ -1966,16 +2121,21 @@ class Builder(design :: Design):
     ensure_value_in(module_def, destination_clock, #'sync_level_crossing)
     unless bits_type(source.type) && source.type.width == 1
     | fail(#'sync_level_crossing, "source must be Bits(1)")
+
     unless clock_type(destination_clock.type)
     | fail(#'sync_level_crossing, "destination clock must be Clock")
+
     unless stages.length() >= 2
     | fail(#'sync_level_crossing, "requires at least two register stages")
+
     for (stage in stages):
       ensure_value_in(module_def, stage.current, #'sync_level_crossing)
+
     def operation_id = design.fresh_id()
     def operands = [source, destination_clock] ++ stages.map(
       fun (stage): stage.current
     )
+
     def operation = Operation(operation_id,
                               "cdc.sync_level",
                               module_def,
@@ -1985,8 +2145,10 @@ class Builder(design :: Design):
                               {"promise": "stable_level"},
                               location,
                               origin)
+
     for (operand in operands):
       operand.add_user(operation_id)
+
     module_def.add_operation(operation)
     operation
 
@@ -2001,14 +2163,18 @@ class Builder(design :: Design):
     ensure_hardware_name(name, #'instance)
     unless child.finished
     | fail(#'instance, "instance target must be a finished module definition")
+
     def child_owned = child.design === design && design.owns_module(child)
     unless child_owned
     | fail(#'instance, "instance target belongs to a different design")
+
     ensure_unique_instance_name(module_def, name, #'instance)
     for (port in child.inputs):
       ensure_unique_hardware_name(module_def, name ++ "." ++ port.name, #'instance)
+
     for (port in child.outputs):
       ensure_unique_hardware_name(module_def, name ++ "." ++ port.name, #'instance)
+
     def operation_id = design.fresh_id()
     def mutable input_bindings = []
     def mutable output_bindings = []
@@ -2023,6 +2189,7 @@ class Builder(design :: Design):
       module_def.add_place(place)
       places := places ++ [place]
       input_bindings := input_bindings ++ [Port(port.name, "input", port.type, #false, place)]
+
     for (port in child.outputs):
       def value = Value(design.fresh_id(),
                         name ++ "." ++ port.name,
@@ -2032,6 +2199,7 @@ class Builder(design :: Design):
       module_def.add_value(value)
       results := results ++ [value]
       output_bindings := output_bindings ++ [Port(port.name, "output", port.type, value, #false)]
+
     def operation = Operation(operation_id,
                               "rtl.instance",
                               module_def,
@@ -2041,6 +2209,7 @@ class Builder(design :: Design):
                               {"name": name, "module": child},
                               location,
                               origin)
+
     module_def.add_operation(operation)
     Instance(operation, child, input_bindings, output_bindings)
 
@@ -2069,15 +2238,19 @@ class Builder(design :: Design):
     def target_owned = module_def && place.design === design && place.module_def === module_def && module_def.owns_place(root)
     unless target_owned
     | fail(#'drive, "drive target belongs to a different design")
+
     ensure_open(module_def, #'drive)
     ensure_place_in(module_def, place, #'drive)
     ensure_value_in(module_def, value, #'drive)
     unless type_equal(place.type, value.type)
     | fail(#'drive, "place and driver must have exactly the same hardware type")
+
     when place.driver
     | fail(#'drive, "place " ++ place.name ++ " already has a driver")
+
     when ancestor_has_driver(place) || place.projected_places.find(place_has_staged_driver)
     | fail(#'drive, "aggregate places cannot mix whole-value and element-wise drivers")
+
     place.set_driver(value)
     unless place.projected()
     | def operation_id = design.fresh_id()
@@ -2092,6 +2265,7 @@ class Builder(design :: Design):
                                 origin)
       value.add_user(operation_id)
       module_def.add_operation(operation)
+
     #void
 
   /* Reads wire aliases before connection or resolves other driven places, assembling complete aggregate targets when necessary. */
@@ -2101,6 +2275,7 @@ class Builder(design :: Design):
     def target_owned = module_def && place.design === design && place.module_def === module_def && module_def.owns_place(root)
     unless target_owned
     | fail(#'read, "read target belongs to a different design")
+
     def owner = module_def.find_operation(root.owner_op_id)
     if owner && owner.opcode == "rtl.wire"
     | if place.projected()
@@ -2144,12 +2319,14 @@ class Builder(design :: Design):
                if record_type(place.type)
                | "record place " ++ place.name ++ " has incomplete field-wise drivers"
                | "vector place " ++ place.name ++ " has incomplete element-wise drivers")
+
         when aggregate_place_complete(place)
         | def owner = module_def.find_operation(place.owner_op_id)
           this.canonicalize_aggregate_place(
             place,
             ~preserve_projections: owner && owner.opcode == "rtl.wire"
           )
+
     module_def.finish_collections()
     module_def.mark_finished()
     module_def

@@ -82,4 +82,5 @@ def escape_only_problem = RoutingProblem(
     )
   )
 )
+
 def escape_only_routing = compile_routing(escape_only_problem)

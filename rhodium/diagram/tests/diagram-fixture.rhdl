@@ -79,6 +79,7 @@ circuit DiagramReconvergent():
   def mutable current = source
   for (_index in 0..20):
     current := current & current
+
   result <== current
 
 def logical = compile_program(elaborate(DiagramFlow()), rtl_target).report.elaboration

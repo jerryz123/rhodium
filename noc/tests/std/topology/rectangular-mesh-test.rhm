@@ -41,6 +41,7 @@ check:
   mesh.spec.find_link(east).vc_groups.map(
     fun (group): group.name
   ) ~is ["adaptive", "escape"]
+
   mesh.spec.find_link(east).virtual_channels().map(
     fun (vc): vc.describe()
   ) ~is ["router[1,0]/east/adaptive[0]",
@@ -89,11 +90,13 @@ check:
   ) ~is generated_lowered.node_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   explicit_lowered.link_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is generated_lowered.link_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   explicit_lowered.vc_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is generated_lowered.vc_bindings.map(

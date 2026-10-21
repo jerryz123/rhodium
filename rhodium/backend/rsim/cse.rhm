@@ -32,6 +32,7 @@ fun expression_attributes(attributes :: Map) :: Map:
   def result = MutableMap{}
   for ((key, value) in attributes):
     unless key == "name" | result[key] := value
+
   result.snapshot()
 
 /* Recognize scalar bit-preserving casts after verification. Nominal scalar
@@ -55,6 +56,7 @@ fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
   /* Resolve one original value, including index zero, after its producer. */
   fun remap(value :: Nat) :: Nat:
     refs[value]
+
   for (step in schedule.steps, index in 0..schedule.steps.length()):
     def operands = step.operands.map(remap)
     def key = if shareable(step, schedule.steps) | [step.opcode, scalar_width(step.type), operands, expression_attributes(step.attributes)] | #false
@@ -67,4 +69,5 @@ fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
         refs[index] := steps.length()
         when key | expressions[key] := candidates ++ [steps.length()]
         steps.add(RsimStep(step.opcode, step.type, operands, step.attributes, step.occurrence))
+
   remap_schedule(schedule, steps.snapshot(), remap)

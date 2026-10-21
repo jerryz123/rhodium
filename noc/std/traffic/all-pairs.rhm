@@ -52,6 +52,7 @@ fun all_pairs(topology :: TopologySpec,
             destination.ref
           )
         ]
+
   specs.sort(
     fun (left, right): route_class_ref_less(left.ref, right.ref)
   )

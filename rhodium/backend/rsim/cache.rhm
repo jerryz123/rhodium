@@ -30,6 +30,7 @@ fun immutable_borrows(schedule :: RsimSchedule, regions :: List.of(RsimRegion),
   fun immutable_reference(value :: Nat) :: Boolean:
     def binding = backed_reference(value, schedule.steps, constants, layout.bindings)
     binding && (binding.root is_a ConstantStorage || binding.root in immutable)
+
   for (region in regions):
     for (value in region.outputs):
       def slot = scratch_slot(layout.bindings[value])
@@ -38,6 +39,7 @@ fun immutable_borrows(schedule :: RsimSchedule, regions :: List.of(RsimRegion),
         when aggregate_decode(step)
           || (step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"] && (for all (operand in step.operands.drop(1)): immutable_reference(operand)))
         | immutable.add(slot)
+
   immutable.snapshot()
 
 /* Trace original value dependencies, including conditional branches, to logical
@@ -56,6 +58,7 @@ fun plan_region_cache(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan
     def reusable = for all (value in region.outputs):
       def root = layout.bindings[value].root
       root is_a ConstantStorage || root is_a StateStorage || (root is_a ScratchSlot && (!root.indirect || root in immutable))
+
     when region.sinks.length() == 0 && reusable
     | eligible.add(index)
       def visited = MutableSet{}
@@ -67,13 +70,16 @@ fun plan_region_cache(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan
           when inputs.has_key(value) | roots.add(RsimCacheSource("input", inputs[value]))
           for (storage in evaluation.dependencies[value].storage):
             roots.add(RsimCacheSource(storage.kind, storage.slot, storage.result || 0))
+
           for (operand in evaluation.dependencies[value].values): visit(operand)
+
       for (value in region.steps): visit(value)
       def word = (index - index mod 64) / 64
       for (root in roots):
         unless invalidations.has_key(root) | invalidations[root] := MutableMap{}
         def masks = invalidations[root]
         masks[word] := masks.get(word, 0) bits.or (2 ** (index mod 64))
+
   RsimRegionCache(eligible.snapshot(),
                   for Map ((source, masks) in invalidations): values(source, masks.snapshot()),
                   if eligible.length() == 0 | 0 | (regions.length() + 63 - (regions.length() + 63) mod 64) / 64)

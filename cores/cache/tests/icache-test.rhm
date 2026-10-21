@@ -29,9 +29,11 @@ def instruction_access_type = protocol.InstructionCacheLookup(64, 32)
 def instruction_request_member = instruction_access_type.members.find(
   fun (member): member.name == "request"
 )
+
 def instruction_response_member = instruction_access_type.members.find(
   fun (member): member.name == "response"
 )
+
 check:
   wide_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 64
   elaborate(l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 48)) ~throws "fetch block"
@@ -42,6 +44,7 @@ check:
        RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~instruction_cacheable: #false)),
        test_params.test_cache_home)]
   ) ~throws "coherent hart regions require instruction cacheability"
+
   RiscvHartCHIConfig(
     config.flit,
     64,
@@ -50,6 +53,7 @@ check:
        RiscvPhysicalMemoryRegion(AddressSet(0xc000, 31), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)),
        test_params.test_cache_uncached_home)]
   ) ~throws "complete cache lines"
+
   associative_cache.set_width ~is 3
   associative_cache.way_width ~is 1
   associative_cache.line_count ~is 16

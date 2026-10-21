@@ -11,9 +11,11 @@ def module_def = fixture.design.modules[0]
 def equalities = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.eq"
 )
+
 def negations = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.not"
 )
+
 fun defining_without_cast(value):
   def operation = module_def.find_operation(value.defining_op_id)
   if operation.opcode == "rtl.cast"
@@ -27,6 +29,8 @@ check:
   negations.length() ~is 2
   (for all (negation in negations):
      defining_without_cast(negation.operands[0]).opcode == "rtl.eq") ~is #true
+
   (for all (negation in negations):
      bool.bool_type(negation.results[0].type)) ~is #true
+
   verify_design(fixture.design) ~is #void

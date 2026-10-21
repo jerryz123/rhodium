@@ -20,6 +20,7 @@ fun flat_decode_module(name, cases, default_value = 0b111, default_care = 0b111)
                    cases,
                    default_value,
                    default_care)
+
   builder.drive(result, decoded)
   builder.finish(module_def)
 
@@ -53,6 +54,7 @@ fun aggregate_decode_module(name, cases):
                    cases,
                    0b111111,
                    0b111111)
+
   builder.drive(result, decoded)
   builder.finish(module_def)
 
@@ -70,6 +72,7 @@ def partially_cared:
                      [[0b000, 0b111, 0b000, 0b110]],
                      0b000,
                      0b111)
+
 def unsupported_result = check_equivalent(partially_cared, partially_cared)
 
 check:

@@ -65,10 +65,12 @@ fun resolve_riscv_interrupt(xlen :: XLen,
       candidates[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorExternal, width)
       candidates[interrupt_code(InterruptCause.SupervisorSoftware)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorSoftware, width)
       candidates[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
+
     RiscvInterruptDecision(xlen):
       valid: candidates.or_reduce() & globally_enabled
       cause: cause
       target: target
+
   def machine = select_destination(active & !delegated, machine_globally_enabled, RiscvTrapTarget.Machine)
   def supervisor = select_destination(active & delegated, supervisor_globally_enabled, RiscvTrapTarget.Supervisor)
   mux(machine.valid ||| !supervisor.valid, machine, supervisor)
@@ -97,10 +99,12 @@ fun resolve_riscv_hypervisor_interrupt(
     def cause = priority_mux(~default: interrupt_cause_bits(if delegated | InterruptCause.SupervisorTimer | InterruptCause.VirtualSupervisorTimer, 64)):
       external: interrupt_cause_bits(if delegated | InterruptCause.SupervisorExternal | InterruptCause.VirtualSupervisorExternal, 64)
       software: interrupt_cause_bits(if delegated | InterruptCause.SupervisorSoftware | InterruptCause.VirtualSupervisorSoftware, 64)
+
     RiscvInterruptDecision(XLen.X64):
       valid: candidates.or_reduce() & (if delegated | vs_enabled | hs_enabled)
       cause: cause
       target: if delegated | RiscvTrapTarget.VirtualSupervisor | RiscvTrapTarget.Supervisor
+
   def hs_virtual = virtual_candidate(#false)
   def vs_virtual = virtual_candidate(#true)
   priority_mux(~default: vs_virtual):

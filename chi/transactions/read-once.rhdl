@@ -53,6 +53,7 @@ fun chi_read_once_request(p :: CHIFlitParams,
     cacheable: Bool(#true)
     device: Bool(#false)
     early_write_acknowledge: Bool(#false)
+
   inactive.updated(
     ~tag_op: CHITagOp.Invalid,
     ~exp_comp_ack: Bool(#true),
@@ -157,6 +158,7 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
            "chi_read_once_not_replicated")
     assert(incoming_data.resp === Bits(3)(0),
            "chi_read_once_no_ownership")
+
   when (data_fire & received_packets.or_reduce()):
     assert(incoming_data.dbid_or_mecid[0..12] === dbid,
            "chi_read_once_dbid_consistent")
@@ -173,6 +175,7 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
     ~error: CHIRespErr.OK,
     ~qos: saved_command.qos
   )
+
   def acknowledgement_fire = acknowledgements.fire()
 
   completion.valid <== control.active & all_data_received & acknowledgement_sent
@@ -182,6 +185,7 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
     line: line
     error: response_error
     poisoned: poisoned
+
   def completion_fire = completion.fire()
   control.finish <== completion_fire
   control.external_progress <== data_fire

@@ -107,16 +107,20 @@ fun collect_sv_types(design :: Design) :: SvTypes:
           reserve(field.type)
     | vector_type(type): reserve(type.element_type)
     | ~else: #void
+
   for (module_def in design.modules):
     reserved.add(module_def.name)
     for (port in module_def.inputs ++ module_def.outputs): reserved.add(port.name)
     for (operation in module_def.operations):
       when operation.opcode == "rtl.instance"
       | reserved.add(operation.attribute("name"))
+
       when operation.opcode == "rtl.memory"
       | reserve(operation.attribute("memory").element_type)
+
       for (value in operation.results): reserve(value.type)
       for (place in operation.places): reserve(place.type)
+
   def names = MutableMap{}
   def declarations = MutableList[]
   /* Deterministic suffixes disambiguate different shapes requesting one name,
@@ -127,8 +131,10 @@ fun collect_sv_types(design :: Design) :: SvTypes:
     while name in used:
       suffix := suffix + 1
       name := base ++ "_" ++ to_string(suffix)
+
     used.add(name)
     name
+
   /* Return a local typedef reference, creating its nested dependencies first.
      An alias for scalar elements lets added vector dimensions remain outermost. */
   fun collect(type :: HardwareType) :: String:
@@ -141,22 +147,28 @@ fun collect_sv_types(design :: Design) :: SvTypes:
               "struct packed {\n" ++ String.join(type.fields.map(fun (field): "    " ++ collect(field.type) ++ " " ++ sv_name(field.name) ++ ";"), "\n") ++ "\n  }"
           | vector_type(type): collect(type.element_type) ++ " [" ++ to_string(type.length - 1) ++ ":0]"
           | ~else: "logic [" ++ to_string(sv_width(type) - 1) ++ ":0]"
+
         def base:
           cond
           | record_type(type): type.preferred_name || ("_sv_record_" ++ to_string(declarations.length()))
           | vector_type(type): "_sv_vector_" ++ to_string(declarations.length())
           | ~else: "_sv_bits_" ++ to_string(sv_width(type))
+
         def name = unique_name(base, alias_names)
         names[key] := name
         reserved.add(name)
         declarations.add("  typedef " ++ body ++ " " ++ sv_name(name) ++ ";")
+
     sv_name(names[key])
+
   for (module_def in design.modules):
     for (operation in module_def.operations):
       when operation.opcode == "rtl.memory"
       | collect(operation.attribute("memory").element_type)
+
       for (value in operation.results): collect(value.type)
       for (place in operation.places): collect(place.type)
+
   // The first prepared module seeds a name only; preparation already owns scope.
   def base = if design.modules.length() == 0 | "_sv_types" | design.modules[0].name ++ "_types"
   SvTypes(unique_name(base, reserved), names.snapshot(), declarations.snapshot())
@@ -176,6 +188,7 @@ fun sv_pattern(width :: PosInt, value :: Nat, care :: Nat, uncared :: String):
     if rkt.#{bitwise-bit-set?}(care, index)
     | (if rkt.#{bitwise-bit-set?}(value, index) | "1" | "0")
     | uncared
+
   to_string(width) ++ "'b" ++ String.join(digits, "")
 
 /* Gate each packed choice with its corresponding selector bit. Exactly one
@@ -186,6 +199,7 @@ fun sv_onehot_mux(operation :: Operation, refs :: Map, types :: SvTypes):
   def width = sv_width(operation.results[0].type)
   def terms = for List (choice in operation.operands.drop(1), index in 0..(operation.operands.length() - 1)):
     "({" ++ to_string(width) ++ "{" ++ selector ++ "[" ++ to_string(index) ++ "]}} & " ++ refs[choice] ++ ")"
+
   sv_type(operation.results[0].type, types) ++ "'(" ++ String.join(terms, " | ") ++ ")"
 
 /* Keep the verified non-overlapping decode relation visible as a casez. Each
@@ -199,9 +213,11 @@ fun sv_decode(operation :: Operation, refs :: Map, types :: SvTypes):
   /* Cast the packed output cube back to its logical target representation. */
   fun output(value :: Nat, care :: Nat):
     sv_type(output_type, types) ++ "'(" ++ sv_pattern(output_width, value, care, "x") ++ ")"
+
   def lines = MutableList["  always_comb begin", "    casez (" ++ refs[operation.operands[0]] ++ ")"]
   for (row in operation.attribute("cases")):
     lines.add("      " ++ sv_pattern(input_width, row[0], row[1], "?") ++ ": " ++ result ++ " = " ++ output(row[2], row[3]) ++ ";")
+
   lines.add("      default: " ++ result ++ " = " ++ output(operation.attribute("default_value"), operation.attribute("default_care")) ++ ";")
   lines.add("    endcase")
   lines.add("  end")
@@ -248,6 +264,7 @@ fun sv_expression(operation :: Operation, refs :: Map, types :: SvTypes):
       def mutable expression = args[1]
       for (key in operation.attribute("keys").reverse(), value in args.drop(2).reverse()):
         expression := "(" ++ args[0] ++ " == " ++ sv_literal(scalar_width(operation.operands[0].type), key) ++ " ? " ++ value ++ " : " ++ expression ++ ")"
+
       expression
   | ~else:
       def operator = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+", "rtl.sub": "-", "rtl.mul": "*", "rtl.eq": "==", "rtl.ult": "<"}[operation.opcode]
@@ -260,8 +277,10 @@ fun sv_instance(operation :: Operation, name :: String, value_refs :: Map, place
   def connections = MutableList[]
   for (port in child.inputs, place in operation.places):
     connections.add("." ++ sv_name(port.name) ++ "(" ++ places[place] ++ ")")
+
   for (port in child.outputs, value in operation.results):
     connections.add("." ++ sv_name(port.name) ++ "(" ++ value_refs[value] ++ ")")
+
   "  " ++ sv_name(child.name) ++ name ++ "(" ++ String.join(connections.snapshot(), ", ") ++ ");"
 
 /* Injection is a combinational value, not a write to the source array. Assign
@@ -299,6 +318,7 @@ fun sv_vector_write_set(operation :: Operation, refs :: Map):
   for (port in 0..enables_type.length):
     def select = "[" ++ to_string(port) ++ "]"
     lines.add("    if (" ++ enables ++ select ++ ") " ++ result ++ "[" ++ indices ++ select ++ "] = " ++ elements ++ select ++ ";")
+
   lines.add("  end")
   String.join(lines.snapshot(), "\n")
 
@@ -314,6 +334,7 @@ fun sv_memory_writes(memory :: Memory, name :: String, refs :: Map):
       def lines = MutableList["  always_ff @(posedge " ++ refs[writes[0].operands[2]] ++ ") begin"]
       for (write in writes):
         lines.add("    if (" ++ refs[write.operands[3]] ++ ") " ++ name ++ "[" ++ refs[write.operands[0]] ++ "] <= " ++ refs[write.operands[1]] ++ ";")
+
       lines.add("  end")
       String.join(lines.snapshot(), "\n")
 
@@ -340,6 +361,7 @@ fun sv_dpi_import(declaration :: DpiImport, name :: String):
   def result = declaration.return_result()
   when result && scalar_width(result.type) > 32 && scalar_width(result.type) != 64
   | error(~who: #'emit_verilog, "unsupported DPI return width for " ++ declaration.name ++ "; use a wide out result and a native return type")
+
   def return_type = if result | sv_dpi_type(result.type) | "void"
   def inputs = for List (port in declaration.input_names, type in declaration.input_types): "input " ++ sv_dpi_type(type) ++ " " ++ sv_name(port)
   def outputs = declaration.results.filter(~keep: fun (item): item.direction == "out").map(fun (item): "output " ++ sv_dpi_type(item.type) ++ " " ++ sv_name(item.name))
@@ -359,6 +381,7 @@ fun sv_dpi_call(operation :: Operation, name :: String, refs :: Map, temporaries
       lines.add("      " ++ temporaries[temporaries.length() - 1] ++ " = " ++ call ++ ";")
       for (value in operation.results, temporary in temporaries):
         lines.add("      " ++ refs[value] ++ " <= " ++ temporary ++ ";")
+
   lines.add("    end")
   lines.add("  end")
   String.join(lines.snapshot(), "\n")
@@ -381,25 +404,32 @@ fun sv_sync_memory(operation :: Operation, name :: String, refs :: Map, places :
       | block:
           def parts = for List (index in (sv_width(element_type) / granularity - 1) >=..= 0):
             "{" ++ to_string(granularity) ++ "{" ++ mask ++ "[" ++ to_string(index) ++ "]}}"
+
           def expanded = "{" ++ String.join(parts, ", ") ++ "}"
           sv_type(element_type, types) ++ "'((" ++ target ++ " & ~" ++ expanded ++ ") | (" ++ data ++ " & " ++ expanded ++ "))"
+
     lines.add("    if (" ++ enable ++ ") " ++ target ++ " <= " ++ value ++ ";")
+
   /* Read and write statements share an NBA boundary, so neither statement
      order nor a consuming register can expose newly written data pre-edge. */
   fun read(address :: String, enable :: String, result :: String):
     lines.add("    if (" ++ enable ++ ") " ++ result ++ " <= " ++ name ++ "[" ++ address ++ "]; else " ++ result ++ " <= 'x;")
+
   def ports = operation.places.map(fun (place): places[place])
   def mutable index = 0
   when operation.attribute("has_read")
   | block:
       read(ports[0], ports[1], refs[operation.results[0]])
       index := 2
+
   when operation.attribute("has_write")
   | write(ports[index], ports[index + 1], ports[index + 2], if granularity | ports[index + 3] | #false)
+
   when operation.attribute("has_read_write")
   | block:
       read(ports[0], ports[1] ++ " && !" ++ ports[2], refs[operation.results[0]])
       write(ports[0], ports[3], ports[1] ++ " && " ++ ports[2], if granularity | ports[4] | #false)
+
   lines.add("  end")
   String.join(lines.snapshot(), "\n")
 
@@ -414,6 +444,7 @@ fun sv_register(operation :: Operation, value_refs :: Map, places :: Map):
     if operation.opcode == "rtl.register_reset"
     | "    if (" ++ value_refs[operation.operands[1]] ++ ") " ++ current ++ " <= " ++ value_refs[operation.operands[2]] ++ ";\n    else " ++ current ++ " <= " ++ next ++ ";"
     | "    " ++ current ++ " <= " ++ next ++ ";"
+
   "  always_ff @(posedge " ++ clock ++ ") begin\n" ++ update ++ "\n  end"
 
 /* Render one validated module with local names and preallocated net references.
@@ -425,6 +456,7 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
   for (operation in module_def.operations):
     when operation.opcode == "cdc.sync_level"
     | for (stage in operation.operands.drop(2)): sync_stages.add(stage)
+
   def ports = module_def.inputs ++ module_def.outputs
   def used = MutableSet{types.package_name}
   for (port in ports): used.add(port.name)
@@ -441,8 +473,11 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
         while name in used:
           suffix := suffix + 1
           name := original ++ "_instance_" ++ to_string(suffix)
+
         used.add(name)
+
     instance_refs[operation] := sv_name(name)
+
   def assertion_refs = MutableMap.by(===){}
   def assertions = module_def.operations.filter(~keep: fun (operation): operation.opcode == "verif.assert")
   def labels = MutableSet{}
@@ -450,6 +485,7 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
     def label = operation.attribute("label", #false)
     when label
     | labels.add(label)
+
   // Reserve every authored label before allocating suffixes or unnamed checks;
   // an earlier collision must not steal a later assertion's explicit name.
   for (operation in assertions):
@@ -460,8 +496,10 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
     while name in used || (!label && name in labels) || (suffix > 0 && name in labels):
       suffix := suffix + 1
       name := base ++ "_assert_" ++ to_string(suffix)
+
     used.add(name)
     assertion_refs[operation] := sv_name(name)
+
   def value_refs = MutableMap.by(===){}
   def place_refs = MutableMap.by(===){}
   def memory_refs = MutableMap.by(===){}
@@ -477,6 +515,7 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
     | block:
         def declaration :: DpiImport = operation.attribute("dpi_import")
         for (name in declaration.input_names ++ declaration.results.map(fun (result): result.name)): used.add(name)
+
   def mutable index = 0
   /* Allocate from module-local traversal order and reserve all external names.
      Neither global IR IDs nor user-preferred internal names affect the output. */
@@ -485,9 +524,11 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
     while name in used:
       index := index + 1
       name := "_sv_" ++ to_string(index)
+
     used.add(name)
     index := index + 1
     sv_name(name)
+
   for (operation in module_def.operations):
     when operation.opcode in ["sim.dpi_call", "sim.dpi_register"]
     | block:
@@ -497,15 +538,19 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
             def name = fresh_net()
             dpi_refs[declaration] := name
             declarations.add(sv_dpi_import(declaration, name))
+
         def temporaries = for List (result in declaration.results):
           def name = fresh_net()
           declarations.add("  " ++ sv_dpi_type(result.type) ++ " " ++ name ++ ";")
           name
+
         dpi_temporaries[operation] := temporaries
+
   // Unlike assertions, foreign effects/results cannot disappear for synthesis.
   // Only modules with live DPI operations reject the synthesis compilation mode.
   when dpi_refs.length() > 0
   | declarations.add("`ifdef SYNTHESIS\n`error \"Rhodium DPI requires simulation; SYNTHESIS is unsupported\"\n`endif")
+
   for (operation in module_def.operations):
     when operation.opcode == "rtl.memory"
     | block:
@@ -513,17 +558,20 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
         def name = fresh_net()
         memory_refs[memory] := name
         declarations.add("  " ++ sv_type(memory.element_type, types) ++ " " ++ name ++ " [0:" ++ to_string(memory.depth - 1) ++ "];")
+
     when operation.opcode == "rtl.sync_memory"
     | block:
         def name = fresh_net()
         memory_refs[operation] := name
         declarations.add("  " ++ sv_type(operation.attribute("element_type"), types) ++ " " ++ name ++ " [0:" ++ to_string(operation.attribute("depth") - 1) ++ "];")
+
     def state = operation.opcode in ["rtl.register", "rtl.register_reset"]
     when operation.opcode in ["rtl.instance", "rtl.sync_memory"] || state
     | for (place in operation.places):
         def name = fresh_net()
         place_refs[place] := name
         declarations.add("  wire " ++ sv_type(place.type, types) ++ " " ++ name ++ ";")
+
     unless operation.opcode == "rtl.input_port"
     | for (value in operation.results):
         def name = fresh_net()
@@ -533,6 +581,7 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
         declarations.add("  " ++ attributes ++ storage ++ sv_type(value.type, types) ++ " " ++ name ++ ";")
         when operation.opcode == "rtl.wire"
         | place_refs[operation.places[0]] := name
+
   def refs = value_refs.snapshot()
   def places = place_refs.snapshot()
   def statements = MutableList[]
@@ -566,6 +615,7 @@ fun emit_module_verilog(module_def :: Module, types :: SvTypes):
         statements.add("  assign " ++ place_refs[operation.places[0]] ++ " = " ++ refs[operation.operands[0]] ++ ";")
     | ~else:
         statements.add("  assign " ++ refs[operation.results[0]] ++ " = " ++ sv_expression(operation, refs, types) ++ ";")
+
   "module " ++ sv_name(module_def.name) ++ "(\n" ++ String.join(ports.map(fun (port): "  " ++ port.direction ++ " wire " ++ sv_type(port.type, types) ++ " " ++ sv_name(port.name)), ",\n") ++ "\n);\n" ++ String.join(declarations.snapshot() ++ statements.snapshot(), "\n") ++ "\nendmodule\n"
 
 /* Validate every prepared module before rendering any text. Preparation already
@@ -577,13 +627,17 @@ fun emit_verilog(design :: Design):
     for (operation in module_def.operations):
       unless verilog_opcode_policy.get(operation.opcode, #false) == "emit"
       | error(~who: #'emit_verilog, "unsupported SystemVerilog operation " ++ operation.opcode ++ " in module " ++ module_def.name)
+
       when operation.opcode == "rtl.memory"
       | sv_width(operation.attribute("memory").element_type)
+
       for (value in operation.results): sv_width(value.type)
       for (place in operation.places): sv_width(place.type)
+
   def types = collect_sv_types(design)
   def header:
     if types.declarations.length() == 0
     | ""
     | "package " ++ sv_name(types.package_name) ++ ";\n" ++ String.join(types.declarations, "\n") ++ "\nendpackage\n\n"
+
   header ++ String.join(design.modules.map(fun (module_def): emit_module_verilog(module_def, types)), "\n")

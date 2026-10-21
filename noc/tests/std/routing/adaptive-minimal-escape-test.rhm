@@ -153,18 +153,22 @@ check:
     mesh,
     ~adaptive_vc_groups: ["bad/group"]
   ) ~throws "names without '/'"
+
   adaptive_minimal_escape(
     mesh,
     ~adaptive_vc_groups: ["adaptive", "adaptive"]
   ) ~throws "duplicate adaptive VC groups adaptive"
+
   adaptive_minimal_escape(
     mesh,
     ~escape_vc_groups: ["unknown"]
   ) ~throws "mesh has no VC group unknown"
+
   adaptive_minimal_escape(
     mesh,
     ~adaptive_vc_groups: ["adaptive"],
     ~escape_vc_groups: ["adaptive"]
   ) ~throws "must be disjoint"
+
   policy.evaluate(foreign_node_context).allowed ~throws "node is not in mesh unknown"
   policy.evaluate(foreign_link_context).allowed ~throws "link is not in mesh unknown"

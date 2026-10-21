@@ -41,6 +41,7 @@ fun endpoint_protocol(endpoint :: InterfaceEndpoint):
   def payload = endpoint.type.members.find(
     fun (member): member.name == "bits" && data_type(member.type)
   )
+
   if payload
   | endpoint.type.name ++ "<" ++ payload.type.describe() ++ ">"
   | endpoint.type.name
@@ -66,6 +67,7 @@ fun diagram_projection(entity :: Value || Place, field_name :: String):
             candidate.operands[0] === entity
           ) && candidate.attribute("field") == field_name
       )
+
       if operation | operation.results[0] | entity
   | ~else: entity
 
@@ -77,10 +79,12 @@ fun diagram_nested_endpoint(endpoint :: InterfaceEndpoint,
     if endpoint.role == member.from_role
     | nested_type.roles[0]
     | nested_type.roles[1]
+
   def represented_role:
     if endpoint.represented_role == member.from_role
     | nested_type.roles[0]
     | nested_type.roles[1]
+
   def bindings:
     nested_type.directions.map(
       fun (direction):
@@ -88,20 +92,24 @@ fun diagram_nested_endpoint(endpoint :: InterfaceEndpoint,
           if direction.from_role == nested_type.roles[0]
           | member.from_role
           | member.to_role
+
         def parent_to:
           if direction.to_role == nested_type.roles[0]
           | member.from_role
           | member.to_role
+
         def parent_binding = endpoint.bindings.find(
           fun (binding):
             binding.direction.from_role == parent_from && (
               binding.direction.to_role == parent_to
             )
         )
+
         InterfaceBinding(direction,
                          parent_binding.port_name ++ "__" ++ member.name,
                          diagram_projection(parent_binding.entity, member.name))
     )
+
   InterfaceEndpoint(nested_type,
                     nested_role,
                     represented_role,
@@ -118,10 +126,12 @@ fun endpoint_ports(block_id :: String,
   for (endpoint in elements, index in 0..elements.length()):
     def suffix:
       if elements.length() == 1 | "" | "[" ++ to_string(index) ++ "]"
+
     def port_id = base_name ++ suffix
     def nested_members = endpoint.type.members.filter(
       ~keep: fun (member): member.type is_a InterfaceType
     )
+
     if nested_members.length() > 0
     | for (member in nested_members):
         def built = endpoint_ports(block_id,
@@ -129,18 +139,21 @@ fun endpoint_ports(block_id :: String,
                                    diagram_nested_endpoint(endpoint, member))
         ports := ports ++ built[0]
         terminals := terminals ++ built[1]
+
       for (member in endpoint.type.members):
         unless member.type is_a InterfaceType
         | def direction:
             if endpoint.represented_role == member.from_role
             | "output"
             | "input"
+
           def binding = endpoint.bindings.find(
             fun (candidate):
               candidate.direction.from_role == member.from_role && (
                 candidate.direction.to_role == member.to_role
               )
           )
+
           def member_port_id = port_id ++ "." ++ member.name
           def protocol = member.type.describe()
           def entity = diagram_projection(binding.entity, member.name)
@@ -176,6 +189,7 @@ fun endpoint_ports(block_id :: String,
                           endpoint_entities(endpoint),
                           endpoint.bindings.map(fun (binding): binding.port_name))
         ]
+
   [ports, terminals]
 
 /* Returns the last matching named port's position, or false when the port is absent. */
@@ -184,6 +198,7 @@ fun port_index(ports :: List.of(Port), name :: String):
   for (port in ports, index in 0..ports.length()):
     when port.name == name
     | result := index
+
   result
 
 /* Rebinds a child's interface group to its parent-side instance places and values in child port order. */
@@ -198,14 +213,18 @@ fun instance_endpoint(operation :: Operation, group :: InterfaceGroup):
               def index = port_index(child.outputs, binding.port_name)
               unless index
               | error(~who: #'diagram, "interface output is missing from instance")
+
               operation.results[index]
           | block:
               def index = port_index(child.inputs, binding.port_name)
               unless index
               | error(~who: #'diagram, "interface input is missing from instance")
+
               operation.places[index]
+
         InterfaceBinding(binding.direction, binding.port_name, entity)
     )
+
   InterfaceEndpoint(group.type,
                     group.role,
                     group.role,
@@ -225,6 +244,7 @@ fun grouped_port_names(groups :: List.of(InterfaceGroup)):
     for (binding in group.bindings):
       unless binding.port_name in names
       | names := names ++ [binding.port_name]
+
   names
 
 /* Recognizes omitted implicit clock/reset ports using sync-circuit metadata, not their names or types alone. */
@@ -249,6 +269,7 @@ fun append_unique_terminals(left :: List.of(DiagramTerminal),
       fun (candidate): candidate.block_id == terminal.block_id && candidate.port_id == terminal.port_id
     )
     | result := result ++ [terminal]
+
   result
 
 /*
@@ -266,6 +287,7 @@ fun value_source_terminals(value :: Value,
       def matching = outputs.filter(
         ~keep: fun (terminal): terminal_produces(terminal, value)
       )
+
       def sources:
         if matching.length() > 0
         | matching
@@ -296,7 +318,9 @@ fun value_source_terminals(value :: Value,
                                                  source_cache,
                                                  visiting ++ [value.id])
                         )
+
                       operand_sources
+
       source_cache[value.id] := sources
       sources
 
@@ -311,6 +335,7 @@ fun destination_sources(destination :: DiagramTerminal,
         sources,
         value_source_terminals(entity.driver, outputs, source_cache)
       )
+
   sources
 
 /*
@@ -380,6 +405,7 @@ fun transparent_interface_destinations(endpoint :: InterfaceEndpoint,
   def matching = inputs.filter(
     ~keep: fun (terminal): terminal.compound && terminal_contains_endpoint(terminal, endpoint)
   )
+
   if matching.length() > 0
   | matching
   | if endpoint_seen(endpoint, seen)
@@ -388,6 +414,7 @@ fun transparent_interface_destinations(endpoint :: InterfaceEndpoint,
         def link = links.find(
           fun (candidate): same_endpoint(candidate.left, endpoint)
         )
+
         if !link
         | []
         | block:
@@ -404,6 +431,7 @@ fun transparent_interface_destinations(endpoint :: InterfaceEndpoint,
                     seen ++ [endpoint]
                   )
                 )
+
             destinations
 
 /* Collects top-first reachable concrete module definitions, visiting each shared definition once. */
@@ -416,6 +444,7 @@ fun reachable_modules(top :: Module):
       for (operation in module_def.operations):
         when operation.opcode == "rtl.instance"
         | visit(operation.attribute("module"))
+
   visit(top)
   modules
 
@@ -461,7 +490,9 @@ fun interface_channel_wiring(module_def :: Module):
     def members = projected[endpoint]
     unless members.get(member.name, #false)
     | members[member.name] := diagram_nested_endpoint(endpoint, member)
+
     members[member.name]
+
   /* Recursively pairs matching nested protocol endpoints, leaving each flat interface as one channel pair. */
   fun channel_pairs(left :: InterfaceEndpoint, right :: InterfaceEndpoint):
     def members = left.type.members.filter(~keep: fun (member): member.type is_a InterfaceType)
@@ -472,17 +503,21 @@ fun interface_channel_wiring(module_def :: Module):
         for (member in members):
           def peer = right.type.members.find(fun (candidate): candidate.name == member.name)
           pairs := pairs ++ channel_pairs(nested(left, member), nested(right, peer))
+
         pairs
+
   def mutable connections = []
   for (connection in module_interface_connections(module_def)):
     for (pair in channel_pairs(connection.source, connection.destination)):
       def forward = pair[0].represented_role == pair[0].type.provider_role
       connections := connections ++ [InterfaceConnectionGroup(module_def, if forward | pair[0] | pair[1], if forward | pair[1] | pair[0])]
+
   def mutable links = []
   for (link in module_interface_links(module_def)):
     for (pair in channel_pairs(link.left, link.right)):
       def forward = pair[1].represented_role == pair[1].type.provider_role
       links := links ++ [InterfaceLinkGroup(module_def, link.name, if forward | pair[0] | pair[1], if forward | pair[1] | pair[0])]
+
   [connections, links]
 
 /*
@@ -509,19 +544,23 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
             def index = vertices.length()
             vertices := vertices ++ [terminal]
             index
+
       /* Extracts compound protocol terminals from an endpoint shape for contract ownership checks. */
       fun endpoints(shape :: InterfaceEndpoint || Array): endpoint_ports("", "", shape)[1].filter(~keep: fun (terminal): terminal.compound)
       let [connections, links] = interface_channel_wiring(module_def)
       for (pair in connections.map(fun (connection): [connection.source, connection.destination]) ++ links.map(fun (link): [link.left, link.right])):
         for (source in endpoints(pair[0]), destination in endpoints(pair[1])):
           wires := wires ++ [[vertex(source), vertex(destination)]]
+
       for (transform in module_interface_transforms(module_def)):
         // Presentation wrappers delegate to their child instead of owning it.
         unless transform.implementation && !transform.trace_model
         | for (terminal in endpoints(transform.input)):
             claims := claims ++ [[vertex(terminal), "input", transform]]
+
           for (terminal in endpoints(transform.output)):
             claims := claims ++ [[vertex(terminal), "output", transform]]
+
       for (operation in module_def.operations):
         when operation.opcode == "rtl.instance"
         | def child = operation.attribute("module")
@@ -531,6 +570,7 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
               for (claim in exposed):
                 when terminal.port_id == claim[0]
                 | claims := claims ++ [[vertex(terminal), claim[1], #false]]
+
       /* Finds frontier vertices reachable along interface wiring in the selected forward or reverse direction. */
       fun reachable(start :: Nat, reverse :: Boolean):
         def visited = MutableSet{}
@@ -543,13 +583,16 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
             for (wire in wires):
               when wire[if reverse | 1 | 0] == current
               | pending := [wire[if reverse | 0 | 1]] ++ pending
+
         visited
+
       for (claim in claims):
         def owner = claim[2]
         when owner && owner.contract_name
         | def reached = reachable(claim[0], claim[1] == "output")
           when claims.find(fun (other): !(other[2] === owner) && other[1] == claim[1] && other[0] in reached)
           | error(~who: #'diagram, "interface contract " ++ owner.contract_name ++ " overlaps internal trace topology at its " ++ claim[1] ++ " in " ++ module_def.name)
+
       def mutable exposed = []
       for (group in module_interface_groups(module_def)):
         for (terminal in endpoint_ports("", group.name, interface_boundary_endpoint(group))[1]):
@@ -558,6 +601,7 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
             def reached = reachable(vertex(terminal), direction == "output")
             when claims.find(fun (claim): claim[1] == direction && claim[0] in reached)
             | exposed := exposed ++ [[terminal.port_id, direction]]
+
       cache[module_def] := exposed
       exposed
 
@@ -602,6 +646,7 @@ fun diagram_module(module_def :: Module,
                                  interface_boundary_endpoint(group))
       ports := ports ++ built[0]
       block_terminals := block_terminals ++ built[1]
+
     blocks := blocks ++ [
       DiagramBlock(block_id,
                    array_group.name,
@@ -674,16 +719,20 @@ fun diagram_module(module_def :: Module,
       if transform_has_combo_input(transform.kind)
       | [DiagramPort("combo", "combo", "input", "data")]
       | []
+
     def child_module:
       transform.implementation ?> fun (implementation): implementation.module_def.name
+
     def behavior:
       cond
       | transform.contract_name: module_behavior(module_def)
       | transform.implementation: module_behavior(transform.implementation.module_def)
       | ~else: "combinational"
+
     def event_annotation = events.find(
       fun (event): event.input === transform.input && event.output === transform.output
     )
+
     def delegate_ports:
       if transform.implementation && !transform.trace_model && !event_annotation
       | block:
@@ -694,19 +743,25 @@ fun diagram_module(module_def :: Module,
           for (group in module_interface_groups(child)):
             unless group_in_arrays(group, child_arrays)
             | child_terminals := child_terminals ++ endpoint_ports("child", group.name, instance_endpoint(transform.implementation.operation, group))[1]
+
           for (array_group in child_arrays):
             for (group in array_group.groups, index in 0..array_group.groups.length()):
               child_terminals := child_terminals ++ endpoint_ports("child", array_group.name ++ "[" ++ to_string(index) ++ "]", instance_endpoint(transform.implementation.operation, group))[1]
+
           for (terminal in input_built[1] ++ output_built[1]):
             def matched = child_terminals.find(
               fun (peer):
                 peer.binding_names == terminal.binding_names && peer.entities.length() == terminal.entities.length() && for all (a in peer.entities, b in terminal.entities): entity_originates_from(a, b)
             )
+
             unless matched
             | error(~who: #'diagram, "delegating transform must expose the implementation endpoints: " ++ transform.kind)
+
             bindings[terminal.port_id] := matched.port_id
+
           for Map (key in bindings.keys()): values(key, bindings[key])
       | #false
+
     blocks := blocks ++ [
       DiagramBlock(block_id,
                    transform.kind,
@@ -720,6 +775,7 @@ fun diagram_module(module_def :: Module,
                    transform.implementation ?> fun (implementation): implementation.operation.attribute("name"),
                    delegate_ports)
     ]
+
     terminals := terminals ++ input_built[1] ++ output_built[1]
 
   for (operation in module_def.operations):
@@ -740,6 +796,7 @@ fun diagram_module(module_def :: Module,
                                      instance_endpoint(operation, group))
           ports := ports ++ built[0]
           instance_terminals := instance_terminals ++ built[1]
+
       for (array_group in child_arrays):
         for (group in array_group.groups, index in 0..array_group.groups.length()):
           def built = endpoint_ports(block_id,
@@ -747,6 +804,7 @@ fun diagram_module(module_def :: Module,
                                      instance_endpoint(operation, group))
           ports := ports ++ built[0]
           instance_terminals := instance_terminals ++ built[1]
+
       for (port in child.inputs, index in 0..child.inputs.length()):
         unless port.name in child_grouped_names || implicit_sync_port(child_sync_metadata, port.name)
         | def protocol = port.type.describe()
@@ -760,6 +818,7 @@ fun diagram_module(module_def :: Module,
                             #false,
                             [operation.places[index]])
           ]
+
       for (port in child.outputs, index in 0..child.outputs.length()):
         unless port.name in child_grouped_names
         | def protocol = port.type.describe()
@@ -773,6 +832,7 @@ fun diagram_module(module_def :: Module,
                             #false,
                             [operation.results[index]])
           ]
+
       blocks := blocks ++ [
         DiagramBlock(block_id,
                      name,
@@ -821,15 +881,18 @@ fun diagram_module(module_def :: Module,
   def outputs = terminals.filter(
     ~keep: fun (terminal): terminal.direction == "output"
   )
+
   def inputs = terminals.filter(
     ~keep: fun (terminal): terminal.direction == "input"
   )
+
   def mutable channels = []
 
   for (connection in connections):
     def source = outputs.find(
       fun (terminal): terminal.compound && terminal_contains_endpoint(terminal, connection.source)
     )
+
     when source
     | def destinations = transparent_interface_destinations(
         connection.destination,
@@ -847,6 +910,7 @@ fun diagram_module(module_def :: Module,
                 channel.destination_port == destination.port_id
               ) && channel.kind == "interface"
           )
+
           unless duplicate
           | def channel_id = "channel:" ++ to_string(channels.length())
             channels := channels ++ [
@@ -868,6 +932,7 @@ fun diagram_module(module_def :: Module,
         fun (channel):
           channel.source_block == source.block_id && channel.destination_block == destination.block_id
       )
+
       when source.block_id != destination.block_id && !already_connected
       | def channel_id = "channel:" ++ to_string(channels.length())
         channels := channels ++ [
@@ -881,20 +946,24 @@ fun diagram_module(module_def :: Module,
                          "data",
                          "data")
         ]
+
   def trace_edges = for List (edge in module_interface_trace_edges(module_def)):
     def parent = events.find(fun (event): event.output === edge.parent)
     def child = events.find(fun (event): event.output === edge.child)
     unless parent && child
     | error(~who: #'diagram,
             "trace edge endpoints must be annotated event outputs in " ++ module_def.name)
+
     when parent === child
     | error(~who: #'diagram, "trace edge parent and child must be distinct events")
+
     DiagramTraceEdge(parent.site_index,
                      child.site_index,
                      edge.storage.capture,
                      edge.storage.release,
                      edge.storage.active,
                      edge.storage.name)
+
   DiagramModule(module_def.id, module_def.name, blocks, channels, trace_edges)
 
 /* Verifies an elaboration and extracts top-first views of reachable definitions with one shared per-extraction contract cache. */

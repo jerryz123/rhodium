@@ -20,6 +20,7 @@ check:
   design.modules.map(fun (module_def): module_def.name) ~is [
     "CircuitParamHierarchy", "ConfiguredLeaf", "ConfiguredLeaf_1", "NominalLeaf", "NominalLeaf_1"
   ]
+
   leaves.map(fun (module_def): module_def.find_output("value").type.width) ~is [8, 16, 4, 4]
   first.attribute("module") === second.attribute("module") ~is #true
   first.attribute("module") === different.attribute("module") ~is #false

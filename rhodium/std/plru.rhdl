@@ -10,6 +10,7 @@ fun plru_leaf_count(ways :: PosInt) :: Pow2Int:
   /* Doubles the host leaf count until the complete binary tree covers every real way. */
   fun loop(leaves :: Pow2Int):
     if leaves >= ways | leaves | loop(leaves * 2)
+
   loop(1)
 
 /* Direct-mapped users retain one unused bit because hardware widths are positive. */
@@ -43,6 +44,7 @@ fun plru_victim(ways :: PosInt,
         | mux(state_bits[node].into(Bool),
               select(node * 2 + 2, split, half),
               select(node * 2 + 1, first, half))
+
   select(0, 0, plru_leaf_count(ways))
 
 /* Returns updated tree state with ancestors pointing away from the touched way; the caller supplies a legal way index. */
@@ -60,16 +62,19 @@ fun plru_touch(ways :: PosInt,
           if split < ways
           | selected & !(way < Bits(index_width(ways))(split))
           | Bool(#false)
+
         def replacement = mux(selected, !right_selected, updated[node])
         updated := vec(
           for List (index in 0..plru_state_width(ways)):
             if index == node | replacement | updated[index]
         )
+
         update(node * 2 + 1, first, half, selected & !right_selected)
         if split < ways
         | update(node * 2 + 2, split, half, right_selected)
         | #void
     | #void
+
   update(0, 0, plru_leaf_count(ways), Bool(#true))
   updated.as_bits().into(PLRUState(ways))
 

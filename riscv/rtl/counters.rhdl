@@ -33,6 +33,7 @@ sync_circuit RiscvBaseCounters(xlen :: XLen):
           (machine_write.bits.value ++ cycle_counter[0..32]),
           (cycle_counter[32..64] ++ machine_write.bits.value))
     | machine_write.bits.value
+
   def instret_replacement:
     if xlen == XLen.X32
     | mux(instret_high_write,

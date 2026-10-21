@@ -23,6 +23,7 @@ fun site_header(manifest):
       "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
     ""
   ) ++ "}\n"
+
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
   ["VectorRegisterFile", "test_vector_write", [
     ["write_in", "valid"],
@@ -36,4 +37,5 @@ def target = traced_target(site_header, EventInstrumentationConfig(~partial: #tr
     ["writes_0_in", "bits", "data"]
   ]]
 ])])
+
 export program target

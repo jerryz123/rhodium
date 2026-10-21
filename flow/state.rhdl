@@ -20,8 +20,10 @@ fun require_state_initial(T :: DataType,
   def initial_type = initial.literal_type()
   unless T.packed_width() is_a PosInt
   | error(~who: who, "state type must have a packed representation")
+
   unless T.type_equal(initial_type) && initial_type.type_equal(T)
   | error(~who: who, "initial literal must have the state DataType")
+
   initial
 
 /* Emits fair, irrevocable snapshots for vector elements that differ from the
@@ -58,6 +60,7 @@ sync_circuit StateChangeSource(T :: DataType,
     for List (index in 0..count):
       !(current[index].as_bits() === effective_published[index].as_bits())
   )
+
   def choice :: CircularPriorityChoice(count, state_index_width) = circular_priority_onehot(dirty, next_priority)
   def capture = choice.valid & (!held_valid ||| transfer)
   def selected_value = current[choice.index]

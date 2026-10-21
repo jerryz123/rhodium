@@ -33,9 +33,11 @@ def hierarchy_design = compile_program(elaborate(interface_fixture.ReadyValidHie
 def hierarchy = hierarchy_design.modules.find(
   fun (module_def): module_def.name.starts_with("ReadyValidHierarchy")
 )
+
 def hierarchy_instance = hierarchy.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
+
 def nested_adapter_design = nested_fixture_design
 def nested_adapter = nested_adapter_design.modules[0]
 def nested_member_design = compile_program(elaborate(nested_fixture.NestedMemberAdapter(8)), rtl_target).report.design
@@ -48,16 +50,20 @@ def nested_hierarchy_design = compile_program(elaborate(nested_fixture.NestedInt
 def nested_hierarchy = nested_hierarchy_design.modules.find(
   fun (module_def): module_def.name.starts_with("NestedInterfaceHierarchy")
 )
+
 def nested_hierarchy_instance = nested_hierarchy.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
+
 def field_dependency_design = field_dependency_fixture.design
 def field_dependency_hierarchy = field_dependency_design.modules.find(
   fun (module_def): module_def.name.starts_with("FieldSelectiveHierarchy")
 )
+
 def field_dependency_instance = field_dependency_hierarchy.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
+
 def transform_design = transform_fixture_design
 def transform_module = transform_design.modules[0]
 def transform_boundary_design = transform_fixture_boundary_design
@@ -69,17 +75,21 @@ check:
   adapter.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 2
+
   source.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_create"
   ).length() ~is 1
+
   source.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_get"
   ).length() ~is 1
+
   hierarchy_instance.places.length() ~is 3
   hierarchy_instance.results.length() ~is 2
   hierarchy.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 5
+
   nested_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
   nested_adapter.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
   nested_adapter.find_input("ingress_in").type.field("command").type.field("valid").type === bool.Bool ~is #true
@@ -89,13 +99,16 @@ check:
   nested_member_adapter.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 2
+
   deep_nested_adapter.find_input("peripheral_in").type.field("control").type.field("command").type.field("bits").type.width ~is 8
   nested_source.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_create"
   ).length() ~is 3
+
   nested_source.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_get"
   ).length() ~is 6
+
   nested_hierarchy_instance.places.length() ~is 5
   nested_hierarchy_instance.results.length() ~is 5
   field_dependency_instance.places.length() ~is 3
@@ -114,12 +127,14 @@ check:
     "renamed_in",
     "event_in"
   ]
+
   transform_module.outputs.map(fun (port): port.name) ~is [
     "commands_out",
     "renamed_out",
     "copies_0_out",
     "copies_1_out"
   ]
+
   verify_design(transform_design) ~is #void
   verify_design(transform_boundary_design) ~is #void
   verify_design(detached_terminal_design) ~is #void
@@ -188,4 +203,5 @@ block:
                   [InterfaceMember("payload", Bits(8), "producer", "consumer")],
                   ~connection_compatibility:
                     InterfaceCompatibility("consumer", fun (_, _): #true)) ~throws "compatibility role must match"
+
     first.complementary_role("producer") ~is "consumer"

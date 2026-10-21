@@ -88,9 +88,11 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
            "write_unique_response_home")
     assert(incoming_response.resp_err === CHIRespErr.OK,
            "write_unique_response_ok")
+
   when (response_fire & !response_protocol_credit):
     assert(incoming_response.txn_id === Bits(12)(txn_id),
            "write_unique_response_txn_id")
+
   when (transaction_id_response_fire & transaction_id_already_received):
     assert(incoming_response.dbid_or_group_id === dbid,
            "write_unique_response_dbid_consistent")
@@ -113,6 +115,7 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
   completion.valid <== control.active & data_sent & completion_received
   completion.bits <== CacheWriteUniqueResult(Context):
     context: context
+
   def completion_fire = completion.fire()
 
   control.start <== command_fire
@@ -126,6 +129,7 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
     write_mask <== command.bits.mask
     context <== command.bits.context
     home_id <== command_home.node_id
+
   when (command_fire ||| completion_fire):
     data_sent <== Bool(#false)
   elsewhen data_fire:

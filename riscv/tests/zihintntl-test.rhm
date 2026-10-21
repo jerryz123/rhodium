@@ -33,14 +33,17 @@ for (instruction in ZihintntlInstructions, word in words,
     ZihintntlCompressed.matching(compressed_word) === compressed ~is #true
     RV32Zca.matching(compressed_word).expand(compressed_word) ~is word
     RV64Zca.matching(compressed_word).expand(compressed_word) ~is word
+
   for (bit in 0..32):
     check:
       instruction.matches(word bits.xor (1 << bit)) ~is #false
+
   for (bit in 0..16):
     check:
       compressed.matches(compressed_word bits.xor (1 << bit)) ~is #false
 
 for (word in [0x00000033, 0x00100033, 0x00600033, 0x002000b3, 0x00208033, 0x40200033]):
   check: Zihintntl.matching(word) ~is #false
+
 for (word in [0x9002, 0x9006, 0x901a, 0x908a]):
   check: ZihintntlCompressed.matching(word) ~is #false

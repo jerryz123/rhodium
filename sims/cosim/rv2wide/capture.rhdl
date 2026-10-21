@@ -25,6 +25,7 @@ dpi_import procedure rhodium_rv2wide_lane(
   fetch_fault: Bits(64), rd: Bits(64), write: Bits(64), data: Bits(64), deferred: Bits(64), service: Bits(64), memory: Bits(64),
   address: Bits(64), access: Bits(64), width: Bits(64), atomic: Bits(64), store_data: Bits(64), fp: Bits(64), fp_destination: Bits(64), fp_delay: Bits(64), vector: Bits(64)
 )
+
 /* Reports authorized numerical returns and boxed load writes without architectural snapshots. */
 dpi_import procedure rhodium_rv2wide_fp(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), destination: Bits(64), value: Bits(64), flags_valid: Bits(64), flags: Bits(64), flen: Bits(64))
 /* Samples only external inputs and architectural trap/return decisions, not a CSR-bank snapshot. */
@@ -33,6 +34,7 @@ dpi_import procedure rhodium_rv2wide_boundary(
   tval: Bits(64), target: Bits(64), target_privilege: Bits(64), interrupts: Bits(64), time: Bits(64), interrupt_boundary: Bits(64),
   virtualized: Bits(64), next_virtualized: Bits(64), target_virtualized: Bits(64), guest_valid: Bits(64), htval: Bits(64), htinst: Bits(64), hpm_enabled: Bits(64), hpm_counter: Bits(64), hpm_overflow: Bits(64)
 )
+
 /* Samples variable service admission, direct multiply return, and their RF write destination. */
 dpi_import procedure rhodium_rv2wide_completion(instance: Bits(64), index: Bits(64), valid: Bits(64), pc: Bits(64), rd: Bits(64), write: Bits(64), data: Bits(64))
 /* Samples architectural translation and split-fragment ownership, excluding page-table traffic. */
@@ -53,12 +55,14 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def vectors = vector_profile_enabled(profile.vector)
   def taps = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): (!name.starts_with("vector_")) && name != "clock" && name != "reset")):
     values(name, observer_input(name, tap_types[name]))
+
   def instance_id = Bits(64)(instance)
   def active = !reset_active().into(Bool)
   /* Widen an exactly declared packed input to the common transport lane. */
   fun tap_lane(name :: String) :~ Bits(64):
     def value :: Hardware.of(tap_types[name]) = taps[name]
     lane(value.as_bits())
+
   /* Standalone core observations have no sibling physical-memory provenance. */
   fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | Bits(64)(0)
   def tokens :: Vec(2, RV2WideResult(xlen)) = taps["wb_tokens"]
@@ -106,6 +110,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
       mux(token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot, !Bits(64)(0), timing.latency(token.fp.bits.execution, ~width: 64) - Bits(64)(2)),
       lane((token.vector.control.memory ||| token.vector.control.integer ||| token.vector.control.multiply_divide ||| token.vector.control.floating_point).as_bits()), ~enable: active
     )
+
   rhodium_rv2wide_boundary.call(
     instance_id, lane(privilege.as_bits()), lane(next_privilege.as_bits()), tap_lane("csr_interrupt_take"), tap_lane("csr_synchronous_trap"),
     lane(trap_cause[0..xlen.width - 1]), tap_lane("csr_trap_pc"), tap_lane("csr_trap_value"), tap_lane("csr_redirect"),
@@ -114,9 +119,11 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
     lane(virtualized.as_bits()), lane(mux(mret ||| sret, returned_virtual, virtualized).as_bits()), tap_lane("csr_trap_to_guest"), lane(guest_valid.as_bits()),
     tap_lane("csr_fault_gpa"), tap_lane("csr_fault_inst"), tap_lane("csr_hpm_enabled"), tap_lane("csr_hpm_counter"), tap_lane("csr_hpm_overflow"), ~enable: active
   )
+
   for (index in 0..4):
     def result :: RV2WideRetirement(xlen) = completions[index]
     rhodium_rv2wide_completion.call(instance_id, Bits(64)(index), lane(completion_valid[index].as_bits()), lane(result.fetched.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
+
   def fp_result :: FpExecutionResult(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen)) = taps["fp_completion"]
   def fp_load :: RV2WideFpLoad(xlen) = taps["fp_load"]
   rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.fetched.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), lane(fp_result.fp_value)), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(rv2wide_fp_profile(xlen))), ~enable: active)
@@ -130,6 +137,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
     mmu_lane("mmu_fragment_valid") & lane((!vector_split).as_bits()), mmu_lane("mmu_fragment_address"), mmu_lane("mmu_fragment_virtual"), mmu_lane("mmu_fragment_mask"), mmu_lane("mmu_fragment_data"),
     mmu_lane("mmu_fragment_response") & lane((!vector_split).as_bits()), mmu_lane("mmu_fragment_response_data"), ~enable: active
   )
+
   /* Supplies RV2Wide physical request and fragment provenance to the shared vector observer. */
   fun capture_vector():
     def vector_taps = cosim_vector(xlen, profile.vector_length, profile.vector_completion_slots, tap_types, taps, instance_id, active)
@@ -137,6 +145,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
     fun vector_lane_value(name :: String) :~ Bits(64):
       def value :: Hardware.of(tap_types[name]) = vector_taps[name]
       lane(value.as_bits())
+
     rhodium_vector_translation.call(instance_id, vector_lane_value("vector_memory_request_tag"), mmu_lane("mmu_request_address"), ~enable: active & vector_request & mmu_lane("mmu_request_valid")[0].into(Bool))
     def offset = mmu_lane("mmu_fragment_virtual")[0..index_width(xlen.width / 8)]
     rhodium_vector_fragment_start.call(instance_id, mmu_lane("mmu_fragment_address") + offset.zext(64), ~enable: active & vector_split & mmu_lane("mmu_fragment_valid")[0].into(Bool))
@@ -146,6 +155,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
       mmu_lane("mmu_fragment_mask") >> offset, mmu_lane("mmu_fragment_response_data") >> shift, mmu_lane("mmu_fragment_data") >> shift,
       ~enable: active & vector_split & mmu_lane("mmu_fragment_response")[0].into(Bool)
     )
+
   if vectors | capture_vector() | #void
 
 export rv2wide_cosim_adapter

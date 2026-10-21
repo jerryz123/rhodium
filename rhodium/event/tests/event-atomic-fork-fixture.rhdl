@@ -20,6 +20,7 @@ sync_circuit EventAtomicForkNetwork(buffered :: Boolean):
     branches[1] |> queue(3, ~flow: #true, ~pipe: #true) |> egress[1]
     branches[2] |> queue(2) |> pipe(2) |> egress[2]
   | for (index in 0..3): branches[index] |> egress[index]
+
   fork_valid <== incoming.valid
   fork_ready <== incoming.ready
   transfers <== vec(for List (index in 0..3): branches[index].fire()).as_bits()
@@ -34,10 +35,12 @@ sync_circuit EventAtomicForkLane(buffered :: Boolean, traced :: Boolean):
   if traced
   | ingress |> trace_event("accepted", ~payload: #true) |> network.ingress
   | ingress |> network.ingress
+
   for (index in 0..3):
     if traced
     | network.egress[index] |> trace_event("branch" ++ to_string(index), ~payload: #true) |> egress[index]
     | network.egress[index] |> egress[index]
+
   fork_valid <== network.fork_valid
   fork_ready <== network.fork_ready
   transfers <== network.transfers
@@ -57,6 +60,7 @@ sync_circuit EventAtomicFork():
   for (index in 0..3):
     lane0.egress[index] |> sinks[0 + index]
     gold0.egress[index] |> gold_sinks[0 + index]
+
   fork_valid0 <== lane0.fork_valid
   fork_ready0 <== lane0.fork_ready
   transfers0 <== lane0.transfers
@@ -70,6 +74,7 @@ sync_circuit EventAtomicFork():
   for (index in 0..3):
     lane1.egress[index] |> sinks[3 + index]
     gold1.egress[index] |> gold_sinks[3 + index]
+
   fork_valid1 <== lane1.fork_valid
   fork_ready1 <== lane1.fork_ready
   transfers1 <== lane1.transfers
@@ -83,6 +88,7 @@ sync_circuit EventAtomicFork():
   for (index in 0..3):
     lane2.egress[index] |> sinks[6 + index]
     gold2.egress[index] |> gold_sinks[6 + index]
+
   fork_valid2 <== lane2.fork_valid
   fork_ready2 <== lane2.fork_ready
   transfers2 <== lane2.transfers

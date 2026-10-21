@@ -25,8 +25,10 @@ def CacheWriteUniqueResponses = response_profile("cache_write_unique"):
   milestone completion
   response [CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd]:
     completes [dbid]
+
   response [CHIRspOpcode.Comp]:
     completes [completion]
+
   response [CHIRspOpcode.CompDBIDResp]:
     completes [dbid, completion]
 
@@ -86,6 +88,7 @@ fun cache_chi_request(p :: CHIFlitParams,
     cacheable: cacheable
     device: device
     early_write_acknowledge: early_write_acknowledge
+
   // On WriteNoSnp the shared bit means DoDWT; these engines route DAT through
   // the Home. ReturnTxnID is inapplicable on Requester-to-Home traffic.
   inactive.updated(

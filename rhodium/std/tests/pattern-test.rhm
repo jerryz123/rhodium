@@ -16,14 +16,17 @@ def narrower_pattern = Pattern(
   ~value: hw.Bits(4)(0b1000),
   ~care: hw.Bits(4)(0b1000)
 )
+
 def disjoint_pattern = Pattern(
   ~value: hw.Bits(4)(0b0100),
   ~care: hw.Bits(4)(0b1100)
 )
+
 def crossing_pattern = Pattern(
   ~value: hw.Bits(4)(0b0010),
   ~care: hw.Bits(4)(0b0110)
 )
+
 def empty_intersection_pattern = Pattern(
   ~value: hw.Bits(4)(0b0100),
   ~care: hw.Bits(4)(0b1100)
@@ -128,6 +131,7 @@ check:
     fun (candidate):
       fixture.bits_pattern.matches(candidate) && crossing_pattern.matches(candidate)
   ) ~is #true
+
   fixture.bits_pattern.intersection(empty_intersection_pattern).is_empty() ~is #true
   signatures(subtraction) ~is [
     [0b1000, 0b1110]
@@ -137,6 +141,7 @@ check:
     fun (candidate):
       fixture.bits_pattern.matches(candidate) && !crossing_pattern.matches(candidate)
   ) ~is #true
+
   signatures(inverse) ~is [
     [0b0100, 0b0100],
     [0b0000, 0b1100]
@@ -145,6 +150,7 @@ check:
     inverse,
     fun (candidate): !fixture.bits_pattern.matches(candidate)
   ) ~is #true
+
   union.subsumes(fixture.bits_pattern) ~is #true
   fixture.bits_pattern.subsumes(union) ~is #false
   union.overlaps(crossing_pattern) ~is #true
@@ -154,15 +160,18 @@ check:
       left: hw.Bits(4)(0b0011)
       right: hw.Bits(4)(0b1111)
   ) ~is #true
+
   as_pattern_set(fixture.nibble_pattern).matches(
     literals.NibbleLiteral(0b1011)
   ) ~is #true
 
   Pattern(~value: hw.Bits(4)(0),
           ~care: literal(literals.Nibble(), 0)) ~throws "exactly the same hardware type"
+
   fixture.bits_pattern.matches(literal(literals.Nibble(), 0)) ~throws "exactly the same hardware type"
   (pattern(literals.Pair()):
      left: hw.Bits(4)(0)) ~throws "every field exactly once"
+
   (pattern(Vec(2, Bits(4)), [hw.Bits(4)(0)])) ~throws "element count"
   as_pattern("not a pattern") ~throws "expected a HardwareLiteral or Pattern"
   PatternSet(Bits(4), [fixture.nibble_pattern]) ~throws "PatternSet hardware type"

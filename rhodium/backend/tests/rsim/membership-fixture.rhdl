@@ -27,6 +27,7 @@ sync_circuit RsimMembership():
     value.into(SInt(64)).is_one_of(sint(-1, 64), sint(-2 ** 63, 64), sint(7, 64)),
     state.is_one_of(MembershipState.Idle, MembershipState.Done)
   ).as_bits()
+
   reg held(~init: Bits(10)(0))
   when enable: held <== predicates
   result <== predicates

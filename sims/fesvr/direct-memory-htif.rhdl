@@ -42,6 +42,7 @@ sync_circuit DirectMemoryHTIF(xlen :: XLen,
                               boot_address_register :: Nat):
   unless boot_address_register mod 8 == 0 && boot_address_register < (1 << 64)
   | error(~who: #'DirectMemoryHTIF, "boot-address register must be an aligned 64-bit address")
+
   input(request_ready, response_valid): Bool
   input response_data: Bits(64)
   output(request_valid, request_write, response_ready): Bool
@@ -92,17 +93,21 @@ fun checked_fesvr_chi_requester(p :: CHIFlitParams,
                                 home_map :: CHIHomeMap):
   unless node.kind == CHINodeKind.RNF
   | error(~who: #'FesvrRequester, "node must be an RN-F")
+
   unless node.max_outstanding == 1
   | error(~who: #'FesvrRequester,
           "node must allow exactly one outstanding transaction")
+
   unless home_map.flit == p
   | error(~who: #'FesvrRequester,
           "Home map must use FESVR's CHI flit parameters")
+
   for (entry in home_map.entries):
     if entry.target_node_id == node.node_id
     | error(~who: #'FesvrRequester,
             "Requester and Home NodeIDs must be distinct")
     | #void
+
   p
 
 /* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
@@ -121,6 +126,7 @@ fun fesvr_chi_request(p :: CHIFlitParams,
     cacheable: cacheable
     device: device
     early_write_acknowledge: Bool(#false)
+
   inactive.updated(
     ~tag_op: CHITagOp.Invalid,
     ~snp_attr_or_do_dwt: cacheable,
@@ -142,6 +148,7 @@ fun fesvr_chi_snoop_response(p :: CHIFlitParams,
   def response = CHICoherentResponse():
     pass_dirty: Bool(#false)
     state: CHIResponseState.Invalid
+
   CHIRspFlit(p):
     cache_line_id: Bits(6)(0)
     trace_tag: snoop.trace_tag
@@ -247,9 +254,12 @@ fun fesvr_service_support(services :: NonemptyList.of(CHIHomeServiceParams),
   def matches = for List (service in services):
     def sizes = for List (support in service.requests):
       (opcode === support.opcode) & (size >= Bits(3)(alignment_bits(support.sizes.min_bytes))) & (size <= Bits(3)(alignment_bits(support.sizes.max_bytes)))
+
     def regions = for List (region in service.address_sets):
       region.matches(address) & region.matches(last_address)
+
     (home_id === Bits(home_id.type.packed_width())(service.home.node_id)) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
+
   or_reduce(vec(matches))
 
 /* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
@@ -261,6 +271,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   def p = checked_fesvr_chi_requester(flit, node, home_map)
   unless physical_map.address_width == p.request_address_width
   | error(~who: #'FesvrCHIAccess, "physical map must use the CHI address width")
+
   interface requests(Decoupled(FesvrMemoryRequest()), ~role: consumer)
   interface responses(Decoupled(FesvrMemoryResponse()), ~role: producer)
   interface port(CHIRNChannels(p), ~role: node)
@@ -290,6 +301,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
     def byte_address = incoming.address + Bits(64)(index)
     def attributes = physical_map.lookup(byte_address)
     (Bits(8)(index) >= incoming.length) ||| ((byte_address >= incoming.address) & attributes.mapped & (attributes.cacheable === first.cacheable) & mux(incoming.write, attributes.writable, attributes.readable))
+
   def legal_bytes = and_reduce(vec(byte_checks))
   def exact_size = mux_lookup(incoming.length, ~default: Bits(3)(0), [[2, Bits(3)(1)], [4, Bits(3)(2)], [8, Bits(3)(3)]])
   def aligned = (incoming.address[0..3] & (incoming.length - Bits(8)(1))[0..3]) === Bits(3)(0)
@@ -313,6 +325,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
     def supported = (remaining >= Bits(4)(bytes)) & candidate_aligned & current_home.valid & fesvr_service_support(services, address, candidate_last, current_home.node_id, write, cacheable, Bits(3)(size))
     next_size := mux(supported, Bits(3)(size), next_size)
     fragment_supported := fragment_supported ||| supported
+
   def request_pending = state === FesvrCHIState.Request
   port.requests.valid <== request_pending & fragment_supported
   port.requests.bits <== fesvr_chi_request(p, address, write, next_size, cacheable, device, node.node_id, current_home.node_id)
@@ -376,6 +389,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   elsewhen completed:
     when read_pending:
       result <== result ||| ((read_value & read_mask) << data_shift)
+
     address <== address + transfer_bytes.zext(p.request_address_width)
     offset <== offset + transfer_bytes
     remaining <== remaining - transfer_bytes
@@ -401,6 +415,7 @@ sync_circuit FesvrRequester(xlen :: XLen,
     address: raw.request_address
     data: raw.request_data
     length: raw.request_length
+
   inject_interface(Decoupled(FesvrMemoryRequest()), ~valid: raw.request_valid, ~bits: command, ~ready: raw.request_ready) |> access.requests
   raw.response_valid <== access.responses.valid
   raw.response_data <== access.responses.bits.data

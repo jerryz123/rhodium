@@ -58,9 +58,11 @@ check:
   design.modules.map(fun (module_def): module_def.name) ~is [
     "BufferedLink", "Queue", "Counter", "Pipe"
   ]
+
   top.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in", "egress_in"
   ]
+
   top.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
   operations(top, "rtl.instance").length() ~is 2
   verify_design(design) ~is #void
@@ -69,9 +71,11 @@ check:
   valid_pipe_design.modules.map(fun (module_def): module_def.name) ~is [
     "ValidDelay", "ValidPipe"
   ]
+
   valid_pipe_top.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "ingress_in"
   ]
+
   valid_pipe_top.outputs.map(fun (port): port.name) ~is ["egress_out"]
   operations(valid_pipe_top, "rtl.instance").length() ~is 1
   verify_design(valid_pipe_design) ~is #void
@@ -79,32 +83,39 @@ check:
   ctrl_design.modules.map(fun (module_def): module_def.name) ~is [
     "CtrlBufferedLink", "CtrlQueue", "CtrlPipe"
   ]
+
   ctrl_top.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
   ctrl_top.find_output("egress_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid"]
+
   verify_design(ctrl_design) ~is #void
   ctrl_pipe_to_queue_compiled.has_errors ~is #false
   fixed_arbiter_compiled.has_errors ~is #false
   grant_crossbar_chain_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["GrantCrossbarChain", "GrantCrossbar", "GrantDemux", "GrantMerge"]
+
   verify_design(grant_crossbar_chain_design) ~is #void
 
   map_flow_design.modules.map(fun (module_def): module_def.name) ~is [
     "MapFlowExample"
   ]
+
   map_flow_top.inputs.map(fun (port): port.name) ~is [
     "ingress_in", "tag", "egress_in"
   ]
+
   map_flow_top.outputs.map(fun (port): port.name) ~is [
     "ingress_out", "egress_out"
   ]
+
   operations(map_flow_top, "rtl.instance").length() ~is 0
   verify_design(map_flow_design) ~is #void
   refined_map_flow_design.modules.map(fun (module_def): module_def.name) ~is [
     "RefinedMapFlowChain"
   ]
+
   verify_design(refined_map_flow_design) ~is #void
   stable_demux_flow_compiled.has_errors ~is #false
   elaborate(fixture.UnstableMapFlowToIrrevocable()) ~throws "provider interface does not support the peer interface contract"
@@ -113,17 +124,21 @@ check:
   filter_flow_design.modules.map(fun (module_def): module_def.name) ~is [
     "FilterFlowExample"
   ]
+
   gate_flow_design.modules.map(fun (module_def): module_def.name) ~is [
     "GateFlowExample"
   ]
+
   operations(filter_flow_top, "rtl.instance").length() ~is 0
   operations(gate_flow_top, "rtl.instance").length() ~is 0
   filter_flow_top.find_output("egress_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid", "bits"]
+
   gate_flow_top.find_output("egress_out").type.fields.map(
     fun (field): field.name
   ) ~is ["valid", "bits"]
+
   verify_design(filter_flow_design) ~is #void
   verify_design(gate_flow_design) ~is #void
 

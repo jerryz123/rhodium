@@ -27,6 +27,7 @@ bundle CHIInclusiveDirectoryCommit(sets :: Pow2Int, ways :: PosInt, line_width :
 sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :: PosInt, residents :: PosInt, slots :: PosInt):
   unless sets >= 2
   | error(~who: #'CHIInclusiveDirectory, "directory requires at least two sets")
+
   def Entry = CHIInclusiveDirectoryEntry(line_width, residents)
   def set_width = alignment_bits(sets)
   def slot_width = index_width(slots)
@@ -70,6 +71,7 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   def storage_set = priority_mux(~default: selected.set):
     sweep: sweep_set
     read: lookup_set
+
   inst storage(SyncRam1RW(sets, Entry, ways))
   storage.port.request.valid <== sweep ||| read ||| write
   storage.port.request.bits <== ReadWriteRequest(set_width, Entry, ways):
@@ -77,6 +79,7 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
     write: sweep ||| write
     data: vec(for List (_way in 0..ways): mux(sweep, zero_entry, selected.entry))
     mask: mux(sweep, !Mask(ways)(0), write_mask)
+
   initialized <== ready
   lookup_accepted <== read
   commit_accepted <== vec(for List (slot in 0..slots): write & choice.grant[slot]).into(Mask(slots))
@@ -90,6 +93,7 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   when sweep:
     swept <== sweep_set === Bits(set_width)(sets - 1)
     sweep_set <== mux(sweep_set === Bits(set_width)(sets - 1), sweep_set, sweep_set + Bits(set_width)(1))
+
   when write:
     commit_priority <== mux(choice.index === Bits(slot_width)(slots - 1), Bits(slot_width)(0), choice.index + Bits(slot_width)(1))
     prefer_commit <== Bool(#false)

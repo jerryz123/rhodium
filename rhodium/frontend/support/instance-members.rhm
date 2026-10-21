@@ -30,6 +30,7 @@ fun resolved_member(value :: HardwareEntity || Array, name :: String):
   for (resolver in member_resolvers):
     unless resolved
     | resolved := resolver(value, name)
+
   resolved
 
 /* Resolves physical ports first, then detached declarations and concrete-module virtual members, rejecting unknown names. */
@@ -37,12 +38,14 @@ fun instance_member(instance :: Instance, name :: String):
   def input_binding = instance.input_bindings.find(
     fun (candidate): candidate.name == name
   )
+
   if input_binding
   | input_binding.place
   | block:
       def output_binding = instance.output_bindings.find(
         fun (candidate): candidate.name == name
       )
+
       if output_binding
       | output_binding.value
       | block:
@@ -53,6 +56,7 @@ fun instance_member(instance :: Instance, name :: String):
                                 instance.operation.attribute("name"),
                                 " has no port or interface named ",
                                 name))
+
           resolved
 
 /* Selects an instance member or virtual member before falling back to ordinary hardware field projection. */
@@ -86,6 +90,7 @@ fun instance_member_index(value :: HardwareEntity || Array,
   | block:
       unless index is_a Nat
       | error(~who: #'inst, "interface array index must be a host natural number")
+
       value[index]
   | hardware_index(value, index)
 
@@ -116,6 +121,7 @@ dot.macro 'instance_member_dot $left $dot $right':
         | 'current': #false
         | 'next': #false
         | ~else: 'hardware_member($left, $(right.to_source_string())) :: InstanceMembers'
+
       if expansion
       | values(expansion, '$tail ...')
       | #false

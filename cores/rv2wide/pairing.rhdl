@@ -46,6 +46,7 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
       def selected = if source == 0 | mux(auipc_addi, RV2WidePairRoute.AuipcAddi, route) | route
       mux(producer & dependency[source], selected, RV2WidePairRoute.Register)
   )
+
   RV2WidePairing():
     routes: routes
     unresolved: vec(for List (source in 0..2): dependency[source] & (routes[source] === RV2WidePairRoute.Register))

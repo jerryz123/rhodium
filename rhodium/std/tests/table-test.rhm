@@ -16,6 +16,7 @@ def table_cast = module_def.operations.find(
   fun (operation):
     operation.opcode == "rtl.cast" && vector_type(operation.results[0].type)
 )
+
 def table_constant = module_def.find_operation(table_cast.operands[0].defining_op_id)
 def dynamic_index = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.vector_index"
@@ -25,6 +26,7 @@ fun packed_bytes(items):
   def mutable packed = 0
   for (value in items, index in 0..items.length()):
     packed := packed + (value << (index * 8))
+
   packed
 
 check:

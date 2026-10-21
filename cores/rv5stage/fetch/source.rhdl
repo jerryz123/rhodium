@@ -28,6 +28,7 @@ sync_circuit RV5StageFetchCursor(xlen :: XLen):
   when (update.valid):
     occupied <== Bool(#true)
     payload <== update.bits
+
   describe_interface_retained_storage(update.valid, occupied & update.valid, occupied)
   describe_interface_contract(update, stored, "cursor", ~trace_model: interface_trace_retained())
 
@@ -93,8 +94,10 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
       RasUpdate(xlen):
         action: update.ras_action
         return_address: update.return_address
+
     predicted_action: update.predicted_ras_action
   ) |> ras.resolve
+
   ras_speculate |> ras.speculate
   ras_restore |> ras.restore
   ras_head_valid <== ras.head_valid
@@ -124,6 +127,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     continuation: Bool(#false)
     continuation_target: pc
     prediction: literal(BranchPrediction(xlen), 0)
+
   def Array(restart_offer, restart_update) = restart_candidates |> fork_valid(2)
   def Array(replay_offer, replay_update) = (replay |> map_valid(attempt => attempt.updated(~prediction: literal(BranchPrediction(xlen), 0)))) |> fork_valid(2)
   def Array(prediction_source, lookup_source) = s1.egress |> fork_valid(2)
@@ -132,6 +136,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     continuation: predicted_straddle
     continuation_target: prediction.target
     prediction: literal(BranchPrediction(xlen), 0)
+
   def Array(next_offer, next_update) = next_candidates |> fork_valid(2)
   def seed = inject_interface(Valid(RV5StageFetchAttempt(xlen)), ~valid: Bool(#true), ~bits: literal(RV5StageFetchAttempt(xlen), 0))
   def saved = Array(cursor.stored, seed) |> valid_arbiter()
@@ -149,6 +154,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   // Acceptance alone advances S1; an unaccepted offer owns no pipeline slot.
   def accepted = offer.egress |> trace_event("frontend/s0.request", ~fields: attempt):
     pc: attempt.pc
+
   // A transferred restart replaces the old S1 occurrence at this edge.
   // Otherwise command clears S1 and the cursor retains the restart for retry.
   def Array(requests, contexts, advanced) = accepted |> atomic_fork(3)
@@ -168,6 +174,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     replay_update |> filter_valid(_attempt => !command),
     next_update |> filter_valid(_attempt => !command)
   ) |> valid_arbiter() |> cursor.update
+
   when command:
     running <== redirecting
 

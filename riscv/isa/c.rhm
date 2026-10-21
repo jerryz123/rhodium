@@ -31,20 +31,26 @@ fun validate_compressed_extensions(extensions :: List.of(CompressedExtension)):
   for (extension in extensions):
     when extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
     | error(~who: #'compressed_extensions, "duplicate compressed extension")
+
   def has_zca = extensions.contains(CompressedExtension.C) || extensions.contains(CompressedExtension.Zca)
   when extensions.contains(CompressedExtension.C) && (
     extensions.contains(CompressedExtension.Zca) || extensions.contains(CompressedExtension.Zcf) || extensions.contains(CompressedExtension.Zcd)
   )
   | error(~who: #'compressed_extensions,
           "C already supplies its applicable Zca, Zcf, and Zcd subsets")
+
   when extensions.contains(CompressedExtension.Zcb) && !has_zca
   | error(~who: #'compressed_extensions, "Zcb requires Zca or C")
+
   when extensions.contains(CompressedExtension.Zcmop) && !has_zca
   | error(~who: #'compressed_extensions, "Zcmop requires Zca or C")
+
   when extensions.contains(CompressedExtension.Zcf) && !has_zca
   | error(~who: #'compressed_extensions, "Zcf requires Zca or C")
+
   when extensions.contains(CompressedExtension.Zcd) && !has_zca
   | error(~who: #'compressed_extensions, "Zcd requires Zca or C")
+
   extensions
 
 /* Validates variadic selections and returns them in canonical compressed-extension order. */
@@ -59,6 +65,7 @@ fun compressed_extensions(extension :: CompressedExtension, ...):
                      CompressedExtension.Zcd]):
     when supplied.contains(candidate)
     | normalized := normalized ++ [candidate]
+
   normalized
 
 /* Validates the selection and reports whether any compressed extension is present. */
@@ -72,10 +79,13 @@ fun validate_compressed_configuration(xlen :: XLen,
   validate_compressed_extensions(extensions)
   when extensions.contains(CompressedExtension.Zcf) && xlen != XLen.X32
   | error(~who: #'compressed_extensions_instructions, "Zcf is available only for RV32")
+
   when extensions.contains(CompressedExtension.Zcf) && !floating_point_supports_f(floating_point)
   | error(~who: #'compressed_extensions_instructions, "Zcf requires F")
+
   when extensions.contains(CompressedExtension.Zcd) && !floating_point_supports_d(floating_point)
   | error(~who: #'compressed_extensions_instructions, "Zcd requires D")
+
   extensions
 
 /* Reports MISA.C only when the selected subsets supply the full C contract for this XLEN and floating-point profile. */
@@ -125,22 +135,28 @@ fun compressed_extensions_instructions(
   unless extensions.length() != 0
   | error(~who: #'compressed_extensions_instructions,
           "no compressed extensions were selected")
+
   def c_selected = extensions.contains(CompressedExtension.C)
   def mutable instructions = if c_selected | c_instructions(xlen, floating_point) | zca_instructions(xlen)
   when extensions.contains(CompressedExtension.Zcf) && !c_selected
   | instructions := instructions ++ RV32ZcfInstructions
+
   when extensions.contains(CompressedExtension.Zcd) && !c_selected
   | instructions := instructions ++ (
       if xlen == XLen.X32 | RV32ZcdInstructions | RV64ZcdInstructions
     )
+
   when extensions.contains(CompressedExtension.Zcb)
   | instructions := instructions ++ zcb_instructions(xlen, supported_instruction_names)
+
   when extensions.contains(CompressedExtension.Zcmop)
   | instructions := instructions ++ ZcmopInstructions
+
   for (instruction in instructions):
     unless supported_instruction_names.contains(instruction.expansion.target.name)
     | error(~who: #'compressed_extensions_instructions,
             "the downstream decoder does not support " ++ instruction.expansion.target.name)
+
   instructions
 
 export:

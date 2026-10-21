@@ -45,6 +45,7 @@ fun local_taps(taps :: Map):
     def value = kernel.read(taps[name])
     unless value.module_def === owner
     | error(~who: #'describe_cosim_hart, "observation taps must be local values")
+
     values(name, value)
 
 /* Attach a component's semantic taps without ports, state, or foreign calls. */

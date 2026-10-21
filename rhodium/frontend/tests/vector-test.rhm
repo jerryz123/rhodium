@@ -18,18 +18,23 @@ def module_def = fixture_design.modules[0]
 def vector_creates = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.vector_create"
 )
+
 def vector_gets = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.vector_get"
 )
+
 def lookups = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
 )
+
 def dynamic_indices = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.vector_index"
 )
+
 def casts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )
+
 def carry_module = fixture_carry_design.modules[0]
 def map_module = fixture_map_design.modules[0]
 
@@ -52,6 +57,7 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).length() ~is 1
+
   verify_design(fixture_design) ~is #void
   carry_module.find_input("carries").type.length ~is 5
   carry_module.find_input("carries").type.element_type.describe() ~is "bool"
@@ -60,9 +66,11 @@ check:
   map_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_get"
   ).length() ~is 3
+
   map_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_create"
   ).length() ~is 1
+
   map_module.find_output("occupied").type.element_type.describe() ~is "bool"
   verify_design(fixture_map_design) ~is #void
   elaborate(invalid.OutOfBoundsVector()) ~throws "0 <= index < vector length"

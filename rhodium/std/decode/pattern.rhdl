@@ -27,9 +27,11 @@ fun require_literal(value :: HardwareLiteral, role :: String):
   def width = value.literal_width()
   unless width is_a PosInt
   | error(~who: #'Pattern, role ++ " must have a positive packed width")
+
   def packed = value.packed_value()
   unless packed is_a Nat && bits.length(packed) <= width
   | error(~who: #'Pattern, role ++ " packed value does not fit its literal type")
+
   value
 
 /* Requires exact literal hardware types and packed widths, attributing failures to the supplied role. */
@@ -168,7 +170,9 @@ fun subtract_term_cover(term :: Pattern, cover :: List):
     def mutable next = []
     for (candidate in residual):
       next := next ++ subtract_pattern(candidate, covered)
+
     residual := next
+
   residual
 
 /* Produces a deterministic, pairwise-disjoint cover without trying to
@@ -178,10 +182,12 @@ fun normalize_pattern_terms(type :: DataType, supplied_terms :: List):
     unless term is_a Pattern && pattern_type_equal(term.type, type)
     | error(~who: #'PatternSet,
             "terms must have exactly the PatternSet hardware type")
+
   def sorted = supplied_terms.sort(pattern_order)
   def mutable terms = []
   for (term in sorted):
     terms := terms ++ subtract_term_cover(term, terms)
+
   terms.sort(pattern_order)
 
 /* PatternSet denotes a finite union of typed Pattern cubes. Its normalized
@@ -193,6 +199,7 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
     unless width is_a PosInt
     | error(~who: #'PatternSet,
             "type must have a positive packed width")
+
     def terms = normalize_pattern_terms(type, supplied_terms)
     super(type, width, terms)
 
@@ -206,6 +213,7 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
     unless pattern_type_equal(type, literal.literal_type()) && width == literal.literal_width()
     | error(~who: #'PatternSet,
             "candidate must have exactly the PatternSet hardware type and width")
+
     for any (term in terms): term.matches(literal)
 
   /* Checks whether any cube pair admits a common value, requiring exact set types. */
@@ -239,6 +247,7 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
         if overlap
         | intersections := intersections ++ [overlap]
         | #void
+
     PatternSet(type, intersections)
 
   /* Subtracts the other cover from every local cube and normalizes the residual set. */
@@ -248,6 +257,7 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
     def mutable residual = []
     for (term in terms):
       residual := residual ++ subtract_term_cover(term, right.terms)
+
     PatternSet(type, residual)
 
   /* Subtracts this cover from a zero-care cube spanning the full typed packed domain. */
@@ -279,9 +289,11 @@ fun pattern_set(first_pattern :: Pattern || HardwareLiteral || List.of(Pattern |
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
+
   unless patterns.length() >= 1
   | error(~who: #'pattern_set,
           "pattern_set requires at least one Pattern-like value")
+
   def terms = patterns.map(as_pattern)
   PatternSet(terms[0].type, terms)
 
@@ -362,8 +374,10 @@ fun normalize_pattern_component(component :: _PatternWildcard || Pattern || Hard
     | ~else:
         error(~who: #'pattern,
               role ++ " must be a hardware literal, Pattern, or _")
+
   unless pattern_type_equal(cube.type, expected_type)
   | error(~who: #'pattern, role ++ " has the wrong hardware type")
+
   cube
 
 /* Validates named fields and combines their value/care cubes in record order; partial records wildcard omitted fields. */
@@ -373,20 +387,25 @@ fun build_record_pattern(type :: RecordType,
   for (field in fields):
     unless field is_a List && field.length() == 2 && field[0] is_a String
     | error(~who: #'pattern, "record pattern fields must be [name, value] pairs")
+
     unless type.fields.find(fun (declared :: RecordField): declared.name == field[0])
     | error(~who: #'pattern,
             "record pattern has no field named " ++ field[0])
+
     def matching_fields = fields.filter(
       ~keep: fun (candidate :: List): candidate[0] == field[0]
     )
+
     unless matching_fields.length() == 1
     | error(~who: #'pattern,
             "record pattern must not repeat field " ++ field[0])
+
   def cubes = for List (declared in type.fields):
     block:
       def matching = fields.filter(
         ~keep: fun (field :: List): field.length() == 2 && field[0] == declared.name
       )
+
       if matching.length() == 1
       | normalize_pattern_component(
           matching[0][1],
@@ -397,10 +416,13 @@ fun build_record_pattern(type :: RecordType,
         | wildcard_pattern(declared.type)
         | error(~who: #'pattern,
                 "record pattern must supply every field exactly once")
+
   def value_fields = for List (declared in type.fields, cube in cubes):
     [declared.name, literal(declared.type, cube.value_bits)]
+
   def care_fields = for List (declared in type.fields, cube in cubes):
     [declared.name, literal(declared.type, cube.care_bits)]
+
   Pattern(
     ~value: RecordLiteral(type, value_fields),
     ~care: RecordLiteral(type, care_fields)
@@ -411,16 +433,20 @@ fun build_vector_pattern(type :: VectorType, elements :: List):
   unless elements.length() == type.length
   | error(~who: #'pattern,
           "vector pattern element count must equal vector length")
+
   def cubes = for List (element in elements, index in 0..elements.length()):
     normalize_pattern_component(
       element,
       type.element_type,
       "vector pattern element " ++ to_string(index)
     )
+
   def value_elements = for List (cube in cubes):
     literal(type.element_type, cube.value_bits)
+
   def care_elements = for List (cube in cubes):
     literal(type.element_type, cube.care_bits)
+
   Pattern(
     ~value: VectorLiteral(type, value_elements),
     ~care: VectorLiteral(type, care_elements)

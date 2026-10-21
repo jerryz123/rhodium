@@ -20,6 +20,7 @@ sync_circuit EventDemuxNetwork(buffered :: Boolean):
     branches[1] |> queue(3, ~flow: #true, ~pipe: #true) |> egress[1]
     branches[2] |> queue(2) |> pipe(2) |> egress[2]
   | for (index in 0..3): branches[index] |> egress[index]
+
   route_valid <== incoming.valid
   route_ready <== incoming.ready
 
@@ -34,10 +35,12 @@ sync_circuit EventDemuxLane(buffered :: Boolean, traced :: Boolean):
   if traced
   | ingress |> trace_event("accepted", ~payload: #true) |> network.ingress
   | ingress |> network.ingress
+
   for (index in 0..3):
     if traced
     | network.egress[index] |> trace_event("branch" ++ to_string(index), ~payload: #true) |> egress[index]
     | network.egress[index] |> egress[index]
+
   route_valid <== network.route_valid
   route_ready <== network.route_ready
 
@@ -80,6 +83,7 @@ sync_circuit EventDemux():
     gold1.egress[index] |> gold_sinks[3 + index]
     lane2.egress[index] |> sinks[6 + index]
     gold2.egress[index] |> gold_sinks[6 + index]
+
   route_valid0 <== lane0.route_valid
   route_ready0 <== lane0.route_ready
   route_valid1 <== lane1.route_valid
@@ -113,10 +117,12 @@ sync_circuit EventSingletonDemux():
   interface sink(Decoupled(Bits(8)), ~role: producer)
   def branches = source |> trace_event("root", ~payload: #true) |> demux_flow(1, payload => selector)
   branches[0] |> trace_event("completed", ~payload: #true) |> sink
+
 sync_circuit EventBadRoutingShape():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[2](Decoupled(Bits(8)), ~role: producer)
   describe_interface_transform(InterfaceHandle(source, sinks), "routing", ~trace_model: interface_trace_routing([Bool(#true)]))
+
 sync_circuit EventBadRoutingRoutes():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[2](Decoupled(Bits(8)), ~role: producer)

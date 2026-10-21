@@ -15,12 +15,15 @@ def module_def = fixture_reduction_design.modules[0]
 def equalities = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.eq"
 )
+
 def negations = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.not"
 )
+
 def constants = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.constant"
 )
+
 def concatenations = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.concat"
 )
@@ -43,4 +46,5 @@ check:
   constants.map(fun (operation): operation.attribute("value")) ~is [0, 0, 255, 15, 0, 15, 0, 1]
   (for all (negation in negations):
      bool.bool_type(negation.results[0].type)) ~is #true
+
   verify_design(fixture_reduction_design) ~is #void

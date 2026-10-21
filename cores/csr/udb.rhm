@@ -33,10 +33,12 @@ fun riscv_csr_udb_parameters(config :: RiscvCsrConfig) :: NonemptyList.of(UdbPar
     natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if vector_profile_enabled(config.vector) | [0, 1, 2, 3] | [0]),
     natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(config.floating_point) | [0, 1, 2, 3] | [0])
   ]
+
   def hpm:
     if config.sscofpmf
     | [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
     | []
+
   base ++ hpm ++ (if config.smstateen | [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")] | [])
 
 export riscv_csr_udb_parameters

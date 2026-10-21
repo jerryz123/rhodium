@@ -56,6 +56,7 @@ def impostor_decoupled = InterfaceType(
   ],
   ~provider_role: "producer"
 )
+
 def remapped_stable_protocol = ready_valid_support.flow_protocol_with_payload(
   fixture.StableBuffered8(),
   Bits(16)
@@ -107,6 +108,7 @@ check:
   remapped_stable_protocol.members.find(
     fun (member): member.name == "bits"
   ).type.width ~is 16
+
   ready_valid_support.flow_protocol_type(impostor_decoupled) ~throws "requires a Decoupled or Irrevocable protocol"
   (impostor_decoupled :: ready_valid_support.FlowSource.to_ready_valid_protocol) ~throws "requires a Decoupled or Irrevocable protocol"
   valid_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
@@ -128,14 +130,17 @@ check:
   decoupled_fire.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 1
+
   irrevocable_fire.find_output("transferred").type === bool.Bool ~is #true
   irrevocable_fire.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 1
+
   nested_fire.find_output("transferred").type === bool.Bool ~is #true
   nested_fire.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 1
+
   verify_design(valid_design) ~is #void
   verify_design(pulse_design) ~is #void
   verify_design(valid_to_pulse_design) ~is #void

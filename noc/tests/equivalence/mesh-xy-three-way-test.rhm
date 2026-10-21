@@ -120,12 +120,15 @@ def syntax_spec = topology:
   bidirectional (a_east, c_west):
     a <-> c
     vcs [adaptive, escape]
+
   bidirectional (a_north, b_south):
     a <-> b
     vcs [adaptive, escape]
+
   bidirectional (b_east, d_west):
     b <-> d
     vcs [adaptive, escape]
+
   bidirectional (c_north, d_south):
     c <-> d
     vcs [adaptive, escape]
@@ -165,9 +168,11 @@ def syntax_xy = custom_policy(
       context.candidate_link()
     ) == required_direction(current, destination)
 )
+
 def syntax_policy = routing:
   rule xy:
     use syntax_xy
+
 def syntax_problem = RoutingProblem(
   syntax_topology.topology,
   syntax_routes.route_classes,

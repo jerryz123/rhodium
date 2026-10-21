@@ -63,8 +63,10 @@ block:
                             [],
                             [],
                             {"label": 42})
+
   for (operand in operation.operands):
     operand.add_user(operation_id)
+
   module_def.add_operation(operation)
   builder.finish(module_def)
   check:

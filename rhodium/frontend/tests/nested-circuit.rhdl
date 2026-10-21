@@ -48,6 +48,7 @@ sync_circuit SyncParent(width):
     reg state(~init: Bits(width)(0))
     when (enable):
       state <== state + Bits(width)(1)
+
     value <== state
 
   inst child(SyncChild())

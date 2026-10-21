@@ -31,6 +31,7 @@ def composed_sink_compiled = compile_program(elaborate(fixture.ComposedInterface
 def hierarchy_module = hierarchy_design.modules.find(
   fun (module_def): module_def.name.starts_with("InterfaceArrayHierarchy")
 )
+
 def hierarchy_instance = hierarchy_module.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
@@ -40,29 +41,36 @@ check:
     "ingress_0_in", "ingress_1_in", "ingress_2_in",
     "egress_0_in", "egress_1_in", "egress_2_in"
   ]
+
   array_module.outputs.map(fun (port): port.name) ~is [
     "ingress_0_out", "ingress_1_out", "ingress_2_out",
     "egress_0_out", "egress_1_out", "egress_2_out"
   ]
+
   array_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 6
+
   hierarchy_instance.places.length() ~is 6
   hierarchy_instance.results.length() ~is 6
   hierarchy_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 12
+
   verify_design(array_design) ~is #void
   indexed_compiled.has_errors ~is #false
   parenthesized_module.inputs.map(fun (port): port.name) ~is [
     "ingress0_in", "ingress1_in", "egress_0_in", "egress_1_in"
   ]
+
   parenthesized_module.outputs.map(fun (port): port.name) ~is [
     "ingress0_out", "ingress1_out", "egress_0_out", "egress_1_out"
   ]
+
   parenthesized_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.drive"
   ).length() ~is 4
+
   verify_design(parenthesized_design) ~is #void
   verify_design(hierarchy_design) ~is #void
   verify_design(handle_design) ~is #void
@@ -71,6 +79,7 @@ check:
   topology_methods_design.modules[0].operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 1
+
   parallel_handle_compiled.has_errors ~is #false
   parallel_sink_compiled.has_errors ~is #false
   composed_sink_compiled.has_errors ~is #false
@@ -80,12 +89,15 @@ check:
   handle_design.modules[0].operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.instance"
   ).length() ~is 0
+
   handle_ends_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.wire"
   ).length() ~is 1
+
   handle_ends_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.instance"
   ).length() ~is 0
+
   type_once_design.modules[0].inputs.length() ~is 6
   elaborate(fixture.ParenthesizedInterfaceArrayLengthMismatch()) ~throws "must have the same length"
   elaborate(fixture.ParenthesizedInterfaceArrayNamedMember()) ~throws "cannot use named refinement members"

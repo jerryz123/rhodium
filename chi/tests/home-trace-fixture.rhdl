@@ -18,17 +18,20 @@ sync_circuit EventHome():
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
     src_id(~format: "unsigned"): flit.src_id
+
   request_event |> home.port.requester.requests
   def response_event = home.port.requester.responses |> trace_event("response", ~fields: flit):
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
     tgt_id(~format: "unsigned"): flit.tgt_id
+
   response_event |> port.requester.responses
   def data_event = home.port.requester.response_data |> trace_event("data", ~fields: flit):
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
     tgt_id(~format: "unsigned"): flit.tgt_id
     data_id(~format: "unsigned"): flit.data_id
+
   data_event |> port.requester.response_data
   port.requester.requester_responses |> home.port.requester.requester_responses
   port.requester.request_data |> home.port.requester.request_data
@@ -37,10 +40,12 @@ sync_circuit EventHome():
     address: flit.address
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
+
   backing_requests |> port.subordinate.req
   def backing_data = home.port.subordinate.dat.request |> trace_event("backing-data", ~fields: flit):
     txn_id(~format: "unsigned"): flit.txn_id
     data_id(~format: "unsigned"): flit.data_id
+
   backing_data |> port.subordinate.dat.request
   port.subordinate.rsp |> home.port.subordinate.rsp
   port.subordinate.dat.response |> home.port.subordinate.dat.response

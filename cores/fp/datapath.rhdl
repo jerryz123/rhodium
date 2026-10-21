@@ -277,6 +277,7 @@ circuit FpFormatDatapath(
       [FloatUnit.RoundToIntegral, riscv_canonicalize_nan(format, zfa.rounded.to_ieee())]
     ]
   )
+
   def integer_value = mux_lookup(
     control.unit,
     ~default: Bits(width)(0),
@@ -288,6 +289,7 @@ circuit FpFormatDatapath(
       [FloatUnit.Classify, class_value]
     ]
   )
+
   def exception_flags = mux_lookup(
     control.unit,
     ~default: Bits(5)(0),
@@ -303,6 +305,7 @@ circuit FpFormatDatapath(
       [FloatUnit.IntegerModulo, zfa.modulo_exception_flags]
     ]
   )
+
   def exception_flags_valid = control.unit.is_one_of(
     FloatUnit.FusedMultiplyAdd,
     FloatUnit.Add,
@@ -406,6 +409,7 @@ circuit FpFixedD(xlen :: XLen,
     ~right: mux(request.right_precision === FloatPrecision.Single, widen_right.widened, request.right),
     ~third: mux(request.third_precision === FloatPrecision.Single, widen_third.widened, request.third)
   )
+
   single.request <== request
   double.request <== mux(widening_arithmetic, widened_request, request)
 
@@ -481,6 +485,7 @@ circuit FpFixedFHalf(xlen :: XLen,
     ~right: mux(request.right_precision === FloatPrecision.Half, widen_right.widened, request.right),
     ~third: mux(request.third_precision === FloatPrecision.Half, widen_third.widened, request.third)
   )
+
   single.request <== mux(widening_arithmetic, widened_request, request)
 
 
@@ -557,6 +562,7 @@ circuit FpFixedDHalf(xlen :: XLen,
     ~right: mux(request.right_precision === FloatPrecision.Half, widen_right.widened, request.right),
     ~third: mux(request.third_precision === FloatPrecision.Half, widen_third.widened, request.third)
   )
+
   base.request <== mux(widening_arithmetic, widened_request, request)
 
 

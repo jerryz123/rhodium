@@ -36,6 +36,7 @@ dpi_import function rhodium_chi_memory_access(
 sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
   unless model_id < (1 << 32) && config.size_bytes < (1 << 64)
   | error(~who: #'CHIDPIMemory, "model identity and capacity must fit the DPI ABI")
+
   def p = config.flit
   def slot_width = index_width(config.max_outstanding)
 
@@ -77,6 +78,7 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
       def completed_operation :: Endpoint = issue |> valid_pipe(1)
       when (completed_operation.valid):
         assert(status === Bits(8)(0), "chi_dpi_memory_access_succeeded")
+
       (
         completed_operation |> map_valid(completed):
           CHIRamMemoryCompletion(p, slot_width):
@@ -85,6 +87,7 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
                       Bits(p.data_width)(0),
                       read_data[0..p.data_width])
       ) <=> completion
+
     connect
 
   build_chi_ram_controller(config, identity, port, backend)

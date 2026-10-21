@@ -45,6 +45,7 @@ fun flow_protocol_type(source_or_type :~ FlowSource):
   unless source_or_type is_a FlowSource
   | error(~who: #'flow_protocol_type,
           "flow stage requires a payload DataType, ready-valid InterfaceType, Endpoint, or Handle")
+
   def protocol:
     cond
     | source_or_type is_a Endpoint:
@@ -53,11 +54,13 @@ fun flow_protocol_type(source_or_type :~ FlowSource):
         unless source_or_type.right is_a Endpoint
         | error(~who: #'flow_protocol_type,
                 "ready-valid handle output must be one interface endpoint")
+
         source_or_type.right.type
     | source_or_type is_a InterfaceType:
         source_or_type
     | ~else:
         Decoupled(source_or_type)
+
   def normalized = decoupled_protocol_type(protocol)
   unless normalized
   | if source_or_type is_a Endpoint || source_or_type is_a Handle
@@ -65,6 +68,7 @@ fun flow_protocol_type(source_or_type :~ FlowSource):
             "flow-control chaining requires a Decoupled or Irrevocable endpoint")
     | error(~who: #'flow_protocol_type,
             "flow-control chaining requires a Decoupled or Irrevocable protocol")
+
   normalized
 
 /* Extracts the payload DataType after nominal ready-valid protocol validation. */
@@ -80,6 +84,7 @@ fun valid_flow_protocol_type(source_or_type :~ FlowSource):
   unless source_or_type is_a FlowSource
   | error(~who: #'valid_flow_protocol_type,
           "Valid stage requires a payload DataType, Valid InterfaceType, Endpoint, or Handle")
+
   def protocol:
     cond
     | source_or_type is_a Endpoint:
@@ -88,11 +93,13 @@ fun valid_flow_protocol_type(source_or_type :~ FlowSource):
         unless source_or_type.right is_a Endpoint
         | error(~who: #'valid_flow_protocol_type,
                 "Valid handle output must be one interface endpoint")
+
         source_or_type.right.type
     | source_or_type is_a InterfaceType:
         source_or_type
     | ~else:
         Valid(source_or_type)
+
   def normalized = valid_protocol_type(protocol)
   unless normalized
   | if source_or_type is_a Endpoint || source_or_type is_a Handle
@@ -100,6 +107,7 @@ fun valid_flow_protocol_type(source_or_type :~ FlowSource):
             "Valid-flow chaining requires a Valid endpoint")
     | error(~who: #'valid_flow_protocol_type,
             "Valid-flow chaining requires a Valid protocol")
+
   normalized
 
 /* Extracts the payload DataType after validating the nonbackpressured Valid
@@ -121,18 +129,21 @@ fun ctrl_flow_protocol_type(source_or_type :~ FlowSource):
         unless source_or_type.right is_a Endpoint
         | error(~who: #'ctrl_flow_protocol_type,
                 "control-flow handle output must be one interface endpoint")
+
         source_or_type.right.type
     | source_or_type is_a InterfaceType:
         source_or_type
     | ~else:
         error(~who: #'ctrl_flow_protocol_type,
               "control flow stage requires a DecoupledCtrl or IrrevocableCtrl InterfaceType, Endpoint, or Handle")
+
   def control_contract = DecoupledCtrl()
   unless interface_type_supports(protocol, control_contract) && (
     protocol.members.length() == control_contract.members.length()
   )
   | error(~who: #'ctrl_flow_protocol_type,
           "control-flow chaining requires a DecoupledCtrl or IrrevocableCtrl endpoint or protocol")
+
   protocol
 
 namespace FlowSource:
@@ -159,9 +170,11 @@ fun flow_protocol_with_payload(protocol :: InterfaceType,
   unless normalized
   | error(~who: #'flow_protocol_with_payload,
           "flow protocol must nominally support Decoupled or Irrevocable")
+
   def current_payload_type = normalized.members.find(
     fun (member :: InterfaceMember): member.name == "bits"
   ).type
+
   if interface_type_supports(normalized, Irrevocable(current_payload_type))
   | Irrevocable(payload_type)
   | Decoupled(payload_type)
@@ -171,6 +184,7 @@ export:
   FlowSourceArgument
   meta:
     flow_payload_static_infos
+
   flow_payload_body
   flow_protocol_type
   flow_payload_type

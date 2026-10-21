@@ -22,6 +22,7 @@ def relation = RoutingRelation(
     callback_count := callback_count + 1
     route_class === route0 && candidate_vc.index == 0
 )
+
 def problem = RoutingProblem(topology, [route1, route0], relation)
 def materialized = materialize_routing(problem)
 def decision_descriptions = materialized.decisions.map(
@@ -39,9 +40,11 @@ check:
   materialized.allowed_candidates(route0, Injection(n0)).map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc0"]
+
   materialized.allowed_candidates(route0, HeldVC(VCId(LinkId(0), 1))).map(
     fun (vc): vc.describe()
   ) ~is ["l1.vc0"]
+
   materialized.allowed(route0, Injection(n0), VCId(LinkId(0), 1)) ~is #false
   materialized.allowed_candidates(route0, HeldVC(VCId(LinkId(1), 0))) ~is []
   materialized.allowed_candidates(route1, Injection(n1)) ~is []

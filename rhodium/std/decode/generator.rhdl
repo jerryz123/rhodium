@@ -53,6 +53,7 @@ fun ValidDecodeGen(cases :: NonemptyList.of(DecodeCase)):
         valid: Bool(#true)
         value: case.output
     )
+
   DecodeGen(
     wrapped_cases,
     ~default: (pattern(result_type):

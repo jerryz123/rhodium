@@ -23,6 +23,7 @@ def expected = partial_pattern(RV5StageControl()):
       result_select: AluResultSelect.Adder
       subtract: Bool(#false)
       word: Bool(#false)
+
   operand:
     pattern(RV5StageOperandControl()):
       uses_rs1: Bool(#true)
@@ -30,12 +31,15 @@ def expected = partial_pattern(RV5StageControl()):
       left: OperandASelect.Register
       right: OperandBSelect.Immediate
       immediate: RV5StageImmediateSelect.None
+
   memory:
     partial_pattern(RV5StageMemoryControl()):
       access: CacheOperation.CacheBlockZero
+
   writeback:
     partial_pattern(RV5StageWritebackControl()):
       enable: Bool(#false)
+
   floating_point_valid: Bool(#false)
 
 for (source in 0..32):

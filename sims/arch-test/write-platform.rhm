@@ -12,9 +12,11 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2
 | error(~who: #'write_act_platform, "expected a shape-core-isa config key and output directory")
+
 def selection = named_soc_selection(arguments[0])
 unless selection.shape == SoCShape.Simple
 | error(~who: #'write_act_platform, "ACT currently supports the Simple SoC shape")
+
 def config = resolve_soc_config(selection)
 def platform = ActPlatform(config.description)
 def configuration = config_metadata(config)

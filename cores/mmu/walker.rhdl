@@ -66,6 +66,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     virtual_address: translation.virtual_address
     access(~format: "enum"): translation.access
     privilege(~format: "enum"): translation.context.privilege
+
   walking.ready <== (state === RiscvPageWalkState.Idle) & !cancel
   completion.valid <== (state === RiscvPageWalkState.Complete) & !cancel
   completion.bits <== result
@@ -105,6 +106,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   memory.request.bits <== RiscvPteRead():
     address: mux(operation.virtualized, memory_address, pte_address)
     pbmt: mux(operation.virtualized, memory_pbmt, PageMemoryType.PMA)
+
   def occupied = (state =/= RiscvPageWalkState.Idle) & (state =/= RiscvPageWalkState.Drain)
   describe_interface_retained_storage(request_fire & !cancel, occupied & (completion.fire() ||| cancel), occupied, ~name: "walk")
   describe_interface_contract(walking, Array(memory.request, completion), "walk-outputs", ~trace_model: interface_trace_retained(~name: "walk", ~outputs: 2))
@@ -118,6 +120,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def address_fault = priority_mux(~default: RiscvTranslationFault.GuestPageFault):
     bare_overflow: RiscvTranslationFault.AccessFault
     virtual_stage: RiscvTranslationFault.PageFault
+
   def checking_address = state === RiscvPageWalkState.CheckAddress
   def preparing_read = state === RiscvPageWalkState.PrepareRead
   def zero_leaf = Bits(64)(0).into(Sv39Pte())
@@ -140,6 +143,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
       guest_virtual_address: operation.virtualized
       guest_physical_address: mux(virtual_stage, Bits(64)(0), frame.address)
       access: mux(implicit_access, RiscvGuestFaultAccess.PageTableRead, RiscvGuestFaultAccess.Explicit)
+
     RiscvTlbMapping():
       virtual_address: operation.virtual_address
       access: operation.access
@@ -204,6 +208,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
       table_ppn: pte.ppn
       level: frame.level - Bits(2)(1)
       global_mapping: frame.global_mapping ||| (virtual_stage & pte.global_mapping)
+
     state <== mux(operation.virtualized, RiscvPageWalkState.PrepareRead, RiscvPageWalkState.Request)
   elsewhen (response_received & virtual_stage & !operation.virtualized):
     result <== outcome(RiscvTranslationFault.None, translated_address, zero_leaf)

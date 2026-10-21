@@ -16,6 +16,7 @@ import:
 def p = CHIFlitParams()
 def topology_plan = topology:
   node router
+
 def router = topology_plan.node("router")
 def source = authoring.CHIInjectionSite(3, InjectionRef("source"), router)
 def target = authoring.CHIEjectionSite(5, EjectionRef("target"), router)

@@ -37,28 +37,35 @@ defn.macro 'hardware_type $(name :: Identifier)($(parameter :: GeneratorParamete
     | 'implements $candidate':
         when implemented_type
         | syntax_meta.error("hardware_type accepts exactly one implements clause", item)
+
         implemented_type := candidate
     | 'width: $value':
         when width
         | syntax_meta.error("hardware_type accepts exactly one width clause", item)
+
         width := value
     | 'type_key: $value':
         equality_key := value
     | 'describe: $value':
         when description
         | syntax_meta.error("hardware_type accepts exactly one describe clause", item)
+
         description := value
     | ~else:
         syntax_meta.error(
           "expected implements, width, optional type_key, or describe",
           item
         )
+
   unless implemented_type
   | implemented_type := 'ScalarDataType'
+
   unless width
   | syntax_meta.error("hardware_type requires a width clause", name)
+
   unless description
   | syntax_meta.error("hardware_type requires a describe clause", name)
+
   '«
      /* Implements the declared scalar family with its parameter-dependent packed width and equality key. */
      class $hidden_type($parameter, ...):

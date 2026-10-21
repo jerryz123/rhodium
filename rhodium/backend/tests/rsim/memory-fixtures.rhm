@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_memory
 
 fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
@@ -37,6 +38,7 @@ fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
   b.memory_write(leaf, storage, addresses[1], b.mux_lookup(leaf, copy, data[1], [[1, read_values[0]]]), b.read(alias), enables[1])
   for (name in ["out0", "out1", "sample"], value in read_values ++ [sample.current]):
     b.drive(b.output(leaf, name, element_type), value)
+
   b.drive(b.output(leaf, "address", address_type), address_reg.current)
   // Storage-only declarations must register their types even without value steps.
   b.memory(leaf, "unused", 2, RecordType([RecordField("metadata", VectorType(2, Bits(if width > 64 | width | 7)))]))
@@ -49,6 +51,7 @@ fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
   def tc = b.input(top, "clock", Clock)
   def controls = for Map (port in leaf.inputs.filter(~keep: fun (port): port.name != "clock" && !port.name.starts_with("enable") && !port.name.starts_with("data"))):
     values(port.name, b.input(top, port.name, port.type))
+
   def mask = b.input(top, "enables", Bits(4))
   def a = b.input(top, "a", Bits(width))
   def z = b.input(top, "b", Bits(width))
@@ -56,6 +59,7 @@ fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
     if aggregate
     | b.record_create(top, element_type, [["tag", b.extract(top, first, 4, 0)], ["lanes", b.vector_create(top, lanes, [first, second])]])
     | first
+
   def packets = [payload(a, z), payload(z, a)]
   for (side in 0..2):
     def child = b.instance(top, leaf, "side" ++ to_string(side))
@@ -64,6 +68,8 @@ fun make_memory(depth :: PosInt, aggregate :: Boolean, width :: PosInt = 64):
     for (port in 0..2):
       b.drive(child.input("enable" ++ to_string(port)), b.extract(top, mask, side * 2 + port, side * 2 + port))
       b.drive(child.input("data" ++ to_string(port)), packets[(side + port) mod 2])
+
     for (port in leaf.outputs): b.drive(b.output(top, "side" ++ to_string(side) ++ "_" ++ port.name, port.type), child.output(port.name))
+
   b.finish(top)
   DesignElaboration(design, top)

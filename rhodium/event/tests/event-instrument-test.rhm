@@ -53,6 +53,7 @@ for (intrinsic in [#true, #false]):
     retained.manifest.dependencies.length() ~is 1
     retained.manifest.dependencies[0].latency_cycles ~is #false
     verify_design(retained.instrumented.design) ~is #void
+
 fun retained_stage_count(plan):
   cond
   | plan is_a EventTracePipeline:
@@ -60,6 +61,7 @@ fun retained_stage_count(plan):
   | plan is_a EventTraceSelection:
       for values(count = 0) (input in plan.inputs): count + retained_stage_count(input)
   | ~else: 0
+
 for (region in ["region", "internal", "checkpoint", "disjoint"]):
   def logical = compile_program(retained_fixture.retained(~region: region), rtl_target).report.elaboration
   def original = emit_circt(logical.design)
@@ -73,6 +75,7 @@ for (region in ["region", "internal", "checkpoint", "disjoint"]):
     (for any (edge in edges): edge.transform_path.find(fun (path): path.ends_with(":map")) != #false) ~is #true
     (for values(count = 0) (site in traced.manifest.sites): count + retained_stage_count(traced.manifest.trace_plans[site.id])) ~is 1
     verify_design(traced.instrumented.design) ~is #void
+
 def linked_contracts = instrument_events(retained_fixture.contract_links())
 check:
   linked_contracts.manifest.dependencies.length() ~is 1
@@ -117,6 +120,7 @@ check:
   (for all (edge in flushed.manifest.dependencies): for all (stage in edge.trace_stages): stage.flush != #false) ~is #true
   pipeline_fixture.bad_flush("width") ~throws "trace flush must be local one-bit data"
   pipeline_fixture.bad_flush("foreign") ~throws "trace controls must belong to their owner"
+
 for (intrinsic in [#true, #false]):
   for (wrapped in [#true, #false]):
     def named = instrument_events(pipeline_fixture.named_contracts(intrinsic, wrapped))
@@ -126,6 +130,7 @@ for (intrinsic in [#true, #false]):
       edges.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
       edges.map(fun (edge): edge.trace_stages[0].instance_path) ~is [["EventNamedContracts", "storage"], ["EventNamedContracts", "storage"]]
       edges[0].trace_stages[0].advance === edges[1].trace_stages[0].advance ~is #false
+
 check:
   explicit_edges.manifest.dependencies.length() ~is 2
   explicit_edges.manifest.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
@@ -159,8 +164,10 @@ check:
 
 fun child(module_def :: Module, name :: String):
   module_def.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
+
 fun has_trace_ports(module_def :: Module):
   (module_def.inputs ++ module_def.outputs).find(fun (port): port.name.starts_with("__event_")) != #false
+
 def left_wrapper = child(result.instrumented.top, "left")
 def right_wrapper = child(result.instrumented.top, "right")
 def left_child = child(left_wrapper, "child")
@@ -356,6 +363,7 @@ def broadcast_rejoined = instrument_events(broadcast_fixture.rejoined())
 def broadcast_registers = broadcast_rejoined.instrumented.top.operations.filter(
   ~keep: fun (op): op.opcode == "rtl.register_reset" && op.attribute("name").starts_with("__event_parent_")
 )
+
 check:
   broadcasted.manifest.sites.length() ~is 12
   broadcasted.manifest.dependencies.length() ~is 9

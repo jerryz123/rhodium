@@ -51,6 +51,7 @@ class BootAddressParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+
   /* Derives the fabric-facing counterpart of the register node. */
   property icn_port: node.icn_peer()
   /* Maps the service page; only the first eight bytes are implemented registers. */
@@ -61,10 +62,13 @@ class BootAddressParams(name :: NonemptyString,
   constructor (name :: NonemptyString, node_id :: Nat, config :: BootAddressConfig, base_address :: Nat):
     unless base_address mod BootAddressWindowBytes == 0
     | error(~who: #'BootAddressParams, "base address must be aligned to the boot-address window")
+
     unless bits.length((base_address + BootAddressWindowBytes) - 1) <= config.flit.request_address_width
     | error(~who: #'BootAddressParams, "boot-address window must fit in the CHI request address width")
+
     unless bits.length(node_id) <= config.flit.node_id_width
     | error(~who: #'BootAddressParams, "NodeID must fit in the physical NodeID width")
+
     super(name, node_id, config, base_address)
 
 /* Carries the occurrence's NodeID and service base into the register circuit. */

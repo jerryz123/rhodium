@@ -79,6 +79,7 @@ circuit AddRawFN(format :: FloatFormat):
     if (significand_width mod 2) == 1
     | close_sum.zext(significand_width + 3) << 1
     | close_sum
+
   def close_groups = close_adjusted_sum.as_vec(Bits(2))
   def close_reduced_groups = close_groups.map(fun (group): group =/= Bits(2)(0))
   def close_reduced_sum = close_reduced_groups.as_bits()
@@ -87,6 +88,7 @@ circuit AddRawFN(format :: FloatFormat):
     if close_normalization_reduced.type.packed_width() == align_distance_width
     | close_normalization_reduced << 1
     | close_normalization_reduced.zext(align_distance_width) << 1
+
   def close_significand = (
     close_sum.zext(significand_width + 3) << close_normalization_distance
   ) << 1
@@ -108,6 +110,7 @@ circuit AddRawFN(format :: FloatFormat):
     if align_distance_width <= 2
     | Bits(far_mask_width)(0)
     | low_mask(alignment_distance[2..align_distance_width], far_mask_width, 0)
+
   def far_sticky = far_main_aligned[0..=2].or_reduce() ||| or_reduce(far_reduced & far_round_extra_mask)
   def far_aligned_smaller = (
     far_main_aligned[3..=(significand_width + 4)]

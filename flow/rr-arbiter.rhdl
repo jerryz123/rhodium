@@ -31,6 +31,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
     for List (index in 0..n): ingress[index].bits,
     ~default: ingress[0].bits
   )
+
   chosen <== choice.index
   describe_interface_selection(for List (index in 0..n): grant[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "rr-arbiter", ~trace_model: interface_trace_selection())
@@ -76,6 +77,7 @@ fun rr_arbiter(n :: maybe(PosInt) = #false)
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:
       if source is_a Handle | source.right | source
+
     def typed = !(inputs is_a Array)
     def input_count:
       if typed
@@ -83,19 +85,24 @@ fun rr_arbiter(n :: maybe(PosInt) = #false)
           unless n is_a PosInt
           | error(~who: #'rr_arbiter,
                   "typed round-robin arbitration requires a positive input count")
+
           n
       | block:
           unless inputs.length() > 0
           | error(~who: #'rr_arbiter,
                   "round-robin arbitration requires at least one input endpoint")
+
           if n
           | unless n == inputs.length()
             | error(~who: #'rr_arbiter,
                     "configured input count does not match the endpoint array")
           | #void
+
           inputs.length()
+
     def T:
       if typed | source | flow_payload_type(inputs[0])
+
     inst arbiter_stage(RRArbiter(T, input_count))
     finish_interface_transform(
       source,

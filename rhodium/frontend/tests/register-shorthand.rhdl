@@ -38,12 +38,14 @@ circuit ExplicitShorthand():
                     ~clock: clock,
                     ~next: data_in,
                     ~reset: reset)
+
   reg typed(Bits(8), ~clock: clock)
   typed <== data_in
   reg typed_init(Bits(8),
                  ~init: init_value,
                  ~reset: reset,
                  ~clock: clock)
+
   typed_init <== data_in
 
   a <== inferred_init

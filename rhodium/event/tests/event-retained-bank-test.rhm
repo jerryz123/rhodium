@@ -17,6 +17,7 @@ for (residency in [#true, #false]):
     traced.manifest.sites.filter(~keep: fun (site): site.kind == "residency").map(fun (site): site.label) ~is (if residency | ["resident[0]", "resident[1]", "resident[2]"] | [])
     traced.manifest.dependencies.length() ~is (if residency | 9 | 2)
     traced.manifest.gaps ~is []
+
 def inline = instrument_events(compile_program(fixture.bank(#false, #false), rtl_target).report.elaboration)
 def selected = instrument_events(compile_program(fixture.bank(#true, #true, "parents"), rtl_target).report.elaboration)
 check:

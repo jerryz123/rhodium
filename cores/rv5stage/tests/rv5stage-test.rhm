@@ -59,9 +59,11 @@ check:
     "clock", "reset", "chi_identity", "interrupts", "hart_id",
     "time_counter", "imem_in", "dmem_in", "umem_in"
   ]
+
   rv64.outputs.map(fun (port): port.name) ~is [
     "imem_out", "dmem_out", "umem_out"
   ]
+
   guest.inputs.map(fun (port): port.name) ~is rv64.inputs.map(fun (port): port.name)
   guest.outputs.map(fun (port): port.name) ~is rv64.outputs.map(fun (port): port.name)
   rv32.find_output("dmem_out").type.field("request_data").type.field("bits").type.field("data").type.width ~is 128

@@ -14,6 +14,7 @@ def rv64_integer = RV5StageConfig(
   ~xlen: XLen.X64,
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
+
 def rv64_double = rv64_integer with (
   extensions = rv64_integer.extensions with (
     floating_point = FloatingPointProfile.D,
@@ -161,16 +162,19 @@ check:
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F)
   ) ~throws "supports only disabled FP"
+
   RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~zfa: #true)
   ) ~throws "supports only disabled FP"
+
   RV5StageConfig(
     ~xlen: XLen.X32,
     ~extensions: RV5StageExtensions(
       ~compressed: [CompressedExtension.Zcb]
     )
   ) ~throws "requires Zca or C"
+
   RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(

@@ -50,6 +50,7 @@ for (vlen in [64, 128, 256, 512, 1024, 65536]):
             config.active(config.vlmax, config.vlmax, 0, #true) ~is #false
             config.active(0, config.vlmax, 1, #true) ~is #false
             config.active(0, config.vlmax, 0, #false) ~is #false
+
           for (base in 0..32):
             check: config.legal_group(base) ~is (base mod config.registers == 0 && base + config.registers <= 32)
             when config.legal_group(base)

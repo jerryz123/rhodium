@@ -47,5 +47,6 @@ check:
     "ParameterSink_4",
     "ParameterSink_5"
   ]
+
   verify_design(opaque_design) ~is #void
   elaborate(fixture.InvalidKeywordHardwareParameter()) ~throws "must be a host value, not live hardware"

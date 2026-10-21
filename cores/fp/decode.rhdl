@@ -28,6 +28,7 @@ fun register_control(instruction :: InstructionSpec):
     | destination == #false: FloatDestination.None
     | destination.bank == RegisterBank.Integer: FloatDestination.Integer
     | ~else: FloatDestination.FloatingPoint
+
   pattern(FloatRegisterControl()):
     uses_integer_rs1: Bool(source_names.contains("rs1"))
     uses_frs1: Bool(source_names.contains("frs1"))
@@ -526,6 +527,7 @@ def HalfExecutionCases = decode_groups(
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
+
   [zfh.FSUB_H]:
     unit: FloatUnit.Add
     source_precision: FloatPrecision.Half
@@ -544,6 +546,7 @@ def HalfExecutionCases = decode_groups(
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
+
   [zfh.FSQRT_H]:
     unit: FloatUnit.DivideSquareRoot
     source_precision: FloatPrecision.Half
@@ -555,11 +558,13 @@ def HalfExecutionCases = decode_groups(
     unit: FloatUnit.SignInject
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
+
   [zfh.FSGNJN_H]:
     unit: FloatUnit.SignInject
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     sign_operation: FloatSignOperation.Negate
+
   [zfh.FSGNJX_H]:
     unit: FloatUnit.SignInject
     source_precision: FloatPrecision.Half
@@ -571,6 +576,7 @@ def HalfExecutionCases = decode_groups(
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     minmax_operation: MinMaxOperation.MinimumNumber
+
   [zfh.FMAX_H]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Half
@@ -582,11 +588,13 @@ def HalfExecutionCases = decode_groups(
     source_precision: FloatPrecision.Half
     comparison: FloatComparison.Equal
     comparison_signaling: Bool(#false)
+
   [zfh.FLT_H]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Half
     comparison: FloatComparison.Less
     comparison_signaling: Bool(#true)
+
   [zfh.FLE_H]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Half
@@ -602,6 +610,7 @@ def HalfExecutionCases = decode_groups(
     source_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
     integer_width: FloatIntegerWidth.Word
+
   [zfh.FCVT_WU_H]:
     unit: FloatUnit.Convert
     source_precision: FloatPrecision.Half
@@ -614,6 +623,7 @@ def HalfExecutionCases = decode_groups(
     destination_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
     integer_width: FloatIntegerWidth.Word
+
   [zfh.FCVT_H_WU]:
     unit: FloatUnit.Convert
     destination_precision: FloatPrecision.Half
@@ -630,6 +640,7 @@ def RV64HalfExecutionCases = HalfExecutionCases ++ decode_groups(
     source_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
     integer_width: FloatIntegerWidth.Long
+
   [zfh.FCVT_LU_H]:
     unit: FloatUnit.Convert
     source_precision: FloatPrecision.Half
@@ -642,6 +653,7 @@ def RV64HalfExecutionCases = HalfExecutionCases ++ decode_groups(
     destination_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
     integer_width: FloatIntegerWidth.Long
+
   [zfh.FCVT_H_LU]:
     unit: FloatUnit.Convert
     destination_precision: FloatPrecision.Half
@@ -656,33 +668,39 @@ def SingleZfaExecutionCases = decode_groups(
   [zfa.FLI_S]:
     unit: FloatUnit.Immediate
     destination_precision: FloatPrecision.Single
+
   [zfa.FMINM_S]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Single
     destination_precision: FloatPrecision.Single
     minmax_operation: MinMaxOperation.Minimum
+
   [zfa.FMAXM_S]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Single
     destination_precision: FloatPrecision.Single
     minmax_operation: MinMaxOperation.Maximum
+
   [zfa.FROUND_S]:
     unit: FloatUnit.RoundToIntegral
     source_precision: FloatPrecision.Single
     destination_precision: FloatPrecision.Single
     uses_rounding_mode: Bool(#true)
     round_raise_inexact: Bool(#false)
+
   [zfa.FROUNDNX_S]:
     unit: FloatUnit.RoundToIntegral
     source_precision: FloatPrecision.Single
     destination_precision: FloatPrecision.Single
     uses_rounding_mode: Bool(#true)
     round_raise_inexact: Bool(#true)
+
   [zfa.FLEQ_S]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Single
     comparison: FloatComparison.LessEqual
     comparison_signaling: Bool(#false)
+
   [zfa.FLTQ_S]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Single
@@ -696,38 +714,45 @@ def DoubleZfaExecutionCases = decode_groups(
   [zfa.FLI_D]:
     unit: FloatUnit.Immediate
     destination_precision: FloatPrecision.Double
+
   [zfa.FMINM_D]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Double
     destination_precision: FloatPrecision.Double
     minmax_operation: MinMaxOperation.Minimum
+
   [zfa.FMAXM_D]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Double
     destination_precision: FloatPrecision.Double
     minmax_operation: MinMaxOperation.Maximum
+
   [zfa.FROUND_D]:
     unit: FloatUnit.RoundToIntegral
     source_precision: FloatPrecision.Double
     destination_precision: FloatPrecision.Double
     uses_rounding_mode: Bool(#true)
     round_raise_inexact: Bool(#false)
+
   [zfa.FROUNDNX_D]:
     unit: FloatUnit.RoundToIntegral
     source_precision: FloatPrecision.Double
     destination_precision: FloatPrecision.Double
     uses_rounding_mode: Bool(#true)
     round_raise_inexact: Bool(#true)
+
   [zfa.FCVTMOD_W_D]:
     unit: FloatUnit.IntegerModulo
     source_precision: FloatPrecision.Double
     integer_width: FloatIntegerWidth.Word
     integer_unsigned: Bool(#false)
+
   [zfa.FLEQ_D]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Double
     comparison: FloatComparison.LessEqual
     comparison_signaling: Bool(#false)
+
   [zfa.FLTQ_D]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Double
@@ -741,33 +766,39 @@ def HalfZfaExecutionCases = decode_groups(
   [zfa.FLI_H]:
     unit: FloatUnit.Immediate
     destination_precision: FloatPrecision.Half
+
   [zfa.FMINM_H]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     minmax_operation: MinMaxOperation.Minimum
+
   [zfa.FMAXM_H]:
     unit: FloatUnit.MinMax
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     minmax_operation: MinMaxOperation.Maximum
+
   [zfa.FROUND_H]:
     unit: FloatUnit.RoundToIntegral
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
     round_raise_inexact: Bool(#false)
+
   [zfa.FROUNDNX_H]:
     unit: FloatUnit.RoundToIntegral
     source_precision: FloatPrecision.Half
     destination_precision: FloatPrecision.Half
     uses_rounding_mode: Bool(#true)
     round_raise_inexact: Bool(#true)
+
   [zfa.FLEQ_H]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Half
     comparison: FloatComparison.LessEqual
     comparison_signaling: Bool(#false)
+
   [zfa.FLTQ_H]:
     unit: FloatUnit.Compare
     source_precision: FloatPrecision.Half
@@ -858,6 +889,7 @@ fun fp_instructions(xlen :: XLen,
   | profile == FloatingPointProfile.None: []
   | xlen == XLen.X32: RV32FFloatingPointInstructions
   | ~else: RV64FDFloatingPointInstructions
+
   base ++ fp_half_instructions(xlen, profile, half_precision) ++ fp_zfa_instructions(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
 
 /* Builds complete FP controls from selected catalogs and matching execution relations. */
@@ -870,6 +902,7 @@ fun fp_control_cases(xlen :: XLen,
   | profile == FloatingPointProfile.None: []
   | xlen == XLen.X32: SingleExecutionCases
   | ~else: RV64SingleExecutionCases ++ RV64DoubleExecutionCases
+
   def execution = base_execution ++ fp_half_execution_cases(xlen, profile, half_precision) ++ fp_zfa_execution_cases(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
   compose_floating_point_control_cases(
     fp_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zfa_half_immediate_enabled),
@@ -893,12 +926,14 @@ circuit FloatingPointInstructionDecoder(
   def disabled = DecodeResult(FloatingPointControl()):
     valid: Bool(#false)
     value: dont_care(FloatingPointControl())
+
   def decoded :: DecodeResult(FloatingPointControl()):
     if profile == FloatingPointProfile.None
     | disabled
     | ValidDecodeGen(
         fp_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zfa_half_immediate_enabled)
       )(instruction)
+
   valid <== decoded.valid
   control <== decoded.value
 

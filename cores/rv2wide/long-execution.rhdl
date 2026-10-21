@@ -44,6 +44,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   bundle MultiplyOwner():
     vector: Bool
     tag: VectorMultiplyTag(slots)
+
   inst execution(TaggedPipelinedMultiplier(xlen.width, MultiplyOwner()))
   inst vector_returns(CompletionQueue(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)), IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), slots, ~pipe: #false))
   reg reserved(~init: Bool(#false))
@@ -51,23 +52,29 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   vector_request |> gate_flow(!reserved) |> vector_returns.request
   when (issue.valid):
     assert(reserved, "rv2wide_multiply_ex_launch_reserved")
+
   def scalar = issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
     tag:
       MultiplyOwner():
         vector: Bool(#false)
         tag: dont_care(VectorMultiplyTag(slots))
+
     operands: operation.request
+
   def vector = vector_returns.issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
     tag:
       MultiplyOwner():
         vector: Bool(#true)
         tag: operation.tag
+
     operands: operation.operands
+
   Array(scalar, vector) |> valid_arbiter() |> execution.request
   (execution.result |> filter_valid(result => result.tag.vector) |> map_valid(result => IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))):
     tag: result.tag.tag
     value: result.value
   ) |> vector_returns.completion
+
   vector_returns.response |> vector_result
   def wb_owner = issue |> valid_pipe(2)
   def returned = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
@@ -77,6 +84,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
     def result = if xlen == XLen.X32 | value | mux(operation.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     operation.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
+
   def count_width = index_width(PipelinedMultiplierStages + 1)
   reg outstanding(~init: Bits(count_width)(0))
   def rejected = wb_owner.valid & !authorize
@@ -85,6 +93,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   assert(outstanding <= Bits(count_width)(PipelinedMultiplierStages), "rv2wide_multiply_inflight_capacity")
   when (completed.valid):
     assert(execution.result.valid, "rv2wide_multiply_scheduled_result")
+
   when authorize:
     assert(wb_owner.valid, "rv2wide_multiply_wb_owner")
 
@@ -100,10 +109,12 @@ sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2
   tagged_union Owner():
     Scalar(RV2WideDivideIssue(xlen))
     Vector(VectorDivideTag(slots))
+
   inst execution(DivideService(xlen.width, Owner()))
   def scalar = issue |> map_flow(operation => IntegerExecutionRequest(DividerRequest(xlen.width), Owner())):
     operands: operation.request
     tag: Owner().Scalar(operation)
+
   def vector = vector_request |> map_flow(operation => integer_request_with_tag(DividerRequest(xlen.width), VectorDivideTag(slots), Owner(), operation, Owner().Vector(operation.tag)))
   def selected = Array(scalar, vector) |> rr_arbiter()
   selected |> execution.request
@@ -112,6 +123,7 @@ sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2
       tag: result.tag.view(Owner().Vector).payload
       value: result.value
   ) |> vector_result
+
   reg occupied(~init: Bool(#false))
   (scalar_response |> map_flow(response):
     def owner = response.tag.view(Owner().Scalar).payload
@@ -119,10 +131,12 @@ sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2
     def result = if xlen == XLen.X32 | value | mux(owner.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
     owner.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
+
   when (issue.fire()):
     occupied <== Bool(#true)
   elsewhen (completed.fire()):
     occupied <== Bool(#false)
+
   drained <== !occupied
 
 export:

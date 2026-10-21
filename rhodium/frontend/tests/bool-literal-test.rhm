@@ -11,6 +11,7 @@ def module_def = fixture.design.modules[0]
 def constants = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.constant"
 )
+
 def casts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )

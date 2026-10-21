@@ -95,6 +95,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
     ~device: request_device,
     ~early_write_acknowledge: Bool(#false)
   )
+
   def request_fire = chi.req.fire()
 
   store_gen.address <== command.address
@@ -134,6 +135,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def read_lanes = incoming_data.data.into(Vec(word_lanes, Bits(64)))
   def read_lane:
     if word_lanes == 1 | Bits(lane_width)(0) | address[3..alignment_bits(p.data_bytes)]
+
   load_gen.address <== address
   load_gen.data <== read_lanes[read_lane]
   load_gen.width <== memory_width
@@ -147,6 +149,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
     access_fault: Bool(#false)
     data: mux(data_read_valid, load_gen.value, Bits(width)(0))
     context: context
+
   core.drained <== idle
   chi.rsp.requester.valid <== Bool(#false)
   chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
@@ -186,10 +189,12 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   when (core.request.valid & idle & command_supported):
     assert(cache_chi_address_fits(command.address, p), "uncached_address_fits")
     assert(command_home.valid, "uncached_address_has_home")
+
   when (chi.rsp.response.valid & response_ordinary):
     assert(response_expected, "uncached_response_expected")
     assert(incoming_response.src_id === home_id, "uncached_response_home")
     assert(incoming_response.resp_err === CHIRespErr.OK, "uncached_response_ok")
+
   when (chi.dat.response.valid & data_ordinary):
     assert(read_expected, "uncached_read_data_expected")
     assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,

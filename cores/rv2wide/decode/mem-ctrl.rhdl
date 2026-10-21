@@ -32,7 +32,9 @@ def block_cases = cache_block_memory_cases(RV2WideMemoryControl())
 fun block_cases_for(instructions :: List.of(InstructionSpec)) :: List.of(DecodeCase):
   def cases = for List (instruction in instructions):
     DecodeCase(instruction_pattern(instruction), component_output(block_cases, instruction_pattern(instruction)).intersection(partial_pattern(RV2WideMemoryControl()): width: MemoryWidth.Double).terms[0])
+
   enabled_cases(cases)
+
 def RV2WideZeroCases = block_cases_for(ZicbozInstructions)
 def RV2WideManagementCases = block_cases_for(ZicbomInstructions)
 def RV2WideLoads = RiscvWordLoads ++ RiscvDoubleLoads
@@ -41,6 +43,7 @@ def RV2WideMemoryCases = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(
   excluding_instructions(RV64IInstructions, RV2WideLoads ++ RV2WideStores),
   partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
 )
+
 def RV2WideAtomicCases = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~double: #true))
 
 export:

@@ -10,6 +10,7 @@ import:
   "../isa/zcmop.rhm" open
   "../isa/fp-profile.rhm" open
   "../isa/xlen.rhm" open
+
 def addi = RV32Zca.matching(0x0085)
 def lui_hint = RV64Zca.matching(0x6005)
 fun expansions_match_targets(catalog :: CompressedInstructionCatalog):

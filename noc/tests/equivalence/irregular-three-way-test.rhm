@@ -114,12 +114,15 @@ def syntax_spec = topology:
   directed a_b:
     a -> b
     vcs [phase0]
+
   directed a_c:
     a -> c
     vcs [phase0]
+
   directed b_d:
     b -> d
     vcs [phase2]
+
   directed c_b:
     c -> b
     vcs [phase1]
@@ -140,12 +143,14 @@ def syntax_policy = routing:
     routes [syntax_route_ref]
     candidate_vcs [phase0]
     candidate_links [syntax_spec.link("a_c")]
+
   rule advance_phase1:
     origin forwarding
     routes [syntax_route_ref]
     current_vcs [phase0]
     candidate_vcs [phase1]
     candidate_links [syntax_spec.link("c_b")]
+
   rule advance_phase2:
     origin forwarding
     routes [syntax_route_ref]

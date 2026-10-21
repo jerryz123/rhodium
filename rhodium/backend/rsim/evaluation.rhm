@@ -61,7 +61,9 @@ fun materialized_constants(steps :: List.of(RsimStep)) :: Map:
       | step.opcode == "rtl.constant": step.attributes["value"]
       | step.opcode == "rtl.cast": constants.get(step.operands[0], #false)
       | ~else: #false
+
     when value != #false | constants[index] := value
+
   constants.snapshot()
 
 /* Preserve optional references, including step zero, without manufacturing uses. */
@@ -78,6 +80,7 @@ fun step_dependencies(step :: RsimStep) :: RsimDependencies:
     | "foreign_result": [RsimStorageRead("foreign", step.attributes["slot"], step.attributes["result"])]
     | "memory_read": [RsimStorageRead("memory", step.attributes["slot"])]
     | ~else: []
+
   RsimDependencies(step.operands, storage)
 
 /* Mark value edges only. A reverse scan suffices because operands precede
@@ -86,13 +89,16 @@ fun dependency_closure(dependencies :: List.of(RsimDependencies), sinks :: List.
   def needed = MutableSet{}
   for (sink in sinks):
     for (value in sink.dependencies.values): needed.add(value)
+
   for (offset in 0..dependencies.length()):
     def index = dependencies.length() - 1 - offset
     when index in needed
     | for (operand in dependencies[index].values): needed.add(operand)
+
   def ordered = MutableList[]
   for (index in 0..dependencies.length()):
     when index in needed | ordered.add(index)
+
   ordered.snapshot()
 
 /* Describe original schedule consumers for liveness and evaluation planning.
@@ -104,16 +110,22 @@ fun pre_edge_sinks(schedule :: RsimSchedule) :: List.of(RsimSink):
     // Disabled calls preserve every held result, even results with no value use.
     def held = for List (result in 0..call.import_decl.results.length()):
       RsimStorageRead("foreign", index, result)
+
     sinks.add(RsimSink("foreign", index, RsimDependencies([call.enable] ++ call.arguments, held)))
+
   for (assertion in schedule.assertions, index in 0..schedule.assertions.length()):
     sinks.add(RsimSink("assertion", index, RsimDependencies([assertion.guard, assertion.reset, assertion.condition], [])))
+
   for (reg in schedule.registers, index in 0..schedule.registers.length()):
     sinks.add(RsimSink("register", index, RsimDependencies([reg.next_value] ++ optional_value(reg.reset) ++ optional_value(reg.reset_value), [])))
+
   for (read in schedule.reads, index in 0..schedule.reads.length()):
     sinks.add(RsimSink("sync_read", index, RsimDependencies([read.address, read.enable] ++ optional_value(read.write_mode), [RsimStorageRead("memory", read.memory)])))
+
   for (write in schedule.writes, index in 0..schedule.writes.length()):
     def old_word = if write.mask_value == #false | [] | [RsimStorageRead("memory", write.memory)]
     sinks.add(RsimSink("write", index, RsimDependencies([write.address, write.data, write.enable] ++ optional_value(write.write_mode) ++ optional_value(write.mask_value), old_word)))
+
   sinks.snapshot()
 
 /* Plan bodies without preparing RTL again. Exclusive register-array trees move
@@ -124,9 +136,11 @@ fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
   def sinks = pre_edge_sinks(schedule)
   def outputs = for List (port in schedule.outputs, index in 0..schedule.outputs.length()):
     RsimSink("output", index, RsimDependencies([port.value], []))
+
   def roots = MutableList[]
   for (sink in sinks ++ outputs):
     for (value in sink.dependencies.values): roots.add(value)
+
   def assignments = plan_array_assignments(schedule, roots.snapshot())
   def absorbed = MutableSet{}
   def fused_sinks = for List (sink in sinks):
@@ -137,9 +151,11 @@ fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
       RsimSink(sink.kind, sink.index,
                RsimDependencies(assignment.values ++ optional_value(reg.reset) ++ optional_value(reg.reset_value), []), assignment)
     | sink
+
   def remaining_steps = MutableList[]
   for (index in 0..schedule.steps.length()):
     when !(index in absorbed) | remaining_steps.add(index)
+
   RsimEvaluationPlan(dependencies, materialized_constants(schedule.steps), RsimEvaluation(remaining_steps.snapshot(), fused_sinks),
                      RsimEvaluation(dependency_closure(dependencies, outputs), outputs))
 
@@ -152,10 +168,12 @@ fun prune_schedule(schedule :: RsimSchedule) :: RsimSchedule:
   for (port in schedule.inputs ++ schedule.outputs): needed.add(port.value)
   for (sink in pre_edge_sinks(schedule)):
     for (value in sink.dependencies.values): needed.add(value)
+
   for (offset in 0..schedule.steps.length()):
     def index = schedule.steps.length() - 1 - offset
     when index in needed
     | for (operand in schedule.steps[index].operands): needed.add(operand)
+
   def refs = MutableMap{}
   def steps = MutableList[]
   /* Resolve a live predecessor or sink after dependency-ordered compaction. */
@@ -164,4 +182,5 @@ fun prune_schedule(schedule :: RsimSchedule) :: RsimSchedule:
     when index in needed
     | refs[index] := steps.length()
       steps.add(RsimStep(step.opcode, step.type, step.operands.map(remap), step.attributes, step.occurrence))
+
   remap_schedule(schedule, steps.snapshot(), remap)

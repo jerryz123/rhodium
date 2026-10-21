@@ -20,6 +20,7 @@ sync_circuit TaggedPipelinedMultiplier(width :: PosInt, Tag :: DataType):
     tag: owner.bits
     value: value
   ) |> result
+
   assert(execution.response.valid === owner.valid)
 
 /* Retains one accepted owner until the iterative multiplier's held result is consumed. */
@@ -31,6 +32,7 @@ sync_circuit IterativeMultiplyService(width :: PosInt, Tag :: DataType):
   request |> map_flow(operation => operation.operands) |> execution.request
   when (request.fire()):
     owner <== request.bits.tag
+
   (
     execution.response |> map_flow(~stable: #true, value => IntegerExecutionResult(Bits(width * 2), Tag)):
       tag: owner
@@ -96,6 +98,7 @@ sync_circuit DivideService(width :: PosInt, Tag :: DataType):
   request |> map_flow(operation => operation.operands) |> execution.request
   when (request.fire()):
     owner <== request.bits.tag
+
   (
     execution.response |> map_flow(~stable: #true, value => IntegerExecutionResult(DividerResponse(width), Tag)):
       tag: owner

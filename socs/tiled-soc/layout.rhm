@@ -96,6 +96,7 @@ fun tiled_tile_cells(rows :: NonemptyList.of(NonemptyList),
     for (x in 0..width):
       def source_row = height - y - 1
       cells := cells ++ [TiledTileCell(rows[source_row][x], MeshCoordinate(x, y))]
+
   cells
 
 /* Validates a rectangular tile grid and exposes stable coordinate-ordered role inventories. */
@@ -104,22 +105,31 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
   property height :: PosInt: rows.length()
   property cells :: NonemptyList.of(TiledTileCell):
     tiled_tile_cells(rows, width, height)
+
   property harts:
     cells.filter(~keep: fun (cell): cell.tile is_a HartTileSpec)
+
   property llcs:
     cells.filter(~keep: fun (cell): cell.tile is_a LLCTileSpec)
+
   property memories:
     cells.filter(~keep: fun (cell): cell.tile is_a MemoryTileSpec)
+
   property hosts:
     cells.filter(~keep: fun (cell): cell.tile is_a HostTileSpec)
+
   property device_homes:
     cells.filter(~keep: fun (cell): cell.tile is_a DeviceHomeTileSpec)
+
   property aclints:
     cells.filter(~keep: fun (cell): cell.tile is_a AclintTileSpec)
+
   property plics:
     cells.filter(~keep: fun (cell): cell.tile is_a PlicTileSpec)
+
   property uarts:
     cells.filter(~keep: fun (cell): cell.tile is_a UartTileSpec)
+
   property transits:
     cells.filter(~keep: fun (cell): cell.tile is_a TransitTileSpec)
 
@@ -129,9 +139,11 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     for (row in rows):
       unless row.length() == width
       | error(~who: #'TileGrid, "tile-grid rows must have equal width")
+
       for (tile in row):
         unless tile is_a TiledTileSpec
         | error(~who: #'TileGrid, "tile-grid cells must contain tile specifications")
+
     def cells = tiled_tile_cells(rows, width, rows.length())
     def hart_count = cells.filter(~keep: fun (cell): cell.tile is_a HartTileSpec).length()
     def llc_count = cells.filter(~keep: fun (cell): cell.tile is_a LLCTileSpec).length()
@@ -142,26 +154,35 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     def uart_count = cells.filter(~keep: fun (cell): cell.tile is_a UartTileSpec).length()
     unless hart_count > 0
     | error(~who: #'TileGrid, "tile grid requires at least one hart tile")
+
     unless llc_count > 0
     | error(~who: #'TileGrid, "tile grid requires at least one LLC tile")
+
     unless host_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one host tile")
+
     unless device_home_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one device Home tile")
+
     unless aclint_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one ACLINT tile")
+
     unless plic_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one PLIC tile")
+
     unless uart_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one UART tile")
+
     unless cells.filter(~keep: fun (cell): cell.tile is_a MemoryTileSpec).length() == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one memory-channel tile")
+
     super(rows)
 
   /* Looks up a bottom-origin mesh coordinate and rejects coordinates outside the grid. */
   method tile_at(x :: Nat, y :: Nat) :: TiledTileSpec:
     unless x < width && y < height
     | error(~who: #'TileGrid, "tile coordinate is outside the grid")
+
     rows[height - y - 1][x]
 
 /* Collects NodeID bases for replicated harts and LLCs plus explicit IDs for the host and shared devices. */
@@ -227,6 +248,7 @@ class LLCGeometry(sets :: PosInt,
     unless sets >= 2 && tiled_power_of_two(sets)
     | error(~who: #'LLCGeometry,
             "LLC set count must be a power of two of at least two")
+
     super(sets, ways, transaction_slots)
 
 /* Owns the authored layout, IDs, striped RAM, LLC geometry, hart, clocks, and boot policy used by both hardware and software projections. */
@@ -247,6 +269,7 @@ class TiledSoCConfig(layout :: TileGrid,
                   node_ids.device_home,
                   CHINodeKind.HNI,
                   ~max_outstanding: 1)
+
   /* Derives the shared devices for a supplied Home using the configuration's hart count, NodeIDs, and boot layout. */
   method platform_for(home :: CHIHomeParams):
     SoCPlatformParams(flit,
@@ -258,6 +281,7 @@ class TiledSoCConfig(layout :: TileGrid,
                       node_ids.plic_subordinate,
                       node_ids.uart_subordinate,
                       node_ids.boot_address_subordinate)
+
   property platform: platform_for(device_home)
   property description:
     RiscvSoCDescription(
@@ -285,15 +309,20 @@ class TiledSoCConfig(layout :: TileGrid,
     unless memory.stripe_bytes >= 64
     | error(~who: #'TiledSoCConfig,
             "striped-memory stripes must contain a complete LLC line")
+
     unless tiled_power_of_two(layout.llcs.length())
     | error(~who: #'TiledSoCConfig,
             "LLC count must be a power of two for striped memory")
+
     unless memory.size_bytes >= memory.stripe_bytes * layout.llcs.length()
     | error(~who: #'TiledSoCConfig, "memory must contain at least one stripe per LLC")
+
     unless llc.capacity_bytes <= memory.size_bytes / layout.llcs.length()
     | error(~who: #'TiledSoCConfig, "each LLC must fit within its share of memory")
+
     unless hart.description.xlen.width == 64
     | error(~who: #'TiledSoCConfig, "TiledSoC requires an RV64 core profile")
+
     AddressSet(memory.base, memory.size_bytes - 1)
     super(layout, node_ids, memory, llc, hart, clocks, flit, boot)
 
@@ -353,6 +382,7 @@ meta:
         def entries = [entry, ...]
         when entries.length() == 0
         | syntax_meta.error("tile-grid rows must not be empty", clause)
+
         append_runs(entries.map(tile_run))
     | ~else:
         syntax_meta.error("expected tile-grid row declaration", clause)
@@ -365,6 +395,7 @@ expr.macro 'tile_grid:
   def clauses = [clause, ...]
   when clauses.length() == 0
   | syntax_meta.error("tile grid requires at least one row", self)
+
   def rows = clauses.map(tile_row)
   let [row, ...] = rows
   'TileGrid([$row, ...])'

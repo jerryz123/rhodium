@@ -17,6 +17,7 @@ def ctrl_queue_program = elaborate(CtrlQueue(3))
 def ctrl_queue_options_program = elaborate(
   CtrlQueue(2, ~pipe: #true, ~flow: #true)
 )
+
 def ctrl_arbiter_program = elaborate(CtrlArbiter(3))
 def ctrl_rr_arbiter_program = elaborate(CtrlRRArbiter(3))
 def ctrl_demux_program = elaborate(CtrlDemux(3))

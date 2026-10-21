@@ -32,9 +32,11 @@ class RiscvPhysicalMemoryAttributes(readable :: Boolean,
     | error(~who: #'RiscvPhysicalMemoryAttributes,
             "cacheable physical memory cannot use device-memory semantics")
     | #void
+
     unless (!instruction_cacheable) || cacheable || (readable && executable && read_idempotent && (!writable) && (!atomic) && (!device))
     | error(~who: #'RiscvPhysicalMemoryAttributes,
             "instruction-only caching requires read-only executable idempotent non-device memory")
+
     super(readable, writable, executable, cacheable, atomic, device, read_idempotent, cache_block_zero, instruction_cacheable)
 
 /* Pairs a protocol-neutral masked address set with stable physical-memory attributes. */
@@ -67,12 +69,14 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
       unless region.address_set.fits_unsigned_width(address_width)
       | error(~who: #'RiscvPhysicalMemoryMap,
               "physical-memory region must fit the address width")
+
     for (left_index in 0..regions.length()):
       for (right_index in (left_index + 1)..regions.length()):
         if regions[left_index].address_set.overlaps(regions[right_index].address_set)
         | error(~who: #'RiscvPhysicalMemoryMap,
                 "physical-memory regions must not overlap")
         | #void
+
     super(address_width, regions)
 
   /* Checks both supplied address endpoints against one region, rejecting high-bit truncation and clearing all flags when unmapped. */
@@ -85,19 +89,23 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
       | raw_width < address_width: raw_address.zext(address_width)
       | raw_width == address_width: raw_address
       | ~else: raw_address[0..address_width]
+
     def last_address:
       cond
       | raw_last_width < address_width: raw_last_address.zext(address_width)
       | raw_last_width == address_width: raw_last_address
       | ~else: raw_last_address[0..address_width]
+
     def fits:
       if raw_width <= address_width
       | Bool(#true)
       | !raw_address[address_width..raw_width].or_reduce()
+
     def last_fits:
       if raw_last_width <= address_width
       | Bool(#true)
       | !raw_last_address[address_width..raw_last_width].or_reduce()
+
     def mutable mapped = Bool(#false)
     def mutable readable = Bool(#false)
     def mutable writable = Bool(#false)
@@ -120,6 +128,7 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
       read_idempotent := mux(matches, Bool(region.attributes.read_idempotent), read_idempotent)
       cache_block_zero := mux(matches, Bool(region.attributes.cache_block_zero), cache_block_zero)
       instruction_cacheable := mux(matches, Bool(region.attributes.instruction_cacheable), instruction_cacheable)
+
     RiscvPhysicalMemoryLookup():
       mapped: fits & last_fits & mapped
       readable: fits & last_fits & mapped & readable

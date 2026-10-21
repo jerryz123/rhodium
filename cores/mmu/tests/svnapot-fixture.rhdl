@@ -63,6 +63,7 @@ sync_circuit RiscvSvnapotFixture():
     sum: sum
     mxr: mxr
     pbmte: pbmte
+
   command_ready <== walker.request.ready
   walker.memory.request.ready <== memory_ready
   walker.memory.request_access_fault <== memory_fault

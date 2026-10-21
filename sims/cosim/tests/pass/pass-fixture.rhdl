@@ -18,6 +18,7 @@ sync_circuit TestObserver(instance :: Nat, context :: Boolean):
     | input external_child_value: Bits(8)
       external_child_value
     | Bits(8)(0)
+
   cosim_test_sample.call(Bits(64)(instance), value ^ component_child_value ^ extra, ~enable: accepted)
 
 fun recipe(configuration :: Map, types :: Map, _parameters :: Map, instance :: Nat):
@@ -38,6 +39,7 @@ sync_circuit NestedComponent(wrong_domain :: Boolean):
     | inst nested(ObservedComponent())
       nested.value <== value
       nested
+
   describe_cosim_signals({}, ~components: {"child": child})
 
 sync_circuit ObservedLane(wrong_domain :: Boolean = #false, unsupported :: Boolean = #false, wrong_nested :: Boolean = #false):
@@ -53,6 +55,7 @@ sync_circuit ObservedLane(wrong_domain :: Boolean = #false, unsupported :: Boole
     | inst child(NestedComponent(wrong_nested))
       child.value <== source.bits
       child
+
   describe_cosim_hart("test", {"unsupported": unsupported}, {"value": source.bits, "accepted": source.fire()}, {"component": component})
 
 sync_circuit ObservedTop(wrong_context :: Boolean = #false):
@@ -68,6 +71,7 @@ sync_circuit ObservedTop(wrong_context :: Boolean = #false):
     | inst component(NestedComponent(#false))
       component.value <== source[0].bits
       component
+
   describe_cosim_context(left, {"external": external})
   source[0] |> left.source
   left.sink |> sink[0]
@@ -81,6 +85,7 @@ export:
   make_unsupported_fixture
   make_wrong_context_fixture
   make_wrong_nested_fixture
+
 fun make_fixture(): elaborate(ObservedTop())
 fun make_wrong_domain_fixture(): elaborate(ObservedLane(#true))
 fun make_unsupported_fixture(): elaborate(ObservedLane(#false, #true))

@@ -69,6 +69,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
             vstart: vstart
             vxrm: vxrm
             vxsat: Bool(#false)
+
         control: decode.control
         scalar: scalar
         floating_scalar: floating_scalar
@@ -79,6 +80,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
+
   sequencer.sequence_request |> gate_flow(issue_ready) |> operand_fetch.request
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.suffix |> sequencer.suffix
@@ -88,6 +90,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
     def Array(operand_result, preparation_result) = bank.results[port] |> fork_valid(2)
     operand_result |> operand_fetch.results[port]
     preparation_result |> sequencer.prepare_results[port]
+
   operand_fetch.mask_read |> bank.mask_read
   bank.mask_result |> operand_fetch.mask_result
   sequencer.cancel.valid <== cancel
@@ -113,6 +116,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
     last: pipeline.egress.bits.last
     compress_state: pipeline.egress.bits.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+
   sequencer.feedback.valid <== operand_fetch.feedback.valid
   sequencer.feedback.bits <== operand_fetch.feedback.bits
   bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())

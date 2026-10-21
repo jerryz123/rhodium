@@ -9,6 +9,7 @@ import:
 
 def physical = topology:
   node xbar
+
 def router = physical.node("xbar")
 def requester = CHIRNSite(NamePath(["system", "requester"]), 3, router)
 def home_requester = CHIRNICNSite(NamePath(["system", "home", "requester"]),

@@ -210,6 +210,7 @@ def mesh_manhattan_policy = custom_policy(
       mesh.coordinate_of(context.destination_router)
     )
 )
+
 def mesh_manhattan_materialized = materialize_routing(
   RoutingProblem(
     mesh_topology.topology,

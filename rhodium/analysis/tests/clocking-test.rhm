@@ -64,6 +64,7 @@ block:
       "rtl.sync_memory",
       "verif.assert"
     ]
+
     no_reset.operations.length() ~is 3
     ambient_reset.reset === reset ~is #true
     ambient_reset.operations.length() ~is 1

@@ -132,10 +132,12 @@ meta:
       | '~width: $width':
           when requested_width
           | syntax_meta.error("duplicate ~width option", option)
+
           requested_width := width
       | '~encoding: one_hot':
           when one_hot
           | syntax_meta.error("duplicate ~encoding option", option)
+
           one_hot := #true
       | ~else:
           syntax_meta.error("expected ~width or ~encoding: one_hot", option)
@@ -152,11 +154,13 @@ meta:
       | '$(member :: Identifier)':
           when explicit
           | syntax_meta.error("cannot mix automatic and explicit enum members", clause)
+
           automatic := #true
           members := members ++ [member]
       | '$(member :: Identifier) = $encoding':
           when automatic
           | syntax_meta.error("cannot mix automatic and explicit enum members", clause)
+
           explicit := #true
           members := members ++ [member]
           encodings := encodings ++ [encoding]
@@ -164,8 +168,10 @@ meta:
            $method_body; ...':
           when one_hot && method_name.to_source_string() == "mux"
           | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
+
           when method_names.find(fun (declared): declared == method_name.to_source_string())
           | syntax_meta.error("enum method names must be unique", method_name)
+
           method_names := method_names ++ [method_name.to_source_string()]
           def method_function = Syntax.make_id(
             enum_name ++ "_" ++ method_name.to_source_string(),
@@ -186,8 +192,10 @@ meta:
            $method_body; ...':
           when one_hot && method_name.to_source_string() == "mux"
           | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
+
           when method_names.find(fun (declared): declared == method_name.to_source_string())
           | syntax_meta.error("enum method names must be unique", method_name)
+
           method_names := method_names ++ [method_name.to_source_string()]
           def method_function = Syntax.make_id(
             enum_name ++ "_" ++ method_name.to_source_string(),
@@ -207,8 +215,10 @@ meta:
            $method_body; ...':
           when one_hot && method_name.to_source_string() == "mux"
           | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
+
           when method_names.find(fun (declared): declared == method_name.to_source_string())
           | syntax_meta.error("enum method names must be unique", method_name)
+
           method_names := method_names ++ [method_name.to_source_string()]
           def method_function = Syntax.make_id(
             enum_name ++ "_" ++ method_name.to_source_string(),
@@ -229,8 +239,10 @@ meta:
 
     when members.length() == 0
     | syntax_meta.error("hardware enum requires at least one member", name)
+
     when one_hot && explicit
     | syntax_meta.error("one-hot enums use declaration-order encodings", name)
+
     when one_hot && requested_width
     | syntax_meta.error("one-hot enum width is determined by its members", name)
 
@@ -259,6 +271,7 @@ meta:
                                $requested_width)'
       | ~else:
           'make_automatic_enum($enum_name, [$member_name, ...])'
+
     if method_entries.length() > 0
     | '«
          annot.macro '$method_annotation':

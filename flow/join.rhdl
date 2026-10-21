@@ -24,6 +24,7 @@ circuit Join(T :: DataType, n :: PosInt):
   def valid_reduction = and_exclusion_reduce(vec(
     for List (index in 0..n): ingress[index].valid
   ))
+
   egress.valid <== valid_reduction.all
   egress.bits <== vec(
     for List (index in 0..n): ingress[index].bits
@@ -50,6 +51,7 @@ circuit SelectiveJoin(T :: DataType, n :: PosInt):
   egress.bits <== SelectedValues(T, n):
     selection: selection.bits
     values: vec(for List (index in 0..n): ingress[index].bits)
+
   selection.ready <== egress.ready & valid_reduction.all
 
   for (index in 0..n):
@@ -65,9 +67,11 @@ fun selective_join():
       if selective_join_source is_a Handle
       | selective_join_source.right
       | selective_join_source
+
     unless selective_join_inputs is_a Array && selective_join_inputs.length() >= 2
     | error(~who: #'selective_join,
             "source must contain one selection flow and at least one data flow")
+
     def selective_join_count = selective_join_inputs.length() - 1
     def selective_join_type = flow_payload_type(selective_join_inputs[1])
     def expected_selection_type = Mask(selective_join_count)
@@ -75,18 +79,22 @@ fun selective_join():
     unless expected_selection_type.type_equal(selection_type) && selection_type.type_equal(expected_selection_type)
     | error(~who: #'selective_join,
             "first source must carry a Mask matching the number of data flows")
+
     for (index in 1..selective_join_inputs.length()):
       def input_type = flow_payload_type(selective_join_inputs[index])
       unless selective_join_type.type_equal(input_type) && input_type.type_equal(selective_join_type)
       | error(~who: #'selective_join,
               "data flows must carry the same payload type")
+
     def selective_join_input_links = for Array (index in 0..selective_join_inputs.length()):
       def protocol :: FlowSource.to_ready_valid_protocol = selective_join_inputs[index]
       interface_link(protocol, "selective_join_input")
+
     inst selective_join_stage(SelectiveJoin(selective_join_type, selective_join_count))
     selective_join_input_links[0].right |> selective_join_stage.selection
     for (index in 0..selective_join_count):
       selective_join_input_links[index + 1].right |> selective_join_stage.ingress[index]
+
     def selective_join_output_link = interface_link(
       Decoupled(SelectedValues(selective_join_type, selective_join_count)),
       "selective_join_output"
@@ -112,6 +120,7 @@ circuit CtrlJoin(n :: PosInt):
   def valid_reduction = and_exclusion_reduce(vec(
     for List (index in 0..n): ingress[index].valid
   ))
+
   egress.valid <== valid_reduction.all
 
   for (index in 0..n):

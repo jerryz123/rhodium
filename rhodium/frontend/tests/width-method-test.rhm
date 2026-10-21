@@ -11,12 +11,15 @@ import:
 def module_def = fixture.design.modules.find(
   fun (candidate): candidate.name == "WidthMethodPropagation"
 )
+
 def extensions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.zext"
 )
+
 def signed_extensions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.sext"
 )
+
 def base_module = base_fixture.design.modules[0]
 
 check:

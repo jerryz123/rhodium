@@ -76,6 +76,7 @@ sync_circuit RV5StageFpScalar(
   check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   unless floating_point_supports_f(profile)
   | error(~who: #'RV5StageFpScalar, "the scalar FP adapter requires RV32F or RV64D")
+
   def register_count = 32
   def flen = floating_point_register_width(profile)
   def Issue = RV5StageFpIssue(xlen, profile, Context)
@@ -128,10 +129,12 @@ sync_circuit RV5StageFpScalar(
   | block:
       unless math.min(timing.single, timing.double, timing.other) >= 2
       | error(~who: #'RV5StageFpScalar, "scalar fixed returns must reach WB before architectural completion")
+
       def at_writeback = fixed_issue |> valid_pipe(2)
       def authorization_matches = at_writeback.valid & (at_writeback.bits.context === authorize.bits.context) & (at_writeback.bits.frd === authorize.bits.frd)
       when (authorize.valid):
         assert(authorization_matches, "scalar_fp_authorization_is_wb_aligned")
+
       def authorized_result = align_fp_authorization(authorize, timing, fun (operation :: RV5StageFpIssue(xlen, profile, Context)): operation.control.execution, ~elapsed: 2)
       fixed_authorized <== authorized_result.valid
       def return_matches = execution_result.valid & execution_result.bits.tag.speculative & (
@@ -140,10 +143,12 @@ sync_circuit RV5StageFpScalar(
       when (authorized_result.valid):
         assert(return_matches, "scalar_fp_return_is_scheduled")
         assert(completion.ready, "scalar_fp_return_has_write_port")
+
       when (fixed_issue.valid):
         assert(execution_request.ready, "scalar_fp_launch_is_immediate")
   | block:
       fixed_authorized <== Bool(#false)
+
   (
     execution_result |> filter_flow(result => !result.tag.speculative ||| fixed_authorized) |> map_flow(~stable: #true, completed):
       RV5StageFpCompletion(xlen, profile, Context):
@@ -167,6 +172,7 @@ sync_circuit RV5StageFpScalar(
   def scalar_execution_write = FloatingPointRegisterWrite(profile):
     address: execution_completion.rd
     data: execution_completion.fp_value
+
   assert(!(execution_write_valid & vector_write.valid), "rv5stage_fp_execution_and_vector_writes_exclusive")
   execution_write.valid <== execution_write_valid ||| vector_write.valid
   execution_write.bits <== mux(vector_write.valid, vector_write.bits, scalar_execution_write)
@@ -177,6 +183,7 @@ sync_circuit RV5StageFpScalar(
   assert(!(load_hit.valid & load_completion.valid), "rv5stage_fp_load_paths_exclusive")
   when (load_hit.valid):
     assert(!scoreboard_busy(register_count, busy_state, load_hit.bits.rd), "rv5stage_fp_load_hit_destination_free")
+
   def completed_loads = Array(load_completion, load_hit) |> valid_arbiter()
   assert(!(completed_loads.valid & vector_write.valid), "rv5stage_fp_load_and_vector_writes_exclusive")
   (
@@ -185,6 +192,7 @@ sync_circuit RV5StageFpScalar(
         address: completed_load.rd
         data: fp_load_value(profile, completed_load.precision, completed_load.data)
   ) |> load_write
+
   when (completed_loads.valid):
     assert((completed_loads.bits.precision =/= FloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_load_precision_supported")
     assert((completed_loads.bits.precision =/= FloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_load_supported")
@@ -242,6 +250,7 @@ sync_circuit RV5StageFpScalar(
             destination: issued.control.registers.destination
             rd: issued.frd
             speculative: Bool(speculative_fixed) & fixed_reserved
+
         control: issued.control
         left: registers.read_data_1
         left_precision: issued.control.execution.source_precision
@@ -253,6 +262,7 @@ sync_circuit RV5StageFpScalar(
         immediate_index: issued.frs1
         rounding_mode: issued.rounding_mode
   ) |> execution_request
+
   def issue_fire = issue.fire() ||| authorize.valid
   def admitted = mux(authorize.valid, authorize.bits, issue.bits)
   def immediate_authorization = authorize.valid & (timing.latency(authorize.bits.control.execution) === Bits(timing.width)(2))
@@ -274,6 +284,7 @@ sync_circuit RV5StageFpScalar(
         context: request.context
         data: fp_store_value(profile, request.precision, registers.read_data_3)
   ) |> stores.ingress
+
   registers.read_address_1 <== mux(offered.valid, offered.bits.frs1, snapshot_read_address)
   registers.read_address_2 <== offered.bits.frs2
   registers.read_address_3 <== mux(offered.valid, offered.bits.frs3, store_request.bits.rs)
@@ -301,28 +312,36 @@ sync_circuit RV5StageFpScalar(
   when execution_set:
     assert(!scoreboard_busy(register_count, currently_busy, admitted.frd),
            "rv5stage_fp_execution_destination_free")
+
   when load_reserve_fire:
     assert(!scoreboard_busy(register_count, currently_busy, load_reserve.bits.rd),
            "rv5stage_fp_load_destination_free")
+
   when vector_reserve_fire:
     assert(!scoreboard_busy(register_count, currently_busy, vector_reserve.bits),
            "rv5stage_fp_vector_destination_free")
+
   when (execution_set & load_reserve_fire):
     assert(admitted.frd =/= load_reserve.bits.rd,
            "rv5stage_fp_reservations_distinct")
+
   when execution_clear:
     assert(scoreboard_busy(register_count, busy_state, execution_completion.rd) ||| (immediate_authorization & (admitted.frd === execution_completion.rd)),
            "rv5stage_fp_execution_destination_reserved")
+
   when load_clear:
     assert(scoreboard_busy(register_count, busy_state, load_completion.bits.rd) ||| (
       load_reserve_fire & (load_reserve.bits.rd === load_completion.bits.rd)
     ), "rv5stage_fp_load_destination_reserved")
+
   when vector_clear:
     assert(vector_pending & scoreboard_busy(register_count, busy_state, vector_write.bits.address),
            "rv5stage_fp_vector_destination_reserved")
+
   when (execution_clear & load_clear):
     assert(execution_completion.rd =/= load_completion.bits.rd,
            "rv5stage_fp_completions_distinct")
+
   when vector_reserve_fire:
     vector_pending <== Bool(#true)
   elsewhen vector_clear:
@@ -333,6 +352,7 @@ sync_circuit RV5StageFpScalar(
   def next_busy = (busy_state & !clear_mask) ||| set_mask
   when (set_mask.or_reduce() ||| clear_mask.or_reduce()):
     busy_state <== next_busy
+
   busy <== busy_state
 
 
@@ -347,9 +367,11 @@ sync_circuit RV5StageFpScalar(
   def next_outstanding = mux(issue_fire, outstanding + Bits(outstanding_width)(1), outstanding - Bits(outstanding_width)(1))
   when (issue_fire ^ completion_fire):
     outstanding <== next_outstanding
+
   when completion_fire:
     assert(outstanding.or_reduce() ||| issue_fire,
            "rv5stage_fp_completion_has_issue")
+
   assert(outstanding <= Bits(outstanding_width)(outstanding_limit), "rv5stage_fp_outstanding_in_range")
   // Speculative store-operand probes are not authorized work and must not
   // prevent a trap or interrupt from draining accepted FP operations.

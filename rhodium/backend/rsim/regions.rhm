@@ -44,6 +44,7 @@ fun step_cost(index :: Nat, schedule :: RsimSchedule, constants :: Map) :: PosIn
     def mutable cost = 1 + result
     unless step.opcode in ["memory_read", "rtl.record_get", "rtl.vector_get", "rtl.vector_index"]
     | for (operand in step.operands): cost := cost + type_cost(schedule.steps[operand].type)
+
     match step.opcode
     | "rtl.mul": cost + result * result
     | "rtl.mux_lookup": cost + step.attributes["keys"].length() * (1 + type_cost(schedule.steps[step.operands[0]].type))
@@ -70,6 +71,7 @@ fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
   | for (member in sink.members): cost := cost + sink_cost(member, schedule)
   | for (value in sink.dependencies.values): cost := cost + type_cost(schedule.steps[value].type)
     for (read in sink.dependencies.storage): cost := cost + storage_cost(read, schedule)
+
   when sink.array
   | for (index in sink.array.steps):
       def step = schedule.steps[index]
@@ -77,11 +79,14 @@ fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
         if step.opcode == "rtl.vector_inject"
         | 1 + type_cost(step.type.element_type)
         | step.attributes["keys"].length() * (1 + type_cost(schedule.steps[step.operands[0]].type))
+
       cost := cost + work
+
   when sink.kind == "write"
   | def write = schedule.writes[sink.index]
     when write.mask_value != #false
     | cost := cost + schedule.steps[write.mask_value].type.packed_width()
+
   cost
 
 /* Partition values and consumers separately in unchanged step-then-sink order,
@@ -112,6 +117,7 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
       cost := 0
       cut := 0
       cut_cost := 0
+
   /* On overflow, retain a suffix after the latest sufficiently full instance
      boundary. Each retained suffix is smaller than a budget; oversized items
      use the ordinary cut so they do not create an extra trailing fragment. */
@@ -125,22 +131,27 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
       cost := cost - cut_cost
       cut := 0
       cut_cost := 0
+
     when cost + amount > budget | finish()
     cost := cost + amount
+
   for (index in body.steps):
     unless index < schedule.steps.length() | error(~who: #'rsim, "region step is outside the schedule")
     when module_cuts && steps.length() > 0 && cost * 2 >= budget && cost <= budget
       && schedule.steps[steps[steps.length() - 1]].occurrence != schedule.steps[index].occurrence
     | cut := steps.length()
       cut_cost := cost
+
     reserve(if body.conditionals.has_key(index) | body.conditionals[index].cost | step_cost(index, schedule, evaluation.constants))
     steps.add(index)
+
   // Pure value helpers must not prepare next state, frame fields, or outputs.
   // Keep guarded/fused producers inside their consumer rather than hoisting them.
   finish()
   for (sink in body.sinks):
     reserve(sink_cost(sink, schedule))
     sinks.add(sink)
+
   finish()
 
   def producer = MutableMap{}
@@ -156,10 +167,12 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
     | constants[region][value] := #true
     | unless producer.has_key(value)
       | error(~who: #'rsim, "region reads value before its definition: " ++ to_string(value))
+
       def owner = producer[value]
       unless owner == region
       | inputs[region][value] := #true
         outputs[owner][value] := #true
+
   /* Record conservative storage reads in encounter order, once per resource. */
   fun use_dependencies(dependencies :: RsimDependencies, region :: Nat):
     for (value in dependencies.values): use_value(value, region)
@@ -167,6 +180,7 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
       unless read in seen_storage[region]
       | seen_storage[region].add(read)
         storage[region].add(read)
+
   def mutable previous = -1
   for (chunk in chunks, region in 0..chunks.length()):
     for (index in chunk.steps):
@@ -176,10 +190,13 @@ fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
       | constants[region][index] := #true
       | use_dependencies(if body.conditionals.has_key(index) | body.conditionals[index].dependencies | evaluation.dependencies[index], region)
         producer[index] := region
+
     for (sink in chunk.sinks): use_dependencies(sink.dependencies, region)
+
   for List (chunk in chunks, region in 0..chunks.length()):
     def conditionals = MutableMap{}
     for (index in chunk.steps):
       when body.conditionals.has_key(index) | conditionals[index] := body.conditionals[index]
+
     RsimRegion(chunk.steps, chunk.sinks, inputs[region].keys().sort(), outputs[region].keys().sort(),
                constants[region].keys().sort(), storage[region].snapshot(), costs[region], conditionals.snapshot())

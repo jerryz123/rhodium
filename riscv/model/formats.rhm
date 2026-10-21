@@ -82,9 +82,11 @@ class RegisterOperand(name :: NonemptyString, field :: BitField, role :: String,
     unless field.width == 5
     | error(~who: #'RegisterOperand,
             "register operand field must be a five-bit BitField")
+
     unless role == "source" || role == "destination"
     | error(~who: #'RegisterOperand,
             "register operand role must be source or destination")
+
     super(name, field, role, bank)
 
 /* Maps one instruction slice into an equal-width slice of a semantic immediate. */
@@ -94,9 +96,11 @@ class ImmediatePiece(source :: BitField, output_high :: Nat, output_low :: Nat):
     unless output_low <= output_high
     | error(~who: #'ImmediatePiece,
             "immediate output bounds must satisfy high >= low >= 0")
+
     unless source.width == output_high - output_low + 1
     | error(~who: #'ImmediatePiece,
             "immediate source and destination slices must have equal widths")
+
     super(source, output_high, output_low)
 
   /* Returns the host mask of immediate bits supplied by this piece. */
@@ -120,22 +124,29 @@ class ImmediateLayout(name :: NonemptyString,
       unless piece.source.high < 32 && piece.output_high < width
       | error(~who: #'ImmediateLayout,
               "immediate piece lies outside its source or destination width")
+
       when (covered bits.and piece.output_mask()) != 0
       | error(~who: #'ImmediateLayout,
               "immediate output pieces must not overlap")
+
       covered := covered bits.or piece.output_mask()
+
     for (bit in zero_bits):
       unless bit < width
       | error(~who: #'ImmediateLayout,
               "immediate zero bit lies outside the output width")
+
       def bit_mask = 1 << bit
       when (covered bits.and bit_mask) != 0
       | error(~who: #'ImmediateLayout,
               "immediate zero bits and output pieces must not overlap")
+
       covered := covered bits.or bit_mask
+
     unless covered == width_mask(width)
     | error(~who: #'ImmediateLayout,
             "immediate pieces and zero bits must cover the output width")
+
     super(name, width, signed, pieces, zero_bits)
 
   /* Returns the instruction slices supplying this immediate, in declared piece order. */
@@ -146,9 +157,11 @@ class ImmediateLayout(name :: NonemptyString,
   method decode(word :: Nat):
     unless word <= width_mask(32)
     | error(~who: #'decode, "instruction word must fit 32 bits")
+
     def mutable result = 0
     for (piece in pieces):
       result := result + (piece.source.extract(word) << piece.output_low)
+
     result
 
   /* Scatters an already width-masked immediate into its instruction fields.
@@ -156,13 +169,16 @@ class ImmediateLayout(name :: NonemptyString,
   method scatter(value :: Nat):
     unless value <= width_mask(width)
     | error(~who: #'scatter, "immediate value does not fit its layout")
+
     def mutable result = 0
     for (piece in pieces):
       def fragment = bits.field(value, piece.output_low, piece.output_high + 1)
       result := result bits.or (fragment << piece.source.low)
+
     for (bit in zero_bits):
       when bits.field(value, bit, bit + 1) != 0
       | error(~who: #'scatter, "immediate value sets an implicit-zero bit")
+
     result
 
   /* Validates a semantic signed or unsigned immediate before scattering it. */
@@ -173,6 +189,7 @@ class ImmediateLayout(name :: NonemptyString,
       | error(~who: #'encode, "signed immediate is out of range")
     | unless value >= 0 && value <= width_mask(width)
       | error(~who: #'encode, "unsigned immediate is out of range")
+
     scatter(value bits.and width_mask(width))
 
 /* Combines field masks while rejecting overlapping variable instruction slices. */
@@ -181,7 +198,9 @@ fun fields_mask(fields :: List.of(BitField), who :: Symbol):
   for (field in fields):
     when (mask bits.and field.mask()) != 0
     | error(~who: who, "instruction format fields must not overlap")
+
     mask := mask bits.or field.mask()
+
   mask
 
 /* Describes register operands, an optional immediate, auxiliary fields, and their combined variable-bit coverage. */
@@ -199,8 +218,10 @@ class InstructionFormat(name :: NonemptyString,
     unless !immediate || immediate is_a ImmediateLayout
     | error(~who: #'InstructionFormat,
             "format immediate must be an ImmediateLayout or #false")
+
     def immediate_fields:
       if immediate | immediate.source_fields() | []
+
     def variable_fields = operands.map(fun (operand): operand.field) ++ immediate_fields ++ auxiliary_fields
     def variable_mask = fields_mask(variable_fields, #'InstructionFormat)
     super(name,
@@ -280,6 +301,7 @@ def UImmediate = ImmediateLayout(
   [ImmediatePiece(u_immediate, 31, 12)],
   for List (bit in 0..12): bit
 )
+
 def JImmediate = ImmediateLayout(
   "J-immediate",
   21,

@@ -29,6 +29,7 @@ fun circt_shape_type(type :: HardwareType):
   def types :: CirctTypes = current_circt_types()
   unless types.shapes.has_key(type)
   | types.shapes[type] := render_circt_shape_type(type)
+
   types.shapes[type]
 
 /* Recursively renders physical scalar/record/vector shapes, treating clocks and resets as i1. */
@@ -67,6 +68,7 @@ fun circt_type(type :: HardwareType):
   def types :: CirctTypes = current_circt_types()
   unless types.rendered.has_key(type)
   | types.rendered[type] := render_circt_type(type)
+
   types.rendered[type]
 
 /* Renders supported CIRCT storage types, attaching shape-selected record aliases when present. */
@@ -105,6 +107,7 @@ fun collect_circt_record_aliases(design :: Design):
       if aliases.find(fun (alias): alias.name == candidate)
       | loop(index + 1)
       | candidate
+
     loop(0)
 
   /* Visits nested aggregate dependencies before interning a preferred record alias by physical shape. */
@@ -113,6 +116,7 @@ fun collect_circt_record_aliases(design :: Design):
     | record_type(type):
         for (field in type.fields):
           collect(field.type)
+
         when type.preferred_name
         | def key = circt_shape_type(type)
           unless types.aliases.has_key(key)
@@ -127,15 +131,20 @@ fun collect_circt_record_aliases(design :: Design):
   for (dpi_import in design.dpi_imports):
     for (type in dpi_import.input_types):
       collect(type)
+
     for (result in dpi_import.results):
       collect(result.type)
+
   for (module_def in design.modules):
     for (value in module_def.values):
       collect(value.type)
+
     for (place in module_def.places):
       collect(place.type)
+
     for (memory in module_def.memories):
       collect(memory.element_type)
+
   aliases
 
 /* Emits one ordered type scope, or no declaration for an empty alias inventory. */
@@ -189,8 +198,10 @@ fun operation_local_index(operation :: Operation):
        index in 0..operation.module_def.operations.length()):
     when candidate === operation
     | found := index
+
   unless found
   | error(~who: #'emit_circt, "operation is not owned by its module")
+
   found
 
 /* Tests one host integer bit when rendering packed decode cubes. */
@@ -237,12 +248,14 @@ fun emit_decode(operation :: Operation):
     if scalar_data_type(selector.type)
     | value_ref(selector)
     | operation_prefix ++ "_selector"
+
   def mutable lines:
     if scalar_data_type(selector.type)
     | []
     | [String.append("    ", selector_ref, " = hw.bitcast ", value_ref(selector),
                      " : (", circt_type(selector.type), ") -> i",
                      to_string(input_width))]
+
   def mutable zero_bit_ref = #false
   def mutable one_bit_ref = #false
   def mutable x_bit_ref = #false
@@ -255,18 +268,21 @@ fun emit_decode(operation :: Operation):
         | zero_bit_ref := operation_prefix ++ "_bit_zero"
           lines := lines ++ [String.append("    ", zero_bit_ref,
                                            " = hw.constant 0 : i1")]
+
         zero_bit_ref
     | "one":
         unless one_bit_ref
         | one_bit_ref := operation_prefix ++ "_bit_one"
           lines := lines ++ [String.append("    ", one_bit_ref,
                                            " = hw.constant 1 : i1")]
+
         one_bit_ref
     | "x":
         unless x_bit_ref
         | x_bit_ref := operation_prefix ++ "_bit_x"
           lines := lines ++ [String.append("    ", x_bit_ref,
                                            " = sv.constantX : i1")]
+
         x_bit_ref
 
   /* Materializes a partial output cube without choosing values for uncared
@@ -291,13 +307,16 @@ fun emit_decode(operation :: Operation):
               if decode_bit_set(value, index)
               | output_bit_ref("one")
               | output_bit_ref("zero")
+
         lines := lines ++ [String.append("    ", pattern_ref, " = comb.concat ",
                                          String.join(bit_refs, ", "), " : ",
                                          String.join(bit_refs.map(fun (_): "i1"), ", "))]
+
     pattern_ref
 
   def case_outputs = for List (case in cases, index in 0..cases.length()):
     emit_output_pattern(case[2], case[3], "case_" ++ to_string(index))
+
   def default_output = emit_output_pattern(operation.attribute("default_value"),
                                            operation.attribute("default_care"),
                                            "default")
@@ -315,6 +334,7 @@ fun emit_decode(operation :: Operation):
                        String.append("        sv.bpassign ", result_variable, ", ",
                                      case_output, " : i", to_string(output_width)),
                        "      }"]
+
   lines := lines ++ ["      default: {",
                      String.append("        sv.bpassign ", result_variable, ", ",
                                    default_output, " : i", to_string(output_width)),
@@ -324,6 +344,7 @@ fun emit_decode(operation :: Operation):
     if scalar_data_type(result.type)
     | value_ref(result)
     | operation_prefix ++ "_packed_result"
+
   lines := lines ++ [String.append("    ", packed_result_ref, " = sv.read_inout ",
                                    result_variable, " : !hw.inout<i",
                                    to_string(output_width), ">")]
@@ -331,6 +352,7 @@ fun emit_decode(operation :: Operation):
   | lines := lines ++ [String.append("    ", value_ref(result), " = hw.bitcast ",
                                      packed_result_ref, " : (i", to_string(output_width),
                                      ") -> ", circt_type(result.type))]
+
   String.join(lines, "\n")
 
 /* Renders a two-operand Comb operation at the verified result width. */
@@ -355,9 +377,11 @@ fun emit_sign_extension(source_ref :: String,
   def sign_operands:
     for List (_index in 0..extension_width):
       sign_ref
+
   def operand_refs = sign_operands ++ [source_ref]
   def operand_types:
     (for List (_index in 0..extension_width): "i1") ++ [circt_type(source_type)]
+
   String.append("    ", sign_ref, " = comb.extract ", source_ref,
                 " from ", to_string(source_width - 1), " : (",
                 circt_type(source_type), ") -> i1\n",
@@ -407,6 +431,7 @@ fun emit_shift(operation :: Operation,
                             "    ", widened_value_ref, " = comb.concat ", zero_ref, ", ",
                             value_ref(value), " : i", to_string(zero_width), ", ",
                             circt_type(value.type))
+
         String.append(widen_lines, "\n",
                       "    ", wide_result_ref, " = ", circt_opcode, " ",
                       widened_value_ref, ", ", value_ref(amount), " : ",
@@ -475,6 +500,7 @@ fun emit_mux_lookup(operation :: Operation):
           if remaining == 0
           | value_ref(result)
           | "%__rhodium_mux_step_" ++ to_string(operation.id) ++ "_" ++ suffix
+
         lines := lines ++ [String.append("    ", key_ref, " = hw.constant ",
                                          to_string(key), " : ",
                                          circt_type(selector.type)),
@@ -486,6 +512,7 @@ fun emit_mux_lookup(operation :: Operation):
                                          ", ", selected_ref, " : ",
                                          circt_type(result.type))]
         selected_ref := step_ref
+
       String.join(lines, "\n")
 
 /* A one-hot mux has a deliberately partial contract: exactly one selector bit
@@ -501,6 +528,7 @@ fun emit_onehot_mux(operation :: Operation):
     if scalar_data_type(result.type)
     | value_ref(result)
     | prefix ++ "_result"
+
   def mutable lines = []
   def mutable leaves = []
   for (choice in choices, index in 0..choices.length()):
@@ -509,39 +537,47 @@ fun emit_onehot_mux(operation :: Operation):
       if choices.length() == 1
       | value_ref(selector)
       | prefix ++ "_select_" ++ suffix
+
     when choices.length() != 1
     | lines := lines ++ [String.append(
         "    ", selector_bit_ref, " = comb.extract ", value_ref(selector),
         " from ", suffix, " : (", circt_type(selector.type), ") -> i1"
       )]
+
     def packed_choice_ref:
       if scalar_data_type(choice.type)
       | value_ref(choice)
       | prefix ++ "_choice_" ++ suffix
+
     unless scalar_data_type(choice.type)
     | lines := lines ++ [String.append(
         "    ", packed_choice_ref, " = hw.bitcast ", value_ref(choice),
         " : (", circt_type(choice.type), ") -> i", to_string(width)
       )]
+
     def mask_ref:
       if width == 1
       | selector_bit_ref
       | prefix ++ "_mask_" ++ suffix
+
     when width != 1
     | lines := lines ++ [String.append(
         "    ", mask_ref, " = comb.concat ",
         String.join(for List (_index in 0..width): selector_bit_ref, ", "),
         " : ", String.join(for List (_index in 0..width): "i1", ", ")
       )]
+
     def leaf_ref:
       if choices.length() == 1
       | packed_result_ref
       | prefix ++ "_gated_" ++ suffix
+
     lines := lines ++ [String.append(
       "    ", leaf_ref, " = comb.and ", packed_choice_ref, ", ", mask_ref,
       " : i", to_string(width)
     )]
     leaves := leaves ++ [leaf_ref]
+
   def mutable level = 0
   def mutable current = leaves
   while current.length() > 1:
@@ -553,6 +589,7 @@ fun emit_onehot_mux(operation :: Operation):
         if current.length() == 2
         | packed_result_ref
         | String.append(prefix, "_or_", to_string(level), "_", to_string(pair_index))
+
       lines := lines ++ [String.append(
         "    ", combined_ref, " = comb.or ", remaining[0], ", ", remaining[1],
         " : i", to_string(width)
@@ -560,15 +597,19 @@ fun emit_onehot_mux(operation :: Operation):
       next := next ++ [combined_ref]
       remaining := remaining.drop(2)
       pair_index := pair_index + 1
+
     when remaining.length() == 1
     | next := next ++ [remaining[0]]
+
     current := next
     level := level + 1
+
   unless scalar_data_type(result.type)
   | lines := lines ++ [String.append(
       "    ", value_ref(result), " = hw.bitcast ", packed_result_ref,
       " : (i", to_string(width), ") -> ", circt_type(result.type)
     )]
+
   String.join(lines, "\n")
 
 /* Concatenates operand bits in core order with explicit per-operand CIRCT types. */
@@ -579,6 +620,7 @@ fun emit_concat(operation :: Operation):
     operation.operands.map(fun (operand): circt_type(operand.type)),
     ", "
   )
+
   String.append("    ", value_ref(result), " = comb.concat ", operands,
                 " : ", operand_types)
 
@@ -757,10 +799,13 @@ fun emit_vector_write_set(operation :: Operation):
         next := next ++ [combined_ref]
         remaining := remaining.drop(2)
         pair_index := pair_index + 1
+
       when remaining.length() == 1
       | next := next ++ [remaining[0]]
+
       current := next
       level := level + 1
+
     current[0]
 
   def mutable result_element_refs = []
@@ -786,6 +831,7 @@ fun emit_vector_write_set(operation :: Operation):
         if scalar_data_type(vector.type.element_type)
         | data_refs[port_index]
         | prefix ++ "_packed_data_" ++ suffix ++ "_" ++ port_suffix
+
       lines := lines ++ [String.append(
         "    ", compare_ref, " = comb.icmp eq ", index_refs[port_index], ", ",
         destination_ref, " : ", circt_type(indices.type.element_type)
@@ -799,6 +845,7 @@ fun emit_vector_write_set(operation :: Operation):
           " : (", circt_type(vector.type.element_type), ") -> i",
           to_string(element_width)
         )]
+
       hit_refs := hit_refs ++ [hit_ref]
       if port_count == 1
       | gated_data_refs := gated_data_refs ++ [packed_data_ref]
@@ -807,6 +854,7 @@ fun emit_vector_write_set(operation :: Operation):
             if element_width == 1
             | hit_ref
             | prefix ++ "_mask_" ++ suffix ++ "_" ++ port_suffix
+
           when element_width != 1
           | lines := lines ++ [String.append(
               "    ", mask_ref, " = comb.concat ",
@@ -814,12 +862,14 @@ fun emit_vector_write_set(operation :: Operation):
               " : ",
               String.join(for List (_index in 0..element_width): "i1", ", ")
             )]
+
           def gated_data_ref = prefix ++ "_gated_data_" ++ suffix ++ "_" ++ port_suffix
           lines := lines ++ [String.append(
             "    ", gated_data_ref, " = comb.and ", packed_data_ref, ", ",
             mask_ref, " : i", to_string(element_width)
           )]
           gated_data_refs := gated_data_refs ++ [gated_data_ref]
+
     def any_hit_ref = reduce_or(hit_refs,
                                 1,
                                 prefix ++ "_any_hit_" ++ suffix)
@@ -830,15 +880,18 @@ fun emit_vector_write_set(operation :: Operation):
       if scalar_data_type(vector.type.element_type)
       | old_ref
       | prefix ++ "_packed_old_" ++ suffix
+
     unless scalar_data_type(vector.type.element_type)
     | lines := lines ++ [String.append(
         "    ", packed_old_ref, " = hw.bitcast ", old_ref, " : (",
         circt_type(vector.type.element_type), ") -> i", to_string(element_width)
       )]
+
     def element_ref:
       if scalar_data_type(vector.type.element_type)
       | prefix ++ "_result_element_" ++ suffix
       | prefix ++ "_packed_result_element_" ++ suffix
+
     lines := lines ++ [String.append(
       "    ", element_ref, " = comb.mux ", any_hit_ref, ", ",
       merged_data_ref, ", ", packed_old_ref, " : i", to_string(element_width)
@@ -847,11 +900,13 @@ fun emit_vector_write_set(operation :: Operation):
       if scalar_data_type(vector.type.element_type)
       | element_ref
       | prefix ++ "_result_element_" ++ suffix
+
     unless scalar_data_type(vector.type.element_type)
     | lines := lines ++ [String.append(
         "    ", result_element_ref, " = hw.bitcast ", element_ref, " : (i",
         to_string(element_width), ") -> ", circt_type(vector.type.element_type)
       )]
+
     result_element_refs := result_element_refs ++ [result_element_ref]
 
   lines := lines ++ [String.append(
@@ -890,6 +945,7 @@ fun emit_memory(operation :: Operation):
   def writes = operation.module_def.operations.filter(
     ~keep: fun (candidate): candidate.opcode == "rtl.memory_write" && candidate.attribute("memory", #false) === memory
   )
+
   def write = if writes.length() == 0 | #false | writes[0]
   def clock_ref = "%__rhodium_memory_clock_" ++ to_string(memory.id)
   def reset_ref = "%__rhodium_memory_reset_" ++ to_string(memory.id)
@@ -898,6 +954,7 @@ fun emit_memory(operation :: Operation):
     | String.append("    ", clock_ref, " = seq.to_clock ",
                     value_ref(write.operands[2]))
     | String.append("    ", clock_ref, " = seq.const_clock low")
+
   String.append(clock_text, "\n",
                 "    ", reset_ref, " = hw.constant 0 : i1\n",
                 "    ", memory_ref(memory), " = seq.hlmem @", memory.name,
@@ -930,11 +987,13 @@ fun sync_memory_type(operation :: Operation):
   unless width is_a PosInt
   | error(~who: #'emit_circt,
           "synchronous memory element type must have a packed width")
+
   def mask_granularity = operation.attribute("mask_granularity", #false)
   def mask_width:
     if !mask_granularity
     | #false
     | width / mask_granularity
+
   String.append("!seq.firmem<", to_string(operation.attribute("depth")),
                 " x ", to_string(width),
                 if mask_width | ", mask " ++ to_string(mask_width) | "",
@@ -953,6 +1012,7 @@ fun emit_sync_memory(operation :: Operation):
     if !mask_granularity
     | #false
     | element_type.packed_width() / mask_granularity
+
   def mutable place_index = 0
   def mutable result_index = 0
   def mutable port_operations = []
@@ -972,6 +1032,7 @@ fun emit_sync_memory(operation :: Operation):
             selected
         | masked
     | original
+
   when operation.attribute("has_read")
   | def address = operation.places[place_index]
     def enable = operation.places[place_index + 1]
@@ -980,6 +1041,7 @@ fun emit_sync_memory(operation :: Operation):
       if flat_element
       | value_ref(result)
       | "%__rhodium_sync_memory_read_data_" ++ to_string(operation.id)
+
     port_operations := port_operations ++ [
       String.append("    ", port_result_ref,
                     " = seq.firmem.read_port ", memory_ref, "[",
@@ -992,25 +1054,30 @@ fun emit_sync_memory(operation :: Operation):
                       port_result_ref, " : (", packed_type, ") -> ",
                       circt_type(element_type))
       ]
+
     place_index := place_index + 2
     result_index := result_index + 1
+
   when operation.attribute("has_write")
   | def address = operation.places[place_index]
     def data = operation.places[place_index + 1]
     def enable = operation.places[place_index + 2]
     def mask:
       if mask_width | operation.places[place_index + 3] | #false
+
     def enable_ref = port_enable(enable, mask, #false)
     def port_data_ref:
       if flat_element
       | value_ref(data.driver)
       | "%__rhodium_sync_memory_write_data_" ++ to_string(operation.id)
+
     unless flat_element
     | port_operations := port_operations ++ [
         String.append("    ", port_data_ref, " = hw.bitcast ",
                       value_ref(data.driver), " : (", circt_type(element_type),
                       ") -> ", packed_type)
       ]
+
     port_operations := port_operations ++ [
       String.append("    seq.firmem.write_port ", memory_ref, "[",
                     value_ref(address.driver), "] = ", port_data_ref,
@@ -1020,7 +1087,9 @@ fun emit_sync_memory(operation :: Operation):
                     " : ", memory_type,
                     if mask_width | ", i" ++ to_string(mask_width) | "")
     ]
+
     place_index := place_index + 3 + (if mask_width | 1 | 0)
+
   when operation.attribute("has_read_write")
   | def address = operation.places[place_index]
     def enable = operation.places[place_index + 1]
@@ -1028,22 +1097,26 @@ fun emit_sync_memory(operation :: Operation):
     def write_data = operation.places[place_index + 3]
     def write_mask:
       if mask_width | operation.places[place_index + 4] | #false
+
     def read_data = operation.results[result_index]
     def enable_ref = port_enable(enable, write_mask, write)
     def port_write_data_ref:
       if flat_element
       | value_ref(write_data.driver)
       | "%__rhodium_sync_memory_read_write_input_" ++ to_string(operation.id)
+
     def port_read_data_ref:
       if flat_element
       | value_ref(read_data)
       | "%__rhodium_sync_memory_read_write_output_" ++ to_string(operation.id)
+
     unless flat_element
     | port_operations := port_operations ++ [
         String.append("    ", port_write_data_ref, " = hw.bitcast ",
                       value_ref(write_data.driver), " : (",
                       circt_type(element_type), ") -> ", packed_type)
       ]
+
     port_operations := port_operations ++ [
       String.append("    ", port_read_data_ref,
                     " = seq.firmem.read_write_port ", memory_ref, "[",
@@ -1056,12 +1129,14 @@ fun emit_sync_memory(operation :: Operation):
                     " : ", memory_type,
                     if mask_width | ", i" ++ to_string(mask_width) | "")
     ]
+
     unless flat_element
     | port_operations := port_operations ++ [
         String.append("    ", value_ref(read_data), " = hw.bitcast ",
                       port_read_data_ref, " : (", packed_type, ") -> ",
                       circt_type(element_type))
       ]
+
   String.append("    ", clock_ref, " = seq.to_clock ",
                 value_ref(operation.operands[0]), "\n",
                 "    ", memory_ref,
@@ -1075,10 +1150,12 @@ fun emit_dpi_import(dpi_import :: DpiImport):
   def inputs:
     for List (name in dpi_import.input_names, type in dpi_import.input_types):
       "in %" ++ name ++ " : " ++ circt_type(type)
+
   def arguments:
     inputs ++ dpi_import.results.map(
       fun (result): result.direction ++ " " ++ result.name ++ " : " ++ circt_type(result.type)
     )
+
   String.append("  sim.func.dpi @", dpi_import.name, "(",
                 String.join(arguments, ", "),
                 ")")
@@ -1115,12 +1192,14 @@ fun emit_dpi_operation(operation :: Operation):
     if operation.results == []
     | ""
     | String.join(operation.results.map(value_ref), ", ") ++ " = "
+
   def result_type:
     if operation.results == []
     | "()"
     | if operation.results.length() == 1
       | circt_type(operation.results[0].type)
       | "(" ++ String.join(operation.results.map(fun (result): circt_type(result.type)), ", ") ++ ")"
+
   String.append("    ", clock_ref, " = seq.to_clock ",
                 value_ref(operation.operands[0]), "\n",
                 "    ", result_prefix, "sim.func.dpi.call @",
@@ -1140,12 +1219,14 @@ fun emit_register(operation :: Operation):
                     value_ref(operation.operands[1]), ", ",
                     value_ref(operation.operands[2]))
     | ""
+
   def attribute_text:
     if current_circt_sync_register_ids().find(
          fun (id): id == operation.id
        )
     | " {sv.attributes = [#sv.attribute<\"async_reg\" = \"\\\"TRUE\\\"\">]}"
     | ""
+
   String.append("    ", clock_ref, " = seq.to_clock ", value_ref(clock), "\n",
                 "    ", value_ref(current), " = seq.firreg ",
                 value_ref(next.driver), " clock ", clock_ref,
@@ -1163,13 +1244,17 @@ fun emit_instance(operation :: Operation):
       String.append(port.name, ": ",
                     value_ref(place.driver), ": ",
                     circt_type(port.type))
+
     inputs := inputs ++ [input_text]
+
   for (port in child.outputs):
     outputs := outputs ++ [port.name ++ ": " ++ circt_type(port.type)]
+
   def result_prefix:
     if operation.results.length() == 0
     | ""
     | String.join(operation.results.map(value_ref), ", ") ++ " = "
+
   String.append("    ", result_prefix,
                 "hw.instance \"", instance_name, "\" @", child.name,
                 "(", String.join(inputs, ", "), ") -> (",
@@ -1282,15 +1367,18 @@ fun render_module_circt(module_def :: Module):
       fun (port):
         "out " ++ port.name ++ " : " ++ circt_type(port.type)
     )
+
   def mutable sync_register_ids = []
   for (operation in module_def.operations):
     when operation.opcode == "cdc.sync_level"
     | sync_register_ids := sync_register_ids ++ operation.operands.drop(2).map(
         fun (stage): stage.defining_op_id
       )
+
   def operations:
     parameterize { current_circt_sync_register_ids: sync_register_ids }:
       module_def.operations.map(emit_operation).filter(~keep: fun (text): text != "")
+
   def output_values = module_def.outputs.map(fun (port): value_ref(port.place.driver))
   def output_types = module_def.outputs.map(fun (port): circt_type(port.type))
   def output:
@@ -1298,6 +1386,7 @@ fun render_module_circt(module_def :: Module):
     | "    hw.output"
     | String.append("    hw.output ", String.join(output_values, ", "),
                     " : ", String.join(output_types, ", "))
+
   String.append("  hw.module @", module_def.name,
                 "(", String.join(ports, ", "), ") {\n",
                 String.join(operations ++ [output], "\n"),

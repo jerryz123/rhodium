@@ -29,6 +29,7 @@ for ([config, description] in systems):
     def attributes = region.physical.attributes
     def contained = for any (memory in description.memory_regions):
       memory.address_set.contains(region.physical.address_set.base) && memory.address_set.contains(region.physical.address_set.base + region.physical.address_set.mask)
+
     check:
       region.home.kind ~is CHINodeKind.HNF
       attributes.executable ~is #true
@@ -43,7 +44,9 @@ for ([config, description] in systems):
       // All bytes of every line must select the same coherent Home.
       region.physical.address_set.mask bits.and 63 ~is 63
       contained ~is #true
+
     mapped_bytes := mapped_bytes + address_count(region.physical.address_set.mask)
+
   // The sparse tiled bank sets must partition, not merely sample, described RAM.
   // RiscvHartCHIConfig already rejects overlapping regions. Cardinality plus
   // containment proves that no described RAM byte is omitted from these PMAs.

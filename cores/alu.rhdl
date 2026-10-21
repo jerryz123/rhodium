@@ -113,6 +113,7 @@ circuit ALU(xlen :: XLen):
       [AluLogicRightSelect.ConditionalMask, conditional_mask]
     ]
   )
+
   def logic_right = mux(control.invert_right, !logic_right_source, logic_right_source)
   def xor_result = left ^ logic_right
   def and_result = left & logic_right
@@ -135,6 +136,7 @@ circuit ALU(xlen :: XLen):
     if xlen == XLen.X64
     | mux(control.arithmetic_shift, low_word.into(SInt(32)).sext(64).as_bits(), unsigned_word_left)
     | left
+
   def shift_source = if xlen == XLen.X64 | mux(control.word, word_shift_source, mux(control.unsigned_word, unsigned_word_left, left)) | left
   def reversed_shift_source :: Bits(width) = concat(for List (index in 0..width): shift_source[index])
   def shifter_input = mux(control.shift_right, shift_source, reversed_shift_source)
@@ -164,6 +166,7 @@ circuit ALU(xlen :: XLen):
     if xlen == XLen.X64
     | mux(control.word, reversed_word_count_source.zext(width), reversed_full_count_source)
     | reversed_full_count_source
+
   def count_input = mux(control.count_select === AluCountSelect.Leading, reversed_count_source, count_source)
   def count_index = priority_encoder(count_input)
   def active_count_width = if xlen == XLen.X64 | mux(control.word, Bits(width)(32), Bits(width)(width)) | Bits(width)(width)
@@ -175,9 +178,11 @@ circuit ALU(xlen :: XLen):
   // logic, shift and count resources.
   def byte_results = for List (byte in 0..(width / 8)):
     mux(left[(byte * 8)..((byte + 1) * 8)].or_reduce(), Bits(8)(0xff), Bits(8)(0))
+
   def or_combine_bytes = concat(byte_results.reverse())
   def reversed_bytes = for List (byte in 0..(width / 8)):
     left[(byte * 8)..((byte + 1) * 8)]
+
   def reverse_bytes = concat(reversed_bytes)
   def unary_result :: Bits(width) = mux_lookup(
     control.unary_select,

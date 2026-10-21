@@ -57,6 +57,7 @@ fun clocking_target(~environment: environment :: maybe(Function.of_arity(1)) = #
     for (module_def in prepared.rtl.design.modules):
       when !(module_def === prepared.rtl.top) && has_clocking_declarations(module_def)
       | error(~who: #'clocking_target, "clocking environment declarations must belong to the elaborated top circuit")
+
     def declared = module_clocking_environment(prepared.rtl.top)
     def extra :: TemporalEnvironment = if environment | environment(prepared.rtl.top) | TemporalEnvironment()
     def resolved = TemporalEnvironment(declared.input_contracts ++ extra.input_contracts, declared.clock_relationships ++ extra.clock_relationships)
@@ -64,4 +65,5 @@ fun clocking_target(~environment: environment :: maybe(Function.of_arity(1)) = #
     def errors = summary.cdc_violations.map(fun (violation): finding_diagnostic("clocking.cdc-violation", "error", cdc_violation_message(violation), violation.operation, violation.instance_path))
     def warnings = summary.reconvergences.map(fun (finding): finding_diagnostic("clocking.reconvergence", "warning", reconvergence_message(finding), finding.operation, finding.instance_path))
     ClockingPlan(prepared, ClockingReport(summary, prepared.rtl.design.modules.map(summarize_module_clocking)), errors ++ warnings)
+
   CompilationTarget("clocking", prepare)

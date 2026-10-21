@@ -21,11 +21,14 @@ fun table_matches_materialized(validated):
     def allowed_count = decisions.filter(
       ~keep: fun (decision): decision.allowed
     ).length()
+
     unless row.allowed_vcs.length() == allowed_count
     | matches := #false
+
     for (decision in decisions):
       unless row.allows(decision.candidate_vc) == decision.allowed
       | matches := #false
+
   matches
 
 def cycle_is_adaptive = irregular_whole_graph_result is_a DependencyCycle && for all (edge in irregular_whole_graph_result.edges):

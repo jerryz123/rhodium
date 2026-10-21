@@ -13,6 +13,7 @@ import:
 bundle FetchDecode(xlen :: XLen, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
+
   pc: Bits(xlen.width)
   instruction: Bits(32)
   raw_instruction: Bits(32)

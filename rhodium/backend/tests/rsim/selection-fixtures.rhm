@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_selection
 
 fun make_selection(width :: PosInt):
@@ -26,7 +27,9 @@ fun make_selection(width :: PosInt):
   fun packet(first :: Value, second :: Value, header :: Value, mark0 :: Nat, mark1 :: Nat):
     def members = for List (value in [first, second], mark in [mark0, mark1]):
       b.record_create(top, element, [["lo", value], ["mark", b.constant(top, Bits(3), mark)]])
+
     b.record_create(top, packet_type, [["tag", header], ["data", b.vector_create(top, vector, members)]])
+
   def packets = [packet(a, z, tag, 1, 2),
                  packet(b.add(top, z, b.constant(top, Bits(width), 1)), b.bit_not(top, a), b.bit_not(top, tag), 3, 4),
                  packet(c, d, b.constant(top, Bits(5), 17), 5, 6)]
@@ -80,5 +83,6 @@ fun make_selection(width :: PosInt):
     def reg = b.register(top, "q_" ++ entry[0], value.type, clock, reset, initial)
     b.drive(reg.next, value)
     b.drive(b.output(top, "sample_" ++ entry[0], value.type), reg.current)
+
   b.finish(top)
   DesignElaboration(design, top)

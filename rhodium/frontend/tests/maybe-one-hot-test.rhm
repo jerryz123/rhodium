@@ -36,6 +36,7 @@ check:
   onehot_muxes.filter(~keep: fun (operation): operation.operands.length() == 4).length() ~is 1
   (for all (onehot_mux in onehot_muxes):
      type_equal(onehot_mux.results[0].type, Bits(8))) ~is #true
+
   verify_design(design) ~is #void
 
   bool.MaybeOneHot(0) ~throws "PosInt"

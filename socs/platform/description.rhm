@@ -22,9 +22,11 @@ class SoCClockConfig(clock_frequency_hz :: PosInt,
     unless timebase_frequency_hz <= clock_frequency_hz
     | error(~who: #'SoCClockConfig,
             "timebase frequency must not exceed the SoC clock frequency")
+
     unless clock_frequency_hz mod timebase_frequency_hz == 0
     | error(~who: #'SoCClockConfig,
             "SoC clock frequency must be an integer multiple of the timebase frequency")
+
     super(clock_frequency_hz, timebase_frequency_hz)
 
   property timebase_period_cycles :: PosInt:
@@ -39,6 +41,7 @@ class SoCAddressRegion(address_set :: AddressSet):
     unless (address_set.mask bits.and (address_set.mask + 1)) == 0
     | error(~who: #'SoCAddressRegion,
             "architectural address regions must be contiguous")
+
     super(address_set)
 
   property base :: Nat: address_set.base
@@ -74,6 +77,7 @@ class RiscvBootLayout(rom :: SoCAddressRegion,
     unless rom.contains(reset_address)
     | error(~who: #'RiscvBootLayout,
             "reset address must lie in the BootROM region")
+
     super(rom, reset_address, payload_address, address_register)
 
 /* Associates the CLINT-compatible local interrupt and timer device with its architectural MMIO region. */
@@ -106,6 +110,7 @@ class RiscvPlicContext(hart :: Nat,
     unless interrupt == InterruptCause.MachineExternal || interrupt == InterruptCause.SupervisorExternal
     | error(~who: #'RiscvPlicContext,
             "PLIC contexts must target machine or supervisor external interrupts")
+
     super(hart, interrupt)
 
 /* Describes the controller window, priority width, implemented sources, and ordered MMIO contexts. */
@@ -126,12 +131,14 @@ class RiscvPlicDescription(region :: SoCAddressRegion,
       ).length() == 1
       | error(~who: #'RiscvPlicDescription,
               "PLIC source IDs must be unique")
+
     for (context in contexts):
       unless contexts.filter(
         ~keep: fun (candidate): candidate.hart == context.hart && candidate.interrupt == context.interrupt
       ).length() == 1
       | error(~who: #'RiscvPlicDescription,
               "PLIC hart and interrupt context pairs must be unique")
+
     super(region, priority_width, sources, contexts)
 
   // IDs may be sparse; ndev describes the implemented ID range, not its usage.
@@ -140,6 +147,7 @@ class RiscvPlicDescription(region :: SoCAddressRegion,
     for (source in sources):
       when source.source_id > count
       | count := source.source_id
+
     count
 
 def RiscvMachineSoftwareInterrupt = 3
@@ -175,7 +183,9 @@ fun cpu_node(hart :: Nat,
       unless description.cbo_block_bytes is_a PosInt
       | error(~who: #'cpu_node,
               "Zicboz requires a CBO block size")
+
       cache_block_properties := [DeviceTreeProperty("riscv,cboz-block-size", DeviceTreeU32(description.cbo_block_bytes))]
+
   DeviceTreeNode(
     "cpu@" ++ unit_address(hart),
     [DeviceTreeProperty("device_type", DeviceTreeString("cpu")),
@@ -233,6 +243,7 @@ fun aclint_node(aclint :: RiscvAclintDescription,
       DeviceTreePhandle(interrupt_controller),
       DeviceTreeU32(RiscvMachineTimerInterrupt)
     ]
+
   DeviceTreeNode(
     "clint@" ++ unit_address(aclint.region.base),
     [DeviceTreeProperty("compatible", DeviceTreeString("riscv,clint0")),
@@ -249,6 +260,7 @@ fun plic_node(plic :: RiscvPlicDescription):
       DeviceTreePhandle(cpu_interrupt_label(context.hart)),
       DeviceTreeU32(interrupt_code(context.interrupt))
     ]
+
   DeviceTreeNode(
     "interrupt-controller@" ++ unit_address(plic.region.base),
     [DeviceTreeProperty("compatible", DeviceTreeString("sifive,plic-1.0.0")),
@@ -286,8 +298,10 @@ fun soc_node(harts :: NonemptyList.of(Nat),
   def mutable children = [aclint_node(aclint, harts)]
   when plic is_a RiscvPlicDescription
   | children := children ++ [plic_node(plic)]
+
   when uart is_a RiscvUartDescription
   | children := children ++ [uart_node(uart, clocks)]
+
   DeviceTreeNode(
     "soc",
     [DeviceTreeProperty("#address-cells", DeviceTreeU32(2)),
@@ -308,6 +322,7 @@ fun require_unique_harts(harts :: NonemptyList.of(Nat), description :: RiscvHart
   for (hart in harts):
     unless hart < (1 << description.xlen.width)
     | error(~who: #'RiscvSoCDescription, "hart ID must fit XLEN")
+
     unless harts.filter(~keep: fun (candidate): candidate == hart).length() == 1
     | error(~who: #'RiscvSoCDescription, "hart IDs must be unique")
 
@@ -348,23 +363,31 @@ class RiscvSoCDescription(model :: NonemptyString,
     unless for any (region in memory_regions): region.contains(boot.payload_address)
     | error(~who: #'RiscvSoCDescription,
             "boot payload address must lie in architectural memory")
+
     def mutable regions = memory_regions ++ [boot.rom, aclint.region]
     when boot.address_register is_a SoCAddressRegion
     | regions := regions ++ [boot.address_register]
+
     when plic is_a RiscvPlicDescription
     | for (context in plic.contexts):
         unless for any (hart in harts): hart == context.hart
         | error(~who: #'RiscvSoCDescription,
                 "PLIC contexts must reference described harts")
+
       regions := regions ++ [plic.region]
+
     when uart is_a RiscvUartDescription
     | unless plic is_a RiscvPlicDescription
       | error(~who: #'RiscvSoCDescription, "UART interrupt requires a described PLIC")
+
       unless uart.interrupt.controller.address_set == plic.region.address_set
       | error(~who: #'RiscvSoCDescription, "UART interrupt must reference the described PLIC region")
+
       unless for any (source in plic.sources): source.source_id == uart.interrupt.source_id
       | error(~who: #'RiscvSoCDescription, "UART interrupt must reference a described PLIC source")
+
       regions := regions ++ [uart.region]
+
     require_disjoint_regions(regions)
     super(model,
           compatible,

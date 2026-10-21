@@ -92,18 +92,21 @@ fun riscv_float_immediate(format :: FloatFormat, index :: Bits(5)) :~ IEEEFloat(
 fun riscv_nan_box(format :: FloatFormat, value :: IEEEFloat(format), width :: PosInt) :~ Bits(width):
   unless width >= format.ieee_width
   | error(~who: #'riscv_nan_box, "container width must cover the floating-point value")
+
   if width == format.ieee_width | value.as_bits() | (Bits(width - format.ieee_width)((1 << (width - format.ieee_width)) - 1) ++ value.as_bits())
 
 /* Checks all-one upper bits of a nonnarrower NaN-boxed container. */
 fun riscv_nan_box_valid(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ Bool:
   unless width >= format.ieee_width
   | error(~who: #'riscv_nan_box_valid, "container width must cover the floating-point value")
+
   if width == format.ieee_width | Bool(#true) | value[format.ieee_width..width].and_reduce()
 
 /* Extracts a valid NaN-boxed value or substitutes the canonical NaN when boxing is malformed. */
 fun riscv_unbox(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ IEEEFloat(format):
   unless width >= format.ieee_width
   | error(~who: #'riscv_unbox, "container width must cover the floating-point value")
+
   def payload = if width == format.ieee_width | value | value[0..format.ieee_width]
   mux(riscv_nan_box_valid(format, width, value), payload.into(IEEEFloat(format)), riscv_canonical_nan(format))
 
@@ -118,12 +121,14 @@ fun riscv_sign_inject(format :: FloatFormat, left :: IEEEFloat(format), right ::
 fun riscv_float_to_integer_move(xlen :: XLen, format :: FloatFormat, value :: IEEEFloat(format)) :~ Bits(xlen.width):
   unless format.ieee_width <= xlen.width
   | error(~who: #'riscv_float_to_integer_move, "floating-point value must fit XLEN")
+
   if format.ieee_width == xlen.width | value.as_bits() | value.as_bits().into(SInt(format.ieee_width)).sext(xlen.width).as_bits()
 
 /* Reinterprets the low IEEE-width integer bits without numeric conversion or NaN-box validation. */
 fun riscv_integer_to_float_move(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ IEEEFloat(format):
   unless width >= format.ieee_width
   | error(~who: #'riscv_integer_to_float_move, "integer value must cover the floating-point value")
+
   if width == format.ieee_width | value.into(IEEEFloat(format)) | value[0..format.ieee_width].into(IEEEFloat(format))
 
 /* Returns the architectural ten-bit floating classification mask using HardFloat's recoded classifier. */

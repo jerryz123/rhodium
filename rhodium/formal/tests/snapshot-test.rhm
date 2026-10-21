@@ -89,6 +89,7 @@ block:
   def places = rkt.#{hash-ref}(module_data, "places")
   def forward_place:
     places.find(fun (place): rkt.#{hash-ref}(place, "name") == "forward")
+
   check:
     rkt.#{hash-ref}(forward_place, "driver") ~is source.id
 
@@ -134,17 +135,20 @@ block:
                     [0b001, 0b011, 0b10, 0b11]],
                    0b11,
                    0b11)
+
   builder.drive(result, decoded)
   def snapshot = formal_snapshot(builder.finish(module_def))
   def operations = rkt.#{hash-ref}(rkt.#{hash-ref}(snapshot, "modules")[0],
                                    "operations")
   def decode_operation:
     operations.find(fun (operation): rkt.#{hash-ref}(operation, "opcode") == "rtl.decode")
+
   def attributes = rkt.#{hash-ref}(decode_operation, "attributes")
   def expected_cases = [[0b000, 0b011, 0b01, 0b11],
                         [0b001, 0b011, 0b10, 0b11]]
   def expected_pair_cases:
     PairList[& expected_cases.map(fun (row): PairList[& row])]
+
   check:
     rkt.#{hash-ref}(attributes, "cases") ~is expected_pair_cases
     rkt.#{hash-ref}(attributes, "default_value") ~is 0b11

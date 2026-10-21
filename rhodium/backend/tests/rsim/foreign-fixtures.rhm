@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export:
   make_foreign
   Signed
@@ -48,6 +49,7 @@ fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_w
     // Procedure arguments depend on held state, not just external inputs.
     def proc = b.dpi_import("rsim_observe" ++ suffix, ["tag", "data"], [Bits(8), type])
     b.dpi_call(leaf, proc, [tag, result], b.read(alias), enable)
+
   def packed_seed = b.input(leaf, "packed_seed", Bits(64))
   for (width in [3, 5, 31, 33, 63]):
     def suffix = to_string(width)
@@ -63,17 +65,20 @@ fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_w
       b.drive(consumer.next, value)
       b.drive(b.output(leaf, "packed_" ++ kind ++ suffix, value.type), value)
       b.drive(b.output(leaf, "packed_sample_" ++ kind ++ suffix, value.type), consumer.current)
+
     def proc = b.dpi_import("rsim_packed_observe" ++ suffix, ["tag", "data"], [Bits(8), type])
     b.dpi_call(leaf, proc, [tag, result[0]], b.read(alias), enable)
     // Allocate packed buffers even when only a different result is consumed.
     def partial = b.dpi_register_results(leaf, ["packed_unused_out" ++ suffix, "packed_unused_native" ++ suffix, "packed_used_return" ++ suffix], imp, [b.add(leaf, tag, b.constant(leaf, Bits(8), 10)), data, packed_seed], b.read(alias), enable)
     b.drive(b.output(leaf, "packed_partial" ++ suffix, return_type), partial[2])
+
   def group_enable = b.input(leaf, "group_enable", Bits(1))
   def group_data = b.input(leaf, "group_data", Bits(64))
   def group_argument = b.wire(leaf, "group_argument", Bits(64))
   def group_types = [Bits(1), Bits(8), Signed(16), Bits(32), Signed(64), Signed(16)]
   def group_results = for List (type in group_types, index in 0..group_types.length()):
     DpiResult("result" ++ to_string(index), type, if index == 5 | "return" | "out")
+
   def group_import = b.dpi_import_results("rsim_group", ["tag", "data"], [Bits(8), Bits(64)], group_results)
   def group_names = for List (index in 0..group_types.length()): "group" ++ to_string(index)
   def group = b.dpi_register_results(leaf, group_names, group_import, [tag, b.read(group_argument)], b.read(alias), group_enable)
@@ -87,6 +92,7 @@ fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_w
     b.drive(consumer.next, result)
     b.drive(b.output(leaf, "group_result" ++ suffix, type), result)
     b.drive(b.output(leaf, "group_sample" ++ suffix, type), consumer.current)
+
   // A second call reuses the declaration but only its return is observed.
   // Every out parameter still needs an ABI temporary and one invocation.
   def partial_names = for List (index in 0..group_types.length()): "partial" ++ to_string(index)
@@ -115,7 +121,9 @@ fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_w
     b.drive(child.input("tag"), b.constant(top, Bits(8), if side == "first" | 1 | 2))
     for (port in leaf.inputs.filter(~keep: fun (port): !(port.name in ["clock", "reset", "tag"]))):
       b.drive(child.input(port.name), b.input(top, side ++ "_" ++ port.name, port.type))
+
     for (port in leaf.outputs): b.drive(b.output(top, side ++ "_" ++ port.name, port.type), child.output(port.name))
+
   def monitor_instance = b.instance(top, monitor, "monitor")
   b.drive(monitor_instance.input("clock"), tc)
   b.drive(monitor_instance.input("enable"), b.input(top, "monitor_enable", Bits(1)))

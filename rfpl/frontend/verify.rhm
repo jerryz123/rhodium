@@ -23,8 +23,10 @@ fun verify_composite_module(module_def :~ Module,
                             placed_instances :~ List.of(Operation)):
   unless module_def is_a Module
   | error(~who: #'floorplan, "expected an Rhodium core Module")
+
   unless placed_instances is_a List
   | error(~who: #'floorplan, "placed instances must be supplied as a List")
+
   for (operation in module_def.operations):
     unless allowed_composite_opcodes.find(
       fun (allowed): allowed == operation.opcode
@@ -38,6 +40,7 @@ fun verify_composite_module(module_def :~ Module,
           "; annotate logic-bearing circuits as hard macros"
         )
       )
+
     when operation.opcode == "rtl.instance"
     | unless placed_instances.find(fun (candidate): candidate === operation)
       | error(
@@ -49,11 +52,13 @@ fun verify_composite_module(module_def :~ Module,
             operation.attribute("name")
           )
         )
+
   for (operation in placed_instances):
     def valid_instance = operation is_a Operation && operation.module_def === module_def && operation.opcode == "rtl.instance"
     unless valid_instance
     | error(~who: #'floorplan,
             "placement must select a direct instance of its composite floorplan")
+
     when placed_instances.filter(
       ~keep: fun (candidate): candidate === operation
     ).length() != 1
@@ -63,4 +68,5 @@ fun verify_composite_module(module_def :~ Module,
                       " is placed more than once in composite floorplan ",
                       module_def.name)
       )
+
   module_def

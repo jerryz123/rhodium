@@ -50,19 +50,23 @@ sync_circuit RV5StageZkt(profile :: RV5StageConfig):
     right: multiply_right
     control: multiply_control
     rd: Bits(5)(8)
+
   multiply_available <== multiplier.available
   multiply_valid <== multiplier.completion.valid
   completions.ingress[0].valid <== load_valid
   completions.ingress[0].bits <== RegisterFileWrite(profile.xlen):
     address: Bits(5)(9)
     data: load_value
+
   (multiplier.completion |> map_flow(~stable: #true, result => RegisterFileWrite(profile.xlen)):
     address: result.rd
     data: result.value
   ) |> completions.ingress[1]
+
   for (index in 2..4):
     completions.ingress[index].valid <== Bool(#false)
     completions.ingress[index].bits <== Bits(width + 5)(0).into(RegisterFileWrite(profile.xlen))
+
   completions.egress.ready <== completion_ready
   completion_valid <== completions.egress.valid
   completion_value <== completions.egress.bits.data

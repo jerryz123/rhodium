@@ -17,6 +17,7 @@ fun arithmetic_module(name, opcode):
                 if opcode == "add"
                 | builder.add(module_def, a, b)
                 | builder.sub(module_def, a, b))
+
   builder.finish(module_def)
 
 def add = arithmetic_module("AssumedAdd", "add")
@@ -35,8 +36,10 @@ def vacuous_result:
                    subtract,
                    FormalQuery([FormalInputAssumption("b", 0),
                                 FormalInputAssumption("b", 1)]))
+
 def assumed_b:
   one_result.assignments.find(fun (assignment): assignment.port == "b")
+
 def partially_assumed_b:
   partial_counterexample.assignments.find(fun (assignment): assignment.port == "b")
 

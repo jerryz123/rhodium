@@ -22,6 +22,7 @@ def monitor_top = example_monitor_design.modules[0]
 def sender = fixture.sender_design.modules.find(
   fun (module_def): module_def.name == "CreditSender"
 )
+
 def buffer = fixture.buffer_design.modules.find(
   fun (module_def): module_def.name == "CreditBuffer"
 )
@@ -43,6 +44,7 @@ check:
   credited.members.map(fun (member): member.name) ~is [
     "valid", "bits", "credit"
   ]
+
   credited.specialization_arguments[1] ~is 2
   std.check_credited is_a Function ~is #true
   credited.directions.length() ~is 2

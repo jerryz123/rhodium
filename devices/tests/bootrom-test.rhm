@@ -21,6 +21,7 @@ fun image_word(image :: BootROMImage, index :: Nat):
   def mutable word = 0
   for (byte_index in 0..4):
     word := word + (image.bytes[(index * 4) + byte_index] << (byte_index * 8))
+
   word
 
 fun sign_extend(value :: Nat, width :: PosInt):
@@ -43,8 +44,10 @@ def relocated_image = riscv_bootrom_image(
   0x7f000000,
   ~device_tree_address: 0x20800
 )
+
 def default_words = for List (index in 0..(default_image.size_bytes / 4)):
   image_word(default_image, index)
+
 def indirect = riscv_bootrom_image(~boot_address_register: 0x1000, ~device_tree_address: 0x10100)
 def relocated_indirect = riscv_bootrom_image(~boot_address_register: 0x2000)
 def flit = CHIFlitParams()
@@ -121,6 +124,7 @@ check:
     layout,
     ~image: BootROMImage(for List (_index in 0..65): 0)
   ) ~throws "image must fit"
+
   bootrom.CHIBootROMParams("misaligned", 12, layout, ~base_address: 0x10020) ~throws "aligned"
   bootrom.CHIBootROMParams("wide-node", 128, layout) ~throws "NodeID"
   riscv_bootrom_image(0x10002, 0x80000000) ~throws "reset address"
@@ -130,4 +134,5 @@ check:
     0x80000000,
     ~device_tree_address: 0x10104
   ) ~throws "device-tree address"
+
   riscv_bootrom_image(0, 0x80000000) ~throws "PC-relative range"

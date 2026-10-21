@@ -51,12 +51,15 @@ fun riscv_translation_fault_cause(result :: RiscvTlbMapping()) :~ Bits(64):
   def page = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StorePageFault, 64)):
     Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionPageFault, 64)
     Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadPageFault, 64)
+
   def guest = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StoreGuestPageFault, 64)):
     Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionGuestPageFault, 64)
     Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadGuestPageFault, 64)
+
   def physical = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StoreAccessFault, 64)):
     Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionAccessFault, 64)
     Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadAccessFault, 64)
+
   mux_lookup(result.fault, ~default: physical):
     RiscvTranslationFault.PageFault: page
     RiscvTranslationFault.GuestPageFault: guest
@@ -73,6 +76,7 @@ interface RiscvTranslationMemory():
   provider requester
   requester -> responder:
     request: Decoupled(RiscvPteRead())
+
   responder -> requester:
     request_access_fault: Bool
     response: Valid(Bits(64))
@@ -90,6 +94,7 @@ fun riscv_host_lookup(request :: RiscvTranslationRequest(), ~enabled: enabled ::
     hs_mxr: Bool(#false)
     vs_pbmte: request.pbmte
     g_pbmte: Bool(#false)
+
   RiscvTlbLookup():
     virtualized: Bool(#false)
     execute_read: Bool(#false)
@@ -113,6 +118,7 @@ fun riscv_host_mapping(result :: RiscvTranslationResult()) :~ RiscvTlbMapping():
     write: result.write
     read: result.read
     valid: Bool(#true)
+
   RiscvTlbMapping():
     virtual_address: result.virtual_address
     access: Sv39Access.Load

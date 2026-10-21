@@ -64,6 +64,7 @@ sync_circuit CacheCopyBackFixture():
       line_address: Bits(64)(0x80001240)
       line: line.as_vec(Bits(64))
       context: Bits(8)(0xa5)
+
     def requests = engine.requests |> trace_event("request/" ++ to_string(index))
     requests.ready <== request_ready
     engine.responses.valid <== enabled[index] & response_valid

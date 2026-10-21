@@ -82,6 +82,7 @@ fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:
   def mutable mask = 0
   for (cause in causes):
     mask := mask bits.or (1 bits.(<<) exception_code(cause))
+
   mask
 
 export:

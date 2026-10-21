@@ -14,6 +14,7 @@ hardware_enum CacheState:
   UniqueClean
   method is_shared(state):
     state.is_one_of(CacheState.SharedClean, CacheState.SharedDirty)
+
   method is_invalid(state):
     state.is_one_of(CacheState.Invalid)
 
@@ -22,6 +23,7 @@ hardware_enum SparseState:
   Warm = 5
   method is_warm(state):
     state.is_one_of(SparseState.Warm)
+
   method matches(state, other):
     state.is_one_of(other)
 
@@ -37,6 +39,7 @@ hardware_enum OneHotState(~encoding: one_hot):
   Write
   method is_idle(state):
     state.is_one_of(OneHotState.Idle)
+
   method is_access(state):
     state.is_one_of(OneHotState.Read, OneHotState.Write)
 
@@ -109,6 +112,7 @@ sync_circuit EnumMethodPropagation():
     OneHotState.Idle: OneHotState.Read,
     OneHotState.Read: OneHotState.Write
   }).is_access()
+
   bundle_field_method <== envelope.state.is_shared()
   vector_element_method <== state_vector[0].is_shared()
   memory_index_method <== state_memory[memory_address].is_shared()
@@ -139,8 +143,10 @@ circuit AnnotatedBundleSelection(width :: PosInt, annotated :: Boolean):
   output active: Bool
   fun identity(value :: NestedOperand(width)) :: NestedOperand(width):
     value
+
   fun is_active(value :: NestedOperand(width)):
     value.operand.stage_sel.is_access()
+
   if annotated
   | block:
       result <== select_operand(width, identity(source))
@@ -151,6 +157,7 @@ circuit AnnotatedBundleSelection(width :: PosInt, annotated :: Boolean):
         OneHotState.Read: source.operand.value,
         OneHotState.Write: Bits(width)(1)
       })
+
       active <== source.operand.stage_sel.is_access()
 
 circuit WrongBundleSpecialization():
@@ -158,6 +165,7 @@ circuit WrongBundleSpecialization():
   output result: Bits(16)
   fun select_operand(value :: NestedOperand(16)):
     value.operand.value
+
   result <== select_operand(source)
 
 export:

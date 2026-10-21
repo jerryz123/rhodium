@@ -34,6 +34,7 @@ def reachable = analyze_reachability(
     )
   )
 )
+
 def callbacks_before_graph = callback_count
 def graph = build_dependency_graph(reachable)
 def l0_vc = VCId(LinkId(0), 0)
@@ -70,6 +71,7 @@ def shared_graph = build_dependency_graph(
     )
   )
 )
+
 def shared_edge = shared_graph.find_edge(
   VCId(LinkId(20), 0),
   VCId(LinkId(21), 0)
@@ -81,6 +83,7 @@ check:
   shared_edge.route_classes().map(
     fun (route_class): route_class.id.value
   ) ~is [10, 11]
+
   shared_edge.describe() ~is "l20.vc0 -> l21.vc0 [r10, r11]"
 
 // Each route below is a path, but their union contains A -> B and B -> A.

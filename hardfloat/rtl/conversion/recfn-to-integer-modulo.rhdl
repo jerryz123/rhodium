@@ -21,6 +21,7 @@ fun modulo_unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
 circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
   unless integer_width >= 3
   | error(~who: #'RecFNToIntegerModulo, "integer width must be at least three")
+
   input value: RecFloat(format)
   input rounding_mode: RoundingMode
   input signed_output: Bool
@@ -42,6 +43,7 @@ circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
   def aligned_significand = aligned_high ++ shifted_significand[0..=(format.significand_width - 3)].or_reduce()
   def aligned_for_integer:
     if aligned_significand.type.packed_width() < integer_width + 2 | aligned_significand.zext(integer_width + 2) | aligned_significand
+
   def exponent_forces_zero = magnitude_at_least_one & positive_exponent.modulo_unsigned_at_least_host(integer_width + format.significand_width - 1)
   def unrounded_integer = mux(exponent_forces_zero, Bits(integer_width)(0), aligned_for_integer[2..=(integer_width + 1)])
   def retained_lsb = magnitude_at_least_one & !exponent_forces_zero & aligned_significand[2].into(Bool)

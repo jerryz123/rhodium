@@ -42,6 +42,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
      [MemoryWidth.Half, Bits(xlen.width)(1)],
      [MemoryWidth.Word, Bits(xlen.width)(3)]]
   )
+
   def zero_block = operation.is_cache_block_zero()
   def management = operation.is_cache_management()
   def first_address = mux(operation.is_cache_block(), request.address.align_down(CacheLineBytes), request.address)
@@ -79,6 +80,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
          data: Bits(xlen.width)(0)
          context: request.context
   ) |> uncached_management.ingress
+
   cache_requests |> gate_flow(cache_available) |> cache.request
   (
     uncached_requests
@@ -87,6 +89,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
           request: request
           device: attributes.strongly_ordered
   ) |> io_mshr.core.request
+
   core.request_fault <== core.request.valid & request_permitted & !(management & request_is_uncached) & mux(
     request_is_uncached,
     io_mshr.core.request_fault,

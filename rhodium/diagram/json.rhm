@@ -28,6 +28,7 @@ fun json_value(value :: String || Boolean || Number || Array || List || Map):
       def entries = value.keys(#true).map(
         fun (key): json_string(key) ++ ":" ++ json_value(value[key])
       )
+
       "{" ++ String.join(entries, ",") ++ "}"
   | ~else:
       error(~who: #'diagram_to_json,
@@ -54,10 +55,12 @@ fun json_block(block :: DiagramBlock):
     "ports": block.ports.map(json_port),
     "properties": block.properties
   }
+
   def complete:
     if block.child_module
     | fields.set("child_module", block.child_module)
     | fields
+
   complete
 
 /* Projects a logical channel into JSON with explicit source and destination block/port references. */

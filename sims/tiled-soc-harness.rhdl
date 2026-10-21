@@ -28,6 +28,7 @@ sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = default_tiled_soc_c
   memory.identity <== CHIRamIdentity(implementation.flit):
     node_id: Bits(implementation.flit.node_id_width)(implementation.memory.node.node_id)
     base_address: Bits(implementation.flit.request_address_width)(soc_config.memory.base)
+
   uart.uart_tx <== soc.uart.tx
   soc.uart.rx <== uart.uart_rx
 

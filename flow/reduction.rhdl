@@ -45,6 +45,7 @@ fun and_exclusion_reduce(input_values :: Hardware.packable) :~ Hardware.packable
   unless input_type is_a VectorType && bool_type(input_type.element_type)
   | error(~who: #'and_exclusion_reduce,
           "values must be a nonempty Vec of Bool")
+
   def elements = for List (index in 0..input_type.length): input_values[index]
   def tree = build_and_reduction_tree(elements)
   AndExclusionReduction(input_type.length):

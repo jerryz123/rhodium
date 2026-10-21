@@ -46,6 +46,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
         input certify: Bool
         certify
     | Bool(#false)
+
   if vector
   | block:
       output data_store: Bool
@@ -63,6 +64,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       restart_valid <== observed.frontend_control.restart.valid
       restart_pc <== capture_lane(observed.frontend_control.restart.bits)
   | #void
+
   reg lookup_valid(~init: Bool(#false))
   reg lookup_mode(Bits(2))
   reg lookup_data(Bits(xlen.width))
@@ -70,6 +72,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   when (observed.pipeline_access.request.valid):
     lookup_mode <== pipeline_mode
     lookup_data <== pipeline_data[0..xlen.width]
+
   def empty_certificate :: VectorFastCertificate(xlen) = literal(VectorFastCertificate(xlen), 0)
   for (core in [observed, reference]):
     core.interrupts <== RiscvInterrupts():
@@ -79,6 +82,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       machine_timer: Bool(#false)
       supervisor_external: Bool(#false)
       machine_external: Bool(#false)
+
     core.hart_id <== Bits(xlen.width)(0)
     core.time_counter <== ticks
     core.packets.valid <== packet_valid
@@ -89,11 +93,13 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       page_fault: Bool(#false)
       access_fault: Bool(#false)
       prediction: literal(BranchPrediction(xlen), 0)
+
     core.pipeline_access.response.valid <== lookup_valid & lookup_mode.or_reduce()
     core.pipeline_access.response.bits <== CachePipelineResult(xlen):
       outcome: mux(lookup_mode === Bits(2)(1), CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
       reason: CachePipelineReason.None
       data: lookup_data
+
     core.pipeline_access.commit_ready <== pipeline_mode === Bits(2)(2)
     core.vector_precheck.request |> map_flow(_request => certified) |> pipe(1) |> core.vector_precheck.response
     core.vector_fast.request |> filter_valid(_range => certified) |> map_valid(range => empty_certificate.updated(~range: range, ~ppn: range.first[12..56])) |> core.vector_fast.response
@@ -114,6 +120,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
         RV5StageMemoryContext(8):
           writeback: response_tag
           origin: RV5StageDataOrigin.Core
+
   packet_ready <== observed.packets.ready
   data_valid <== observed.data_access.request.valid
   response_ready <== observed.data_access.response.ready

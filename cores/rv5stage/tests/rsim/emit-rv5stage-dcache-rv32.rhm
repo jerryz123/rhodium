@@ -12,4 +12,5 @@ import:
 
 def program = elaborate(cache.L1DCache(XLen.X32, CacheConfig(4, 1), ~chi: test_params.test_rv5stage_chi_config, ~service_queue_depth: 1, ~context: RV5StageMemoryContext(8))
 )
+
 export program

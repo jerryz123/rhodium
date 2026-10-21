@@ -20,6 +20,7 @@ interface Other():
   producer -> consumer:
     valid: Bool
     bits: Bits(8)
+
   consumer -> producer:
     ready: Bool
 
@@ -52,15 +53,18 @@ def mutable calls = 0
 fun counted():
   calls := calls + 1
   Pass()
+
 def ordinary = CircuitReference(CircuitIdentity("Pass"), signature, counted, ~declarations: declarations)
 def mutable array_calls = 0
 def mutable nested_calls = 0
 fun counted_array():
   array_calls := array_calls + 1
   ArrayPass()
+
 fun counted_nested():
   nested_calls := nested_calls + 1
   NestedPass()
+
 def array_reference = CircuitReference(CircuitIdentity("ArrayPass"), interface_signature(array_declarations), counted_array, ~declarations: array_declarations)
 def nested_reference = CircuitReference(CircuitIdentity("NestedPass"), interface_signature(nested_declarations), counted_nested, ~declarations: nested_declarations)
 def wrong = CircuitReference(CircuitIdentity("Wrong"), signature, fun (): WrongNominal(), ~declarations: declarations)
@@ -117,6 +121,7 @@ circuit Aliases(first_ref, second_ref):
   ingress |> first.ingress
   first.egress |> second.ingress
   second.egress |> egress
+
 fun aliases(first_ref, second_ref): elaborate(Aliases(first_ref, second_ref))
 export:
   aliases

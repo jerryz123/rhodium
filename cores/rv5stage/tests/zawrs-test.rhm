@@ -39,29 +39,36 @@ for (instruction in ZawrsInstructions, action in [RV5StageSystemOperation.WrsNto
       partial_pattern(RV5StageOperandControl()):
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
+
     branch:
       partial_pattern(RiscvBranchControl()):
         resolver:
           partial_pattern(BranchResolverControl()):
             enable: Bool(#false)
+
     memory:
       partial_pattern(RV5StageMemoryControl()):
         access: CacheOperation.None
+
     prefetch: CachePrefetchOperation.None
     guest_access: RiscvGuestMemoryAccess.Normal
     writeback:
       partial_pattern(RV5StageWritebackControl()):
         enable: Bool(#false)
+
     system:
       partial_pattern(RV5StageSystemControl()):
         csr: RiscvCsrOperation.None
         action: action
+
     fence:
       pattern(RV5StageFenceControl()):
         action: RV5StageFenceOperation.None
+
     hint: RV5StageHintOperation.None
     floating_point_valid: Bool(#false)
     vector: NoVectorControl
+
   check:
     row.input.care_bits ~is 0xffffffff
     expected.subsumes(row.output) ~is #true
@@ -78,6 +85,7 @@ for (configuration in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, Floatin
     check:
       decoders.length() ~is 1
       decoders[0].attribute("cases").length() ~is instructions.length()
+
     for (instruction in ZawrsInstructions):
       def rows = decoders[0].attribute("cases").filter(~keep: fun (row): row[0] == instruction.encoding.value && row[1] == 0xffffffff)
       check:

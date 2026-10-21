@@ -28,12 +28,15 @@ check:
   fixture.sn_noc_compilations.req.routes.map(
     fun (route): route.destination.node_id
   ) ~is [9, 10]
+
   fixture_sn_noc_design.modules.map(fun (module): module.name).contains(
     "CHISNNoCFixture"
   ) ~is #true
+
   fixture_sn_noc_design.modules.map(fun (module): module.name).contains(
     "CHIReqNoCInjector"
   ) ~is #true
+
   fixture_sn_noc_design.modules.map(fun (module): module.name).contains(
     "CHIReqNoCEjector"
   ) ~is #true

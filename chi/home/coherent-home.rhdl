@@ -45,6 +45,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   unless config.transaction_slots == 1
   | error(~who: #'CHIHNF,
           "the noncaching HN-F supports exactly one transaction slot")
+
   def checked = config
   def p = checked.flit
 
@@ -111,6 +112,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     mux(send_requester_dbid, requester_dbid_opcode, CHIRspOpcode.Comp),
     ~error: completion_error
   )
+
   def requester_response_fire = requester.responses.fire()
 
 
@@ -149,20 +151,24 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
            "chi_hnf_requester_data_targets_home")
     assert(requester.request_data.bits.txn_id === Bits(12)(0),
            "chi_hnf_requester_data_txn")
+
   when write_data_fire:
     when copyback:
       monitor_chi_copyback_data(p, requester.request_data.bits, "chi_hnf_copyback")
       assert(!received_data_ids.or_reduce() ||| (requester.request_data.bits.resp === copyback_state), "chi_hnf_copyback_state_consistent")
+
     assert(or_reduce(expected_write_data_ids & incoming_write_data_id),
            "chi_hnf_write_data_id_expected")
     assert(!or_reduce(received_data_ids & incoming_write_data_id),
            "chi_hnf_write_data_id_unique")
+
   def snoop_data_id = one_hot(requester.request_data.bits.data_id).as_bits()
   def next_snoop_data_ids = received_snoop_data_ids ||| snoop_data_id
   def expected_snoop_data_ids = chi_transfer_data_ids(request.address, CHITransferSize.Bytes64, p)
   when snoop_data_fire:
     when maintenance:
       assert(requester.request_data.bits.byte_enable === !Bits(p.data_bytes)(0), "chi_hnf_maintenance_full_dirty_packet")
+
     assert(request.opcode =/= CHIReqOpcode.MakeInvalid, "chi_hnf_discard_has_no_data")
     assert(or_reduce(expected_snoop_data_ids & snoop_data_id), "chi_hnf_snoop_data_id_expected")
     assert(chi_snoop_response_state_valid(chi_home_snoop_opcode(request.opcode), requester.request_data.bits.resp.into(CHICoherentResponse())), "chi_hnf_snoop_data_state")
@@ -182,6 +188,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   requester.snoops.bits <== CHISnoopDispatch(p):
     target_id: snoop_targets.target.bits
     flit: chi_hnf_snoop(p, home_id, request)
+
   def snoop_fire = requester.snoops.fire()
 
   def awaiting_snoop = phase === CHIHNFPhase.AwaitSnoop
@@ -205,6 +212,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
       assert(chi_snoop_response_state_valid(chi_home_snoop_opcode(request.opcode), snoop_response), "chi_hnf_snoop_response_state")
       assert(!snoop_response.pass_dirty,
              "chi_hnf_snoop_response_clean")
+
     when awaiting_comp_ack:
       assert(incoming_requester_response.opcode === CHIRspOpcode.CompAck,
              "chi_hnf_comp_ack_opcode")
@@ -239,6 +247,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   when (subordinate.rsp.valid):
     when copyback:
       assert(incoming_subordinate_response.resp_err === CHIRespErr.OK, "chi_hnf_copyback_backing_response_ok")
+
     assert(awaiting_any_subordinate_dbid ||| awaiting_any_subordinate_completion,
            "chi_hnf_subordinate_response_expected")
     assert(incoming_subordinate_response.src_id === subordinate_id,
@@ -273,6 +282,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
       subordinate_dbid
     )
   )
+
   def subordinate_data_fire = subordinate.dat.request.fire()
 
 
@@ -291,6 +301,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
           data.updated(~resp_err: mux(completion_error === CHIRespErr.OK, data.resp_err, completion_error))
         ))
   ) |> requester.response_data
+
   def read_data_fire = subordinate.dat.response.fire()
   def read_data_id = one_hot(subordinate.dat.response.bits.data_id).as_bits()
   def next_received_data_ids = received_data_ids ||| read_data_id
@@ -321,15 +332,19 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
         )
       )
   )
+
   def admitted_phase :: CHIHNFPhase = priority_mux(~default: CHIHNFPhase.SendSubordinateRequest):
     incoming_write: CHIHNFPhase.SendRequesterDBID
     incoming_needs_snoop: CHIHNFPhase.SendSnoop
+
   def write_received_phase :: CHIHNFPhase = priority_mux(~default: CHIHNFPhase.SendSnoop):
     copyback & requester.request_data.bits.resp[2].into(Bool): CHIHNFPhase.SendSubordinateRequest
     copyback: CHIHNFPhase.Idle
+
   def backing_request_phase :: CHIHNFPhase = priority_mux(~default: CHIHNFPhase.ForwardReadData):
     send_snoop_write_request: CHIHNFPhase.AwaitSnoopWriteDBID
     chi_hnf_subordinate_opcode(request.opcode).is_initial_write(): CHIHNFPhase.AwaitSubordinateDBID
+
   def snoop_write_completed_phase = mux(received_snoop_data_ids === expected_snoop_data_ids, CHIHNFPhase.SendSnoop, CHIHNFPhase.AwaitSnoop)
   def ordinary_write_completed_phase = mux(copyback, CHIHNFPhase.Idle, CHIHNFPhase.SendRequesterCompletion)
 

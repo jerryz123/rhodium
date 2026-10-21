@@ -37,6 +37,7 @@ sync_circuit RV2WideVectorFixture():
     first: scalar & !Bits(64)(0xfff)
     last: scalar ||| Bits(64)(0xfff)
     store: decode.control.store
+
   decode.instruction <== instruction
   vector.request.valid <== request_valid
   vector.request.bits <== VectorDescriptor(xlen):
@@ -51,6 +52,7 @@ sync_circuit RV2WideVectorFixture():
         vstart: Bits(64)(0)
         vxrm: Bits(2)(0)
         vxsat: Bool(#false)
+
     control: decode.control
     scalar: scalar
     floating_scalar: Bits(64)(0)
@@ -58,6 +60,7 @@ sync_circuit RV2WideVectorFixture():
     masked: !instruction[25].into(Bool)
     rounding_mode: RoundingMode.NearEven
     pointer_masking: literal(PointerMaskControl(), 0)
+
   vector.pipeline <=> pipeline
   vector.memory <=> memory
   vector.split <=> split

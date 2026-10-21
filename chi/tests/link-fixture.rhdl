@@ -24,6 +24,7 @@ def rni_node = CHINodeParams(
   ),
   ~max_outstanding: 4
 )
+
 def rni_icn = CHIICNPortParams(
   "requester-port",
   3,
@@ -39,6 +40,7 @@ def rni_icn = CHIICNPortParams(
   ),
   ~max_outstanding: 4
 )
+
 def rni_link = CHIRNILinkParams(flit, ~tx_req_credits: 4, ~rx_dat_credits: 3)
 
 def rnf_node = CHINodeParams(
@@ -61,6 +63,7 @@ def rnf_node = CHINodeParams(
   ),
   ~max_outstanding: 8
 )
+
 def rnf_icn = CHIICNPortParams(
   "cache-port",
   5,
@@ -69,6 +72,7 @@ def rnf_icn = CHIICNPortParams(
   ~supports: rnf_node.emits,
   ~max_outstanding: 8
 )
+
 def rnf_link = CHIRNLinkParams(flit, ~rx_snp_credits: 4)
 
 def sn_node = CHINodeParams(
@@ -85,6 +89,7 @@ def sn_node = CHINodeParams(
   ),
   ~max_outstanding: 4
 )
+
 def sn_icn = CHIICNPortParams(
   "memory-port",
   9,
@@ -99,6 +104,7 @@ def sn_icn = CHIICNPortParams(
   ),
   ~max_outstanding: 4
 )
+
 def sn_link = CHISNLinkParams(flit, ~rx_req_credits: 4, ~tx_dat_credits: 3)
 
 circuit CHIRNILinkAdapter(node_link :: CHIRNILinkParams,

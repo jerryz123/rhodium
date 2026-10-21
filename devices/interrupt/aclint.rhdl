@@ -53,6 +53,7 @@ class AclintParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+
   /* Derives the fabric-facing counterpart of the ACLINT node. */
   property icn_port: node.icn_peer()
   /* Maps the fixed ACLINT window to its supported register transactions. */
@@ -70,9 +71,11 @@ class AclintParams(name :: NonemptyString,
     unless bits.length((AclintBase + AclintWindowBytes) - 1) <= config.flit.request_address_width
     | error(~who: #'AclintParams,
             "ACLINT window must fit in the CHI request address width")
+
     unless bits.length(node_id) <= config.flit.node_id_width
     | error(~who: #'AclintParams,
             "NodeID must fit in the physical NodeID width")
+
     super(name, node_id, config)
 
 /* Carries the occurrence's NodeID; the register base is architecturally fixed. */
@@ -146,6 +149,7 @@ sync_circuit Aclint(config :: AclintConfig):
   )
   def timer_register_offset:
     if lane_width == 3 | active_address[0..3] | active_address[0..3].zext(lane_width)
+
   def register_offset = mux(mswi_access,
                             active_address[0..2].zext(lane_width),
                             timer_register_offset)
@@ -159,8 +163,10 @@ sync_circuit Aclint(config :: AclintConfig):
     mswi_access: msip[mswi_index].as_bits().zext(64)
     mtimecmp_access: mtimecmp[mtimecmp_index]
     mtime_access: mtime
+
   def widened_selected_value:
     if data_bytes == 8 | selected_value | selected_value.zext(p.data_width)
+
   def register_read_data = widened_selected_value << register_shift
 
   transaction.write_supported <== Bool(#true)
@@ -178,8 +184,10 @@ sync_circuit Aclint(config :: AclintConfig):
     mtime <== written_mtime
   elsewhen tick:
     mtime <== incremented_mtime
+
   when (write_data_fire & mtimecmp_access):
     mtimecmp[mtimecmp_index] <== mtimecmp[mtimecmp_index].masked_merge(write_value, write_mask)
+
   when (write_data_fire & mswi_access & register_mask[0].into(Bool)):
     msip[mswi_index] <== register_data[0].into(Bool)
 

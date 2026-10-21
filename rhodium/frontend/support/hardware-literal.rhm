@@ -59,10 +59,12 @@ fun validate_literal_parts(type :: DataType,
   unless type_well_formed(type)
   | kernel.frontend_fail("hardware literal type must be a well-formed DataType",
                          location)
+
   def width = type.packed_width()
   unless width is_a PosInt
   | kernel.frontend_fail("hardware literal type must have a packed representation",
                          location)
+
   unless bits.length(value) <= width
   | def message = "hardware literal packed value " ++ to_string(value) ++ " does not fit " ++ type.describe()
     kernel.frontend_fail(message, location)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_aggregate
 
 fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
@@ -18,9 +19,11 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
     def entries = for List (index in 0..length):
       b.record_create(module_def, element, [["__class__", b.constant(module_def, Bits(5), (seed + index) mod 32)],
                                             ["class", b.constant(module_def, Bits(width), (seed + index) mod (2 ** width))]])
+
     b.record_create(module_def, packet, [["single", b.vector_create(module_def, single, [b.constant(module_def, Bits(width), seed mod (2 ** width))])],
                                          ["flag", b.constant(module_def, Bits(1), seed mod 2)],
                                          ["payload", b.vector_create(module_def, vector, entries)]])
+
   def leaf = b.module("AggregateLeaf" ++ to_string(width))
   def clock = b.input(leaf, "clock", Clock)
   def reset = b.input(leaf, "reset", Reset)
@@ -42,6 +45,7 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   def pair_input = b.mux_lookup(project, b.input(project, "select", Bits(1)), b.input(project, "pair", pair), [[1, b.input(project, "alternative", pair)]])
   for (field in ["a", "b"]):
     b.drive(b.output(project, field, packet), b.record_get(project, pair_input, field))
+
   b.drive(b.output(project, "whole", pair), pair_input)
   b.finish(project)
   def pair_vector = VectorType(2, packet)
@@ -49,6 +53,7 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   def vector_input = b.onehot_mux(project_vector, b.input(project_vector, "select", Bits(2)), [b.input(project_vector, "pair", pair_vector), b.input(project_vector, "alternative", pair_vector)])
   for (index in 0..2):
     b.drive(b.output(project_vector, "v" ++ to_string(index), packet), b.vector_get(project_vector, vector_input, index))
+
   b.finish(project_vector)
   def top = b.module("Aggregate" ++ to_string(width))
   def tc = b.input(top, "clock", Clock)
@@ -85,6 +90,7 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
     def old = b.vector_get(top, payload, length - 1 - index)
     b.record_create(top, element, [["class", b.add(top, b.record_get(top, old, "class"), b.constant(top, Bits(width), 1))],
                                    ["__class__", b.bit_not(top, b.record_get(top, old, "__class__"))]])
+
   def built = b.record_create(top, packet, [["payload", b.vector_create(top, vector, rebuilt)],
                                             ["flag", b.bit_not(top, b.record_get(top, ta, "flag"))],
                                             ["single", b.vector_create(top, single, [b.record_get(top, b.vector_get(top, payload, 0), "class")])]])
@@ -116,8 +122,10 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   def first_captured = b.vector_get(top, b.record_get(top, captured.current, "payload"), 0)
   fun first_initial(seed :: Nat):
     b.vector_get(top, b.record_get(top, initial(top, seed), "payload"), 0)
+
   def gathered = for List (index in 0..8):
     b.mux_lookup(top, tl, if index mod 2 == 0 | first_input | first_captured, [[1, first_initial(21 + index)]])
+
   def gathered_vector = b.vector_create(top, VectorType(8, element), gathered)
   b.drive(b.output(top, "gather", gathered_vector.type), gathered_vector)
   for (entry in [["reverse_gather", [7, 6, 5, 4, 3, 2, 1, 0]],
@@ -125,15 +133,18 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
                  ["mixed_gather", [3, 4, 5, 6, 0, 6, 6, 6, 6]]]):
     def value = b.vector_create(top, VectorType(entry[1].length(), element), entry[1].map(fun (index): gathered[index]))
     b.drive(b.output(top, entry[0], value.type), value)
+
   def first_chain = b.vector_get(top, b.record_get(top, chain, "payload"), 0)
   def filled = b.vector_create(top, VectorType(8, element), for List (_ in 0..8): first_chain)
   b.drive(b.output(top, "fill", filled.type), filled)
   def gathered_state = b.register(top, "gathered_state", VectorType(8, element), tc, tr,
                                   b.vector_create(top, VectorType(8, element), for List (index in 0..8): first_initial(index)))
+
   b.drive(gathered_state.next, gathered_vector)
   b.drive(b.output(top, "saved_gather", gathered_state.current.type), gathered_state.current)
   def scalar_entries = for List (index in 0..8):
     b.add(top, b.record_get(top, b.vector_get(top, payload, 0), "class"), b.constant(top, Bits(width), index mod (2 ** width)))
+
   def scalar_gather = b.vector_create(top, VectorType(8, Bits(width)), scalar_entries)
   b.drive(b.output(top, "scalar_gather", scalar_gather.type), scalar_gather)
   def scalar_stride = b.vector_create(top, VectorType(4, Bits(width)), for List (index in 0..4): scalar_entries[2 * index])
@@ -143,8 +154,10 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
     for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],
                   ["a", if name == "first" | ta | tb], ["b", if name == "first" | tb | ta]]):
       b.drive(child.input(pair[0]), pair[1])
+
     for (output in ["left", "right"]):
       b.drive(b.output(top, name ++ "_" ++ output, packet), child.output(output))
+
   def sample = b.register(top, "sampled", vector, tc)
   b.drive(sample.next, payload)
   b.drive(b.output(top, "sample", vector), sample.current)

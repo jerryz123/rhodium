@@ -21,6 +21,7 @@ def top = prepared.rtl.design.modules.find(fun (module_def): module_def.name == 
 def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "ex_alu")
 unless alu
 | error(~who: #'ex_forwarding, "missing ALU timing boundary")
+
 for (operand_name in ["left", "right"]):
   def seen = MutableMap.by(===){}
   def sources = MutableSet{}
@@ -28,6 +29,7 @@ for (operand_name in ["left", "right"]):
   fun visit(value, path):
     unless seen.get(value, #false)
     | seen[value] := MutableSet{}
+
     unless path in seen[value]
     | seen[value].add(path)
       def operation = top.find_operation(value.defining_op_id)
@@ -36,36 +38,46 @@ for (operand_name in ["left", "right"]):
           def name = operation.attribute("name")
           unless name in ["id_ex_pipe", "ex_mem_pipe", "mem_wb_pipe", "memory_response"]
           | error(~who: #'ex_forwarding, "non-pipeline instance reaches ALU operand: " ++ name)
+
           def output_index = identity_index(operation.results, value)
           def output = operation.attribute("module").outputs[output_index]
           unless output.name == (if name == "memory_response" | "captured_out" | "egress_out") && path.length() > 0 && path[0] == "bits"
           | error(~who: #'ex_forwarding, "pipeline control reaches ALU operand")
+
           sources.add([name, path])
       | operation && operation.opcode in ["rtl.register", "rtl.register_reset"]:
           error(~who: #'ex_forwarding, "non-pipeline register reaches ALU operand: " ++ operation.attribute("name"))
       | ~else:
           when operation && operation.opcode == "rtl.onehot_mux"
           | bypass_muxes.add(operation)
+
           def dependencies = direct_value_dependencies(value, path)
           unless dependencies is_a List
           | error(~who: #'ex_forwarding, "unclassified ALU operand dependency")
+
           for (dependency in dependencies):
             visit(dependency.value, dependency.path)
+
   def inputs = alu.attribute("module").inputs
   def input = inputs.find(fun (port): port.name == operand_name)
   unless input
   | error(~who: #'ex_forwarding, "missing ALU operand port")
+
   def input_index = identity_index(inputs.map(fun (port): port.value), input.value)
   def driver = place_leaf_driver(alu.places[input_index], [])
   visit(driver.value, driver.path)
   unless ["mem_wb_pipe", ["bits", "value"]] in sources
   | error(~who: #'ex_forwarding, "ALU operand no longer reads the normal WB value")
+
   for (field in ["outcome", "data"]):
     unless ["memory_response", ["bits", field]] in sources
     | error(~who: #'ex_forwarding, "WB load forwarding no longer reads its captured LSU " ++ field)
+
   def operand_field = if operand_name == "left" | "operand_rs1" | "operand_rs2"
   unless ["id_ex_pipe", ["bits", operand_field, "stage_sel"]] in sources
   | error(~who: #'ex_forwarding, "ALU operand no longer reads its registered stage selector")
+
   unless bypass_muxes.length() == 1 && bypass_muxes[0].operands.length() == 4 && bypass_muxes[0].operands[0].type.width == 3
   | error(~who: #'ex_forwarding, "bypass must lower to one three-source one-hot mux")
+
 export program

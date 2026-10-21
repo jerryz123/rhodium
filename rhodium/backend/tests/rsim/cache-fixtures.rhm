@@ -23,6 +23,7 @@ fun make_cache_borrows():
   b.drive(state.next, b.mux_lookup(top, update, state.current, [[1, payload]]))
   def rows = for List (value in [0x04030201, 0x08070605, 0x0c0b0a09], index in 0..3):
     [index, 3, value * 2 + index mod 2, 2 ** 33 - 1]
+
   def decoded = b.decode(top, select, Bits(2), box, rows, 0x100f0e0d * 2 + 1, 2 ** 33 - 1)
   def projected = b.record_get(top, decoded, "lanes")
   def constant = b.cast(top, b.constant(top, Bits(32), 0xaabbccdd), lanes)
@@ -34,5 +35,6 @@ fun make_cache_borrows():
   for (name in ["direct", "first", "decoded", "projected", "chain", "borrowed", "captured"],
        value in [state.current, b.vector_get(top, state.current, 0), decoded, projected, chain, borrowed, sampled.current]):
     b.drive(b.output(top, name, value.type), value)
+
   b.finish(top)
   DesignElaboration(design, top)

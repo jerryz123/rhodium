@@ -95,9 +95,11 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   def clean_response_state :: CHIResponseState = priority_mux(~default: CHIResponseState.Invalid):
     clean_hit_retained & shares_state: CHIResponseState.SharedClean
     clean_hit_retained: cached_clean_state
+
   responses.valid <== active_state & (!uses_lookup ||| lookup_complete) & !dirty_hit
   responses.bits <== cache_chi_response(p, node_id, request.src_id, request.txn_id, CHIRspOpcode.SnpResp,
                                         ~resp: clean_response_state.as_bits().zext(3))
+
   def response_fire = responses.fire()
 
 
@@ -111,6 +113,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
     CHICoherentResponse():
       pass_dirty: Bool(#true)
       state: CHIResponseState.Invalid
+
   def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
   def snoop_data = inactive_data.updated(
     ~data: packet_data,
@@ -128,6 +131,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
     ~tgt_id: request.src_id,
     ~qos: request.qos
   )
+
   data.valid <== active_state & lookup_complete & dirty_hit
   data.bits <== snoop_data
   def data_fire = data.fire()
@@ -141,6 +145,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
     address: cache_chi_snoop_address(p, address_width, request.address)
     invalidate: dirty_hit ||| discards_clean_line
     state: CHICacheState.SharedClean
+
   pending <== (snoops.valid & ordinary_snoop) ||| active_state ||| dvm_first_pending
 
 

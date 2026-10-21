@@ -6,5 +6,6 @@ import:
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
   "../../profile.rhm".RV2WideConfig
   "../../instruction-assembler.rhdl".RV2WideInstructionAssembler
+
 def program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D)))
 export program

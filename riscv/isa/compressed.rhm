@@ -67,6 +67,7 @@ class CompressedInstructionSpec(name :: NonemptyString,
     unless matches(word)
     | error(~who: #'expand,
             "compressed instruction word does not satisfy its encoding and legality constraints")
+
     expansion.expand(word)
 
 /* Groups compact instruction descriptors with a revision and nonoverlapping encoding alternatives. */
@@ -81,6 +82,7 @@ class CompressedInstructionCatalog(name :: NonemptyString,
       when instructions.filter(~keep: fun (candidate): candidate.name == instruction.name).length() != 1
       | error(~who: #'CompressedInstructionCatalog,
               "duplicate compressed instruction name " ++ instruction.name)
+
     for (left_index in 0..instructions.length()):
       for (right_index in (left_index + 1)..instructions.length()):
         def left = instructions[left_index]
@@ -93,6 +95,7 @@ class CompressedInstructionCatalog(name :: NonemptyString,
                                   left.name,
                                   " and ",
                                   right.name))
+
     super(name, revision, instructions)
 
   /* Returns the named compact descriptor or reports an unknown compressed instruction. */
@@ -100,6 +103,7 @@ class CompressedInstructionCatalog(name :: NonemptyString,
     def found = instructions.find(fun (candidate): candidate.name == instruction_name)
     unless found
     | error(~who: #'find, "unknown compressed instruction " ++ instruction_name)
+
     found
 
   /* Returns the descriptor accepting both encoding and legality constraints, or false when none matches. */

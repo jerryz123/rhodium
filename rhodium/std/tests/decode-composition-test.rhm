@@ -19,10 +19,12 @@ def fallback = DecodeCase(
   Pattern(~value: hw.Bits(4)(0), ~care: hw.Bits(4)(0)),
   hw.Bits(2)(0)
 )
+
 def override = DecodeCase(
   Pattern(~value: hw.Bits(4)(2), ~care: hw.Bits(4)(3)),
   hw.Bits(2)(1)
 )
+
 def overlaid = overlay_decode_cases([fallback], [override])
 
 fun named_group_cases(inputs):
@@ -81,6 +83,7 @@ check:
     [fixture.side_effect_cases[0]],
     fun (left, _): left
   ) ~throws "same number of input cubes"
+
   zip_decode_cases(
     fixture.execute_cases,
     fixture.side_effect_cases.drop(1) ++ [DecodeCase(

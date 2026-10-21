@@ -46,6 +46,7 @@ def raw_problem = RoutingProblem(
 def syntax_policy = routing:
   rule adaptive_escape:
     use irregular_policy
+
 def syntax_problem = RoutingProblem(
   irregular_topology.topology,
   irregular_routes.route_classes,
@@ -59,10 +60,12 @@ def raw_escape = snapshot_routing(
   raw_problem,
   ~escape: irregular_escape_request
 )
+
 def builder_escape = snapshot_routing(
   irregular_problem,
   ~escape: irregular_escape_request
 )
+
 def syntax_escape = snapshot_routing(
   syntax_problem,
   ~escape: irregular_escape_request

@@ -12,15 +12,20 @@ check:
   Zicbop.instructions.map(fun (instruction): instruction.name) ~is [
     "PREFETCH.I", "PREFETCH.R", "PREFETCH.W"
   ]
+
   ZicbopInstructions.map(fun (instruction): instruction.encoding.value) ~is [
     0x00006013, 0x00106013, 0x00306013
   ]
+
   (for all (instruction in ZicbopInstructions):
      instruction.encoding.care == 0x01F07FFF) ~is #true
+
   (for all (instruction in ZicbopInstructions):
      instruction.operands.map(fun (operand): operand.name) == ["rs1"]) ~is #true
+
   (for all (instruction in ZicbopInstructions):
      instruction.immediate === PrefetchImmediate) ~is #true
+
   PrefetchFormat.variable_mask ~is 0xFE0F8000
   PREFETCH_I.encoding.overlaps(ORI.encoding) ~is #true
 

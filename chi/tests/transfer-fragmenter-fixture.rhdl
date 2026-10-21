@@ -13,6 +13,7 @@ def fragmenter_ram_params = CHIRamParams(
   fragmenter_ram_config,
   ~base_address: 0x80000000
 )
+
 def fragmenter_config = CHITransferFragmenterConfig(fragmenter_flit, ~max_transfer_bytes: 64)
 def fragmenter_params = CHITransferFragmenterParams(
   fragmenter_config,
@@ -26,6 +27,7 @@ sync_circuit CHITransferFragmenterFixture():
   ram.identity <== CHIRamIdentity(fragmenter_flit):
     node_id: Bits(fragmenter_flit.node_id_width)(fragmenter_ram_params.node_id)
     base_address: Bits(fragmenter_flit.request_address_width)(fragmenter_ram_params.base_address)
+
   port <=> fragmenter.upstream
   fragmenter.downstream <=> ram.port
 

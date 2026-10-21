@@ -41,28 +41,35 @@ sync_circuit EventCompAck():
     line_address: Bits(32)(0x1000)
     opcode: CHIReqOpcode.ReadClean
     context: Bits(8)(42)
+
   read.command.bits <== CacheLineReadCommand(Bits(8), 32):
     line_address: mux(instruction_rom, Bits(32)(0x8000), Bits(32)(0x1000))
     context: Bits(8)(42)
+
   refill.requests |> dreq
   read.requests |> ireq
   for (engine in [refill, read]):
     engine.responses.valid <== Bool(#false)
     engine.responses.bits <== literal(CHIRspFlit(p), 0)
     engine.completion.ready <== completion_ready
+
   d_complete <== refill.completion.valid
   i_complete <== read.completion.valid
   def ddata_event = ddata |> trace_event("ddata", ~fields: flit):
     packet: flit.data_id
+
   ddata_event |> refill.response_data
   def idata_event = idata |> trace_event("idata", ~fields: flit):
     packet: flit.data_id
+
   idata_event |> read.response_data
   def dack_event = refill.acknowledgements |> trace_event("dack", ~fields: flit):
     dbid: flit.txn_id
+
   dack_event |> dack
   def iack_event = read.acknowledgements |> trace_event("iack", ~fields: flit):
     dbid: flit.txn_id
+
   iack_event |> iack
 
 def traced_compack = elaborate(EventCompAck())

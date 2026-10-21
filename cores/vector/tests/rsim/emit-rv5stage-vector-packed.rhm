@@ -4,5 +4,6 @@
 import:
   "../vector-packed-fixture.rhdl" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+
 def program = elaborate(VectorPackedFixture(8))
 export program

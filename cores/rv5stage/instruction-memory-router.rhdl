@@ -42,16 +42,20 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   def unavailable = RV5StageFetchResult(#false):
     response: literal(RV5StageInstructionResp(#false), 0)
     replay: Bool(#true)
+
   def uncached_result = RV5StageFetchResult(#false):
     response: response
     replay: !completed_match
+
   def cached_result = RV5StageFetchResult(#false):
     response:
       RV5StageInstructionResp(#false):
         word: cache.response.bits.data
         page_fault: Bool(#false)
         access_fault: cache.response.bits.access_fault
+
     replay: cache.response.bits.replay
+
   // Every live S2 gets an outcome, including a retry when the selected
   // implementation has no result. Do not arbitrate only available replies.
   s2.egress |> filter_valid(_request => !core.flush)

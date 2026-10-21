@@ -52,6 +52,7 @@ def rv32_module = rv32_design.modules[0]
 fun control_for(cases, name):
   def instruction = RV64I.find(name)
   control_for_instruction(cases, instruction)
+
 fun control_for_instruction(cases, instruction):
   cases.find(
     fun (candidate):
@@ -116,6 +117,7 @@ fun has_rv5stage_domain(cases):
         ~keep: fun (candidate): exact_pattern_equal(candidate.input, expected)
       ).length() == 1
   )
+
 def rv32_rv5stage_domain = controls.RV32RV5StageInstructions.map(instruction_pattern)
 fun has_rv32_rv5stage_domain(cases):
   cases.length() == rv32_rv5stage_domain.length() && (
@@ -136,8 +138,10 @@ fun field_pattern(cube :: Pattern, name :: String) :~ Pattern:
     | field: lower_width := lower_width + declared.type.packed_width()
     | declared.name == name: field := declared
     | ~else: #void
+
   unless field
   | error(~who: #'field_pattern, "unknown record field")
+
   def width = field.type.packed_width()
   def mask = (1 << width) - 1
   Pattern(
@@ -176,6 +180,7 @@ fun guarded_payloads_are_sparse(control :: Pattern) :: Boolean:
     field_pattern(vector, "memory")
   ]):
     fully_cared(guard)
+
   guards_are_cared && (
     !memory_inactive || (field_is_free(memory, "atomic") && field_is_free(memory, "width") && field_is_free(memory, "unsigned"))
   ) && (
@@ -198,11 +203,13 @@ def addi_operand = operand_controls.RV5StageOperandControl():
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Immediate
   immediate: operand_controls.RV5StageImmediateSelect.I
+
 def lbu_memory = memory_controls.RV5StageMemoryControl():
   access: core_memory.CacheOperation.Load
   atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Byte
   unsigned: bool.Bool(#true)
+
 fun resolver_value(enable, unconditional, compare_equal, signed_mode, invert):
   branches.BranchResolverControl():
     enable: bool.Bool(enable)
@@ -210,13 +217,16 @@ fun resolver_value(enable, unconditional, compare_equal, signed_mode, invert):
     compare_equal: bool.Bool(compare_equal)
     signed_mode: bool.Bool(signed_mode)
     invert: bool.Bool(invert)
+
 fun branch_value(enable, unconditional, compare_equal,
                  signed_mode, invert, target_from_rs1):
   branch_controls.RiscvBranchControl():
     resolver: resolver_value(
       enable, unconditional, compare_equal, signed_mode, invert
     )
+
     target_from_rs1: bool.Bool(target_from_rs1)
+
 def jalr_branch_a = branch_value(#true, #true, #false, #false, #false, #true)
 def jalr_branch_b = branch_value(#true, #true, #true, #true, #true, #true)
 def beq_branch_a = branch_value(#true, #false, #true, #false, #false, #false)
@@ -229,38 +239,49 @@ def bgeu_branch = branch_value(#true, #false, #false, #false, #true, #false)
 def load_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
   source: writeback_controls.RV5StageWritebackSelect.Memory
+
 def multiply_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
   source: writeback_controls.RV5StageWritebackSelect.Multiply
+
 def divide_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
   source: writeback_controls.RV5StageWritebackSelect.Divide
+
 def bitmanip_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
   source: writeback_controls.RV5StageWritebackSelect.Alu
+
 def zero_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
   source: writeback_controls.RV5StageWritebackSelect.Zero
+
 def ecall_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.None
   immediate: bool.Bool(#false)
   action: system_controls.RV5StageSystemOperation.Ecall
+
 def wfi_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.None
   immediate: bool.Bool(#false)
   action: system_controls.RV5StageSystemOperation.Wfi
+
 def csrrw_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.Write
   immediate: bool.Bool(#false)
   action: system_controls.RV5StageSystemOperation.None
+
 def csrrsi_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.Set
   immediate: bool.Bool(#true)
   action: system_controls.RV5StageSystemOperation.None
+
 def memory_fence = fence_controls.RV5StageFenceControl():
   action: fence_controls.RV5StageFenceOperation.Memory
+
 def instruction_fence = fence_controls.RV5StageFenceControl():
   action: fence_controls.RV5StageFenceOperation.Instruction
+
 def address_translation_fence = fence_controls.RV5StageFenceControl():
   action: fence_controls.RV5StageFenceOperation.AddressTranslation
 
@@ -278,44 +299,52 @@ for ([instruction, action] in [
     field_pattern(field_pattern(control, "operand"), "uses_rs2").value_bits ~is 0
     field_pattern(field_pattern(control, "writeback"), "enable").value_bits ~is 0
     guarded_payloads_are_sparse(control) ~is #true
+
 for (xlen in [XLen.X32, XLen.X64]):
   def catalog = controls.rv5stage_instructions(xlen, FloatingPointProfile.None, DefaultHalfPrecisionProfile, ~svinval: #true)
   for (instruction in SvinvalInstructions):
     check: catalog.contains(instruction) ~is #true
+
 for (fp in [FloatingPointProfile.None, FloatingPointProfile.D]):
   def catalog = controls.rv5stage_instructions(XLen.X64, fp, DefaultHalfPrecisionProfile, ~svinval: #true, ~hypervisor: #true)
   for (instruction in SvinvalH.instructions):
     check: catalog.contains(instruction) ~is #true
+
 def jal_operand_a = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Zero
   right: operand_controls.OperandBSelect.Register
   immediate: operand_controls.RV5StageImmediateSelect.J
+
 def jal_operand_b = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Immediate
   immediate: operand_controls.RV5StageImmediateSelect.J
+
 def add_operand_a = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#true)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Register
   immediate: operand_controls.RV5StageImmediateSelect.None
+
 def add_operand_b = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#true)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Register
   immediate: operand_controls.RV5StageImmediateSelect.I
+
 def no_operand_sources = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Zero
   right: operand_controls.OperandBSelect.Register
   immediate: operand_controls.RV5StageImmediateSelect.None
+
 def no_branch_a = branch_value(#false, #false, #false, #false, #false, #false)
 def no_branch_b = branch_value(#false, #true, #true, #true, #true, #true)
 def store_memory_a = memory_controls.RV5StageMemoryControl():
@@ -323,24 +352,29 @@ def store_memory_a = memory_controls.RV5StageMemoryControl():
   atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#false)
+
 def store_memory_b = memory_controls.RV5StageMemoryControl():
   access: core_memory.CacheOperation.Store
   atomic: RiscvAtomicOperation.Max
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#true)
+
 def amoadd_memory = memory_controls.RV5StageMemoryControl():
   access: core_memory.CacheOperation.Atomic
   atomic: RiscvAtomicOperation.Add
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#false)
+
 def lr_memory = memory_controls.RV5StageMemoryControl():
   access: core_memory.CacheOperation.LoadReserved
   atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Double
   unsigned: bool.Bool(#false)
+
 def no_writeback_a = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#false)
   source: writeback_controls.RV5StageWritebackSelect.Alu
+
 def no_writeback_b = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#false)
   source: writeback_controls.RV5StageWritebackSelect.Memory
@@ -352,8 +386,10 @@ check:
   alu_controls.RV64INonArithmeticAluCases.length() ~is 24
   (for all (relation in complete_relations):
      has_canonical_domain(relation)) ~is #true
+
   (for all (relation in rv32_complete_relations):
      has_rv32_domain(relation)) ~is #true
+
   has_rv5stage_domain(controls.RV64RV5StageControlCases) ~is #true
   has_rv32_rv5stage_domain(controls.RV32RV5StageControlCases) ~is #true
   has_canonical_domain(
@@ -409,6 +445,7 @@ check:
   // resources are active. Their guards remain cared in every row.
   (for all (control in controls.RV64DCoreControlCases ++ controls.VectorCoreControlCases):
      guarded_payloads_are_sparse(control.output)) ~is #true
+
   field_is_free(fp_add_control, "alu") ~is #true
   field_is_free(field_pattern(fp_add_control, "operand"), "left") ~is #true
   field_is_free(field_pattern(fp_add_control, "operand"), "right") ~is #true
@@ -472,6 +509,7 @@ check:
   module_def.outputs.map(fun (port): port.name) ~is [
     "valid", "control"
   ]
+
   type_equal(module_def.find_input("instruction").type, Bits(32)) ~is #true
   type_equal(module_def.find_output("valid").type, bool.Bool) ~is #true
   type_equal(module_def.find_output("control").type,
@@ -480,6 +518,7 @@ check:
     fun (field): field.name
   ) ~is ["guest_access", "alu", "operand", "branch", "memory", "prefetch", "multiply", "divide", "writeback", "system", "fence", "hint",
          "floating_point_valid", "floating_point", "vector"]
+
   type_equal(rv32_module.find_output("control").type,
              controls.RV5StageControl()) ~is #true
   elaborate(controls.RV5StageInstructionDecoder(64)) ~throws "XLen"

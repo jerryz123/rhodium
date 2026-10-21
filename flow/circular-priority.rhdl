@@ -19,15 +19,18 @@ fun circular_priority_onehot(requests :: Hardware.packable,
   unless request_type is_a VectorType && bool_type(request_type.element_type)
   | error(~who: #'circular_priority_onehot,
           "requests must be a nonempty Vec of Bool")
+
   def n = request_type.length
   def width = index_width(n)
   unless hardware_value_type(start).packed_width() == width
   | error(~who: #'circular_priority_onehot,
           "start width must equal the request index width")
+
   def eligible = vec(
     for List (index in 0..n):
       requests[index] & (start <= Bits(width)(index))
   )
+
   def eligible_grant = priority_encoder_oh(eligible)
   def wrapped_grant = priority_encoder_oh(requests)
   def use_eligible = eligible.or_reduce()

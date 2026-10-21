@@ -15,10 +15,12 @@ def profile = RV5StageConfig(
   ~extensions: RV5StageExtensions(~zicboz: #true, ~zawrs: #true, ~zihintpause: #true),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
+
 def clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
   ~timebase_frequency_hz: 1000000
 )
+
 def memory = SoCAddressRegion(AddressSet(0x80000000, 0x3fffffff))
 def rom = SoCAddressRegion(AddressSet(0x00010000, 0xfff))
 def aclint = RiscvAclintDescription(
@@ -42,6 +44,7 @@ def boot = RiscvBootLayout(
   ~reset_address: 0x00010000,
   ~payload_address: 0x80000000
 )
+
 def description = RiscvSoCDescription(
   ~model: "Rhodium test SoC",
   ~compatible: ["rhodium,test-soc", "riscv"],
@@ -54,6 +57,7 @@ def description = RiscvSoCDescription(
   ~plic: plic,
   ~uart: uart
 )
+
 def no_uart_description = RiscvSoCDescription(
   ~model: "Rhodium UART-free SoC",
   ~compatible: ["rhodium,uart-free-soc"],
@@ -64,6 +68,7 @@ def no_uart_description = RiscvSoCDescription(
   ~boot: boot,
   ~aclint: aclint
 )
+
 def tree = description.to_device_tree()
 def dts = tree.to_dts()
 def dtb = tree.to_dtb()
@@ -99,6 +104,7 @@ check:
     [InterruptCause.MachineExternal, InterruptCause.SupervisorExternal,
      InterruptCause.MachineExternal, InterruptCause.SupervisorExternal]
   )
+
   description.uart === uart ~is #true
   tree.boot_cpuid ~is 0
   tree.phandle_for(DeviceTreeLabel("cpu_intc_0")) ~is 1
@@ -142,12 +148,14 @@ check:
     ~clock_frequency_hz: 100000000,
     ~timebase_frequency_hz: 3000000
   ) ~throws "integer multiple"
+
   SoCAddressRegion(AddressSet(0x80000000, 0x2fff)) ~throws "contiguous"
   RiscvBootLayout(
     ~rom: rom,
     ~reset_address: 0x20000,
     ~payload_address: 0x80000000
   ) ~throws "reset address"
+
   RiscvSoCDescription(
     ~model: "duplicate harts",
     ~compatible: ["rhodium,test-soc"],
@@ -158,6 +166,7 @@ check:
     ~boot: boot,
     ~aclint: aclint
   ) ~throws "hart IDs"
+
   RiscvSoCDescription(
     ~model: "missing payload",
     ~compatible: ["rhodium,test-soc"],
@@ -168,6 +177,7 @@ check:
     ~boot: boot,
     ~aclint: aclint
   ) ~throws "boot payload"
+
   RiscvSoCDescription(
     ~model: "overlap",
     ~compatible: ["rhodium,test-soc"],
@@ -182,6 +192,7 @@ check:
     ),
     ~aclint: aclint
   ) ~throws "must not overlap"
+
   RiscvPlicDescription(
     SoCAddressRegion(AddressSet(0x0c000000, 0x03ffffff)),
     3,
@@ -212,6 +223,7 @@ check:
       [RiscvPlicContext(1, InterruptCause.MachineExternal)]
     )
   ) ~throws "described harts"
+
   no_uart_description.uart ~is #false
   no_uart_description.to_device_tree().to_dts().contains("serial@") ~is #false
   RiscvSoCDescription(

@@ -10,6 +10,7 @@ fun shift_register_data_type(value :: Hardware):
   def T = hardware_value_type(value)
   unless data_type(T)
   | error(~who: #'shift_register, "input must have a DataType")
+
   T
 
 /* Validates an exact element or stage-vector literal, replicating an element initializer across all stages. */
@@ -19,6 +20,7 @@ fun shift_register_initial(T :: DataType,
   unless init is_a HardwareLiteral
   | error(~who: #'shift_register,
           "initial value must be a hardware literal")
+
   def init_type = hardware_value_type(init)
   cond
   | T.type_equal(init_type) && init_type.type_equal(T):
@@ -35,6 +37,7 @@ fun shift_register_initial(T :: DataType,
 fun shift_register_enable(enable :: Hardware):
   unless Bool.type_equal(hardware_value_type(enable))
   | error(~who: #'shift_register, "enable must have Bool hardware type")
+
   enable
 
 /* Forms the next stage vector with the new sample at index zero and each later stage holding its predecessor. */

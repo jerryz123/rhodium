@@ -21,6 +21,7 @@ def names = TestConfigs.map(fun (config :: SoCSelection): config.key)
 check:
   names.length() > 0 ~is #true
   names ~is test_config_names
+
 for (config in TestConfigs):
   def resolved = resolve_soc_config(config)
   def metadata = config_metadata(resolved)
@@ -36,6 +37,7 @@ for (config in TestConfigs):
     metadata["csr_warl"]["stateen_context"] ~is (config.core == CoreKind.Spike && [IsaPreset.RVA23, IsaPreset.RV64Max].contains(config.isa))
     metadata["csr_warl"]["medeleg_mask"] ~is (if config.core != CoreKind.Spike | 0xcb3fe | 0x8b3fe) bits.or (if config.isa == IsaPreset.RVA23 | 0xf00400 | 0)
     metadata["csr_warl"]["hedeleg_mask"] ~is (if config.isa == IsaPreset.RVA23 | (if config.core == CoreKind.Spike | 0xcb1ff | 0xcb1fe) | 0)
+
   when config.core == CoreKind.Spike
   | block:
       def profile :: SpikeConfig = resolved.hart.profile
@@ -65,7 +67,9 @@ for (isa in [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RVA23]):
       platform.test_base ~is config.description.boot.payload_address
       platform.access_fault_address ~is 0
       platform.access_fault_bytes ~is 4096
+
     platform.to_json("same-platform")
+
   check: platforms[0] ~is platforms[1]
 
 // Relocation and a second RAM window must follow the description, not a config table.
@@ -77,6 +81,7 @@ def relocated = base with (
     ~payload_address: 0x90001000, ~address_register: base.boot.address_register
   )
 )
+
 def relocated_platform = ActPlatform(relocated)
 check:
   relocated_platform.ram.base ~is 0x90000000

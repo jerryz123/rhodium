@@ -88,6 +88,7 @@ fun compile_route_decoder(router_plan :: RouterPlan) :: RouteDecoder:
   unless router_plan.rows.length() > 0
   | error(~who: #'compile_route_decoder,
           "route decoding requires at least one local route row")
+
   def route_width = index_width(router_plan.route_classes.length())
   def origin_width = index_width(router_plan.origins.length())
   def target_count = router_plan.targets.length()
@@ -106,6 +107,7 @@ fun compile_route_decoder(router_plan :: RouterPlan) :: RouteDecoder:
            valid: Bool(#true))
       )
   )
+
   // Compile the generic relation once. Hardware lookups reuse the typed table;
   // its eventual physical form remains a backend decision.
   def decoder = DecodeGen(
@@ -115,6 +117,7 @@ fun compile_route_decoder(router_plan :: RouterPlan) :: RouteDecoder:
                  fallback_mask: Mask(mask_width)(0)
                  valid: Bool(#false))
   )
+
   _RouteDecoder(router_plan,
                 route_width,
                 origin_width,
@@ -127,6 +130,7 @@ fun compile_router_family_route_decoder(
   unless router_family_plan.rows.length() > 0
   | error(~who: #'compile_router_family_route_decoder,
           "route decoding requires at least one router-family route row")
+
   def site_width = index_width(router_family_plan.members.length())
   def route_width = index_width(
     router_family_plan.network_plan.validated_routing.route_classes.length()
@@ -146,6 +150,7 @@ fun compile_router_family_route_decoder(
            valid: Bool(#true))
       )
   )
+
   def decoder = DecodeGen(
     cases,
     ~default: (pattern(RouteDecision(mask_width)):
@@ -153,6 +158,7 @@ fun compile_router_family_route_decoder(
                  fallback_mask: Mask(mask_width)(0)
                  valid: Bool(#false))
   )
+
   _RouterFamilyRouteDecoder(router_family_plan,
                             site_width,
                             route_width,

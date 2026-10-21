@@ -29,6 +29,7 @@ for (instruction in ZawrsInstructions, word in expected_words):
     system_catalog.matching(word) === instruction ~is #true
     instruction.encode([rd.constrain(0)]) ~throws "not an explicit field"
     instruction.encode([], ~immediate: 0) ~throws "does not have an immediate"
+
   for (bit in 0..32):
     check:
       instruction.matches(word bits.xor (1 << bit)) ~is #false

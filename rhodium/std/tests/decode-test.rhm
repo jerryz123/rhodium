@@ -16,6 +16,7 @@ def module_def = fixture_design.modules[0]
 def decode_operations = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.decode"
 )
+
 def decode_operation = decode_operations[0]
 
 check:
@@ -70,6 +71,7 @@ check:
   verify_design(set_design) ~is #void
   DecodeTable([DecodeCase(in_a, out), DecodeCase(in_b, out)],
               ~default: out) ~throws "overlap"
+
   DecodeTable([DecodeCase(in_a, out)],
               ~default: Pattern(~value: hw.Bits(3)(0),
                                 ~care: hw.Bits(3)(7))) ~throws "default output type"

@@ -46,6 +46,7 @@ class _OneHotType(width :: PosInt):
     unless index < width
     | error(~who: #'OneHot,
             "literal index must satisfy 0 <= index < width")
+
     mux_support.mux_lookup_literal(this, one_hot_encoding(index))
 
   /* Rejects foreign or untyped keys and returns a matching OneHot literal's encoding. */
@@ -53,6 +54,7 @@ class _OneHotType(width :: PosInt):
     unless key is_a mux_support.MuxLookupKey && this.type_equal(key.mux_lookup_key_type())
     | error(~who: #'mux_lookup,
             "one-hot mux lookup keys must belong to the selector's OneHot type")
+
     key.mux_lookup_key_encoding()
 
   /* Returns the exact selector's lane count. */
@@ -71,6 +73,7 @@ fun one_hot_type(type :: HardwareType):
 fun one_hot_width(type :: HardwareType):
   unless one_hot_type(type)
   | error(~who: #'one_hot_width, "expected a OneHot type")
+
   type.width
 
 /* Checks that a hardware value carries an exact-one-hot descriptor. */
@@ -155,6 +158,7 @@ fun build_one_hot(index :: HardwareEntity,
   unless bits_type(index_value.type)
   | error(~who: #'one_hot,
           location.describe() ++ ": index must be Bits")
+
   def result_width = 1 << index_value.type.width
   def encoded_bits = kernel.hw_shl(
     kernel.literal(Bits(result_width), 1, #false, location),

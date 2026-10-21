@@ -71,6 +71,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     pc: Bits(xlen.width)
     splat: Bool
     precertified: Bool
+
   def OwnedResult = VectorOwnedResult(xlen, vlen, vector_completion_slots)
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def FpRequest = FpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
@@ -206,12 +207,14 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
           ppn: operation.descriptor.certificate.ppn
           pointer_masking: operation.descriptor.pointer_masking
   ) |> sequencer.request
+
   tracked_request |> to_valid() |> map_valid(operation => operation.descriptor) |> instructions.request
   (
     splat_launch |> filter_flow(_operation => splat_request) |> to_valid() |> map_valid(operation => VectorInstruction(xlen, InstructionId)):
       context: next_owner
       descriptor: operation.descriptor
   ) |> splat.launch
+
   instructions.packed_memory <== packed_memory
   instructions.memory_drained <== memory_drained
   instructions.slots <== completions.state
@@ -224,6 +227,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   instructions.finished.bits <== VectorIssueFinished(vector_completion_slots):
     owner: finished_owner
     fault: fault ||| cancel.valid
+
   sequencer.packed_memory <== packed_memory
   sequencer.blocked_rows <== foreign_rows
   packed.owner <== current_owner
@@ -272,6 +276,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     checked_memory_pending <== Bool(#false)
   elsewhen (sequencer.sequence_request.fire() & s1_checked_memory):
     checked_memory_pending <== Bool(#true)
+
   operand_fetch.suffix |> sequencer.suffix
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.begin_macro <== request.fire()
@@ -289,6 +294,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     def Array(element_result, packed_result) = registers.results[port] |> fork_valid(2)
     element_result |> filter_valid(_value => read_element[port].into(Bool)) |> operand_fetch.results[port]
     packed_result |> filter_valid(_value => !read_element[port].into(Bool)) |> sequencer.prepare_results[port]
+
   assert(!(splat.mask_read.valid & (operand_fetch.mask_read.valid ||| sequencer.prepare_mask_read.valid)), "vector_splat_mask_port_exclusive")
   Array(operand_fetch.mask_read, sequencer.prepare_mask_read, splat.mask_read) |> valid_arbiter() |> registers.mask_read
   reg splat_mask(~init: Bool(#false))
@@ -339,6 +345,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     end(~format: "unsigned"): operation.beat.end
     last: operation.beat.last
     empty: operation.beat.empty
+
   def issue_owner = operand_fetch.issue.bits.context.owner
   def Array(token, operands, packed_reservation) = issued |> gate_flow(!replay) |> atomic_fork(3)
   def scheduled_issue = (
@@ -357,6 +364,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       store_data: operation.beat.left
       completion_tag: allocate_slot
   )
+
   scheduled_issue |> issue
   (
     packed_reservation |> filter_flow(operation => operation.packed) |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, vector_completion_slots, vector_completion_slots)):
@@ -370,6 +378,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
           segmented: operation.beat.control.memory_nf.or_reduce() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
           owner: operation.context.owner
   ) |> packed.reserve
+
   writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & s1_local_write
   writeback_calendar.reserve[2].bits <== s1_calendar_delay
   when (operand_fetch.scheduled_return):
@@ -377,6 +386,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     assert(!replay, "vector_replay_kills_scheduled_read")
     assert(!serial_fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
     assert(scheduled_issue.fire() ||| splat_skip.valid, "vector_scheduled_read_issues_without_stall")
+
   def issued_splat = splat.active & (issue_owner === splat.owner)
   def issued_control = operand_fetch.issue.bits.beat.control
   def issued_memory_checkpoint = issued_control.memory & (!operand_fetch.issue.bits.context.precertified ||| issued_splat)
@@ -397,6 +407,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       splat: splat.probing & issued_first_lane_enabled & (operation.context.owner === splat.owner)
       precertified: operation.context.precertified
   ) |> to_valid() |> ex_pipe.ingress
+
   def ex_beat = ex_pipe.egress.bits.beat
   def ex_owner = ex_pipe.egress.bits.owner
   def ex_reduction = (ex_beat.control.integer ||| ex_beat.control.fp_service) & ex_beat.control.reduction
@@ -410,6 +421,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     owner: operation.owner
     pc: operation.pc
     splat: operation.splat
+
   def Array(compute_route, memory_route) = executed |> to_decoupled() |> demux_flow(2, result => result.beat.memory)
   def compute_maturity = compute_route |> to_valid()
   def Array(fp_compute, multiply_compute, divide_compute, completion_compute, instruction_compute, resolution_compute) = compute_maturity |> fork_valid(6)
@@ -461,10 +473,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   fp_compute |> filter_valid(result => result.beat.fp_execute) |> map_valid(result => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> fp_authorized.ingress
   when (fp_authorized.ingress.valid):
     assert(fp_authorized.ingress.ready, "vector_fp_execute_has_reserved_request_space")
+
   multiply_compute |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
   divide_compute |> filter_valid(result => result.beat.multiply_execute & result.beat.divide) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
   when (multiply_authorized.ingress.valid):
     assert(multiply_authorized.ingress.ready, "vector_multiply_execute_has_reserved_request_space")
+
   when (divide_authorized.ingress.valid):
     assert(divide_authorized.ingress.ready, "vector_divide_execute_has_reserved_request_space")
 
@@ -475,6 +489,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   when (element_memory_decision.valid):
     assert(memory_maturity.valid & memory_beat.memory, "vector_memory_decision_has_aligned_attempt")
     assert(memory_result.tag === decision_tag, "vector_memory_decision_matches_attempt")
+
   assert(!(decision.valid & compute_maturity.valid), "vector_attempt_has_one_resolution")
   // Keep each accumulator at its owner's resolved frontier. An overlapping
   // destination is written only when that owner's final result drains.
@@ -484,10 +499,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       accumulators[owner] <== compute_beat.write.data
     elsewhen (drain & (completions.drained.bits.owner === owner_tag) & head_result.reduction & head_result.floating_point):
       accumulators[owner] <== drained_data
+
     when (request.fire() & (next_owner === owner_tag)):
       scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
     elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan):
       scan_carries[owner] <== compute_beat.scan_carry
+
     def owner_replaced = (request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag))
     def owner_replayed = (retry ||| fault ||| truncating) & (feedback_owner === owner_tag)
     def scan_resolved = compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan
@@ -506,6 +523,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   truncate.bits <== memory_beat.first.zext(xlen.width)
   when truncating:
     assert(!authorized_slots.as_bits().or_reduce(), "vector_truncate_has_no_older_completion")
+
   // Early memory progress is registered input metadata, not shared ALU data.
   def early_memory_progress = ex_pipe.egress.valid & ex_pipe.egress.bits.precertified
   def checked_memory_beat = checked_memory_owner.bits.beat
@@ -520,6 +538,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       last: mux(early_memory_progress, ex_beat.last ||| ex_pipe.egress.bits.splat, checked_memory_beat.last)
       compress_state: mux(early_memory_progress, ex_beat.compress_state, checked_memory_beat.compress_state)
       packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+
   // Progress metadata comes directly from the registered beat, never through
   // the shared ALU/alignment result and back into preparation's control path.
   def compute_feedback = ex_progress |> filter_valid(operation => !operation.beat.control.memory & instructions.serial[operation.owner]) |> map_valid(operation => VectorFeedback(xlen, vlen, Bits(xlen.width))):
@@ -533,6 +552,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     last: operation.beat.last
     compress_state: operation.beat.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+
   def feedback_matches_current = (feedback_owner === current_owner) & (instructions.memory[feedback_owner] ||| instructions.serial[feedback_owner])
   def current_needs_feedback = !sequencer.retained.descriptor.precertified ||| vector_zero_stride_load(xlen, sequencer.retained.descriptor)
   def relevant_memory_feedback = memory_feedback |> filter_valid(_event => feedback_matches_current & current_needs_feedback)
@@ -547,6 +567,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     last: Bool(#false)
     compress_state: operation.beat.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
+
   def delayed_splat_skip = splat_skip_feedback |> valid_pipe(1)
   splat.skipped.valid <== delayed_splat_skip.valid
   def packed_feedback = packed_decision |> map_valid(event => VectorFeedback(xlen, vlen, Bits(xlen.width))):
@@ -560,6 +581,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     last: packed.resolved.layout.last
     compress_state: literal(VectorCompressState(xlen, vlen), 0)
     packed_layout: packed.resolved.layout
+
   def ordinary_feedback = Array(relevant_memory_feedback, compute_feedback) |> valid_arbiter()
   def Array(sequencer_ordinary_feedback, operand_feedback) = ordinary_feedback |> fork_valid(2)
   assert(!(ordinary_feedback.valid & delayed_splat_skip.valid), "vector_splat_skip_has_unique_feedback")
@@ -569,6 +591,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   when (decision.valid):
     assert(decision_tag === completions.accept_slot, "vector_feedback_follows_acceptance_frontier")
+
   when (issue_done.valid & !cancel.valid):
     assert(active, "vector_issue_release_has_macro_owner")
 
@@ -595,6 +618,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     variable_age <== Bits(3)(0)
   elsewhen (!variable_age.and_reduce()):
     variable_age <== variable_age + Bits(3)(1)
+
   writeback_calendar.pause <== variable_age.and_reduce()
 
 
@@ -607,6 +631,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   completions.reserve.bits <== VectorSlotAllocation(vector_completion_slots):
     owner: operand_fetch.issue.bits.context.owner
     packed: operand_fetch.issue.bits.packed
+
   decision |> filter_valid(event => feedback_packed & (event.disposition === VectorDisposition.Authorized)) |> map_valid(event => event.tag) |> completions.packed_accept
   Array(completions.write, packed.write, splat.write) |> valid_arbiter() |> registers.write
   assert(!(completions.write.valid & packed.write.valid) & !(splat.write.valid & (completions.write.valid ||| packed.write.valid)), "vector_write_owners_exclusive")

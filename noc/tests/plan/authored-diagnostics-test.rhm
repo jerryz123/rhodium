@@ -18,12 +18,15 @@ def spec = topology:
   directed a:
     x -> y
     vcs [escape]
+
   directed b:
     y -> x
     vcs [escape]
+
   directed c:
     x -> z
     vcs [escape]
+
   directed d:
     y -> w
     vcs [escape]
@@ -44,6 +47,7 @@ def observe = custom_policy(
     policy_evaluations := policy_evaluations + 1
     #true
 )
+
 def policy = routing:
   rule route0_inject_a:
     use observe
@@ -51,6 +55,7 @@ def policy = routing:
     origin injection
     candidate_vcs [escape]
     candidate_links [spec.link("a")]
+
   rule route0_a_to_b:
     use observe
     routes [x_to_z]
@@ -58,6 +63,7 @@ def policy = routing:
     current_vcs [escape]
     candidate_vcs [escape]
     candidate_links [spec.link("b")]
+
   rule route0_b_to_c:
     use observe
     routes [x_to_z]
@@ -65,12 +71,14 @@ def policy = routing:
     current_vcs [escape]
     candidate_vcs [escape]
     candidate_links [spec.link("c")]
+
   rule route1_inject_b:
     use observe
     routes [y_to_w]
     origin injection
     candidate_vcs [escape]
     candidate_links [spec.link("b")]
+
   rule route1_b_to_a:
     use observe
     routes [y_to_w]
@@ -78,6 +86,7 @@ def policy = routing:
     current_vcs [escape]
     candidate_vcs [escape]
     candidate_links [spec.link("a")]
+
   rule route1_a_to_d:
     use observe
     routes [y_to_w]

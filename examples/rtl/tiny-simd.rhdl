@@ -19,6 +19,7 @@ class EngineConfig(lanes :: PosInt,
                enable_multiply :: Boolean):
     unless program_depth > 1
     | error(~who: #'EngineConfig, "program depth must be at least two")
+
     super(lanes, width, program_depth, enable_multiply)
 
 hardware_enum Opcode(~width: 4):

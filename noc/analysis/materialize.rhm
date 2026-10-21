@@ -68,6 +68,7 @@ class MaterializedRouting(topology :: Topology,
     unless contains_route_class(route_class)
     | error(~who: #'MaterializedRouting,
             "route class does not belong to this materialized routing")
+
     cond
     | origin is_a Injection:
         unless injection_id_equal(origin.terminal.id, route_class.source.id)
@@ -101,11 +102,13 @@ class MaterializedRouting(topology :: Topology,
     def found = decisions.find(
       fun (candidate): decision_matches(candidate, route_class, origin, candidate_vc)
     )
+
     unless found
     | error(~who: #'MaterializedRouting,
             String.append("routing query was not materialized: ",
                           route_class.id.describe(), " ", origin.describe(),
                           " -> ", candidate_vc.describe()))
+
     found
 
   /* Returns an already stored query result. */
@@ -129,6 +132,7 @@ fun materialize_origin(problem :: RoutingProblem,
             String.append("routing relation must return a Boolean for ",
                           route_class.id.describe(), " ", origin.describe(),
                           " -> ", candidate_vc.describe()))
+
     MaterializedDecision(route_class, origin, candidate_vc, allowed)
 
 /* Snapshots all route/injection/held-VC queries in stable order, then discards the callback. */
@@ -147,6 +151,7 @@ fun materialize_routing(problem :: RoutingProblem):
         route_class,
         HeldVC(vc)
       )
+
   // Keep no reference to the problem, which is the only object holding the callback.
   _MaterializedRouting(
     problem.topology,

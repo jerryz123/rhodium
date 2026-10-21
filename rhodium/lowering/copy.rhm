@@ -22,10 +22,12 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
     def replacement = Value(builder.design.fresh_id(), value.name, value.type, target, ids[value.defining_op_id])
     objects[value] := replacement
     target.add_value(replacement)
+
   for (place in original.places):
     def replacement = Place(builder.design.fresh_id(), place.name, place.type, target, ids[place.owner_op_id])
     objects[place] := replacement
     target.add_place(replacement)
+
   for (memory in original.memories):
     def replacement = Memory(builder.design.fresh_id(), memory.name, memory.depth, memory.element_type, target, ids[memory.defining_op_id])
     objects[memory] := replacement
@@ -38,6 +40,7 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
       if is_instance
       | {"name": op.attribute("name"), "module": child}
       | remap(op.attributes)
+
     def operands = op.operands.map(remap)
     def replacement = Operation(ids[op.id], op.opcode,
                                 target, operands, op.results.map(remap), op.places.map(remap),
@@ -45,16 +48,20 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
     objects[op] := replacement
     for (operand in operands): operand.add_user(replacement.id)
     target.add_operation(replacement)
+
   for (place in original.places):
     when place.driver | objects[place].set_driver(remap(place.driver))
+
   for (port in original.inputs):
     def replacement = Port(port.name, "input", port.type, remap(port.value))
     objects[port] := replacement
     target.add_input(replacement)
+
   for (port in original.outputs):
     def replacement = Port(port.name, "output", port.type, #false, remap(port.place))
     objects[port] := replacement
     target.add_output(replacement)
+
   target.finish_collections()
 
 /* Create one identity-preserving resolver for a caller-supplied copy context.
@@ -97,8 +104,10 @@ fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)
               Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
           | value is_a Array: Array(& (for List (item in value): remap(item)))
           | ~else: value.remap_ir(remap)
+
         active.remove(value)
         objects[value] := replacement
         replacement
     | ~else: value
+
   remap

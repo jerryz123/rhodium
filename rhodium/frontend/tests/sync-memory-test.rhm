@@ -20,22 +20,27 @@ def module_def = fixture_design.modules[0]
 def operation = module_def.operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
+
 def read_only_design = compile_program(elaborate(focused.ReadOnlySyncMemory()), rtl_target).report.design
 def read_only = read_only_design.modules[0].operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
+
 def write_only_design = compile_program(elaborate(focused.WriteOnlySyncMemory()), rtl_target).report.design
 def write_only = write_only_design.modules[0].operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
+
 def shared_module = shared_fixture_design.modules[0]
 def shared = shared_module.operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
+
 def masked_module = masked_fixture_design.modules[0]
 def masked = masked_module.operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
 )
+
 def explicit_masked_design = compile_program(elaborate(focused.MaskedWriteOnlySyncMemory()), rtl_target).report.design
 def explicit_masked = explicit_masked_design.modules[0].operations.find(
   fun (candidate): candidate.opcode == "rtl.sync_memory"
@@ -53,6 +58,7 @@ check:
                                                      "storage.write.address",
                                                      "storage.write.data",
                                                      "storage.write.enable"]
+
   operation.results[0].name ~is "storage.read.data"
   verify_design(fixture_design) ~is #void
   read_only.attribute("has_read") ~is #true
@@ -72,6 +78,7 @@ check:
                                                   "storage.read_write.enable",
                                                   "storage.read_write.write",
                                                   "storage.read_write.write_data"]
+
   shared.results[0].name ~is "storage.read_write.read_data"
   shared.operands[0] === shared_module.find_input("clock").value ~is #true
   masked.attribute("mask_granularity") ~is 8
@@ -81,6 +88,7 @@ check:
                                                   "storage.read_write.write",
                                                   "storage.read_write.write_data",
                                                   "storage.read_write.write_mask"]
+
   explicit_masked.attribute("mask_granularity") ~is 8
   explicit_masked.places[3].type.width ~is 4
   verify_design(shared_fixture_design) ~is #void

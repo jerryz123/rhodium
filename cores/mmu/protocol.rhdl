@@ -41,6 +41,7 @@ interface RiscvPageTableMemory():
   provider requester
   requester -> responder:
     request: Decoupled(Bits(64))
+
   responder -> requester:
     request_access_fault: Bool
     response: Valid(Bits(64))

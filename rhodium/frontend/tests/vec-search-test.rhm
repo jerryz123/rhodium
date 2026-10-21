@@ -16,6 +16,7 @@ def pattern_cast = module_def.operations.find(
   fun (operation):
     operation.opcode == "rtl.cast" && vector_type(operation.results[0].type)
 )
+
 def pattern_constant = module_def.find_operation(pattern_cast.operands[0].defining_op_id)
 def lookup = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.mux_lookup"
@@ -25,6 +26,7 @@ fun packed_nibbles(items):
   def mutable packed = 0
   for (value in items, index in 0..items.length()):
     packed := packed + (value << (index * 4))
+
   packed
 
 check:
@@ -40,7 +42,9 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).length() ~is 1
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.add"
   ).length() ~is 1
+
   verify_design(fixture_design) ~is #void

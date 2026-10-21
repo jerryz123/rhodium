@@ -25,6 +25,7 @@ import:
       hw_shl
       hw_shru
       hw_shrs
+
   "../kernel.rhm".concat as kernel_concat
   "../kernel.rhm".dont_care as kernel_dont_care
   "../kernel.rhm".trunc as kernel_trunc
@@ -97,6 +98,7 @@ fun required_shift_amount_width(amount :: Nat):
     if amount < capacity
     | width
     | loop(width + 1, capacity * 2)
+
   loop(1, 2)
 
 /* Encodes host natural shift amounts minimally, rejects negative integers, and preserves hardware amounts. */
@@ -199,10 +201,12 @@ class DontCareValue(type :: DataType,
     unless type_well_formed(type)
     | error(~who: #'dont_care,
             "don't-care type must be a well-formed DataType")
+
     def width = type.packed_width()
     unless width is_a PosInt
     | error(~who: #'dont_care,
             "don't-care type must have a packed representation")
+
     super(type, name)
 
   /* Creates an unconstrained Bits image and explicitly restores a non-Bits declared type when consumed. */
@@ -231,8 +235,10 @@ fun concat(entity :: HardwareEntity || List.of(HardwareEntity), ...) :~ Hardware
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
+
   unless entities.length() >= 2
   | error(~who: #'concat, "concat requires at least two operands")
+
   kernel_concat(entities.map(concat_operand))
 
 /* Delegates low-bit truncation to the kernel while retaining the common hardware result surface. */
@@ -255,8 +261,10 @@ fun build_mux_lookup(selector :: HardwareEntity,
         fun (case):
           unless case.length() == 2
           | error(~who: #'mux_lookup, "mux lookup cases must be [key, value] pairs")
+
           [selector_value.type.normalize_mux_lookup_key(case[0]), case[1]]
       )
+
       hw_mux_lookup(selector_bits, default_value, normalized_cases)
   | ~else:
       hw_mux_lookup(selector_value, default_value, cases)

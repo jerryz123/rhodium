@@ -24,6 +24,7 @@ sync_circuit EventFeedbackLane(traced :: Boolean, flow :: Boolean = #false, spli
       tap.field("ready") <== Bool(#true)
       branches[0] |> merge.ingress[0]
   | start |> merge.ingress[0]
+
   merge.egress |> storage.ingress
   storage.egress |> route.ingress
   route.egress[1] |> merge.ingress[1]
@@ -57,6 +58,7 @@ sync_circuit EventFeedback():
     lane.route_feedback <== route_feedback
     ingress[index] |> lane.ingress
     lane.egress |> egress[index]
+
   joined.select_feedback <== select_feedback
   joined.route_feedback <== route_feedback
   ingress[2] |> joined.ingress[0]
@@ -65,6 +67,7 @@ sync_circuit EventFeedback():
 
 fun feedback(~bypass: bypass :: Boolean = #false, ~split: split :: Boolean = #false):
   compile_program(elaborate(EventFeedbackLane(#true, bypass, split)), rtl_target).report.elaboration
+
 def paired = compile_program(elaborate(EventJoinedFeedbackLane()), rtl_target).report.elaboration
 
 // Valid wiring permits this electrical fanout, but there is deliberately no
@@ -87,6 +90,7 @@ sync_circuit EventUnsafeFeedback():
   storage.egress |> route.ingress
   route.egress[1] |> merge.ingress[1]
   route.egress[0] |> trace_event("finish") |> egress
+
 fun unsafe_feedback(): compile_program(elaborate(EventUnsafeFeedback()), rtl_target).report.elaboration
 
 // A real 3x3 crossbar routes two fresh sources and one recirculating source
@@ -102,6 +106,7 @@ sync_circuit EventFeedbackCrossbarLane(traced :: Boolean, direct :: Boolean):
     | block:
         def observed = if traced | ingress[index] |> trace_event("start" ++ to_string(index), ~payload: #true) | ingress[index]
         observed |> queue(3)
+
   def outputs:
     if direct
     | block:
@@ -110,6 +115,7 @@ sync_circuit EventFeedbackCrossbarLane(traced :: Boolean, direct :: Boolean):
         inputs <=> crossbar.ingress
         crossbar.egress
     | inputs |> grant_crossbar(3, ~grants: grants)
+
   outputs[2] |> returned.ingress
   for (index in 0..2):
     def buffered = outputs[index] |> queue(2)

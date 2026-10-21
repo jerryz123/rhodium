@@ -39,9 +39,11 @@ class EscapeValidationRequest(topology :: Topology,
       unless topology.contains_vc(vc)
       | error(~who: #'EscapeValidationRequest,
               "escape VC does not belong to topology: " ++ vc.describe())
+
       when duplicate_vc(escape_vcs, vc)
       | error(~who: #'EscapeValidationRequest,
               "duplicate escape VC " ++ vc.describe())
+
     super(topology, escape_vcs.sort(vc_id_less))
 
   /* Tests whether a candidate resource is classified as escape. */
@@ -101,12 +103,15 @@ class EscapeReachabilityEvidence(reachable :: ReachableRouting,
     unless reachable.materialized.contains_route_class(route_class)
     | error(~who: #'EscapeReachabilityEvidence,
             "route class does not belong to this escape evidence")
+
     def found = routes.find(
       fun (route): route.route_class === route_class
     )
+
     unless found
     | error(~who: #'EscapeReachabilityEvidence,
             "route class has no escape reachability evidence")
+
     found
 
   /* Lists the deterministic per-route escape summaries. */
@@ -237,6 +242,7 @@ fun find_closure_violation(materialized :: MaterializedRouting,
                 route.route_class,
                 decision
               )
+
   if violation
   | violation
   | _EscapeClosureEvidence(closed_decisions)
@@ -249,6 +255,7 @@ fun viable_escape_vcs(materialized :: MaterializedRouting,
   def mutable viable = escape_vcs.filter(
     ~keep: fun (vc): origin_at_destination(materialized, route_class, HeldVC(vc))
   )
+
   def mutable changed = #true
   while changed:
     changed := #false
@@ -262,9 +269,11 @@ fun viable_escape_vcs(materialized :: MaterializedRouting,
         ).find(
           fun (decision): contains_vc(viable, decision.candidate_vc)
         ) != #false
+
         when has_progress
         | viable := viable ++ [vc]
           changed := #true
+
   viable.sort(vc_id_less)
 
 /* Checks escape-only progress and viable entry from every reachable non-escape origin. */
@@ -282,6 +291,7 @@ fun analyze_escape_route(materialized :: MaterializedRouting,
   def missing_route = route_escape_vcs.find(
     fun (vc): !contains_vc(viable, vc)
   )
+
   if missing_route
   | _MissingEscapeRoute(route_class, HeldVC(missing_route))
   | block:
@@ -289,6 +299,7 @@ fun analyze_escape_route(materialized :: MaterializedRouting,
       for (vc in reachable_route.reachable_vcs.sort(vc_id_less)):
         unless request.contains(vc)
         | origins := origins ++ [HeldVC(vc)]
+
       def mutable entries = []
       def mutable missing_entry = #false
       for (origin in origins):
@@ -305,9 +316,11 @@ fun analyze_escape_route(materialized :: MaterializedRouting,
           ).filter(
             ~keep: fun (decision): contains_vc(viable, decision.candidate_vc)
           )
+
           if decisions.length() == 0
           | missing_entry := _MissingEscapeEntry(route_class, origin)
           | entries := entries ++ [_EscapeEntryEvidence(origin, decisions)]
+
       if missing_entry
       | missing_entry
       | block:
@@ -319,6 +332,7 @@ fun analyze_escape_route(materialized :: MaterializedRouting,
               route_class,
               HeldVC(vc)
             )
+
           _EscapeRouteEvidence(
             route_class,
             route_escape_vcs,
@@ -335,9 +349,11 @@ fun validate_escape_subnetwork(materialized :: MaterializedRouting,
   unless reachable.materialized === materialized
   | error(~who: #'validate_escape_subnetwork,
           "escape validation requires reachability for the materialized routing")
+
   unless dependency_graph.reachable === reachable
   | error(~who: #'validate_escape_subnetwork,
           "escape validation requires the reachable dependency graph")
+
   unless request.topology === materialized.topology
   | error(~who: #'validate_escape_subnetwork,
           "escape validation request belongs to a different topology")
@@ -354,12 +370,14 @@ fun validate_escape_subnetwork(materialized :: MaterializedRouting,
           if result is_a EscapeRouteEvidence
           | route_evidence := route_evidence ++ [result]
           | failure := result
+
       if failure
       | failure
       | block:
           def escape_vertices = dependency_graph.vertices.filter(
             ~keep: fun (vc): request.contains(vc)
           )
+
           def escape_graph = dependency_graph.project(escape_vertices)
           def proof = check_dependency_acyclicity(escape_graph)
           if proof is_a DependencyCycle

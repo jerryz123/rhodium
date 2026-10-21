@@ -49,8 +49,10 @@ sync_circuit RV5StageUncached(xlen :: XLen, config :: RiscvHartCHIConfig,
               data: dont_care(Bits(xlen.width))
               context: dont_care(Context)
               locality: dont_care(RiscvMemoryLocality)
+
           device: fetch.device
   ) |> ownership.instruction_request
+
   ownership.transport |> transport.core
   transport.cancel <== ownership.cancel
   instruction.response.valid <== ownership.instruction_response.valid
@@ -58,6 +60,7 @@ sync_circuit RV5StageUncached(xlen :: XLen, config :: RiscvHartCHIConfig,
     word: ownership.instruction_response.bits.data[0..32]
     page_fault: Bool(#false)
     access_fault: ownership.instruction_response.bits.access_fault
+
   ownership.instruction_response.ready <== instruction.response.ready
 
   when (instruction.request.valid & transport.core.drained & !core.request.valid & !instruction.flush):

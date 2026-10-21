@@ -44,6 +44,7 @@ class CHITransferFragmenterConfig(flit :: CHIFlitParams,
     unless max_transfer_bytes >= flit.data_bytes && max_transfer_bytes <= 64
     | error(~who: #'CHITransferFragmenterConfig,
             "maximum transfer size must be from one DAT beat through 64 bytes")
+
     super(flit, max_transfer_bytes)
 
 /*
@@ -72,10 +73,12 @@ class CHITransferFragmenterParams(config :: CHITransferFragmenterConfig,
       def advertised = downstream_service.requests.filter(
         ~keep: fun (support): support.opcode == opcode
       ).length() > 0
+
       if advertised && !downstream_service.supports(opcode, config.flit.data_bytes)
       | error(~who: #'CHITransferFragmenterParams,
               "fragmented operations must support one physical DAT beat")
       | #void
+
     super(config, downstream_service)
 
 /* Name the serialized child request, read, DBID, write-data, and completion phases. */

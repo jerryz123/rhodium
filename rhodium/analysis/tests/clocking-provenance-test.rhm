@@ -110,18 +110,23 @@ block:
   def pair_state = summary.output_leaves.find(
     fun (leaf): leaf.output_index == pair_index && leaf.path == ["state"]
   )
+
   def pair_external = summary.output_leaves.find(
     fun (leaf): leaf.output_index == pair_index && leaf.path == ["external"]
   )
+
   def vector_state = summary.output_leaves.find(
     fun (leaf): leaf.output_index == vector_index && leaf.path == [0]
   )
+
   def vector_external = summary.output_leaves.find(
     fun (leaf): leaf.output_index == vector_index && leaf.path == [1]
   )
+
   def packed_leaf = summary.output_leaves.find(
     fun (leaf): leaf.output_index == packed_index && leaf.path == []
   )
+
   check:
     pair_state.origins[0] is_a StateProvenance ~is #true
     pair_external.origins[0] is_a ExternalProvenance ~is #true
@@ -275,22 +280,27 @@ block:
       "sim.dpi_call",
       "sim.dpi_register"
     ]
+
     local_sink(summary, "state").inputs.map(fun (input): input.name) ~is [
       "next",
       "reset",
       "reset_value"
     ]
+
     summary.sinks.find(fun (sink): sink.kind == "rtl.memory_write").inputs.map(
       fun (input): input.name
     ) ~is ["address", "data", "enable"]
+
     summary.sinks.find(fun (sink): sink.kind == "rtl.sync_memory").inputs.map(
       fun (input): input.name
     ) ~is ["sync_memory.write.address",
            "sync_memory.write.data",
            "sync_memory.write.enable"]
+
     summary.sinks.find(fun (sink): sink.kind == "verif.assert").inputs.map(
       fun (input): input.name
     ) ~is ["condition", "reset", "guard"]
+
     summary.sinks.find(fun (sink): sink.kind == "sim.dpi_call").inputs.map(
       fun (input): input.name
     ) ~is ["enable", "input0"]

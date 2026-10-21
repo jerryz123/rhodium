@@ -50,6 +50,7 @@ def counter = counter_design.modules[0]
 def register_operation = counter.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
+
 def next_operation = counter.find_operation(register_operation.places[0].driver.defining_op_id)
 def total = counter.find_output("tot").place
 
@@ -62,15 +63,19 @@ check:
   counter.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.add"
   ).length() ~is 1
+
   counter.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.ult"
   ).length() ~is 1
+
   counter.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.zext"
   ).length() ~is 3
+
   counter.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.extract"
   ).length() ~is 1
+
   verify_design(counter_design) ~is #void
 
 def multiply_design = multiply_fixture_design

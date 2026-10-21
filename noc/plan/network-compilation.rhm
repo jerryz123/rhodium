@@ -76,6 +76,7 @@ fun compile_network(topology :: TopologySpec,
     routing_policy,
     ~escape: escape_request
   )
+
   def result = routing_compilation.result
   unless result is_a ValidatedRouting
   | error(
@@ -84,6 +85,7 @@ fun compile_network(topology :: TopologySpec,
       | routing_compilation.diagnostic.describe()
       | result.describe()
     )
+
   def validated_routing :: ValidatedRouting = result
   def network_plan :: NetworkPlan = NetworkPlan(validated_routing)
   _NetworkCompilation(topology,

@@ -31,6 +31,7 @@ class Artifact(name :: String, media_type :: String, content :: String):
   constructor (name :: String, media_type :: String, content :: String):
     unless name != "" && media_type != ""
     | error(~who: #'Artifact, "artifact name and media type must not be empty")
+
     super(name, media_type, content)
 
 /* Describes the selected physical top and emitted module order.
@@ -48,8 +49,10 @@ class Diagnostic(code :: String, severity :: String, message :: String,
                location :: maybe(Location) = #false, path :: List.of(String) = []):
     unless severity in ["error", "warning", "note"]
     | error(~who: #'Diagnostic, "diagnostic severity must be error, warning, or note")
+
     unless code != "" && message != ""
     | error(~who: #'Diagnostic, "diagnostic code and message must not be empty")
+
     super(code, severity, message, location, path)
 
 /* A completed target result containing artifacts and/or a report, plus diagnostics.

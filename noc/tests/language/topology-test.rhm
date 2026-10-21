@@ -22,12 +22,15 @@ def authored = topology:
   directed source_upper:
     source -> upper
     vcs [adaptive, escape]
+
   directed source_lower:
     source -> lower
     vcs [adaptive, escape]
+
   bidirectional (upper_destination, destination_upper):
     upper <-> destination
     vcs [adaptive, escape]
+
   directed lower_destination:
     lower -> destination
     vcs [adaptive, escape]
@@ -81,20 +84,24 @@ def reordered = topology:
   directed lower_destination:
     lower -> destination
     vcs [escape, adaptive]
+
   node destination
   bidirectional (upper_destination, destination_upper):
     upper <-> destination
     vcs [escape, adaptive]
+
   node lower
   vc_group escape: escape_count
   node source
   directed source_lower:
     source -> lower
     vcs [escape, adaptive]
+
   vc_group adaptive: 2
   directed source_upper:
     source -> upper
     vcs [escape, adaptive]
+
   node upper
   ejection destination_out at destination
   ejection source_loop at source

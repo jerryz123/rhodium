@@ -32,6 +32,7 @@ def validated = compile_routing(
     )
   )
 )
+
 def calls_after_compile = callback_count
 def row_descriptions = validated.route_table.rows.map(
   fun (row): row.describe()
@@ -47,11 +48,14 @@ fun table_matches_materialized(value):
     def allowed_count = decisions.filter(
       ~keep: fun (decision): decision.allowed
     ).length()
+
     unless row.allowed_vcs.length() == allowed_count
     | matches := #false
+
     for (decision in decisions):
       unless row.allows(decision.candidate_vc) == decision.allowed
       | matches := #false
+
   matches
 
 check:

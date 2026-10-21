@@ -15,12 +15,15 @@ def module_def = fixture.design.modules[0]
 def constants = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.constant"
 )
+
 def casts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )
+
 def aggregate_cast = casts.find(
   fun (operation): type_equal(operation.results[0].type, fixture.Aggregate())
 )
+
 def aggregate_constant = module_def.find_operation(
   aggregate_cast.operands[0].defining_op_id
 )
@@ -103,9 +106,11 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_create"
   ).length() ~is 0
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_create"
   ).length() ~is 0
+
   verify_design(fixture.design) ~is #void
 
   compile_program(elaborate(fixture.LiteralParameters(fixture.bits_initial, fixture.bool_initial, fixture.mode_initial, fixture.grant_initial, fixture.nibble_initial, fixture.raw_nibble_initial, fixture.aggregate_initial) ), rtl_target).report.design is_a Design ~is #true

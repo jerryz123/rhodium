@@ -24,6 +24,7 @@ def expected_div = pattern(controls.RiscvDivideControl()):
   signed_mode: bool.Bool(#true)
   remainder: bool.Bool(#false)
   word_result: bool.Bool(#false)
+
 def expected_remu = pattern(controls.RiscvDivideControl()):
   signed_mode: bool.Bool(#false)
   remainder: bool.Bool(#true)
@@ -35,6 +36,7 @@ check:
   controls.RiscvDivideControl().fields.map(fun (field): field.name) ~is [
     "signed_mode", "remainder", "word_result"
   ]
+
   div.value_bits ~is expected_div.value_bits
   remu.value_bits ~is expected_remu.value_bits
   divu.value_bits != div.value_bits ~is #true

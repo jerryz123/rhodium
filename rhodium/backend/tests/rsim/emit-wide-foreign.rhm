@@ -12,6 +12,7 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[1] in ["native", "differential"]
 | error("expected OUTPUT_DIRECTORY native|differential")
+
 def programs = [make_wide_foreign(), make_unused_wide_foreign()]
 for (program in programs):
   for (target in (if arguments[1] == "native" | [rsim_target] | [rsim_target, verilog_target])):

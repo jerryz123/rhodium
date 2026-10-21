@@ -21,11 +21,13 @@ sync_circuit FlowStaticInformation():
   def local_bits_value = local_link.right.bits
   def generated_links :: List.of(Handle) = for List (index in 0..2):
     interface_link(Valid(Bits(8)), "typed_local_" ++ to_string(index))
+
   def generated_valid_place = generated_links[0].left.valid
   def generated_endpoints :: List.of(Endpoint) = for List (link in generated_links): link.right
   def generated_bits = generated_endpoints[1].bits
   def generated_array :: Array.later_of(Handle) = for Array (index in 0..2):
     interface_link(Valid(Bits(8)), "typed_array_" ++ to_string(index))
+
   def generated_array_bits = generated_array[0].right.bits
   def ready_valid_link = interface_link(Decoupled(Bits(8)), "typed_ready_valid")
   def mapped_endpoint = ready_valid_link.right |> map_flow(payload => payload)
@@ -33,6 +35,7 @@ sync_circuit FlowStaticInformation():
   def mapped_observation = mapped_endpoint.observe()
   fun conservative_endpoint(endpoint :: Endpoint) :~ InterfaceTopologyResult:
     endpoint
+
   def conservative_mapped = conservative_endpoint(mapped_endpoint)
   def conservative_transfer = conservative_mapped.fire()
   def conservative_observation = conservative_mapped.observe()
@@ -126,6 +129,7 @@ sync_circuit FlowStaticInformation():
   def extended_offer_bits = extended_offer.right.bits
   def observed_offer = offer |> trace_event("offer", ~when: Bool(#true), ~fields: payload):
     value: payload
+
   def observed_offer_bits = observed_offer.bits
 
   inst captured_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1))
@@ -166,6 +170,7 @@ sync_circuit FlowStaticInformation():
     ~fields: payload
   ):
     nibble: payload.low_nibble()
+
   def traced_word = traced_payload.bits.word
   inst flushed_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1, ~flushable: #true))
   def flushed_nibble = flushed_payload.egress.bits.low_nibble()
@@ -174,6 +179,7 @@ sync_circuit FlowStaticInformation():
   def named_capture = captured_payload.egress |> trace_valid_event("named", ~when: Bool(#true), ~fields: payload):
     word: payload.word
     nibble: payload.low_nibble()
+
   def named_word = named_capture.bits.word
 
   interface demux_input(Decoupled(Bits(8)), ~role: consumer)

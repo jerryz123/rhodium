@@ -97,6 +97,7 @@ sync_circuit FpExecutionService(
   check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   unless floating_point_supports_f(profile)
   | error(~who: #'FpExecutionService, "FP execution requires RV32F or RV64D")
+
   def ExecutionRequest = FpExecutionRequest(xlen, profile, Tag)
   def Result = FpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(ExecutionRequest), ~role: consumer)
@@ -112,11 +113,13 @@ sync_circuit FpExecutionService(
       FpFixedFHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
   | ~else:
       FpFixedDHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
+
   def DivSqrtModule = cond
   | !half_precision_supports_zfh(half_precision):
       if profile == FloatingPointProfile.F | FpDivSqrtF(xlen, Tag) | FpDivSqrtD(xlen, Tag)
   | profile == FloatingPointProfile.F: FpDivSqrtFHalf(xlen, Tag)
   | ~else: FpDivSqrtDHalf(xlen, Tag)
+
   inst fixed(FixedModule)
   inst div_sqrt(DivSqrtModule)
   def Array(fixed_request, division_request) = (
@@ -132,7 +135,9 @@ sync_circuit FpExecutionService(
     def paths = source |> fork_valid(timing.latencies.length())
     def results = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
       paths[index] |> filter_valid(operation => timing.latency(operation.control.execution) === Bits(timing.width)(latency)) |> map_valid(_operation => fixed.completion) |> valid_pipe(latency)
+
     results |> valid_arbiter()
+
   inst returns(if scheduled_writeback | FpScheduledReturns(ExecutionRequest, Result) | FpBufferedReturns(ExecutionRequest, Result, timing.maximum + 2))
   fixed_request |> gate_flow(return_available) |> returns.request
   fixed.request <== returns.issue.bits

@@ -32,6 +32,7 @@ def acyclic_graph = build_dependency_graph(
     )
   )
 )
+
 def callbacks_before_check = callback_count
 def certificate = check_dependency_acyclicity(acyclic_graph)
 
@@ -136,9 +137,11 @@ check:
   cycle.route_classes().map(
     fun (route_class): route_class.id.value
   ) ~is [20, 21]
+
   cycle.decisions().map(
     fun (decision): decision.describe()
   ) ~is ["r20 hold(l30.vc0) -> l31.vc0: allow",
          "r21 hold(l31.vc0) -> l30.vc0: allow"]
+
   cycle.describe() ~is "VC dependency cycle:\n  l30.vc0 -> l31.vc0 [r20]\n  l31.vc0 -> l30.vc0 [r21]"
   check_dependency_acyclicity("not a graph") ~throws "VCDependencyGraph"

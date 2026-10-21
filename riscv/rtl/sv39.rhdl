@@ -118,6 +118,7 @@ fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
     Sv39Access.Fetch: pte.execute
     Sv39Access.Load: mux(execute_read, pte.execute, pte.read ||| (mxr & pte.execute))
     Sv39Access.CacheManagement: pte.read ||| pte.write ||| (mxr & pte.execute)
+
   privilege_valid & access_valid & pte.accessed
 
 /* Prefetch permission is the union of fetch, load, and store permission, but

@@ -4,5 +4,6 @@
 
 import:
   "../../../sims/tests/fesvr-mmio-fixture.rhdl".ordinary
+
 def program = ordinary()
 export program

@@ -64,6 +64,7 @@ circuit CorrectedCrossingSystem():
   inst response_sync(SyncLevelModule,
                      ~clock: egress_clock,
                      ~reset: egress_reset)
+
   response_sync.level <== worker.sampled
   inst response(SampleBitModule)
   response.clock <== egress_clock
@@ -72,6 +73,7 @@ circuit CorrectedCrossingSystem():
   inst interrupt_sync(SyncLevelModule,
                       ~clock: core_clock,
                       ~reset: core_reset)
+
   interrupt_sync.level <== interrupt
   inst interrupt_sink(SampleBitModule)
   interrupt_sink.clock <== core_clock

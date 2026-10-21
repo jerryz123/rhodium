@@ -44,6 +44,7 @@ fun directed_line(node_count :: PosInt,
                   nodes[index],
                   nodes[index + 1],
                   vc_groups)
+
   TopologySpec(nodes, links)
 
 /* Generates independent forward/reverse edges with explicit VC groups and no terminal attachments. */
@@ -60,4 +61,5 @@ fun bidirectional_line(node_count :: PosInt,
       nodes[index + 1],
       vc_groups
     )
+
   TopologySpec(nodes, links)

@@ -27,4 +27,5 @@ fun event_trace_pass(config :: EventInstrumentationConfig = EventInstrumentation
                   [Artifact("events.json", "application/json", event_manifest_to_json(traced.manifest)),
                    Artifact("events.h", "text/x-c++hdr", event_manifest_to_cpp(traced.manifest))],
                   EventTraceReport(traced.manifest))
+
   RTLPass("event-trace", transform)

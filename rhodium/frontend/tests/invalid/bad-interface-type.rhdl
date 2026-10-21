@@ -8,6 +8,7 @@ interface FirstLink(T):
   role consumer
   producer -> consumer:
     payload: T
+
   consumer -> producer:
     ready: Bool
 
@@ -16,6 +17,7 @@ interface SecondLink(T):
   role consumer
   producer -> consumer:
     payload: T
+
   consumer -> producer:
     ready: Bool
 

@@ -94,6 +94,7 @@ fun stable_decode_circt(consumed_ids):
   def design = Design()
   for (_index in 0..consumed_ids):
     design.fresh_id()
+
   def builder = Builder(design)
   def module_def = builder.module("StableDecode")
   def selector = builder.input(module_def, "selector", Bits(1))
@@ -505,6 +506,7 @@ class OpaqueData(name):
   override method describe(): "opaque<" ++ name ++ ">"
   override method type_equal(other):
     other is_a OpaqueData && name == other.name
+
   override method packed_width(): #false
 
 def unsupported_design = Design()

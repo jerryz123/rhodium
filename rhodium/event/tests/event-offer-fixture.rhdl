@@ -18,6 +18,7 @@ sync_circuit EventOffer():
   def admitted = offered
     |> trace_event("admitted", ~when: observe, ~stalls: #true, ~fields: payload):
          value: payload
+
   admitted |> sink
 
 sync_circuit InvalidEventOffer(kind :: String):

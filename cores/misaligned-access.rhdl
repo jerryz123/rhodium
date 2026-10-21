@@ -25,6 +25,7 @@ interface RiscvSplitAccess(xlen :: XLen, Context :: DataType):
   provider requester
   requester -> responder:
     request: Decoupled(PhysicalMemoryReq(xlen, Context))
+
   responder -> requester:
     response: Valid(RiscvSplitResult(xlen, Context))
 
@@ -85,6 +86,7 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
     ~unsigned: Bool(#true),
     ~data: saved.data << shift
   )
+
   def second_fragment = saved.updated(
     ~byte_mask: memory_width_mask(xlen, saved.width) >> remaining_bytes,
     ~address: second_address,
@@ -92,6 +94,7 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
     ~unsigned: Bool(#true),
     ~data: saved.data >> remaining_shift
   )
+
   request.valid <== state === RiscvMisalignedState.Request
   request.bits <== mux(second, second_fragment, first_fragment)
   fault_address <== mux(second, second_address, saved.address)
@@ -108,8 +111,10 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   def second_response = second_responses |> to_valid()
   when (first_response.valid):
     first_data <== first_response.bits.data
+
   when (second_response.valid):
     second_data <== second_response.bits.data
+
   inst load(LoadGen(xlen, word_bytes))
   load.address <== Bits(width)(0)
   load.width <== saved.width
@@ -122,9 +127,11 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
         access_fault: access_fault
         data: mux(saved.access === CacheOperation.Store, Bits(width)(0), load.value)
         context: saved.context
+
     page_fault: page_fault
     fault_address: fault_address
     guest: guest
+
   def completion_fire = completion.valid
   describe_interface_retained_storage(capture, completion_fire, busy, ~name: "split_owner")
   describe_interface_contract(start, request, "split_owner", ~trace_model: interface_trace_retained(~name: "split_owner"))
@@ -159,6 +166,7 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
     state <== RiscvMisalignedState.Complete
   elsewhen (completion_fire):
     state <== RiscvMisalignedState.Idle
+
   when (physical_response.valid):
     assert(state === RiscvMisalignedState.Response, "misaligned_response_has_fragment_owner")
 

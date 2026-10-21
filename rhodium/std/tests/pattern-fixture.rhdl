@@ -34,6 +34,7 @@ def nibble_pattern = Pattern(
 def pair_care = literals.Pair():
   left: Bits(4)(0b1111)
   right: Bits(4)(0)
+
 def lane_care = vec(Bits(4)(0b1111), Bits(4)(0b1000))
 def aggregate_care = literals.Aggregate():
   pair: pair_care
@@ -63,6 +64,7 @@ def concise_wildcard_bits = pattern(Bits(4), _)
 def matching_pair = literals.Pair():
   left: Bits(4)(0b1010)
   right: Bits(4)(0b1111)
+
 def matching_lanes = vec(Bits(4)(0b0100), Bits(4)(0b0111))
 def aggregate_match = literals.Aggregate():
   pair: matching_pair
@@ -71,6 +73,7 @@ def aggregate_match = literals.Aggregate():
 def missing_pair = literals.Pair():
   left: Bits(4)(0b1011)
   right: Bits(4)(0b0011)
+
 def missing_lanes = vec(Bits(4)(0b0100), Bits(4)(0b0101))
 def aggregate_miss = literals.Aggregate():
   pair: missing_pair

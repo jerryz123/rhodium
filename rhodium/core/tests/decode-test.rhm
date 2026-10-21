@@ -74,6 +74,7 @@ block:
                              "default_value": 0,
                              "default_care": 1,
                              "name": "result"})
+
   selector.add_user(operation_id)
   module_def.add_value(result)
   module_def.add_operation(operation)

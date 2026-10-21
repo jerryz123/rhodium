@@ -59,6 +59,7 @@ sync_circuit SimpleRouterFixture():
   for (index in 0..middle_config.target_count):
     middle_egress[index] <=> middle.target[index].egress
     middle.target[index].available <== middle.target[index].egress.ready
+
   destination.ingress <=> destination_ingress
   for (index in 0..destination_config.target_count):
     destination_egress[index] <=> destination.target[index].egress

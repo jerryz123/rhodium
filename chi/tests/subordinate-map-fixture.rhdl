@@ -17,6 +17,7 @@ def memory0 = CHIICNPortParams(
   ~supports: CHIChannelCapabilities(),
   ~max_outstanding: 2
 )
+
 def memory1 = CHIICNPortParams(
   "memory-1",
   10,
@@ -25,6 +26,7 @@ def memory1 = CHIICNPortParams(
   ~supports: CHIChannelCapabilities(),
   ~max_outstanding: 2
 )
+
 def memory0_service = CHISubordinateServiceParams(
   memory0,
   [AddressSet(0x0000, 0x0fff)],

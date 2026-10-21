@@ -55,6 +55,7 @@ sync_circuit RV5StageVectorAdmission():
             first: scalar
             last: scalar ||| Bits(64)(4095)
             store: decode.control.vector.store
+
         ppn: scalar[12..56] + Bits(44)(16)
         virtualized: Bool(#false)
         context:
@@ -69,7 +70,9 @@ sync_circuit RV5StageVectorAdmission():
             hs_mxr: Bool(#false)
             vs_pbmte: Bool(#false)
             g_pbmte: Bool(#false)
+
         invalidation_epoch: Bits(2)(0)
+
     instruction: instruction
     state:
       RiscvVectorState(xlen):
@@ -78,6 +81,7 @@ sync_circuit RV5StageVectorAdmission():
         vstart: Bits(64)(0)
         vxrm: Bits(2)(0)
         vxsat: Bool(#false)
+
     control: decode.control.vector
     scalar: scalar
     floating_scalar: Bits(64)(0)
@@ -88,6 +92,7 @@ sync_circuit RV5StageVectorAdmission():
       PointerMaskControl():
         mode: PointerMaskMode.Disabled
         virtual_address: Bool(#false)
+
   vector.precheck |> precheck
   pipeline_physical <== vector.pipeline_physical
   def Array(observed, hit_request) = vector.pipeline.request |> fork_valid(2)
@@ -96,16 +101,19 @@ sync_circuit RV5StageVectorAdmission():
   def replay_final = retry_last & !retried & hit_request.valid & (hit_request.bits.address === retry_address)
   when replay_final:
     retried <== Bool(#true)
+
   def hit_outcome = mux(hit_request.bits.access === CacheOperation.Store, CachePipelineOutcome.StoreHit, CachePipelineOutcome.LoadHit)
   def response_outcome = priority_mux(~default: hit_outcome):
     slow_access: CachePipelineOutcome.Slow
     replay_final: CachePipelineOutcome.Replay
+
   (
     hit_request |> map_valid(request => CachePipelineResult(xlen)):
       outcome: response_outcome
       reason: CachePipelineReason.None
       data: request.address
   ) |> valid_pipe(1) |> vector.pipeline.response
+
   vector.pipeline.commit_ready <== Bool(#true)
   vector.memory.request.ready <== Bool(#true)
   memory_requests.valid <== vector.memory.request.valid

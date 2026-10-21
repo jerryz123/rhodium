@@ -4,5 +4,6 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../bht.rhdl".Bht
+
 def program = elaborate(Bht(3))
 export program

@@ -37,6 +37,7 @@ check:
   construction.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_create"
   ).length() ~is 2
+
   verify_design(fixture.shapes_design) ~is #void
   verify_design(fixture.construction_design) ~is #void
   elaborate(fixture.InvalidConditionalBundleCondition()) ~throws "Boolean"

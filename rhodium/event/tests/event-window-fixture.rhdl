@@ -32,16 +32,19 @@ sync_circuit WindowCell(intrinsic :: Boolean, live_support :: Boolean = #true, b
     count <== Bits(2)(0)
   otherwise:
     count <== remaining + mux(enqueue, appended, Bits(2)(0))
+
   for (index in 0..3):
     def mutable shifted = Bits(8)(0)
     for (offset in 0..(3 - index)):
       shifted := mux(remove_count === Bits(2)(offset), words[index + offset], shifted)
+
     when flush:
       words[index] <== Bits(8)(0)
     elsewhen (enqueue & (Bits(2)(index) >= remaining) & ((Bits(2)(index) - remaining) < appended)):
       words[index] <== source.bits
     otherwise:
       words[index] <== shifted
+
   describe_interface_window_storage(3, enqueue, remove_count, count, flush, [selected[0], selected[1]], ~live: if live_support | live | #false, ~append_count: if batched | append_count | #false)
   if intrinsic
   | describe_interface_contract(source, sink, "window", ~trace_model: interface_trace_window())
@@ -67,6 +70,7 @@ sync_circuit EventWindow(intrinsic :: Boolean = #true, live_support :: Boolean =
   if !intrinsic
   | describe_interface_transform(InterfaceHandle(storage.source, storage.sink), "window", {}, storage, ~trace_model: interface_trace_window(storage))
   | #void
+
   storage.sink |> pipe(1) |> trace_event("instruction", ~payload: #true) |> sink
 
 sync_circuit EventFrontend():
@@ -79,6 +83,7 @@ sync_circuit EventFrontend():
   memory <=> frontend.memory
   def output = frontend.fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~fields: instruction):
     pc: instruction.pc
+
   output |> fetched
 
 fun child_flush(instance): instance.module_def.find_input("flush").value

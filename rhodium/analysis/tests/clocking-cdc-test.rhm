@@ -78,9 +78,11 @@ block:
   def first_stage = summary.sinks.find(
     fun (sink): sink.operation === stage0.operation
   )
+
   def final_stage = summary.sinks.find(
     fun (sink): sink.operation === stage1.operation
   )
+
   check:
     summary.cdc_violations.length() ~is 0
     first_stage.inputs[0].classification is_a AsynchronousEnvironmentInput ~is #true

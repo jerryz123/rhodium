@@ -28,9 +28,11 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   /* Maps legal FP element widths to IEEE execution precision. */
   fun precision(width :: SimdElementWidth) :~ FloatPrecision:
     mux_lookup(width, ~default: FloatPrecision.Double, [[SimdElementWidth.E16, FloatPrecision.Half], [SimdElementWidth.E32, FloatPrecision.Single]])
+
   /* Maps an integer source or destination element width to FP conversion controls. */
   fun integer_width(width :: SimdElementWidth) :~ FloatIntegerWidth:
     mux_lookup(width, ~default: FloatIntegerWidth.Long, [[SimdElementWidth.E8, FloatIntegerWidth.Byte], [SimdElementWidth.E16, FloatIntegerWidth.Half], [SimdElementWidth.E32, FloatIntegerWidth.Word]])
+
   def source_precision = precision(beat.fp_source_width)
   def result_precision = precision(beat.fp_result_width)
   def left_precision = mux(beat.control.wide_vs2, result_precision, source_precision)
@@ -47,6 +49,7 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
     ~destination_precision: result_precision,
     ~integer_width: conversion_width
   )
+
   def control = unused.updated(~registers: register_control, ~execution: execution_control)
 
 
@@ -61,6 +64,7 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
     if xlen == XLen.X32
     | mux(precision === FloatPrecision.Half, half, single)
     | mux_lookup(precision, ~default: value, [[FloatPrecision.Half, half], [FloatPrecision.Single, single]])
+
   def floating_scalar = beat.control.operand === VectorOperandMode.FloatingScalar
   def scalar_operand = if xlen == XLen.X32 | beat.right[0..32] | beat.right
   def vector_left = operand(beat.left, left_precision)

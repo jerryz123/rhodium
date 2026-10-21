@@ -44,8 +44,10 @@ fun call_dpi_procedure(procedure :: DpiDefinition,
                        enable :: maybe(HardwareEntity) = #false):
   when clock
   | reject_explicit_sync_control()
+
   unless !procedure.has_result()
   | error(~who: #'dpi_import, "DPI .call requires a procedure import")
+
   def imported = materialize_import(procedure)
   def enabled = resolved_enable(enable)
   if clock
@@ -60,11 +62,14 @@ fun make_dpi_register(name :: AsciiIdentifier,
                       enable :: maybe(HardwareEntity) = #false) :~ HardwareFields:
   when clock
   | reject_explicit_sync_control()
+
   unless function.has_result()
   | error(~who: #'dpi_reg, "dpi_reg requires a result-bearing function import")
+
   unless function.results.length() == 1
   | error(~who: #'dpi_reg,
           "a single dpi_reg binding requires exactly one function result")
+
   def imported = materialize_import(function)
   def enabled = resolved_enable(enable)
   if clock
@@ -79,12 +84,15 @@ fun make_dpi_registers(result_names :: NonemptyList.of(AsciiIdentifier),
                        enable :: maybe(HardwareEntity) = #false):
   when clock
   | reject_explicit_sync_control()
+
   unless function.results.length() > 1
   | error(~who: #'dpi_reg,
           "parenthesized dpi_reg bindings require multiple function results")
+
   unless result_names.length() == function.results.length()
   | error(~who: #'dpi_reg,
           "DPI result binding count must match the function result count")
+
   def imported = materialize_import(function)
   def enabled = resolved_enable(enable)
   if clock

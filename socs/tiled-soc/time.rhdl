@@ -48,6 +48,7 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
     hart: hart_index
     flit: flit
   ) |> egress
+
   def beat_fire = egress.fire()
   def packet_fire = beat_fire & egress.bits.flit.last
 

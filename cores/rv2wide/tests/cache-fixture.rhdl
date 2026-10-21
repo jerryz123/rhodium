@@ -28,6 +28,7 @@ def test_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 4095),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)), test_home)
 ])
+
 def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regions ++ [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0xffff),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)), test_home),
@@ -86,6 +87,7 @@ sync_circuit RV2WideCacheFixture():
       def physical = request.into(RV2WideMemoryReq(XLen.X64, 64))
       physical.updated(~pbmt: mux(physical.access.is_cache_management(), management_pbmt, physical.pbmt))
   ) |> data.memory.request
+
   data.memory.response |> mmu.physical_memory.response
   data.memory.fault |> mmu.physical_memory.fault
   mmu.physical_memory.drained <== data.memory.drained

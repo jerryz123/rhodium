@@ -16,6 +16,7 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).map(fun (operation): operation.attribute("name")) ~is ["stored"]
+
   verify_design(design) ~is #void
   elaborate(fixture.DuplicateCsrBankFixture()) ~throws "unique"
   elaborate(fixture.DuplicateCsrGroupFixture()) ~throws "unique"

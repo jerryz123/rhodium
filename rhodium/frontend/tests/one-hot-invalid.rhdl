@@ -42,6 +42,7 @@ circuit KeyedAggregateMux():
     PairSelect.Second: second,
     PairSelect.First: first
   })
+
   result <== selected
   selected_left <== selected.left_value()
 

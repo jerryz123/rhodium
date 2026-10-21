@@ -11,6 +11,7 @@ import:
   "event-join-fixture.rhdl" as join_fixture
   "../../../rhodium/event/main.rhm" open
   "../../../rhodium/backend/circt.rhm".emit_circt
+
 def logical = compile_program(fixture.partial(), rtl_target).report.elaboration
 def before = emit_circt(logical.design)
 def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))

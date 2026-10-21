@@ -27,6 +27,7 @@ meta:
         for (binding in bindings):
           when identifier.to_source_string() == binding.to_source_string()
           | substituted := '$('$')$binding'
+
         substituted
     | '$constructor($item, ...) $(operator :: Operator) $right':
         def substituted_constructor = substitute_generator_parameters(
@@ -36,6 +37,7 @@ meta:
         let [substituted_item, ...]:
           for List (part in [item, ...]):
             substitute_generator_parameters(part, bindings)
+
         def substituted_right = substitute_generator_parameters(right, bindings)
         match operator.unwrap_op()
         | #'#{|.|}:
@@ -49,6 +51,7 @@ meta:
         let [substituted_item, ...]:
           for List (part in [item, ...]):
             substitute_generator_parameters(part, bindings)
+
         '$substituted_constructor($substituted_item, ...)'
     | '$left $(operator :: Operator) $right':
         def substituted_left = substitute_generator_parameters(left, bindings)

@@ -57,6 +57,7 @@ fun whole_word_mask_circt(shared :: Boolean):
         builder.drive(write.data, data)
         builder.drive(write.mask, mask)
         read.data
+
   builder.drive(builder.output(top, "result", Bits(32)), result)
   builder.finish(top)
   emit_circt(design)

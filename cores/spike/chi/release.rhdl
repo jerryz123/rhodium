@@ -62,6 +62,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
   when (control.event.valid):
     assert(response.src_id === home_id, "spike_release_response_home")
     assert(response.tgt_id === node_id, "spike_release_response_target")
+
   when grant:
     dbid <== response.dbid_or_group_id
     def coherent_response = CHICoherentResponse():
@@ -69,6 +70,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
       state: mux(state.is_unique(), CHIResponseState.Unique,
                  mux(state.is_dirty(), CHIResponseState.SharedDirty,
                      CHIResponseState.SharedClean))
+
     response_state <== coherent_response.as_bits()
 
   // CompDBIDResp supplies the copyback DBID; final DAT acceptance is this engine's completion boundary.

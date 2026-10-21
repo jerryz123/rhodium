@@ -46,6 +46,7 @@ check:
     corner_route,
     Injection(corner_source_id)
   ).allowed_vcs.map(fun (vc): vc.describe()) ~is [east_x.describe()]
+
   phased_routing.route_row(
     corner_route,
     HeldVC(east_x)
@@ -107,6 +108,7 @@ fun raw_phased_xy(route_class, origin, candidate_vc):
     if x_active
     | origin is_a Injection || current_group == x_group
     | origin is_a Injection || current_group == x_group || current_group == y_group
+
   def candidate_group = if x_active | x_group | y_group
   required != #false && origin_allowed && candidate.group == candidate_group && mesh_direction_equal(
     required,
@@ -157,6 +159,7 @@ fun local_axis_step_policy(axis):
         | axis == "y" && current.y < destination.y: mesh_north
         | axis == "y" && current.y > destination.y: mesh_south
         | ~else: #false
+
       required != #false && mesh_direction_equal(
         required,
         phased_mesh.direction_of(context.candidate_link())
@@ -232,6 +235,7 @@ check:
     ~keep:
       fun (decision): decision.allowed && y_to_x_decision(decision)
   ).length() > 0 ~is #true
+
   unreachable_routing.reachable.routes[0].reachable_decisions.filter(
     ~keep: y_to_x_decision
   ) ~is []

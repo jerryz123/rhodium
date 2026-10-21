@@ -35,12 +35,14 @@ check:
   rv64.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "retire_count", "commit_in", "fp_update_in", "vector_retire_in", "vector_saturate_in", "vector_fault_start_in", "vector_truncate_in", "cbo_operation"
   ]
+
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "trap_event", "interrupt_request", "command_success", "wfi", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
     "frm", "fp_enabled", "vector_enabled", "vector_state", "cbo_zero_access", "cbo_permission", "translation_flush", "pbmte",
     "pointer_masking", "pointer_masking_changed"
   ]
+
   rv64.find_input("interrupts").type.field("machine_timer").type.packed_width() ~is 1
   rv64.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 64
   rv32.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 32

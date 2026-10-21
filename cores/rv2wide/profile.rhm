@@ -62,30 +62,42 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
                ~vector_dispatch_depth: vector_dispatch_depth :: PosInt = 4):
     unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
     | error(~who: #'RV2WideConfig, "RV2Wide supports Bare or RV64 Sv39")
+
     when xlen == XLen.X32 && (hypervisor || ssnpm || supm)
     | error(~who: #'RV2WideConfig, "RV32 supports Bare execution without H or pointer masking")
+
     when mmu_type == RiscvMmuType.Bare && (svnapot || svpbmt || hypervisor)
     | error(~who: #'RV2WideConfig, "translation extensions require Sv39")
+
     unless floating_point == FloatingPointProfile.None || floating_point == rv2wide_fp_profile(xlen)
     | error(~who: #'RV2WideConfig, "RV2Wide supports disabled FP, RV32F, or RV64D")
+
     when zfa && floating_point == FloatingPointProfile.None
     | error(~who: #'RV2WideConfig, "Zfa requires floating-point support")
+
     check_half_precision_profile(floating_point, half_precision)
     unless compressed_extensions_report_misa_c(xlen, floating_point, compressed) && compressed.contains(CompressedExtension.C)
     | error(~who: #'RV2WideConfig, "RV2Wide requires C as its compressed base")
+
     when supm && !ssnpm
     | error(~who: #'RV2WideConfig, "Supm requires Ssnpm hardware")
+
     when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
     | error(~who: #'RV2WideConfig, "vectors require at least two XLEN rows per register")
+
     when vector_profile_supports_integer64(vector) && xlen != XLen.X64
     | error(~who: #'RV2WideConfig, "64-bit vector elements require RV64")
+
     when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
     | error(~who: #'RV2WideConfig, "vector FP requires scalar FP")
+
     when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
     | error(~who: #'RV2WideConfig, "64-bit vector FP requires scalar D")
+
     validate_vector_extensions(vector, vector_extensions)
     when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
     | error(~who: #'RV2WideConfig, "Zvfh requires scalar Zfhmin or Zfh")
+
     super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots, vector_dispatch_depth)
 
   /* Sizes the shared FP datapath for scalar and vector operations without enabling additional scalar instructions. */
@@ -100,6 +112,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     | HalfPrecisionProfile.None: []
     | HalfPrecisionProfile.Zfhmin: ["zfhmin"]
     | HalfPrecisionProfile.Zfh: ["zfh"]
+
     def fp = (if floating_point_supports_f(floating_point) | ["f"] | []) ++ (if floating_point_supports_d(floating_point) | ["d"] | [])
     def scalar = ["i", "m", "a"] ++ fp ++ ["c", "b"] ++ (if hypervisor | ["h"] | []) ++ ["za64rs", "zba", "zbb", "zbs"]
     def compressed_additions = (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | []) ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
@@ -113,6 +126,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     def names = scalar ++ compressed_additions ++ (if zfa | ["zfa"] | []) ++ half_extensions ++ memory ++ masking ++ hints ++ system ++ privileged ++ guest ++ (if sscofpmf | ["sscofpmf"] | []) ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
     def misa = RV2WideIsaProfile.misa_extensions.take(6) ++ (if floating_point_supports_f(floating_point) | [MisaExtension.F] | []) ++ (if floating_point_supports_d(floating_point) | [MisaExtension.D] | []) ++ [MisaExtension.C] ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | []) ++ (if hypervisor | [MisaExtension.H] | [])
     RiscvIsaProfile(xlen, names, misa)
+
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
   property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: mmu_type, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom, ~sstc: sstc, ~svpbmt: svpbmt, ~ssnpm: ssnpm, ~sscofpmf: sscofpmf, ~smstateen: smstateen, ~hypervisor: hypervisor, ~vector: vector, ~vector_length: vector_length)
   property hart_description :: RiscvHartDescription:

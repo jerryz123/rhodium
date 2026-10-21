@@ -6,6 +6,7 @@ import:
   "fixtures.rhm" open
   "../../../compile/program.rhm".compile_program
   "../../circt-target.rhm".circt_target
+
 // One selected program per MLIR artifact; request its width and fixture kind.
 def width = rkt.#{string->number}(rkt.#{vector-ref}(rkt.#{current-command-line-arguments}(), 0))
 def kind = rkt.#{vector-ref}(rkt.#{current-command-line-arguments}(), 1)
@@ -29,4 +30,5 @@ def program:
   | "arithmetic": make_arithmetic_program(width)
   | "scalar": make_program(width)
   | ~else: error("unknown fixture kind")
+
 print(compile_program(program, circt_target).artifacts[0].content)

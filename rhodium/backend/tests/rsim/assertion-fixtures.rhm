@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_assertions
 
 fun make_assertions():
@@ -39,6 +40,7 @@ fun make_assertions():
   b.drive(array.next, array_next)
   for (index in 0..2):
     b.drive(b.output(leaf, "array" ++ to_string(index), Bits(8)), b.vector_get(leaf, array.current, index))
+
   def reset_bits = b.mux_lookup(leaf, late_mode, b.cast(leaf, reset, Bits(1)), [[1, late.current], [2, b.bit_not(leaf, late.current)]])
   def assertion_reset = b.cast(leaf, reset_bits, Reset)
   // The named failure condition observes the pending array version. Forwarding
@@ -75,7 +77,9 @@ fun make_assertions():
     b.drive(child.input("clock"), tc)
     for (port in leaf.inputs.filter(~keep: fun (port): port.name != "clock")):
       b.drive(child.input(port.name), b.input(top, side ++ "_" ++ port.name, port.type))
+
     for (port in leaf.outputs): b.drive(b.output(top, side ++ "_" ++ port.name, port.type), child.output(port.name))
+
   def child = b.instance(top, monitor, "monitor")
   b.drive(child.input("clock"), tc)
   b.drive(child.input("reset"), b.cast(top, b.constant(top, Bits(1), 0), Reset))

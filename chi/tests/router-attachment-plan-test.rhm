@@ -14,6 +14,7 @@ import:
 
 def physical = topology:
   node local
+
 def router = physical.node("local")
 def rni = CHIRNSite(NamePath(["rni"]), 1, router)
 def rnf_a = CHIRNSite(NamePath(["rnf-a"]), 2, router)
@@ -55,8 +56,10 @@ def attachment = compile_chi_router_attachment_plan(
                        ~hni_requester_sites: [[hni]], ~hnf_requester_sites: [[hnf]],
                        ~hn_subordinate_sites: [[hn]], ~sn_sites: [[sn_b, sn_a]])
 )
+
 fun inputs(plan :: CHIChannelAdapterPlan, sites :: List.of(CHIInjectionSite)):
   sites.map(fun (site): plan.injection(site.terminal).input_index)
+
 fun targets(plan :: CHIChannelAdapterPlan, sites :: List.of(CHIEjectionSite)):
   sites.map(fun (site): plan.ejection(site.terminal).target_index)
 

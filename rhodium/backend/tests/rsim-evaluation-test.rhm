@@ -54,6 +54,7 @@ def foreign = b.dpi_register_results(top, ["unused", "used"], imp, [data], clock
 def shared = b.add(top, reg.current, foreign[1])
 for (name in ["shared", "shared_again"]):
   b.drive(b.output(top, name, Bits(8)), shared)
+
 b.drive(b.output(top, "word", Bits(8)), word)
 b.drive(b.output(top, "sync_word", Bits(8)), port.read_data)
 b.assert(top, b.eq(top, reg.current, data), clock, reset, enable, "sampled")
@@ -91,15 +92,18 @@ check:
 // guard; its operands must still be supplied by the surrounding evaluation.
 for (port in schedule.inputs):
   check: pure_computation(schedule.steps[port.value]) ~is #false
+
 for (step in schedule.steps):
   when step.opcode in ["state", "sync_read", "foreign_result", "memory_read"]
   | check: pure_computation(step) ~is #false
+
 check:
   pure_computation(schedule.steps[schedule.registers[0].next_value]) ~is #true
   pure_computation(schedule.steps[schedule.assertions[0].condition]) ~is #true
 
 def memory_slots = for Map (memory in schedule.memories, index in 0..schedule.memories.length()):
   values(memory.name, index)
+
 def writes = evaluation.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "write")
 check:
   storage(sink("sync_read").dependencies.storage) ~is [["memory", memory_slots["sync"], #false]]
@@ -128,10 +132,12 @@ for (budget in [1, 1000000]):
     frame_fields.contains("std::uint8_t call0_arg0;") ~is #true
     frame_fields.contains("std::uint8_t write0_data;") ~is #true
     frame_fields.contains("std::uint8_t write0_address;") ~is #true
+
   for (field in ["call0_enable", "call0_arg0", "assertion0_failed",
                  "write0_address", "write0_data", "write0_enable",
                  "write1_address", "write1_enable"]):
     check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is (if field == "assertion0_failed" | 2 | 1)
+
   // Masked writes initialize disabled data and guard both the old-word load
   // and merge with the effective enable, including shared-port write mode.
   def guarded_write = sampling.split("  if (frame.write1_enable) {")[1].split("\n  }")[0]
@@ -142,8 +148,10 @@ for (budget in [1, 1000000]):
     guarded_write.contains("const auto write1_old = vector_index(") ~is #true
     guarded_write.contains("frame.write1_data = ") ~is #true
     sampling.split("frame.write1_data = ").length() - 1 ~is 2
+
   for (field in ["s0", "r0", "f0_0", "f0_1"]):
     check: sampling.split("next." ++ field ++ " = ").length() - 1 ~is (if field == "s0" | 2 | 1)
+
   check:
     frame_fields.contains("State next") ~is #false
     emitted[1].split("  active_state_ = next_index;").length() ~is 2
@@ -156,6 +164,7 @@ def output_inputs = evaluation.outputs.steps.filter(~keep: fun (index): schedule
 def roots = evaluation.outputs.steps.filter(~keep: fun (index): schedule.steps[index].opcode in ["state", "foreign_result", "sync_read", "memory_read"])
 def root_storage = for Map (index in roots):
   values(schedule.steps[index].opcode, storage(evaluation.dependencies[index].storage))
+
 check:
   output_inputs ~is [input("address")]
   ids(evaluation.outputs.steps).length() ~is evaluation.outputs.steps.length()
@@ -170,7 +179,9 @@ for (body in [evaluation.pre_edge, evaluation.outputs]):
   for (index in body.steps):
     for (operand in evaluation.dependencies[index].values):
       check: operand in available ~is #true
+
     available.add(index)
+
   for (sink in body.sinks):
     for (value in sink.dependencies.values):
       check: value in available ~is #true
@@ -189,6 +200,7 @@ def repeated_plan = build_evaluation_plan(repeated)
 def sampled = for List (sink in repeated_plan.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "register")):
   def read = repeated_plan.dependencies[repeated.registers[sink.index].next_value]
   if read.storage.length() == 0 | #false | read.storage[0].slot
+
 def sampled_slots = sampled.filter(~keep: fun (slot): slot != #false)
 def sampled_paths = sampled_slots.map(fun (slot): repeated.memories[slot].path)
 check:
@@ -209,10 +221,12 @@ fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, bo
       region.steps.length() + region.sinks.length() > 0 ~is #true
       region.steps.length() == 0 || region.sinks.length() == 0 ~is #true
       region.cost <= budget || region.steps.length() + region.sinks.length() == 1 ~is #true
+
   check:
     steps.snapshot() ~is body.steps
     sinks.snapshot() ~is body.sinks
     regions ~is build_regions(schedule, evaluation, body, ~budget: budget, ~module_cuts: module_cuts)
+
   def future = MutableSet{}
   for (offset in 0..regions.length()):
     def region = regions[regions.length() - 1 - offset]
@@ -226,24 +240,31 @@ fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, bo
       | def dependencies = (if body.conditionals.has_key(index) | body.conditionals[index].dependencies | evaluation.dependencies[index])
         for (operand in dependencies.values): uses.add(operand)
         for (read in dependencies.storage): resources.add(read)
+
     for (sink in region.sinks):
       for (value in sink.dependencies.values): uses.add(value)
       for (read in sink.dependencies.storage): resources.add(read)
+
     for (value in uses):
       when evaluation.constants.has_key(value) | constant_uses.add(value)
+
     def incoming = MutableSet{}
     for (value in uses):
       unless value in defined || evaluation.constants.has_key(value) | incoming.add(value)
+
     def outgoing = MutableSet{}
     for (value in defined):
       when value in future | outgoing.add(value)
+
     check:
       ids(region.inputs) ~is incoming.snapshot()
       ids(region.outputs) ~is outgoing.snapshot()
       ids(region.constants) ~is constant_uses.snapshot()
       (for Set (read in region.storage): read) ~is resources.snapshot()
+
     for (value in defined): future.remove(value)
     for (value in incoming): future.add(value)
+
   check: future.snapshot() ~is Set{}
 
 def scalar = build_schedule(prepare_rtl(make_scalar(5)).rtl)
@@ -342,11 +363,13 @@ for (width in [1, 5, 8, 9, 16, 17, 32, 33, 63, 64, 65]):
     | width <= 32: "std::uint32_t"
     | width <= 64: "std::uint64_t"
     | ~else: "rhodium_rsim::WideBits<65>"
+
   check:
     layout.groups.length() ~is 1
     layout.groups[0].carrier ~is expected
     layout.groups[0].indirect ~is #false
     layout.groups[0].count >= 2 ~is #true
+
   def emitted = emit_rsim(planned, ~region_budget: 1)
   check: emitted[0].contains("std::array<" ++ expected ++ ", ") ~is #true
   for (region in regions):
@@ -363,6 +386,7 @@ for (budget in [1, 24, 4096]):
     when budget == 1 && regions.length() > 1 | check: split ~is #true
     check:
       contents[1].split("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region").length() - 1 ~is (if split | regions.length() | 0)
+
     when split
     | for (region in regions, number in 0..regions.length()):
         def helper = contents[1].split("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
@@ -372,13 +396,16 @@ for (budget in [1, 24, 4096]):
           signature.contains("const " ++ phase ++ "Scratch& scratch") ~is consumer
           signature.contains(if phase == "pre" | "State& next" | "Outputs& next_outputs") ~is consumer
           signature.contains("Frame& frame") ~is (consumer && phase == "pre")
+
         for (value in region.outputs):
           def layout = boundary_layout(regions, schedule, CppTypes(), evaluation.constants)
           when scratch_slot(layout.bindings[value])
           | check: helper.contains("const std::uint64_t v" ++ to_string(value) ++ " = scratch.") ~is #true
+
         for (value in region.steps):
           unless value in region.outputs || evaluation.constants.has_key(value)
           | check: helper.contains(" v" ++ to_string(value) ++ " = scratch.") ~is #false
+
         check:
           helper.contains("foreign::") ~is #false
           helper.contains("throw ") ~is #false
@@ -411,11 +438,14 @@ for (budget in [1, 22]):
     layout ~is boundary_layout(regions, borrow_schedule, CppTypes(), borrow_evaluation.constants)
     result.indirect ~is (budget == 1)
     layout.groups[result.group].indirect ~is result.indirect
+
   for (group in layout.groups, number in 0..layout.groups.length()):
     def slots = for List ((value, binding) in layout.bindings):
       def slot = scratch_slot(binding)
       if slot && slot.group == number | slot.index | #false
+
     check: slots.filter(~keep: fun (index): index != #false).sort() ~is for List (index in 0..group.count): index
+
 check:
   local_regions.length() ~is 2
   borrow_schedule.outputs[0].value in local_regions[0].outputs ~is #true
@@ -447,6 +477,7 @@ def onehot_cache = plan_region_cache(onehot_schedule, onehot_evaluation, onehot_
 check:
   onehot_evaluation.outputs.conditionals ~is Map{}
   scratch_slot(onehot_layout.bindings[onehot_schedule.outputs[0].value]).indirect ~is #true
+
 for (output in onehot_schedule.outputs, number in 0..onehot_schedule.outputs.length()):
   def producer = onehot_regions.index(onehot_regions.find(fun (region): output.value in region.steps))
   check: producer in onehot_cache.regions ~is (number == 1)
@@ -464,9 +495,11 @@ for (body in [borrow_evaluation.outputs], phase in ["output"]):
   def slot = helper.split(alias)[1].split(";")[0]
   def writes = for List (operand in borrow_schedule.steps[vector_step].operands, index in 0..2):
     "  " ++ slot ++ "[" ++ to_string(index) ++ "] = v" ++ to_string(operand) ++ ";"
+
   check:
     helper.contains(String.join(writes ++ [alias ++ slot ++ ";"], "\n")) ~is #true
     helper.contains("  " ++ slot ++ " = std::array") ~is #false
+
 check:
   emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains("const std::array<std::uint8_t, 2> " ++ vector_name ++ " = ") ~is #true
 
@@ -494,6 +527,7 @@ def kernel_data = kernel_builder.input(kernel_top, "data", borrow_type)
 def kernel_values = for List (index in 0..4):
   def select = kernel_builder.input(kernel_top, "select" ++ to_string(index), Bits(1))
   kernel_builder.mux_lookup(kernel_top, select, kernel_data, [[1, kernel_builder.cast(kernel_top, kernel_builder.constant(kernel_top, Bits(10), index), borrow_type)]])
+
 def kernel_type = VectorType(4, borrow_type)
 kernel_builder.drive(kernel_builder.output(kernel_top, "gather", kernel_type), kernel_builder.vector_create(kernel_top, kernel_type, kernel_values))
 kernel_builder.finish(kernel_top)
@@ -511,6 +545,7 @@ for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
   for (step in planned.steps, index in 0..planned.steps.length()):
     when step.opcode in ["state", "sync_read"] && (record_type(step.type) || vector_type(step.type))
     | roots[index] := StorageRef(StateStorage(step.opcode, step.attributes["slot"]))
+
   check: roots.length() > 0 ~is #true
   for (budget in [1, 1000000]):
     for (body in [evaluated.pre_edge, evaluated.outputs]):
@@ -523,6 +558,7 @@ for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
             check:
               binding ~is roots[index]
               scratch_slot(binding) ~is #false
+
         for (index in region.outputs):
           when roots.has_key(index)
           | check: layout.bindings[index] ~is roots[index]
@@ -545,6 +581,7 @@ for (body in [root_plan.pre_edge, root_plan.outputs]):
   check:
     layout.groups ~is []
     layout.bindings[root_schedule.outputs[0].value] ~is StorageRef(StateStorage("state", 0))
+
 def root_emission = emit_rsim(root_schedule, ~region_budget: 1)
 check:
   root_emission[1].contains("next.s0 = v0;") ~is #true
@@ -570,6 +607,7 @@ fun projection_program(mode :: String):
     | if mode == "decode"
       | builder.decode(module, packed, Bits(140), type, [[0, 1, 2 ** 139 + 37, 2 ** 140 - 1]], 19, 2 ** 140 - 1)
       | converted
+
   def entries = builder.record_get(module, parent, "entries")
   builder.drive(builder.output(module, "result", element), builder.vector_get(module, entries, 1))
   builder.finish(module)
@@ -585,10 +623,12 @@ for (mode in ["constant", "state", "input", "decode"]):
   check:
     backing.path ~is ["entries", 1]
     scratch_slot(backing) ~is #false
+
   cond
   | mode == "constant": check: backing.root is_a ConstantStorage ~is #true
   | mode == "state": check: backing.root ~is StateStorage("state", 0)
   | ~else: check: backing.root is_a ScratchSlot ~is #true
+
   def emitted = emit_rsim(planned, ~region_budget: 1)
   def producer = "const auto& v" ++ to_string(result) ++ " = v"
   check: emitted[1].contains(producer) ~is #true
@@ -613,6 +653,7 @@ for (mode in ["constant", "state", "input", "decode"]):
         def regions = build_regions(planned, evaluated, evaluated.outputs, ~budget: budget)
         when (for any (region in regions): result in region.outputs && cast in region.steps && !(cast in region.outputs))
         | candidates.add(budget)
+
       check: candidates.length() > 0 ~is #true
       // The producer must materialize this result before returning; its parent
       // has only helper-local lifetime. No parent promotion is permitted.
@@ -640,12 +681,14 @@ fun expand_array(runs :: List, bindings :: Map):
     | run is_a ArrayGather:
         for (lane in 0..run.length):
           assignments.add([run.offset + lane, StorageRef(ScratchSlot(run.source.group, run.source.index + lane * run.stride, run.source.indirect))])
+
   assignments.snapshot()
 
 for (indirect in [#false, #true]):
   def bindings = (for Map (value in 0..16): values(value, StorageRef(ScratchSlot(0, value, indirect))))
                   ++ {16: StorageRef(ScratchSlot(1, 0, indirect)),
                       17: StorageRef(ScratchSlot(0, 0, indirect), ["entries", 1])}
+
   for (operands in [
          [], [0], [0, 1, 2], [0, 1, 2, 3], [1, 3, 5, 7], [7, 5, 3, 1],
          [5, 5, 5, 5], [20, 20, 20, 20], [0, 1, 2, 3, 20, 5, 5, 5, 5, 7, 5, 3, 1],
@@ -655,6 +698,7 @@ for (indirect in [#false, #true]):
     check:
       runs ~is plan_array(operands, bindings)
       expand_array(runs, bindings) ~is for List (value in operands, offset in 0..operands.length()): [offset, array_source(value, bindings)]
+
   check:
     plan_array([0, 1, 2], bindings) ~is [ArrayElement(0, 0), ArrayElement(1, 1), ArrayElement(2, 2)]
     plan_array([0, 1, 2, 3], bindings) ~is [ArrayGather(0, 4, ScratchSlot(0, 0, indirect), 1)]
@@ -673,11 +717,13 @@ for (program in [make_branches(), make_conditionals(), make_conditionals(~onehot
       conditional ~is plan_conditionals(planned, base, ~budget: limit)
       conditional.dependencies ~is base.dependencies
       conditional.pre_edge.sinks.filter(~keep: fun (sink): sink.conditional != #false).length() > 0 ~is #true
+
     for (body in [conditional.pre_edge, conditional.outputs]):
       def flattened = MutableList[]
       for (sink in body.sinks):
         for (member in (if sink.kind == "group" | sink.members | [sink])):
           flattened.add([member.kind, member.index])
+
       def original_body = if body === conditional.pre_edge | base.pre_edge | base.outputs
       check: flattened.snapshot() ~is original_body.sinks.map(fun (sink): [sink.kind, sink.index])
       def owners = MutableSet{}
@@ -688,21 +734,26 @@ for (program in [make_branches(), make_conditionals(), make_conditionals(~onehot
         check:
           owner.cost <= limit ~is #true
           owner.steps.length() <= 128 ~is #true
+
         for (value in owner.dependencies.values):
           check: value in available ~is #true
+
         for (value in owner.steps):
           check:
             pure_computation(planned.steps[value]) ~is #true
             base.dependencies[value].storage ~is []
             (value in available) ~is body.conditionals.has_key(value)
             value in owners ~is #false
+
           owners.add(value)
           for (operand in planned.steps[value].operands):
             check: operand in owner.steps || operand in owner.dependencies.values ~is #true
+
       for (value in body.steps):
         def dependencies = if body.conditionals.has_key(value) | body.conditionals[value].dependencies | conditional.dependencies[value]
         for (operand in dependencies.values):
           check: operand in available && operand < value ~is #true
+
       for (budget in [1, 24, 1000000]):
         for (module_cuts in [#false, #true]): check_regions(planned, conditional, body, budget, module_cuts)
         for (region in build_regions(planned, conditional, body, ~budget: budget)):
@@ -710,6 +761,7 @@ for (program in [make_branches(), make_conditionals(), make_conditionals(~onehot
           for (sink in region.sinks):
             for (value in sink.dependencies.values):
               check: value in visible ~is #true
+
           for ((value, owner) in region.conditionals):
             for (operand in owner.dependencies.values):
               check: operand in visible ~is #true
@@ -723,6 +775,7 @@ def cache_layout = BoundaryStorage({cache_data: StorageRef(ScratchSlot(0, 0, #fa
                                     cache_shared: StorageRef(ScratchSlot(0, 1, #false)),
                                     cache_word: StorageRef(ScratchSlot(0, 2, #false))},
                                    [ScratchGroup("std::uint64_t", #false, 3)])
+
 def cache_regions = [RsimRegion([cache_data], [], [], [cache_data], [], [], 1),
                      RsimRegion([cache_shared], [], [], [cache_shared], [], [], 1),
                      RsimRegion([cache_word], [], [], [cache_word], [], [], 1),
@@ -738,6 +791,7 @@ check:
   cached.invalidations[RsimCacheSource("memory", memory_slots["async"])] ~is {0: 4}
   cached.invalidations[RsimCacheSource("input", input_slots["address"])] ~is {0: 4}
   cached.words ~is 1
+
 for (root in [ScratchSlot(0, 0, #true), StateStorage("state", 0)]):
   def borrowed = BoundaryStorage({cache_data: StorageRef(root, [0])}, [])
   check:
@@ -756,6 +810,7 @@ for (port in lifetime_schedule.outputs):
   check: region in lifetime_cache.regions ~is (port.name != "borrowed")
   when port.name in ["decoded", "projected", "chain", "borrowed"]
   | check: lifetime_layout.bindings[port.value].root.indirect ~is #true
+
 // Input/owned-scratch pointers also cannot survive copying the model.
 def mutable_regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: 1)
 def mutable_layout = boundary_layout(mutable_regions, borrow_schedule, CppTypes(), borrow_evaluation.constants)
@@ -769,12 +824,15 @@ check: mutable_mux_region in mutable_cache.regions ~is #false
 fun cut_fixture(owners :: List.of(Nat), wide :: maybe(Nat) = #false):
   def entries = for List (owner in owners, index in 0..owners.length()):
     RsimStep("input", if index == wide | Bits(1024) | Bits(8), [], {"name": "i" ++ to_string(index)}, owner)
+
   RsimSchedule("ModuleCuts", for List (step in entries, index in 0..entries.length()): RsimPort(step.attributes["name"], step.type, index),
                [], entries, [], [], [], [], [], [])
+
 fun cut_steps(schedule :: RsimSchedule, enabled :: Boolean, budget :: PosInt = 10):
   def evaluation = build_evaluation_plan(schedule)
   check_regions(schedule, evaluation, evaluation.pre_edge, budget, enabled)
   build_regions(schedule, evaluation, evaluation.pre_edge, ~budget: budget, ~module_cuts: enabled).map(fun (region): region.steps)
+
 def cut_schedule = cut_fixture([0, 0, 0, 1, 1, 1, 1, 1, 1, 2])
 check:
   cut_steps(cut_schedule, #false) ~is [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
@@ -783,10 +841,12 @@ check:
   cut_steps(cut_fixture([0, 1, 2, 3, 4, 5, 6]), #true) ~is [[0, 1, 2, 3, 4], [5, 6]]
   cut_steps(cut_fixture([0, 0, 0, 0, 0, 0, 0]), #true) ~is [[0, 1, 2, 3, 4], [5, 6]]
   cut_steps(cut_fixture([0, 0, 0, 1, 1, 2], 4), #true) ~is [[0, 1, 2, 3], [4], [5]]
+
 // Shared module definitions produce distinct locality hints at each instance;
 // memory resources are checked independently of the scheduling hint itself.
 def read_owners = for Map (step in repeated.steps.filter(~keep: fun (step): step.opcode == "memory_read")):
   values(step.attributes["slot"], step.occurrence)
+
 check:
   read_owners[sampled_slots[0]] != read_owners[sampled_slots[1]] ~is #true
   repeated.steps.map(fun (step): step.occurrence) ~is build_schedule(prepare_rtl(make_memory(3, #false)).rtl).steps.map(fun (step): step.occurrence)
@@ -803,6 +863,7 @@ fun slot_count(layout :: BoundaryStorage):
   def mutable count = 0
   for (group in layout.groups): count := count + group.count
   count
+
 check: slot_count(eager_layout) < slot_count(unique_layout) ~is #true
 for (region in reuse_regions):
   def seen = MutableSet{}
@@ -811,6 +872,7 @@ for (region in reuse_regions):
     when slot
     | check: slot in seen ~is #false
       seen.add(slot)
+
 for (phase in [evaluation.pre_edge, evaluation.outputs]):
   def regions = build_regions(schedule, evaluation, phase, ~budget: 1)
   def layout = boundary_layout(regions, schedule, CppTypes(), evaluation.constants)
@@ -827,4 +889,5 @@ def grouped = share_scalar_expressions(build_schedule(prepare_rtl(make_condition
 def grouped_eval = plan_conditionals(grouped, build_evaluation_plan(grouped))
 def group_kinds = for Set (sink in grouped_eval.pre_edge.sinks):
   if sink.kind == "group" | sink.members[0].kind | #false
+
 check: group_kinds ~is Set{"register", "foreign", "sync_read", "write", "assertion"}

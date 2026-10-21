@@ -32,6 +32,7 @@ sync_circuit SoCHarness(params :: SingleCoreSoCParams,
     src_id(~format: "unsigned"): flit.src_id
     tgt_id(~format: "unsigned"): flit.tgt_id
     size_or_num_req(~format: "unsigned"): flit.size_or_num_req
+
   requests |> memory.port.req
   def responses = memory.port.rsp |> trace_event("memory/chi.rsp", ~fields: flit):
     opcode(~format: "enum", ~label: #true): flit.opcode
@@ -41,6 +42,7 @@ sync_circuit SoCHarness(params :: SingleCoreSoCParams,
     dbid_or_group_id(~format: "unsigned"): flit.dbid_or_group_id
     resp(~format: "unsigned"): flit.resp
     resp_err(~format: "unsigned"): flit.resp_err
+
   responses |> soc.memory.rsp
   for (source in [soc.memory.dat.request, memory.port.dat.response], sink in [memory.port.dat.request, soc.memory.dat.response], label in ["memory/chi.rxdat", "memory/chi.txdat"]):
     def data = source |> trace_event(label, ~fields: flit):
@@ -53,10 +55,13 @@ sync_circuit SoCHarness(params :: SingleCoreSoCParams,
       resp(~format: "unsigned"): flit.resp
       resp_err(~format: "unsigned"): flit.resp_err
       byte_enable: flit.byte_enable
+
     data |> sink
+
   memory.identity <== CHIRamIdentity(fabric.flit):
     node_id: Bits(fabric.flit.node_id_width)(fabric.memory_port.node_id)
     base_address: Bits(fabric.flit.request_address_width)(fabric.memory_base)
+
   exit <== requester.exit
 
 export:

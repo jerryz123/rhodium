@@ -41,6 +41,7 @@ check:
     chi.CHIChannelCapabilities(~req: [chi.CHIReqOpcode.ReadShared]),
     fixture.transaction_rni_node.supports
   ) ~is #false
+
   chi.chi_initial_coherent_requester_capabilities(
     fixture.transaction_rnf_node.emits,
     chi.CHIChannelCapabilities(
@@ -48,6 +49,7 @@ check:
       ~dat: [chi.CHIDatOpcode.CompData]
     )
   ) ~is #false
+
   chi.CHINodeParams(
     "zero-outstanding",
     4,

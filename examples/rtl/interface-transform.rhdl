@@ -57,8 +57,10 @@ fun duplicate_event(outputs :: PosInt)
     def input_link = interface_link(EventChannel(), "event_input")
     def output_links :: Array.later_of(Handle) = for Array (index in 0..outputs):
       interface_link(EventChannel(), "event_output_" ++ to_string(index))
+
     for (output_link in output_links):
       output_link.left.payload <== input_link.right.payload
+
     finish_interface_transform(
       source,
       interface_transform(input_link, output_links)

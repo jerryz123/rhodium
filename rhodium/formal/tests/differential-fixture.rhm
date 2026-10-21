@@ -92,6 +92,7 @@ fun shifted_by_constants(builder, module_def, value, amount):
        [1, builder.shl(module_def, value, amount1)],
        [2, builder.shl(module_def, value, amount2)]]
     )
+
   def right:
     builder.mux_lookup(
       module_def,
@@ -101,6 +102,7 @@ fun shifted_by_constants(builder, module_def, value, amount):
        [1, builder.shru(module_def, value, amount1)],
        [2, builder.shru(module_def, value, amount2)]]
     )
+
   [left, right]
 
 fun build_shift_module(name, implementation):
@@ -122,6 +124,7 @@ fun build_shift_module(name, implementation):
   | "defect":
       builder.drive(left, builder.shru(module_def, value, amount))
       builder.drive(right, builder.shru(module_def, value, amount))
+
   builder.finish(module_def)
 
 fun aggregate_values(builder, module_def, high, low, element0, element1, element2,
@@ -137,8 +140,10 @@ fun aggregate_values(builder, module_def, high, low, element0, element1, element
       | [["high", low], ["low", high]]
       | [["high", high], ["low", low]]
     )
+
   def vector_value:
     builder.vector_create(module_def, vector_type, [element0, element1, element2])
+
   [builder.cast(module_def, record_value, Bits(4)),
    builder.record_get(module_def, record_value, "high"),
    builder.cast(module_def, vector_value, Bits(6)),
@@ -169,10 +174,12 @@ fun build_aggregate_module(name, implementation):
         aggregate_values(builder, module_def, high, low,
                          element0, element1, element2,
                          implementation == "defect")
+
       builder.drive(record_bits, aggregate_outputs[0])
       builder.drive(record_high, aggregate_outputs[1])
       builder.drive(vector_bits, aggregate_outputs[2])
       builder.drive(vector_one, aggregate_outputs[3])
+
   builder.finish(module_def)
 
 fun add_pair_child(builder, design, name):
@@ -192,6 +199,7 @@ fun build_hierarchy_module(name, implementation):
     if implementation == "reference"
     | #false
     | add_pair_child(builder, design, name ++ "Child")
+
   def module_def = builder.module(name)
   def left = builder.input(module_def, "left", Bits(4))
   def right = builder.input(module_def, "right", Bits(4))
@@ -207,6 +215,7 @@ fun build_hierarchy_module(name, implementation):
       builder.drive(instance.input("right"), if implementation == "defect" | left | right)
       builder.drive(sum, instance.output("sum"))
       builder.drive(difference, instance.output("difference"))
+
   builder.finish(module_def)
 
 fun build_differential_program():
@@ -255,8 +264,10 @@ fun build_differential_program():
 
   def aggregates:
     aggregate_values(builder, top, high, low, element0, element1, element2, #false)
+
   def defective_aggregates:
     aggregate_values(builder, top, high, low, element0, element1, element2, #true)
+
   builder.drive(record_bits, aggregates[0])
   builder.drive(record_high, aggregates[1])
   builder.drive(vector_bits, aggregates[2])

@@ -3,5 +3,6 @@
 import:
   "../vector-fixture.rhdl" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+
 def program = elaborate(RV2WideVectorFixture())
 export program

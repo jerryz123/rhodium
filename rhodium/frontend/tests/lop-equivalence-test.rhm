@@ -30,9 +30,11 @@ def standard_module = standard_fixture_design.modules[0]
 def core_interface = core_module.inputs.map(
   fun (port): [port.name, port.type.describe()]
 )
+
 def standard_interface = standard_module.outputs.map(
   fun (port): [port.name, port.type.describe()]
 )
+
 def core_opcodes = core_module.operations.map(fun (operation): operation.opcode)
 def kernel_opcodes = kernel_module.operations.map(fun (operation): operation.opcode)
 def composed_opcodes = composed_module.operations.map(fun (operation): operation.opcode)

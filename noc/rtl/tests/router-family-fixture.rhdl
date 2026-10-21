@@ -28,10 +28,12 @@ sync_circuit RouterFamilyFixture():
                     ~site_key: Bits(config.route_decoder.site_width)(family_plan.site_key(fixture.source_a)),
                     ~ingress: source.ingress, ~targets: source.target,
                     ~incoming: source_incoming, ~outgoing: source_outgoing)
+
   bind_router_plane(config, ~router_site_key: hub.site_key,
                     ~site_key: Bits(config.route_decoder.site_width)(family_plan.site_key(fixture.hub)),
                     ~ingress: hub.ingress, ~targets: hub.target,
                     ~incoming: hub_incoming, ~outgoing: hub_outgoing)
+
   source.ingress[0] <=> source_ingress[0]
   hub.ingress[0] <=> hub_ingress[0]
   close_router_local_ports(Bits(8), config, source.ingress, source.target, [0], [])

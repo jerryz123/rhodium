@@ -41,19 +41,23 @@ def routing = compile_routing(
 unless routing is_a ValidatedRouting
 | error(~who: #'WormholeNetworkFixture,
         "wormhole network requires validated routing")
+
 def network_plan = NetworkPlan(routing)
 def source_config = compile_wormhole_router(
   network_plan.router_plan(n0),
   ~input_buffer_depth: 2
 )
+
 def transit_config = compile_wormhole_router(
   network_plan.router_plan(n1),
   ~input_buffer_depth: 2
 )
+
 def destination_config = compile_wormhole_router(
   network_plan.router_plan(n2),
   ~input_buffer_depth: 2
 )
+
 def first_connection = network_plan.link_connection(first.id)
 def second_connection = network_plan.link_connection(second.id)
 def injection_0 = network_plan.injection_port(source_0.id)
@@ -75,6 +79,7 @@ sync_circuit WormholeSourceSubsystem(
   for (index in 0..2):
     injection[index] |> router.ingress[injection_indices[index]]
     router.egress[target_indices[index]] |> mux.ingress[index]
+
   router.target_available <== vc_ready
   mux.vc_ready <== vc_ready
   mux.egress |> physical
@@ -98,6 +103,7 @@ sync_circuit WormholeTransitSubsystem(
   for (index in 0..2):
     demux.egress[index] |> router.ingress[input_indices[index]]
     router.egress[target_indices[index]] |> mux.ingress[index]
+
   router.target_available <== outgoing_vc_ready
   mux.vc_ready <== outgoing_vc_ready
   mux.egress |> outgoing
@@ -118,6 +124,7 @@ sync_circuit WormholeDestinationSubsystem(
   vc_ready <== demux.vc_ready
   for (index in 0..2):
     demux.egress[index] |> router.ingress[input_indices[index]]
+
   router.egress[ejection_index] |> ejection
   router.target_available <== vec([ejection.ready])
 

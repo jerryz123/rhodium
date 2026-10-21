@@ -65,6 +65,7 @@ for (xlen in [XLen.X32, XLen.X64]):
     if xlen == XLen.X32 | RiscvMmuType.Bare | RiscvMmuType.Sv39,
     cache, cache
   )
+
   def extensions = riscv_udb_extensions(hart)
   def names = extensions.map(fun (extension): extension.name)
   check:

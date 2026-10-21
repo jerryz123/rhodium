@@ -57,10 +57,12 @@ check:
   accepted.certificate.request.escape_vcs.map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc1", "l1.vc1", "l2.vc1"]
+
   accepted.certificate.request.describe() ~is "escape-vcs=[l0.vc1, l1.vc1, l2.vc1]"
   accepted.certificate.dependency_graph.vertices.map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc1", "l1.vc1"]
+
   accepted.certificate.acyclic_certificate.graph === accepted.certificate.dependency_graph ~is #true
   accepted.certificate.rank(escape_vc(first)) ~is 0
   accepted.certificate.closure.decisions.length() ~is 1
@@ -69,9 +71,11 @@ check:
   accepted_route_evidence.reachable_escape_vcs.map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc1", "l1.vc1"]
+
   accepted_route_evidence.viable_escape_vcs.map(
     fun (vc): vc.describe()
   ) ~is ["l0.vc1", "l1.vc1"]
+
   accepted_route_evidence.entries.length() ~is 2
   accepted.validator_kind ~is "vc-escape-subnetwork"
   accepted.describe() ~is "validated routing vc-escape-subnetwork: routes=1, vcs=4, rows=5"
@@ -221,6 +225,7 @@ check:
       [VCId(LinkId(0), 1), VCId(LinkId(1), 1), VCId(LinkId(2), 1)]
     )
   ) ~throws "belongs to a different topology"
+
   validate_escape_subnetwork(
     "not materialized",
     #false,

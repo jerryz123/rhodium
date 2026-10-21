@@ -20,10 +20,13 @@ bundle CacheEnvelope():
   valid: Bool
   method is_shared(envelope) :: Bool:
     envelope.valid & envelope.state.is_shared()
+
   method matches(envelope, other) :: Bool:
     envelope.state.is_one_of(other)
+
   method state_value(envelope) :: CacheState:
     envelope.state
+
   method identity(envelope) :: CacheEnvelope():
     envelope
 

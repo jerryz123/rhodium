@@ -10,4 +10,5 @@ import:
 
 def program = elaborate(CHIReadOnce(CHIFlitParams(~poison: #true), Bits(8))
 )
+
 export program

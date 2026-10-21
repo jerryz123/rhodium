@@ -49,6 +49,7 @@ circuit RiscvAtomicALU(xlen :: XLen):
       [RiscvAtomicOperation.MaxUnsigned, mux(unsigned_less, right, left)]
     ]
   )
+
   value <== if xlen == XLen.X64 | mux(word_operation, selected_value[0..32].zext(64), selected_value) | selected_value
 
 export:

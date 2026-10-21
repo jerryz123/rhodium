@@ -158,6 +158,7 @@ fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
       multiply_divide: Bool(#false)
       memory: Bool(#false)
   )
+
 def VectorConfigurationCases = [
   config_case(VSETVLI, VectorConfigMode.VtypeImmediate),
   config_case(VSETIVLI, VectorConfigMode.AllImmediate),
@@ -246,6 +247,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
           index: Bool(scan_index)
           include_first: Bool(include_first)
           only_first: Bool(only_first)
+
       uses_vs2: Bool(uses_vs2)
       invert_logic_result: Bool(invert_logic)
       invert_comparison: Bool(invert)
@@ -257,118 +259,147 @@ def vadd_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.Wrap
   subtract: Bool(#false)
+
 def vsub_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.Wrap
   subtract: Bool(#true)
+
 def vcarry_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.Wrap
   mask_result_select: SimdMaskResultSelect.CarryBorrow
   subtract: Bool(#false)
+
 def vborrow_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.Wrap
   mask_result_select: SimdMaskResultSelect.CarryBorrow
   subtract: Bool(#true)
+
 def vextension_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
+
 def vsaddu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.SaturateUnsigned
   subtract: Bool(#false)
+
 def vsadd_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.SaturateSigned
   subtract: Bool(#false)
+
 def vssubu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.SaturateUnsigned
   subtract: Bool(#true)
+
 def vssub_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.SaturateSigned
   subtract: Bool(#true)
+
 def vaaddu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.AverageUnsigned
   subtract: Bool(#false)
+
 def vaadd_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.AverageSigned
   subtract: Bool(#false)
+
 def vasubu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.AverageUnsigned
   subtract: Bool(#true)
+
 def vasub_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.AverageSigned
   subtract: Bool(#true)
+
 def vand_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.And
   invert_right: Bool(#false)
+
 def vandn_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.And
   invert_right: Bool(#true)
+
 def vor_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.Or
   invert_right: Bool(#false)
+
 def vxor_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.Xor
   invert_right: Bool(#false)
+
 def vsll_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Shift
   shift_right: Bool(#false)
   arithmetic_shift: Bool(#false)
   rotate: Bool(#false)
+
 def vsrl_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Shift
   shift_right: Bool(#true)
   arithmetic_shift: Bool(#false)
   rotate: Bool(#false)
+
 def vsra_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Shift
   shift_right: Bool(#true)
   arithmetic_shift: Bool(#true)
   rotate: Bool(#false)
+
 def vslide_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Shift
   shift_right: Bool(#true)
   arithmetic_shift: Bool(#false)
   rotate: Bool(#true)
+
 def vrol_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Shift
   shift_right: Bool(#false)
   arithmetic_shift: Bool(#false)
   rotate: Bool(#true)
+
 def vror_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Shift
   shift_right: Bool(#true)
   arithmetic_shift: Bool(#false)
   rotate: Bool(#true)
+
 def vbrev_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Permute
   permutation_select: SimdPermutationSelect.ReverseBits
+
 def vbrev8_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Permute
   permutation_select: SimdPermutationSelect.ReverseBitsInBytes
+
 def vrev8_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Permute
   permutation_select: SimdPermutationSelect.ReverseBytes
+
 def vclz_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Count
   count_select: SimdCountSelect.LeadingZeros
+
 def vctz_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Count
   count_select: SimdCountSelect.TrailingZeros
+
 def vcpop_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Count
   count_select: SimdCountSelect.Population
+
 def VectorZvbbCases = [
   integer_case(VANDN_VV, vandn_control),
   integer_case(VANDN_VX, vandn_control),
@@ -387,6 +418,7 @@ def VectorZvbbCases = [
   integer_case(VWSLL_VX, vsll_control, ~widening: #true),
   integer_case(VWSLL_VI, vsll_control, ~widening: #true)
 ]
+
 def VectorSlideCases = [
   integer_case(VSLIDEUP_VX, vslide_control, ~slide: #true, ~slide_up: #true),
   integer_case(VSLIDEUP_VI, vslide_control, ~slide: #true, ~slide_up: #true),
@@ -395,64 +427,77 @@ def VectorSlideCases = [
   integer_case(VSLIDE1UP_VX, vslide_control, ~slide: #true, ~slide_up: #true, ~slide_one: #true),
   integer_case(VSLIDE1DOWN_VX, vslide_control, ~slide: #true, ~slide_one: #true)
 ]
+
 def VectorGatherCases = [
   integer_case(VRGATHER_VV, vslide_control, ~gather: #true),
   integer_case(VRGATHEREI16_VV, vslide_control, ~gather: #true, ~gather_index16: #true),
   integer_case(VRGATHER_VX, vslide_control, ~gather: #true),
   integer_case(VRGATHER_VI, vslide_control, ~gather: #true)
 ]
+
 def vmseq_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Equal
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#false)
+
 def vmsne_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Equal
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#false)
+
 def vmsltu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Less
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#false)
+
 def vmslt_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Less
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#true)
+
 def vmsleu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.LessEqual
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#false)
+
 def vmsle_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.LessEqual
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#true)
+
 def vmsgtu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Less
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#false)
+
 def vmsgt_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Less
   mask_result_select: SimdMaskResultSelect.Comparison
   signed_compare: Bool(#true)
+
 def vminu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.MinMax
   signed_compare: Bool(#false)
   maximum: Bool(#false)
+
 def vmin_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.MinMax
   signed_compare: Bool(#true)
   maximum: Bool(#false)
+
 def vmaxu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.MinMax
   signed_compare: Bool(#false)
   maximum: Bool(#true)
+
 def vmax_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.MinMax
   signed_compare: Bool(#true)
@@ -513,6 +558,7 @@ def VectorSameWidthIntegerCases = [
   integer_case(VMAX_VV, vmax_control),
   integer_case(VMAX_VX, vmax_control)
 ]
+
 def VectorCarryBorrowCases = [
   integer_case(VADC_VVM, vcarry_control, ~carry_input: #true),
   integer_case(VADC_VXM, vcarry_control, ~carry_input: #true),
@@ -530,6 +576,7 @@ def VectorCarryBorrowCases = [
   integer_case(VMSBC_VV, vborrow_control, ~mask: #true),
   integer_case(VMSBC_VX, vborrow_control, ~mask: #true)
 ]
+
 def VectorExtensionCases = [
   integer_case(VZEXT_VF2, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By2),
   integer_case(VZEXT_VF4, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By4),
@@ -538,6 +585,7 @@ def VectorExtensionCases = [
   integer_case(VSEXT_VF4, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By4, ~extension_signed: #true),
   integer_case(VSEXT_VF8, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By8, ~extension_signed: #true)
 ]
+
 def VectorWideningAddSubtractCases = [
   integer_case(VWADDU_VV, vadd_control, ~widening: #true),
   integer_case(VWADDU_VX, vadd_control, ~widening: #true),
@@ -556,6 +604,7 @@ def VectorWideningAddSubtractCases = [
   integer_case(VWSUB_WV, vsub_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true),
   integer_case(VWSUB_WX, vsub_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true)
 ]
+
 def VectorNarrowingShiftCases = [
   integer_case(VNSRL_WV, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
   integer_case(VNSRL_WX, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
@@ -564,6 +613,7 @@ def VectorNarrowingShiftCases = [
   integer_case(VNSRA_WX, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
   integer_case(VNSRA_WI, vsra_control, ~narrowing: #true, ~wide_vs2: #true)
 ]
+
 def VectorSaturatingAddSubtractCases = [
   integer_case(VSADDU_VV, vsaddu_control),
   integer_case(VSADDU_VX, vsaddu_control),
@@ -586,6 +636,7 @@ def VectorAveragingAddSubtractCases = [
   integer_case(VASUB_VV, vasub_control, ~rounding: #true),
   integer_case(VASUB_VX, vasub_control, ~rounding: #true)
 ]
+
 def VectorFixedPointShiftCases = [
   integer_case(VSSRL_VV, vsrl_control, ~rounding: #true),
   integer_case(VSSRL_VX, vsrl_control, ~rounding: #true),
@@ -594,6 +645,7 @@ def VectorFixedPointShiftCases = [
   integer_case(VSSRA_VX, vsra_control, ~rounding: #true),
   integer_case(VSSRA_VI, vsra_control, ~rounding: #true)
 ]
+
 def VectorNarrowingClipCases = [
   integer_case(VNCLIPU_WV, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
   integer_case(VNCLIPU_WX, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
@@ -602,14 +654,17 @@ def VectorNarrowingClipCases = [
   integer_case(VNCLIP_WX, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
   integer_case(VNCLIP_WI, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true)
 ]
+
 def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorCarryBorrowCases ++ VectorExtensionCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorSaturatingAddSubtractCases ++ VectorAveragingAddSubtractCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
+
 def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
 def vorn_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.Or
   invert_right: Bool(#true)
+
 def VectorMoveMergeCases = [
   integer_case(VMERGE_VVM, vselect_control, ~mask_select: #true),
   integer_case(VMERGE_VXM, vselect_control, ~mask_select: #true),
@@ -618,8 +673,10 @@ def VectorMoveMergeCases = [
   integer_case(VMV_V_X, vselect_control, ~uses_vs2: #false),
   integer_case(VMV_V_I, vselect_control, ~uses_vs2: #false)
 ]
+
 def VectorWholeRegisterMoveCases = for List (instruction in VectorWholeRegisterMoveInstructions, register_count in [1, 2, 4, 8]):
   integer_case(instruction, vselect_control, ~whole_register_move: #true, ~whole_register_count: register_count)
+
 def VectorMaskLogicCases = [
   integer_case(VMANDN_MM, vandn_control, ~mask: #true, ~mask_logic: #true),
   integer_case(VMAND_MM, vand_control, ~mask: #true, ~mask_logic: #true),
@@ -630,16 +687,20 @@ def VectorMaskLogicCases = [
   integer_case(VMNOR_MM, vor_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true),
   integer_case(VMXNOR_MM, vxor_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true)
 ]
+
 def VectorElementMoveCases = [
   integer_case(VMV_X_S, vselect_control, ~element_move: #true, ~scalar_destination: #true),
   integer_case(VMV_S_X, vselect_control, ~element_move: #true, ~uses_vs2: #false)
 ]
+
 def VectorSameWidthIntegerReductionCases = for List (instruction in VectorSameWidthIntegerReductionInstructions, alu in [vadd_control, vand_control, vor_control, vxor_control, vminu_control, vmin_control, vmaxu_control, vmax_control]):
   integer_case(instruction, alu, ~reduction: #true)
+
 def VectorWideningIntegerReductionCases = [
   integer_case(VWREDSUMU_VS, vadd_control, ~reduction: #true, ~widening: #true),
   integer_case(VWREDSUM_VS, vadd_control, ~reduction: #true, ~widening: #true, ~right_signed: #true)
 ]
+
 def VectorIntegerReductionCases = VectorSameWidthIntegerReductionCases ++ VectorWideningIntegerReductionCases
 def VectorMaskScanCases = [
   integer_case(VCPOP_M, vselect_control, ~scan: #true, ~scalar_destination: #true),
@@ -650,6 +711,7 @@ def VectorMaskScanCases = [
   integer_case(VIOTA_M, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements),
   integer_case(VID_V, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements, ~scan_index: #true, ~uses_vs2: #false)
 ]
+
 /* Maps the ordered eight-entry unit/strided catalog to load/store direction and data EEW. */
 fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..8):
@@ -668,6 +730,7 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
         memory_addressing: addressing
         operand: VectorOperandMode.Scalar
     )
+
 /* Maps indexed load/store catalogs to index EEW while data width remains runtime SEW. */
 fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..8):
@@ -686,6 +749,7 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
     )
+
 /* Derives data EEW, field count, and load/store direction from segment-catalog order. */
 fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
@@ -704,6 +768,7 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         memory_addressing: addressing
         operand: VectorOperandMode.Scalar
     )
+
 /* Derives index EEW and field count for ordered/unordered indexed segments. */
 fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
@@ -722,6 +787,7 @@ fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addre
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
     )
+
 /* Builds unit-stride fault-first load rows, including segmented field counts. */
 fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..32):
@@ -740,6 +806,7 @@ fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
         memory_addressing: VectorMemoryAddressing.UnitStride
         operand: VectorOperandMode.Scalar
     )
+
 /* Builds byte-stream mask load/store rows independent of ordinary data SEW. */
 fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..2):
@@ -758,6 +825,7 @@ fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
         memory_addressing: VectorMemoryAddressing.UnitStride
         operand: VectorOperandMode.Scalar
     )
+
 /* Decodes whole-register transfer count and load EEW from the canonical catalog order. */
 fun whole_register_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..20):
@@ -777,6 +845,7 @@ fun whole_register_memory_cases(instructions :: List.of(InstructionSpec)):
         memory_addressing: VectorMemoryAddressing.UnitStride
         operand: VectorOperandMode.Scalar
     )
+
 def VectorUnitStrideMemoryCases = memory_cases(VectorUnitStrideMemoryInstructions, VectorMemoryAddressing.UnitStride)
 def VectorStridedMemoryCases = memory_cases(VectorStridedMemoryInstructions, VectorMemoryAddressing.Strided)
 def VectorIndexedUnorderedMemoryCases = indexed_memory_cases(VectorIndexedUnorderedMemoryInstructions, VectorMemoryAddressing.IndexedUnordered)
@@ -834,6 +903,7 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
       multiply_destination: Bool(multiply_destination)
       swap_operands: Bool(swap)
   )
+
 /* Constrains only the selected FP unit's modifiers and leaves inactive unit fields
    unconstrained. */
 fun fp_unit(unit :: FloatUnit,
@@ -859,6 +929,7 @@ fun fp_unit(unit :: FloatUnit,
     comparison: if unit == FloatUnit.Compare | comparison | pattern(FloatComparison, _)
     comparison_signaling: if unit == FloatUnit.Compare | Bool(signaling) | pattern(Bool, _)
     integer_unsigned: if unit == FloatUnit.Convert | Bool(unsigned) | pattern(Bool, _)
+
 def VectorFloatingPointCases = [
   floating_point_case(VFADD_VV, fp_unit(FloatUnit.Add, ~rounding: #true)),
   floating_point_case(VFSUB_VV, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract)),
@@ -956,6 +1027,7 @@ def VectorFloatingPointCases = [
   floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true),
   floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true)
 ]
+
 /* Builds FP move/merge/slide controls that use vector routing without issuing FP arithmetic. */
 fun floating_move_case(instruction :: InstructionSpec,
                        ~mask_select: mask_select :: Boolean = #false,
@@ -986,6 +1058,7 @@ fun floating_move_case(instruction :: InstructionSpec,
       uses_vs2: Bool(uses_vs2)
       alu: if slide | vslide_control | vselect_control
   )
+
 def VectorFloatingPointMoveCases = [
   floating_move_case(VFMERGE_VFM, ~mask_select: #true),
   floating_move_case(VFMV_V_F, ~uses_vs2: #false),
@@ -994,6 +1067,7 @@ def VectorFloatingPointMoveCases = [
   floating_move_case(VFSLIDE1UP_VF, ~slide: #true, ~slide_up: #true),
   floating_move_case(VFSLIDE1DOWN_VF, ~slide: #true)
 ]
+
 def VectorDivideCases = for List (instruction in VectorDivideInstructions):
   def signed_left = [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
   def signed_right = [VMULH_VV, VMULH_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
@@ -1012,6 +1086,7 @@ def VectorDivideCases = for List (instruction in VectorDivideInstructions):
       right_signed: Bool(signed_right)
       remainder: Bool([VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction))
   )
+
 def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions ++ VectorWideningMultiplyInstructions ++ VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions):
   def fractional = VectorFractionalMultiplyInstructions.contains(instruction)
   def widened = (VectorWideningMultiplyInstructions ++ VectorWideningMultiplyAccumulateInstructions).contains(instruction)
@@ -1036,6 +1111,7 @@ def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++
       multiply_subtract: if accumulate | Bool([VNMSAC_VV, VNMSAC_VX, VNMSUB_VV, VNMSUB_VX].contains(instruction)) | pattern(Bool, _)
       multiply_result: if accumulate | pattern(VectorMultiplyResult, _) | (if fractional | VectorMultiplyResult.Fractional | (if widened | VectorMultiplyResult.Widened | (if [VMUL_VV, VMUL_VX].contains(instruction) | VectorMultiplyResult.Low | VectorMultiplyResult.High)))
   )
+
 def VectorMultiplyDivideCases = VectorDivideCases ++ VectorMultiplyCases
 def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorGatherCases ++ VectorCompressCases ++ VectorMoveMergeCases ++ VectorWholeRegisterMoveCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorFloatingPointMoveCases ++ VectorMultiplyDivideCases
 
@@ -1227,6 +1303,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
     control.element_move: Bool(#true)
     control.reduction: reduction_sources_legal
     control.mask_logic: Bool(#true)
+
   def integer_legal = control.integer & selected_integer_legal
 
 

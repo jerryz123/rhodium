@@ -28,6 +28,7 @@ fun compressed_selector_cases(instructions :: NonemptyList.of(CompressedInstruct
     for (encoding in instruction.encodings):
       for (term in compressed_instruction_patterns(instruction, encoding).terms):
         cases := cases ++ [DecodeCase(term, Bits(operation_width)(index))]
+
   cases
 
 /* Builds the forbidden zero cube for a supported nonzero field/immediate legality predicate. */
@@ -42,6 +43,7 @@ fun constraint_zero_pattern(constraint :: ExpansionConstraint):
   | ~else:
       error(~who: #'constraint_zero_pattern,
             "unknown instruction-expansion legality constraint")
+
   Pattern(~value: Bits(16)(0), ~care: Bits(16)(care))
 
 /* Subtracts each forbidden zero cube from an encoding's accepted compact-word set. */
@@ -50,6 +52,7 @@ fun compressed_instruction_patterns(instruction :: CompressedInstructionSpec,
   def mutable accepted :: PatternSetLike.to_pattern_set = encoding_pattern(encoding)
   for (constraint in instruction.constraints):
     accepted := accepted.subtract(constraint_zero_pattern(constraint))
+
   accepted
 
 /* Materializes a supported constant or extracted-field-plus-addend operand source at the target width. */
@@ -75,6 +78,7 @@ fun scatter_immediate_bits(layout :: ImmediateLayout,
     def fragment = value[piece.output_low..(piece.output_high + 1)]
     def extended = if fragment.type.width == 32 | fragment | fragment.zext(32)
     result := result ||| (extended << piece.source.low)
+
   result
 
 /* Assembles canonical instruction hardware from descriptor fixed bits, operand bindings, and optional immediate. */
@@ -84,6 +88,7 @@ fun materialize_expansion(expansion :: InstructionExpansion,
   for (binding in expansion.bindings):
     def source = expansion_source_bits(binding.source, binding.target.width, compressed)
     instruction := instruction ||| (source.zext(32) << binding.target.low)
+
   if expansion.immediate is_a ImmediateLayout
   | block:
       def target_immediate :: ImmediateLayout = expansion.target.immediate
@@ -111,6 +116,7 @@ circuit RiscvCompressedExpander(xlen :: XLen,
   def expansion_cases = for List (instruction in instructions,
                                   index in 0..instructions.length()):
     [index, materialize_expansion(instruction.expansion, compressed)]
+
   expansion <== RiscvCompressedExpansion():
     valid: decoded.valid
     instruction: mux_lookup(decoded.value, ~default: Bits(32)(0), expansion_cases)

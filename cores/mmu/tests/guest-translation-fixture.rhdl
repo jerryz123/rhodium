@@ -69,12 +69,14 @@ sync_circuit RiscvGuestTranslationFixture():
     hs_mxr: hs_mxr
     vs_pbmte: vs_pbmte
     g_pbmte: g_pbmte
+
   translation.request.bits <== RiscvTlbLookup():
     execute_read: Bool(#false)
     virtualized: virtualized
     virtual_address: address
     access: access
     context: context
+
   command_ready <== translation.request.ready
   translation.memory.request.ready <== memory_ready
   translation.memory.request_access_fault <== memory_fault

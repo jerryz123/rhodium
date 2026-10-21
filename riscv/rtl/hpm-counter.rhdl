@@ -13,6 +13,7 @@ import:
 bundle RiscvHpmWrite(xlen :: XLen):
   if xlen == XLen.X32:
     high: Bool
+
   value: Bits(xlen.width)
 
 /* Counts selected events with privilege filtering, split counter writes, normalized 64-bit selector writes, and carry-based sticky overflow. */
@@ -40,6 +41,7 @@ sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = 
       [PrivilegeMode.User, mux(guest, csr_flag(control, MhpmeventVUINH), csr_flag(control, MhpmeventUINH))]
     ]
   )
+
   // Reconfiguration and explicit writes take precedence over counting.
   def increment = event.valid & !inhibit & !mode_inhibited & !counter_write.valid & !selector_write.valid
   def sum = count +& event_count.zext(64)
@@ -50,10 +52,12 @@ sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = 
     if xlen == XLen.X32
     | mux(counter_write.bits.high, counter_write.bits.value ++ count[0..32], count[32..64] ++ counter_write.bits.value)
     | counter_write.bits.value
+
   when (counter_write.valid):
     count <== counter_replacement
   elsewhen increment:
     count <== sum[0..64]
+
   when (selector_write.valid):
     control <== selector_write.bits & control_mask
   elsewhen wrapped:

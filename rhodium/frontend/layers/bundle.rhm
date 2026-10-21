@@ -56,6 +56,7 @@ class BundleFamily(name :: String,
     unless arguments
     | error(~who: name,
             "expected a " ++ name ++ " specialization")
+
     arguments
 
 /*
@@ -68,16 +69,20 @@ class RecordLiteral(type :: RecordType, fields :: List.of(List)):
   constructor (type :: RecordType, fields :: List.of(List)):
     unless fields.length() == type.fields.length()
     | error(~who: #'record, "literal must supply every record field exactly once")
+
     for (declared in type.fields):
       def matching = fields.filter(
         ~keep: fun (field): field.length() == 2 && field[0] == declared.name
       )
+
       unless matching.length() == 1
       | error(~who: #'record, "literal must supply every record field exactly once")
+
       def field_literal = require_hardware_literal(matching[0][1], #'record)
       unless type_equal(field_literal.literal_type(), declared.type)
       | error(~who: #'record,
               "literal field " ++ declared.name ++ " has the wrong hardware type")
+
     super(type, fields)
 
   /* Returns the literal's concrete record descriptor. */
@@ -90,8 +95,10 @@ class RecordLiteral(type :: RecordType, fields :: List.of(List)):
       def field_literal = fields.find(
         fun (field): field[0] == declared.name
       )[1]
+
       def shifted = packed << declared.type.packed_width()
       packed := shifted + field_literal.packed_value()
+
     packed
 
 /* Constructs an immutable literal when all fields are literals, otherwise emits an ordinary record value. */
@@ -114,9 +121,11 @@ fun build_bundle_type(name :: String,
   def mutable fields = []
   for (group in field_groups):
     fields := fields ++ group
+
   unless fields.length() > 0
   | error(~who: #'bundle,
           "bundle specialization must contain at least one field")
+
   BundleType(fields,
              name,
              family_identity,
@@ -147,6 +156,7 @@ dot.macro 'bundle_value_dot $left $dot $right':
               )
         | ~else:
             syntax_meta.error("invalid bundle field static information", entry)
+
       expansion
   | #false
 
@@ -157,6 +167,7 @@ annot.macro 'BundleFields($expected_type,
   let [field_infos, ...]:
     for List (annotation in [field_annotation, ...]):
       annot_meta.parse_to_packed_statinfo(annotation)
+
   def result_infos = statinfo_meta.and(
     '(($(statinfo_meta.dot_provider_key), bundle_value_dot),
       (bundle_field_static_info_key, (($field_name, $field_infos), ...)))',
@@ -173,6 +184,7 @@ annot.macro 'BundleStaticFields($(field_name :: Identifier): $field_annotation, 
   let [field_infos, ...]:
     for List (annotation in [field_annotation, ...]):
       annot_meta.parse_to_packed_statinfo(annotation)
+
   def result_infos = statinfo_meta.and(
     '(($(statinfo_meta.dot_provider_key), bundle_value_dot),
       (bundle_field_static_info_key, (($field_name, $field_infos), ...)))',
@@ -224,6 +236,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   /* Substitutes call-site generator arguments into a field's type syntax. */
   fun substitute_bundle_parameters(field_type :: Syntax):
     substitute_generator_parameters(field_type, [parameter.binding, ...])
+
   /* Records runtime, descriptor, and annotation-safe field surfaces for later bundle projection. */
   fun retain_static_field(field_name :: Syntax, field_type :: Syntax):
     static_fields := static_fields ++ [
@@ -236,6 +249,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
     annotation_static_fields := annotation_static_fields ++ [
       '$field_name: BundleAnnotationField($substituted_type)'
     ]
+
   for (item in [clause, ...]):
     match item
     | '$(field_name :: Identifier): $field_type':
@@ -261,11 +275,13 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
                 "expected a bundle field in conditional field group",
                 conditional_item
               )
+
         when conditional_fields.length() == 0
         | syntax_meta.error(
             "conditional bundle field group requires at least one field",
             item
           )
+
         let [conditional_field, ...] = conditional_fields
         field_groups := field_groups ++ [
           'conditional_bundle_fields(
@@ -277,6 +293,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
          $method_body; ...':
         when method_names.find(fun (declared): declared == method_name.to_source_string())
         | syntax_meta.error("bundle method names must be unique", method_name)
+
         method_names := method_names ++ [method_name.to_source_string()]
         def method_function = Syntax.make_id(
           bundle_name ++ "_" ++ method_name.to_source_string(),
@@ -297,6 +314,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
          $method_body; ...':
         when method_names.find(fun (declared): declared == method_name.to_source_string())
         | syntax_meta.error("bundle method names must be unique", method_name)
+
         method_names := method_names ++ [method_name.to_source_string()]
         def method_function = Syntax.make_id(
           bundle_name ++ "_" ++ method_name.to_source_string(),
@@ -316,6 +334,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
          $method_body; ...':
         when method_names.find(fun (declared): declared == method_name.to_source_string())
         | syntax_meta.error("bundle method names must be unique", method_name)
+
         method_names := method_names ++ [method_name.to_source_string()]
         def method_function = Syntax.make_id(
           bundle_name ++ "_" ++ method_name.to_source_string(),
@@ -336,13 +355,17 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
           "expected a bundle field, conditional field group, or method declaration",
           item
         )
+
   when field_groups.length() == 0
   | syntax_meta.error("bundle requires at least one field clause", name)
+
   when parameter_count > 0 && method_entries.length() > 0
   | syntax_meta.error("bundle methods currently require a zero-parameter bundle", name)
+
   for (method_name in method_names):
     when field_names.find(fun (field_name): field_name == method_name)
     | syntax_meta.error("bundle fields and methods must have distinct names", name)
+
   let [field_group, ...] = field_groups
   let [static_field, ...] = static_fields
   let [descriptor_static_field, ...] = descriptor_static_fields

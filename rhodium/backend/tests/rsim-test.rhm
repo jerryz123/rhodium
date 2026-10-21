@@ -32,6 +32,7 @@ for (program in [make_scalar(5), make_swap(5), make_hierarchy_program(5), make_a
     dump_ir(program.design) ~is before
     dump_ir(prepared.rtl.design) ~is source
     program.design.sealed ~is #false
+
 check:
   compile_program(make_scalar(5, 100), rsim_target).artifacts ~is compile_program(make_scalar(5), rsim_target).artifacts
 
@@ -112,6 +113,7 @@ for (program in [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512
     dump_ir(prepared.rtl.design) ~is rtl_before
     dump_ir(program.design) ~is before
     program.design.sealed ~is #false
+
   if support_header
   | check: artifacts[2].content ~is support_header
   | support_header := artifacts[2].content

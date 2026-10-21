@@ -13,6 +13,7 @@ sync_circuit EventCrossbarLane(direct :: Boolean, partial :: Boolean = #false):
   def inputs = for Array (index in 0..3):
     def observed = if partial && index == 2 | ingress[index] | ingress[index] |> trace_event("input" ++ to_string(index), ~payload: #true)
     observed |> queue(2, ~pipe: #true, ~flow: #true)
+
   def outputs:
     if direct
     | block:
@@ -21,6 +22,7 @@ sync_circuit EventCrossbarLane(direct :: Boolean, partial :: Boolean = #false):
         inputs <=> crossbar.ingress
         crossbar.egress
     | inputs |> grant_crossbar(2, ~grants: grants)
+
   for (index in 0..2):
     outputs[index] |> trace_event("output" ++ to_string(index), ~payload: #true) |> egress[index]
 
@@ -35,6 +37,7 @@ sync_circuit EventCrossbar():
   for (index in 0..3):
     sources[index] |> direct.ingress[index]
     sources[index + 3] |> configured.ingress[index]
+
   for (index in 0..2):
     direct.egress[index] |> sinks[index]
     configured.egress[index] |> sinks[index + 2]

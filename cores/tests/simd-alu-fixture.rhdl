@@ -78,6 +78,7 @@ circuit SimdAluFixture(xlen :: XLen):
     arithmetic_shift: arithmetic_shift
     rotate: rotate
     invert_right: invert_right
+
   alu.rounding <== rounding
   alu.rounding_mode <== rounding_mode
   alu.enabled <== mux(widening, widen.operands.enabled, enabled.as_bits()[0..width / 8].into(Mask(width / 8)))

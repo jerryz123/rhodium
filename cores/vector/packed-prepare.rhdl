@@ -83,6 +83,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def limit = priority_mux(~default: descriptor.state.vl[0..index_width(vlen + 1)]):
     whole: (vector_field_extent(Bits(68)(vlen / 8), descriptor.control.memory_nf) >> eew)[0..index_width(vlen + 1)]
     mask_transfer: ((descriptor.state.vl + Bits(xlen.width)(7)) >> 3)[0..index_width(vlen + 1)]
+
   def store = descriptor.control.store
   def masked = descriptor.masked & !whole & !mask_transfer
 
@@ -111,6 +112,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
     element := element + (live & end_byte & end_field).as_bits().zext(index_width(vlen + 1))
     field := mux(live & end_byte, mux(end_field, Bits(3)(0), field + Bits(3)(1)), field)
     byte := mux(live, mux(end_byte, Bits(vector_byte_offset_width(xlen))(0), byte + Bits(vector_byte_offset_width(xlen))(1)), byte)
+
   def mapped = VectorPackedLayout(xlen, vlen):
     before: cursor
     after:
@@ -120,6 +122,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
         field: field
         byte: byte
         leading: Bits(vector_byte_offset_width(xlen))(0)
+
     rows: vec(row_values)
     offsets: vec(offset_values)
     elements: vec(element_values)
@@ -162,6 +165,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def mutable last_store_row :: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) = mapped.rows[first_store_lane]
   for (lane in 0..bytes):
     last_store_row := mux(mapped.live[lane].into(Bool), mapped.rows[lane], last_store_row)
+
   read_enables <== vec([direct_store, direct_store, Bool(#false)]).as_bits()
   read_addresses <== vec([mapped.rows[first_store_lane], last_store_row, source_row])
   def store_read_pending = store & store_remaining.or_reduce()
@@ -169,6 +173,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   for (port in 0..3):
     reads[port].valid <== Bool(port == 0) & !direct_store & enable & (prepare === VectorPreparePhase.Read) & store_read_pending & !blocked_rows[source_row]
     reads[port].bits <== source_row
+
   def store_group = vec(for List (lane in 0..bytes): store_remaining[lane].into(Bool) & (layout.rows[lane] === read_row)).as_bits()
   def store_rotation = layout.offsets[read_lane] - read_lane
   def slow_store_alignment = enable & store & !direct_store & (prepare === VectorPreparePhase.Align) & alignment_available
@@ -176,6 +181,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   alignment.bits <== VectorAlignment(xlen):
     data: read_data
     bytes: store_rotation
+
   masks_ready_out <== masks_ready
   def gathered_word = vec(
     for List (lane in 0..bytes):
@@ -189,6 +195,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def first_phase = priority_mux(~default: VectorPreparePhase.Issue):
     masked: VectorPreparePhase.MaskLow
     store: VectorPreparePhase.Read
+
   def phase_after_read = mux(store_read_pending, VectorPreparePhase.ReadDone, VectorPreparePhase.Issue)
   def phase_after_alignment = mux((store_remaining & !store_group).or_reduce(), VectorPreparePhase.Read, VectorPreparePhase.Issue)
   def prepared_next_phase = mux_lookup(prepare, ~default: prepare):
@@ -199,6 +206,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
     VectorPreparePhase.Read: mux(read_step_ready, phase_after_read, prepare)
     VectorPreparePhase.ReadDone: mux(results[0].valid, VectorPreparePhase.Align, prepare)
     VectorPreparePhase.Align: mux(slow_store_alignment, phase_after_alignment, prepare)
+
   next_phase <== mux(!enable ||| fast_load ||| direct_store, prepare, prepared_next_phase)
 
 

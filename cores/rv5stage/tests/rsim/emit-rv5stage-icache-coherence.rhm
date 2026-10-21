@@ -4,5 +4,6 @@
 import:
   "../../../../cores/rv5stage/tests/icache-coherence-fixture.rhdl".RV5StageInstructionCoherence
   lib("rhodium/frontend/foundation.rhm").elaborate
+
 def program = elaborate(RV5StageInstructionCoherence(#true))
 export program

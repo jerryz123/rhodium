@@ -6,6 +6,7 @@ import:
   "../../../core/main.rhm" open
   "../../../core/signature.rhm".module_signature
   "../../../lowering/program.rhm" open
+
 export:
   make_program
   make_keyword_program
@@ -64,9 +65,11 @@ fun make_program(width :: PosInt, consumed_ids :: Nat = 0):
      ["wrapped_zero", builder.eq(top, sum, zero)],
      ["selected", builder.mux_lookup(top, selector, collision, [[1, sum], [2, difference]])],
      ["ones", constant]]
+
   for (entry in outputs):
     def value :: Value = entry[1]
     builder.drive(builder.output(top, entry[0], value.type), value)
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -100,6 +103,7 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0):
     builder.drive(builder.output(body, "difference", Bits(width)), builder.sub(body, a, b))
     builder.finish(body)
     body
+
   def leaf = arithmetic_body(builder, "ArithmeticLeaf" ++ suffix)
   def nested = builder.module("Nested" ++ suffix)
   def y = builder.input(nested, "y", Bits(width))
@@ -109,6 +113,7 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0):
   builder.drive(child.input("b"), y)
   for (name in ["sum", "difference"]):
     builder.drive(builder.output(nested, name, Bits(width)), child.output(name))
+
   builder.finish(nested)
 
   def portable_body = arithmetic_body(builder, "PortableArithmetic" ++ suffix)
@@ -135,6 +140,7 @@ fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0):
   for (entry in [["first", first], ["second", second], ["combined", combined], ["portable", portable], ["again", again]]):
     for (name in ["sum", "difference"]):
       builder.drive(builder.output(top, entry[0] ++ "_" ++ name, Bits(width)), entry[1].output(name))
+
   builder.drive(forward, first.output("sum"))
   builder.finish(top)
   // This valid independent root must never enter the selected artifact.
@@ -174,6 +180,7 @@ fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):
     [["trailer", field(incoming, "trailer")],
      ["items", reversed_items],
      ["header", builder.bit_not(child, field(incoming, "header"))]]
+
   def transformed = builder.record_create(child, packet_type, bindings)
   scatter(builder.output(child, "result", packet_type), transformed)
   builder.finish(child)
@@ -196,6 +203,7 @@ fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):
   fun item(tag :: Nat, payload :: Value, lo :: Nat, hi :: Nat):
     def flags = builder.vector_create(top, flags_type, [constant(3, lo), constant(3, hi)])
     builder.record_create(top, item_type, [["flags", flags], ["payload", payload], ["tag", constant(1, tag)]])
+
   def built_items = builder.vector_create(top, items_type, [item(1, a, 1, 6), item(0, b, 2, 3)])
   // Mix a whole subtree drive with sibling field/element drives on the same wire.
   builder.drive(builder.project(wire, "trailer"), constant(1, 1))
@@ -217,9 +225,11 @@ fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):
     [["built", forward], ["first", first.output("result")], ["second", second.output("result")],
      ["chosen", chosen], ["selected_items", selected_items], ["reinterpreted", reinterpreted],
      ["picked", picked], ["single", single], ["roundtrip", builder.cast(top, bits, packet_type)]]
+
   for (entry in outputs):
     def value :: Value = entry[1]
     builder.drive(builder.output(top, entry[0], value.type), value)
+
   scatter(builder.output(top, "projected", packet_type), packet)
   builder.finish(top)
   DesignElaboration(design, top)
@@ -257,9 +267,11 @@ fun make_sequential_program(width :: PosInt, consumed_ids :: Nat = 0):
   def outputs:
     [["count", count.current], ["p0", p0.current], ["p1", p1.current],
      ["packed", packed.current], ["lanes", lanes.current], ["clock_echo", clock], ["reset_echo", reset]]
+
   for (entry in outputs):
     def value :: Value = entry[1]
     builder.drive(builder.output(child, entry[0], value.type), value)
+
   builder.finish(child)
   def top = builder.module("Sequential" ++ to_string(width))
   for (prefix in ["first", "second"]):
@@ -270,8 +282,10 @@ fun make_sequential_program(width :: PosInt, consumed_ids :: Nat = 0):
       def wire = builder.wire(top, prefix ++ "_wire_" ++ port.name, port.type)
       builder.drive(instance.input(port.name), builder.read(wire))
       builder.drive(wire, source)
+
     for (port in child.outputs):
       builder.drive(builder.output(top, prefix ++ "_" ++ port.name, port.type), instance.output(port.name))
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -339,17 +353,21 @@ fun make_arithmetic_program(width :: PosInt, consumed_ids :: Nat = 0):
      ["zero_extended", builder.zext(top, a, width + 3)], ["sign_extended", signed_extended],
      ["widened_shift", builder.zext(top, shifted, width + 3)],
      ["extended_right", builder.shrs(top, signed_extended, wide)], ["payload", payload]]
+
   for (entry in outputs):
     def value :: Value = entry[1]
     builder.drive(builder.output(top, entry[0], value.type), value)
+
   for (entry in [["narrow", narrow], ["same", same], ["wide", wide]]):
     def amount :: Value = entry[1]
     def shifts:
       [["left", builder.shl(top, a, amount)], ["right", builder.shru(top, a, amount)],
        ["arithmetic", builder.shrs(top, sa, amount)], ["signed_left", builder.shl(top, sa, amount)]]
+
     for (shift in shifts):
       def value :: Value = shift[1]
       builder.drive(builder.output(top, shift[0] ++ "_" ++ entry[0], value.type), value)
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -383,9 +401,11 @@ fun make_dynamic_program(width :: PosInt, consumed_ids :: Nat = 0):
         [["read", builder.vector_index(top, source, index)], ["updated", replaced],
          ["after", builder.vector_index(top, replaced, read_index)], ["state", state.current],
          ["state_read", builder.vector_index(top, state.current, read_index)]]
+
       for (output in outputs):
         def value :: Value = output[1]
         builder.drive(builder.output(top, prefix ++ "_" ++ output[0], value.type), value)
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -403,6 +423,7 @@ fun make_write_set_program(width :: PosInt, consumed_ids :: Nat = 0):
     def type :: VectorType = value.type
     def elements = for List (index in (type.length - 1) >=..= 0): builder.vector_get(top, value, index)
     builder.vector_create(top, type, elements)
+
   for (config in [[1, 1], [1, 3], [3, 2], [4, 3]]):
     def length :: PosInt = config[0]
     def ports :: PosInt = config[1]
@@ -427,6 +448,7 @@ fun make_write_set_program(width :: PosInt, consumed_ids :: Nat = 0):
       builder.drive(permuted_state.next, builder.vector_write_set(top, permuted_state.current, reversed_enables, reversed_indices, reversed_elements))
       for (output in [["updated", updated], ["permuted", permuted], ["state", state.current], ["permuted_state", permuted_state.current]]):
         builder.drive(builder.output(top, prefix ++ "_" ++ output[0], vector_type), output[1])
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -471,9 +493,11 @@ fun make_partial_program(width :: PosInt, consumed_ids :: Nat = 0):
      ["catch_all", builder.decode(top, code, Bits(4), Bits(width), [[15, 0, rkt.quotient(mask, 3), mask]], 0, 0)],
      ["raw_dc", dc], ["zero_dc", builder.bit_and(top, dc, zero)], ["ones_dc", builder.bit_or(top, dc, ones)],
      ["masked_dc", dc_masked], ["masked_decode", builder.bit_and(top, decode_bits, builder.constant(top, Bits(packed_width), care))]]
+
   for (entry in outputs):
     def value :: Value = entry[1]
     builder.drive(builder.output(top, entry[0], value.type), value)
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -504,6 +528,7 @@ fun make_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
       builder.drive(sampled.next, read_values[0])
       for (name in ["read0", "read1", "sampled"], value in read_values ++ [sampled.current]):
         builder.drive(builder.output(child, prefix ++ "_" ++ name, type), value)
+
   // These resources have no access-generated results from which to collect
   // their element types. Even an unused resource needs a valid typed declaration.
   builder.memory(child, "unused", 2, RecordType([RecordField("_sv_bits_7", VectorType(2, Bits(7)))]))
@@ -518,6 +543,7 @@ fun make_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
     def instance = builder.instance(top, child, side)
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -549,6 +575,7 @@ fun make_assertion_program(consumed_ids :: Nat = 0):
     def instance = builder.instance(top, child, side)
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -564,6 +591,7 @@ fun make_assertion_names_program(consumed_ids :: Nat = 0):
   def yes = builder.constant(top, Bits(1), 1)
   for (label in ["check", "check", "check_assert_1", "assert", "_sv_0", "AssertionNames_types", #false]):
     builder.assert(top, yes, clock, reset, yes, label)
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -583,9 +611,11 @@ fun make_cdc_program(consumed_ids :: Nat = 0, marked :: Boolean = #true):
     for (stage in stages):
       builder.drive(stage.next, prior)
       prior := stage.current
+
     builder.drive(builder.output(child, "sync" ++ suffix, Bits(1)), prior)
     when marked
     | builder.sync_level_crossing(child, source, clock, stages)
+
   def data = builder.input(child, "data", Bits(1))
   def ordinary = builder.register(child, "ordinary_storage", Bits(1), clock)
   builder.drive(ordinary.next, data)
@@ -596,6 +626,7 @@ fun make_cdc_program(consumed_ids :: Nat = 0, marked :: Boolean = #true):
     def instance = builder.instance(top, child, side)
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+
   builder.finish(top)
   DesignElaboration(design, top)
 
@@ -616,6 +647,7 @@ fun make_invalid_cdc_program(kind :: String):
   builder.drive(stage1.next, (if kind == "chain" | source | stage0.current))
   when kind == "fanout"
   | builder.drive(builder.output(top, "leaked", Bits(1)), stage0.current)
+
   builder.drive(builder.output(top, "result", Bits(1)), stage1.current)
   builder.sync_level_crossing(top, source, clock, [stage0, stage1])
   builder.finish(top)
@@ -648,12 +680,14 @@ fun make_dpi_program(consumed_ids :: Nat = 0):
     builder.dpi_call(child, procedure, inputs, clock, proc_enable)
     when width == 8
     | builder.dpi_call(child, procedure, inputs, clock, pair_enable)
+
     def pair_results = builder.dpi_register_results(child, ["pair_out" ++ suffix, "pair_tag" ++ suffix, "pair_return" ++ suffix], pair, inputs, clock, pair_enable)
     def single_result = builder.dpi_register(child, "single_result" ++ suffix, single, inputs, clock, single_enable)
     def sampled = builder.register(child, "sample_storage" ++ suffix, return_type, clock)
     builder.drive(sampled.next, pair_results[2])
     for (name in ["inverted", "tag", "result", "single", "sampled"], value in pair_results ++ [single_result, sampled.current]):
       builder.drive(builder.output(child, name ++ suffix, value.type), value)
+
   builder.finish(child)
   def top = builder.module("DpiChecks")
   for (side in ["first", "second"], identity in [0, 1]):
@@ -662,7 +696,9 @@ fun make_dpi_program(consumed_ids :: Nat = 0):
       if port.name == "identity"
       | builder.drive(instance.input(port.name), builder.constant(top, Bits(8), identity))
       | builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
+
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+
   builder.finish(top)
   // Unused declarations are not part of a selected program's ABI.
   builder.dpi_import("unused_dpi", ["value"], [Bits(129)], "result", Bits(129))
@@ -713,11 +749,13 @@ fun make_sync_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
               builder.drive(port.write_data, data)
               when mask | builder.drive(port.write_mask, mask)
               port.read_data
+
         def zero = builder.cast(child, builder.constant(child, Bits(type.packed_width()), 0), type)
         def sample = builder.register(child, prefix ++ "_" ++ mode ++ "_sample", type, clock, reset, zero)
         builder.drive(sample.next, result)
         builder.drive(builder.output(child, prefix ++ "_" ++ mode ++ "_data", type), result)
         builder.drive(builder.output(child, prefix ++ "_" ++ mode ++ "_sampled", type), sample.current)
+
   // Neither a read-only memory nor a write-only memory requires a fake port.
   def read_only = builder.sync_memory(child, "read_only", 2, Bits(width), clock, #true, #false)
   builder.drive(read_only.read_ports[0].address, builder.constant(child, Bits(1), 0))
@@ -735,5 +773,6 @@ fun make_sync_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
     def instance = builder.instance(top, child, side)
     for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
     for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+
   builder.finish(top)
   DesignElaboration(design, top)

@@ -6,6 +6,7 @@ import:
   "../../rhodium/core/main.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../main.rhdl" as hardfloat
+
 def raw_type = hardfloat.RawFloat(5, 11)
 def flags_type = hardfloat.ExceptionFlags()
 def ieee_type = hardfloat.IEEEFloat(hardfloat.FloatFormat.F16)

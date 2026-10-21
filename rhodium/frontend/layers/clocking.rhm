@@ -32,6 +32,7 @@ fun prepare_declaration(kind :: String):
 fun declaration_value(entity :: HardwareEntity, role :: String):
   unless entity is_a Value
   | kernel.frontend_fail(role ++ " must reference a readable hardware value")
+
   entity
 
 /* Attach a top-input timing fragment for later target validation and analysis. */

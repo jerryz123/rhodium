@@ -119,6 +119,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def scalar_unbox_cases = for List (format_index in 1..(vector_format_count(xlen) - 1)):
     def floating_format = if format_index == 1 | FloatFormat.F16 | FloatFormat.F32
     [format_index, riscv_unbox(floating_format, xlen.width, descriptor.floating_scalar).as_bits().zext(xlen.width)]
+
   def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.floating_scalar, scalar_unbox_cases)
   def floating_scalar = mux(descriptor.control.fp_service, descriptor.floating_scalar, checked_floating_scalar)
   def fp_source_width = (sew + fp_narrowing.as_bits().zext(2)).into(SimdElementWidth)
@@ -132,10 +133,12 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def extension_part = mux_lookup(descriptor.control.extension_ratio, ~default: read_destination_chunk[0].as_bits().zext(3)):
     SimdExtensionRatio.By4: read_destination_chunk[0..2].zext(3)
     SimdExtensionRatio.By8: read_destination_chunk[0..3]
+
   def index_shift = (beat_control.first[0..vector_byte_offset_width(xlen)] << index_sew) ++ Bits(3)(0)
   def index_word = results[1].bits >> index_shift
   def index_cases = for List (format_index in 0..(vector_format_count(xlen) - 1)):
     [format_index, index_word[0..(8 << format_index)].zext(xlen.width)]
+
   def vector_index = mux_lookup(index_sew, ~default: index_word, index_cases)
   def gather_index = scalar_index
   // Rotate the selected source element directly into its destination slot;
@@ -166,6 +169,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   for (port in 1..3):
     reads[port].valid <== launch & request.bits.enables[port].into(Bool)
     reads[port].bits <== request.bits.addresses[port]
+
   mask_read.valid <== launch & request.bits.mask_enable
   mask_read.bits <== request.bits.mask_address
   packing.control <== VectorPackingControl(vlen):
@@ -180,6 +184,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
         VectorOperandMode.Scalar: VectorOperandSelect.Scalar
         VectorOperandMode.FloatingScalar: VectorOperandSelect.Scalar
         VectorOperandMode.Immediate: VectorOperandSelect.Immediate
+
     immediate_kind: descriptor.control.immediate_kind
     widening: widening & !reduction
     narrowing: narrowing
@@ -191,6 +196,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     left_wide: wide_vs2
     left_signed: descriptor.control.left_signed
     right_signed: descriptor.control.right_signed
+
   packing.left <== results[0].bits
   packing.right <== mux(second_source, results[1].bits, Bits(xlen.width)(0))
   packing.mask_word <== mask_result.bits
@@ -214,9 +220,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
       def scalar_bytes = for List (format_index in 1..vector_format_count(xlen)):
         def offset = (byte mod (2 ** format_index)) * 8
         [format_index, packing.scalar[offset..offset + 8]]
+
       def scalar_byte = mux_lookup(sew, ~default: packing.scalar[0..8], scalar_bytes)
       mux(insert, scalar_byte, source)
   ).as_bits()
+
   def slide_enabled = vec(
     for List (lane in 0..vector_word_bytes(xlen)):
       def destination_element = beat_control.first.zext(xlen.width + 2) + Bits(xlen.width + 2)(lane)
@@ -239,23 +247,27 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     slide: slide_source
     scan: results[0].bits >> beat_control.first[0..vector_bit_offset_width(xlen)]
     singleton: results[0].bits >> first_shift
+
   def right_operand = priority_mux(~default: packing.operands.right):
     gather: (gather_offset ++ Bits(3)(0)).zext(xlen.width)
     slide: (slide_offset ++ Bits(3)(0)).zext(xlen.width)
     mask_logic ||| reduction: results[1].bits
     fp_service_scalar_operand: floating_scalar
     singleton & (descriptor.control.operand === VectorOperandMode.Vector): results[1].bits >> memory_shift
+
   def packed_lanes = mux(beat_control.empty, Mask(vector_word_bytes(xlen))(0), packing.operands.enabled)
   def slide_lanes = mux(slide, slide_enabled, !Mask(vector_word_bytes(xlen))(0))
   def packed_enabled = packed_lanes & slide_lanes
   def enabled_lanes = priority_mux(~default: packed_enabled):
     mask_logic: beat_control.mask_enabled.or_reduce().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
     singleton: memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
+
   def element_mask_lanes = element_mask_bits[0..vector_word_bytes(xlen)].into(Mask(vector_word_bytes(xlen)))
   def carry_lanes = mux(carry_input, element_mask_lanes, Mask(vector_word_bytes(xlen))(0))
   def right_selection = priority_mux(~default: !Mask(vector_word_bytes(xlen))(0)):
     mask_select: element_mask_lanes
     extension ||| whole_register_move: Mask(vector_word_bytes(xlen))(0)
+
   def operands = VectorBeat(xlen, vlen):
     address: mux(indexed_memory, indexed_address, beat_control.address)
     left: left_operand
@@ -295,6 +307,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def compress_selected = vec(for List (lane in 0..vector_word_bytes(xlen)):
                                 def position = beat_control.first.zext(index_width(vlen + 1) + 1) + Bits(index_width(vlen + 1) + 1)(lane)
                                 (!beat_control.empty & (Bits(index_width(vlen + 1))(lane) < lanes) & (position < beat_control.end.zext(index_width(vlen + 1) + 1)) & compress_mask[lane].into(Bool)).as_bits()).into(Mask(vector_word_bytes(xlen)))
+
   compactor.data <== results[0].bits
   compactor.element_width <== format
   compactor.selected <== compress_selected
@@ -309,6 +322,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def emitted_count_wide = priority_mux(~default: Bits(vector_lane_count_width(xlen) + 1)(0)):
     compress_full: lane_count
     source_final: total_count
+
   def emitted_count = emitted_count_wide[0..vector_lane_count_width(xlen)]
   def emits_write = compress_full ||| (source_final & total_count.or_reduce())
   def compression_finished = source_final & !needs_flush
@@ -317,6 +331,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     data: mux(compression_finished, Bits(xlen.width)(0), remainder_data)
     count: mux(compression_finished, Bits(vector_lane_count_width(xlen))(0), remainder_count)
     destination: compress_destination + emitted_count.zext(index_width(vlen + 1))
+
   def compress_beat = operands.updated(
     ~address: beat_control.address,
     ~destination_data: Bits(xlen.width)(0),
@@ -362,6 +377,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
           data: Bits(xlen.width)(0)
           count: Bits(vector_lane_count_width(xlen))(0)
           destination: state.destination + state.count.zext(index_width(vlen + 1))
+
   def Array(direct_response, compression_response) = response |> fork_valid(2)
 
 
@@ -376,10 +392,12 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
                             def lane = Bits(vector_byte_offset_width(xlen))(offset) - packed_rotation
                             def use_first = packed_layout.rows[lane[0..index_width(vector_word_bytes(xlen))]] === packed_first_row
                             mux(use_first, results[0].bits[offset * 8..offset * 8 + 8], results[1].bits[offset * 8..offset * 8 + 8])).as_bits()
+
   alignment.valid <== response.valid & packed & read_context.packed_store_read & !clear
   alignment.bits <== VectorAlignment(xlen):
     data: packed_source
     bytes: packed_rotation
+
   def packed_operands = operands.updated(~left: mux(read_context.packed_store_read, aligned, read_context.packed_data), ~enabled: read_context.packed_mask.into(Mask(vector_word_bytes(xlen))))
 
 
@@ -391,6 +409,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     read_context.suffix: compression_flush_beat(read_context.suffix_state)
     packed: packed_operands
     compress: compress_beat
+
   def direct = direct_response |> filter_valid(_context => !clear) |> map_valid(context => VectorMicroOp(xlen, vlen, Context)):
     context: context.instruction.context
     beat: selected_beat
@@ -405,12 +424,14 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     data: compress_data
     count: compress_count
     destination: compress_destination
+
   suffix.valid <== compress_flush & !clear
   suffix.bits <== compress_context.updated(
     ~suffix: Bool(#true),
     ~suffix_state: flush_state,
     ~beat_control: compress_context.beat_control.updated(~sequence: flush_sequence, ~first: compress_context.beat_control.end, ~last: Bool(#true), ~empty: Bool(#false))
   )
+
   def capture_compression = response.valid & compress & !read_context.suffix & !clear
   def discard_compression = begin_macro ||| (clear & !retry)
   describe_interface_retained_storage(capture_compression, compress_context_valid & (capture_compression ||| discard_compression), compress_context_valid, ~name: "compression")
@@ -422,9 +443,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   active <== response.valid ||| compress_flush
   when (returned.valid):
     assert(returned.ready, "vector_scheduled_read_cannot_stall_after_response")
+
   when (response.valid & !clear & !packed & !read_context.suffix):
     assert(beat_control.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
     assert(singleton ||| mask_word ||| beat_control.empty ||| packing.legal, "vector_packed_read_is_legal")
+
   when (response.valid & !clear & packed & read_context.packed_store_read):
     assert(results[0].valid & results[1].valid, "vector_packed_store_matches_scheduled_rows")
 
@@ -436,6 +459,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     compress_context_valid <== Bool(#false)
   elsewhen capture_compression:
     compress_context_valid <== Bool(#true)
+
   when (begin_macro):
     authorized_compress_data <== Bits(xlen.width)(0)
     authorized_compress_count <== Bits(vector_lane_count_width(xlen))(0)
@@ -448,6 +472,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     authorized_compress_destination <== feedback.bits.compress_state.destination
     authorized_sequence <== authorized_sequence + Bits(vector_sequence_width(vlen))(1)
     authorized_end <== feedback.bits.end
+
   when retry:
     compress_data <== authorized_compress_data
     compress_count <== authorized_compress_count

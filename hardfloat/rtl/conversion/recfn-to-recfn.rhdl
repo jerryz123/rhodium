@@ -30,6 +30,7 @@ circuit RecFNToRecFN(input_format :: FloatFormat,
             output_format.significand_width - input_format.significand_width
           )
         ).into(RecFloat(output_format))
+
       exception_flags <== ExceptionFlags():
         invalid: raw.is_signaling_nan()
         infinite: Bool(#false)

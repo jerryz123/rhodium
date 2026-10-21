@@ -53,6 +53,7 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
     | def name = "constant" ++ to_string(constant_names.length())
       constant_names[key] := name
       constant_declarations.add("[[maybe_unused]] static constexpr " ++ this.name(type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
+
     constant_names[key]
 
   /* Intern bounded tables as compact row IDs and pointers to pooled typed
@@ -68,11 +69,14 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
           unless rows.has_key(value)
           | rows[value] := rows.length()
             pointers.add("&" ++ this.constant_reference(type, value))
+
           to_string(rows[value])
+
         def carrier = if rows.length() <= 256 | "std::uint8_t" | "std::uint16_t"
         constant_declarations.add("static constexpr std::array<const " ++ this.name(type) ++ "*, " ++ to_string(rows.length()) ++ "> " ++ name ++ "_rows{{" ++ String.join(pointers.snapshot(), ", ") ++ "}};")
         constant_declarations.add("static constexpr std::array<" ++ carrier ++ ", " ++ to_string(entries.length()) ++ "> " ++ name ++ "{{" ++ String.join(ids, ", ") ++ "}};")
         decode_names[key] := name
+
     decode_names[key]
 
   /* Compare semantic members without reading C++ padding. Demand-generated
@@ -88,7 +92,9 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
           if vector_type(type)
           | "  for (std::size_t i = 0; i < " ++ to_string(type.length) ++ "; ++i) {\n    if (!" ++ this.equal(type.element_type, "left[i]", "right[i]") ++ ") return false;\n  }\n  return true;"
           | "  return " ++ String.join(type.fields.map(fun (field): this.equal(field.type, "left." ++ cpp_name(field.name), "right." ++ cpp_name(field.name))), " && ") ++ ";"
+
         equality_declarations.add("static bool " ++ name ++ "(const " ++ this.name(type) ++ "& left, const " ++ this.name(type) ++ "& right) {\n" ++ body ++ "\n}")
+
       equality_names[key] ++ "(" ++ left ++ ", " ++ right ++ ")"
 
   /* Keep standalone scalar values in unsigned arithmetic carriers. Aggregate
@@ -102,6 +108,7 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
           def name = "Record" ++ to_string(names.length())
           names[key] := name
           declarations.add("struct " ++ name ++ " {\n" ++ String.join(fields, "\n") ++ "\n};")
+
         names[key]
     | vector_type(type): "std::array<" ++ this.storage_name(type.element_type) ++ ", " ++ to_string(type.length) ++ ">"
     | ~else:
@@ -131,6 +138,7 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
   method construct(type :: HardwareType, members :: List.of(String)) :: String:
     def stored = for List (member in members, index in 0..members.length()):
       this.storage_value(if vector_type(type) | type.element_type | type.fields[index].type, member)
+
     this.name(type) ++ (if vector_type(type) | "{{" | "{") ++ String.join(stored, ", ") ++ (if vector_type(type) | "}}" | "}")
 
   /* Normalize external inputs leaf by leaf; internal aggregate copies preserve
@@ -155,10 +163,12 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         def members = for List (field in type.fields):
           remaining := remaining - field.type.packed_width()
           this.constant(field.type, value, offset + remaining)
+
         this.construct(type, members)
     | vector_type(type):
         def members = for List (index in 0..type.length):
           this.constant(type.element_type, value, offset + index * type.element_type.packed_width())
+
         this.construct(type, members)
     | ~else:
         def width = scalar_carrier_width(type)
@@ -167,6 +177,7 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         | def count = (width + 31 - (width + 31) mod 32) / 32
           def words = for List (index in 0..count):
             "UINT32_C(" ++ to_string(packed_slice(packed_slice(value, offset, width), index * 32, 32)) ++ ")"
+
           this.name(type) ++ "{{" ++ String.join(words, ", ") ++ "}}"
 
   /* Test one verified selector bit without a whole-value host conversion.
@@ -186,10 +197,12 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         def terms = for List (field in type.fields):
           remaining := remaining - field.type.packed_width()
           this.cube_match(field.type, source ++ "." ++ cpp_name(field.name), value, care, offset + remaining)
+
         "(" ++ String.join(terms, " && ") ++ ")"
     | vector_type(type):
         def terms = for List (index in 0..type.length):
           this.cube_match(type.element_type, source ++ "[" ++ to_string(index) ++ "]", value, care, offset + index * type.element_type.packed_width())
+
         "(" ++ String.join(terms, " && ") ++ ")"
     | ~else:
         def width = scalar_carrier_width(type)
@@ -210,11 +223,13 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
           remaining := remaining - field.type.packed_width()
           def suffix = "." ++ cpp_name(field.name)
           this.masked_merge(field.type, old ++ suffix, data ++ suffix, write_mask, mask_width, granularity, offset + remaining)
+
         this.construct(type, members)
     | vector_type(type):
         def members = for List (index in 0..type.length):
           def suffix = "[" ++ to_string(index) ++ "]"
           this.masked_merge(type.element_type, old ++ suffix, data ++ suffix, write_mask, mask_width, granularity, offset + index * type.element_type.packed_width())
+
         this.construct(type, members)
     | scalar_carrier_width(type) > 64 || mask_width > 64:
         "rhodium_rsim::masked_merge<" ++ to_string(scalar_carrier_width(type)) ++ ", " ++ to_string(mask_width) ++ ">(" ++ old ++ ", " ++ data ++ ", " ++ write_mask ++ ", " ++ to_string(granularity) ++ ", " ++ to_string(offset) ++ ")"
@@ -228,6 +243,7 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
           def high = if (index + 1) * granularity < end | (index + 1) * granularity | end
           def bits = (2 ** (high - low) - 1) * 2 ** (low - offset)
           "((" ++ write_mask ++ " & " ++ literal(2 ** index) ++ ") != 0 ? " ++ literal(bits) ++ " : UINT64_C(0))"
+
         "(" ++ old ++ " ^ ((" ++ old ++ " ^ " ++ data ++ ") & (" ++ String.join(terms, " | ") ++ ")))"
 
   /* Place normalized leaves into one wide packed temporary at canonical offsets.
@@ -240,10 +256,12 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         def parts = for List (field in type.fields):
           remaining := remaining - field.type.packed_width()
           this.place_leaves(field.type, value ++ "." ++ cpp_name(field.name), total, offset + remaining)
+
         String.join(parts, " ")
     | vector_type(type):
         def parts = for List (index in 0..type.length):
           this.place_leaves(type.element_type, value ++ "[" ++ to_string(index) ++ "]", total, offset + index * type.element_type.packed_width())
+
         String.join(parts, " ")
     | ~else:
         "rhodium_rsim::place_bits<" ++ to_string(total) ++ ", " ++ to_string(scalar_carrier_width(type)) ++ ">(packed, " ++ value ++ ", " ++ to_string(offset) ++ ");"
@@ -259,10 +277,12 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         def terms = for List (field in type.fields):
           remaining := remaining - field.type.packed_width()
           "(" ++ this.pack(field.type, value ++ "." ++ cpp_name(field.name)) ++ " << " ++ to_string(remaining) ++ ")"
+
         "(" ++ String.join(terms, " | ") ++ ")"
     | vector_type(type):
         def terms = for List (index in 0..type.length):
           "(" ++ this.pack(type.element_type, value ++ "[" ++ to_string(index) ++ "]") ++ " << " ++ to_string(index * type.element_type.packed_width()) ++ ")"
+
         "(" ++ String.join(terms, " | ") ++ ")"
     | ~else:
         // A narrow aggregate member would otherwise promote to signed int before
@@ -281,10 +301,12 @@ class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList =
         def members = for List (field in type.fields):
           remaining := remaining - field.type.packed_width()
           this.unpack(field.type, value, source_width, offset + remaining)
+
         this.construct(type, members)
     | vector_type(type):
         def members = for List (index in 0..type.length):
           this.unpack(type.element_type, value, source_width, offset + index * type.element_type.packed_width())
+
         this.construct(type, members)
     | ~else:
         if source_width <= 64

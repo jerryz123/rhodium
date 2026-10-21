@@ -31,11 +31,14 @@ sync_circuit EventArbiterNetwork(mode :: Nat, direct :: Boolean = #false):
             inst selector(if mode == 0 | Arbiter(Bits(8), 3) | RRArbiter(Bits(8), 3))
             for (endpoint in [a, b, c], index in 0..3):
               endpoint |> selector.ingress[index]
+
             selector.egress
         | (if mode == 0 | Array(a, b, c) |> arbiter() | Array(a, b, c) |> rr_arbiter())
+
   if mode >= 2
   | selected |> queue(3, ~pipe: #true, ~flow: #true) |> pipe(1) |> egress
   | selected |> egress
+
   take0 <== a.fire()
   take1 <== b.fire()
   take2 <== c.fire()
@@ -52,9 +55,11 @@ sync_circuit EventArbiterLane(mode :: Nat, traced :: Boolean):
     if traced
     | ingress[index] |> trace_event("input" ++ to_string(index), ~payload: #true) |> network.ingress[index]
     | ingress[index] |> network.ingress[index]
+
   if traced
   | network.egress |> trace_event("completed", ~payload: #true) |> egress
   | network.egress |> egress
+
   take0 <== network.take0
   take1 <== network.take1
   take2 <== network.take2
@@ -158,19 +163,24 @@ sync_circuit EventArbiter():
 
 sync_circuit EventBadSelectionWidth():
   describe_interface_selection([Bits(2)(0)])
+
 sync_circuit EventDuplicateSelection():
   describe_interface_selection([Bool(#false)])
   describe_interface_selection([Bool(#false)])
+
 sync_circuit EventMissingSelection():
   inst missing(Pipe(Bits(8), 1))
   interface_trace_selection(missing)
+
 sync_circuit EventMismatchedSelection():
   inst first(Arbiter(Bits(8), 2))
   inst second(Arbiter(Bits(8), 2))
   describe_interface_transform(InterfaceHandle(second.ingress, second.egress), "arbiter", {}, second, ~trace_model: interface_trace_selection(first))
+
 sync_circuit EventSelectionShape():
   inst selection(Arbiter(Bits(8), 2))
   describe_interface_transform(InterfaceHandle(selection.ingress[0], selection.egress), "arbiter", {}, selection, ~trace_model: interface_trace_selection(selection))
+
 sync_circuit EventPartialSelection():
   interface sources[2](Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)

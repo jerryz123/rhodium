@@ -19,32 +19,39 @@ def module_def = design.modules[0]
 def onehot_mux = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.onehot_mux"
 )
+
 def equality = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.eq"
 )
+
 def list_design = compile_program(elaborate(invalid.ListMux()), rtl_target).report.design
 def list_module = list_design.modules[0]
 def list_onehot_mux = list_module.operations.find(
   fun (operation): operation.opcode == "rtl.onehot_mux"
 )
+
 def aggregate_design = compile_program(elaborate(invalid.AggregateMux()), rtl_target).report.design
 def aggregate_module = aggregate_design.modules[0]
 def aggregate_onehot_mux = aggregate_module.operations.find(
   fun (operation): operation.opcode == "rtl.onehot_mux"
 )
+
 def keyed_aggregate_design = compile_program(elaborate(invalid.KeyedAggregateMux()), rtl_target).report.design
 def keyed_aggregate_module = keyed_aggregate_design.modules[0]
 def keyed_aggregate_onehot_mux = keyed_aggregate_module.operations.find(
   fun (operation): operation.opcode == "rtl.onehot_mux"
 )
+
 def dynamic_design = compile_program(elaborate(invalid.DynamicOneHot()), rtl_target).report.design
 def dynamic_module = dynamic_design.modules[0]
 def dynamic_shift = dynamic_module.operations.find(
   fun (operation): operation.opcode == "rtl.shl"
 )
+
 def dynamic_cast = dynamic_module.operations.find(
   fun (operation): operation.opcode == "rtl.cast"
 )
+
 def dynamic_mux_design = compile_program(elaborate(invalid.DynamicOneHotMux()), rtl_target).report.design
 def dynamic_mux_module = dynamic_mux_design.modules[0]
 def dynamic_onehot_mux = dynamic_mux_module.operations.find(
@@ -66,6 +73,7 @@ check:
   type_equal(onehot_mux.operands[0].type, Bits(4)) ~is #true
   (for all (case_value in onehot_mux.operands.drop(1)):
      type_equal(case_value.type, fixture.Grant)) ~is #true
+
   type_equal(onehot_mux.results[0].type, fixture.Grant) ~is #true
   type_equal(equality.operands[0].type, Bits(4)) ~is #true
   type_equal(equality.operands[1].type, Bits(4)) ~is #true
@@ -79,12 +87,14 @@ check:
   aggregate_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_get"
   ).length() ~is 1
+
   verify_design(aggregate_design) ~is #void
   record_type(keyed_aggregate_onehot_mux.results[0].type) ~is #true
   type_equal(keyed_aggregate_onehot_mux.results[0].type, invalid.Pair()) ~is #true
   keyed_aggregate_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.record_get"
   ).length() ~is 1
+
   verify_design(keyed_aggregate_design) ~is #void
   type_equal(dynamic_module.find_output("result").type, one_hot.OneHot(4)) ~is #true
   type_equal(dynamic_shift.operands[0].type, Bits(4)) ~is #true

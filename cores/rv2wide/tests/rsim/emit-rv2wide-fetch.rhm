@@ -22,5 +22,6 @@ fun site_header(manifest):
       "constexpr unsigned wb" ++ to_string(lane) ++ " = " ++ to_string(indices[0]) ++ ";\n",
     ""
   ) ++ "}\n"
+
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 export program target

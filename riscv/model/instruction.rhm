@@ -29,9 +29,11 @@ class InstructionSpec(name :: NonemptyString,
     when (encoding.care bits.and format.variable_mask) != 0
     | error(~who: #'InstructionSpec,
             "fixed encoding requirements overlap variable instruction fields")
+
     unless (encoding.care bits.or format.variable_mask) == width_mask(32)
     | error(~who: #'InstructionSpec,
             "encoding requirements and format fields must cover 32 bits")
+
     super(name,
           format,
           requirements,
@@ -51,27 +53,33 @@ class InstructionSpec(name :: NonemptyString,
     def supplied_fields = format.operands.map(fun (operand): operand.field) ++ (
       format.auxiliary_fields
     )
+
     for (binding in fields):
       unless supplied_fields.contains(binding.field)
       | error(~who: #'encode,
               "field " ++ binding.field.name ++ " is not an explicit field of " ++ name)
+
     for (field in supplied_fields):
       unless fields.filter(~keep: fun (binding): binding.field == field).length() == 1
       | error(~who: #'encode,
               "field " ++ field.name ++ " must be supplied exactly once for " ++ name)
+
     when immediate_value && !format.immediate
     | error(~who: #'encode, name ++ " does not have an immediate")
+
     when !immediate_value && format.immediate
     | error(~who: #'encode, name ++ " requires an immediate")
 
     def mutable word = encoding.value
     for (binding in fields):
       word := word bits.or binding.value_bits
+
     if immediate_value is_a Int
     | block:
         def immediate_layout :: ImmediateLayout = format.immediate
         word := word bits.or immediate_layout.encode(immediate_value)
     | #void
+
     word
 
 /* Groups named instructions with a revision and pairwise-disjoint encoding relations. */
@@ -88,6 +96,7 @@ class InstructionCatalog(name :: NonemptyString,
       ).length() != 1
       | error(~who: #'InstructionCatalog,
               "duplicate instruction name " ++ instruction.name)
+
     for (left_index in 0..instructions.length()):
       for (right_index in (left_index + 1)..instructions.length()):
         def left = instructions[left_index]
@@ -98,6 +107,7 @@ class InstructionCatalog(name :: NonemptyString,
                               left.name,
                               " and ",
                               right.name))
+
     super(name, revision, instructions)
 
   /* Returns the named descriptor or reports an unknown instruction. */
@@ -105,8 +115,10 @@ class InstructionCatalog(name :: NonemptyString,
     def found = instructions.find(
       fun (candidate): candidate.name == instruction_name
     )
+
     unless found
     | error(~who: #'find, "unknown instruction " ++ instruction_name)
+
     found
 
   /* Returns the matching descriptor, or false when no catalog encoding accepts the word. */
@@ -122,4 +134,5 @@ fun instruction(name :: NonemptyString,
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
+
   InstructionSpec(name, format, requirements)

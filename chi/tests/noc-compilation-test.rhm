@@ -9,6 +9,7 @@ import:
 
 def physical = topology:
   node xbar
+
 def router = physical.node("xbar")
 
 def requester = CHIInjectionSite(3, InjectionRef("requester"), router)
@@ -35,9 +36,11 @@ check:
        route.destination.node_id,
        route.route_key]
   ) ~is [[5, 9, 0], [3, 5, 1]]
+
   compilation.routes_from(requester.terminal).map(
     fun (route): route.route_key
   ) ~is [1]
+
   compilation.route(home_source.terminal, 9).route_class === (
     compilation.network.lowered_routes.route_class(
       RouteClassRef(["home", "to", "memory"])
@@ -68,6 +71,7 @@ def distributed = topology:
   directed forward:
     left -> right
     vcs [transport]
+
 def distributed_requester = CHIInjectionSite(
   3,
   InjectionRef("requester"),

@@ -77,12 +77,15 @@ def retryable = CircuitReference(
     attempts := attempts + 1
     if attempts == 1 | error("try again") | Leaf()
 )
+
 def retry_result = compile_program(elaborate(
   block:
     check:
       kernel.materialize_circuit(retryable) ~throws "try again"
+
     retryable
 ), rtl_target).report.elaboration
+
 check:
   attempts ~is 2
   retry_result.top.name ~is "Leaf"

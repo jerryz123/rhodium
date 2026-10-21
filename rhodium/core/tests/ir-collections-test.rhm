@@ -72,10 +72,12 @@ block:
     place.projected_places.map(fun (projected): projected.projection_key) ~is ["left", "right"]
     (place.projected_place("left") === left) ~is #true
     (place.projected_place("right") === right) ~is #true
+
   def saved = place.projected_places
   place.clear_projected_places()
   check:
     place.projected_places.length() ~is 0
+
   place.replace_projected_places(saved)
   check:
     place.projected_places.map(fun (projected): projected.projection_key) ~is ["left", "right"]

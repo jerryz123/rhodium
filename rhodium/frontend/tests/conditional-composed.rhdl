@@ -17,6 +17,7 @@ circuit ComposedConditionalRegister():
   reg state(Bits(4), ~clock: clk)
   when enable:
     state <== data_in
+
   data_out <== state
 
 def design = compile_program(elaborate(ComposedConditionalRegister()), rtl_target).report.design

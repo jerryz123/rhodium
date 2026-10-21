@@ -22,6 +22,7 @@ def services = for List (index in 0..4):
   CHIHomeServiceParams(
     homes[index], [sets[index]],
     [CHIRequestSupport((if index == 0 | CHIReqOpcode.ReadClean | CHIReqOpcode.ReadNoSnp), sizes[index])] ++ (if index == 3 | [] | [CHIRequestSupport((if index == 0 | CHIReqOpcode.WriteUniquePtl | CHIReqOpcode.WriteNoSnpPtl), sizes[index])]))
+
 def home_map = CHIHomeMap(p, for List (region in sets, home in homes): CHIHomeMapEntry(region, home))
 def physical_map = RiscvPhysicalMemoryMap(p.request_address_width, for List (region in sets, attributes in attrs): RiscvPhysicalMemoryRegion(region, attributes))
 

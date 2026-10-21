@@ -56,13 +56,16 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
         | emitted[value] := steps.length()
           expressions[key] := candidates ++ [steps.length()]
           steps.add(RsimStep(recipe.opcode, recipe.type, operands, recipe.attributes, recipe.occurrence))
+
       emitted[value]
+
   /* Record one static field/lane or dynamic unsigned lane selection. */
   fun part(step :: RsimStep) :: List:
     match step.opcode
     | "rtl.record_get": ["field", step.attributes["field"]]
     | "rtl.vector_get": ["lane", step.attributes["index"]]
     | ~else: ["dynamic", step.operands[1]]
+
   for (step in schedule.steps, position in 0..schedule.steps.length()):
     def mutable result = #false
     when step.opcode in ["rtl.record_get", "rtl.vector_get", "rtl.vector_index"]
@@ -78,6 +81,7 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
           def id = schedule.steps.length() + recipes.length()
           recipes.add(RsimStep(opcode, type, operands, attributes, step.occurrence))
           id
+
         /* Build a projection without assuming that its container is materialized.
            Whole-value leaves retain their original source identities. */
         fun project(value :: Nat, path :: List):
@@ -110,14 +114,17 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
                   /* Extend unequal index widths before comparing their full values. */
                   fun extend(value :: Nat, width :: PosInt):
                     if width == compare_width | value | node("rtl.zext", Bits(compare_width), [value])
+
                   def other = if dynamic | extend(read, read_width) | node("rtl.constant", Bits(width), [], {"value": read})
                   def equal = if dynamic && remap(index) == remap(read)
                   | node("rtl.constant", Bits(1), [], {"value": 1})
                   | node("rtl.eq", Bits(1), [extend(index, width), other])
+
                   def length = source.type.length
                   def condition = if dynamic && length < 2 ** read_width
                   | node("rtl.and", Bits(1), [equal, node("rtl.ult", Bits(1), [read, node("rtl.constant", Bits(read_width), [], {"value": length})])])
                   | equal
+
                   if !dynamic && read >= 2 ** width
                   | project(source.operands[0], path)
                   | node("rtl.mux_lookup", step.type, [condition, project(source.operands[0], path), project(source.operands[2], path.drop(1))], {"keys": [1]})
@@ -130,12 +137,18 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
                     recipe := if kind == "dynamic"
                     | node("rtl.vector_index", type, [recipe, selection[1]])
                     | node((if kind == "field" | "rtl.record_get" | "rtl.vector_get"), type, [recipe], {(if kind == "field" | "field" | "index"): selection[1]})
+
                   recipe
+
             projections[key] := recipe
+
           projections[key]
+
         def recipe = project(key[0], key[1])
         queries[key] := if found && !aborted | emit(recipe, recipes, MutableMap{}) | #false
+
       result := queries[key]
+
     if result != #false
     | changed := #true
       refs[position] := result
@@ -147,6 +160,7 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
       | changed := #true
         steps.add(RsimStep("rtl.constant", step.type, [], {"value": if step.opcode == "rtl.eq" | 1 | 0}, step.occurrence))
       | steps.add(RsimStep(step.opcode, step.type, operands, step.attributes, step.occurrence))
+
   if changed | remap_schedule(schedule, steps.snapshot(), remap) | schedule
 
 /* Fold only a complete vector of matching lanes. Shared original lane values
@@ -162,6 +176,7 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
   fun intern(key :: List) :: Nat:
     unless interned.has_key(key) | interned[key] := interned.length()
     interned[key]
+
   /* Compare a value with virtual static projections through constructors and
      lookup muxes. Original steps preserve lanes of already recovered updates.
      The depth bound declines expensive matches; it never changes semantics. */
@@ -185,20 +200,26 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
             def attributes = MutableMap{}
             for ((name, attr) in step.attributes):
               unless name == "name" | attributes[name] := attr
+
             if #false in branches
             | #false
             | intern(["mux", step.operands[0], attributes.snapshot(), branches])
         | ~else: intern(["leaf", value, path])
+
       signatures[key] := result
+
     signatures[key]
+
   def mutable changed = #false
   for (step in schedule.steps, position in 0..schedule.steps.length()):
     def lanes = if step.opcode == "rtl.vector_create" && step.operands.length() > 0
     | for List (operand in step.operands, lane in 0..step.operands.length()): update_lane(operand, lane, schedule.steps)
     | []
+
     def update = lanes.length() > 0 && lanes[0]
     def consistent = update && type_equal(step.type.element_type, schedule.steps[update[2]].type)
       && (for all (lane in lanes): lane && lane[1] == update[1] && lane[2] == update[2])
+
     def mutable base = #false
     when consistent
     | def old = schedule.steps[update[0]]
@@ -210,6 +231,7 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
               source.opcode == "rtl.vector_get" && source.operands[0] == old.operands[0]
                 && source.attributes["index"] == index)
       | base := old.operands[0]
+
       when base == #false
       | def first = signature(update[0], [])
         when first != #false
@@ -220,10 +242,12 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
                       def actual = signature(lane[0], [])
                       actual != #false && actual == signature(candidate, [index]))
           )
+
     if base != #false
     | changed := #true
       rewritten.add(RsimStep("rtl.vector_inject", step.type, [base, update[1], update[2]], step.attributes, step.occurrence))
     | rewritten.add(step)
+
     // Only earlier whole aggregates can become bases. Bound each bucket and
     // prefer recent candidates; type equality and every lane still require proof.
     when vector_type(step.type) && step.opcode in ["rtl.vector_create", "rtl.mux_lookup"]
@@ -231,6 +255,7 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
       when first != #false
       | def earlier = candidates.get(first, [])
         candidates[first] := [position] ++ earlier.take(if earlier.length() < 15 | earlier.length() | 15)
+
   def recovered = if changed | remap_schedule(schedule, rewritten.snapshot(), fun (value): value) | schedule
   def interim = forward_array_reads(recovered)
   if interim === schedule

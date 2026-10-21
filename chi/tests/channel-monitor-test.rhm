@@ -16,11 +16,13 @@ def wrong_id = chi.CHIICNPortParams(
   ~emits: peer.emits, ~supports: peer.supports,
   ~max_outstanding: peer.max_outstanding
 )
+
 def missing_capability = chi.CHIICNPortParams(
   "missing-capability", peer.node_id, peer.kind,
   ~emits: peer.emits, ~supports: chi.CHIChannelCapabilities(),
   ~max_outstanding: peer.max_outstanding
 )
+
 def broad_rnf = chi.CHINodeParams(
   "broad-rnf", 5, chi.CHINodeKind.RNF,
   ~emits: chi.CHIChannelCapabilities(
@@ -31,6 +33,7 @@ def broad_rnf = chi.CHINodeParams(
   ~supports: transactions.transaction_rnf_node.supports,
   ~max_outstanding: 2
 )
+
 def retry_rnf = chi.CHINodeParams(
   "retry-rnf", 5, chi.CHINodeKind.RNF,
   ~emits: transactions.transaction_rnf_node.emits,
@@ -41,6 +44,7 @@ def retry_rnf = chi.CHINodeParams(
   ),
   ~max_outstanding: 2
 )
+
 def wrong_capacity = chi.CHIICNPortParams(
   "wrong-capacity", peer.node_id, peer.kind,
   ~emits: peer.emits, ~supports: peer.supports,
@@ -50,6 +54,7 @@ def wrong_capacity = chi.CHIICNPortParams(
 for (endpoint in [node, node.icn_peer(), transactions.transaction_sn_node, transactions.transaction_rnf_node]):
   check:
     chi.check_chi_transaction_coverage(endpoint) ~is #void
+
 check:
   fixture.packet_monitor_design("req", chi.CHIRspFlit(p)) ~throws "CHIReqFlit"
   fixture.packet_monitor_design("rsp", chi.CHIReqFlit(p)) ~throws "CHIRspFlit"

@@ -47,21 +47,26 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
   enqueue.ready <== !full ||| full_drain
   when full_drain:
     assert(full & drain.fire(), "store_buffer_full_drain_contract")
+
   def count_bits = for List (index in 0..depth):
     if depth == 1 | occupied[index].as_bits() | occupied[index].as_bits().zext(count_width)
+
   count <== tree_reduce(count_bits, fun (left, right): left + right)
   when (empty ||| drain.fire()):
     age <== Bits(4)(0)
   elsewhen (age < Bits(4)(8)):
     age <== age + Bits(4)(1)
+
   urgent <== age >= Bits(4)(8)
 
   /* Tests physical word equality and intersecting byte masks against the speculative query. */
   fun overlaps(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
     (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).or_reduce()
+
   /* Tests whether an entry belongs to the probed 64-byte physical line. */
   fun same_line(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
     store.address[6..xlen.width] === probe_address[6..xlen.width]
+
   queued_word_hazard <== vec(for List (index in 0..depth): occupied[index] & overlaps(entries[index])).as_bits().or_reduce()
   queued_line_hazard <== vec(for List (index in 0..depth): occupied[index] & same_line(entries[index])).as_bits().or_reduce()
   word_hazard <== queued_word_hazard ||| (enqueue.fire() & overlaps(enqueue.bits))
@@ -73,8 +78,10 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
       occupied[index] <== Bool(#true)
     elsewhen (drain.fire() & (head === Bits(pointer_width)(index))):
       occupied[index] <== Bool(#false)
+
   when (enqueue.fire()):
     tail <== if depth == 1 | Bits(pointer_width)(0) | tail + Bits(pointer_width)(1)
+
   when (drain.fire()):
     head <== if depth == 1 | Bits(pointer_width)(0) | head + Bits(pointer_width)(1)
 

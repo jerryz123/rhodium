@@ -29,8 +29,10 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   def xlen = profile.xlen
   unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'RV2Wide, "RV2Wide requires 64-byte CHI cache lines")
+
   unless profile.instruction_cache == instruction_cache && profile.data_cache == cache
   | error(~who: #'RV2Wide, "private caches must match the architectural description")
+
   input(instruction_node_id, data_node_id, uncached_node_id): Bits(config.flit.node_id_width)
   input interrupts: RiscvInterrupts()
   input(hart_id, time_counter): Bits(64)
@@ -138,6 +140,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   when (start.valid):
     stopped <== Bool(#false)
     assert(stopped & data.memory.drained, "rv2wide_start_at_quiescent_boundary")
+
   halted <== stopped
   assert(instruction_node_id =/= data_node_id, "rv2wide_distinct_cache_identities")
   assert((instruction_node_id =/= uncached_node_id) & (data_node_id =/= uncached_node_id), "rv2wide_distinct_uncached_identity")

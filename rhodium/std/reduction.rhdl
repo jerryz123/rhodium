@@ -16,10 +16,12 @@ fun tree_reduce(input_values :: List, combine :: Function.of_arity(2)):
         def paired = for List (pair_index in 0..pair_count):
           def left_index = pair_index * 2
           combine(nodes[left_index], nodes[left_index + 1])
+
         def next:
           if (pair_count * 2) == nodes.length()
           | paired
           | paired ++ [nodes[nodes.length() - 1]]
+
         reduce_level(next)
 
   reduce_level(input_values)

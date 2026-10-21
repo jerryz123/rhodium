@@ -21,6 +21,7 @@ def htif_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 1
 )
+
 def instruction_endpoint = CHIICNPortParams(
   "rv5stage-l1i",
   2,
@@ -35,6 +36,7 @@ def instruction_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 2
 )
+
 def data_endpoint = CHIICNPortParams(
   "rv5stage-l1d",
   3,
@@ -57,6 +59,7 @@ def data_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 2
 )
+
 def memory_endpoint = CHIICNPortParams(
   "memory",
   9,
@@ -73,6 +76,7 @@ def memory_endpoint = CHIICNPortParams(
   ),
   ~max_outstanding: 4
 )
+
 def memory_service = CHISubordinateServiceParams(
   memory_endpoint,
   [AddressSet(0x80000000, 0x0fffffff)],
@@ -91,6 +95,7 @@ def coherent_home_params = CHIHNFParams(
   coherent_home_config,
   memory_service
 )
+
 def coherent_home_program = elaborate(CHIHNF(coherent_home_config))
 
 export:

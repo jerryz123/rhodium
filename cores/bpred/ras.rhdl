@@ -21,6 +21,7 @@ fun riscv_ras_action(instruction :: Bits(32)) :~ RasAction:
     rd_link & rs1_link: mux(rd === rs1, RasAction.Push, RasAction.PopPush)
     rd_link: RasAction.Push
     rs1_link: RasAction.Pop
+
   mux_lookup(opcode, ~default: RasAction.None):
     0x6f: mux(rd_link, RasAction.Push, RasAction.None)
     0x67: indirect_action
@@ -35,6 +36,7 @@ fun riscv_compressed_ras_action(xlen :: XLen, instruction :: Bits(16)) :~ RasAct
   def indirect_action = priority_mux(~default: RasAction.None):
     link: mux(rs1 === Bits(5)(5), RasAction.PopPush, RasAction.Push)
     rs1_link: RasAction.Pop
+
   priority_mux(~default: RasAction.None):
     direct_call: RasAction.Push
     indirect: indirect_action

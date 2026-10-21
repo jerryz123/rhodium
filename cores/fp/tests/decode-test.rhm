@@ -40,8 +40,10 @@ fun field_pattern(cube, name):
     | field: lower_width := lower_width + declared.type.packed_width()
     | declared.name == name: field := declared
     | ~else: #void
+
   unless field
   | error(~who: #'field_pattern, "unknown record field")
+
   def width = field.type.packed_width()
   def mask = (1 << width) - 1
   Pattern(

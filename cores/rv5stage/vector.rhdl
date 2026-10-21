@@ -80,6 +80,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
       access.request_guest_fault <== request_guest_fault
       access.pipeline_guest_fault <== pipeline_guest_fault
   | #void
+
   inst admission(VectorAdmission(xlen, vlen, slots, if hypervisor | RiscvGuestException() | Bool, ~pipe: #true))
   request |> admission.request
   admission.dispatch |> execution.request
@@ -98,6 +99,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
       admission.precise_fault <== access.outcome_guest
       outcome_guest <== admission.outcome_fault
   | admission.precise_fault <== Bool(#false)
+
   execution.issue |> filter_flow(operation => operation.memory) |> access.issue
   access.feedback |> execution.decision
   access.completion |> execution.completion
@@ -180,6 +182,7 @@ sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slo
       output outcome_guest: RiscvGuestException()
       outcome_guest <== literal(RiscvGuestException(), 0)
   | #void
+
   request.ready <== Bool(#false)
   pipeline_physical <== Bool(#false)
   request_physical <== Bool(#false)

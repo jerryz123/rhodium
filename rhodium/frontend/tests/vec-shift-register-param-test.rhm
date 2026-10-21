@@ -15,6 +15,7 @@ def module_def = fixture_design.modules[0]
 def register_operation = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
+
 def alternate_design = compile_program(elaborate(fixture.VecShiftRegisterParam(2, 8)), rtl_target).report.design
 def alternate = alternate_design.modules[0]
 def single_stage_design = compile_program(elaborate(fixture.VecShiftRegisterParam(1, 3)), rtl_target).report.design
@@ -28,15 +29,18 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
   ).length() ~is 0
+
   type_equal(alternate.operations.find(
                fun (operation): operation.opcode == "rtl.register_reset"
              ).results[0].type,
              VectorType(2, Bits(8))) ~is #true
+
   type_equal(alternate.find_output("data_out").type, Bits(8)) ~is #true
   type_equal(single_stage.operations.find(
                fun (operation): operation.opcode == "rtl.register_reset"
              ).results[0].type,
              VectorType(1, Bits(3))) ~is #true
+
   verify_design(fixture_design) ~is #void
   verify_design(alternate_design) ~is #void
   verify_design(single_stage_design) ~is #void

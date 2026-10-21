@@ -26,6 +26,7 @@ for (cache in [description.hart.instruction_cache,
     cache.sets ~is 64
     cache.ways ~is 4
     cache.size_bytes ~is 16384
+
 check:
   soc.single_core_rv5stage_soc_core_profile.multiplier ~is RV5StageMultiplierKind.Pipelined
   soc.single_core_rv5stage_soc_core_profile.data_cache_service_queue_depth ~is 4
@@ -112,6 +113,7 @@ check:
        route.destination.node_id,
        route.route_key]
   ) ~is [[6, 10, 0], [6, 14, 1], [6, 12, 2], [6, 13, 3], [6, 11, 4], [3, 5, 5], [2, 6, 6], [2, 5, 7], [4, 6, 8], [4, 5, 9], [1, 6, 10], [1, 5, 11]]
+
   fabric.req_router_config.input_count ~is 5
   fabric.req_router_config.target_count ~is 7
   fabric.rsp_router_config.input_count ~is 11

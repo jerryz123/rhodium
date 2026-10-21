@@ -34,8 +34,10 @@ sync_circuit CacheReplacementFixture():
 
   when touch_one_valid:
     one_state <== plru_touch(1, one_state, Bits(1)(0))
+
   when touch_four_valid:
     four_state <== plru_touch(4, four_state, touch_four_way)
+
   when touch_three_valid:
     three_state <== plru_touch(3, three_state, touch_three_way)
 

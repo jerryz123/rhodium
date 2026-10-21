@@ -50,6 +50,7 @@ class ModuleDependencySummary(
         def leaves_by_path = MutableMap{}
         for (dependency in output_dependencies):
           leaves_by_path[dependency.path] := dependency
+
         leaves_by_path
 
   /* Finds a dependency entry within an output port, returning false when the leaf path is absent. */
@@ -72,6 +73,7 @@ fun identity_index(items :: List.of(Value), item :: Value):
        index in 0..items.length()):
     when !result && candidate === item
     | result := index
+
   result
 
 /* Finds a string's first index by equality, returning false when it is absent. */
@@ -81,6 +83,7 @@ fun equal_index(items :: List.of(String), item :: String):
        index in 0..items.length()):
     when !result && candidate == item
     | result := index
+
   result
 
 
@@ -90,6 +93,7 @@ fun describe_value_path(value :: Value,
   def mutable result = value.name
   for (step in path):
     result := if step is_a String | result ++ "." ++ step | result ++ "[" ++ to_string(step) ++ "]"
+
   result
 
 /* Follows already-created place projections, returning false if any path step is missing. */
@@ -169,6 +173,7 @@ fun visit_present_operation_dependencies(
       | ~else:
           for (operand in operands):
             add_whole(operand)
+
       #true
   | ~else:
       #false
@@ -251,6 +256,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
             for (path in paths,
                  leaf_index in 0..paths.length()):
               indices_by_path[path] := leaf_index
+
             def layout = LeafLayout(paths, indices_by_path)
             leaf_layouts[type] := layout
             layout
@@ -319,6 +325,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     | block:
         when module_def in active_modules
         | fail("recursive module instantiation involving " ++ module_def.name)
+
         active_modules.add(module_def)
         def value_states = MutableMap.by(===){}
         def active_values = MutableList[]
@@ -339,6 +346,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                leaf_index in 0..input_leaves.length()):
             when (input_bits bits.and (1 << leaf_index)) != 0
             | result.add(input_leaf)
+
           result.snapshot()
 
         /* Lazily creates memo and active-stack slots for each scalar leaf of a value. */
@@ -379,6 +387,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                   ),
                   " -> "
                 )
+
                 def message = String.append(
                   "combinational cycle reaches value ",
                   describe_value_path(value, repeated.path),
@@ -390,6 +399,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                 if via_operation
                 | fail_operation(via_operation!!, message)
                 | fail(message)
+
               def active_summary = ValueDependencySummary(value, path, [])
               state.active_indices[leaf_index] := active_values.length()
               active_values.add(active_summary)
@@ -412,6 +422,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                         dependency.leaf_index,
                         operation
                       )
+
                     dependencies
                 | operation?.opcode == "rtl.instance":
                     def instance_operation = operation!!
@@ -433,9 +444,11 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                         driver.leaf_index,
                         drive_operation || operation
                       )
+
                     dependencies
                 | ~else:
                     0
+
               active_values.delete(active_values.length() - 1)
               state.active_indices[leaf_index] := #false
               state.summaries[leaf_index] := input_bits
@@ -447,6 +460,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
           def layout = leaf_layout(value.type)
           for (leaf_index in 0..layout.paths.length()):
             summarize_value(value, leaf_index)
+
         def output_leaf_dependencies:
           for List (port in module_def.outputs):
             for List (path in leaf_layout(port.type).paths,
@@ -457,6 +471,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                                      summarize_value(driver.value,
                                                      driver.leaf_index)
                                    ))
+
         def summary = ModuleDependencySummary(module_def,
                                               output_leaf_dependencies)
         module_summaries[module_def] := summary
@@ -465,6 +480,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
 
   for (module_def in module_defs):
     summarize_module(module_def)
+
   module_summaries
 
 /* Runs hierarchical leaf dependency analysis for its cycle checks and discards the resulting summaries. */

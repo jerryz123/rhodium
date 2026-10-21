@@ -25,9 +25,11 @@ fun validate_group_set(mesh :: RectangularMesh,
     unless name.length() > 0 && !name.contains("/")
     | error(~who: #'adaptive_minimal_escape,
             subject ++ " must contain names without '/'")
+
     when duplicate_name(names, name)
     | error(~who: #'adaptive_minimal_escape,
             "duplicate " ++ subject ++ " " ++ name)
+
     unless mesh.vc_groups.find(fun (group): group.name == name)
     | error(~who: #'adaptive_minimal_escape,
             "mesh has no VC group " ++ name)
@@ -56,12 +58,15 @@ class AdaptiveMinimalEscapePolicy(mesh :: RectangularMesh,
     when groups_overlap(adaptive_vc_groups, escape_vc_groups)
     | error(~who: #'adaptive_minimal_escape,
             "adaptive and escape VC groups must be disjoint")
+
     def sorted_adaptive = adaptive_vc_groups.sort(
       fun (left, right): left < right
     )
+
     def sorted_escape = escape_vc_groups.sort(
       fun (left, right): left < right
     )
+
     def lowered_topology = lower_topology(mesh.spec)
     def composition = with_escape(
       minimal_adaptive(
@@ -73,6 +78,7 @@ class AdaptiveMinimalEscapePolicy(mesh :: RectangularMesh,
       sorted_adaptive,
       sorted_escape
     )
+
     super(mesh,
           sorted_adaptive,
           sorted_escape,

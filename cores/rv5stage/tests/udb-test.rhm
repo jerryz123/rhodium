@@ -26,6 +26,7 @@ def rv64_double = RV5StageConfig(
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
+
 def rv64_yaml = rv5stage_udb_configuration(
   rv64_double,
   "rhodium-rv5stage-rv64dc",

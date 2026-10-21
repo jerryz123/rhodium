@@ -29,6 +29,7 @@ def explicit_edges = infer_event_manifest(retained_fixture.trace_edges())
 def hierarchy_inside = hierarchical.sites.filter(
   ~keep: fun (site): site.label == "inside"
 )
+
 def json = event_manifest_to_json(linear)
 def cpp = event_manifest_to_cpp(linear)
 def captures = infer_event_manifest(fixture.captures)
@@ -47,6 +48,7 @@ check:
   enum_captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding, field.label]) ~is [
     ["operation", 7, 7, "enum", #true], ["observed", 7, 0, "enum", #false]
   ]
+
   enum_captures.sites[0].fields[0].symbols ~is [{"name": "Read", "value": "2"}, {"name": "Write", "value": "5"}]
   event_manifest_to_json(enum_captures).contains("\"label\":true") ~is #true
   event_manifest_to_cpp(enum_captures).contains("{{2ULL,\"Read\"},{5ULL,\"Write\"}},true") ~is #true
@@ -60,6 +62,7 @@ check:
     ["pc", 64, 38, "hex"], ["instruction", 32, 6, "riscv"],
     ["fault", 1, 5, "bool"], ["low", 5, 0, "unsigned"]
   ]
+
   dependency_labels(captures) ~is ["selected->identity-only"]
   captures.sites[0].fields[1].isa ~is "rv64im"
   captures.sites[0].fields[1].pc ~is "pc"
@@ -93,6 +96,7 @@ check:
   merged.dependencies.map(
     fun (dependency): dependency.transform_path[0].contains(":zip")
   ) ~is [#true, #true]
+
   valid.sites.length() ~is 1
   valid.sites[0].label ~is "observed"
   valid.sites[0].protocol ~is "Valid<bits<8>>"
@@ -103,6 +107,7 @@ check:
     ["EventHierarchy", "left_child"],
     ["EventHierarchy", "right_child"]
   ]
+
   dependency_labels(hierarchical).length() ~is 4
   "before-left->inside" in dependency_labels(hierarchical) ~is #true
   "inside->after-left" in dependency_labels(hierarchical) ~is #true

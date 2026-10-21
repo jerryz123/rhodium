@@ -13,10 +13,13 @@ circuit EnableShiftRegister():
 
   reg r0(Bits(4), ~clock: clk, ~reset: reset,
          ~init: Bits(4)(0))
+
   reg r1(Bits(4), ~clock: clk, ~reset: reset,
          ~init: Bits(4)(0))
+
   reg r2(Bits(4), ~clock: clk, ~reset: reset,
          ~init: Bits(4)(0))
+
   reg r3(Bits(4), ~clock: clk, ~reset: reset,
          ~init: Bits(4)(0))
 

@@ -10,6 +10,7 @@ check:
   Zicsr.instructions.map(fun (instruction): instruction.name) ~is [
     "CSRRW", "CSRRS", "CSRRC", "CSRRWI", "CSRRSI", "CSRRCI"
   ]
+
   Zicsr.matching(0x300110f3) === CSRRW ~is #true
   Zicsr.matching(0x300120f3) === CSRRS ~is #true
   Zicsr.matching(0x300130f3) === CSRRC ~is #true

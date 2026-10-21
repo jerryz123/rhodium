@@ -99,6 +99,7 @@ fun riscv_udb_extensions(hart :: RiscvHartDescription, ~additional: additional :
   /* Adds a derived architectural spelling once, preserving deterministic order. */
   fun add(name :: String):
     unless names.contains(name) | names := names ++ [name]
+
   /* Tests the evolving implication closure. */
   fun has(name :: String) :: Boolean: names.contains(name)
   when profile.misa_extensions.contains(MisaExtension.U) | add("u")
@@ -106,6 +107,7 @@ fun riscv_udb_extensions(hart :: RiscvHartDescription, ~additional: additional :
   | block:
       add("s")
       add("sm")
+
   add("svbare")
   when hart.mmu_type == RiscvMmuType.Sv39 | add("sv39")
   when has("m") | add("zmmul")
@@ -113,18 +115,21 @@ fun riscv_udb_extensions(hart :: RiscvHartDescription, ~additional: additional :
   | block:
       add("zaamo")
       add("zalrsc")
+
   when has("za64rs") | add("za128rs")
   when has("b")
   | block:
       add("zba")
       add("zbb")
       add("zbs")
+
   when has("d") | add("f")
   when has("c")
   | block:
       add("zca")
       when has("d") | add("zcd")
       when has("f") && profile.xlen == XLen.X32 | add("zcf")
+
   when has("zfh") | add("zfhmin")
   when has("zvfh") | add("zvfhmin")
   when has("zvbb") | add("zvkb")

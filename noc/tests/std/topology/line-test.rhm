@@ -15,6 +15,7 @@ check:
     "node[1]",
     "node[2]"
   ]
+
   line.links.map(fun (link): link.ref.describe()) ~is [
     "forward[0]",
     "forward[1]",
@@ -42,11 +43,13 @@ check:
   ) ~is generated_lowered.node_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   explicit_lowered.link_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is generated_lowered.link_bindings.map(
     fun (binding): binding.ref.describe()
   )
+
   explicit_lowered.vc_bindings.map(
     fun (binding): binding.ref.describe()
   ) ~is generated_lowered.vc_bindings.map(

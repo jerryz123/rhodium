@@ -46,6 +46,7 @@ sync_circuit CompletionQueue(Request :: DataType,
          "completion_queue_completion_has_request")
   when (completion.valid):
     assert(completed.ingress.ready, "completion_queue_slot_reserved")
+
   assert(outstanding <= Bits(count_width)(depth),
          "completion_queue_reservations_in_range")
 

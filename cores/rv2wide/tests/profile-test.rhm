@@ -29,6 +29,7 @@ check:
   RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.D) ~throws "RV2Wide supports disabled FP, RV32F, or RV64D"
   RV2WideConfig(~xlen: XLen.X32, ~hypervisor: #true) ~throws "RV32 supports Bare execution"
   RV2WideConfig(~mmu_type: RiscvMmuType.Bare, ~svpbmt: #true) ~throws "translation extensions require Sv39"
+
 def supervisor = RV2WideConfig(~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true)
 def hypervisor = RV2WideConfig(~hypervisor: #true)
 def sha = RV2WideConfig(~hypervisor: #true, ~smstateen: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~sstc: #true, ~svinval: #true)
@@ -56,6 +57,7 @@ check:
   vector32fp.isa_profile.isa_extensions.contains("d") ~is #false
   rv2wide_udb_configuration(single, "rv32f", "RV32F", 32).to_yaml().contains("  MUTABLE_MISA_F: false") ~is #true
   rv2wide_udb_configuration(single, "rv32f", "RV32F", 32).to_yaml().contains("MUTABLE_MISA_D") ~is #false
+
 def vector64 = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V)
 def vector_half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfhmin])
 def vector_half = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb])
@@ -79,6 +81,7 @@ check:
   RV2WideConfig(~vector: VectorProfile.V) ~throws "vector FP requires scalar FP"
   RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve64x) ~throws "64-bit vector elements require RV64"
   RV2WideConfig(~vector: VectorProfile.Zve64x, ~vector_length: 64) ~throws "two XLEN rows"
+
 def zfa = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)
 def half_min = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin)
 def half = RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh, ~zfa: #true)
@@ -207,6 +210,7 @@ for (profile in [single, vector32fp, vector32, vector64, vector_half_min, vector
     extensions.contains("C") ~is #true
     extensions.contains("Zcd") ~is (profile.floating_point == FloatingPointProfile.D)
     extensions.contains("Zcf") ~is (profile.xlen == XLen.X32 && floating_point_supports_f(profile.floating_point))
+
   check:
     configuration.extensions.filter(~keep: fun (extension): extension.name == "Zfa").map(fun (extension): extension.version) ~is (if profile.zfa | ["1.0.0"] | [])
 

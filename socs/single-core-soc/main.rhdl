@@ -29,6 +29,7 @@ class SingleCoreSoCConfig(hart :: RiscvHartImplementation, params :: SingleCoreS
   constructor (hart :: RiscvHartImplementation, params :: SingleCoreSoCParams):
     unless (params.core_profile == hart.profile) && (params.hart_description == hart.description)
     | error(~who: #'SingleCoreSoCConfig, "SoC parameters must match the selected hart implementation")
+
     super(hart, params)
 
   property description: params.description

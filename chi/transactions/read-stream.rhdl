@@ -120,6 +120,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
     allocate: allocate
     qos: qos
     context: issue_slot
+
   command_demux.select <== issue_slot
   def request_fire = command_demux.ingress.fire()
 
@@ -165,6 +166,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
     last: final_lines[output_slot]
     error: errors[output_slot]
     poisoned: poison[output_slot]
+
   def line_fire = line.fire()
 
   active <== stream_active
@@ -181,6 +183,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
     stream_active <== command.bits.byte_count.or_reduce()
   elsewhen (line_fire & line.bits.last):
     stream_active <== Bool(#false)
+
   when command_fire:
     next_address <== command.bits.start_address
     remaining_bytes <== command.bits.byte_count
@@ -192,12 +195,15 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   elsewhen request_fire:
     next_address <== next_address + stride
     remaining_bytes <== remaining_bytes - issued_byte_count
+
   when command_fire:
     starvation_seen <== Bool(#false)
   elsewhen underflow:
     starvation_seen <== Bool(#true)
+
   when request_fire:
     issue_slot <== following_slot(issue_slot)
+
   when command_fire:
     output_slot <== issue_slot
   elsewhen line_fire:

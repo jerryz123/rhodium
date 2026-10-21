@@ -51,41 +51,49 @@ def base_system_cases = decode_groups(RV2WideSystemControl(), ~input: instructio
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
+
   [ECALL]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Ecall
+
   [EBREAK]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Ebreak
+
   [MRET]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Mret
+
   [SRET]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Sret
+
   [WFI]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Wfi
+
   [SFENCE_VMA]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.SfenceVma
+
   [FENCE]:
     wait: RV2WideWait.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
     fence: RV2WideFence.Memory
+
   [FENCE_I]:
     wait: RV2WideWait.None
     csr: RiscvCsrOperation.None
@@ -96,6 +104,7 @@ def csr_inactive = partial_pattern(RV2WideSystemControl()):
   wait: RV2WideWait.None
   fence: RV2WideFence.None
   action: RiscvCsrAction.None
+
 def RV2WideSystemCases = base_system_cases ++ csr_access_cases(RV2WideSystemControl(), csr_inactive)
 
 // Full invalidation ignores address/ASID operands; ordering retains its own privilege rule.
@@ -105,6 +114,7 @@ def RV2WideInvalidationCases = decode_groups(RV2WideSystemControl(), ~input: ins
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.SfenceVma
+
   [SFENCE_W_INVAL, SFENCE_INVAL_IR]:
     wait: RV2WideWait.None
     fence: RV2WideFence.None

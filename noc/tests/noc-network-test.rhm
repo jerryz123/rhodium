@@ -13,12 +13,15 @@ def fixture_design = compile_program(fixture.program, rtl_target).report.design
 def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "HierarchicalNoCFixture"
 )
+
 def source = fixture_design.modules.find(
   fun (module_def): module_def.name == "SourceSubsystem"
 )
+
 def transit = fixture_design.modules.find(
   fun (module_def): module_def.name == "TransitSubsystem"
 )
+
 def destination = fixture_design.modules.find(
   fun (module_def): module_def.name == "DestinationSubsystem"
 )
@@ -62,12 +65,15 @@ check:
   top.inputs.map(fun (port): port.name) ~is [
     "clock", "reset", "injection_in", "ejection_0_in", "ejection_1_in"
   ]
+
   top.outputs.map(fun (port): port.name) ~is [
     "injection_out", "ejection_0_out", "ejection_1_out"
   ]
+
   instances(top).map(
     fun (operation): operation.attribute("module").name
   ) ~is ["SourceSubsystem", "TransitSubsystem", "DestinationSubsystem"]
+
   instances(source).length() ~is 1
   instances(transit).length() ~is 1
   instances(destination).length() ~is 1

@@ -24,20 +24,25 @@ fun validate_sv_binding(plan :: RsimSchedule, signature :: ModuleSignature) :: S
   def clocks = signature.inputs.filter(~keep: fun (port): clock_type(port.type))
   unless clocks.length() == 1
   | error(~who: #'rsim_sv, plan.name ++ ": requires exactly one root Clock input")
+
   for (port in plan.inputs ++ plan.outputs):
     def width = if reset_type(port.type) | 1 | scalar_width(port.type)
     unless width
     | error(~who: #'rsim_sv, plan.name ++ "." ++ port.name ++ ": binding ports require scalar widths")
+
   def depends_on_input = MutableList[]
   for (step in plan.steps):
     depends_on_input.add(step.opcode == "input" || for any (operand in step.operands): depends_on_input[operand])
+
   for (port in plan.outputs):
     when depends_on_input[port.value]
     | error(~who: #'rsim_sv, plan.name ++ "." ++ port.name ++ ": output depends combinationally on an input; the clocked binding requires state-only outputs")
+
   for (operation in ["create", "tick", "destroy"]):
     def symbol = bridge_symbol(plan, operation)
     when for any (call in plan.foreign_calls): call.import_decl.name == symbol
     | error(~who: #'rsim_sv, plan.name ++ ": foreign symbol collides with binding: " ++ symbol)
+
   clocks[0].name
 
 /* Keep narrow bridge ports on the established longint ABI; wide ports use
@@ -57,6 +62,7 @@ fun emit_sv_binding(plan :: RsimSchedule, clock :: String) :: List.of(String):
     serial := serial + 1
     def name = "_rsim" ++ to_string(serial)
     if name in used | fresh() | name
+
   def create = fresh()
   def tick = fresh()
   def destroy = fresh()
@@ -76,17 +82,20 @@ fun emit_sv_binding(plan :: RsimSchedule, clock :: String) :: List.of(String):
   sv.add("  chandle " ++ handle ++ ";\n  string " ++ error ++ ";")
   for (port in plan.outputs, temporary in temporaries):
     sv.add("  " ++ bridge_sv_type(scalar_carrier_width(port.type)) ++ " " ++ temporary ++ ";")
+
   def result_args = temporaries ++ [error]
   sv.add("  initial begin\n    if (" ++ create ++ "(" ++ String.join([handle] ++ result_args, ", ") ++ ") != 0) $fatal(1, \"rsim bridge: %s\", " ++ error ++ ");")
   // Evaluate constants and initial stored state once, without invoking foreign
   // calls. All outputs were proven independent of unsampled external inputs.
   for (port in plan.outputs, temporary in temporaries):
     sv.add("    " ++ sv_name(port.name) ++ "= " ++ to_string(scalar_carrier_width(port.type)) ++ "'(" ++ temporary ++ ");")
+
   sv.add("  end\n  final begin\n    if (" ++ handle ++ " != null) " ++ destroy ++ "(" ++ handle ++ ");\n  end")
   def inputs = plan.inputs.map(fun (port): to_string((if scalar_carrier_width(port.type) <= 64 | 64 | scalar_carrier_width(port.type))) ++ "'(" ++ sv_name(port.name) ++ ")")
   sv.add("  always @(posedge " ++ sv_name(clock) ++ ") begin\n    if (" ++ tick ++ "(" ++ String.join([handle] ++ inputs ++ result_args, ", ") ++ ") != 0) $fatal(1, \"rsim bridge: %s\", " ++ error ++ ");")
   for (port in plan.outputs, temporary in temporaries):
     sv.add("    " ++ sv_name(port.name) ++ "<= " ++ to_string(scalar_carrier_width(port.type)) ++ "'(" ++ temporary ++ ");")
+
   sv.add("  end\nendmodule")
 
   def out_args = for List (port in plan.outputs, index in 0..plan.outputs.length()): (if scalar_carrier_width(port.type) <= 64 | "unsigned long long*" | "std::uint32_t*") ++ " o" ++ to_string(index)
@@ -98,6 +107,7 @@ fun emit_sv_binding(plan :: RsimSchedule, clock :: String) :: List.of(String):
     if width <= 64
     | "    *" ++ output ++ " = " ++ value ++ ";"
     | "    const auto " ++ output ++ "_words = rhodium_rsim::to_words<" ++ to_string(width) ++ ">(" ++ value ++ ");\n    for (std::size_t word = 0; word < " ++ output ++ "_words.size(); ++word) " ++ output ++ "[word] = " ++ output ++ "_words[word];"
+
   def catches = "  } catch (const std::exception& exception) {\n    diagnostic = exception.what();\n  } catch (...) {\n    diagnostic = \"unknown rsim bridge failure\";\n  }\n  *error = diagnostic.c_str();\n  return 1;\n}"
   def cpp = MutableList["// Binds the rsim model for " ++ plan.name ++ " to its generated SV wrapper.", "// SPDX-License-Identifier: Apache-2.0",
                         "#include \"" ++ plan.name ++ ".hpp\"", "#include <exception>\n#include <memory>\n#include <string>",
@@ -112,6 +122,7 @@ fun emit_sv_binding(plan :: RsimSchedule, clock :: String) :: List.of(String):
     def width = scalar_carrier_width(port.type)
     def value = if width <= 64 | input | "rhodium_rsim::from_words<" ++ to_string(width) ++ ">(" ++ input ++ ")"
     cpp.add("    model->inputs." ++ cpp_name(port.name) ++ " = " ++ value ++ ";")
+
   cpp.add("    model->tick();")
   for (copy in result_copies): cpp.add(copy)
   cpp.add("    return 0;\n" ++ catches)

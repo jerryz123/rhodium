@@ -19,9 +19,11 @@ sync_circuit EventElasticChild(traced :: Boolean):
         ingress |> storage.ingress
         storage.egress
     | ingress |> pipe(2)
+
   if traced
   | arrived |> trace_event("middle", ~payload: #true) |> map_flow(payload => payload + Bits(8)(1)) |> pipe(1) |> egress
   | arrived |> map_flow(payload => payload + Bits(8)(1)) |> pipe(1) |> egress
+
   middle_fire <== arrived.fire()
   middle_payload <== arrived.bits
 
@@ -36,6 +38,7 @@ sync_circuit EventElasticLane(traced :: Boolean):
   if traced
   | ingress |> trace_event("accepted", ~payload: #true) |> filter_flow(payload => !(payload === Bits(8)(0))) |> pipe(1) |> child.ingress
   | ingress |> filter_flow(payload => !(payload === Bits(8)(0))) |> pipe(1) |> child.ingress
+
   if traced
   | child.egress |> filter_flow(payload => !(payload === Bits(8)(4))) |> trace_event("completed", ~payload: #true) |> egress
   | child.egress |> filter_flow(payload => !(payload === Bits(8)(4))) |> egress
@@ -68,8 +71,10 @@ sync_circuit EventElastic():
 
 sync_circuit EventBadElasticWidth():
   describe_interface_elastic_stages([Bits(2)(0)], [Bool(#true)])
+
 sync_circuit EventBadElasticCount():
   describe_interface_elastic_stages([Bool(#true)], [Bool(#true), Bool(#false)])
+
 sync_circuit EventMissingElastic():
   inst missing(ValidPipe(Bits(8), 1))
   interface_trace_elastic(missing)

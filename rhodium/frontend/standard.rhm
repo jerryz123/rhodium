@@ -42,11 +42,13 @@ export:
   all_from("layers/vector.rhm")
   all_from("layers/memory.rhm"):
     except MemoryFields
+
   all_from("layers/sync-memory.rhm")
   all_from("layers/assertion.rhm")
   all_from("layers/dpi.rhm")
   all_from("layers/interface.rhm"):
     except InterfaceFields
+
   all_from("layers/wire.rhm")
   all_from("layers/sequential.rhm")
   all_from("layers/conditional.rhm")

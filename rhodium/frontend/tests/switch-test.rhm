@@ -78,6 +78,7 @@ check:
                         memory_write.operands[1],
                         memory_write.operands[3]]):
      memory_module.find_operation(operand.defining_op_id).opcode == "rtl.mux_lookup") ~is #true
+
   verify_design(memory_design) ~is #void
 
   assertions.length() ~is 3

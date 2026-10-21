@@ -34,10 +34,12 @@ class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
       when duplicate_injection_ref(injections, terminal.ref)
       | error(~who: #'TerminalPlacement,
               "duplicate placed injection " ++ terminal.ref.describe())
+
     for (terminal in ejections):
       when duplicate_ejection_ref(ejections, terminal.ref)
       | error(~who: #'TerminalPlacement,
               "duplicate placed ejection " ++ terminal.ref.describe())
+
     super(
       injections.sort(
         fun (left, right): injection_ref_less(left.ref, right.ref)
@@ -52,9 +54,11 @@ class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
     def found = injections.find(
       fun (terminal): injection_ref_equal(terminal.ref, ref)
     )
+
     unless found
     | error(~who: #'TerminalPlacement,
             "unknown placed injection " ++ ref.describe())
+
     found
 
   /* Looks up an ejection attachment or reports an unknown placed terminal. */
@@ -62,9 +66,11 @@ class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
     def found = ejections.find(
       fun (terminal): ejection_ref_equal(terminal.ref, ref)
     )
+
     unless found
     | error(~who: #'TerminalPlacement,
             "unknown placed ejection " ++ ref.describe())
+
     found
 
 /* Attaches the placement through TopologySpec validation, rejecting preexisting terminals. */
@@ -73,6 +79,7 @@ fun attach_terminal_placement(topology :: TopologySpec,
   when topology.injections.length() > 0 || topology.ejections.length() > 0
   | error(~who: #'attach_terminal_placement,
           "physical topology must not already contain terminal placement")
+
   topology with (
     injections = placement.injections,
     ejections = placement.ejections

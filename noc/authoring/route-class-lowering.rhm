@@ -40,6 +40,7 @@ class LoweredRouteClasses(lowered_topology :: LoweredTopology,
     unless found
     | error(~who: #'route_class,
             "unknown route class " ++ ref.describe())
+
     found.route_class
 
   /* Recovers the authored name of a normalized route identity. */
@@ -48,6 +49,7 @@ class LoweredRouteClasses(lowered_topology :: LoweredTopology,
     unless found
     | error(~who: #'route_ref,
             "unknown route class " ++ id.describe())
+
     found.spec.ref
 
   /* Looks up the complete authored route declaration. */
@@ -56,6 +58,7 @@ class LoweredRouteClasses(lowered_topology :: LoweredTopology,
     unless found
     | error(~who: #'route_spec,
             "unknown route class " ++ ref.describe())
+
     found.spec
 
   /* Returns the declared injection reference for an authored route. */
@@ -79,10 +82,12 @@ fun lower_route_classes(lowered_topology :: LoweredTopology,
     when duplicate_route_class_ref(specs, spec.ref)
     | error(~who: #'lower_route_classes,
             "duplicate route class " ++ spec.ref.describe())
+
     unless lowered_topology.find_injection_binding(spec.source)
     | error(~who: #'lower_route_classes,
             String.append("route class ", spec.ref.describe(),
                           " has unknown source ", spec.source.describe()))
+
     unless lowered_topology.find_ejection_binding(spec.destination)
     | error(~who: #'lower_route_classes,
             String.append("route class ", spec.ref.describe(),
@@ -92,6 +97,7 @@ fun lower_route_classes(lowered_topology :: LoweredTopology,
   def ordered_specs = specs.sort(
     fun (left, right): route_class_ref_less(left.ref, right.ref)
   )
+
   def mutable bindings = []
   for (spec in ordered_specs):
     def source = lowered_topology.injection_terminal(spec.source)

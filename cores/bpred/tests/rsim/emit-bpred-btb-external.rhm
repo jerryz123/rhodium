@@ -4,5 +4,6 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../btb.rhdl".Btb
   lib("riscv/isa/xlen.rhm").XLen
+
 def program = elaborate(Btb(XLen.X64, 8, ~fetch_bytes: 8, ~external_direction: #true))
 export program

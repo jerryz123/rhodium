@@ -28,6 +28,7 @@ sync_circuit EventFork():
   def Array(left, right) = source
     |> trace_event("fork-root", ~payload: #true)
     |> atomic_fork(2)
+
   left |> trace_event("left", ~payload: #true) |> sinks[0]
   right |> trace_event("right", ~payload: #true) |> sinks[1]
 
@@ -142,6 +143,7 @@ sync_circuit EnumCaptures():
   def selected = source |> trace_event("channel", ~fields: payload):
     operation(~format: "enum", ~label: #true): payload.opcode
     observed(~format: "enum"): payload.opcode
+
   selected |> sink
 
 sync_circuit EventCaptures():
@@ -152,6 +154,7 @@ sync_circuit EventCaptures():
     instruction(~format: "riscv", ~isa: "rv64im", ~pc: "pc"): payload.nested.instruction
     fault: payload.fault
     low(~format: "unsigned"): payload.nested.pc[0..5] + Bits(5)(1)
+
   selected |> trace_event("identity-only") |> sink
 
 sync_circuit InvalidCaptures(kind :: String):
@@ -166,52 +169,64 @@ sync_circuit InvalidCaptures(kind :: String):
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         first(~format: "enum", ~label: #true): payload.opcode
         second(~format: "enum", ~label: #true): payload.opcode
+
       selected |> sink
   | kind == "enum-wide":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         operation(~format: "enum"): payload.wide_opcode
+
       selected |> sink
   | kind == "label-format":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         operation(~label: #true): payload.opcode
+
       selected |> sink
   | kind.starts_with("riscv"):
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         pc: if kind == "riscv-pc-width" | payload.nested.instruction | payload.nested.pc
         opcode(~format: "riscv", ~isa: (if kind == "riscv-isa" | "missing" | "rv64im"), ~pc: (if kind == "riscv-pc" | "absent" | "pc")): if kind == "riscv-width" | payload.nested.pc | payload.nested.instruction
+
       selected |> sink
   | kind == "metadata":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         value(~isa: "rv64i"): payload.nested.instruction
+
       selected |> sink
   | kind == "duplicate":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         pc: payload.nested.pc
         pc: payload.nested.instruction
+
       selected |> sink
   | kind == "aggregate":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         nested: payload.nested
+
       selected |> sink
   | kind == "cycle":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         cycle: payload.nested.pc
+
       selected |> sink
   | kind == "sequence":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         sequence: payload.nested.pc
+
       selected |> sink
   | kind == "ancestry_unknown":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         ancestry_unknown: payload.nested.pc
+
       selected |> sink
   | kind == "duration_cycles":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         duration_cycles: payload.nested.pc
+
       selected |> sink
   | ~else:
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         value(~format: kind): payload.nested.pc
+
       selected |> sink
 
 def captures = compile_program(elaborate(EventCaptures()), rtl_target).report.elaboration

@@ -13,6 +13,7 @@ class HostConfig(use_configured_width :: Boolean,
 fun select_type(fallback_type :: DataType, config :: HostConfig):
   unless config.labels.length() == 2
   | error(~who: #'HostParameterized, "expected input and output labels")
+
   if config.use_configured_width
   | Bits(config.width)
   | fallback_type

@@ -30,24 +30,29 @@ def injection_specs = for List (index in 0..3):
     InjectionRef("input" ++ to_string(index)),
     router_ref
   )
+
 def ejection_specs = for List (index in 0..3):
   EjectionTerminalSpec(
     EjectionRef("output" ++ to_string(index)),
     router_ref
   )
+
 def topology_spec = TopologySpec(
   [router_ref],
   [],
   ~injections: injection_specs,
   ~ejections: ejection_specs
 )
+
 def lowered_topology = lower_topology(topology_spec)
 def injection_terminals = lowered_topology.injection_bindings.map(
   fun (binding): binding.terminal
 )
+
 def ejection_terminals = lowered_topology.ejection_bindings.map(
   fun (binding): binding.terminal
 )
+
 def route_specs = all_pairs(topology_spec, ~include_local: #true)
 def lowered_routes = lower_route_classes(lowered_topology, route_specs)
 def routes = lowered_routes.route_classes
@@ -59,6 +64,7 @@ def routing = compile_routing(
     RoutingRelation(fun (_route, _origin, _candidate): #false)
   )
 )
+
 unless routing is_a ValidatedRouting
 | error(~who: #'OneRouterCrossbarFixture,
         "linkless crossbar routing must validate before hardware generation")

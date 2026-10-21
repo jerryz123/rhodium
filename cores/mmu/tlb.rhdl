@@ -82,10 +82,12 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     guest_virtual_address: lookup.virtualized
     guest_physical_address: mux(vs_fault, Bits(64)(0), guest_address)
     access: RiscvGuestFaultAccess.Explicit
+
   def demand_fault = priority_mux(~default: RiscvTranslationFault.None):
     bare & lookup.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
     vs_fault: RiscvTranslationFault.PageFault
     g_fault: RiscvTranslationFault.GuestPageFault
+
   // Invalidation wins at the state-update edge. Do not feed a WB-owned fence
   // back through hit/readiness into the retirement decision that creates it.
   hit <== bare ||| matches.or_reduce()
@@ -116,6 +118,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     def stage_one = probe_vs_pte.sv39_permission_valid(kind, probe.context.privilege === PrivilegeMode.User, probe.context.privilege === PrivilegeMode.Supervisor, probe.context.vs_sum, probe.context.vs_mxr ||| probe.context.hs_mxr)
     def stage_two = probe_g_pte.sv39_permission_valid(kind, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr)
     (!probe_vs ||| stage_one) & (!probe_g ||| stage_two)
+
   // The SAME access class must be allowed by both stages, not merely some
   // access in each stage independently (e.g. VS execute-only + G read-only).
   def probe_permissions = vec(for List (kind in [Sv39Access.Fetch, Sv39Access.Load, Sv39Access.Store]): probe_allowed(kind))
@@ -136,10 +139,12 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     guest_virtual_address: probe.virtualized
     guest_physical_address: mux(probe_vs_demand_fault, Bits(64)(0), probe_guest_address)
     access: RiscvGuestFaultAccess.Explicit
+
   def probe_mapping_fault = priority_mux(~default: RiscvTranslationFault.None):
     probe_bare & probe.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
     probe_vs_demand_fault: RiscvTranslationFault.PageFault
     probe_g_demand_fault: RiscvTranslationFault.GuestPageFault
+
   probe_translation <== RiscvTlbMapping():
     virtual_address: probe.virtual_address
     access: probe.access
@@ -150,6 +155,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     g_leaf: mux(probe_g, probe_entry.g_leaf, literal(Sv39Pte(), 0))
     fault: probe_mapping_fault
     fault_details: probe_fault_details
+
   probe_physical_address <== probe_physical
   // Svpbmt applies the G override first, then a non-PMA stage-one override.
   def probe_intermediate_pbmt = mux(probe_g, probe_entry.g_leaf.pbmt, PageMemoryType.PMA)
@@ -171,6 +177,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     context: fill.bits.request.context
     vs_leaf: fill.bits.result.vs_leaf
     g_leaf: fill.bits.result.g_leaf
+
   when invalidate_all:
     entries <== literal(Vec(entry_count, RiscvTlbEntry()), 0)
     replacement <== Bits(index_bits)(0)
@@ -216,7 +223,9 @@ sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
       sum: allow_user
       mxr: allow_execute
       pbmte: Bool(#false)
+
     riscv_host_lookup(request, ~enabled: paged)
+
   bank.lookup <== host_lookup(virtual_address, access, privilege, sum, mxr, enabled)
   bank.probe <== host_lookup(probe_virtual_address, probe_access, probe_privilege, probe_sum, probe_mxr, probe_enabled)
   bank.invalidate_all <== invalidate_all
@@ -225,6 +234,7 @@ sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
       request: host_lookup(result.virtual_address, Sv39Access.Load, PrivilegeMode.Supervisor, Bool(#false), Bool(#false), Bool(#true))
       result: riscv_host_mapping(result)
   ) |> bank.fill
+
   hit <== bank.hit
   fault <== bank.hit & (bank.translation.fault === RiscvTranslationFault.PageFault)
   physical_address <== bank.translation.physical_address

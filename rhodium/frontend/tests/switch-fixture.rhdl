@@ -21,6 +21,7 @@ circuit BitsSwitch():
   switch selector:
     case 2:
       selected <== b
+
     case 0:
       selected <== a
     otherwise:
@@ -34,6 +35,7 @@ circuit EnumSwitch():
   switch selector:
     case State.Running:
       selected <== b
+
     case State.Idle:
       selected <== a
     otherwise:
@@ -47,6 +49,7 @@ circuit OneHotSwitch():
   switch selector:
     case Grant(0):
       selected <== a
+
     case Grant(1):
       selected <== b
     otherwise:
@@ -62,6 +65,7 @@ circuit SwitchRegisterHold():
   switch selector:
     case State.Running:
       state <== data
+
   result <== state
 
 circuit NestedSwitch():
@@ -76,6 +80,7 @@ circuit NestedSwitch():
         selected <== a
       otherwise:
         selected <== b
+
     case 1:
       selected <== c
     otherwise:
@@ -94,8 +99,10 @@ sync_circuit SwitchMemoryWrites():
   switch selector:
     case 0:
       storage.write(first_address, first_data)
+
     case 2:
       storage.write(second_address, second_data)
+
   read_data <== storage[read_address]
 
 sync_circuit SwitchAssertions():
@@ -107,6 +114,7 @@ sync_circuit SwitchAssertions():
   switch selector:
     case 0:
       assert(first_condition, "switch_first")
+
     case 2:
       assert(second_condition, "switch_second")
     otherwise:
@@ -135,6 +143,7 @@ circuit DuplicateSwitchKey():
   switch selector:
     case 1:
       selected <== Bits(1)(0)
+
     case 1:
       selected <== Bits(1)(1)
     otherwise:
@@ -171,6 +180,7 @@ circuit MissingSwitchBranch():
   switch selector:
     case 0:
       selected <== Bits(1)(1)
+
     case 1:
       #void
     otherwise:

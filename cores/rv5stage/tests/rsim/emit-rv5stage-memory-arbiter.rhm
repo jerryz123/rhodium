@@ -5,5 +5,6 @@ import:
   "../../../../cores/rv5stage/memory-arbiter.rhdl".RV5StageMemoryArbiter
   "../../../../riscv/isa/xlen.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+
 def program = elaborate(RV5StageMemoryArbiter(XLen.X64, 8))
 export program

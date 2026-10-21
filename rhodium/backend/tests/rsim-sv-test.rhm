@@ -28,6 +28,7 @@ for (program in [make_bridge_ports(), make_swap(5), make_wide_bridge_ports()]):
     dump_ir(program.design) ~is before
     dump_ir(prepared.rtl.design) ~is snapshot
     program.design.sealed ~is #false
+
 check:
   compile_program(make_bridge_ports(100), rsim_sv_target).artifacts ~is compile_program(make_bridge_ports(), rsim_sv_target).artifacts
 
@@ -45,6 +46,7 @@ for (port in child_program.top.outputs):
   def state = b.register(top, "q" ++ port.name, port.type, clock)
   b.drive(state.next, child.output(port.name))
   b.drive(b.output(top, port.name, port.type), state.current)
+
 b.finish(top)
 def program = DesignElaboration(child_program.design, top)
 def result = compile_program(program, rsim_sv_target)
@@ -58,6 +60,7 @@ fun observe(tag :: String):
   RTLPass(tag, fun (prepared):
                 visited.add(tag)
                 RTLPassResult(prepared.rtl, [Artifact(tag ++ ".txt", "text/plain", tag)]))
+
 for (backend in [rsim_target, rsim_sv_target]):
   def observed = compile_program(program, rtl_pipeline_target(backend, [observe("first"), observe("second")]))
   def model_count = if backend === rsim_target | 2 | 4
@@ -66,6 +69,7 @@ for (backend in [rsim_target, rsim_sv_target]):
     observed.manifest ~is result.manifest
     observed.artifacts.drop(model_count).map(fun (artifact): artifact.name) ~is ["first.txt", "second.txt"]
     rtl_pipeline_target(backend, []) === backend ~is #true
+
 check: visited.snapshot() ~is ["first", "second", "first", "second"]
 
 // These are invalid boundaries for the supported clocked binding, even though
@@ -86,16 +90,20 @@ fun boundary(kind :: String):
         def pair_type = RecordType([RecordField("selected", Bits(5)), RecordField("sibling", Bits(5))])
         def choices = for List (number in [3, 7]):
           b.record_create(top, pair_type, [["selected", b.constant(top, Bits(5), number)], ["sibling", input]])
+
         def selector = if kind == "projected_selector" | input | b.constant(top, Bits(5), 1)
         b.record_get(top, b.mux_lookup(top, selector, choices[0], [[1, choices[1]]]), "selected")
     | ~else: constant
+
   def output_type = if kind == "aggregate_input" | Bits(5) | type
   b.drive(b.output(top, "result", output_type), if kind == "aggregate_input" | b.constant(top, output_type, 0) | value)
   when kind == "symbol_collision"
   | def call = b.dpi_import("rhodium_rsim_pBoundary_create", ["value"], [Bits(5)])
     b.dpi_call(top, call, [input], clock, b.constant(top, Bits(1), 1))
+
   b.finish(top)
   DesignElaboration(design, top)
+
 check:
   compile_program(boundary("no_clock"), rsim_sv_target) ~throws "exactly one root Clock"
   compile_program(boundary("two_clocks"), rsim_sv_target) ~throws "at most one root clock"
@@ -138,7 +146,9 @@ for (partitioning in ["cost", "module"]):
       dump_ir(partitioned.design) ~is partitioned_source
       dump_ir(partitioned_rtl.rtl.design) ~is prepared_source
       artifacts.length() ~is (if bind_sv | 4 | 2)
+
   check: models[[partitioning, #true]].take(2) ~is models[[partitioning, #false]]
+
 check:
   models[["cost", #false]] ~is rsim_target.plan(partitioned_rtl).emit()
   models[["cost", #true]] ~is rsim_sv_target.plan(partitioned_rtl).emit()

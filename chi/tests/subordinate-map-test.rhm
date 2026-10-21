@@ -60,6 +60,7 @@ check:
        [fixture.read_support]
      )]
   ) ~throws "distinct subordinate endpoints must have unique NodeIDs"
+
   chi.CHISubordinateMap(
     fixture.flit,
     [chi.CHISubordinateServiceParams(
@@ -75,6 +76,7 @@ check:
        [fixture.read_support]
      )]
   ) ~throws "fit the physical NodeID width"
+
   chi.CHISubordinateMap(
     fixture.flit,
     [chi.CHISubordinateServiceParams(

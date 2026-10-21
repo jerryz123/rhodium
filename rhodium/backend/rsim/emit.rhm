@@ -36,6 +36,7 @@ fun cpp_string(value :: String) :: String:
   def mutable escaped = value
   for (pair in [["\\", "\\\\"], ["\"", "\\\""], ["\n", "\\n"], ["\r", "\\r"], ["\t", "\\t"]]):
     escaped := escaped.replace(pair[0], pair[1], ~all: #true)
+
   "\"" ++ escaped ++ "\""
 
 /* Distinguish the ABI's native widths from packed vectors, independently of
@@ -69,6 +70,7 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
   def args = step.operands.map(ref)
   def binary = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+",
                 "rtl.sub": "-", "rtl.mul": "*", "rtl.eq": "==", "rtl.ult": "<"}
+
   cond
   | step.opcode == "input": "inputs." ++ cpp_name(step.attributes["name"])
   | step.opcode == "state": "current.s" ++ to_string(step.attributes["slot"])
@@ -83,6 +85,7 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def selector_type = steps[step.operands[0]].type
       def cases = for List (value in args.drop(1), index in 0..(args.length() - 1)):
         types.bit_test(selector_type, args[0], index) ++ " ? " ++ value ++ " : "
+
       String.join(cases, "") ++ (if record_type(step.type) || vector_type(step.type) | types.constant_reference(step.type, 0) | types.name(step.type) ++ "{}")
   | step.opcode == "rtl.decode" && step.attributes.has_key("rsim_table"):
       def table = types.decode_reference(step.type, step.attributes["rsim_table"])
@@ -98,8 +101,10 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
         if aggregate_decode(step)
         | types.constant_reference(step.type, value)
         | types.constant(step.type, value)
+
       def cases = for List (row in step.attributes["cases"]):
         types.cube_match(input_type, args[0], row[0], row[1]) ++ " ? " ++ row_value(row[2] bits.and row[3]) ++ " : "
+
       String.join(cases, "") ++ row_value(step.attributes["default_value"] bits.and step.attributes["default_care"])
   | step.opcode == "rtl.not": "~" ++ args[0]
   | step.opcode == "rtl.cast":
@@ -133,6 +138,7 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def terms = for List (operand in step.operands, arg in args):
         remaining := remaining - scalar_carrier_width(steps[operand].type)
         if remaining == 0 | arg | "(" ++ arg ++ " << " ++ to_string(remaining) ++ ")"
+
       String.join(terms, " | ")
   | step.opcode == "rtl.slt" && scalar_carrier_width(steps[step.operands[0]].type) > 64:
       "rhodium_rsim::signed_less(" ++ args[0] ++ ", " ++ args[1] ++ ")"
@@ -155,6 +161,7 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def selector_type = steps[step.operands[0]].type
       def cases = for List (key in step.attributes["keys"], value in args.drop(2)):
         "(" ++ args[0] ++ " == " ++ types.constant(selector_type, key) ++ ") ? " ++ value ++ " : "
+
       String.join(cases, "") ++ args[1]
   | ~else: error(~who: #'rsim, "missing expression renderer for " ++ step.opcode)
 
@@ -167,13 +174,17 @@ fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: 
   for (step in steps, index in 0..steps.length()):
     when constant_values.has_key(index)
     | bindings[index] := types.constant_reference(step.type, constant_values[index])
+
     when step.attributes.has_key("rsim_table")
     | types.decode_reference(step.type, step.attributes["rsim_table"])
+
     when step.opcode == "rtl.onehot_mux" && (record_type(step.type) || vector_type(step.type))
     | types.constant_reference(step.type, 0)
+
     when aggregate_decode(step)
     | for (row in step.attributes["cases"]): types.constant_reference(step.type, row[2] bits.and row[3])
       types.constant_reference(step.type, step.attributes["default_value"] bits.and step.attributes["default_care"])
+
   bindings.snapshot()
 
 /* Spell a physical slot without dereferencing it, for pointer assignment or
@@ -195,8 +206,10 @@ fun storage_reference(binding :: StorageRef, constants :: Map) :: String:
     | root.kind == "sync_read": "current.r" ++ to_string(root.slot)
     | root.kind == "foreign_result": "current." ++ foreign_slot(root.slot, root.result)
     | ~else: error(~who: #'rsim, "unknown state backing: " ++ root.kind)
+
   for (member in binding.path):
     value := "(" ++ value ++ ")" ++ (if member is_a String | "." ++ cpp_name(member) | "[" ++ to_string(member) ++ "]")
+
   value
 
 /* Load compact scalar backing into the unsigned arithmetic carrier before any
@@ -207,6 +220,7 @@ fun backing_declaration(index :: Nat, type :: HardwareType, value :: String, typ
     if !record_type(type) && !vector_type(type) && scalar_carrier_width(type) <= 64
     | types.name(type) ++ " "
     | "auto& "
+
   "  [[maybe_unused]] const " ++ carrier ++ ref(index) ++ " = " ++ value ++ ";"
 
 /* Render one original schedule index with its usual leaf normalization.
@@ -220,6 +234,7 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
     | "rtl.vector_create": array_construction(index, step, types, bindings, destination)
     | "rtl.vector_inject": array_update(index, step, types, destination)
     | ~else: #false
+
     if array
     | array
     | def rendered = expression(step, steps, types)
@@ -229,6 +244,7 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
         if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
         | types.normalize(step.type, rendered)
         | rendered
+
       cond
       | aggregate_state_read(step) || aggregate_decode(step) || (aggregate_projection(step) && !destination): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
       | destination: "  " ++ destination ++ " = " ++ value ++ ";\n" ++ backing_declaration(index, step.type, destination, types)
@@ -247,6 +263,7 @@ fun emit_branch_producer(value :: Nat, absorbed :: Set, steps :~ List.of(RsimSte
       emit_branch_assignment(value, absorbed, ref(value), steps, types, constants, source, indent, emitted)
     | for (operand in step.operands): emit_branch_producer(operand, absorbed, steps, types, constants, source, indent, emitted)
       source.add(indent ++ step_declaration(value, steps, types, constants).trim())
+
     emitted.add(value)
 
 /* Evaluate only the selected pure cone, assigning the complete destination on
@@ -262,9 +279,11 @@ fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, step
         source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
         emit_branch_assignment(step.operands[branch + 2], absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
         source.add(indent ++ "}")
+
       when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
       emit_branch_assignment(step.operands[1], absorbed, target, steps, types, constants, source,
                              indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""), emitted)
+
       when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
   | value in absorbed && step.opcode == "rtl.onehot_mux":
       def selector = step.operands[0]
@@ -272,6 +291,7 @@ fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, step
         source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ types.bit_test(steps[selector].type, ref(selector), branch) ++ ") {")
         emit_branch_assignment(operand, absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
         source.add(indent ++ "}")
+
       source.add(indent ++ "else {\n" ++ indent ++ "  " ++ target ++ " = {};\n" ++ indent ++ "}")
   | ~else:
       emit_branch_producer(value, absorbed, steps, types, constants, source, indent, emitted)
@@ -301,7 +321,9 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
         // External dependencies and selectors were imported by the helper.
         for (value in member.dependencies.values):
           emit_branch_producer(value, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
+
         emit_sink(member, plan, types, constants, source)
+
       source.add("  } else {")
       for (member in sink.members): emit_disabled_sink(member, plan, source)
       source.add("  }")
@@ -315,9 +337,11 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
         for (argument in call.arguments, arg in 0..call.arguments.length()):
           emit_branch_producer(argument, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
           source.add("    frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
+
         source.add("  }")
       | for (argument in call.arguments, arg in 0..call.arguments.length()):
           source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
+
       for (result_index in 0..call.import_decl.results.length()):
         def name = foreign_slot(index, result_index)
         source.add("  next." ++ name ++ " = current." ++ name ++ ";")
@@ -337,17 +361,21 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
       | sink.conditional:
           when reg.reset != #false
           | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
+
           emit_branch_assignment(reg.next_value, sink.conditional.steps, target, plan.steps, types, constants, source,
                                  if reg.reset != #false | "    " | "  ", emitted)
+
           when reg.reset != #false | source.add("  }")
       | sink.array:
           when reg.reset != #false
           | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
+
           emit_array_assignment(reg.next_value, sink.array.steps, target, plan.steps, types, source, if reg.reset != #false | "    " | "  ")
           when reg.reset != #false | source.add("  }")
       | ~else:
           def value:
             if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
+
           source.add("  " ++ target ++ " = " ++ value ++ ";")
   | "sync_read":
       // Ports and consumers sample old storage; disabled results are unspecified.
@@ -368,12 +396,14 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
           source.add("  " ++ prefix ++ "_enable = " ++ enabled ++ ";\n  " ++ prefix ++ "_address = 0;\n  " ++ prefix ++ "_data = {};\n  if (" ++ prefix ++ "_enable) {")
           for (value in [write.address, write.data] ++ (if write.mask_value == #false | [] | [write.mask_value])):
             emit_branch_producer(value, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
+
           source.add("    " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";")
           if write.mask_value
           | def old = "write" ++ to_string(index) ++ "_old"
             def data = types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
             source.add("    const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");\n    " ++ prefix ++ "_data = " ++ data ++ ";")
           | source.add("    " ++ prefix ++ "_data = " ++ ref(write.data) ++ ";")
+
           source.add("  }")
       | write.mask_value:
         // Skip old-word loads and merges for disabled ports, including shared
@@ -431,6 +461,7 @@ fun emit_array_assignment(value :: Nat, absorbed :: Set, target :: String,
         source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
         emit_array_assignment(step.operands[branch + 2], absorbed, target, steps, types, source, indent ++ "  ")
         source.add(indent ++ "}")
+
       when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
       emit_array_assignment(step.operands[1], absorbed, target, steps, types, source, indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""))
       when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
@@ -462,7 +493,9 @@ fun array_construction(index :: Nat, step :: RsimStep, types :: CppTypes, bindin
           | def slot = run.source
             def offset = to_string(slot.index) ++ (if run.stride < 0 | " - i * " ++ to_string(-run.stride) | " + i * " ++ to_string(run.stride))
             (if slot.indirect | "*" | "") ++ scratch_reference(slot, ~index: offset)
+
         "  for (std::size_t i = 0; i < " ++ to_string(run.length) ++ "; ++i) " ++ target ++ "[" ++ to_string(run.offset) ++ " + i] = " ++ value ++ ";"
+
     (if destination | "" | "  " ++ types.name(step.type) ++ " " ++ target ++ ";\n")
       ++ String.join(lines, "\n")
       ++ "\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ target ++ ";"
@@ -487,6 +520,7 @@ fun declare_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, p
   | def declarations = for List (group in layout.groups, index in 0..layout.groups.length()):
       def carrier = (if group.indirect | "const " | "") ++ group.carrier ++ (if group.indirect | "*" | "")
       "    std::array<" ++ carrier ++ ", " ++ to_string(group.count) ++ "> g" ++ to_string(index) ++ ";"
+
     header.add("  struct " ++ phase ++ "Scratch {\n" ++ String.join(declarations, "\n") ++ "\n  };\n  mutable " ++ phase ++ "Scratch " ++ phase ++ "_scratch_{};")
     for (region in regions, index in 0..regions.length()):
       def consumer = region.sinks.length() > 0
@@ -504,8 +538,10 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
       source.add("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(index) ++ "([[maybe_unused]] " ++ (if consumer | "const " | "") ++ phase ++ "Scratch& scratch, [[maybe_unused]] const State& current" ++ (if consumer | ", [[maybe_unused]] " ++ destination | "") ++ ") const {")
       for (input in region.inputs):
         source.add(backing_declaration(input, plan.steps[input].type, storage_reference(layout.bindings[input], constants), types))
+
       for (constant in region.constants):
         source.add(step_declaration(constant, plan.steps, types, constants))
+
       for (step in region.steps):
         unless constants.has_key(step)
         | def binding = layout.bindings.get(step, #false)
@@ -522,6 +558,7 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
               // which crossing projections borrow and which require a copy.
               def destination = if slot | scratch_reference(slot) | #false
               source.add(step_declaration(step, plan.steps, types, constants, ~destination: destination, ~bindings: layout.bindings))
+
       for (sink in region.sinks): emit_sink(sink, plan, types, constants, source)
       source.add("}")
 
@@ -542,6 +579,7 @@ fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destinati
         if region.conditionals.has_key(index)
         | emit_conditional_step(index, region.conditionals[index], #false, plan, types, constants, source)
         | source.add(step_declaration(index, plan.steps, types, constants))
+
       for (sink in region.sinks): emit_sink(sink, plan, types, constants, source)
 
 /* Produce model sources and optional wide support, with private state per model object.
@@ -564,12 +602,14 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     // stored leaves are narrow. Decide support packaging before the header.
     when step.opcode == "rtl.cast" && step.type.packed_width() > 64
     | types.wide := #true
+
   for (memory in plan.memories): types.name(memory.type)
   // Live calls own every ABI result even when no scheduled value consumes it.
   // Discover these types before deciding whether to package wide support.
   for (call in plan.foreign_calls):
     for (type in call.import_decl.input_types ++ call.import_decl.results.map(fun (result): result.type)):
       types.name(type)
+
   // Resolve shared constant symbols before layout so projected bindings can
   // name them even in consumers whose original operands were only projections.
   def constants = emit_constants(plan.steps, evaluation.constants, types)
@@ -588,13 +628,16 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
       for (word in 0..cache.words):
         when masks.has_key(word)
         | lines.add("    " ++ entry[0] ++ "_dirty_[" ++ to_string(word) ++ "] |= " ++ literal(masks[word]) ++ ";")
+
     String.join(lines.snapshot(), "\n")
+
   def input_checks = MutableList[]
   for (port in plan.inputs, index in 0..plan.inputs.length()):
     def invalidation = invalidate(RsimCacheSource("input", index))
     when invalidation != ""
     | def field = cpp_name(port.name)
       input_checks.add("  if (!" ++ types.equal(port.type, "inputs." ++ field, "cached_inputs_." ++ field) ++ ") {\n" ++ invalidation ++ "\n    cached_inputs_." ++ field ++ " = inputs." ++ field ++ ";\n  }")
+
   def state_checks = MutableList[]
   /* Compare committed logical resources before switching banks. Failed attempts
      must not invalidate against unpublished next-state or snapshot that state. */
@@ -602,17 +645,22 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     def invalidation = invalidate(root)
     when invalidation != ""
     | state_checks.add("  if (!" ++ types.equal(type, "states_[active_state_]." ++ field, "next." ++ field) ++ ") {\n" ++ invalidation ++ "\n  }")
+
   for (reg in plan.registers, index in 0..plan.registers.length()):
     state_check(RsimCacheSource("register", index), reg.type, "s" ++ to_string(index))
+
   for (read in plan.reads, index in 0..plan.reads.length()):
     state_check(RsimCacheSource("sync_read", index), plan.memories[read.memory].type, "r" ++ to_string(index))
+
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     for (result in call.import_decl.results, result_index in 0..call.import_decl.results.length()):
       state_check(RsimCacheSource("foreign", index, result_index), result.type, foreign_slot(index, result_index))
+
   def header = MutableList["// Declares the typed simulator for " ++ plan.name ++ ".",
                            "// SPDX-License-Identifier: Apache-2.0", "#pragma once", "#include <cstdint>", "#include <array>" ++ (if types.wide | "\n#include \"rsim-bits.hpp\"" | ""),
                            "namespace " ++ namespace ++ " {", String.join(types.declarations.snapshot(), "\n"), "class Model {", "public:",
                            "  struct Inputs {"]
+
   for (port in plan.inputs): header.add("    " ++ types.name(port.type) ++ " " ++ cpp_name(port.name) ++ "{};")
   header.add("  } inputs;\n  struct Outputs {")
   for (port in plan.outputs): header.add("    " ++ types.name(port.type) ++ " " ++ cpp_name(port.name) ++ "{};")
@@ -621,32 +669,41 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   // completely; publishing its index avoids copying state or retaining self-pointers.
   for (reg in plan.registers, index in 0..plan.registers.length()):
     header.add("    " ++ types.storage_name(reg.type) ++ " s" ++ to_string(index) ++ "; // " ++ String.join(reg.path ++ [reg.name], "/"))
+
   for (read in plan.reads, index in 0..plan.reads.length()):
     header.add("    " ++ types.storage_name(plan.memories[read.memory].type) ++ " r" ++ to_string(index) ++ "; // synchronous read result")
+
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     for (result_index in 0..call.import_decl.results.length()):
       header.add("    " ++ types.storage_name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "; // held foreign result")
+
   header.add("  };\n  State states_[2]{};\n  unsigned active_state_ = 0;")
   for (memory in plan.memories, index in 0..plan.memories.length()):
     header.add("  std::array<" ++ types.storage_name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
+
   header.add("  struct Frame {")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     def prefix = "call" ++ to_string(index)
     header.add("    bool " ++ prefix ++ "_enable;")
     for (arg in 0..call.arguments.length()):
       header.add("    " ++ types.storage_name(call.import_decl.input_types[arg]) ++ " " ++ prefix ++ "_arg" ++ to_string(arg) ++ ";")
+
   for (index in 0..plan.assertions.length()):
     header.add("    bool assertion" ++ to_string(index) ++ "_failed;")
+
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "write" ++ to_string(index)
     header.add("    " ++ types.storage_name(plan.steps[write.address].type) ++ " " ++ prefix ++ "_address;\n    " ++ types.storage_name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data;\n    bool " ++ prefix ++ "_enable;")
+
   header.add("  };\n  Outputs outputs_;\n  Frame evaluate(const State& current, State& next) const;")
   for (entry in caches):
     def cache :: RsimRegionCache = entry[1]
     when cache.words > 0
     | header.add("  mutable std::array<std::uint64_t, " ++ to_string(cache.words) ++ "> " ++ entry[0] ++ "_dirty_{{" ++ String.join(for List (word in 0..cache.words): "~UINT64_C(0)", ", ") ++ "}};")
+
   when input_checks.length() > 0
   | header.add("  Inputs cached_inputs_{};\n  void observe_inputs();")
+
   declare_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", pre_helpers, header)
   declare_regions(output_regions, output_layout, "output", "Outputs& next_outputs", output_helpers, header)
   header.add("};\n}")
@@ -654,12 +711,15 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
                            "// SPDX-License-Identifier: Apache-2.0", "#include \"" ++ plan.name ++ ".hpp\"", "#include <cstddef>"]
   when plan.assertions.length() > 0
   | source.add("#include <stdexcept>")
+
   when plan.foreign_calls.length() > 0
   | source.add("#include <climits>\n#include <cstring>\n#include <type_traits>")
+
   source.add("namespace " ++ namespace ++ " {")
   for (line in types.equality_declarations): source.add(line)
   when input_checks.length() > 0
   | source.add("void Model::observe_inputs() {\n" ++ String.join(input_checks.snapshot(), "\n") ++ "\n}")
+
   when plan.foreign_calls.length() > 0
   | source.add("static_assert(CHAR_BIT == 8 && sizeof(short) == 2 && sizeof(int) == 4 && sizeof(long long) == 8, \"unsupported native foreign ABI\");")
     // A private namespace isolates declarations from model/helper names while
@@ -673,9 +733,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
         def result = if imp.has_result() | foreign_type(imp.return_result().type) | "void"
         def out_types = for List (result in imp.results.filter(~keep: fun (result): result.direction == "out")):
           foreign_type(result.type) ++ "*"
+
         def input_types = imp.input_types.map(fun (type): if foreign_packed(type) | "const std::uint32_t*" | foreign_type(type))
         source.add("extern \"C\" " ++ result ++ " " ++ imp.name ++ "(" ++ String.join(input_types ++ out_types, ", ") ++ ");")
+
     source.add("}\ntemplate <typename T>\nstatic T foreign_arg(std::uint64_t value) {\n  const auto bits = static_cast<typename std::make_unsigned<T>::type>(value);\n  T result;\n  std::memcpy(&result, &bits, sizeof(result));\n  return result;\n}")
+
   // Runtime guards precede every variable shift. Keeping them in ordinary
   // functions also avoids invalid constant-shift diagnostics in unreachable
   // expression branches. Counts remain unsigned 64-bit values until checked.
@@ -687,16 +750,20 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   def masked_writes = plan.writes.filter(~keep: fun (write): write.mask_value != #false)
   when "rtl.vector_index" in opcodes || "memory_read" in opcodes || plan.reads.length() > 0 || masked_writes.length() > 0
   | source.add("template <typename T, std::size_t N>\nstatic T vector_index(const std::array<T, N>& value, std::uint64_t index) {\n  return index < N ? value[index] : T{};\n}")
+
   when "rtl.vector_write_set" in opcodes
   | source.add("template <typename T, std::size_t N, typename Enable, typename Index, std::size_t P>\nstatic std::array<T, N> vector_write_set(std::array<T, N> value, const std::array<Enable, P>& enables, const std::array<Index, P>& indices, const std::array<T, P>& elements) {\n  for (std::size_t port = 0; port < P; ++port) {\n    if (enables[port] != 0 && indices[port] < N) value[indices[port]] = elements[port];\n  }\n  return value;\n}")
+
   // Emit narrow helpers only when called; models with exclusively wide shift
   // operations use the shared support header and need no unused local functions.
   def narrow_shifts = plan.steps.filter(~keep: fun (step): step.opcode in ["rtl.shl", "rtl.shru", "rtl.shrs"] && scalar_carrier_width(step.type) <= 64 && scalar_carrier_width(plan.steps[step.operands[1]].type) <= 64).map(fun (step): step.opcode)
   for (entry in [["rtl.shl", "shift_left", "<<"], ["rtl.shru", "shift_right", ">>"]]):
     when entry[0] in narrow_shifts
     | source.add("static inline std::uint64_t " ++ entry[1] ++ "(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  return amount >= width ? UINT64_C(0) : value " ++ entry[2] ++ " amount;\n}")
+
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
+
   for (line in types.constant_declarations): source.add(line)
   when pre_helpers || output_helpers
   | // Preserve the compilation boundary even under optimization/LTO. Applying
@@ -705,6 +772,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     emit_regions(pre_regions, pre_layout, "pre", "State& next, [[maybe_unused]] Frame& frame", pre_helpers, plan, types, constants, source)
     emit_regions(output_regions, output_layout, "output", "Outputs& next_outputs", output_helpers, plan, types, constants, source)
     source.add("#undef RHODIUM_RSIM_NOINLINE")
+
   // Every next-state and frame field is assigned on each attempt, including
   // disabled-call holds. Failed assertions may dirty the inactive bank, but
   // retries overwrite it without reading stale values or clearing either bank.
@@ -718,6 +786,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   for (assertion in plan.assertions, index in 0..plan.assertions.length()):
     def message = "assertion failed: " ++ (assertion.label || "<unlabeled>") ++ " [" ++ String.join([plan.name] ++ assertion.path, "/") ++ "] " ++ assertion.location
     source.add("  if (before.assertion" ++ to_string(index) ++ "_failed) throw std::runtime_error(" ++ cpp_string(message) ++ ");")
+
   // All arguments and ordinary next-state values were sampled before the first
   // effect. Assertions above suppress the whole batch; external effects cannot
   // be rolled back if a host function fails after another call has run.
@@ -734,9 +803,12 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
         | def words = (if width <= 32 | 1 | 2)
           def elements = for List (word in 0..words):
             "static_cast<std::uint32_t>(before." ++ name ++ " >> " ++ to_string(32 * word) ++ ")"
+
           source.add("    const std::array<std::uint32_t, " ++ to_string(words) ++ "> " ++ name ++ "{{" ++ String.join(elements, ", ") ++ "}};")
+
         name ++ ".data()"
       | "foreign_arg<" ++ foreign_type(type) ++ ">(before." ++ name ++ ")"
+
     // Out parameters point to native temporaries or low-word-first packed
     // arrays, never directly to model state. Core guarantees ordered outs then a return.
     def out_results = imp.results.filter(~keep: fun (result): result.direction == "out")
@@ -748,6 +820,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
         name ++ ".data()"
       | source.add("    " ++ foreign_type(result.type) ++ " " ++ name ++ "{};")
         "&" ++ name
+
     def invocation = "foreign::" ++ imp.name ++ "(" ++ String.join(arguments ++ out_arguments, ", ") ++ ")"
     if imp.has_result()
     | source.add("    const auto " ++ foreign_slot(index, imp.results.length() - 1) ++ " = " ++ invocation ++ ";")
@@ -759,10 +832,13 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
             | "rhodium_rsim::from_words<" ++ to_string(scalar_width(result.type)) ++ ">(" ++ name ++ ".data())"
             | "static_cast<std::uint64_t>(" ++ name ++ "[0])" ++ (if scalar_width(result.type) > 32 | " | (static_cast<std::uint64_t>(" ++ name ++ "[1]) << 32)" | "")
           | "static_cast<std::uint64_t>(" ++ name ++ ")"
+
         def value = types.normalize(result.type, raw)
         source.add("    next." ++ name ++ " = " ++ value ++ ";")
     | source.add("    " ++ invocation ++ ";")
+
     source.add("  }")
+
   // Publication is the only bank switch. Assertions have passed and foreign
   // results are normalized; no staged reference is read by output evaluation.
   for (line in state_checks): source.add(line)
@@ -778,6 +854,8 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
       if depth < 2 ** scalar_width(plan.steps[write.address].type)
       | " && static_cast<std::uint64_t>(" ++ prefix ++ "_address) < " ++ to_string(depth)
       | ""
+
     source.add("  if (" ++ prefix ++ "_enable" ++ bounds ++ ") {\n    memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;\n" ++ invalidate(RsimCacheSource("memory", write.memory)) ++ "\n  }")
+
   source.add("  eval();\n}\n}")
   [String.join(header.snapshot(), "\n") ++ "\n", String.join(source.snapshot(), "\n") ++ "\n"] ++ (if types.wide | [rkt.#{string->immutable-string}(file.#{file->string}(bits_header))] | [])

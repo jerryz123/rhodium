@@ -26,21 +26,26 @@ def pause_control = partial_pattern(RV5StageControl()):
   memory:
     partial_pattern(RV5StageMemoryControl()):
       access: CacheOperation.None
+
   floating_point_valid: Bool(#false)
   fence:
     pattern(RV5StageFenceControl()):
       action: RV5StageFenceOperation.None
+
   operand:
     partial_pattern(RV5StageOperandControl()):
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
+
   writeback:
     partial_pattern(RV5StageWritebackControl()):
       enable: Bool(#false)
+
   system:
     partial_pattern(RV5StageSystemControl()):
       csr: RiscvCsrOperation.None
       action: RV5StageSystemOperation.None
+
 def fence_control = partial_pattern(RV5StageControl()):
   hint: RV5StageHintOperation.None
   fence:
@@ -52,6 +57,7 @@ for (base in [RV32RV5StageControlCases, RV64RV5StageControlCases]):
   check:
     pause_control.subsumes(cases.find(fun (row): row.input.matches(hw.Bits(32)(PAUSE.encode([])))).output) ~is #true
     fence_control.subsumes(base.find(fun (row): row.input.matches(hw.Bits(32)(PAUSE.encode([])))).output) ~is #true
+
   for (word in [0x0000000f, 0x0110000f, 0x0100008f, 0x0100800f, 0x1100000f, 0x0200000f]):
     check:
       fence_control.subsumes(cases.find(fun (row): row.input.matches(hw.Bits(32)(word))).output) ~is #true

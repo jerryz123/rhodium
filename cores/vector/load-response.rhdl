@@ -30,6 +30,7 @@ sync_circuit VectorLoadResponse(xlen :: XLen, slots :: Pow2Int):
            tag: operation.tag
            data: operation.data
   ) |> completed[0]
+
   response |> completed[1]
   when (completed[0].valid & completed[1].valid):
     assert(completed[0].bits.tag =/= completed[1].bits.tag, "vector_memory_completions_have_distinct_owners")

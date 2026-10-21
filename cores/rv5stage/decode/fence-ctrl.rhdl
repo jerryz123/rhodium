@@ -48,10 +48,13 @@ bundle RV5StageFenceControl():
 
 def no_fence = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.None
+
 def memory_fence = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.Memory
+
 def instruction_fence = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.Instruction
+
 def address_translation_fence = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.AddressTranslation
 

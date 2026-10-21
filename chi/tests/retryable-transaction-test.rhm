@@ -14,8 +14,10 @@ def write_profile = response_profile("test_write"):
   milestone completion
   response [CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd]:
     completes [dbid]
+
   response [CHIRspOpcode.Comp]:
     completes [completion]
+
   response [CHIRspOpcode.CompDBIDResp]:
     completes [dbid, completion]
 
@@ -56,6 +58,7 @@ check:
     [],
     ~retryable: #true
   ) ~throws "milestone names must be unique"
+
   CHIResponseProfile(
     "missing_milestone",
     ["done"],

@@ -87,12 +87,14 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
                           def in_group = element < control.vlmax.zext(count_width + 1)
                           def unmasked = !control.masked ||| source_mask[lane].into(Bool)
                           Bool(lane < lanes) & in_body & in_group & unmasked)
+
       VectorPackedOperands(xlen, vlen):
         left: left
         right: mux(control.operand_select === VectorOperandSelect.Vector, right, vec(for List (_ in 0..lanes): broadcast_source[0..width]).as_bits())
         element_width: widths[format]
         enabled: enabled.as_bits().into(Mask(vector_word_bytes(xlen)))
         first_element: control.first_element
+
   def packed :: VectorPackedOperands(xlen, vlen) = mux_lookup(control.element_width, ~default: alternatives[0], for List (format in 1..vector_format_count(xlen)): [widths[format], alternatives[format]])
 
 
@@ -122,6 +124,7 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
     element_width: widen.operands.element_width
     enabled: widen.operands.enabled
     first_element: control.first_element + mux(control.upper_half, half_elements, Bits(count_width)(0))
+
   def changes_width = control.widening ||| control.narrowing
   operands <== priority_mux(~default: packed):
     control.extension: extended
@@ -188,6 +191,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
       def signed_limit = mux(result_negative, Bits(element_bits)(1 << (element_bits - 1)), Bits(element_bits)((1 << (element_bits - 1)) - 1))
       def clipped = mux(clip_unsigned, unsigned_limit, signed_limit)
       [mux(clip & overflow, clipped, low), (enabled[lane] & clip & overflow).as_bits()]
+
     def low_data :: Bits(xlen.width / 2) = if lanes == 1 | elements[0][0] | concat(elements.map(fun (element :: List): element[0]).reverse())
     def saturation_bits :: Bits(lanes) = if lanes == 1 | elements[0][1] | concat(elements.map(fun (element :: List): element[1]).reverse())
     def mask_bits = for List (byte in 0..(vector_word_bytes(xlen) / 2)): enabled[byte div (2 ** format)].as_bits()
@@ -199,7 +203,9 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
           mask_result: result.mask_result
           write_mask: mux(upper_half, low_mask.as_bits() ++ Bits(vector_word_bytes(xlen) / 2)(0), Bits(vector_word_bytes(xlen) / 2)(0) ++ low_mask.as_bits()).into(Mask(vector_word_bytes(xlen)))
           saturated: result.saturated
+
       saturated: saturation_bits.or_reduce()
+
   def narrowed :: VectorNarrowedResult(xlen) = mux_lookup(element_width, ~default: narrowed_results[0], for List (format in 1..(vector_format_count(xlen) - 1)): [SimdElementWidth.values()[format], narrowed_results[format]])
 
 
@@ -211,6 +217,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
     address: address[0..address_width]
     data: mux(mask_destination, effective_result.mask_result.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)], effective_result.data)
     mask: mux(mask_destination, mask_write_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
+
   def aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) - 1) >> element_width.as_bits())).or_reduce()
   def half_aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2 - 1) >> element_width.as_bits())).or_reduce() & (element_width.as_bits() < Bits(2)(vector_format_count(xlen) - 1))
   def supported_width = element_width.as_bits() <= Bits(2)(vector_format_count(xlen) - 1)

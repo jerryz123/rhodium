@@ -16,18 +16,23 @@ def module_def = fixture_design.modules[0]
 def extensions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.zext"
 )
+
 def addition = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.add"
 )
+
 def signed_extensions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.sext"
 )
+
 def multiplications = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mul"
 )
+
 def multiplication = multiplications.find(
   fun (operation): bits_type(operation.results[0].type)
 )
+
 def signed_multiplication = multiplications.find(
   fun (operation): signed_arithmetic_type(operation.results[0].type)
 )

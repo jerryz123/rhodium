@@ -20,6 +20,7 @@ fun plan_array_assignments(schedule :: RsimSchedule, roots :: List.of(Nat)) :: M
   for (index in 0..schedule.steps.length()): uses[index] := 0
   for (step in schedule.steps):
     for (value in step.operands): uses[value] := uses[value] + 1
+
   for (value in roots): uses[value] := uses[value] + 1
   def assignments = MutableMap{}
   for (reg in schedule.registers, slot in 0..schedule.registers.length()):
@@ -44,8 +45,10 @@ fun plan_array_assignments(schedule :: RsimSchedule, roots :: List.of(Nat)) :: M
             leaves.add(step.operands[0])
             for (branch in step.operands.drop(1)): visit(branch)
         | ~else: leaves.add(value)
+
       visit(reg.next_value)
       when updated
       | def leaf_values = for List (value in leaves): value
         assignments[slot] := RsimArrayAssignment(absorbed.snapshot(), leaf_values.sort())
+
   assignments.snapshot()

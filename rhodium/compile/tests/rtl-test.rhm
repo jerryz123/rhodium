@@ -26,6 +26,7 @@ for (name in ["left", "right"]):
   def instance = builder.instance(top, outer, name, Location("parent", 5, 2))
   builder.drive(instance.input("source"), source)
   builder.drive(builder.output(top, name, Bits(8)), instance.output("result"))
+
 builder.finish(top)
 def unused = builder.module("Unused")
 builder.finish(unused)
@@ -71,6 +72,7 @@ check:
 class ExternalReference(module_def :: Module):
   implements ModuleMetadataPayload
   override method remap_ir(remap :: Function.of_arity(1)): ExternalReference(remap(module_def))
+
 def metadata_design = Design()
 def metadata_builder = Builder(metadata_design)
 def metadata_top = metadata_builder.module("MetadataTop")
@@ -110,6 +112,7 @@ class MissingOutput(plan :: TargetPlan):
   implements TargetPlan
   override method manifest(): plan.manifest()
   override method emit(): []
+
 def missing_output = CompilationTarget("missing-output", fun (source): MissingOutput(rtl_target.prepare(source)))
 check:
   compile_program(concrete_program, missing_output) ~throws "artifacts or a structured report"

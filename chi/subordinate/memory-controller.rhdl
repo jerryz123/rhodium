@@ -66,11 +66,13 @@ class CHIRamConfig(flit :: CHIFlitParams,
     unless size_bytes >= (2 * flit.data_bytes)
     | error(~who: #'CHIRamConfig,
             "size must contain at least two physical data beats")
+
     unless max_transfer_bytes >= flit.data_bytes && max_transfer_bytes <= 64 && (
       max_transfer_bytes <= size_bytes
     )
     | error(~who: #'CHIRamConfig,
             "maximum transfer size must be from one DAT beat through 64 bytes and fit in the RAM")
+
     super(flit, size_bytes, max_outstanding, max_transfer_bytes)
 
 /* Bind a memory service to a subordinate node identity and architectural address region. */
@@ -102,6 +104,7 @@ class CHIRamParams(name :: NonemptyString,
       ),
       ~max_outstanding: max_outstanding
     )
+
   property icn_port: node.icn_peer()
   property service:
     CHISubordinateServiceParams(
@@ -119,15 +122,19 @@ class CHIRamParams(name :: NonemptyString,
     unless CHINodeKind.is_subordinate(kind)
     | error(~who: #'CHIRamParams,
             "kind must be SN-F or SN-I")
+
     unless base_address mod config.size_bytes == 0
     | error(~who: #'CHIRamParams,
             "base address must be aligned to the RAM size")
+
     unless bits.length((base_address + config.size_bytes) - 1) <= config.flit.request_address_width
     | error(~who: #'CHIRamParams,
             "memory region must fit in the request address width")
+
     unless bits.length(node_id) <= config.flit.node_id_width
     | error(~who: #'CHIRamParams,
             "NodeID must fit in the physical NodeID width")
+
     super(name,
           node_id,
           config,
@@ -319,6 +326,7 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   def supported_requests = port.req |> filter_flow(request):
     def request_opcode :: CHIReqOpcode = request.opcode
     request_opcode.supports_initial_transaction()
+
   transaction_slots.allocation <=> (
     supported_requests |> map_flow(request):
       def request_opcode :: CHIReqOpcode = request.opcode
@@ -329,6 +337,7 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
 
   def allocated_request_paths = transaction_slots.allocated |> demux_flow(2, allocated):
     allocated.write.as_bits()
+
   def allocated_reads :: Endpoint = allocated_request_paths[0]
   def allocated_writes :: Endpoint = allocated_request_paths[1]
 
@@ -353,6 +362,7 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
     last: final_read_data
     data: Bits(p.data_width)(0)
     mask: Mask(p.data_bytes)(0)
+
   def allocated_read_fire = allocated_reads.fire()
   def read_operation_fire = read_operations.ingress.fire()
   when allocated_read_fire:
@@ -407,6 +417,7 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
     dbid_response_paths[1] |> to_valid() |> map_valid(response):
       response.dbid_or_group_id[0..slot_width]
   )
+
   completion_router.write_response <=> response_arbiter.ingress[1]
   response_arbiter.egress <=> port.rsp
   completion_router.read_response <=> port.dat.response

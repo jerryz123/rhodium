@@ -78,6 +78,7 @@ sync_circuit RV2WideMmuFixture():
     satp: satp
     mstatus: mstatus
     pbmte: pbmte
+
   mmu.invalidate <== invalidate
   prefetch |> mmu.prefetch
   mmu.physical_prefetch |> physical_prefetch
@@ -96,6 +97,7 @@ sync_circuit RV2WideMmuFixture():
     mask: Bits(8)(0xff)
     locality: locality
     pbmt: PageMemoryType.PMA
+
   mmu.pipeline.request.valid <== ex_valid
   mmu.pipeline.request.bits <== request
   mmu.pipeline.commit <== commit
@@ -105,6 +107,7 @@ sync_circuit RV2WideMmuFixture():
     outcome: CachePipelineOutcome.LoadHit
     reason: CachePipelineReason.None
     data: Bits(64)(0xabcd)
+
   index_valid <== mmu.pipeline_lookup.valid
   index_address <== mmu.pipeline_lookup.bits.address
   resolve_valid <== mmu.physical_pipeline.request.valid
@@ -124,6 +127,7 @@ sync_circuit RV2WideMmuFixture():
     byte_mask: Bits(8)(0)
     context: Bool(#false)
     locality: locality
+
   split_ready <== mmu.split.request.ready
   split_completed <== mmu.split.response.valid
   split_result <== mmu.split.response.bits.response.data
@@ -143,6 +147,7 @@ sync_circuit RV2WideMmuFixture():
     disposition: RV2WideDisposition.Fault
     cause: Bits(64)(5)
     value: mmu.physical_memory.request.bits.address
+
   mmu.physical_memory.response.valid <== response_valid
   mmu.physical_memory.response.bits <== response_data
   mmu.physical_memory.drained <== Bool(#true)

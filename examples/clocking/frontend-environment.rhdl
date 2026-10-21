@@ -46,6 +46,7 @@ fun next_classification(name :: String):
   def sink = clocked.summary.sinks.find(
     fun (candidate): candidate.instance_path.length() == 0 && candidate.operation.attribute("name", #false) == name
   )
+
   sink.inputs.find(fun (input): input.name == "next").classification
 
 check:

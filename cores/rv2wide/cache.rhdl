@@ -61,6 +61,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
     data: ownership.instruction_response.bits.data
     access_fault: ownership.instruction_response.bits.access_fault
     replay: Bool(#false)
+
   ownership.instruction_response.ready <== instruction.flush ||| instruction.response.ready
   transport.node_id <== uncached_node_id
   transport.cancel <== ownership.cancel
@@ -86,6 +87,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
           context: Bits(3)(0)
           locality: RiscvMemoryLocality.Default
   ) |> ownership.instruction_request
+
   (prefetch |> filter_valid(_request => io.core.drained & !uncached_management.egress.valid) |> map_valid(hint):
     def request :: CachePrefetchReq(64) = hint
     CachePrefetchReq(xlen.width):
@@ -134,6 +136,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   def service_route :: Bits(2) = priority_mux(~default: Bits(2)(0)):
     management & !physical.cacheable: Bits(2)(2)
     !cached_service: Bits(2)(1)
+
   def Array(cached, uncached, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => service_route)
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
@@ -152,6 +155,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
       context: Bool(#false)
       locality: request.locality
   ) |> storage.core.request
+
   (
     uncached |> gate_flow(storage.core.drained & !uncached_management.egress.valid) |> map_flow(request => UncachedMemoryReq(XLen.X64, Bits(3))):
       device: attributes.strongly_ordered
@@ -178,6 +182,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
     disposition: RV2WideDisposition.Fault
     cause: mux(request.access.store_fault_class(), exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
     value: memory.request.bits.address[0..xlen.width]
+
   Array(
     uncached_management.egress,
     storage.core.response |> map_flow(response => response.data),

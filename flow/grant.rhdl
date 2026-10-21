@@ -21,10 +21,12 @@ circuit GrantDemux(T :: DataType, output_count :: PosInt):
     for List (output_index in 0..output_count):
       grants[output_index] & egress[output_index].ready
   ))
+
   for (output_index in 0..output_count):
     def selected = grants[output_index]
     egress[output_index].valid <== ingress.valid & selected
     egress[output_index].bits <== ingress.bits
+
   describe_interface_contract(ingress, egress, "data", ~kind: "grant-demux", ~trace_model: interface_trace_routing(for List (index in 0..output_count): grants[index]))
 
 /* A zero grant produces no offer; a one-hot grant selects the corresponding
@@ -40,6 +42,7 @@ circuit GrantMerge(T :: DataType, input_count :: PosInt):
       for List (input_index in 0..input_count): ingress[input_index].valid
     ).into(Mask(input_count))
   )
+
   for (input_index in 0..input_count):
     def selected = grants[input_index]
     ingress[input_index].ready <== selected & egress.ready
@@ -51,5 +54,6 @@ circuit GrantMerge(T :: DataType, input_count :: PosInt):
     for List (input_index in 0..input_count): ingress[input_index].bits,
     ~default: ingress[0].bits
   )
+
   describe_interface_selection(for List (index in 0..input_count): grants[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "grant-merge", ~trace_model: interface_trace_selection())

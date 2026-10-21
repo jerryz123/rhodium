@@ -57,6 +57,7 @@ fun monitor_chi_transport(credit_limit :: PosInt,
   assert(!credit ||| credit_active, label_prefix ++ "_credit_active")
   when stopped:
     assert(!credit_balance.or_reduce(), label_prefix ++ "_credits_returned")
+
   when (valid & lcrd_return):
     assert(!request & ack, label_prefix ++ "_lcrd_during_deactivate")
 
@@ -124,6 +125,7 @@ fun monitor_chi_req_fields(p :: CHIFlitParams,
     when lcrd_return:
       assert(flit.txn_id === Bits(12)(0),
              label_prefix ++ "_lcrd_txn_id_zero")
+
     when (!lcrd_return & !flit.multi_req):
       assert(!flit.size_or_num_req[3..6].or_reduce(),
              label_prefix ++ "_size_reserved_zero")
@@ -270,6 +272,7 @@ fun monitor_chi_dat_fields(p :: CHIFlitParams,
     when lcrd_return:
       assert(flit.txn_id === Bits(12)(0),
              label_prefix ++ "_lcrd_txn_id_zero")
+
     when (!lcrd_return):
       assert(chi_data_id_valid(flit.data_id, p),
              label_prefix ++ "_data_id_valid")
@@ -297,6 +300,7 @@ fun check_chi_transaction_coverage(endpoint :: CHIEndpointParams):
     | endpoint.kind == CHINodeKind.RNF:
         chi_initial_coherent_requester_capabilities(emitted, received)
     | ~else: #false
+
   unless supported
   | error(~who: #'check_chi_transaction_coverage, endpoint.name ++ ": requested transaction coverage is unsupported; use ~transaction_checks: #false for field/transport checks only")
 
@@ -606,6 +610,7 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
   if transaction_checks
   | monitor_chi_rn_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_snp.valid, observed.rx_snp.bits, observed.rx_rsp.valid, observed.rx_rsp.bits)
   | #void
+
   rn_tx_previous_request <== observed.tx_link_active_request
   rn_tx_previous_ack <== observed.tx_link_active_ack
   rn_rx_previous_request <== observed.rx_link_active_request
@@ -661,6 +666,7 @@ fun monitor_chi_rni(link :: CHIRNILinkParams,
   if transaction_checks
   | monitor_chi_rni_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.rx_rsp.valid, observed.rx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits)
   | #void
+
   rni_tx_previous_request <== observed.tx_link_active_request
   rni_tx_previous_ack <== observed.tx_link_active_ack
   rni_rx_previous_request <== observed.rx_link_active_request
@@ -711,6 +717,7 @@ fun monitor_chi_sn(link :: CHISNLinkParams,
   if transaction_checks
   | monitor_chi_sn_transactions(link.flit, endpoint, label_prefix, observed.rx_req.valid, observed.rx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.tx_dat.valid, observed.tx_dat.bits)
   | #void
+
   sn_tx_previous_request <== observed.tx_link_active_request
   sn_tx_previous_ack <== observed.tx_link_active_ack
   sn_rx_previous_request <== observed.rx_link_active_request

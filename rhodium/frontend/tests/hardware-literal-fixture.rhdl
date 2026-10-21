@@ -32,6 +32,7 @@ class NibbleLiteral(value):
   constructor (value):
     unless value is_a Nat && value < 16
     | error(~who: #'NibbleLiteral, "value must fit four bits")
+
     super(value)
 
   override method literal_type(): Nibble()
@@ -63,13 +64,16 @@ def raw_nibble_initial = literal(Nibble(), 5)
 def pair_initial = Pair():
   left: Bits(4)(10)
   right: Bits(4)(3)
+
 def reordered_pair_initial = Pair():
   right: Bits(4)(9)
   left: Bits(4)(8)
+
 def PairType = Pair()
 def dynamic_pair_initial = record(PairType):
   left: Bits(4)(6)
   right: Bits(4)(7)
+
 def lanes_initial = vec(Bits(4)(4), Bits(4)(5))
 def aggregate_initial = Aggregate():
   pair: pair_initial
@@ -80,18 +84,21 @@ def aggregate_initial = Aggregate():
 circuit MissingBundleField():
   def invalid = Pair():
     left: Bits(4)(1)
+
   #void
 
 circuit DuplicateBundleField():
   def invalid = Pair():
     left: Bits(4)(1)
     left: Bits(4)(2)
+
   #void
 
 circuit WrongBundleFieldType():
   def invalid = Pair():
     left: Bits(4)(1)
     right: Bits(3)(2)
+
   #void
 
 circuit LiteralParameters(bits_value,

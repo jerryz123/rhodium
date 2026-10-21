@@ -62,6 +62,7 @@ fun check_clock_operation_coverage():
     | unless clock_operation_spec(schema.opcode)
       | error(~who: #'summarize_module_clocking,
               "clock classification is missing for " ++ schema.opcode)
+
   #void
 
 /* Only a structural rtl.wire is transparent for clock identity. In
@@ -76,6 +77,7 @@ fun canonical_wire_value(value :: Value):
         if operation && operation.opcode == "rtl.wire" && operation.places[0].driver
         | loop(operation.places[0].driver, visited ++ [current])
         | current
+
   loop(value, [])
 
 /* Compares clock identities after transparent driven-wire aliases are resolved. */
@@ -87,6 +89,7 @@ fun add_clock_use(groups :: List.of(ClockGroup), use :: ClockUse):
   def existing = groups.find(
     fun (group): group.clock === use.clock
   )
+
   if existing
   | for List (group in groups):
       if group === existing
@@ -115,19 +118,23 @@ fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
     if ambient_reset is_a Value
     | canonical_wire_value(ambient_reset)
     | #false
+
   def mutable pending_uses = []
   for (use in clock_uses):
     def reset:
       if use.reset is_a Value
       | canonical_wire_value(use.reset)
       | #false
+
     def kind = reset_use_kind(reset, canonical_ambient_reset)
     def pending = pending_uses.find(
       fun (candidate): same_pending_reset_use(candidate, kind, reset)
     )
+
     if pending
     | pending.operations := pending.operations ++ [use.operation]
     | pending_uses := pending_uses ++ [PendingResetUse(kind, reset, [use.operation])]
+
   for List (pending in pending_uses):
     match pending.kind
     | "none": NoReset(pending.operations)
@@ -149,6 +156,7 @@ fun summarize_module_clocking(module_def :: Module,
   unless module_def.finished
   | error(~who: #'summarize_module_clocking,
           "module must be finished before clock use is summarized")
+
   check_clock_operation_coverage()
   def mutable clock_groups = []
   def mutable clock_uses = []
@@ -157,6 +165,7 @@ fun summarize_module_clocking(module_def :: Module,
     when use
     | clock_uses := clock_uses ++ [use]
       clock_groups := add_clock_use(clock_groups, use)
+
   def reset_uses = summarize_reset_uses(clock_uses, ambient_reset)
   match clock_groups.length()
   | 0: Combinational(module_def, reset_uses)
@@ -181,11 +190,13 @@ fun verify_single_clock(module_def :: Module,
   unless expected_clock.module_def === module_def && clock_type(expected_clock.type)
   | error(~who: #'verify_single_clock,
           "expected clock must be a Clock value owned by the module")
+
   def summary = summarize_module_clocking(module_def, ambient_reset)
   def canonical_expected_clock = canonical_wire_value(expected_clock)
   def mismatched_group = summary_clock_groups(summary).find(
     fun (group): !(group.clock === canonical_expected_clock)
   )
+
   when mismatched_group
   | def operation = mismatched_group.uses[0].operation
     error(~who: #'verify_single_clock,
@@ -195,6 +206,7 @@ fun verify_single_clock(module_def :: Module,
                         " uses clock ", mismatched_group.clock.ref(),
                         " instead of expected clock ",
                         canonical_expected_clock.ref()))
+
   summary
 
 /* Compares occurrence paths by operation identity rather than instance names. */
@@ -206,6 +218,7 @@ fun same_instance_path(left :: List.of(Operation),
          right_step in right):
       unless left_step === right_step
       | same := #false
+
   same
 
 /* Compares the Value identity and complete occurrence path of two controls. */
@@ -244,6 +257,7 @@ fun normalize_origins(origins :: List.of(TemporalProvenance)):
   def non_static = origins.filter(
     ~keep: fun (origin): !(origin is_a StaticProvenance)
   )
+
   cond
   | non_static.length() > 0: non_static
   | origins.length() > 0: [origins[0]]
@@ -256,6 +270,7 @@ fun merge_origins(left :: List.of(TemporalProvenance),
   for (origin in right):
     unless result.find(fun (candidate): same_origin(candidate, origin))
     | result := result ++ [origin]
+
   normalize_origins(result)
 
 /* A reconvergence is structural and policy-neutral: two distinct crossing
@@ -273,6 +288,7 @@ fun summarize_sink_reconvergence(sink :: TemporalSink):
         | arrivals := arrivals ++ [
             CrossingArrival(input.name, input.path, origin)
           ]
+
   if arrivals.length() > 1
   | CrossingReconvergence(sink.instance_path,
                           sink.operation,
@@ -287,6 +303,7 @@ fun summarize_reconvergences(sinks :: List.of(TemporalSink)):
     def finding = summarize_sink_reconvergence(sink)
     when finding
     | findings := findings ++ [finding]
+
   findings
 
 /* Creates a local occurrence reference after following transparent control wires. */
@@ -317,10 +334,12 @@ fun index_module_temporal(module_def :: Module):
            stage_index in 0..crossing_stages.length()):
         unless sync_level_stages.has_key(stage.defining_op_id)
         | sync_level_stages[stage.defining_op_id] := IndexedSyncLevelStage(operation, stage_index)
+
       when crossing_stages.length() > 0
       | def final_stage = crossing_stages[crossing_stages.length() - 1]
         unless sync_level_final_stages.has_key(final_stage.defining_op_id)
         | sync_level_final_stages[final_stage.defining_op_id] := operation
+
   ModuleTemporalIndex(operations,
                       sync_level_stages,
                       sync_level_final_stages)
@@ -349,11 +368,13 @@ fun source_clock_references(states :: List.of(TemporalProvenance)):
       | if state is_a CrossedProvenance
         | state.destination_clock
         | #false
+
     when clock is_a ControlReference
     | unless result.find(
         fun (candidate): same_control_reference(candidate, clock)
       )
       | result := result ++ [clock]
+
   result
 
 /* Classifies symbolic module origins by source clocks and unresolved inputs without top assumptions. */
@@ -362,9 +383,11 @@ fun classify_sink_input(destination_clock :: ControlReference,
   def states = origins.filter(
     ~keep: fun (origin): origin is_a StateProvenance || origin is_a CrossedProvenance
   )
+
   def externals = origins.filter(
     ~keep: fun (origin): origin is_a ExternalProvenance
   )
+
   def source_clocks = source_clock_references(states)
   cond
   | source_clocks.length() > 1:
@@ -387,6 +410,7 @@ fun append_path(name :: String, path :: List.of(String || Nat)):
   def mutable result = name
   for (step in path):
     result := if step is_a String | result ++ "." ++ step | result ++ "[" ++ to_string(step) ++ "]"
+
   result
 
 /* Formats authored occurrence names in hierarchy order with an instance fallback. */
@@ -429,6 +453,7 @@ fun summarize_module_temporal(module_def :: Module):
   unless module_def.finished
   | error(~who: #'summarize_module_temporal,
           "module must be finished before temporal provenance is summarized")
+
   check_clock_operation_coverage()
   def mutable module_summaries = []
   def mutable active_modules = []
@@ -438,12 +463,14 @@ fun summarize_module_temporal(module_def :: Module):
     def cached = module_summaries.find(
       fun (summary): summary.module_def === current_module
     )
+
     if cached
     | cached
     | block:
         when active_modules.find(fun (candidate): candidate === current_module)
         | error(~who: #'summarize_module_temporal,
                 "recursive module instantiation involving " ++ current_module.name)
+
         active_modules := active_modules ++ [current_module]
         def value_summaries = MutableMap()
         def active_values = MutableMap()
@@ -464,6 +491,7 @@ fun summarize_module_temporal(module_def :: Module):
                   child.inputs.map(fun (port): port.value),
                   control_value
                 )
+
                 if input_index is_a Nat
                 | block:
                     def driver = place_leaf_driver(
@@ -504,7 +532,9 @@ fun summarize_module_temporal(module_def :: Module):
                      bind_child_control(origin.destination_clock,
                                         instance_operation)
                    )]
+
             result := merge_origins(result, transformed)
+
           normalize_origins(result)
 
         /* Combines asynchronous-read address origins with storage origins for each write clock;
@@ -515,6 +545,7 @@ fun summarize_module_temporal(module_def :: Module):
           def writes = current_module.operations.filter(
             ~keep: fun (candidate): candidate.opcode == "rtl.memory_write" && candidate.attribute("memory", #false) === memory
           )
+
           def mutable origins = summarize_value(operation.operands[0], [])
           if writes.length() == 0
           | merge_origins(origins,
@@ -528,6 +559,7 @@ fun summarize_module_temporal(module_def :: Module):
                                    path,
                                    local_control_reference(write.operands[2]))]
                 )
+
               origins
 
         /* Memoizes each value leaf's symbolic origins, stopping at state/crossing boundaries and detecting cycles. */
@@ -541,12 +573,14 @@ fun summarize_module_temporal(module_def :: Module):
               when active_values.has_key(key)
               | error(~who: #'summarize_module_temporal,
                       "combinational cycle reaches value " ++ describe_value_path(value, path))
+
               active_values[key] := #true
               def operation = temporal_index.operations.get(value.defining_op_id, #false)
               def input_index = identity_index(
                 current_module.inputs.map(fun (port): port.value),
                 value
               )
+
               def direct_dependencies = direct_operation_dependencies(value, path, operation)
               def origins:
                 cond
@@ -564,6 +598,7 @@ fun summarize_module_temporal(module_def :: Module):
                             result,
                             summarize_value(dependency.value, dependency.path)
                           )
+
                         result
                 | operation && operation.opcode == "rtl.instance":
                     def child_summary = summarize_module(
@@ -573,6 +608,7 @@ fun summarize_module_temporal(module_def :: Module):
                     def output_leaf = child_summary.output_leaves.find(
                       fun (candidate): candidate.output_index == output_index && candidate.path == path
                     )
+
                     transform_child_origins(output_leaf.origins, operation)
                 | operation && state_value_operation(operation):
                     def spec = clock_operation_spec(operation.opcode)
@@ -595,6 +631,7 @@ fun summarize_module_temporal(module_def :: Module):
                 | ~else:
                     error(~who: #'summarize_module_temporal,
                           "provenance classification is missing for value-producing operation " ++ operation.opcode)
+
               active_values.remove(key)
               def summary = ValueProvenanceSummary(value, path, origins)
               value_summaries[key] := summary
@@ -667,6 +704,7 @@ fun summarize_module_temporal(module_def :: Module):
                 inputs := inputs ++ make_place_sink_inputs(place.name,
                                                            place,
                                                            destination_clock)
+
               inputs
           | "verif.assert":
               def condition_inputs = make_value_sink_inputs("condition",
@@ -692,6 +730,7 @@ fun summarize_module_temporal(module_def :: Module):
                   operand,
                   destination_clock
                 )
+
               inputs
           | ~else:
               error(~who: #'summarize_module_temporal,
@@ -714,6 +753,7 @@ fun summarize_module_temporal(module_def :: Module):
                                 | CrossingReference([instance_operation] ++ input.crossing.instance_path,
                                                     input.crossing.operation)
                                 | #false)
+
           TemporalSink([instance_operation] ++ child_sink.instance_path,
                        child_sink.operation,
                        child_sink.kind,
@@ -743,6 +783,7 @@ fun summarize_module_temporal(module_def :: Module):
                 sinks := sinks ++ [transform_child_sink(child_sink, operation)]
           | ~else:
               #void
+
         def mutable output_leaves = []
         for (port in current_module.outputs,
              output_index in 0..current_module.outputs.length()):
@@ -754,6 +795,7 @@ fun summarize_module_temporal(module_def :: Module):
                                    summarize_value(driver.value,
                                                    driver.path))
             ]
+
         def summary = ModuleTemporalSummary(current_module,
                                             output_leaves,
                                             sinks,
@@ -762,6 +804,7 @@ fun summarize_module_temporal(module_def :: Module):
         active_modules := active_modules.filter(
           ~keep: fun (candidate): !(candidate === current_module)
         )
+
         summary
 
   summarize_module(module_def)
@@ -786,6 +829,7 @@ fun describe_origin(summary :: ModuleTemporalSummary,
         if origin.destination_clock is_a ControlReference
         | "@" ++ describe_control(origin.destination_clock)
         | "@unknown"
+
       "crossed " ++ append_path(name, origin.path) ++ clock
 
 /* Appends ordered crossing-arrival details to a reusable module's text report. */
@@ -806,11 +850,13 @@ fun append_reconvergences(lines :: List.of(String),
         ),
         ", "
       )
+
       result := result ++ [
         String.append("    ",
                       append_path(arrival.input_name, arrival.input_path),
                       ": ", crossing_name, " <- ", sources)
       ]
+
   result
 
 /* Formats stored module findings without rerunning provenance or parsing report text. */
@@ -822,7 +868,9 @@ fun dump_temporal_report(summary :: ModuleTemporalSummary):
       output.origins.map(fun (origin): describe_origin(summary, origin)),
       ", "
     )
+
     lines := lines ++ ["  output " ++ append_path(port.name, output.path) ++ " <- " ++ origins]
+
   for (sink in summary.sinks):
     def sink_name = hierarchical_name(sink.instance_path, operation_name(sink.operation))
     lines := lines ++ ["  sink " ++ sink_name ++ " " ++ sink.kind ++ " clock " ++ describe_control(sink.clock)]
@@ -831,7 +879,9 @@ fun dump_temporal_report(summary :: ModuleTemporalSummary):
         input.origins.map(fun (origin): describe_origin(summary, origin)),
         ", "
       )
+
       def classification = describe_classification(input.classification)
       lines := lines ++ ["    " ++ append_path(input.name, input.path) ++ ": " ++ classification ++ " <- " ++ origins]
+
   lines := append_reconvergences(lines, summary)
   String.join(lines, "\n")

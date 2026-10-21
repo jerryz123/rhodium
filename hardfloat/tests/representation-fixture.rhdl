@@ -86,6 +86,7 @@ circuit HardFloatRepresentation():
     sign: expanded_raw.sign
     signed_exponent: expanded_raw.signed_exponent
     significand: expanded_raw.significand ||| rounding_extra.zext(format.significand_width + 3)
+
   inst round(RoundRawFNToRecFN(format))
   round.invalid_exception <== invalid_exception
   round.infinite_exception <== infinite_exception

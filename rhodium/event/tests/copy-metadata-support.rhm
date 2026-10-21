@@ -3,14 +3,17 @@
 import:
   "../../core/ir.rhm" open
   "../../frontend/kernel.rhm".active_module
+
 export:
   Observer
   observe
+
 class Observer(owner :: Module, value :: Value, port :: Port, operation :: Operation,
                instances :: List.of(Instance), cache :: Array):
   implements ModuleMetadataPayload
   override method remap_ir(remap :: Function.of_arity(1)):
     Observer(remap(owner), remap(value), remap(port), remap(operation), remap(instances), remap(cache))
+
 fun observe(instances :: List.of(Instance) = []):
   def owner = active_module()
   def value = owner.inputs[0].value

@@ -20,6 +20,7 @@ def run_once = fun (count_value, repetition):
   for (index in 0..count_value):
     builder.input(module_def, "value_" ++ to_string(index), Bits(1))
     #void
+
   def after_construction = rkt.#{current-inexact-milliseconds}()
   def finished = builder.finish(module_def)
   def after_finish = rkt.#{current-inexact-milliseconds}()
@@ -32,5 +33,6 @@ for (count_text in arguments):
   unless count_value is_a Nat
   | error(~who: #'bench_ir_collections_batch,
           "insertion counts must be nonnegative integers")
+
   for (repetition in 0..6):
     run_once(count_value, repetition)

@@ -63,11 +63,13 @@ check:
     rd.constrain(2),
     rs1.constrain(0)
   ], ~immediate: 0) ~throws "rd must be supplied exactly once"
+
   ADDI.encode([
     rd.constrain(1),
     rs1.constrain(0),
     rs2.constrain(0)
   ], ~immediate: 0) ~throws "not an explicit field"
+
   ADDI.encode([rd.constrain(1), rs1.constrain(0)]) ~throws "requires an immediate"
   WFI.encode([], ~immediate: 0) ~throws "does not have an immediate"
   ADDI.encode([rd.constrain(1), rs1.constrain(0)], ~immediate: 2048) ~throws "out of range"

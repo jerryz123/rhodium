@@ -74,6 +74,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
                       implementation :: TiledSoCImplementation = compile_tiled_soc(config)):
   unless implementation.config == config
   | error(~who: #'TiledSoC, "compiled topology must belong to the selected SoC configuration")
+
   def p = implementation.flit
   def site_width = implementation.router_configs.req.route_decoder.site_width
   interface host(SoCHostInterface(p), ~role: soc)
@@ -82,10 +83,13 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
 
   def harts = for InstanceArray (entry in implementation.harts):
     inst hart(HartTile(entry.tile_params, ~reset_address: config.boot.reset_address))
+
   def llcs = for InstanceArray (entry in implementation.llcs):
     inst llc(LLCTile(entry.tile_params))
+
   def transits = for InstanceArray (entry in implementation.transits):
     inst transit(TransitTile(entry.tile_params))
+
   inst host_tile(HostTile(implementation.host.tile_params))
   inst memory_tile(MemoryTile(implementation.memory.router_params))
   inst device_home(DeviceHomeTile(implementation.device_home.tile_params))
@@ -109,9 +113,11 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
               instruction_node_id: Bits(p.node_id_width)(entry.chi.hart.instruction_node_id)
               data_node_id: Bits(p.node_id_width)(entry.chi.hart.data_node_id)
               uncached_node_id: Bits(p.node_id_width)(entry.chi.hart.uncached_node_id))
+
     distribution.interrupt_egress[index] <=> harts[index].interrupt_update
     distribution.external_interrupt_egress[index] <=> harts[index].external_interrupt_update
     distribution.time_egress[index] <=> harts[index].time_beat
+
   for (index in 0..implementation.llcs.length()):
     def entry = implementation.llcs[index]
     llcs[index].identity <== LLCTileIdentity(p, site_width):
@@ -124,6 +130,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
   for (index in 0..implementation.transits.length()):
     def entry = implementation.transits[index]
     transits[index].site_key <== Bits(site_width)(implementation.site_key(entry.placement.router))
+
   host_tile.site_key <== Bits(site_width)(implementation.site_key(implementation.host.placement.router))
   host.memory <=> host_tile.host
   memory_tile.site_key <== Bits(site_width)(implementation.site_key(implementation.memory.placement.router))
@@ -132,15 +139,18 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
   bootrom.identity <== CHIBootROMIdentity(p):
     node_id: Bits(p.node_id_width)(implementation.bootrom.device.node_id)
     base_address: Bits(p.request_address_width)(implementation.bootrom.device.base_address)
+
   bootrom.port <=> device_home.subordinate[0]
   boot_address.identity <== BootAddressIdentity(p):
     node_id: Bits(p.node_id_width)(implementation.platform.boot_address.node_id)
     base_address: Bits(p.request_address_width)(implementation.platform.boot_address.base_address)
+
   boot_address.port <=> device_home.subordinate[1]
   aclint.identity <== AclintTileIdentity(p, site_width):
     site_key: Bits(site_width)(implementation.site_key(implementation.aclint.placement.router))
     aclint: (AclintIdentity(p):
                node_id: Bits(p.node_id_width)(implementation.aclint.device.node.node_id))
+
   timebase.enable <== Bool(#true)
   aclint.tick <== timebase.wrap
   aclint.time_beat <=> distribution.time_ingress
@@ -150,6 +160,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
     plic: (PlicIdentity(p):
              node_id: Bits(p.node_id_width)(implementation.plic.device.node.node_id)
              base_address: Bits(p.request_address_width)(implementation.plic.device.base_address))
+
   plic.sources <== vec([uart_device.uart.interrupt])
   plic.external_interrupt_update <=> distribution.external_interrupt_ingress
   uart_device.identity <== UartTileIdentity(p, site_width):
@@ -157,6 +168,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
     uart: (Uart16550Identity(p):
              node_id: Bits(p.node_id_width)(implementation.uart.device.node.node_id)
              base_address: Bits(p.request_address_width)(implementation.uart.device.base_address))
+
   uart <=> uart_device.uart
 
   def tiles = (
@@ -194,6 +206,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
                          llcs[index].incoming_links,
                          llcs[index].outgoing_links)
   )
+
   connect_chi_router_family(implementation.physical_plan, tiles)
 
 export:

@@ -61,12 +61,14 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
             rd: issued.rd
             remainder: issued.control.remainder
             word_result: issued.control.word_result
+
         operands:
           DividerRequest(width):
             dividend: normalized_dividend
             divisor: normalized_divisor
             signed_mode: issued.control.signed_mode
   ) |> authorized.ingress
+
   authorized.egress |> execution_request
 
   when (issue.valid):

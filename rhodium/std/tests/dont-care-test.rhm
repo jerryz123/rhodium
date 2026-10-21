@@ -18,6 +18,7 @@ def module_def = fixture_design.modules[0]
 def dont_cares = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.dont_care"
 )
+
 def casts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.cast"
 )
@@ -29,12 +30,15 @@ check:
   casts.filter(
     ~keep: fun (operation): type_equal(operation.results[0].type, fixture.Pair())
   ).length() ~is 2
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 1
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.or"
   ).length() ~is 1
+
   verify_design(fixture_design) ~is #void
   dont_care(Clock) ~throws "DataType"
   pattern_value(hw.Bits(1)(0)) ~throws "Pattern"

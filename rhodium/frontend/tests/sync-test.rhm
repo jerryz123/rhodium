@@ -20,12 +20,15 @@ def implicit_design = implicit_fixture_design
 def top = implicit_design.modules.find(
   fun (module_def): module_def.name == "CounterTop"
 )
+
 def child = implicit_design.modules.find(
   fun (module_def): module_def.name == "Counter"
 )
+
 def instance = top.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
+
 def register = child.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
@@ -37,6 +40,7 @@ def override_design = compile_program(elaborate(implicit_fixture.ExplicitClockTo
 def override_top = override_design.modules.find(
   fun (module_def): module_def.name == "ExplicitClockTop"
 )
+
 def override_instance = override_top.operations.find(
   fun (operation): operation.opcode == "rtl.instance"
 )
@@ -47,6 +51,7 @@ def local_reset_summary = compile_program(DesignElaboration(local_reset_design, 
 def local_reset_register = local_reset_module.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )
+
 def local_reset_cast = local_reset_module.find_operation(
   local_reset_register.operands[1].defining_op_id
 )
@@ -64,6 +69,7 @@ def local_reset_child_design = compile_program(elaborate(composed_fixture.LocalR
 def local_reset_child_top = local_reset_child_design.modules.find(
   fun (module_def): module_def.name == "LocalResetChildTop"
 )
+
 def local_reset_child_instance = local_reset_child_top.find_instance("counter")
 def child_reset_cast = local_reset_child_top.find_operation(
   local_reset_child_instance.places[1].driver.defining_op_id
@@ -82,9 +88,11 @@ def explicit_nested_design = compile_program(elaborate(composed_fixture.Explicit
 def explicit_nested_parent = explicit_nested_design.modules.find(
   fun (module_def): module_def.name == "ExplicitNestedBoundary"
 )
+
 def explicit_nested_child = explicit_nested_design.modules.find(
   fun (module_def): module_def.name == "ExplicitChild"
 )
+
 def explicit_nested_instance = explicit_nested_parent.find_instance("child")
 def explicit_nested_register = explicit_nested_child.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
@@ -102,9 +110,11 @@ check:
   resetless.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register"
   ).length() ~is 1
+
   resetless.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).length() ~is 0
+
   override_instance.places[0].driver === override_top.find_input("source_clock").value ~is #true
   override_instance.places[1].driver === override_top.find_input("source_reset").value ~is #true
   local_reset_summary is_a SingleClock ~is #true

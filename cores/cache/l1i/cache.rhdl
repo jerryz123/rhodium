@@ -49,8 +49,10 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   check_l1i_geometry(width, cache)
   unless fetch_bits == 32 || fetch_bits == 64
   | error(~who: #'L1ICache, "fetch block must be 32 or 64 bits")
+
   unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'L1ICache, "CHI region geometry must use 64-byte cache lines")
+
   def fetch_bytes = fetch_bits / 8
   def row_bits = if width > fetch_bits | width | fetch_bits
   def sets = cache.sets
@@ -91,9 +93,11 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   reg valid_lines(~init: vec(
     for List (_set in 0..sets): Bits(ways)(0).as_vec(Bool)
   ))
+
   reg replacement_state(~init: vec(
     for List (_set in 0..sets): plru_initial_state(ways)
   ))
+
   reg refill_live(~init: Bool(#false))
   reg refill_installable(~init: Bool(#false))
   reg refill_installing(~init: Bool(#false))
@@ -118,6 +122,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def demand_lookup = virtual_lookup |> map_flow(address => L1ILookup(width)):
     address: address
     prefetch: Bool(#false)
+
   def hinted_lookup:
     (prefetch |> filter_valid(request => !cache_flush & (request.into(CachePrefetchReq(width)).operation === CachePrefetchOperation.Instruction))
       |> map_valid(request => L1ILookup(width)):
@@ -137,6 +142,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     for List (way in 0..ways):
       lookup_valids[way] & (tags.port.response.bits[way] === lookup_tag)
   )
+
   def lookup_selection = priority_encoder_oh(lookup_matches)
   def line_hit = lookup_selection.valid
   def cached_words = lines.port.response.bits.as_bits().as_vec(Bits(row_bits))
@@ -144,10 +150,12 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     for List (way in 0..ways): cached_words[way],
     ~default: Bits(row_bits)(0)
   )
+
   def cached_fetch_word:
     if row_bits == fetch_bits
     | cached_word
     | mux(lookup_address[2].into(Bool), cached_word[32..64], cached_word[0..32])
+
   def lookup_has_context = array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
   for (left in 0..ways):
     for (right in (left + 1)..ways):
@@ -190,11 +198,13 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     address: lookup_address
     way: plru_replacement_way(ways, lookup_valids, replacement_state[lookup_set])
     prefetch: array_context.prefetch
+
   def resolved_lookup = L1IResolved(width, way_width, fetch_bits):
     context: resolved_context
     hit: line_hit
     data: cached_fetch_word
     access_fault: retained_error
+
   array_read.egress |> filter_valid(_context => lookup_survives)
     |> map_valid(_context => resolved_lookup) |> lookup.ingress
   def request_fire = core.request.valid & !core.s1_kill & !cache_flush
@@ -202,6 +212,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     assert(core.request.bits.address.is_aligned(fetch_bytes), "l1i_fetch_block_aligned")
     assert(array_read.egress.valid & !array_context.prefetch, "l1i_physical_request_has_virtual_lookup")
     assert(array_context.address[0..12] === core.request.bits.address[0..12], "l1i_vipt_page_offset_matches")
+
   when lookup_issue:
     assert(tags.port.response.valid & lines.port.response.valid, "l1i_resolution_has_array_read")
 
@@ -215,11 +226,13 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
          line_address: result.context.address.align_down(CacheLineBytes)
          context: result.context
   ) |> offer_decoupled() |> refill.command
+
   (lookup_results |> filter_valid(result => !result.context.prefetch) |> map_valid(result => InstructionCacheResult(fetch_bits)):
     data: result.data
     access_fault: result.access_fault
     replay: !result.hit & !result.access_fault
   ) |> core.response
+
   // Hold the completed line throughout multibeat installation; only the
   // final word or an explicit discard consumes the completion.
   def refill_completed = refill.completion |> gate_flow(refill_completion_may_finish) |> to_valid()
@@ -244,12 +257,14 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     write: Bool(#false)
     data: dont_care(Vec(ways, Bits(tag_width)))
     mask: dont_care(Mask(ways))
+
   def tag_write_commands = refill_completed |> filter_valid(_completion => refill_installing & !refill_completion_discard)
     |> map_valid(_completion => ReadWriteRequest(set_width, Bits(tag_width), ways)):
          address: completion_set
          write: Bool(#true)
          data: vec(for List (_way in 0..ways): completion_tag)
          mask: install_way_mask
+
   assert(!(tag_read_commands.valid & tag_write_commands.valid), "l1i_tag_ports_exclusive")
   Array(tag_write_commands, tag_read_commands) |> valid_arbiter() |> tags.port.request
 
@@ -258,6 +273,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     write: Bool(#false)
     data: dont_care(Vec(data_lanes, Bits(8)))
     mask: dont_care(Mask(data_lanes))
+
   // The installation sequencer is a real producer: each held completion
   // generates several writes before its own transfer can finish.
   def line_install_bits = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
@@ -265,6 +281,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     write: Bool(#true)
     data: vec(line_write_bytes)
     mask: line_write_mask
+
   def line_install = inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: refill_install_word, ~bits: line_install_bits)
   assert(!(line_read_commands.valid & line_install.valid), "l1i_data_ports_exclusive")
   Array(line_install, line_read_commands) |> valid_arbiter() |> lines.port.request
@@ -288,6 +305,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     replacement_state <== replacement_state.updated(completion_set, plru_touch(ways, replacement_state[completion_set], completion_way))
   elsewhen (lookup_issue & line_hit):
     replacement_state <== replacement_state.updated(lookup_set, plru_touch(ways, replacement_state[lookup_set], lookup_selection.index))
+
   assert(!(install & lookup_issue & line_hit), "l1i_replacement_update_unique")
 
   when (core.invalidate_all):
@@ -314,6 +332,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
       refill_live <== !refill.command.bits.context.prefetch
     elsewhen refill_complete:
       refill_live <== Bool(#false)
+
     when (refill_complete & refill_live & refill.completion.bits.access_fault):
       refill_error_valid <== Bool(#true)
       refill_error_address <== completion_address

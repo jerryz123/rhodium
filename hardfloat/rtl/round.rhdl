@@ -71,6 +71,7 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
           raw.significand[((in_significand_width - out_significand_width) - 1)..=in_significand_width]
             ++ raw.significand[0..=((in_significand_width - out_significand_width) - 2)].or_reduce()
         )
+
   def shift_significand_down:
     if options.significand_msb_always_zero
     | Bool(#false)
@@ -89,6 +90,7 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
          ) ||| shift_significand_down.as_bits().zext(out_significand_width + 1))
           ++ Bits(2)(3)
       )
+
   def shifted_round_mask = (Bits(1)(0) ++ round_mask[1..=(out_significand_width + 2)])
   def round_position_mask = !shifted_round_mask & round_mask
   def round_position_bit = or_reduce(adjusted_significand & round_position_mask)
@@ -125,10 +127,12 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
     3 << (out_exponent_width - 1),
     rounded_exponent_width
   )
+
   def common_total_underflow = if never_underflows | Bool(#false) | rounded_exponent < sint(
     out_minimum_nonzero_exponent,
     rounded_exponent_width
   )
+
   def unbounded_round_position_bit = mux(
     shift_significand_down,
     adjusted_significand[2].into(Bool),
@@ -159,6 +163,7 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
           ) & round_carry & round_position_bit & unbounded_round_increment
         )
       )
+
   def common_inexact = common_total_underflow ||| any_round
 
   /* Special inputs and explicit arithmetic exceptions override the finite

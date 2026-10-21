@@ -14,6 +14,7 @@ import:
 sync_circuit RV2WideHart(profile :: RV2WideConfig, ~reset_address: reset_address :: Nat, ~chi: config :: RiscvHartCHIConfig):
   unless bits.length(reset_address) <= profile.xlen.width
   | error(~who: #'RV2WideHart, "reset address must fit XLEN")
+
   input chi_identity: RiscvHartCHIIdentity(config.flit)
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(profile.xlen.width)

@@ -97,6 +97,7 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
 
   def replications = for List (format in 0..(vector_format_count(xlen) - 1)):
     [format, vec(for List (_ in 0..(vector_word_bytes(xlen) >> format)): value[0..(8 << format)]).as_bits()]
+
   def repeated = mux_lookup(eew, ~default: value, replications)
   def byte_mask = vec(
     for List (byte in 0..vector_word_bytes(xlen)):
@@ -106,6 +107,7 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
       def enabled = in_body & mask_enabled
       mux(enabled, !Bits(8)(0), Bits(8)(0))
   ).as_bits()
+
   def has_enabled_bytes = byte_mask.or_reduce()
   def row_write_ready = !has_enabled_bytes ||| write_available
   def can_advance = value_valid & unfinished_row & mask_ready & !mask_waiting & !blocked_rows[address] & row_write_ready
@@ -135,9 +137,11 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     def masked_tail = authorized & !decision_first & decision_last
     when (failed_probe ||| masked_tail):
       occupied <== Bool(#false)
+
     when (authorized & decision_first & decision.bits.slow):
       waiting <== Bool(#true)
       response_tag <== decision.bits.tag
+
     when (authorized & decision_first & !decision.bits.slow):
       value <== decision.bits.data
       value_valid <== Bool(#true)
@@ -167,6 +171,7 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     mask_word <== mask_result.bits
     mask_cached <== Bool(#true)
     mask_waiting <== Bool(#false)
+
   when (launch.valid):
     def start_bytes = launch.bits.descriptor.state.vstart[0..index_width(vlen + 1)].zext(geometry_width) << launch.bits.descriptor.control.memory_data_eew
     row <== (start_bytes >> vector_byte_offset_width(xlen))[0..Row.width]

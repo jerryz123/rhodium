@@ -21,6 +21,7 @@ def full = chi.CHIFlitParams(
   ~stream_id_width: 16,
   ~sec_sid_width: 1
 )
+
 def base_req = chi.CHIReqFlit(base)
 def base_rsp = chi.CHIRspFlit(base)
 def base_snp = chi.CHISnpFlit(base)

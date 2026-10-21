@@ -17,6 +17,7 @@ fun Adder(width :: PosInt):
     def sum = output("sum", Bits(width))
     def result = hw_add(a, b)
     connect(sum, result)
+
   build_circuit(adder_identity, "Adder", [width], implementation)
 
 def program = run_elaboration(fun (): Adder(8))

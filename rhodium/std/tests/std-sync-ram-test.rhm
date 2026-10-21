@@ -37,6 +37,7 @@ check:
   operation(four_lane, "rtl.sync_memory").places.find(
     fun (place): place.name == "storage.read_write.write_mask"
   ).type.width ~is 4
+
   four_lane.find_input("port_in").type.field("request").type.field("bits").type.field("mask").type.width ~is 4
   verify_design(four_lane_design) ~is #void
 
@@ -46,6 +47,7 @@ check:
   generic_port.members.find(fun (member): member.name == "request").type.members.find(
     fun (member): member.name == "bits"
   ).type.field("address").type.width ~is 2
+
   generic_port.members.find(fun (member): member.name == "response").type.members.find(
     fun (member): member.name == "bits"
   ).type.packed_width() ~is 16

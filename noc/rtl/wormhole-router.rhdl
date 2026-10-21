@@ -40,6 +40,7 @@ fun compile_wormhole_router(
   unless target_count > 0
   | error(~who: #'compile_wormhole_router,
           "router plan must have an outgoing VC or an ejection target")
+
   _WormholeRouterConfig(router_plan,
                         route_decoder,
                         input_count,
@@ -62,6 +63,7 @@ sync_circuit WormholeRouter(T :: DataType,
   def input_buffers :: Array.later_of(Endpoint) = ingress |> parallel_handles(
     for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth)
   )
+
   def inactive = Bits(config.input_count)(0).as_vec(Bool)
   def unreserved = Bits(config.target_count)(0).as_vec(Bool)
   def empty_reservations = vec(for List (_ in 0..config.input_count): unreserved)
@@ -128,6 +130,7 @@ sync_circuit WormholeRouter(T :: DataType,
       def transfer = input_buffer.fire()
       mux(transfer, !input_buffer.bits.tail, packet_active[input_index])
   )
+
   def next_reservations = vec(
     for List (input_index in 0..config.input_count):
       def input_buffer = input_buffers[input_index]
@@ -135,5 +138,6 @@ sync_circuit WormholeRouter(T :: DataType,
       def retained = mux(packet_active[input_index], reservations[input_index], allocator.grants[input_index])
       mux(transfer, mux(input_buffer.bits.tail, unreserved, retained), reservations[input_index])
   )
+
   packet_active <== next_active
   reservations <== next_reservations

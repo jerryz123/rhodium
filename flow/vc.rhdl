@@ -46,6 +46,7 @@ sync_circuit VcMux(T :: DataType, vc_count :: PosInt):
       VcBeat(T, vc_count):
         vc: Bits(index_width(vc_count))(vc_index)
         payload: payload
+
   def tagged = for Array (vc_index in 0..vc_count): ingress[vc_index] |> gate_flow(vc_ready[vc_index]) |> tag_vc(vc_index)
   (tagged |> rr_arbiter()) <=> egress
 

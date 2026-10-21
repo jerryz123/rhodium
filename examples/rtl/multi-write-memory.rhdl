@@ -20,6 +20,7 @@ circuit MultiWriteMemory(depth :: PosInt, width :: PosInt):
   read_data <== storage[read_address]
   storage.write(first_address, first_data,
                 ~enable: first_enable, ~clock: clock)
+
   storage.write(second_address, second_data,
                 ~enable: second_enable, ~clock: clock)
 

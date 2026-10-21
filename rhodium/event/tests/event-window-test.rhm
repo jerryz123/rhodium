@@ -18,11 +18,13 @@ for (intrinsic in [#true, #false]):
     for (node in stages):
       for (stage in node.stages):
         when stage is_a EventTraceWindow | window := stage
+
     check:
       event_trace_registered(window) ~is !live
       event_trace_capacity(traced.manifest.trace_plans[sink.id]) ~is (if live | 3 | 2)
       traced.manifest.dependencies.length() ~is 1
       traced.manifest.dependencies[0].latency_cycles ~is #false
+
     when live
     | def loop = EventTraceLink("live-window-feedback")
       loop.target := EventTracePipeline(loop, [window])

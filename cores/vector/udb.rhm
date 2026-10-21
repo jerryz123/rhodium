@@ -39,8 +39,10 @@ fun vector_udb_parameters(profile :: VectorProfile, vlen :: VectorLength, hyperv
       string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
       boolean_parameter("VSSTATUS_VS_EXISTS", hypervisor)
     ]
+
   when vector_profile_is_v(profile)
   | result := result ++ [boolean_parameter("MUTABLE_MISA_V", #false)]
+
   result
 
 export vector_udb_parameters

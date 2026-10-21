@@ -40,6 +40,7 @@ fun pack_misa_extensions(extensions :: List.of(MisaExtension)) :: Nat:
   def mutable result = 0
   for (extension in extensions):
     result := result bits.or (1 << misa_extension_index(extension))
+
   result
 
 /* Stores explicit ISA claims and MISA bits and derives the architectural base and XLEN encoding. */
@@ -53,9 +54,11 @@ class RiscvIsaProfile(xlen :: XLen,
     for (extension in isa_extensions):
       when isa_extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
       | error(~who: #'RiscvIsaProfile, "extension names must be unique")
+
     for (extension in misa_extensions):
       when misa_extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
       | error(~who: #'RiscvIsaProfile, "MISA extensions must be unique")
+
     super(xlen, isa_extensions, misa_extensions)
 
   property isa_base :: String:

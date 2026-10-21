@@ -22,11 +22,14 @@ fun table_matches_materialized(validated):
     def allowed_count = decisions.filter(
       ~keep: fun (decision): decision.allowed
     ).length()
+
     unless row.allowed_vcs.length() == allowed_count
     | matches := #false
+
     for (decision in decisions):
       unless row.allows(decision.candidate_vc) == decision.allowed
       | matches := #false
+
   matches
 
 def accepted_has_adaptive_choice = adaptive_escape_routing.route_table.rows.find(

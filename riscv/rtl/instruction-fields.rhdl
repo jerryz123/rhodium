@@ -12,6 +12,7 @@ fun instruction_field(field :: BitField,
   unless field.high < 32
   | error(~who: #'instruction_field,
           "instruction field must fit the 32-bit instruction word")
+
   instruction[field.low..(field.high + 1)]
 
 /* Gathers descriptor pieces and implicit zeros in semantic bit order without changing the immediate width. */
@@ -20,11 +21,14 @@ fun immediate_bits(layout :: ImmediateLayout,
   def piece_fragments = for List (piece in layout.pieces):
     [piece.output_high,
      instruction_field(piece.source, instruction)]
+
   def zero_fragments = for List (bit in layout.zero_bits):
     [bit, Bits(1)(0)]
+
   def fragments = (piece_fragments ++ zero_fragments).sort(
     fun (left, right): left[0] > right[0]
   )
+
   def fragment_values = fragments.map(fun (fragment): fragment[1])
   if fragment_values.length() == 1
   | fragment_values[0]
@@ -37,6 +41,7 @@ fun instruction_immediate(layout :: ImmediateLayout,
   unless output_width >= layout.width
   | error(~who: #'instruction_immediate,
           "immediate output width must cover the architectural immediate")
+
   def value = immediate_bits(layout, instruction)
   if output_width == layout.width
   | value

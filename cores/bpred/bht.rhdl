@@ -28,6 +28,7 @@ sync_circuit Bht(row_bits :: PosInt = 10):
   def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), mux(update.bits.taken, incremented, decremented), previous[lane]))
   when (!clear.valid & update.valid):
     storage.write(write_row, written)
+
   for (index in 0..rows):
     when (clear.valid):
       valid_rows[index] <== Bool(#false)

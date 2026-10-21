@@ -36,6 +36,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
     def name = "head" ++ to_string(lane)
     describe_interface_window_storage(8, ingress.fire(), consume.zext(4), count, clear.valid, for List (index in 0..2): Bool(index == lane), ~name: name, ~append_count: ingress.bits.count.zext(4))
     describe_interface_contract(parents[lane], candidates[lane], "instruction-window-" ++ name, ~trace_model: interface_trace_window(~name: name))
+
   when (clear.valid):
     count <== Bits(4)(0)
   otherwise:
@@ -49,6 +50,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
         entries[index] <== ingress.bits.entries[incoming[0..1]]
       elsewhen ((consume =/= Bits(2)(0)) & (position < remaining)):
         entries[index] <== entries[shifted[0..3]]
+
   assert(count <= Bits(4)(8), "rv2wide_instruction_capacity")
   assert(consume <= head.count, "rv2wide_issue_prefix")
   when (ingress.valid):

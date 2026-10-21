@@ -39,6 +39,7 @@ fun resize_raw_float(in_exponent_width :: PosInt,
           )
         )
         saturated.into(SInt(out_exponent_width + 2))
+
   def output_significand:
     if in_significand_width < out_significand_width
     | input.significand.zext(out_significand_width + 1) << (out_significand_width - in_significand_width)

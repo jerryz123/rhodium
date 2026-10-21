@@ -22,6 +22,7 @@ check:
   fixture.selected("endpoint") ~throws "annotated local checkpoint endpoint"
   instrument_events(fixture.selected("fanout")) ~throws "uncertified fanout"
   infer_event_manifest(fixture.sibling()) ~throws "selected parent is not upstream"
+
 def repeated = instrument_events(fixture.repeated()).manifest
 check:
   repeated.sites.length() ~is 10

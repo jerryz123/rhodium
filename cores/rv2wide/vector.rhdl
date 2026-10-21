@@ -76,6 +76,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   outcome_guest <== admission.outcome_fault
   when (admission.execution_certified & access.feedback.valid):
     assert(access.feedback.bits.disposition.is_one_of(VectorDisposition.Authorized, VectorDisposition.Retry), "certified_vector_cannot_fault")
+
   execution.issue |> filter_flow(token => token.memory) |> access.issue
   access.feedback |> execution.decision
   access.completion |> execution.completion
@@ -143,10 +144,13 @@ sync_circuit RV2WideVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots
   for (port :: Endpoint in [pipeline.request, memory.request, split.request, precheck.request, outcome, fp_request, multiply_request, divide_request, fp_update, fault_start, truncate, scalar_result, scalar_writeback, floating_result]):
     port.valid <== Bool(#false)
     port.bits <== dont_care(port.bits.type)
+
   for (port :: Endpoint in [precheck.release, retire, execution_done, saturate]):
     port.valid <== Bool(#false)
+
   for (port :: Endpoint in [memory.response, precheck.response, fp_result, multiply_result, divide_result]):
     port.ready <== Bool(#true)
+
   request.ready <== Bool(#false)
   pipeline.commit <== Bool(#false)
   outcome_guest <== literal(RiscvGuestFault(), 0)

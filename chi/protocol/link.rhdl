@@ -72,10 +72,12 @@ fun chi_initial_requester_capabilities(emitted :: CHIChannelCapabilities,
            CHIReqOpcode.WriteNoSnpPtl],
     ~dat: [CHIDatOpcode.NonCopyBackWriteData]
   )
+
   def allowed_received = CHIChannelCapabilities(
     ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
     ~dat: [CHIDatOpcode.CompData]
   )
+
   emitted.req.length() > 0 && allowed_emitted.contains_all(emitted) && allowed_received.contains_all(received)
 
 /* Apply the same non-coherent checker subset with requester/subordinate directions reversed. */
@@ -104,6 +106,7 @@ fun chi_initial_coherent_requester_capabilities(
            CHIDatOpcode.CopyBackWriteData,
            CHIDatOpcode.CompData]
   )
+
   // CompData is optional, while every ordinary RN-F snoop operation is
   // required below.
   def allowed_received = CHIChannelCapabilities(
@@ -111,6 +114,7 @@ fun chi_initial_coherent_requester_capabilities(
     ~snp: chi_rnf_snoop_opcodes,
     ~dat: [CHIDatOpcode.CompData]
   )
+
   def required_received = CHIChannelCapabilities(~snp: chi_rnf_snoop_opcodes)
   emitted.req.length() > 0 && emitted.rsp.contains(CHIRspOpcode.CompAck) && (
     emitted.rsp.contains(CHIRspOpcode.SnpResp)
@@ -171,6 +175,7 @@ fun validate_endpoint_capabilities(kind :: CHINodeKind,
         ]):
           condition
     | ~else: #false
+
   unless legal
   | error(~who: who,
           "channel capabilities are not valid for the " ++ to_string(kind) ++ " " ++ side ++ " role")
@@ -239,8 +244,10 @@ class CHIRequesterHomeParams(endpoint :: CHIICNPortParams,
                ~supports: supports :: CHIChannelCapabilities):
     unless [CHINodeKind.RNI, CHINodeKind.RNF].contains(endpoint.kind)
     | error(~who: #'CHIRequesterHomeParams, "Home traffic must describe a requester")
+
     unless endpoint.emits.contains_all(emits) && endpoint.supports.contains_all(supports)
     | error(~who: #'CHIRequesterHomeParams, "Home traffic must be a subset of endpoint capabilities")
+
     super(endpoint, emits, supports)
 
 annot.macro 'CHIHomeRequesterParams':
@@ -324,6 +331,7 @@ fun checked_rn_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)
   :: Boolean:
   unless [CHINodeKind.RNF, CHINodeKind.RND].contains(endpoint.kind)
   | error(~who: #'CHIRNLink, "endpoint kind must be RN-F or RN-D")
+
   #true
 
 /* Reject any non-RN-I endpoint when constructing a physical RN-I link. */
@@ -331,6 +339,7 @@ fun checked_rni_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)
   :: Boolean:
   unless endpoint.kind == CHINodeKind.RNI
   | error(~who: #'CHIRNILink, "endpoint kind must be RN-I")
+
   #true
 
 /* Reject endpoints outside SN-F/SN-I when constructing a physical subordinate link. */
@@ -338,6 +347,7 @@ fun checked_sn_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)
   :: Boolean:
   unless CHINodeKind.is_subordinate(endpoint.kind)
   | error(~who: #'CHISNLink, "endpoint kind must be SN-F or SN-I")
+
   #true
 
 /* Expose the credited RN-F/RN-D channels and bidirectional link-activation handshakes. */

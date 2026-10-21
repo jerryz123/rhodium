@@ -42,12 +42,14 @@ for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv3
     resolved.udb().to_yaml().contains("  MUTABLE_MISA_C: false") ~is #true
     simulator_soc_description(selection.key) ~is resolved.description
     gnu_isa_target(expected.isa.xlen, expected.isa.isa_extensions).mabi ~is (if isa == IsaPreset.RV32Int | "ilp32" | (if isa == IsaPreset.RV32Max | "ilp32f" | (if isa == IsaPreset.RV64IMACB | "lp64" | "lp64d")))
+
   when isa == IsaPreset.RV32Int || isa == IsaPreset.RV32Max
   | check:
       resolved.description.hart.vector.vlen ~is 64
       resolved.description.hart.vector.elen ~is 32
       resolved.udb().to_yaml().contains("  VLEN: 64") ~is #true
       resolved.udb().to_yaml().contains("  PHYS_ADDR_WIDTH: 32") ~is #true
+
   when isa == IsaPreset.RV64Max || isa == IsaPreset.RVA23
   | check:
       resolved.description.hart.vector.vlen ~is 128
@@ -56,6 +58,7 @@ for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv3
       resolved.description.hart.isa_profile.isa_extensions.contains("h") ~is (isa == IsaPreset.RVA23)
       resolved.description.hart.isa_profile.isa_extensions.contains("sha") ~is (isa == IsaPreset.RVA23)
       resolved.udb().to_yaml().contains("  VLEN: 128") ~is #true
+
 check:
   rv2wide_soc_profile(SoCShape.Tiled, IsaPreset.RV64IMACB) ~throws "supports Mini/Simple"
 
@@ -68,8 +71,10 @@ check:
   rv32_compiler.mabi ~is "ilp32"
   rv32_compiler.march.starts_with("rv32imacb_") ~is #true
   rv32.isa.misa_extension_bits ~is 0x141107
+
 for (extension in ["zcb", "zcmop", "zicbom", "zicbop", "zicboz", "zawrs", "zihintpause", "zihintntl", "ziccrse", "zve32x", "zvbb", "zvkb", "zvkt", "zvl64b"]):
   check: rv32.has(extension) ~is #true
+
 for (extension in ["f", "d", "v", "zfh", "zfa", "zve32f", "zvfh", "ssnpm", "supm"]):
   check: rv32.has(extension) ~is #false
 
@@ -178,6 +183,7 @@ check:
   rv32max_compiler.mabi ~is "ilp32f"
   rv32max.isa.misa_extension_bits ~is 0x141127
   rv32max.isa.isa_extensions.filter(~keep: fun (name): name != "f" && name != "zve32f") ~is rv32.isa.isa_extensions
+
 for (shape in [SoCShape.Mini, SoCShape.Simple]):
   for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
     def config = resolve_soc_config(SoCSelection(shape, core, IsaPreset.RV32Max))
@@ -200,6 +206,7 @@ check:
   rv64max.isa.isa_extensions ~is rva23.isa.isa_extensions.filter(~keep: fun (name): name != "h" && !name.starts_with("sh"))
   rv64max.isa.misa_extensions ~is rva23.isa.misa_extensions.filter(~keep: fun (extension): extension != MisaExtension.H)
   gnu_isa_target(rv64max.isa.xlen, rv64max.isa.isa_extensions).mabi ~is "lp64d"
+
 for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
   for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
     def selection = SoCSelection(shape, core, IsaPreset.RV64Max)
@@ -222,6 +229,7 @@ def scalar_fp = soc_architecture(IsaPreset.RV64IMAFDCB)
 check:
   scalar_integer.isa.isa_extensions ~is ["i", "m", "a", "c", "b", "za64rs", "zba", "zbb", "zbs", "zic64b", "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt", "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"]
   scalar_fp.isa.isa_extensions.filter(~keep: fun (name): name != "f" && name != "d") ~is scalar_integer.isa.isa_extensions
+
 for ([preset, abi, prefix, misa] in [[IsaPreset.RV64IMACB, "lp64", "rv64imacb_", 0x141107], [IsaPreset.RV64IMAFDCB, "lp64d", "rv64imafdcb_", 0x14112f]]):
   def architecture = soc_architecture(preset)
   def compiler = gnu_isa_target(architecture.isa.xlen, architecture.isa.isa_extensions)
@@ -231,6 +239,7 @@ for ([preset, abi, prefix, misa] in [[IsaPreset.RV64IMACB, "lp64", "rv64imacb_",
     architecture.isa.misa_extension_bits ~is misa
     compiler.mabi ~is abi
     compiler.march.starts_with(prefix) ~is #true
+
   for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
     for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
       def selection = SoCSelection(shape, core, preset)

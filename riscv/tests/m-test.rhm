@@ -12,10 +12,12 @@ check:
   RV32M.instructions.map(fun (instruction): instruction.name) ~is [
     "MUL", "MULH", "MULHSU", "MULHU", "DIV", "DIVU", "REM", "REMU"
   ]
+
   RV64M.instructions.map(fun (instruction): instruction.name) ~is [
     "MUL", "MULH", "MULHSU", "MULHU", "MULW",
     "DIV", "DIVU", "REM", "REMU", "DIVW", "DIVUW", "REMW", "REMUW"
   ]
+
   RV32M.matching(0x023140B3) === DIV ~is #true
   RV32M.matching(0x023150B3) === DIVU ~is #true
   RV32M.matching(0x023160B3) === REM ~is #true

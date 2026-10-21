@@ -120,6 +120,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
     exception_valid: exception_valid ||| !decoder.valid ||| decoder.control.vector.integer
     exception_cause: Bits(xlen.width)(2)
     exception_value: if xlen == XLen.X32 | instruction | instruction.zext(xlen.width)
+
   writeback_valid <== csrs.writeback_valid
   writeback_value <== csrs.writeback_value
   redirect_valid <== csrs.redirect.valid

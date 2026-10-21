@@ -37,6 +37,7 @@ cond
 | arguments.length() > 0 && arguments[0] == "--batch":
     unless arguments.length() >= 3 && arguments.length() mod 2 == 1
     | error(~who: #'write_opensbi_device_tree, "expected --batch followed by config/output pairs")
+
     for (pair in 0..((arguments.length() - 1) div 2)):
       def index = 1 + 2 * pair
       write_opensbi_device_tree(simulator_soc_description(arguments[index]), arguments[index + 1])

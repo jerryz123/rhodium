@@ -140,6 +140,7 @@ fun formal_query_snapshot(query :: FormalQuery,
       | error(~who: who,
               String.append("formal assumption ", to_string(index),
                             " references unknown input ", assumption.port))
+
       if assumption is_a FormalInputAssumption
       | block:
           def width = port.type.packed_width()
@@ -147,16 +148,19 @@ fun formal_query_snapshot(query :: FormalQuery,
             if assumption.care is_a Nat
             | assumption.care
             | (1 << width) - 1
+
           def limit = 1 << width
           unless assumption.value < limit && care < limit && (assumption.value bits.and care) == assumption.value
           | error(~who: who,
                   String.append("formal assumption ", to_string(index),
                                 " has an invalid packed pattern"))
+
           rkt.hash("kind", "input_pattern",
                    "port", assumption.port,
                    "value", assumption.value,
                    "care", care)
       | rkt.hash("kind", "onehot", "port", assumption.port)
+
   PairList[& snapshots]
 
 fun formal_output_pattern_snapshot(target :: FormalOutputPattern,
@@ -166,15 +170,18 @@ fun formal_output_pattern_snapshot(target :: FormalOutputPattern,
   unless port
   | error(~who: who,
           "formal output target references unknown output " ++ target.port)
+
   def width = port.type.packed_width()
   def care:
     if target.care is_a Nat
     | target.care
     | (1 << width) - 1
+
   def limit = 1 << width
   unless target.value < limit && care < limit && (target.value bits.and care) == target.value
   | error(~who: who,
           "formal output target has an invalid packed pattern")
+
   rkt.hash("port", target.port, "value", target.value, "care", care)
 
 fun interface_error(left_top :: Module, right_top :: Module):
@@ -190,6 +197,7 @@ fun interface_error(left_top :: Module, right_top :: Module):
           | def right_port = right_ports.find(
               fun (candidate): candidate.name == left_port.name
             )
+
             cond
             | !right_port:
                 message := "formal subjects have different " ++ kind ++ " port names"
@@ -200,7 +208,9 @@ fun interface_error(left_top :: Module, right_top :: Module):
                   left_port.type.describe(), " versus ", right_port.type.describe()
                 )
             | ~else: #void
+
         message
+
   def input_error = compare("input", left_top.inputs, right_top.inputs)
   input_error || compare("output", left_top.outputs, right_top.outputs)
 
@@ -236,8 +246,10 @@ fun convert_engine_result(raw :: satisfying(engine.formal_engine_result),
         unless port
         | error(~who: #'check_equivalent,
                 "formal engine returned an unknown input port " ++ name)
+
         FormalAssignment(name, port.type, entry_value(entry, "value"))
     )
+
   def differences:
     raw_differences.map(
       fun (entry):
@@ -246,11 +258,13 @@ fun convert_engine_result(raw :: satisfying(engine.formal_engine_result),
         unless port
         | error(~who: #'check_equivalent,
                 "formal engine returned an unknown output port " ++ name)
+
         FormalDifference(name,
                          port.type,
                          entry_value(entry, "left"),
                          entry_value(entry, "right"))
     )
+
   FormalResult(status,
                assignments,
                differences,
@@ -289,8 +303,10 @@ fun convert_reachability_result(raw :: satisfying(engine.formal_reachability_res
         unless port
         | error(~who: #'check_reachable,
                 "formal engine returned an unknown input port " ++ name)
+
         FormalAssignment(name, port.type, entry_value(entry, "value"))
     )
+
   def raw_output = engine.reachability_result_output(raw)
   def output:
     if raw_output
@@ -300,8 +316,10 @@ fun convert_reachability_result(raw :: satisfying(engine.formal_reachability_res
         unless port
         | error(~who: #'check_reachable,
                 "formal engine returned an unknown output port " ++ name)
+
         FormalOutputWitness(name, port.type, entry_value(raw_output, "value"))
     | #false
+
   FormalReachabilityResult(
     status,
     target,
@@ -340,8 +358,10 @@ fun convert_property_result(raw :: satisfying(engine.formal_property_result),
         unless port
         | error(~who: #'check_output_property,
                 "formal engine returned an unknown input port " ++ name)
+
         FormalAssignment(name, port.type, entry_value(entry, "value"))
     )
+
   def raw_output = engine.property_result_output(raw)
   def output:
     if raw_output
@@ -351,8 +371,10 @@ fun convert_property_result(raw :: satisfying(engine.formal_property_result),
         unless port
         | error(~who: #'check_output_property,
                 "formal engine returned an unknown output port " ++ name)
+
         FormalOutputWitness(name, port.type, entry_value(raw_output, "value"))
     | #false
+
   FormalPropertyResult(
     status,
     target,
@@ -368,6 +390,7 @@ fun check_output_property(subject :: DesignElaboration || Module || Design,
   def top = formal_subject_top(subject)
   def target_snapshot:
     formal_output_pattern_snapshot(target, top, #'check_output_property)
+
   def query_snapshot = formal_query_snapshot(query, top, #'check_output_property)
   convert_property_result(
     engine.check_property_snapshot(formal_snapshot(subject),

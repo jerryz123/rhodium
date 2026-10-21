@@ -24,9 +24,11 @@ sync_circuit Queue(T :: DataType,
      Host configuration omits disabled combinational paths from the circuit. */
   fun ready_for_input(full :: Bool):
     if pipe | (!full ||| egress.ready) | !full
+
   /* Includes an input offer in output validity only when empty bypass is enabled. */
   fun valid_for_output(empty :: Bool):
     if flow | (!empty ||| ingress.valid) | !empty
+
   /* Selects the live input for an empty flow-through queue; otherwise reads
      the stored head without changing its backpressure-stable payload. */
   fun bits_for_output(empty :: Bool, stored_bits :: Hardware.of(T)):
@@ -38,6 +40,7 @@ sync_circuit Queue(T :: DataType,
     if flow
     | ingress.fire() & !(empty & egress.ready)
     | ingress.fire()
+
   /* Removes only a stored head; an empty bypass transfer does not consume storage. */
   fun removes_output(empty :: Bool): !empty & egress.ready
 
@@ -58,8 +61,10 @@ sync_circuit Queue(T :: DataType,
 
       when (enqueue ^ dequeue):
         occupied <== enqueue
+
       when (enqueue):
         payload <== ingress.bits
+
       describe_interface_queue_storage(depth, enqueue, dequeue, Bits(1)(0), Bits(1)(0), !empty, if flow | empty | Bool(#false))
       #void
   | block:
@@ -95,6 +100,7 @@ sync_circuit Queue(T :: DataType,
           occupancy + Bits(count_width)(1),
           occupancy - Bits(count_width)(1)
         )
+
       describe_interface_queue_storage(depth, enqueue, dequeue, read_pointer.value, write_pointer.value, !empty, if flow | empty | Bool(#false))
       #void
 
@@ -114,15 +120,18 @@ sync_circuit CtrlQueue(depth :: PosInt,
   /* Allows full-queue admission on simultaneous removal only in pipe mode. */
   fun ready_for_input(full :: Bool):
     if pipe | (!full ||| egress.ready) | !full
+
   /* Includes a live control offer when flow mode bypasses empty storage. */
   fun valid_for_output(empty :: Bool):
     if flow | (!empty ||| ingress.valid) | !empty
+
   /* Counts accepted tokens as stores except when an empty flow-through token
      is immediately accepted downstream. */
   fun stores_input(empty :: Bool):
     if flow
     | ingress.fire() & !(empty & egress.ready)
     | ingress.fire()
+
   /* Removes only a stored token, excluding empty flow-through transfers. */
   fun removes_output(empty :: Bool): !empty & egress.ready
 
@@ -140,6 +149,7 @@ sync_circuit CtrlQueue(depth :: PosInt,
 
       when (enqueue ^ dequeue):
         occupied <== enqueue
+
       #void
   | block:
       def count_width = index_width(depth + 1)
@@ -163,7 +173,9 @@ sync_circuit CtrlQueue(depth :: PosInt,
           occupancy + Bits(count_width)(1),
           occupancy - Bits(count_width)(1)
         )
+
       #void
+
 /* Configures a fresh queue in the ambient sync domain, returning a connected
    endpoint or composed handle according to the source. Use an explicit Queue
    instance when occupancy must remain accessible. */
@@ -177,6 +189,7 @@ fun queue(depth :: PosInt,
                             depth,
                             ~pipe: pipe_enabled,
                             ~flow: flow_enabled)
+
     inst queue_stage(QueueModule)
     finish_interface_transform(
       source,
@@ -198,6 +211,7 @@ fun ctrl_queue(depth :: PosInt,
     def CtrlQueueModule = CtrlQueue(depth,
                                     ~pipe: pipe_enabled,
                                     ~flow: flow_enabled)
+
     inst ctrl_queue_stage(CtrlQueueModule)
     finish_interface_transform(
       source,

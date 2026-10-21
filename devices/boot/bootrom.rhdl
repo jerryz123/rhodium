@@ -36,6 +36,7 @@ class CHIBootROMLayout(flit :: CHIFlitParams,
     unless window_bytes >= CHIBootROMMaximumTransferBytes
     | error(~who: #'CHIBootROMLayout,
             "window must contain at least one maximum-size transfer")
+
     super(flit, window_bytes)
 
 /* Pairs the stable service layout with an image used to elaborate ROM contents. */
@@ -53,6 +54,7 @@ class CHIBootROMConfig(layout :: CHIBootROMLayout,
                ~image: image :: BootROMImage = DefaultRiscvBootROMImage):
     unless image.size_bytes <= layout.window_bytes
     | error(~who: #'CHIBootROMConfig, "image must fit in the BootROM window")
+
     super(layout, image)
 
 /* Describes one ROM's name, NodeID, and aligned address-map occurrence. */
@@ -71,6 +73,7 @@ class CHIBootROMParams(name :: NonemptyString,
       ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp]),
       ~max_outstanding: 1
     )
+
   /* Derives the fabric-facing counterpart of the ROM node. */
   property icn_port: node.icn_peer()
   /* Maps the entire padded ROM window to the layout's read service. */
@@ -89,12 +92,15 @@ class CHIBootROMParams(name :: NonemptyString,
     unless base_address mod layout.window_bytes == 0
     | error(~who: #'CHIBootROMParams,
             "base address must be aligned to the BootROM window")
+
     unless bits.length((base_address + layout.window_bytes) - 1) <= layout.flit.request_address_width
     | error(~who: #'CHIBootROMParams,
             "BootROM window must fit in the CHI request address width")
+
     unless bits.length(node_id) <= layout.flit.node_id_width
     | error(~who: #'CHIBootROMParams,
             "NodeID must fit in the physical NodeID width")
+
     super(name, node_id, layout, base_address)
 
 /* Carries the occurrence's NodeID and mapped base into the circuit. */
@@ -168,6 +174,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
 
   when (port.req.valid & ordinary_request):
     assert(incoming_supported, "chi_bootrom_request_supported")
+
   when (port.dat.request.valid & ordinary_data):
     assert(Bool(#false), "chi_bootrom_write_data_unsupported")
 

@@ -67,6 +67,7 @@ class RsimTarget(bind_sv :: Boolean, partitioning :: String):
   constructor (~bind_sv: bind_sv :: Boolean = #false, ~partitioning: partitioning :: String = "cost"):
     unless partitioning in ["cost", "module"]
     | error(~who: #'RsimTarget, "partitioning must be cost or module")
+
     def name = (if bind_sv | "rsim-sv" | "rsim") ++ (if partitioning == "module" | "-module" | "")
     super(name, fun (prepared): finish_plan(plan_rtl(prepared, partitioning), bind_sv))(bind_sv, partitioning)
 

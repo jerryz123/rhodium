@@ -20,6 +20,7 @@ sync_circuit BundleShiftRegister():
   def zero = Sample():
     data: Bits(8)(0)
     flag: Bool(#false)
+
   shift_register pipeline(source, 3, ~init: zero, ~enable: enable)
   stages <== pipeline
   oldest_data <== pipeline[2].data

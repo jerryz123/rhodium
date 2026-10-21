@@ -30,9 +30,11 @@ def routing = compile_routing(
   RoutingProblem(topology, [route], RoutingRelation(allows)),
   ~escape: EscapeValidationRequest(topology, [VCId(escape_link.id, 0)])
 )
+
 unless routing is_a ValidatedRouting
 | error(~who: #'EscapeRouterFixture,
         "adaptive self-loop must pass escape validation")
+
 def plan = RouterPlan(routing, n0)
 def config = compile_simple_router(plan)
 

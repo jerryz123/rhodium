@@ -22,6 +22,7 @@ class BitField(name :: NonemptyString, high :: Nat, low :: Nat, width :: PosInt)
     unless low <= high
     | error(~who: #'BitField,
             "field bounds must be natural numbers with high >= low")
+
     super(name, high, low, high - low + 1)
 
   /* Returns the field's bit positions as a shifted host mask. */
@@ -43,6 +44,7 @@ class FieldConstraint(field :: BitField, value :: Nat, mask :: Nat, value_bits :
     unless value <= width_mask(field.width)
     | error(~who: #'FieldConstraint,
             "constraint value must fit its instruction field")
+
     super(field,
           value,
           field.mask(),

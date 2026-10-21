@@ -70,79 +70,95 @@ fun rv2wide_operand_cases(xlen :: XLen):
       left: RV2WideLeft.Zero
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.Zero
+
     group reserved:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       left: RV2WideLeft.Register
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.Zero
+
     group excluding_instructions(atomic, reserved):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
       left: RV2WideLeft.Register
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.Zero
+
     group bitmanip_unary:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       left: RV2WideLeft.Register
+
     group bitmanip_immediate:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       left: RV2WideLeft.Register
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.I
+
     group excluding_instructions(bitmanip, bitmanip_unary ++ bitmanip_immediate) ++ ZicondInstructions:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
       left: RV2WideLeft.Register
       right_immediate: Bool(#false)
+
     group multiply:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
+
     [CSRRW, CSRRS, CSRRC]:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
+
     [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI, SFENCE_VMA, FENCE, FENCE_I]:
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
+
     [LUI]:
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
       left: RV2WideLeft.Zero
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.U
+
     [AUIPC]:
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
       left: RV2WideLeft.Pc
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.U
+
     group [ADDI, SLTI, SLTIU, XORI, ORI, ANDI, LB, LH, LW, LBU, LHU] ++ (if xlen == XLen.X32 | [rv32.SLLI, rv32.SRLI, rv32.SRAI] | [SLLI, SRLI, SRAI, ADDIW, SLLIW, SRLIW, SRAIW, LD, LWU]):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       left: RV2WideLeft.Register
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.I
+
     group [SB, SH, SW] ++ (if xlen == XLen.X64 | [SD] | []):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
       left: RV2WideLeft.Register
       right_immediate: Bool(#true)
       immediate: RV2WideImmediate.S
+
     group [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND] ++ (if xlen == XLen.X64 | [ADDW, SUBW, SLLW, SRLW, SRAW] | []):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
       left: RV2WideLeft.Register
       right_immediate: Bool(#false)
+
     [JAL]:
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
       immediate: RV2WideImmediate.J
+
     [JALR]:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       immediate: RV2WideImmediate.I
+
     [BEQ, BNE, BLT, BGE, BLTU, BGEU]:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)

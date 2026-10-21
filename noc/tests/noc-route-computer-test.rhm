@@ -20,6 +20,7 @@ fun pattern_field(cube, field_name):
   def field = cube.value.fields.find(
     fun (candidate): candidate[0] == field_name
   )
+
   field[1].packed_value()
 
 fun decision_result(cube):
@@ -38,11 +39,14 @@ fun decoded_result(route_decoder, encoded_key):
         route_decoder.origin_width,
         route_decoder.origin_width + route_decoder.route_width
       ))
+
     origin_key: hw.Bits(route_decoder.origin_width)(encoded_key bits.and origin_mask)
+
   def table = route_decoder.decoder.table
   def matching = table.cases.find(
     fun (case): case.input.matches(selector)
   )
+
   if matching
   | decision_result(matching.output)
   | decision_result(table.default)
@@ -59,6 +63,7 @@ fun expected_result(route_decoder, encoded_key):
     fun (candidate):
       candidate.route_key == route_key && candidate.origin_key == origin_key
   )
+
   if entry
   | [entry.target_mask, entry.fallback_mask, #true]
   | [0, 0, #false]
@@ -83,12 +88,14 @@ fun materialized_mask(route_decoder, entry):
     mask := mask bits.or (
       1 << route_decoder.router_plan.target_bit(vc)
     )
+
   when entry.route_row.ejection_terminal
   | mask := mask bits.or (
       1 << route_decoder.router_plan.target_bit(
         entry.route_row.ejection_terminal
       )
     )
+
   mask
 
 fun masks_match_materialized(route_decoder):
@@ -194,12 +201,14 @@ check:
         ~keep: fun (operation): operation.opcode == "rtl.record_create"
       ).length()
   ) ~is [1, 1, 1]
+
   decode_modules.map(
     fun (module_def):
       module_def.operations.filter(
         ~keep: fun (operation): operation.opcode == "rtl.record_get"
       ).length()
   ) ~is [3, 3, 3]
+
   verify_design(fixture_design) ~is #void
 
 def isolated_node = NodeId(0)
@@ -212,6 +221,7 @@ def no_vc_routing = compile_routing(
     RoutingRelation(fun (_, _, _): #false)
   )
 )
+
 def local_plan = RouterPlan(no_vc_routing, isolated_node)
 def local_decoder = compile_route_decoder(local_plan)
 def unused_plan = RouterPlan(no_vc_routing, unused_node)

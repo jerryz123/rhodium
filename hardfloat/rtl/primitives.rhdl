@@ -12,10 +12,12 @@ fun low_mask(value :: Bits,
              bottom_bound :: Nat) :~ Bits(if top_bound > bottom_bound | top_bound - bottom_bound | bottom_bound - top_bound):
   unless top_bound != bottom_bound
   | error(~who: #'low_mask, "bounds must be distinct")
+
   def input_width = value.type.packed_width()
   def input_values = 1 << input_width
   unless top_bound <= input_values && bottom_bound <= input_values
   | error(~who: #'low_mask, "bounds must fit the input value range")
+
   def result_width = if top_bound > bottom_bound | top_bound - bottom_bound | bottom_bound - top_bound
   def lanes:
     if top_bound > bottom_bound
@@ -31,6 +33,7 @@ fun low_mask(value :: Bits,
         | if threshold == 0
           | Bool(#false)
           | value < Bits(input_width)(threshold)
+
   vec(lanes).as_bits()
 
 export:

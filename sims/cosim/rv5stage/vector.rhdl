@@ -22,6 +22,7 @@ fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, i
         ~enable: active & mmu["mmu_request_valid"] & vector_request
       )
   | #void
+
   if types.has_key("mmu_fragment_completed")
   | block:
       def request :: PhysicalMemoryReq(profile.xlen, RV5StageMemoryContext(slots)) = mmu["mmu_fragment_request"]

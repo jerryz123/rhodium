@@ -14,6 +14,7 @@ fun nested_next_classification(summary :: DesignTemporalSummary,
     fun (candidate):
       candidate.instance_path.length() == 1 && candidate.instance_path[0].attribute("name") == instance_name && candidate.operation.attribute("name", #false) == "state"
   )
+
   sink.inputs.find(fun (input): input.name == "next").classification
 
 def system = Design()
@@ -48,6 +49,7 @@ fun environment(prepared_top :: Module):
     [TopInputContract(data, [], SynchronousInputTiming(clock_a))],
     [AsynchronousClockRelationship(clock_a, clock_b)]
   )
+
 def compiled = compile_program(DesignElaboration(system, top), clocking_target(~environment: environment))
 def summary = compiled.report.summary
 def report = compiled.artifacts[0].content

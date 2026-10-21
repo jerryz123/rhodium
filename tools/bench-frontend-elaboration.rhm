@@ -29,5 +29,6 @@ for (size_text in arguments):
   unless size is_a PosInt
   | error(~who: #'bench_frontend_elaboration,
           "circuit sizes must be positive integers")
+
   for (repetition in 0..6):
     run_once(size, repetition)

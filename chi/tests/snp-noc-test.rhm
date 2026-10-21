@@ -27,6 +27,7 @@ check:
   fixture_snp_noc_design.modules.map(fun (module): module.name).contains(
     "CHISnpNoCInjector"
   ) ~is #true
+
   fixture_snp_noc_design.modules.map(fun (module): module.name).contains(
     "CHISnpNoCEjector"
   ) ~is #true

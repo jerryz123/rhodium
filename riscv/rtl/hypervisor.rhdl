@@ -90,6 +90,7 @@ fun virtual_supervisor_csr(address :: Bits(12), virtualized :: Bool) :~ Bits(12)
     [csr_address(CsrId.Sip), csr_bits(CsrId.Vsip)],
     [csr_address(CsrId.Satp), csr_bits(CsrId.Vsatp)]
   ])
+
   mux(virtualized, substituted, address)
 
 /* Resolves exception delegation to M, HS, or VS using the captured execution context and supported cause sets. */
@@ -101,12 +102,14 @@ fun hypervisor_trap_target(context :: RiscvExecutionContext(), cause :: Bits(64)
       fun (candidate): [exception_code(candidate), medeleg[exception_code(candidate)].into(Bool)]
     )
   )
+
   def guest_delegated = mux_lookup(
     cause, ~default: Bool(#false),
     DelegatableExceptionCauses.filter(~keep: fun (candidate): candidate != ExceptionCause.EnvironmentCallFromSupervisor).map(
       fun (candidate): [exception_code(candidate), hedeleg[exception_code(candidate)].into(Bool)]
     )
   )
+
   mux((context.privilege === PrivilegeMode.Machine) ||| !machine_delegated,
       RiscvTrapTarget.Machine,
       mux(context.virtualized & guest_delegated, RiscvTrapTarget.VirtualSupervisor, RiscvTrapTarget.Supervisor))

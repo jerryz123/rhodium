@@ -61,12 +61,16 @@ bundle RiscvCsrState(xlen :: XLen, hypervisor :: Boolean, sstc :: Boolean, smsta
   if sstc:
     stce: Bool
     stimecmp: Bits(64)
+
   if sstc && hypervisor:
     vstimecmp: Bits(64)
+
   if smstateen:
     mstateen: Vec(4, Bits(64))
+
   if smstateen && hypervisor:
     hstateen: Vec(4, Bits(64))
+
   if hypervisor:
     virtualized: Bool
     hstatus: Bits(64)
@@ -147,10 +151,12 @@ fun resolve_csr_trap(xlen :: XLen,
       [PrivilegeMode.Machine, exception_cause_bits(ExceptionCause.EnvironmentCallFromMachine, width)]
     ]
   )
+
   def generated_cause = priority_mux(~default: exception_cause_bits(ExceptionCause.IllegalInstruction, width)):
     ecall: ecall_cause
     ebreak: exception_cause_bits(ExceptionCause.Breakpoint, width)
     virtual_instruction: exception_cause_bits(ExceptionCause.VirtualInstruction, width)
+
   def instruction = if width == 32 | operation.instruction | operation.instruction.zext(width)
   resolve_riscv_trap(
     xlen,
@@ -233,6 +239,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     MstatusSPP, MstatusMPP, MstatusMPRV, MstatusMXR, MstatusTVM,
     MstatusTW, MstatusTSR
   ] ++ (if paged_memory | [MstatusSUM] | [])
+
   def sstatus_writable_fields = [MstatusSIE, MstatusSPIE, MstatusSPP, MstatusMXR] ++ (if paged_memory | [MstatusSUM] | [])
   def mstatus_write_mask = Bits(width)(csr_fields_mask(mstatus_writable_fields ++ (if hypervisor | [MstatusMPV, MstatusGVA] | [])))
   def sstatus_write_mask = Bits(width)(csr_fields_mask(sstatus_writable_fields))
@@ -307,12 +314,14 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def context = RiscvExecutionContext():
     privilege: privilege_state
     virtualized: virtualized
+
   def guest_fault_details :: RiscvGuestFault():
     if hypervisor
     | block:
         interface guest_fault(Valid(RiscvGuestFault()), ~role: consumer)
         mux(guest_fault.valid, guest_fault.bits, literal(RiscvGuestFault(), 0))
     | literal(RiscvGuestFault(), 0)
+
   pbmte <== svpbmt_enabled(xlen, state.menvcfg)
   def guest_envcfg = if hypervisor | state.henvcfg | zero
   cbo_zero_access <== cbo_zero_permission(xlen, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicboz: config.zicboz, ~virtualized: virtualized, ~henvcfg: guest_envcfg)
@@ -409,33 +418,40 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       read: sstatus_value
       write value:
         state.mstatus <== state.mstatus.masked_merge(value, sstatus_write_mask)
+
     csr CsrId.Sie:
       read: state.mie & supervisor_visible_mask
       write value:
         state.mie <== state.mie.masked_merge(value, supervisor_visible_mask)
+
     csr CsrId.Stvec:
       read: state.stvec
       write value:
         state.stvec <== align_down(value, tvec_alignment)
+
     csr CsrId.Scounteren:
       read: state.scounteren
       write value:
         state.scounteren <== value & counter_enable_mask
+
     csr CsrId.Senvcfg:
       read: state.senvcfg
       write value:
         state.senvcfg <== fiom_field(value) ||| cmo_envcfg_fields(xlen, value, ~zicbom: config.zicbom, ~zicboz: config.zicboz) ||| pointer_mask_envcfg_fields(xlen, value, ~enabled: config.ssnpm)
+
     storage CsrId.Sscratch: state.sscratch
     csr CsrId.Sepc:
       read: state.sepc
       write value:
         state.sepc <== align_down(value, epc_alignment)
+
     storage CsrId.Scause: state.scause
     storage CsrId.Stval: state.stval
     csr CsrId.Sip:
       read: interrupt_pending & supervisor_visible_mask
       write value:
         state.mip <== state.mip.masked_merge(value, state.mideleg & supervisor_software_interrupt_mask & !lcof_mask)
+
     csr CsrId.Satp:
       read: state.satp
       write value:
@@ -446,6 +462,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         def satp_value = if xlen == XLen.X32 | zero | csr_field_value(Satp64Mode, satp_mode, width) ||| csr_field_value(Satp64PPN, satp_ppn, width)
         when satp_mode_supported:
           state.satp <== satp_value
+
     read CsrId.Cycle: cycle_value
     read CsrId.Time: time_value
     read CsrId.Instret: instret_value
@@ -470,31 +487,38 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       read: mux(hpm_inhibit, hpm_mask, zero)
       write value:
         hpm_inhibit <== value.as_bits()[3].into(Bool)
+
     csr CsrId.Mstatus:
       read: mstatus_value
       write value:
         state.mstatus <== legalize_mstatus(value)
+
     read CsrId.Misa: misa_value
     csr CsrId.Medeleg:
       read: state.medeleg
       write value:
         state.medeleg <== value & medeleg_mask
+
     csr CsrId.Mideleg:
       read: interrupt_delegation
       write value:
         state.mideleg <== value & mideleg_mask
+
     csr CsrId.Mie:
       read: state.mie
       write value:
         state.mie <== value & interrupt_enable_mask
+
     csr CsrId.Mtvec:
       read: state.mtvec
       write value:
         state.mtvec <== align_down(value, tvec_alignment)
+
     csr CsrId.Mcounteren:
       read: state.mcounteren
       write value:
         state.mcounteren <== value & counter_enable_mask
+
     csr CsrId.Menvcfg:
       read: state.menvcfg ||| machine_timer_field
       write value:
@@ -502,11 +526,13 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         if sstc && xlen == XLen.X64
         | state.stce <== csr_flag(value, EnvcfgSTCE)
         | #void
+
     storage CsrId.Mscratch: state.mscratch
     csr CsrId.Mepc:
       read: state.mepc
       write value:
         state.mepc <== align_down(value, epc_alignment)
+
     storage CsrId.Mcause: state.mcause
     storage CsrId.Mtval: state.mtval
     csr CsrId.Mip:
@@ -516,6 +542,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         if hypervisor
         | state.hvip <== state.hvip.masked_merge(value, guest_software_mask)
         | #void
+
     read CsrId.Mcycle: cycle_value
     read CsrId.Minstret: instret_value
     read CsrId.Mcycleh: cycleh_value
@@ -547,42 +574,52 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
           read: state.hstatus ||| csr_field_value(HstatusVSXL, xlen64_encoding, width)
           write value:
             state.hstatus <== csr_keep_fields(value, [HstatusGVA, HstatusSPV, HstatusSPVP, HstatusHU, HstatusVTVM, HstatusVTW, HstatusVTSR]) ||| pointer_mask_hstatus_fields(value, ~enabled: config.ssnpm)
+
         csr CsrId.Hedeleg:
           read: state.hedeleg
           write value:
             state.hedeleg <== value & Bits(width)(config.hedeleg_mask)
+
         csr CsrId.Hcounteren:
           read: state.hcounteren
           write value:
             state.hcounteren <== value & counter_enable_mask
+
         csr CsrId.Henvcfg:
           read: state.henvcfg & mux(pbmte, !zero, !Bits(width)(MenvcfgPBMTE.mask())) & mux(machine_timer_enabled, !zero, !Bits(width)(EnvcfgSTCE.mask()))
           write value:
             state.henvcfg <== fiom_field(value) ||| cmo_envcfg_fields(xlen, value, ~zicbom: config.zicbom, ~zicboz: config.zicboz) ||| svpbmt_envcfg_fields(xlen, value, ~enabled: config.svpbmt) ||| pointer_mask_envcfg_fields(xlen, value, ~enabled: config.ssnpm) ||| (if sstc | mux(machine_timer_enabled, csr_keep_fields(value, [EnvcfgSTCE]), Bits(64)(0)) | Bits(64)(0))
+
         csr CsrId.Hideleg:
           read: state.hideleg
           write value:
             state.hideleg <== value & guest_interrupt_mask
+
         csr CsrId.Hvip:
           read: state.hvip
           write value:
             state.hvip <== value & guest_interrupt_mask
+
         csr CsrId.Hip:
           read: interrupt_pending & guest_interrupt_mask
           write value:
             state.hvip <== state.hvip.masked_merge(value, guest_software_mask)
+
         csr CsrId.Hie:
           read: state.mie & guest_interrupt_mask
           write value:
             state.mie <== state.mie.masked_merge(value, guest_interrupt_mask)
+
         csr CsrId.Vsip:
           read: (interrupt_pending & state.hideleg) >> 1
           write value:
             state.hvip <== state.hvip.masked_merge(value << 1, state.hideleg & guest_software_mask)
+
         csr CsrId.Vsie:
           read: (state.mie & state.hideleg) >> 1
           write value:
             state.mie <== state.mie.masked_merge(value << 1, state.hideleg)
+
         // No direct-assigned guest interrupt files: GEILEN=0, VGEIN=0.
         read CsrId.Hgeip: zero
         read CsrId.Hgeie: zero
@@ -595,15 +632,18 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
           read: vsstatus_value
           write value:
             state.vsstatus <== value & sstatus_write_mask
+
         csr CsrId.Vstvec:
           read: state.vstvec
           write value:
             state.vstvec <== align_down(value, tvec_alignment)
+
         storage CsrId.Vsscratch: state.vsscratch
         csr CsrId.Vsepc:
           read: state.vsepc
           write value:
             state.vsepc <== align_down(value, epc_alignment)
+
         storage CsrId.Vscause: state.vscause
         storage CsrId.Vstval: state.vstval
         csr CsrId.Vsatp:
@@ -612,6 +652,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
             def mode = csr_field(value, Satp64Mode)
             when (mode.is_one_of(Bits(4)(0), Bits(4)(Sv39Mode))):
               state.vsatp <== csr_keep_fields(value, [Satp64Mode, Satp64PPN])
+
         csr CsrId.Hgatp:
           read: state.hgatp
           write value:
@@ -632,6 +673,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
             read: state.stimecmp[0..32]
             write value:
               state.stimecmp <== state.stimecmp[32..64] ++ value
+
           csr CsrId.Stimecmph:
             read: state.stimecmp[32..64]
             write value:
@@ -661,6 +703,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
               read: state.mstateen[index][32..64]
               write value:
                 state.mstateen[index] <== csr_keep_fields(value ++ Bits(32)(0), fields)
+
             read SupervisorStateEnableIds[index]: zero
       | hypervisor:
           csr_bank(csr, ~default: zero):
@@ -668,10 +711,12 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
               read: state.mstateen[index]
               write value:
                 state.mstateen[index] <== csr_keep_fields(value, fields)
+
             csr HypervisorStateEnableIds[index]:
               read: state.hstateen[index] & state.mstateen[index]
               write value:
                 state.hstateen[index] <== state.hstateen[index].masked_merge(csr_keep_fields(value, fields), state.mstateen[index])
+
             read SupervisorStateEnableIds[index]: zero
       | ~else:
           csr_bank(csr, ~default: zero):
@@ -679,6 +724,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
               read: state.mstateen[index]
               write value:
                 state.mstateen[index] <== csr_keep_fields(value, fields)
+
             read SupervisorStateEnableIds[index]: zero
 
 
@@ -694,6 +740,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     if smstateen
     | state_enable_access(context, csr, state.mstateen, if hypervisor | state.hstateen | literal(Vec(4, Bits(64)), 0))
     | literal(RiscvStateEnableAccess(), 0)
+
   def timer_selected = Bool(sstc) & timer_bank.recognized
   def hypervisor_selected = Bool(hypervisor) & hypervisor_bank.recognized
   def rv32_counter_halves = Bool(xlen == XLen.X32)
@@ -740,6 +787,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       hpm_csr: hpm3_csr & counteren[3].into(Bool)
       cycle_csr: csr_flag(counteren, CounterenCY)
       time_csr: csr_flag(counteren, CounterenTM)
+
   def machine_counter_enabled = counter_enabled(state.mcounteren)
   def supervisor_counter_enabled = counter_enabled(state.scounteren)
   def counter_access_enabled = mux_lookup(
@@ -750,6 +798,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       [PrivilegeMode.Supervisor, machine_counter_enabled]
     ]
   )
+
   def hypervisor_counter_enabled = if hypervisor | counter_enabled(state.hcounteren) | Bool(#true)
   def counter_permission = !counter_csr ||| (counter_access_enabled & (!virtualized ||| hypervisor_counter_enabled))
 
@@ -786,6 +835,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     ~exception_cause: mux(commit.bits.exception_valid, commit.bits.exception_cause, exception_cause_bits(ExceptionCause.IllegalInstruction, width)),
     ~exception_value: mux(commit.bits.exception_valid, commit.bits.exception_value, if width == 32 | commit.bits.instruction | commit.bits.instruction.zext(width))
   )
+
   def synchronous_trap = resolve_csr_trap(
     xlen, commit.valid, checked_commit, privilege_state, state.mstatus, csr_access_legal, state.medeleg,
     ~virtualized: virtualized, ~virtual_csr: virtual_csr,
@@ -793,20 +843,24 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     ~vtw: (if hypervisor | csr_flag(state.hstatus, HstatusVTW) | Bool(#false)),
     ~vtvm: (if hypervisor | csr_flag(state.hstatus, HstatusVTVM) | Bool(#false))
   )
+
   def interrupt :: RiscvInterruptDecision(xlen):
     if hypervisor
     | resolve_riscv_hypervisor_interrupt(interrupt_pending, state.mie, interrupt_delegation, state.hideleg, state.mstatus, state.vsstatus, context)
     | resolve_riscv_interrupt(xlen, interrupt_pending, state.mie, state.mideleg, state.mstatus, privilege_state)
+
   def interrupt_take = interrupt_boundary & !synchronous_trap.valid & interrupt.valid
   def synchronous_target :: RiscvTrapTarget:
     if hypervisor
     | hypervisor_trap_target(context, synchronous_trap.cause, state.medeleg, state.hedeleg)
     | synchronous_trap.target
+
   def trap = RiscvTrapDecision(xlen):
     valid: synchronous_trap.valid ||| interrupt_take
     cause: mux(synchronous_trap.valid, synchronous_trap.cause, interrupt.cause)
     value: mux(synchronous_trap.valid, synchronous_trap.value, zero)
     target: mux(synchronous_trap.valid, synchronous_target, interrupt.target)
+
   def trap_pc = mux(interrupt_take, interrupt_pc, commit.bits.pc)
   trap_event <== trap
   def trap_to_guest = trap.target === RiscvTrapTarget.VirtualSupervisor
@@ -824,6 +878,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       [RiscvCsrOperation.Clear, csr_read_value & !commit.bits.csr_source]
     ]
   )
+
   def csr_write = csr_commit & csr_access_legal & write_requested & !trap.valid
   vector_csrs.configure.valid <== vector_config_commit & !trap.valid
   vector_csrs.candidate <== commit.bits.vector_config
@@ -831,6 +886,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   vector_csrs.write.bits <== RiscvVectorCsrWrite(xlen):
     address: csr
     value: csr_replacement
+
   vector_csrs.status_write.valid <== csr_write & bank_address.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   vector_csrs.status_write.bits <== csr_field(csr_replacement, MstatusVS)
   def user_mask_changed = (csr === csr_bits(CsrId.Senvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.senvcfg))
@@ -842,6 +898,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
            execution context. */
         fun masking(access :: RiscvGuestMemoryAccess) :~ PointerMaskControl():
           hypervisor_pointer_mask_control(context, mstatus_value, state.satp, state.senvcfg, state.hstatus, state.vsstatus, state.vsatp, state.henvcfg, access, ~enabled: config.ssnpm)
+
         pointer_masking <== masking(RiscvGuestMemoryAccess.Normal)
         output guest_pointer_masking: PointerMaskControl()
         guest_pointer_masking <== masking(RiscvGuestMemoryAccess.Guest)
@@ -849,12 +906,14 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     | block:
         pointer_masking <== user_pointer_mask_control(xlen, privilege_state, mstatus_value, state.satp, state.senvcfg, ~enabled: config.ssnpm)
         Bool(#false)
+
   pointer_masking_changed <== Bool(config.ssnpm) & csr_write & (user_mask_changed ||| guest_mask_changed)
   def fp_csr_write = csr_write & fp_csr
   fp_csrs.write.valid <== fp_csr_write
   fp_csrs.write.bits <== RiscvFpCsrWrite():
     address: csr
     value: csr_replacement[0..8]
+
   fp_csrs.status_write.valid <== csr_write & bank_address.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   fp_csrs.status_write.bits <== csr_field(csr_replacement, MstatusFS)
 
@@ -876,6 +935,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   counters.machine_write.bits <== RiscvCounterWrite(xlen):
     address: csr
     value: csr_replacement
+
   // Events use the retiring context, not speculative issue or individual vector beats.
   hpm.event.valid <== Bool(sscofpmf) & ((hpm_selector[0..56] === Bits(56)(1)) ||| ((hpm_selector[0..56] === Bits(56)(2)) & retire_count.or_reduce()))
   hpm.event_count <== mux(hpm_selector[0..56] === Bits(56)(2), retire_count, Bits(2)(1))
@@ -911,6 +971,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     if hypervisor
     | mux(trap_to_supervisor, supervisor_trap_status, csr_flag_replace(csr_flag_replace(machine_trap_status, MstatusMPV, virtualized), MstatusGVA, fault_gva))
     | mux(trap_to_supervisor, supervisor_trap_status, machine_trap_status)
+
   def mret_status = mstatus_after_mret(state.mstatus)
   def sret_status = mstatus_after_sret(state.mstatus)
 
@@ -933,10 +994,12 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def trap_vector = priority_mux(~default: state.mtvec):
     trap_to_guest: if hypervisor | state.vstvec | zero
     trap_to_supervisor: state.stvec
+
   def supervisor_return_pc = if hypervisor | mux(virtualized, state.vsepc, state.sepc) | state.sepc
   def redirect_pc = priority_mux(~default: supervisor_return_pc):
     trap.valid: trap_vector
     mret: state.mepc
+
   redirect.bits <== redirect_pc
 
 
@@ -1022,10 +1085,12 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         state.guest_fp_status <== if floating_point_supports_f(profile) | csr_field(csr_replacement, MstatusFS) | Bits(MstatusFS.width)(0)
       elsewhen (virtualized & (fp_csr_write ||| fp_update.valid)):
         state.guest_fp_status <== Bits(MstatusFS.width)(ExtensionStatusDirty)
+
       when (csr_write & (bank_address === csr_bits(CsrId.Vsstatus))):
         state.guest_vector_status <== if vector_profile_enabled(config.vector) | csr_field(csr_replacement, MstatusVS) | Bits(MstatusVS.width)(0)
       elsewhen (virtualized & (vector_csrs.configure.valid ||| vector_csrs.write.valid ||| vector_retire.valid ||| vector_fault_start.valid ||| vector_truncate.valid ||| vector_saturate.valid)):
         state.guest_vector_status <== Bits(MstatusVS.width)(ExtensionStatusDirty)
+
       output execution_context: RiscvExecutionContext()
       execution_context <== context
       output guest_translation: RiscvHypervisorTranslation()
@@ -1036,6 +1101,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
         vsstatus: vsstatus_value
         vsatp: state.vsatp
         hgatp: state.hgatp
+
       // Trap and return events own V. CSR writes can only alter saved V state.
       when (trap.valid):
         state.virtualized <== trap_to_guest
@@ -1074,6 +1140,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
     "fault_inst": fault_inst,
     "returned_virtual": if hypervisor | mux(mret, (mret_privilege =/= PrivilegeMode.Machine) & csr_flag(state.mstatus, MstatusMPV), virtualized ||| csr_flag(state.hstatus, HstatusSPV)) | Bool(#false)
   }
+
   describe_cosim_signals(csr_taps)
 
 export:

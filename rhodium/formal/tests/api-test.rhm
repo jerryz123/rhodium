@@ -18,6 +18,7 @@ fun binary_module(name, opcode):
     | "add": builder.add(module_def, a, b)
     | "add-reversed": builder.add(module_def, b, a)
     | "sub": builder.sub(module_def, a, b)
+
   builder.drive(result, value)
   builder.finish(module_def)
 
@@ -28,6 +29,7 @@ def equivalent_result = check_equivalent(add, add_reversed)
 def elaboration_result:
   check_equivalent(DesignElaboration(add.design, add),
                    DesignElaboration(add_reversed.design, add_reversed))
+
 def counterexample_result = check_equivalent(add, subtract)
 
 def free_design = Design()

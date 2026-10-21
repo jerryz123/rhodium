@@ -27,9 +27,11 @@ def bit_order_module = bit_order_design.modules[0]
 def extracts = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.extract"
 )
+
 def bitwise_ands = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.and" && operation.results[0].type.type_equal(Bits(8))
 )
+
 def transfer_design = compile_program(elaborate(fixture.TransferByteMaskFixture()), rtl_target).report.design
 def transfer_module = transfer_design.modules[0]
 def registered_transfer_compiled = compile_program(elaborate(fixture.RegisteredTransferByteMaskFixture()), rtl_target)
@@ -65,9 +67,11 @@ check:
   bit_order_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.concat"
   ).length() >= 2 ~is #true
+
   bit_order_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.extract"
   ).length() >= 8 ~is #true
+
   verify_design(bit_order_design) ~is #void
   bits_std.alignment_bits(1) ~is 0
   bits_std.alignment_bits(2) ~is 1
@@ -77,28 +81,34 @@ check:
     "aligned_1", "aligned_2", "aligned_4", "aligned_8", "aligned_256",
     "down_1", "down_4", "down_256", "merged"
   ]
+
   extracts.map(fun (operation): operation.attribute("high")) ~is [0, 1, 2, 7]
   bitwise_ands.length() >= 2 ~is #true
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.constant" && operation.attribute("value", #false) == 252
   ).length() ~is 1
+
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.constant" && operation.attribute("value", #false) == 0 && operation.results[0].type.type_equal(Bits(8))
   ).length() >= 1 ~is #true
+
   verify_design(design) ~is #void
   output_types_match(transfer_module, [bool.Mask(1), bool.Mask(4), bool.Mask(16)]) ~is #true
   transfer_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.shl"
   ).length() ~is 3
+
   verify_design(transfer_design) ~is #void
   registered_transfer_compiled.has_errors ~is #false
   output_types_match(pack_module, [Bits(8), Bits(2), Bits(8)]) ~is #true
   pack_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.concat"
   ).length() ~is 1
+
   pack_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.or"
   ).length() ~is 0
+
   verify_design(pack_design) ~is #void
   bits_std.alignment_bits(0) ~throws "Pow2Int"
   bits_std.alignment_bits(3) ~throws "Pow2Int"

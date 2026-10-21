@@ -16,6 +16,7 @@ sync_circuit EventOfferRegister():
   reference.egress.ready <== sink.ready
   storage.egress |> trace_event("delivered", ~payload: #true)
     |> trace_event("offer", ~parents: [update], ~stalls: #true, ~payload: #true) |> sink
+
   assert(storage.egress.valid === reference.egress.valid, "offer_valid_unchanged")
   assert(storage.egress.bits === reference.egress.bits, "offer_payload_unchanged")
 

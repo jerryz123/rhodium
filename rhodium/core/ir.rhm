@@ -250,8 +250,10 @@ class.together:
                    mask_granularity :: maybe(PosInt) = #false):
     property read_port:
       if read_ports.length() == 0 | #false | read_ports[0]
+
     property write_port:
       if write_ports.length() == 0 | #false | write_ports[0]
+
     property read_write_port:
       if read_write_ports.length() == 0 | #false | read_write_ports[0]
 
@@ -278,9 +280,11 @@ class.together:
       def binding = input_bindings.find(
         fun (candidate): candidate.name == name
       )
+
       unless binding
       | error(~who: #'input,
               "instance has no input named " ++ name)
+
       binding.place
 
     /* Returns a named child output's parent-side value, rejecting unknown output names. */
@@ -288,9 +292,11 @@ class.together:
       def binding = output_bindings.find(
         fun (candidate): candidate.name == name
       )
+
       unless binding
       | error(~who: #'output,
               "instance has no output named " ++ name)
+
       binding.value
 
   /* Lets extensions rebind live IR without teaching the core their field layouts. */
@@ -360,29 +366,36 @@ class.together:
       design.assert_mutable()
       unless operation.module_def === this
       | error(~who: #'add_operation, "operation belongs to a different module")
+
       _operations := if collections_finished | _operations ++ [operation] | [operation] ++ _operations
       unless operations_by_id.has_key(operation.id)
       | operations_by_id[operation.id] := operation
+
       operation_set.add(operation)
       when operation.opcode == "rtl.instance"
       | def instance_name = operation.attribute("name", #false)
         unless instances_by_name.has_key(instance_name)
         | instances_by_name[instance_name] := operation
+
       when operation.opcode == "rtl.drive" && operation.places.length() == 1
       | def place_id = operation.places[0].id
         unless drives_by_place_id.has_key(place_id)
         | drives_by_place_id[place_id] := operation
+
       when operation.opcode == "rtl.sync_memory"
       | hardware_names.add(operation.attribute("name", #false))
+
       when operation.opcode == "rtl.memory_write" && operation.operands.length() >= 3
       | def memory = operation.attribute("memory", #false)
         def clock = operation.operands[2]
         def prior_clock = memory_write_clocks.get(memory, #false)
         when prior_clock && !(prior_clock === clock)
         | memory_write_clock_consistency[memory] := #false
+
         unless prior_clock
         | memory_write_clocks[memory] := clock
           memory_write_clock_consistency[memory] := #true
+
       when operation.opcode == "cdc.sync_level"
       | for (stage in operation.operands.drop(2)):
           sync_crossing_use_counts[stage] := sync_crossing_use_counts.get(stage, 0) + 1
@@ -392,9 +405,11 @@ class.together:
       design.assert_mutable()
       unless value.module_def === this
       | error(~who: #'add_value, "value belongs to a different module")
+
       _values := if collections_finished | _values ++ [value] | [value] ++ _values
       unless values_by_id.has_key(value.id)
       | values_by_id[value.id] := value
+
       value_set.add(value)
       hardware_names.add(value.name)
 
@@ -403,9 +418,11 @@ class.together:
       design.assert_mutable()
       unless place.module_def === this
       | error(~who: #'add_place, "place belongs to a different module")
+
       _places := if collections_finished | _places ++ [place] | [place] ++ _places
       unless places_by_id.has_key(place.id)
       | places_by_id[place.id] := place
+
       place_set.add(place)
       hardware_names.add(place.name)
 
@@ -414,9 +431,11 @@ class.together:
       design.assert_mutable()
       unless memory.module_def === this
       | error(~who: #'add_memory, "memory belongs to a different module")
+
       _memories := if collections_finished | _memories ++ [memory] | [memory] ++ _memories
       unless memories_by_id.has_key(memory.id)
       | memories_by_id[memory.id] := memory
+
       memory_set.add(memory)
       hardware_names.add(memory.name)
 
@@ -426,6 +445,7 @@ class.together:
       when _finished
       | error(~who: #'add_metadata,
               "cannot attach metadata to finished module " ++ name)
+
       def entry = ModuleMetadata(namespace, payload)
       _metadata := _metadata ++ [entry]
       entry
@@ -522,6 +542,7 @@ class.together:
           def writes = _operations.filter(
             ~keep: fun (operation): operation.opcode == "rtl.memory_write" && operation.attribute("memory", #false) === memory
           )
+
           writes.length() < 2 || (for all (write in writes): write.operands[2] === writes[0].operands[2])
 
     /* Counts crossing declarations that list a value as a synchronizer stage. */
@@ -592,9 +613,11 @@ class.together:
       assert_mutable()
       unless module_def.design === this
       | error(~who: #'add_module, "module belongs to a different design")
+
       _modules := if collections_finished | _modules ++ [module_def] | [module_def] ++ _modules
       unless modules_by_id.has_key(module_def.id)
       | modules_by_id[module_def.id] := module_def
+
       module_set.add(module_def)
       unless modules_by_name.has_key(module_def.name)
       | modules_by_name[module_def.name] := module_def
@@ -604,9 +627,11 @@ class.together:
       assert_mutable()
       unless dpi_import.design === this
       | error(~who: #'add_dpi_import, "DPI import belongs to a different design")
+
       _dpi_imports := if collections_finished | _dpi_imports ++ [dpi_import] | [dpi_import] ++ _dpi_imports
       unless dpi_imports_by_name.has_key(dpi_import.name)
       | dpi_imports_by_name[dpi_import.name] := dpi_import
+
       dpi_import_set.add(dpi_import)
 
     /* Restores module and DPI declaration order once after prepend-based construction. */
@@ -641,7 +666,9 @@ class.together:
       def all_operations = MutableList[]
       for (module_def in _modules):
         all_operations.append(module_def.operations)
+
       all_operations.snapshot()
+
 /*
  * Keeps address typing deterministic for arbitrary positive depths. Dynamic
  * encodings greater than or equal to depth have unspecified hardware behavior.
@@ -658,4 +685,5 @@ class DesignElaboration(design :: Design, top :: Module):
     unless valid_top
     | error(~who: #'DesignElaboration,
             "top must be a finished module owned by the elaborated design")
+
     super(design, top)

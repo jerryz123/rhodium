@@ -125,6 +125,7 @@ def small_policy = xy_dimension_order(
   small_mesh,
   ~vc_groups: ["escape"]
 )
+
 def policy_problem = RoutingProblem(
   small_topology.topology,
   small_routes.route_classes,
@@ -163,6 +164,7 @@ fun raw_xy_allows(route_class, origin, candidate_vc):
     | current.y < destination.y: mesh_north
     | current.y > destination.y: mesh_south
     | ~else: #false
+
   required_direction != #false && candidate.group == "escape" && mesh_direction_equal(
     required_direction,
     small_mesh.direction_of(candidate.link)
@@ -214,6 +216,7 @@ def prefixed_problem = RoutingProblem(
     xy_dimension_order(prefixed_mesh, ~vc_groups: ["escape"])
   )
 )
+
 def prefixed_validated = compile_routing(prefixed_problem)
 
 check:

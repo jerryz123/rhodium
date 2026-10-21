@@ -64,6 +64,7 @@ fun prefix_topology(prefix :: NamePath || String || List.of(String),
   def nodes = spec.nodes.map(
     fun (node): prefix_node_ref(prefix_path, node)
   )
+
   def links = spec.links.map(
     fun (link):
       TopologyLink(
@@ -73,6 +74,7 @@ fun prefix_topology(prefix :: NamePath || String || List.of(String),
         link.vc_groups
       )
   )
+
   def injections = spec.injections.map(
     fun (terminal):
       InjectionTerminalSpec(
@@ -80,6 +82,7 @@ fun prefix_topology(prefix :: NamePath || String || List.of(String),
         prefix_node_ref(prefix_path, terminal.router)
       )
   )
+
   def ejections = spec.ejections.map(
     fun (terminal):
       EjectionTerminalSpec(
@@ -87,6 +90,7 @@ fun prefix_topology(prefix :: NamePath || String || List.of(String),
         prefix_node_ref(prefix_path, terminal.router)
       )
   )
+
   TopologySpec(nodes, links, ~injections: injections, ~ejections: ejections)
 
 /* Adds one same-named injection and ejection per router, rejecting existing attachments. */
@@ -94,6 +98,7 @@ fun with_router_terminals(spec :: TopologySpec):
   when spec.injections.length() > 0 || spec.ejections.length() > 0
   | error(~who: #'with_router_terminals,
           "topology already contains terminal attachments")
+
   spec with (
     injections = spec.nodes.map(
       fun (node): InjectionTerminalSpec(InjectionRef(node.path), node)
@@ -115,6 +120,7 @@ fun compose_topologies(specs :: NonemptyList.of(TopologySpec),
     links := links ++ spec.links
     injections := injections ++ spec.injections
     ejections := ejections ++ spec.ejections
+
   TopologySpec(nodes,
                links ++ extra_links,
                ~injections: injections,

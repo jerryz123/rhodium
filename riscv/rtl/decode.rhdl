@@ -17,6 +17,7 @@ fun combine_case_groups(groups :: List):
   def mutable cases = []
   for (group in groups):
     cases := cases ++ group
+
   cases
 
 /* Filters out caller-specified instruction descriptors from a host list. */
@@ -37,6 +38,7 @@ fun component_output(cases :: List.of(DecodeCase), input :: Pattern):
   unless matching.length() == 1
   | error(~who: #'component_output,
           "component relation must contain the instruction exactly once")
+
   matching[0].output
 
 export:

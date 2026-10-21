@@ -30,6 +30,7 @@ check:
   observer(first.instrumented.top).instances[0].module_def === left ~is #true
   observer(first.instrumented.top).instances[1].module_def === right ~is #true
   observer(left).instances[0].module_def === child(left, "shared") ~is #true
+
 for (module_def in first.instrumented.design.modules):
   def payload :: Observer = observer(module_def)
   check:
@@ -39,6 +40,7 @@ for (module_def in first.instrumented.design.modules):
     payload.operation === module_def.find_operation(payload.value.defining_op_id) ~is #true
     payload.cache[0] === payload.value ~is #true
     payload.cache[0] === payload.cache[1] ~is #true
+
   for (instance in payload.instances):
     check:
       instance.operation.module_def === module_def ~is #true
@@ -58,6 +60,7 @@ for (module_def in [left, right]):
     event.module_def === module_def ~is #true
     event.valid.module_def === module_def ~is #true
     event.fields[0].value.module_def === module_def ~is #true
+
 observer(left).cache[0] := observer(left).instances[0].operation
 check:
   observer(right).cache[0] === observer(right).value ~is #true
@@ -68,6 +71,7 @@ check:
 class References(items :: Array):
   implements ModuleMetadataPayload
   override method remap_ir(remap :: Function.of_arity(1)): References(remap(items))
+
 class Opaque():
   implements ModuleMetadataPayload
 
@@ -105,6 +109,7 @@ fun reject_payload(payload :: ModuleMetadataPayload):
   original.add_metadata("invalid", payload)
   builder.finish(original)
   copy_module(Builder(Design()), original, original.name, MutableMap{}, MutableMap{})
+
 def cycle = Array(#false)
 def cyclic = References(cycle)
 cycle[0] := cyclic

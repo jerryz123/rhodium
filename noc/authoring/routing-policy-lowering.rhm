@@ -114,6 +114,7 @@ class RoutingPolicyLowering(lowered_routes :: LoweredRouteClasses,
         unless binding
         | error(~who: #'lower_routing_policy,
                 "route class does not belong to these lowered route classes")
+
         def context = RoutingContext(
           binding.spec,
           symbolic_origin(lowered_routes.lowered_topology, origin),

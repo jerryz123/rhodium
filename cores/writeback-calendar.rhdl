@@ -30,7 +30,9 @@ sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt):
     probed := probed ||| ((probe_client === Bits(index_width(clients))(client)) & !pause & !(claimed & probe_selection).or_reduce())
     when (reserve[client].valid):
       assert((delay > Bits(index_width(latency + 1))(0)) & (delay <= Bits(index_width(latency + 1))(latency)), "writeback_reservation_latency_in_range")
+
     claimed := claimed ||| mux(reserve[client].fire(), selection, Bits(latency + 1)(0))
+
   pending <== (claimed >> 1)[0..latency]
   occupied <== pending
   probe_available <== probed

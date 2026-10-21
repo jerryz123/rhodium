@@ -16,6 +16,7 @@ def fixture_membership_design = compile_program(fixture.membership_program, rtl_
 def module_def = fixture_membership_design.modules[0]
 fun output_operation(module_def :: Module, name :: String):
   module_def.find_operation(module_def.find_output(name).place.driver.defining_op_id)
+
 def surface_module = surfaces.design.modules[0]
 def base_module = base_fixture.design.modules[0]
 def surface_outputs_boolean = for all (name in ["bool_member",

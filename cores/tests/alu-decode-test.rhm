@@ -16,10 +16,13 @@ fun control_for(cases, instruction):
     fun (candidate):
       candidate.input.value_bits == instruction.encoding.value && candidate.input.care_bits == instruction.encoding.care
   ).output
+
 fun base_control(name):
   control_for(controls.RV64IAluCases, RV64I.find(name))
+
 fun record_field(record, name):
   record.fields.find(fun (field): field[0] == name)[1]
+
 fun field_is_constrained(control, name):
   record_field(control.care, name).packed_value() != 0
 

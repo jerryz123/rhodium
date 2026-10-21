@@ -32,6 +32,7 @@ def materialized = materialize_routing(
     )
   )
 )
+
 def calls_after_materialization = callback_count
 def reachable = analyze_reachability(materialized)
 def route0_reachable = reachable.for_route(route0)
@@ -44,6 +45,7 @@ check:
   ) ~is ["r0 inject(i0@n0) -> l0.vc0: allow",
          "r0 inject(i0@n0) -> l2.vc0: allow",
          "r0 hold(l0.vc0) -> l1.vc0: allow"]
+
   route0_reachable.reaches_vc(VCId(LinkId(1), 0)) ~is #true
   route0_reachable.reaches_vc(VCId(LinkId(3), 0)) ~is #false
   reachable.reachable_decisions().length() ~is 3

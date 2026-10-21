@@ -102,8 +102,10 @@ sync_circuit RV5StageHypervisorCoreFixture():
         word: instruction_word
         page_fault: Bool(#false)
         access_fault: Bool(#false)
+
     replay: Bool(#false)
   ) |> valid_pipe(1) |> mmu.instruction_memory.response
+
   // Force physical accesses through the WB transaction path. TLB permission
   // faults still exercise MEM's paired fault metadata before that fallback.
   (mmu.pipeline_memory.request |> map_valid(_request => CachePipelineResult(xlen)):
@@ -111,6 +113,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
     reason: CachePipelineReason.Translation
     data: Bits(64)(0)
   ) |> mmu.pipeline_memory.response
+
   mmu.pipeline_memory.commit_ready <== Bool(#true)
   mmu.core_memory |> arbiter.core
   mmu.walker_memory |> arbiter.walker
@@ -146,6 +149,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
     access_fault: Bool(#false)
     data: load.value
     context: owner.context
+
   response_ready <== memory.response.ready & pending
   when (memory.request.fire() & !memory_fault):
     pending <== Bool(#true)

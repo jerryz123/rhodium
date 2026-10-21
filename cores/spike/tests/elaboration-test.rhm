@@ -56,5 +56,6 @@ check:
     "uncached_request_size", "uncached_request_data", "uncached_request_mask",
     "uncached_request_device", "uncached_response_ready"
   ]
+
   circt.contains("sim.func.dpi @rhodium_spike_tick(") ~is #true
   circt.contains("return uncached_response_ready : i1") ~is #true

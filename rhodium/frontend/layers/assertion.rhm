@@ -19,10 +19,12 @@ fun assert(condition :~ HardwareFields,
            ~reset: reset :: maybe(HardwareFields.of(Reset)) = #false):
   when clock || reset
   | reject_explicit_sync_control()
+
   if clock || reset
   | block:
       unless clock && reset
       | error(~who: #'assert,
               "explicit assertions require both ~clock and ~reset")
+
       kernel.assert(condition, clock, reset, label)
   | ambient_assert(condition, label)

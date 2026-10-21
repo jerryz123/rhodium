@@ -37,10 +37,12 @@ check:
     "C.LBU", "C.LHU", "C.LH", "C.SB", "C.SH", "C.ZEXT.B", "C.NOT",
     "C.SEXT.B", "C.ZEXT.H", "C.SEXT.H", "C.MUL"
   ]
+
   RV64Zcb.instructions.map(fun (instruction): instruction.name) ~is [
     "C.LBU", "C.LHU", "C.LH", "C.SB", "C.SH", "C.ZEXT.B", "C.NOT",
     "C.SEXT.B", "C.ZEXT.H", "C.SEXT.H", "C.ZEXT.W", "C.MUL"
   ]
+
   RV32Zcb.find("C.LBU").encodings[0].value ~is 0x8000
   RV32Zcb.find("C.LBU").encodings[0].care ~is 0xfc03
   RV32Zcb.find("C.LH").encodings[0].value ~is 0x8440

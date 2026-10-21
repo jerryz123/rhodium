@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_bridge_ports make_wide_bridge_ports make_partitioned_bridge
 
 fun make_bridge_ports(consumed_ids :: Nat = 0):
@@ -16,6 +17,7 @@ fun make_bridge_ports(consumed_ids :: Nat = 0):
     def state = b.register(top, "q" ++ name, Bits(width), clock, reset, b.constant(top, Bits(width), 0))
     b.drive(state.next, data)
     b.drive(b.output(top, "out" ++ to_string(width), Bits(width)), state.current)
+
   b.drive(b.output(top, "_rsim2", Bits(64)), b.constant(top, Bits(64), 2 ** 63 + 7))
   b.finish(top)
   DesignElaboration(design, top)
@@ -40,6 +42,7 @@ fun make_wide_bridge_ports(consumed_ids :: Nat = 0):
     b.drive(b.output(top, "out" ++ suffix, type), state.current)
     b.drive(b.output(top, "sample" ++ suffix, type), delayed.current)
     b.drive(b.output(top, "constant" ++ suffix, type), b.constant(top, type, 2 ** (width - 1) + 2 ** 32 + 7))
+
   b.assert(top, b.bit_not(top, fault), clock, reset, b.constant(top, Bits(1), 1), "bridge_wide_check")
   b.finish(top)
   DesignElaboration(design, top)
@@ -65,5 +68,6 @@ fun make_partitioned_bridge():
     b.drive(instance.input("clock"), root_clock)
     b.drive(instance.input("data"), b.input(top, name, Bits(8)))
     b.drive(b.output(top, name ++ "_result", Bits(8)), instance.output("result"))
+
   b.finish(top)
   DesignElaboration(design, top)

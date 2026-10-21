@@ -28,22 +28,28 @@ def crossed_wires = crossed_view.module_def
 def left_placement = pair_view.placements.find(
   fun (placement): placement.instance.attribute("name") == "left"
 )
+
 def right_placement = pair_view.placements.find(
   fun (placement): placement.instance.attribute("name") == "right"
 )
+
 def crossed_placement = pair_view.placements.find(
   fun (placement): placement.instance.attribute("name") == "crossed"
 )
+
 def wrapped_placement = shell_view.placements[0]
 def pair_instances = pair.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.instance"
 )
+
 def shell_instances = shell.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.instance"
 )
+
 def crossed_wire_drives = crossed_wires.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.drive"
 )
+
 def circt = emit_circt(design)
 
 check:

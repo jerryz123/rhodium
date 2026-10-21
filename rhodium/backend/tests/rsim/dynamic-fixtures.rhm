@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../core/main.rhm" open
+
 export make_dynamic
 
 fun make_dynamic(length :: PosInt, aggregate :: Boolean):
@@ -28,6 +29,7 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
     if aggregate
     | b.record_create(top, element_type, [["tag", b.extract(top, sum, 4, 0)], ["lanes", b.vector_create(top, lanes, [sum, b.bit_xor(top, z, b.constant(top, Bits(64), seed))])]])
     | sum
+
   def zero = b.constant(top, Bits(64), 0)
   def zero_element = if aggregate | b.record_create(top, element_type, [["tag", b.constant(top, Bits(5), 0)], ["lanes", b.vector_create(top, lanes, [zero, zero])]]) | zero
   def zero_vector = b.vector_create(top, vector, for List (_ in 0..length): zero_element)
@@ -43,6 +45,7 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
                        b.vector_create(top, VectorType(2, Bits(1)), if reverse | enable_values.reverse() | enable_values),
                        b.vector_create(top, VectorType(2, Bits(index_width)), if reverse | index_values.reverse() | index_values),
                        b.vector_create(top, VectorType(2, element_type), if reverse | elements.reverse() | elements))
+
   def state = b.register(top, "stored", vector, clock, reset, zero_vector)
   def captured = b.register(top, "old_read", element_type, clock, reset, zero_element)
   // Expanded updates exercise recovery from lane muxes over stable storage.
@@ -51,6 +54,7 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   def expanded_lanes = for List (lane in 0..length):
     def equals = b.eq(top, b.constant(top, Bits(index_width), lane), selector)
     b.mux_lookup(top, equals, b.vector_get(top, state.current, lane), [[1, replacement]])
+
   def expanded = b.vector_create(top, vector, expanded_lanes)
   def updated_state = b.register(top, "q_updated_state", vector, clock, reset, zero_vector)
   b.drive(updated_state.next, expanded)
@@ -101,7 +105,9 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   fun expanded_update(source :: Value, index :: Value, replacement :: Value):
     def lanes = for List (lane in 0..length):
       b.mux_lookup(top, b.eq(top, index, b.constant(top, Bits(index.type.packed_width()), lane)), b.vector_get(top, source, lane), [[1, replacement]])
+
     b.vector_create(top, vector, lanes)
+
   def work_low = expanded_update(nested.current, index0, element(67))
   def work_high = expanded_update(nested.current, index1, element(71))
   def work = b.mux_lookup(top, enable_values[1], b.mux_lookup(top, enable_values[0], nested.current, [[1, work_low]]), [[1, work_high]])

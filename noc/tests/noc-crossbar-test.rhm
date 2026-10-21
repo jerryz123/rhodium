@@ -24,6 +24,7 @@ check:
     0b001, 0b010, 0b100,
     0b001, 0b010, 0b100
   ]
+
   fixture.router_config.input_count ~is 3
   fixture.router_config.target_count ~is 3
   top.inputs.length() ~is 8

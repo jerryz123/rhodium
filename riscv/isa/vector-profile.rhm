@@ -32,10 +32,13 @@ fun validate_vector_extensions(profile :: VectorProfile,
   for (extension in extensions):
     when extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
     | error(~who: #'vector_extensions, "duplicate vector extension")
+
   when extensions.filter(~keep: fun (extension): [VectorExtension.Zvfhmin, VectorExtension.Zvfh].contains(extension)).length() != 0 && !vector_profile_supports_fp32(profile)
   | error(~who: #'vector_extensions, "Zvfhmin and Zvfh require Zve32f, Zve64f, Zve64d, or V")
+
   when extensions.contains(VectorExtension.Zvbb) && !vector_profile_enabled(profile)
   | error(~who: #'vector_extensions, "Zvbb requires an enabled vector profile")
+
   extensions
 
 /* Validates supplied additions against full V capability and returns them in canonical declaration order. */
@@ -46,6 +49,7 @@ fun vector_extensions(extension :: VectorExtension, ...):
   for (candidate in [VectorExtension.Zvfhmin, VectorExtension.Zvfh, VectorExtension.Zvbb]):
     when supplied.contains(candidate)
     | normalized := normalized ++ [candidate]
+
   normalized
 
 /* Tests host membership of one independently selected vector addition. */
@@ -115,6 +119,7 @@ fun vector_profile_isa_extensions(profile :: VectorProfile,
   validate_vector_extensions(profile, extensions)
   when vector_profile_is_v(profile) && vlen < 128
   | error(~who: #'vector_profile_isa_extensions, "V requires VLEN of at least 128 bits")
+
   if !vector_profile_enabled(profile)
   | []
   | block:

@@ -121,10 +121,12 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     if options.two_bits_per_cycle
     | cycle_number >= Bits(cycle_width)(3)
     | Bool(#false)
+
   def skip_second_cycle:
     if options.two_bits_per_cycle
     | Bool(#false)
     | (cycle_number === Bits(cycle_width)(3)) & significand_state[significand_width + 1].into(Bool)
+
   def decrement = mux(process_two_bits, Bits(cycle_width)(2), Bits(cycle_width)(1))
   def normal_initial_cycle = mux(
     square_root,

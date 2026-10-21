@@ -17,6 +17,7 @@ def program = elaborate(RV5StageCoreFixture(RV5StageConfig(
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F, ~zicbop: #true)
   ), ~reset_address: 0x100)
 )
+
 def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
   ["RV5StageFpScalar", "test_fp_observe", [
     ["fixed_issue_in", "valid"],

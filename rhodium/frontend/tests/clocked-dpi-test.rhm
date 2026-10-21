@@ -17,19 +17,23 @@ def module_def = fixture_design.modules[0]
 def register = module_def.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register" && operation.attribute("dpi_import").name == "rhodium_step_pair"
 )
+
 def call = module_def.operations.find(
   fun (operation): operation.opcode == "sim.dpi_call"
 )
+
 def explicit_design = compile_program(elaborate(fixture.ExplicitClockedDPI()), rtl_target).report.design
 def explicit_module = explicit_design.modules[0]
 def explicit_register = explicit_module.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register"
 )
+
 def always_design = compile_program(elaborate(fixture.AlwaysClockedDPI()), rtl_target).report.design
 def always_module = always_design.modules[0]
 def always_register = always_module.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register"
 )
+
 def always_enable = always_module.find_operation(always_register.operands[1].defining_op_id)
 def option_module = options_fixture.design.modules[0]
 def option_registers = option_module.operations.filter(
@@ -55,6 +59,7 @@ check:
   option_registers.length() ~is 2
   (for all (operation in option_registers):
      operation.operands[0] === option_module.find_input("clock").value && operation.operands[1] === option_module.find_input("enable").value) ~is #true
+
   verify_design(fixture_design) ~is #void
   verify_design(explicit_design) ~is #void
   verify_design(always_design) ~is #void

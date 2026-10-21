@@ -32,9 +32,11 @@ fun physical_region(region :: RiscvPhysicalMemoryRegion) :: Map:
 def arguments = current_command_line()
 unless arguments.length() == 2
 | error(~who: #'write_cosim_config, "expected a shape-core-isa config key and output path")
+
 def selection = named_soc_selection(arguments[0])
 unless selection.shape == SoCShape.Mini || selection.shape == SoCShape.Simple
 | error(~who: #'write_cosim_config, "embedded Sail currently supports Mini and Simple")
+
 def resolved = resolve_soc_config(selection)
 def config = resolved.configuration()
 def fabric = if config is_a MiniSoCConfig | config.fabric | (config :: SingleCoreSoCConfig).params.fabric
@@ -50,10 +52,12 @@ def environment = {
   "private_memory": ([description.boot.rom] ++ description.memory_regions).map(address_region),
   "regions": fabric.hart_config.physical_map.regions.map(physical_region)
 }
+
 def exported = {
   "configuration": configuration,
   "configuration_fingerprint": metadata_fingerprint(configuration),
   "environment": environment,
   "environment_fingerprint": metadata_fingerprint(environment)
 }
+
 filesystem.write_string(arguments[1], metadata_json(exported), ~exists: #'truncate)

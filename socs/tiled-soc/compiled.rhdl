@@ -192,6 +192,7 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
   property host_services:
     (for List (entry in home_map.entries.filter(~keep: fun (entry): entry.home.kind == CHINodeKind.HNF)):
        soc_host_memory_service(entry.home, [entry.address_set], memory.service.requests)) ++ platform.host_services
+
   property width :: PosInt: config.layout.width
   property height :: PosInt: config.layout.height
   property snp_compilation :: CHIChannelCompilation: compilations.snp

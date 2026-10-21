@@ -17,6 +17,7 @@ sync_circuit MemoryResponseCapture(Context :: DataType, Result :: DataType):
   bundle Paired():
     context: Context
     response: Result
+
   def Array(owner, missing) = context |> fork_valid(2)
   def returned = response |> filter_valid(_result => context.valid)
   def absent = missing |> filter_valid(_context => !response.valid) |> map_valid(_context => fallback)
@@ -25,6 +26,7 @@ sync_circuit MemoryResponseCapture(Context :: DataType, Result :: DataType):
     Paired():
       context: context
       response: response
+
   def paired = paired_flow |> to_valid()
   def Array(context_path, response_path) = paired |> fork_valid(2)
   context_path |> map_valid(pair => pair.context) |> live_context

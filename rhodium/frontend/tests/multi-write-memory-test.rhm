@@ -21,6 +21,7 @@ check:
   (for all (write in writes): write.attribute("memory") === memory) ~is #true
   (for all (write in writes):
      write.operands[2] === module_def.find_input("clock").value) ~is #true
+
   writes[0].operands[0].name ~is "first_address"
   writes[1].operands[0].name ~is "second_address"
   verify_design(fixture_design) ~is #void

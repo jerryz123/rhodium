@@ -34,6 +34,7 @@ for (banks in [1, 2, 4, 8]):
       layout.total_bytes ~is 256 * banks
       layout.fits_unsigned_width(11) ~is #true
       layout.fits_unsigned_width(7) ~is #false
+
     for (offset in 0..layout.total_bytes):
       def bank = (offset div stripe) mod banks
       def dense = (offset div (stripe * banks)) * stripe + (offset mod stripe)
@@ -66,6 +67,7 @@ check:
     interconnect.IdRange(0, 4),
     interconnect.IdRange(4, 6)
   ]
+
   allocated[0].map(3) ~is 1
   allocated[0].unmap(2) ~is 4
   address.contains(0x8000) ~is #true
@@ -87,9 +89,11 @@ check:
   match_module.outputs.map(fun (output): output.name) ~is [
     "single", "multiple", "empty"
   ]
+
   match_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 3
+
   verify_design(fixture.design) ~is #void
   interconnect.IdRange(-1, 2) ~throws "Nat"
   interconnect.IdRange(2, 2) ~throws "greater than start"

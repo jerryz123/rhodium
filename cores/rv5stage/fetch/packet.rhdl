@@ -12,6 +12,7 @@ import:
 bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
+
   pc: Bits(xlen.width)
   word: Bits(32)
   mask: Bits(2)

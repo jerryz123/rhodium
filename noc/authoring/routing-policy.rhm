@@ -84,13 +84,16 @@ class RoutingContext(route_class :: RouteClassSpec,
                destination_router :: maybe(NodeRef) = #false):
     def resolved_source:
       if source_router | source_router | NodeRef(route_class.source.path)
+
     def resolved_destination:
       if destination_router
       | destination_router
       | NodeRef(route_class.destination.path)
+
     when origin is_a RoutingInjection && !node_ref_equal(origin.router, current_node)
     | error(~who: #'RoutingContext,
             "routing injection node must equal the current node")
+
     super(route_class,
           origin,
           current_node,
@@ -288,6 +291,7 @@ class UnionPolicy(policies :: NonemptyList.of(RoutingPolicy)):
       | def child = policy.evaluate(context)
         when child.allowed
         | matched := child
+
     if matched | matched | RoutingPolicyEvaluation(#false, [])
 
   /* Renders this policy's deterministic, inspectable description. */
@@ -319,6 +323,7 @@ class IntersectionPolicy(policies :: NonemptyList.of(RoutingPolicy)):
         | rule_names := rule_names ++ child.rule_names
         | allowed := #false
           rule_names := []
+
     RoutingPolicyEvaluation(allowed, rule_names)
 
   /* Renders this policy's deterministic, inspectable description. */
@@ -367,6 +372,7 @@ fun checked_policy_evaluation(policy :: RoutingPolicy,
   unless result is_a Boolean
   | error(~who: #'evaluate,
           "routing policy " ++ policy.describe() ++ " must return a Boolean")
+
   RoutingPolicyEvaluation(result, [])
 
 def allow_all = AllowAllPolicy()
@@ -385,12 +391,14 @@ fun restrict_vc_groups(names :: NonemptyList.of(NonemptyString)): CandidateVCGro
 /* Combines injection-only matching with candidate VC-group selection. */
 fun inject_into_vc_groups(names :: NonemptyList.of(NonemptyString)):
   policy_intersection([injection_policy, restrict_vc_groups(names)])
+
 /* Relates explicit held groups to candidate groups as resource-visible routing history. */
 fun transition_vc_groups(from_names :: NonemptyList.of(NonemptyString),
                          to_names :: NonemptyList.of(NonemptyString)):
   policy_intersection(
     [match_current_vc_groups(from_names), restrict_vc_groups(to_names)]
   )
+
 /* Constructs a canonical Boolean union of the supplied policies. */
 fun policy_union(policies :: NonemptyList.of(RoutingPolicy)): UnionPolicy(policies)
 /* Constructs a canonical Boolean intersection of the supplied policies. */

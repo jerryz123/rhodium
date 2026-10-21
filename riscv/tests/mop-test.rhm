@@ -25,8 +25,10 @@ check:
     "C.MOP.1", "C.MOP.3", "C.MOP.5", "C.MOP.7",
     "C.MOP.9", "C.MOP.11", "C.MOP.13", "C.MOP.15"
   ]
+
   Zcmop.instructions.map(fun (instruction): instruction.encodings[0].value) ~is [
     0x6081, 0x6181, 0x6281, 0x6381, 0x6481, 0x6581, 0x6681, 0x6781
   ]
+
   (for all (instruction in Zcmop.instructions):
      instruction.expand(instruction.encodings[0].value) == 0x00000013) ~is #true

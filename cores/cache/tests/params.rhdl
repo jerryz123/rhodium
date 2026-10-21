@@ -24,6 +24,7 @@ def test_instruction_cache_config = RiscvHartCHIConfig(test_cache_flit, 64, [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x100000000, 0xffffffff), test_cache_memory_attributes), test_cache_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0x1fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_cache_uncached_home)
 ])
+
 export:
   test_cache_flit
   test_cache_home

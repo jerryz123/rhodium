@@ -47,6 +47,7 @@ class RiscvCsrConfig(isa_profile :: RiscvIsaProfile,
                ~svpbmt: svpbmt :: Boolean = #false):
     when isa_profile.xlen == XLen.X32 && (hypervisor || mmu_type != RiscvMmuType.Bare)
     | error(~who: #'RiscvCsrConfig, "guest state and Sv39 require RV64")
+
     super(isa_profile, mmu_type, floating_point, compressed, vector, vector_length,
           hypervisor, sscofpmf, sstc, smstateen, zicboz, zicbom, ssnpm, svpbmt)
 

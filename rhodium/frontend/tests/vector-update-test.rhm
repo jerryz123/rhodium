@@ -32,15 +32,19 @@ check:
   register_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.register_reset"
   ).length() ~is 1
+
   register_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
   ).length() ~is 1
+
   register_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_get"
   ).length() ~is 0
+
   register_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_write_set"
   ).length() ~is 1
+
   type_equal(register_module.find_output("result").type,
              VectorType(3, Bits(4))) ~is #true
   verify_design(fixture_register_design) ~is #void

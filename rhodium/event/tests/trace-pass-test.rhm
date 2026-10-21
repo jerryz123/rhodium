@@ -24,6 +24,7 @@ class CopyReport(rtl :: DesignElaboration):
 fun copy_stage(prepared :: PreparedRTL):
   def result = materialize_reachable_rtl(prepared.rtl)
   RTLPassResult(result, [Artifact("copy.txt", "text/plain", "copied")], CopyReport(result))
+
 def copier = RTLPass("copy", copy_stage)
 def logical = make_fixture()
 def program = logical
@@ -53,6 +54,7 @@ for (backend in [circt_target, verilog_target]):
     compile_program(program, backend).artifacts ~is ordinary.artifacts
     first.artifacts[0].content.contains("rheg_node") ~is #true
     ordinary.artifacts[0].content.contains("rheg_node") ~is #false
+
   for (passes in [[copier, event_trace_pass()], [event_trace_pass(), copier]]):
     def combined = compile_program(program, rtl_pipeline_target(backend, passes))
     def combined_report :: RTLPipelineReport = combined.report
@@ -65,6 +67,7 @@ for (backend in [circt_target, verilog_target]):
       owner.owner === copied.rtl.top ~is #true
       owner.cache === source_owner.cache ~is #false
       owner.instances[0].operation.attribute("module") === owner.instances[0].module_def ~is #true
+
   check:
     compile_program(program, rtl_pipeline_target(backend, [event_trace_pass(EventInstrumentationConfig("missing"))])) ~throws "top-level Clock"
 
@@ -73,6 +76,7 @@ def opaque = fixture.opaque_boundary()
 def opaque_program = opaque
 check:
   compile_program(opaque_program, rtl_pipeline_target(verilog_target, [event_trace_pass()])) ~throws "opaque or disconnected boundary"
+
 def partial = compile_program(opaque_program, rtl_pipeline_target(verilog_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
 def partial_report :: RTLPipelineReport = partial.report
 def trace_report :: EventTraceReport = partial_report.stages[0].findings

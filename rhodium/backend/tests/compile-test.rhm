@@ -16,6 +16,7 @@ fun make_body(builder :: Builder):
   builder.drive(builder.output(body, "result", Bits(8)), source)
   builder.finish(body)
   body
+
 def source_design = Design()
 def source_program = DesignElaboration(source_design, make_body(Builder(source_design)))
 def source_before = dump_ir(source_program.design)
@@ -49,6 +50,7 @@ for (name in ["first", "second"]):
   def instance = mixed_builder.instance(mixed_top, shared_child, name, Location("compile-fixture", 7, 2))
   mixed_builder.drive(instance.input("source"), mixed_source)
   mixed_builder.drive(mixed_builder.output(mixed_top, name, Bits(8)), instance.output("result"))
+
 mixed_builder.finish(mixed_top)
 def unused = mixed_builder.module("Unused")
 mixed_builder.finish(unused)
@@ -85,6 +87,7 @@ class BrokenEmission(plan :: TargetPlan, duplicate :: Boolean):
     if duplicate
     | artifacts ++ artifacts
     | error("emission failed after producing text")
+
 def mutable published = #false
 def fail_emission = CompilationTarget("circt-failure-test", fun (program): BrokenEmission(circt_target.prepare(program), #false))
 def duplicate_artifacts = CompilationTarget("circt-duplicate-test", fun (program): BrokenEmission(circt_target.prepare(program), #true))
@@ -101,6 +104,7 @@ class BrokenDiagnostics(plan :: TargetPlan):
   override method manifest(): plan.manifest()
   override method diagnostics(): error("diagnostics failed deliberately")
   override method emit(): plan.emit()
+
 def fail_diagnostics = CompilationTarget("circt-diagnostics-test", fun (program): BrokenDiagnostics(circt_target.prepare(program)))
 fun publish_failed_diagnostics(): published := compile_program(source_program, fail_diagnostics)
 check:
@@ -117,15 +121,19 @@ class ObservedPlan(plan :: TargetPlan):
   override method manifest():
     projections.add("manifest")
     plan.manifest()
+
   override method report():
     projections.add("report")
     plan.report()
+
   override method diagnostics():
     projections.add("diagnostics")
     [Diagnostic("circt.test", "note", "observed compilation")]
+
   override method emit():
     projections.add("emit")
     plan.emit()
+
 def observed = compile_program(concrete, CompilationTarget("circt-observed", fun (program): ObservedPlan(circt_target.prepare(program))))
 check:
   projections.snapshot() ~is ["manifest", "report", "diagnostics", "emit"]

@@ -186,20 +186,25 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def mutable rnf_sites = [host_placement.site]
   for (placement in hart_placements):
     rnf_sites := rnf_sites ++ [placement.data_site]
+
   def uncached_sites = hart_placements.map(fun (placement): placement.uncached_site)
 
   def mutable connections = []
   for (requester in rnf_sites):
     for (llc_placement in llc_placements):
       connections := connections ++ [CHIRNFConnection(requester, llc_placement.home_site)]
+
   for (placement in llc_placements):
     connections := connections ++ [CHISNConnection(placement.subordinate_site, memory_placement.site)]
+
   for (placement in hart_placements):
     connections := connections ++ [CHIRNIConnection(placement.instruction_site, device_home_placement.requester_site)]
     for (llc_placement in llc_placements):
       connections := connections ++ [CHIRNIConnection(placement.instruction_site, llc_placement.home_site), CHIRNIConnection(placement.uncached_site, llc_placement.home_site)]
+
   for (requester in [host_placement.site] ++ uncached_sites):
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
+
   connections := connections ++ [
     CHISNConnection(device_home_placement.subordinate_site, bootrom_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, boot_address_site),
@@ -251,6 +256,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
         aclint_placement.node_id,
         plic_placement.node_id,
         uart_placement.node_id]
+
   require_unique_tiled_node_ids(node_ids)
   require_tiled_node_id_width(node_ids, flit)
 
@@ -274,6 +280,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                     placement.home_node_id,
                     CHINodeKind.HNF,
                     ~max_outstanding: config.llc.transaction_slots)
+
   def device_home = config.device_home
   def platform = config.platform_for(device_home)
 
@@ -291,6 +298,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
          home
        )) ++ platform.regions
   )
+
   unless for any (placement in llc_placements):
     address_layout.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
   | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
@@ -305,6 +313,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                              placement.instruction_node_id,
                              placement.data_node_id,
                              placement.uncached_node_id)
+
   def mutable requester_ports = [soc_host_home_port(host_node, ~coherent: #true)]
   for (params in hart_chi_params):
     requester_ports := requester_ports ++ [
@@ -312,6 +321,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       params.data_node.icn_peer(),
       params.uncached_node.icn_peer()
     ]
+
   def uncached_ports = hart_chi_params.map(
     fun (params): soc_device_home_port(params.uncached_node)
   )
@@ -327,6 +337,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     ~emits: CHIChannelCapabilities(~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp], ~dat: [CHIDatOpcode.CompData]),
     ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl], ~dat: [CHIDatOpcode.NonCopyBackWriteData]),
     ~max_outstanding: 4)
+
   def memory_service = CHISubordinateServiceParams(
     memory_node.icn_peer(),
     [AddressSet(memory.base, memory.size_bytes - 1)],
@@ -340,6 +351,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     memory_service.requests,
     ~transaction_slots: config.llc.transaction_slots
   )
+
   def hnf_params:
     for List (home in homes, placement in llc_placements):
       def slice_service = CHISubordinateServiceParams(
@@ -348,6 +360,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
         memory_service.requests
       )
       CHIHNFParams(home, hnf_config, slice_service)
+
   def llc_config = CHIInclusiveHNFConfig(
     hnf_config,
     address_layout,
@@ -384,16 +397,19 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     ~rnf_sites: (for List (placement in hart_placements): [placement.data_site]),
     ~rni_sites: (for List (placement in hart_placements): [placement.instruction_site, placement.uncached_site])
   ))
+
   def llc_router_params = router_params(CHIRouterAttachments(
     ~hnf_requester_sites: (for List (placement in llc_placements): [placement.home_site]),
     ~hn_subordinate_sites: (for List (placement in llc_placements): [placement.subordinate_site])
   ))
+
   def memory_router_params = router_params(CHIRouterAttachments(~sn_sites: [[memory_placement.site]]))
   def device_home_router_params = router_params(CHIRouterAttachments(
     ~hni_requester_sites: [[device_home_placement.requester_site]],
     ~hn_subordinate_sites: [[device_home_placement.subordinate_site]],
     ~sn_sites: [[bootrom_placement.site, boot_address_site]]
   ))
+
   def aclint_router_params = router_params(CHIRouterAttachments(~sn_sites: [[aclint_placement.site]]))
   def plic_router_params = router_params(CHIRouterAttachments(~sn_sites: [[plic_placement.site]]))
   def uart_router_params = router_params(CHIRouterAttachments(~sn_sites: [[uart_placement.site]]))
@@ -418,6 +434,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     for List (placement in hart_placements,
               params in hart_chi_params):
       HartTileInstance(placement, params, hart_tile_params)
+
   def llcs:
     for List (placement in llc_placements,
               home in hnf_params):
@@ -426,6 +443,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                       llc_config,
                       address_layout.address_set(memory.base, placement.slice_index),
                       llc_tile_params)
+
   def memory_instance = MemoryTileInstance(memory_placement, memory_node, memory_service, memory_router_params)
   def host = HostTileInstance(host_placement, host_node, host_port, host_tile_params)
   def device_home_instance = DeviceHomeTileInstance(device_home_placement, device_home, device_home_params, device_home_tile_params)

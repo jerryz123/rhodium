@@ -18,6 +18,7 @@ fun spike_csr_warl_policy(profile :: SpikeConfig) :: Map:
     (cause != ExceptionCause.InstructionAddressMisaligned || !advertised.contains("c"))
       && (cause != ExceptionCause.SoftwareCheck || advertised.contains("zicfilp") || advertised.contains("zicfiss"))
       && (cause != ExceptionCause.HardwareError || advertised.contains("zicntr"))
+
   def causes = DelegatableExceptionCauses.filter(~keep: delegates)
   def hypervisor = advertised.contains("h")
   // H mandates the two fault bits even when their optional sources are absent.
@@ -115,7 +116,9 @@ fun spike_udb_extensions(profile :: SpikeConfig) :: NonemptyList.of(UdbExtension
     def entries = SpikeUdbExtensions.filter(~keep: fun (entry): entry[0] == name)
     unless entries.length() == 1
     | error(~who: #'spike_udb_extensions, "no Spike UDB projection for extension: " ++ name)
+
     result := result ++ [entries[0][1]]
+
   // Expand architectural implication without borrowing another core's policies.
   result := result ++ [
     extension("Zmmul", "1.0.0"), extension("Zaamo", "1.0.0"), extension("Zalrsc", "1.0.0"),
@@ -125,16 +128,22 @@ fun spike_udb_extensions(profile :: SpikeConfig) :: NonemptyList.of(UdbExtension
   ]
   when advertised.contains("c") && advertised.contains("d")
   | result := result ++ [extension("Zcd", "1.0.0")]
+
   when advertised.contains("c") && advertised.contains("f") && profile.hart_description.xlen == XLen.X32
   | result := result ++ [extension("Zcf", "1.0.0")]
+
   when advertised.contains("zfh")
   | result := result ++ [extension("Zfhmin", "1.0.0")]
+
   when advertised.contains("zvfh") && !advertised.contains("zvfhmin")
   | result := result ++ [extension("Zvfhmin", "1.0.0")]
+
   when advertised.contains("za64rs")
   | result := result ++ [extension("Za128rs", "1.0.0")]
+
   when profile.hart_description.mmu_type == RiscvMmuType.Sv39
   | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
+
   result
 
 /*
@@ -155,10 +164,13 @@ fun spike_udb_configuration(profile :: SpikeConfig,
   | has("za64rs"): "reserve naturally-aligned 64-byte region"
   | has("za128rs"): "reserve naturally-aligned 128-byte region"
   | ~else: "reserve exactly enough to cover the access"
+
   unless for all (name in ["i", "m", "a", "c", "zicsr", "zifencei", "zicntr", "zihpm"]): has(name)
   | error(~who: #'spike_udb_configuration, "the Spike ACT projection requires IMAC with base counters and Zihpm")
+
   unless profile.pmp_regions == 0 || profile.pmp_regions == 16 || profile.pmp_regions == 64
   | error(~who: #'spike_udb_configuration, "Sail models 0, 16, or 64 PMP entries")
+
   def mutable parameters = [
      // Bare RV32 addresses need 32 bits; enabled PMP exposes Spike's wider CSR masks.
      natural_parameter("MXLEN", width),
@@ -236,10 +248,13 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if profile.vector_length > 0 | [0, 1, 2, 3] | [0]),
      natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", [0, 1, 2, 3]),
      boolean_parameter("MUTABLE_MISA_C", #true)]
+
   when has("sscofpmf")
   | parameters := parameters ++ [natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
+
   when has("zicclsm")
   | parameters := parameters ++ [natural_parameter("MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE", 0), string_parameter("MISALIGNED_SPLIT_STRATEGY", "custom")]
+
   when profile.pmp_regions > 0
   | parameters := parameters ++ [
       natural_parameter("NUM_USABLE_PMP_ENTRIES", profile.pmp_regions),
@@ -248,26 +263,37 @@ fun spike_udb_configuration(profile :: SpikeConfig,
       boolean_parameter("PMP_NAPOT_SUPPORTED", #true),
       boolean_parameter("PMP_TOR_SUPPORTED", #true)
     ]
+
   when has("f")
   | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_F", #true), string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")]
+
   when has("d")
   | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_D", #true)]
+
   when has("v")
   | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_V", #true)]
+
   when profile.hart_description.mmu_type == RiscvMmuType.Bare
   | parameters := parameters ++ [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #true)]
+
   when has("b")
   | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_B", #true)]
+
   when has("zic64b") || has("zicbom") || has("zicboz")
   | parameters := parameters ++ [natural_parameter("CACHE_BLOCK_SIZE", profile.hart_description.cbo_block_bytes)]
+
   when has("zicbom")
   | parameters := parameters ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
+
   when has("ssnpm")
   | parameters := parameters ++ [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])]
+
   when has("zawrs")
   | parameters := parameters ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
+
   when has("smstateen")
   | parameters := parameters ++ [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")]
+
   when has("h")
   | block:
       parameters := parameters ++ [
@@ -285,15 +311,20 @@ fun spike_udb_configuration(profile :: SpikeConfig,
       for (kind in ["LOAD", "STORE_AMO", "INSTRUCTION"]):
         for (cause in ["MISALIGNED", "ACCESS_FAULT", "PAGE_FAULT"]):
           parameters := parameters ++ [boolean_parameter("REPORT_VA_IN_VSTVAL_ON_" ++ kind ++ "_" ++ cause, #true)]
+
         parameters := parameters ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_" ++ kind ++ "_GUEST_PAGE_FAULT", #true), string_parameter("TINST_VALUE_ON_FINAL_" ++ kind ++ "_GUEST_PAGE_FAULT", "always zero")]
+
       parameters := parameters ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_INTERMEDIATE_GUEST_PAGE_FAULT", #true)]
       parameters := parameters ++ [boolean_parameter("IGNORE_INVALID_VSATP_MODE_WRITES_WHEN_V_EQ_ZERO", #false), boolean_parameter("TRAP_ON_ECALL_FROM_VS", #true)]
       for (mode in ["SV39", "SV48", "SV57"]):
         parameters := parameters ++ [boolean_parameter(mode ++ "X4_TRANSLATION", mode == "SV39"), boolean_parameter(mode ++ "_VSMODE_TRANSLATION", mode == "SV39")]
+
       for (cause in ["BREAKPOINT", "INSTRUCTION_ADDRESS_MISALIGNED", "LOAD_ACCESS_FAULT", "LOAD_ADDRESS_MISALIGNED", "LOAD_PAGE_FAULT", "MCALL", "SCALL", "STORE_AMO_ACCESS_FAULT", "STORE_AMO_ADDRESS_MISALIGNED", "STORE_AMO_PAGE_FAULT", "UCALL", "VIRTUAL_INSTRUCTION", "VSCALL"]):
         parameters := parameters ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
+
       when has("smstateen")
       | parameters := parameters ++ [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")]
+
   when profile.vector_length > 0
   | parameters := parameters ++ [
       natural_parameter("VLEN", profile.vector_length),
@@ -326,6 +357,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
       string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
       boolean_parameter("VSSTATUS_VS_EXISTS", has("h"))
     ]
+
   UdbConfiguration(name, description, spike_udb_extensions(profile), parameters)
 
 export:

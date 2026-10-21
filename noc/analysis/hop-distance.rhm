@@ -121,6 +121,7 @@ fun append_destination_distances(topology :: Topology,
           _HopDistanceEntry(link.source, destination, node_entry.hops + 1)
         ]
         pending := pending ++ [link.source]
+
   result
 
 /* Precomputes directed distances for every destination in deterministic topology order. */
@@ -128,4 +129,5 @@ fun compute_hop_distances(topology :: Topology):
   def mutable entries = []
   for (destination in topology.nodes):
     entries := append_destination_distances(topology, destination, entries)
+
   _HopDistances(topology, entries)

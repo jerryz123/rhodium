@@ -15,15 +15,19 @@ fun compile_program(program :: DesignElaboration, target :: CompilationTarget) :
   def plan = target.prepare(program)
   unless plan is_a TargetPlan
   | error(~who: #'compile_program, "target preparation must return a TargetPlan")
+
   def manifest = plan.manifest()
   def report = plan.report()
   def diagnostics = plan.diagnostics()
   def artifacts = plan.emit()
   unless artifacts.length() > 0 || report
   | error(~who: #'compile_program, "target must return artifacts or a structured report")
+
   def names = MutableSet{}
   for (artifact in artifacts):
     when artifact.name in names
     | error(~who: #'compile_program, "target must return unique artifact names")
+
     names.add(artifact.name)
+
   CompilationResult(target.name, manifest, artifacts, report, diagnostics)

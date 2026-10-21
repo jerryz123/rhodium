@@ -26,6 +26,7 @@ fun list_index(items :: List, predicate :: Function.of_arity(1)):
   for (item in items, index in 0..items.length()):
     when predicate(item)
     | found := index
+
   found
 
 /* Enumerates incoming link VCs in stable physical-link and local-index order. */
@@ -33,6 +34,7 @@ fun incoming_vcs(topology :: Topology, node :: NodeId):
   def mutable vcs = []
   for (link in topology.incoming_links(node)):
     vcs := vcs ++ link.virtual_channels()
+
   vcs
 
 /* Selects the validated injection terminals attached to one router. */
@@ -56,9 +58,11 @@ fun require_route_key(route_classes :: List.of(RouteClass),
     route_classes,
     fun (candidate): candidate === route_class
   )
+
   unless found
   | error(~who: #'RouterPlan,
           "route class does not belong to this router plan")
+
   found
 
 /* Validates the origin kind and returns its dense router-local key. */
@@ -67,12 +71,15 @@ fun require_origin_key(origins :: List.of(Injection || HeldVC),
   unless origin is_a Injection || origin is_a HeldVC
   | error(~who: #'RouterPlan,
           "router-plan origin must be an Injection or HeldVC")
+
   def found = list_index(
     origins,
     fun (candidate): origin_equal(candidate, origin)
   )
+
   unless found
   | error(~who: #'RouterPlan, "origin does not belong to this router plan")
+
   found
 
 /* Compares targets by kind and normalized VC or ejection identity. */
@@ -91,8 +98,10 @@ fun require_target_bit(targets :: List.of(VCId || EjectionTerminal),
     targets,
     fun (candidate): target_equal(candidate, target)
   )
+
   unless found
   | error(~who: #'RouterPlan, "target does not belong to this router plan")
+
   found
 
 /* Retains validated row provenance and encoded route, origin, legal-target, and fallback fields. */
@@ -134,12 +143,14 @@ fun make_plan_row(validated_routing :: ValidatedRouting,
     target_mask := target_mask bits.or (1 << bit)
     when fallback_vc(validated_routing, vc)
     | fallback_mask := fallback_mask bits.or (1 << bit)
+
   when route_row.ejection_terminal
   | def bit = require_target_bit(targets, route_row.ejection_terminal)
     target_mask := target_mask bits.or (1 << bit)
     // Ejection releases the held network resource and is always a safe
     // fallback even though terminals are not vertices in the escape graph.
     fallback_mask := fallback_mask bits.or (1 << bit)
+
   _RouterPlanRow(route_row,
                  route_key,
                  origin_key,
@@ -160,6 +171,7 @@ class RouterPlan(validated_routing :: ValidatedRouting,
   constructor (validated_routing :: ValidatedRouting, node :: NodeId):
     unless validated_routing.topology.contains_node(node)
     | error(~who: #'RouterPlan, "router node does not belong to the topology")
+
     def route_classes = validated_routing.route_classes
     def injection_terminals = injection_terminals_at(validated_routing, node)
     def ejection_terminals = ejection_terminals_at(validated_routing, node)
@@ -167,9 +179,11 @@ class RouterPlan(validated_routing :: ValidatedRouting,
       validated_routing.topology,
       node
     ).map(fun (vc): HeldVC(vc))
+
     def origins = injection_terminals.map(
       fun (terminal): Injection(terminal)
     ) ++ held_origins
+
     def output_vcs = validated_routing.topology.outgoing_vcs(node)
     def targets = output_vcs ++ ejection_terminals
     def rows = validated_routing.route_table.rows_at(node).map(
@@ -180,6 +194,7 @@ class RouterPlan(validated_routing :: ValidatedRouting,
                       targets,
                       route_row)
     )
+
     super(validated_routing,
           node,
           route_classes,
@@ -212,8 +227,10 @@ class RouterPlan(validated_routing :: ValidatedRouting,
           candidate.origin_key == encoded_origin
         )
     )
+
     unless found
     | error(~who: #'RouterPlan, "unknown local route row")
+
     found
 
   /* Summarizes the local port shape and route-row count. */

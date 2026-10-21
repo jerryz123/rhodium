@@ -53,6 +53,7 @@ sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   // admission fault, and only its final data completion releases the slot.
   when queued:
     assert(!memory.request_fault & !memory.request_access_fault, "io_mshr_no_late_fault")
+
   when (memory.response.valid):
     assert(active, "io_mshr_completion_expected")
 

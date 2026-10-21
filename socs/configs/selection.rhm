@@ -72,6 +72,7 @@ fun named_soc_selection(name :: String) :: SoCSelection:
   def rows = selection_rows.filter(~keep: fun (row): row[0] == name)
   unless rows.length() == 1
   | error(~who: #'named_soc_selection, "expected an explicit shape-core-isa config key")
+
   def row = rows[0]
   SoCSelection(parse_soc_shape(row[1]), parse_core_kind(row[2]), parse_isa_preset(row[3]))
 

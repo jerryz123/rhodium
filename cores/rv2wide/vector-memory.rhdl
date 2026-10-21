@@ -33,15 +33,18 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     token: Token
     request: RV2WideMemoryReq(xlen, xlen.width)
     misaligned: Bool
+
   /* Retains the MEM outcome until its WB authorization edge. */
   bundle Decision():
     attempt: Attempt()
     response: RV2WideLookupResult(xlen)
+
   /* Retains extraction geometry with each accepted, ordered raw memory response. */
   bundle ReturnOwner():
     tag: Tag
     offset: Bits(index_width(xlen.width / 8))
     width: MemoryWidth
+
   interface issue(Decoupled(Token), ~role: consumer)
   interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)
   interface memory(RV2WideMemory(xlen, xlen.width), ~role: requester)
@@ -108,6 +111,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     locality: RiscvMemoryLocality.Default
     pbmt: PageMemoryType.PMA
     guest_access: RiscvGuestMemoryAccess.Normal
+
   def misaligned = ex.bits.enabled & !width.is_aligned(address)
   lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
 
@@ -121,6 +125,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
       request: request
       misaligned: misaligned
   ) |> valid_pipe(1, ~flush: recover)
+
   def wb = (
     mem |> map_valid(attempt => Decision()):
       attempt: attempt
@@ -166,6 +171,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     tag: token.completion_tag
     offset: attempt.request.address[0..index_width(xlen.width / 8)]
     width: attempt.request.width
+
   inst returned_data(LoadGen(xlen, xlen.width / 8))
   returned_data.address <== owners.egress.bits.offset.zext(xlen.width)
   returned_data.width <== owners.egress.bits.width
@@ -187,9 +193,11 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   split_returns.ingress.bits <== VectorCompletion(xlen, slots):
     tag: split_token.token.completion_tag
     data: split.response.bits.response.data
+
   when (split.response.valid):
     assert(split_pending, "rv2wide_vector_split_has_owner")
     assert(split_fault ||| split_returns.ingress.ready, "rv2wide_vector_split_return_reserved")
+
   when (split.request.fire()):
     split_pending <== Bool(#true)
     split_token <== attempt
@@ -219,6 +227,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def hit_return = hit_response |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(_operation => VectorCompletion(xlen, slots)):
     tag: token.completion_tag
     data: hit_value
+
   def offered_hit = hit_return |> offer_decoupled()
   // Only the retained certified ring depends on completion readiness. Precise
   // feedback itself controls that readiness in the shared completion engine.
@@ -246,11 +255,13 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     priority_mux(~default: mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))):
       guest: mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
       page: mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
+
   def lookup_cause = fault_cause(token.store, page_fault, guest_page_fault)
   def fault_disposition = mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
   def immediate_disposition = priority_mux(~default: VectorDisposition.Authorized):
     access_retry: VectorDisposition.Retry
     fault: fault_disposition
+
   def immediate = precise_response |> filter_valid(_decision => !token.precertified & !split.request.fire()) |> map_valid(decision => VectorCommit(xlen, slots)):
     tag: decision.attempt.token.completion_tag
     pc: decision.attempt.token.context
@@ -259,6 +270,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     data: hit_value
     cause: mux(admission_fault, memory.fault.bits.cause, lookup_cause)
     fault_address: mux(admission_fault, memory.fault.bits.value, decision.attempt.request.address)
+
   def split_cause = fault_cause(split_token.token.store, split.response.bits.page_fault, split.response.bits.guest.page_fault)
   def split_fault_disposition = mux(split_token.token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
   def split_decision = split.response |> filter_valid(_result => split_pending) |> map_valid(result => VectorCommit(xlen, slots)):
@@ -269,6 +281,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     data: result.response.data
     cause: split_cause
     fault_address: result.fault_address
+
   def Array(decision, retirement) = Array(immediate, split_decision) |> valid_arbiter() |> fork_valid(2)
   Array(durable, decision) |> valid_arbiter() |> feedback
   assert(!(durable.valid & decision.valid), "rv2wide_vector_capture_and_precise_feedback_are_exclusive")

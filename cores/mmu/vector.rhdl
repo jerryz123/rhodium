@@ -35,6 +35,7 @@ interface VectorFastCheck(xlen :: XLen):
     candidate: VectorFastCertificate(xlen)
     pipeline_physical: Bool
     request_physical: Bool
+
   responder -> requester:
     response: Valid(VectorFastCertificate(xlen))
     candidate_current: Bool
@@ -51,6 +52,7 @@ interface RiscvPageProbe():
   provider requester
   requester -> responder:
     request: Decoupled(RiscvPageProbeRequest())
+
   responder -> requester:
     response: Valid(RiscvTranslationResult())
 
@@ -63,6 +65,7 @@ interface VectorPrecheck():
   requester -> responder:
     request: Decoupled(VectorRange())
     release: Pulse()
+
   responder -> requester:
     response: Irrevocable(Bool)
 

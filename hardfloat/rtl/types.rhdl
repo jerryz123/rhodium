@@ -13,16 +13,20 @@ class FloatFormat(exponent_width :: PosInt, significand_width :: PosInt):
   constructor (exponent_width :: PosInt, significand_width :: PosInt):
     unless exponent_width >= 3
     | error(~who: #'FloatFormat, "exponent width must be at least three")
+
     unless significand_width >= 3
     | error(~who: #'FloatFormat, "significand width must be at least three")
+
     unless significand_width <= ((1 << (exponent_width - 2)) + 3)
     | error(~who: #'FloatFormat,
             "significand width exceeds the HardFloat format limit")
+
     super(exponent_width, significand_width)
 
   /* Returns the packed IEEE width: sign, exponent, and explicit fraction bits. */
   property ieee_width :: PosInt:
     exponent_width + significand_width
+
   /* Returns the recoded width, whose exponent has one extra encoding bit. */
   property recoded_width :: PosInt:
     ieee_width + 1

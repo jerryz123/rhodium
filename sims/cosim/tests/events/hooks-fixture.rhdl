@@ -14,15 +14,19 @@ circuit CosimHookSource(enabled :: Boolean):
   def id0 = CosimInstructionId():
     epoch: zero
     order: zero
+
   def id1 = CosimInstructionId():
     epoch: zero
     order: Bits(64)(1)
+
   def id2 = CosimInstructionId():
     epoch: zero
     order: Bits(64)(2)
+
   def id3 = CosimInstructionId():
     epoch: zero
     order: Bits(64)(3)
+
   def instruction = CosimInstruction():
     pc: Bits(64)(0x80000000)
     encoding: Bits(32)(0x13)
@@ -31,10 +35,12 @@ circuit CosimHookSource(enabled :: Boolean):
     privilege: PrivilegeMode.Machine
     virtualized: Bool(#false)
     producers: mux(step === Bits(4)(0), Bits(64)(1), zero)
+
   def retirement = CosimRetirement():
     next_pc: Bits(64)(0x80000004)
     privilege: PrivilegeMode.Machine
     virtualized: Bool(#false)
+
   def trap = CosimTrap():
     cause: Bits(64)(13)
     epc: Bits(64)(0x80000000)
@@ -45,17 +51,20 @@ circuit CosimHookSource(enabled :: Boolean):
     guest_valid: Bool(#true)
     htval: Bits(64)(0x800)
     htinst: Bits(64)(0x3000)
+
   def register_write = CosimRegisterWrite():
     bank: CosimRegisterBank.Vector
     register_index: Bits(5)(7)
     bit_offset: Bits(16)(128)
     mask: !zero
     value: Bits(64)(0x8000000000000042)
+
   def csr = CosimCsrUpdate():
     address: Bits(12)(1)
     operation: CosimCsrOperation.SetBits
     mask: Bits(64)(31)
     value: Bits(64)(16)
+
   def memory = CosimMemoryEffect():
     access_id: Bits(64)(7)
     fragment_offset: Bits(64)(3)
@@ -69,15 +78,19 @@ circuit CosimHookSource(enabled :: Boolean):
     read_data: Bits(64)(0x8000000000000042)
     write_data: zero
     result: CosimAccessResult.Success
+
   def effect0 = CosimEffectId():
     producer: Bits(6)(0)
     index: zero
+
   def effect1 = CosimEffectId():
     producer: Bits(6)(0)
     index: Bits(64)(1)
+
   def effect2 = CosimEffectId():
     producer: Bits(6)(0)
     index: Bits(64)(2)
+
   hart.instruction(step === Bits(4)(0), id0, instruction)
   hart.instruction(step === Bits(4)(1), id1, instruction)
   hart.retire(step === Bits(4)(1), id1, retirement)

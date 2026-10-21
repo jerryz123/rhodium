@@ -66,6 +66,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
     outcome: CachePipelineOutcome.Replay
     reason: CachePipelineReason.ArrayPort
     data: Bits(xlen.width)(0)
+
   def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: CachePipelineOutcome.Slow))
   def Array(scalar_return, vector_return) = pipeline.response |> fork_valid(2)
   def scalar_bits = mux(scalar_result.bits, selected_result, replay)

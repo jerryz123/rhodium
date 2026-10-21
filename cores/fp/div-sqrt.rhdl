@@ -27,6 +27,7 @@ sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format
     profile,
     Tag
   )), ~role: consumer)
+
   interface completion(Irrevocable(FpExecutionResult(
     xlen,
     profile,
@@ -71,6 +72,7 @@ sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format
     done <== Bool(#false)
   elsewhen (operation.division_valid ||| operation.square_root_valid):
     done <== Bool(#true)
+
   describe_interface_retained_storage(request.fire(), completion.fire(), busy, ~name: "arithmetic")
   describe_interface_contract(request, completion, "arithmetic", ~trace_model: interface_trace_retained(~name: "arithmetic"))
 
@@ -81,6 +83,7 @@ sync_circuit FpDivSqrtF(xlen :: XLen, Tag :: DataType):
     FloatingPointProfile.F,
     Tag
   )), ~role: consumer)
+
   interface completion(Irrevocable(FpExecutionResult(
     xlen,
     FloatingPointProfile.F,

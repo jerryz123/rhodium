@@ -29,6 +29,7 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
   drained <== !pending & !allocate.valid
   def joined = Array(response, owners.egress) |> zip_flow(data, owner):
     owner.updated(~data: data)
+
   def result :: RV2WideResult(xlen) = joined.bits
   ordered_completed.valid <== joined.fire() & !result.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
   inst load(LoadGen(xlen, xlen.width / 8))
@@ -42,12 +43,14 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
     precision: owner.fp.bits.execution.destination_precision
     data: if xlen == XLen.X64 | load.value | load.value.zext(64)
   ) |> fp_completed
+
   def completion = integer_return |> map_flow(owner => RV2WideRetirement(xlen)):
     fetched: owner.fetched
     rd: owner.rd
     write: owner.write
     data: mux(owner.memory.access === CacheOperation.Load, load.value, owner.data)
     deferred: Bool(#false)
+
   completion |> completed
 
 export:

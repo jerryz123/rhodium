@@ -40,12 +40,15 @@ fun find_evidence(lowering :: RoutingPolicyLowering,
   def found = lowering.decisions.find(
     fun (evidence): evidence_matches(evidence, decision)
   )
+
   unless found
   | error(~who: #'compile_authored_routing,
           "materialized decision has no authored provenance")
+
   unless found.allowed == decision.allowed
   | error(~who: #'compile_authored_routing,
           "authored provenance disagrees with its materialized decision")
+
   found
 
 /* Uses matched rule names when present, otherwise the recorded policy's description. */
@@ -78,6 +81,7 @@ class AuthoredCycleEdge(source_vc :: VCRef,
     def cause_rows = causes.map(
       fun (cause): "    " ++ cause.describe()
     )
+
     String.append(
       "  ", source_vc.describe(), " -> ", target_vc.describe(),
       "\n", String.join(cause_rows, "\n")
@@ -105,10 +109,12 @@ class AuthoredRoutingFailure(kind :: String,
       if !candidate_vc
       | ""
       | " -> " ++ candidate_vc.describe()
+
     def rules:
       if rule_names.length() == 0
       | ""
       | "; rules=[" ++ String.join(rule_names, ", ") ++ "]"
+
     String.append(kind, " for route ", route_class.describe(),
                   " at ", origin.describe(), candidate, rules)
 
@@ -154,6 +160,7 @@ fun authored_cycle(lowering :: RoutingPolicyLowering,
       lowered_topology.vc_ref(edge.target_vc),
       edge.decisions.map(fun (decision): cycle_cause(lowering, decision))
     )
+
   AuthoredDependencyCycle(cycle, edges)
 
 /* Projects escape validation failures using stored query evidence or normalized-origin provenance. */
@@ -210,12 +217,15 @@ fun compile_authored_routing(lowered_routes :: LoweredRouteClasses,
     ),
     ~escape: escape_request
   )
+
   def materialized = materialized_result(result)
   when materialized && lowering.decisions.length() != materialized.decisions.length()
   | error(~who: #'compile_authored_routing,
           "authored provenance does not cover every materialized decision")
+
   def diagnostic:
     if result is_a DependencyCycle
     | authored_cycle(lowering, result)
     | authored_failure(lowering, result)
+
   AuthoredRoutingCompilation(result, lowering, diagnostic)

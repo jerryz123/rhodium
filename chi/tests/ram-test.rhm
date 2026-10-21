@@ -46,6 +46,7 @@ check:
     ~max_outstanding: 2,
     ~max_transfer_bytes: 64
   ) ~throws "fit in the RAM"
+
   chi.CHIRamParams("misaligned", 9, config, ~base_address: 32) ~throws "base address must be aligned"
   chi.CHIRamParams("outside", 9, config, ~base_address: (1 << 44)) ~throws "memory region must fit"
   chi.CHIRamParams("wide-node", 128, config) ~throws "NodeID must fit"

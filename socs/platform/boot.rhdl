@@ -38,6 +38,7 @@ class SoCBootConfig(reset_address :: Nat,
     def address_limit = 1 << description.hart.xlen.width
     unless payload_address < address_limit && reset_address + window_bytes <= address_limit && boot_address_register + BootAddressWindowBytes <= address_limit
     | error(~who: #'image_for, "boot addresses must fit the hart's XLEN")
+
     unless description.boot.reset_address == reset_address && (
       description.boot.payload_address == payload_address
     ) && description.boot.rom.base == reset_address && (
@@ -45,19 +46,24 @@ class SoCBootConfig(reset_address :: Nat,
     )
     | error(~who: #'image_for,
             "SoC description boot layout must match the BootROM configuration")
+
     unless (!description.boot.address_register) || description.boot.address_register.base == boot_address_register
     | error(~who: #'image_for, "SoC description boot-address register must match the BootROM configuration")
+
     unless description.aclint.region.base == AclintBase
     | error(~who: #'image_for,
             "SoC description must use the fixed ACLINT base")
+
     def device_tree_bytes = description.to_device_tree().to_dtb().to_list()
     def image = BootROMImage(
       program.bytes ++ (
         for List (_index in program.size_bytes..device_tree_offset): 0
       ) ++ device_tree_bytes
     )
+
     unless image.size_bytes <= window_bytes
     | error(~who: #'image_for, "generated device tree must fit in the BootROM window")
+
     image
 
   /* Validates ROM and register alignment, eight-byte DTB alignment, and separation of the reset program from the embedded tree. */
@@ -70,15 +76,20 @@ class SoCBootConfig(reset_address :: Nat,
     unless reset_address mod window_bytes == 0
     | error(~who: #'SoCBootConfig,
             "reset address must be aligned to the BootROM window")
+
     unless device_tree_offset mod 8 == 0
     | error(~who: #'SoCBootConfig, "device-tree offset must be eight-byte aligned")
+
     unless program.size_bytes <= device_tree_offset
     | error(~who: #'SoCBootConfig,
             "reset program must fit before the embedded device tree")
+
     unless device_tree_offset < window_bytes
     | error(~who: #'SoCBootConfig, "device-tree offset must lie in the BootROM window")
+
     unless boot_address_register mod BootAddressWindowBytes == 0
     | error(~who: #'SoCBootConfig, "boot-address register must be page aligned")
+
     super(reset_address, payload_address, window_bytes, device_tree_offset, program,
           boot_address_register)
 
@@ -114,14 +125,17 @@ class SoCBootROMParams(flit :: CHIFlitParams,
 
   property rom_layout:
     CHIBootROMLayout(flit, ~window_bytes: boot.window_bytes)
+
   /* Finalizes the boot program and embedded device tree into the device's ROM layout. */
   method rom_config(description :: RiscvSoCDescription):
     CHIBootROMConfig(rom_layout, ~image: boot.image_for(description))
+
   property rom_params:
     CHIBootROMParams("soc-bootrom",
                      node_id,
                      rom_layout,
                      ~base_address: boot.reset_address)
+
   property region:
     RiscvHartCHIRegion(
       RiscvPhysicalMemoryRegion(

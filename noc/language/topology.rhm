@@ -55,6 +55,7 @@ meta:
                         " on topology link ", identifier_name(link_name)),
           selected
         )
+
       seen := seen ++ [selected]
 
   /* Collects names/count expressions and validates declaration shapes before emitting builders. */
@@ -74,6 +75,7 @@ meta:
               "topology name is already used by a node: " ++ identifier_name(name),
               name
             )
+
           group_names := group_names ++ [name]
           group_counts := group_counts ++ [count]
       | 'node $(name :: Identifier)':
@@ -83,6 +85,7 @@ meta:
               "topology name is already used by a VC group: " ++ identifier_name(name),
               name
             )
+
           node_names := node_names ++ [name]
       | 'injection $(name :: Identifier) at $(router :: Identifier)':
           require_fresh(injection_names, name, "injection terminal")
@@ -107,8 +110,10 @@ meta:
             "expected vc_group, node, injection, ejection, directed, or bidirectional topology declaration",
             clause
           )
+
     when node_names.length() == 0
     | syntax_meta.error("topology requires at least one node", location)
+
     values(group_names,
            group_counts,
            node_names,
@@ -135,6 +140,7 @@ meta:
             'EjectionTerminalSpec(EjectionRef($name_string), $router)'
           ]
       | ~else: #void
+
     values(injections, ejections)
 
   /* Checks endpoints and VC selections, then emits one or two public directed-link constructors. */
@@ -155,6 +161,7 @@ meta:
               "directed topology link requires at least one VC group",
               name
             )
+
           validate_selected_groups(selected_groups, group_names, name)
           def link_name = identifier_name(name)
           links := links ++ [
@@ -176,6 +183,7 @@ meta:
               "bidirectional topology link requires at least one VC group",
               forward
             )
+
           validate_selected_groups(selected_groups, group_names, forward)
           def forward_name = identifier_name(forward)
           def reverse_name = identifier_name(reverse)
@@ -194,6 +202,7 @@ meta:
              )'
           ]
       | ~else: #void
+
     links
 
 /* Expands structural syntax into public TopologySpec values, without numeric lowering or routing

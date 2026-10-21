@@ -34,8 +34,10 @@ class MeshDirection(axis :: String, step :: Int):
   constructor (axis :: String, step :: Int):
     unless axis == "x" || axis == "y"
     | error(~who: #'MeshDirection, "mesh direction axis must be 'x' or 'y'")
+
     unless step == -1 || step == 1
     | error(~who: #'MeshDirection, "mesh direction step must be -1 or 1")
+
     super(axis, step)
 
   /* Maps the axis and sign to a cardinal direction name. */
@@ -125,6 +127,7 @@ class RectangularMesh(width :: PosInt,
     unless found
     | error(~who: #'node_at,
             "coordinate outside mesh " ++ coordinate.describe())
+
     found.ref
 
   /* Resolves a known symbolic router to its coordinate. */
@@ -132,6 +135,7 @@ class RectangularMesh(width :: PosInt,
     def found = find_mesh_node_by_ref(node_bindings, ref)
     unless found
     | error(~who: #'coordinate_of, "node is not in mesh " ++ ref.describe())
+
     found.coordinate
 
   /* Resolves a known symbolic link to its cardinal direction. */
@@ -139,6 +143,7 @@ class RectangularMesh(width :: PosInt,
     def found = find_mesh_link_by_ref(link_bindings, ref)
     unless found
     | error(~who: #'direction_of, "link is not in mesh " ++ ref.describe())
+
     found.direction
 
   /* Returns the requested directional edge, or false when that neighbor does not exist. */
@@ -152,6 +157,7 @@ class RectangularMesh(width :: PosInt,
     def found = find_mesh_link_by_ref(link_bindings, ref)
     unless found
     | error(~who: #'inverse_link, "link is not in mesh " ++ ref.describe())
+
     def inverse = find_outgoing_mesh_link(
       link_bindings,
       found.destination,
@@ -160,6 +166,7 @@ class RectangularMesh(width :: PosInt,
     unless inverse
     | error(~who: #'inverse_link,
             "mesh link has no inverse " ++ ref.describe())
+
     inverse.ref
 
   /* Prefixes topology references while preserving coordinate and direction metadata. */
@@ -170,6 +177,7 @@ class RectangularMesh(width :: PosInt,
         MeshNodeBinding(binding.coordinate,
                         prefix_node_ref(prefix, binding.ref))
     )
+
     def prefixed_links = link_bindings.map(
       fun (binding):
         MeshLinkBinding(binding.source,
@@ -177,6 +185,7 @@ class RectangularMesh(width :: PosInt,
                         binding.direction,
                         prefix_link_ref(prefix, binding.ref))
     )
+
     RectangularMesh(width,
                     height,
                     prefixed_spec,
@@ -230,6 +239,7 @@ fun directional_mesh_links(width :: PosInt,
                           direction,
                           mesh_link_ref(source, direction))
         ]
+
   bindings
 
 /* Builds a bidirectional nonwrapping grid and sorted metadata, leaving terminals to the caller. */
@@ -264,6 +274,7 @@ fun rectangular_mesh(width :: PosInt,
         vc_groups
       )
   )
+
   RectangularMesh(
     width,
     height,

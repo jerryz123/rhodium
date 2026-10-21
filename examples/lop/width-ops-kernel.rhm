@@ -23,6 +23,7 @@ fun WidthOps8():
     connect(middle, extract(a, 5, 2))
     connect(widened, zext(a, 12))
     connect(narrowed, trunc(a, 4))
+
   build_circuit(width_ops_identity, "WidthOps8", [], implementation)
 
 def program = run_elaboration(fun (): WidthOps8())

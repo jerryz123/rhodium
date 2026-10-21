@@ -3,5 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../chi/tests/inclusive-home-fixture.rhdl" as fixture
+
 def program = fixture.inclusive_home_program
 export program

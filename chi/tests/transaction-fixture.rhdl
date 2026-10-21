@@ -23,6 +23,7 @@ def transaction_rni_node = CHINodeParams(
   ),
   ~max_outstanding: 2
 )
+
 def transaction_rni_link = CHIRNILinkParams(
   transaction_flit,
   ~tx_req_credits: 2,
@@ -48,6 +49,7 @@ def transaction_sn_node = CHINodeParams(
   ),
   ~max_outstanding: 2
 )
+
 def transaction_sn_link = CHISNLinkParams(
   transaction_flit,
   ~tx_rsp_credits: 2,
@@ -78,6 +80,7 @@ def transaction_rnf_node = CHINodeParams(
   ),
   ~max_outstanding: 2
 )
+
 def transaction_rnf_link = CHIRNLinkParams(transaction_flit)
 
 sync_circuit MonitoredInitialCHIRNI():

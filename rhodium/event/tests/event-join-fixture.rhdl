@@ -18,6 +18,7 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
   output routes_fire: Bits(2)
   def inputs = for Array (index in 0..3):
     if traced | ingress[index] |> trace_event("root" ++ to_string(index), ~payload: #true) | ingress[index]
+
   def left = inputs[0] |> queue(2, ~pipe: #true)
   def right = inputs[1] |> pipe(2)
   def third :: Endpoint = inputs[2] |> queue(2)
@@ -35,6 +36,7 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
     if traced
     | outputs[index] |> trace_event("completed" ++ to_string(index), ~payload: #true) |> egress[index]
     | outputs[index] |> egress[index]
+
   first_fire <== first.fire()
   replicas_fire <== vec(for List (index in 0..2): replicas[index].fire()).as_bits()
   rejoin_fire <== rejoined.fire()
@@ -76,10 +78,13 @@ sync_circuit EventJoin():
     for (port in 0..3):
       sources[index * 3 + port] |> lane.ingress[port]
       gold_sources[index * 3 + port] |> gold.ingress[port]
+
     for (port in 0..2):
       lane.egress[port] |> sinks[index * 2 + port]
       gold.egress[port] |> gold_sinks[index * 2 + port]
+
     [lane.first_fire, lane.replicas_fire, lane.rejoin_fire, lane.combine_inputs, lane.combine_fire, lane.routes_fire]
+
   first_fire <== vec(lanes.map(fun (lane): lane[0])).as_bits()
   replicas_fire <== vec(lanes.map(fun (lane): lane[1])).as_bits()
   rejoin_fire <== vec(lanes.map(fun (lane): lane[2])).as_bits()

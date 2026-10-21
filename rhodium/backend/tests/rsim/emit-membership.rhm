@@ -12,6 +12,7 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[1] in ["rsim", "verilog"]
 | error("expected OUTPUT_DIRECTORY rsim|verilog")
+
 def result = compile_program(program, if arguments[1] == "rsim" | rsim_target | verilog_target)
 for (artifact in result.artifacts):
   file.#{display-to-file}(artifact.content, rkt.#{build-path}(arguments[0], artifact.name), ~exists: #'replace)

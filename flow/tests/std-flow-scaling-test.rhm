@@ -18,12 +18,15 @@ fun elaborate_modules(generator):
 def matcher_modules = elaborate_modules(
   fun (size): compile_program(elaborate(flow.OutputGreedyRoundRobinMatcher(size, 1)), rtl_target).report.design
 )
+
 def rr_arbiter_modules = elaborate_modules(
   fun (size): compile_program(elaborate(flow.RRArbiter(Bits(8), size)), rtl_target).report.design
 )
+
 def join_modules = elaborate_modules(
   fun (size): compile_program(elaborate(flow.Join(Bits(8), size)), rtl_target).report.design
 )
+
 def fork_modules = elaborate_modules(
   fun (size): compile_program(elaborate(flow.AtomicFork(Bits(8), size)), rtl_target).report.design
 )
@@ -35,6 +38,7 @@ fun grows_below(costs, factor :: PosInt):
   def mutable bounded = #true
   for (index in 1..costs.length()):
     bounded := bounded && costs[index] < costs[index - 1] * factor
+
   bounded
 
 def avoids_candidate_vector_index = for all (

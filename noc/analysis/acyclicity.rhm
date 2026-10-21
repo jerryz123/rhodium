@@ -21,6 +21,7 @@ fun vc_index(vcs :: List.of(VCId), vc :: VCId):
   for (index in 0..vcs.length()):
     when !found && vc_id_equal(vcs[index], vc)
     | found := index
+
   found
 
 /* Retains a stable topological resource order under the VC hold-and-request model. */
@@ -37,6 +38,7 @@ class AcyclicCertificate(graph :: VCDependencyGraph,
     when !found
     | error(~who: #'AcyclicCertificate,
             "VC has no certified rank: " ++ vc.describe())
+
     found
 
   /* Compares two certified resource ranks. */
@@ -47,6 +49,7 @@ class AcyclicCertificate(graph :: VCDependencyGraph,
   method describe():
     def rows = for List (index in 0..ordered_vcs.length()):
       String.append(to_string(index), ": ", ordered_vcs[index].describe())
+
     String.join(rows, "\n")
 
 /* Carries a closed dependency witness with original edge provenance. */
@@ -68,6 +71,7 @@ class DependencyCycle(graph :: VCDependencyGraph,
     def mutable provenance = []
     for (edge in edges):
       provenance := provenance ++ edge.decisions
+
     provenance
 
   /* Deduplicates the exact route objects implicated by the witness. */
@@ -78,6 +82,7 @@ class DependencyCycle(graph :: VCDependencyGraph,
         fun (route_class): route_class === decision.route_class
       )
       | route_classes := route_classes ++ [decision.route_class]
+
     route_classes
 
   /* Formats the cycle edges and their route provenance. */
@@ -85,6 +90,7 @@ class DependencyCycle(graph :: VCDependencyGraph,
     def rows = edges.map(
       fun (edge): "  " ++ edge.describe()
     )
+
     String.append("VC dependency cycle:\n", String.join(rows, "\n"))
 
 /* Tests whether a vertex still depends on an unremoved source resource. */
@@ -104,12 +110,14 @@ fun stable_topological_order(graph :: VCDependencyGraph):
     def next = remaining.find(
       fun (vc): !has_remaining_predecessor(graph, remaining, vc)
     )
+
     if next
     | ordered := ordered ++ [next]
       remaining := remaining.filter(
         ~keep: fun (vc): !vc_id_equal(vc, next)
       )
     | stuck := #true
+
   if stuck | #false | ordered
 
 /* Searches vertices and outgoing edges in stable order for one closed dependency witness. */
@@ -137,14 +145,17 @@ fun find_cycle(graph :: VCDependencyGraph):
                 current_vertices,
                 active_edges ++ [edge]
               )
+
     unless cycle
     | finished := finished ++ [vc]
+
     cycle
 
   def mutable cycle = #false
   for (vc in graph.vertices):
     unless cycle || contains_vc(finished, vc)
     | cycle := visit(vc, [], [])
+
   cycle
 
 /* Returns a topological certificate or a cycle; this does not prove fairness or RTL correctness. */
@@ -157,4 +168,5 @@ fun check_dependency_acyclicity(graph :: VCDependencyGraph):
       unless cycle
       | error(~who: #'check_dependency_acyclicity,
               "internal error: cyclic graph has no cycle witness")
+
       cycle

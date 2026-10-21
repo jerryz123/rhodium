@@ -20,10 +20,12 @@ fun fixture(length :: PosInt, width :: PosInt, kind :: String = "update", shared
     RsimStep("input", Bits(width), [], {"name": "other_index"}),
     RsimStep("input", element, [], {"name": "other_replacement"})
   ]
+
   fun add(opcode :: String, type :: HardwareType, operands :: List, attributes :: Map = {}):
     def id = steps.length()
     steps.add(RsimStep(opcode, type, operands, attributes))
     id
+
   def lanes = for List (lane in 0..length):
     def constant = add("rtl.constant", Bits(width), [], {"value": lane mod (2 ** width)})
     def selector = if kind == "index" && lane == 1 | 4 | 1
@@ -32,6 +34,7 @@ fun fixture(length :: PosInt, width :: PosInt, kind :: String = "update", shared
     def old = add("rtl.vector_get", element, [base], {"index": if kind == "lane" && lane == 1 | 0 | lane})
     def replacement = if kind == "replacement" && lane == 1 | 5 | 2
     add("rtl.mux_lookup", element, [equal, old, replacement], {"keys": [1]})
+
   def constructed = add("rtl.vector_create", vector, lanes, {"name": "updated"})
   // Effect-only uses and shared lane projections must survive value pruning.
   def enable = add("rtl.constant", Bits(1), [], {"value": 1})
@@ -65,11 +68,14 @@ for (length in [1, 3, 8], width in [1, 2, 64]):
       optimized.reads[0].memory ~is 0
       optimized.assertions[0].label ~is "alive"
       optimized.foreign_calls[0].import_decl === original.foreign_calls[0].import_decl ~is #true
+
     for (value in [optimized.registers[0].reset, optimized.writes[0].enable, optimized.writes[0].mask_value,
                    optimized.reads[0].enable, optimized.assertions[0].condition, optimized.foreign_calls[0].arguments[0]]):
       check: optimized.steps[value].attributes["value"] ~is 1
+
     when shared
     | check: optimized.steps[optimized.outputs[1].value].opcode ~is "rtl.mux_lookup"
+
     for (step in optimized.steps, index in 0..optimized.steps.length()):
       check: (for all (operand in step.operands): operand < index) ~is #true
 
@@ -78,6 +84,7 @@ for (length in [1, 3, 8], width in [1, 2, 64]):
 for (kind in ["index", "base", "replacement", "lane"]):
   def original = fixture(3, 2, kind)
   check: compact_array_updates(original) === original ~is #true
+
 def wrapped = fixture(3, 1)
 check: compact_array_updates(wrapped) === wrapped ~is #true
 
@@ -104,6 +111,7 @@ fun projected_fixture(kind :: String = "matching"):
     def id = steps.length()
     steps.add(RsimStep(opcode, type, operands, attributes))
     id
+
   def updated = base.outputs[0].value
   def choice = add("rtl.mux_lookup", vector, [1, 0, updated, 3], {"keys": [1, 2], "name": "whole"})
   def lanes = for List (lane in 0..3):
@@ -113,12 +121,15 @@ fun projected_fixture(kind :: String = "matching"):
       | def wrapper = add("rtl.record_create", RecordType([RecordField("rows", vector)]), [source], {"fields": ["rows"]})
         add("rtl.record_get", vector, [wrapper], {"field": "rows"})
       | source
+
       add("rtl.vector_get", element, [projected], {"index": index})
+
     def keys = if kind == "keys" && lane == 1 | [2, 1] | [1, 2]
     def selector = if kind == "selector" && lane == 1 | 4 | 1
     def old = add("rtl.mux_lookup", element, [selector] ++ parts, {"keys": keys, "name": "projected"})
     def equal = add("rtl.eq", Bits(1), [4, add("rtl.constant", Bits(2), [], {"value": lane})])
     add("rtl.mux_lookup", element, [equal, old, 5], {"keys": [1]})
+
   def result = add("rtl.vector_create", vector, lanes)
   RsimSchedule(base.name, base.inputs,
                [RsimPort("base", vector, choice), RsimPort("result", vector, result), RsimPort("lane", element, lanes[1])],
@@ -134,8 +145,10 @@ for (kind in ["matching", "record", "keys", "selector", "lane"]):
     optimized ~is compact_array_updates(original)
     original.steps[original.outputs[1].value].opcode ~is "rtl.vector_create"
     optimized.steps[optimized.outputs[2].value].opcode ~is "rtl.mux_lookup"
+
   when kind in ["matching", "record"]
   | check: result.operands[0] ~is optimized.outputs[0].value
+
   for (step in optimized.steps, index in 0..optimized.steps.length()):
     check: (for all (operand in step.operands): operand < index) ~is #true
 
@@ -156,6 +169,7 @@ fun zero(type):
   | vector_type(type): for List (_ in 0..type.length): zero(type.element_type)
   | record_type(type): for Map (field in type.fields): values(field.name, zero(field.type))
   | ~else: 0
+
 fun observe(schedule, inputs):
   def computed = MutableList[]
   for (step in schedule.steps):
@@ -176,7 +190,9 @@ fun observe(schedule, inputs):
         def index = step.attributes["keys"].index(args[0])
         if index == #false | args[1] | args[index + 2]
     | ~else: error(step.opcode)
+
     computed.add(result)
+
   schedule.outputs.map(fun (port): computed[port.value])
 
 fun read_fixture(length, write_width, read_width, shared = #false):
@@ -189,10 +205,12 @@ fun read_fixture(length, write_width, read_width, shared = #false):
     RsimStep("input", element, [], {"name": "x"}),
     RsimStep("input", element, [], {"name": "y"}),
     RsimStep("input", Bits(2), [], {"name": "choice"})]
+
   fun add(opcode, type, operands, attributes = {}):
     def id = steps.length()
     steps.add(RsimStep(opcode, type, operands, attributes))
     id
+
   def first = add("rtl.vector_inject", vector, [0, 1, 3])
   def second = add("rtl.vector_inject", vector, [first, 2, 4])
   def selected = add("rtl.mux_lookup", vector, [5, first, second, 0], {"keys": [3, 1]})
@@ -225,8 +243,10 @@ for (length in [1, 3, 8]):
         result.writes[0].data ~is result.outputs[2].value
         result.assertions[0].label ~is "forwarded"
         source.steps[source.outputs[0].value].opcode ~is "rtl.vector_index"
+
       for (step in result.steps, index in 0..result.steps.length()):
         check: (for all (operand in step.operands): operand < index) ~is #true
+
       for (i in [0, 1, length - 1, length, 2 ** write_width - 1]):
         for (j in [0, 1, length - 1, length, 2 ** read_width - 1]):
           for (choice in 0..4):
@@ -234,6 +254,7 @@ for (length in [1, 3, 8]):
             def input = {"base": base,
                          "i": i mod (2 ** write_width), "j": j mod (2 ** read_width),
                          "x": {"data": [17, 2 ** 128 + 37], "tag": 3}, "y": {"data": [29, 41], "tag": 5}, "choice": choice}
+
             check: observe(result, input) ~is observe(source, input)
 
 // A shared mux DAG must not expand into an exponential expression tree. An
@@ -248,14 +269,17 @@ for ([depth, dag] in [[24, #true], [80, #false]]):
     def added = if dag
     | RsimStep("rtl.mux_lookup", vector, [5, value, value], {"keys": [3]})
     | RsimStep("rtl.vector_inject", vector, [value, 1, 3], {})
+
     steps.add(added)
     value := steps.length() - 1
+
   steps.add(RsimStep("rtl.vector_index", vector.element_type, [value, 2], {}))
   def schedule = RsimSchedule("BoundedReads", source.inputs, [RsimPort("read", vector.element_type, steps.length() - 1)], steps.snapshot(), [], [], [], [], [], [])
   def result = compact_array_updates(schedule)
   check:
     result ~is compact_array_updates(result)
     result.steps.length() < depth * 3 + 30 ~is #true
+
   unless dag | check: result === schedule ~is #true
 
 // Synthetic forwarding recipes inherit the requesting projection's occurrence;
@@ -263,9 +287,11 @@ for ([depth, dag] in [[24, #true], [80, #false]]):
 for (source in [fixture(3, 2), read_fixture(3, 2, 2)]):
   def tagged_steps = for List (step in source.steps, index in 0..source.steps.length()):
     RsimStep(step.opcode, step.type, step.operands, step.attributes, index + 1)
+
   def tagged = remap_schedule(source, tagged_steps, fun (value): value)
   def result = compact_array_updates(tagged)
   check:
     result.steps[result.outputs[0].value].occurrence ~is tagged.outputs[0].value + 1
     result ~is compact_array_updates(result)
+
   for (step in result.steps): check: step.occurrence > 0 ~is #true

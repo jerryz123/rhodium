@@ -29,6 +29,7 @@ sync_circuit RV5StageRegisterFile(xlen :: XLen):
   // invariant is violated, same-destination write behavior is undefined.
   when writing_first:
     registers[first_write.bits.address] <== first_write.bits.data
+
   when writing_second:
     registers[second_write.bits.address] <== second_write.bits.data
 

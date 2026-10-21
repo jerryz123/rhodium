@@ -63,6 +63,7 @@ check:
 // Capturing old IR is an ownership error, not an implicit name-based remapping.
 fun overlapping_environment(prepared_top :: Module):
   TemporalEnvironment([TopInputContract(prepared_top.find_input("data").value, [], UnknownInputTiming())])
+
 check:
   compile_program(program, clocking_target(~environment: fun (prepared_top): environment)) ~throws "input of top module"
   compile_program(program, clocking_target(~environment: overlapping_environment)) ~throws "must not overlap"
@@ -80,6 +81,7 @@ def mutable environment_calls = 0
 fun clean_environment(prepared_top :: Module):
   environment_calls := environment_calls + 1
   TemporalEnvironment([TopInputContract(prepared_top.find_input("data").value, [], SynchronousInputTiming(prepared_top.find_input("clock").value))])
+
 def checked = compile_program(clean, clocking_target(~environment: clean_environment))
 check:
   environment_calls ~is 1
@@ -109,6 +111,7 @@ block:
     def instance = builder.instance(top, child, name)
     builder.drive(instance.input("clock"), top_clock)
     builder.drive(instance.input("data"), top_data)
+
   declare_clocking_environment(top, TemporalEnvironment([TopInputContract(top_data, [], AsynchronousInputTiming())]))
   builder.finish(top)
   def program = DesignElaboration(design, top)
@@ -139,11 +142,13 @@ for (raw_sample in [#false, #true]):
       builder.drive(second.next, first.current)
       builder.sync_level_crossing(top, level, clock, [first, second])
       second.current
+
   def sample = builder.register(top, "sample", Bits(1), clock)
   builder.drive(sample.next, builder.bit_xor(top, synchronized[0], synchronized[1]))
   when raw_sample
   | def raw = builder.register(top, "raw", Bits(1), clock)
     builder.drive(raw.next, level)
+
   declare_clocking_environment(top, TemporalEnvironment([TopInputContract(level, [], AsynchronousInputTiming())]))
   builder.finish(top)
   def result = compile_program(DesignElaboration(design, top), clocking_target())

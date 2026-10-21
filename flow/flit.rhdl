@@ -38,6 +38,7 @@ fun packet_payload_width(T :: DataType, who :: Symbol) :: PosInt:
   unless payload_width is_a PosInt
   | error(~who: who,
           "packet payload must have a packable DataType")
+
   payload_width
 
 /* Holds one queued payload while sending least-significant chunks first.
@@ -65,6 +66,7 @@ sync_circuit Packetizer(T :: DataType, chunk_width :: PosInt):
     first: first
     last: last
     payload: chunks[phase]
+
   payload_queue.egress.ready <== egress.ready & last
 
 /* Collects low-order chunks first and queues each reconstructed payload on
@@ -126,6 +128,7 @@ fun frame_fixed_flits(flits_per_packet :: PosInt)
       first: first
       last: last
       payload: input_endpoint.bits.payload
+
     finish_flit_transform(source, input_link, output_link)
 
 /* Asserts that transferred boundary markers match a fixed packet length;
@@ -161,6 +164,7 @@ fun require_fixed_framing(flits_per_packet :: PosInt)
       first: input_endpoint.bits.head
       last: input_endpoint.bits.tail
       payload: input_endpoint.bits.payload
+
     def transfer = input_endpoint.fire()
     check_fixed_framing(input_endpoint.bits.head, input_endpoint.bits.tail, transfer, flits_per_packet)
     finish_flit_transform(source, input_link, output_link)
@@ -184,6 +188,7 @@ fun strip_fixed_framing(flits_per_packet :: PosInt)
     output_endpoint.valid <== input_endpoint.valid
     output_endpoint.bits <== FixedFlit(T):
       payload: input_endpoint.bits.payload
+
     def transfer = input_endpoint.fire()
     check_fixed_framing(input_endpoint.bits.first, input_endpoint.bits.last, transfer, flits_per_packet)
     finish_flit_transform(source, input_link, output_link)
@@ -208,6 +213,7 @@ fun forget_fixed_framing()
       head: input_endpoint.bits.first
       tail: input_endpoint.bits.last
       payload: input_endpoint.bits.payload
+
     finish_flit_transform(source, input_link, output_link)
 
 export:

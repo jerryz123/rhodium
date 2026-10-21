@@ -4,5 +4,6 @@
 import:
   "../vector-overlap-fixture.rhdl" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+
 def program = elaborate(VectorOverlap())
 export program

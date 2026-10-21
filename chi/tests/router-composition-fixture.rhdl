@@ -21,9 +21,11 @@ def shared_topology = topology:
   directed local_transit:
     local -> transit
     vcs [transport]
+
   directed transit_local:
     transit -> local
     vcs [transport]
+
 def shared_router = shared_topology.node("local")
 def shared_transit_router = shared_topology.node("transit")
 def shared_rni = CHIRNSite(NamePath(["requester"]), 3, shared_router)
@@ -64,6 +66,7 @@ def shared_attachment = CHIRouterAttachments(
   ~hn_subordinate_sites: [[shared_hni_subordinate]],
   ~sn_sites: [[shared_first_sn, shared_second_sn]]
 )
+
 def shared_router_params = CHIRouterParams(
   composition_flit,
   shared_router_configs,
@@ -111,9 +114,11 @@ def requester_topology = topology:
   directed local_transit:
     local -> transit
     vcs [transport]
+
   directed transit_local:
     transit -> local
     vcs [transport]
+
 def requester_router = requester_topology.node("local")
 def requester_transit_router = requester_topology.node("transit")
 def split_rni = CHIRNSite(NamePath(["requester"]), 3, requester_router)
@@ -144,6 +149,7 @@ def requester_attachment = CHIRouterAttachments(
   ~rni_sites: [[split_rni]],
   ~hni_requester_sites: [[split_hni_requester]]
 )
+
 def requester_router_params = CHIRouterParams(
   composition_flit,
   requester_router_configs,
@@ -168,9 +174,11 @@ def subordinate_topology = topology:
   directed local_transit:
     local -> transit
     vcs [transport]
+
   directed transit_local:
     transit -> local
     vcs [transport]
+
 def subordinate_router = subordinate_topology.node("local")
 def subordinate_transit_router = subordinate_topology.node("transit")
 def split_hni_subordinate = CHISNICNSite(NamePath(["home", "subordinate"]), 5, subordinate_router)
@@ -206,6 +214,7 @@ def subordinate_attachment = CHIRouterAttachments(
   ~hn_subordinate_sites: [[split_hni_subordinate]],
   ~sn_sites: [[split_first_sn, split_second_sn]]
 )
+
 def subordinate_router_params = CHIRouterParams(
   composition_flit,
   subordinate_router_configs,
@@ -248,6 +257,7 @@ sync_circuit CHISplitRouterCompositionFixture():
      CHIRouterEndpoints(requester_transit_site_key, requester_transit.incoming_links, requester_transit.outgoing_links)],
     ~snp: #false
   )
+
   connect_chi_router_family(
     subordinate_physical,
     [CHIRouterEndpoints(subordinate_site_key, subordinate_router.incoming_links, subordinate_router.outgoing_links),

@@ -21,6 +21,7 @@ class PortSignature(name :: String, type :: HardwareType):
   constructor (name :: String, type :: HardwareType):
     unless name is_a AsciiIdentifier && !name.starts_with("__rhodium_") && type_well_formed(type)
     | error(~who: #'PortSignature, "port signature requires a name and a well-formed hardware type")
+
     super(name, type)
 
 /* An ordered physical boundary with independent input and output sequences. */
@@ -32,6 +33,7 @@ class ModuleSignature(inputs :: List.of(PortSignature),
     for (port in ports):
       unless ports.filter(~keep: fun (candidate): candidate.name == port.name).length() == 1
       | error(~who: #'ModuleSignature, "port signature names must be unique")
+
     super(inputs, outputs)
 
   /* Find a named input descriptor, returning false when it is absent. */
@@ -46,6 +48,7 @@ class ModuleSignature(inputs :: List.of(PortSignature),
 fun module_signature(module_def :: Module):
   unless module_def.finished
   | error(~who: #'module_signature, "module signature requires a finished module")
+
   ModuleSignature(
     module_def.inputs.map(fun (port): PortSignature(port.name, port.type)),
     module_def.outputs.map(fun (port): PortSignature(port.name, port.type))
@@ -76,12 +79,14 @@ fun leaf_paths(type :: HardwareType) :: List.of(List.of(String || Nat)):
       for (field in type.fields):
         for (path in leaf_paths(field.type)):
           result.add([field.name] ++ path)
+
       result.snapshot()
   | vector_type(type):
       def result = MutableList[]
       for (index in 0..type.length):
         for (path in leaf_paths(type.element_type)):
           result.add([index] ++ path)
+
       result.snapshot()
   | ~else:
       [[]]

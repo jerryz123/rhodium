@@ -14,6 +14,7 @@ def module_def = fixture_design.modules[0]
 def register_operation = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.register"
 )
+
 def muxes = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
 )
@@ -28,5 +29,6 @@ check:
   module_def.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.vector_create"
   ).length() ~is 1
+
   type_equal(module_def.find_output("out").type, Bits(4)) ~is #true
   verify_design(fixture_design) ~is #void

@@ -56,11 +56,13 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
   def coherent_response = CHICoherentResponse():
     pass_dirty: response.pass_dirty
     state: response.state
+
   responses.valid <== clean_response
   responses.bits <== spike_chi_response(
     p, node_id, request.src_id, request.txn_id, CHIRspOpcode.SnpResp,
     ~resp: coherent_response.as_bits()
   )
+
   def response_fire = responses.fire()
 
   def packet_number = if packet_index_width == 2 | packet_index | packet_index.zext(2)
@@ -83,6 +85,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
     ~tgt_id: request.src_id,
     ~qos: request.qos
   )
+
   def final_packet = packet_index === Bits(packet_index_width)(packet_count - 1)
   def final_data = data.fire() & final_packet
 
@@ -95,6 +98,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
       pass_dirty: Bool(#false)
       has_data: Bool(#false)
       line: Bits(512)(0)
+
     packet_index <== Bits(packet_index_width)(0)
   elsewhen software_response_fire:
     response_valid <== Bool(#true)

@@ -11,6 +11,7 @@ bundle OptionalPacket(has_tag, has_metadata):
   payload: Bits(8)
   if has_tag:
     tag: Bits(4)
+
   parity: Bool
   if has_metadata:
     source: Bits(3)
@@ -59,6 +60,7 @@ circuit ConditionalBundleConstruction():
   plain <== OptionalPacket(#false, #false):
     payload: payload
     parity: Bool(#false)
+
   tagged <== OptionalPacket(#true, #false):
     payload: payload
     tag: tag
@@ -84,12 +86,14 @@ circuit SuppliedAbsentConditionalField():
     payload: Bits(8)(0)
     tag: Bits(4)(0)
     parity: Bool(#false)
+
   #void
 
 circuit MissingPresentConditionalField():
   def invalid = OptionalPacket(#true, #false):
     payload: Bits(8)(0)
     parity: Bool(#false)
+
   #void
 
 def shapes_design = compile_program(elaborate(ConditionalBundleShapes()), rtl_target).report.design

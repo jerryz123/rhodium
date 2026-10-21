@@ -16,6 +16,7 @@ def memory = module_def.memories[0]
 def read = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.memory_read_async"
 )
+
 def write = module_def.operations.find(
   fun (operation): operation.opcode == "rtl.memory_write"
 )

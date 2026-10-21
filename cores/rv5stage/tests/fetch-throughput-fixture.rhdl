@@ -57,6 +57,7 @@ sync_circuit RV5StageFetchThroughput():
     ~valid: Bool(#false),
     ~bits: literal(BranchUpdate(XLen.X64), 0)
   ) |> fetch.control.branch_update
+
   fetch.fetched.ready <== sink_ready
   valid <== fetch.fetched.valid
   pc <== fetch.fetched.bits.pc
@@ -107,6 +108,7 @@ sync_circuit RV5StageFetchThroughput():
   def requests = cache.chi.req |> trace_event("icache/chi.txreq", ~fields: flit):
     address: flit.address
     allow_retry: flit.allow_retry
+
   requests |> chi.req
   chi.rsp.response |> cache.chi.rsp.response
   chi.dat.response |> cache.chi.dat.response

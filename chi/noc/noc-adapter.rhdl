@@ -138,9 +138,11 @@ class CHIChannelAdapterPlan(compilation :: CHIChannelCompilation,
     def found = injections.find(
       fun (config): injection_ref_equal(config.site.terminal, ref)
     )
+
     unless found
     | error(~who: #'CHIChannelAdapterPlan,
             "CHI channel has no injection adapter")
+
     found
 
   /* Resolve an ejection adapter or reject an absent destination terminal. */
@@ -148,9 +150,11 @@ class CHIChannelAdapterPlan(compilation :: CHIChannelCompilation,
     def found = ejections.find(
       fun (config): ejection_ref_equal(config.site.terminal, ref)
     )
+
     unless found
     | error(~who: #'CHIChannelAdapterPlan,
             "CHI channel has no ejection adapter")
+
     found
 
 /* Group endpoint adapter plans with an optional SNP plane. */
@@ -173,6 +177,7 @@ fun compile_chi_noc_family_injection_config(
     unless row.config.input_index == first.input_index
     | error(~who: #'compile_chi_noc_family_injection_config,
             "one local endpoint ordinal must use one family injection slot")
+
     for (route in plan.compilation.routes_from(row.config.site.terminal)):
       cases := cases ++ [
         DecodeCase(
@@ -184,12 +189,14 @@ fun compile_chi_noc_family_injection_config(
              route_key: Bits(first.route_width)(route.route_key))
         )
       ]
+
   def decoder = DecodeGen(
     cases,
     ~default: (pattern(CHINoCRouteDecision(first.route_width)):
                  valid: Bool(#false)
                  route_key: Bits(first.route_width)(0))
   )
+
   CHINoCFamilyInjectionConfig(first.p,
                               first.route_width,
                               site_width,
@@ -206,6 +213,7 @@ fun compile_chi_noc_family_ejection_config(
     unless row.config.target_index == first.target_index
     | error(~who: #'compile_chi_noc_family_ejection_config,
             "one local endpoint ordinal must use one family ejection slot")
+
   def decoder = DecodeGen(
     for List (row in rows):
       DecodeCase(
@@ -218,6 +226,7 @@ fun compile_chi_noc_family_ejection_config(
                  valid: Bool(#false)
                  node_id: Bits(first.p.node_id_width)(0))
   )
+
   CHINoCFamilyEjectionConfig(first.p,
                              first.route_width,
                              site_width,
@@ -236,11 +245,13 @@ fun compile_chi_noc_injection_config(
   unless routes.length() > 0
   | error(~who: #'compile_chi_channel_adapter_plan,
           "CHI injection must have at least one destination")
+
   def cases = routes.map(
     fun (route):
       unless bits.length(route.destination.node_id) <= p.node_id_width
       | error(~who: #'compile_chi_channel_adapter_plan,
               "CHI destination NodeID does not fit the flit")
+
       DecodeCase(
         Bits(p.node_id_width)(route.destination.node_id),
         pattern(CHINoCRouteDecision(route_width)):
@@ -248,12 +259,14 @@ fun compile_chi_noc_injection_config(
           route_key: Bits(route_width)(route.route_key)
       )
   )
+
   def decoder = DecodeGen(
     cases,
     ~default: (pattern(CHINoCRouteDecision(route_width)):
                  valid: Bool(#false)
                  route_key: Bits(route_width)(0))
   )
+
   CHINoCInjectionConfig(
     site,
     p,
@@ -272,6 +285,7 @@ fun compile_chi_noc_ejection_config(
   unless bits.length(site.node_id) <= p.node_id_width
   | error(~who: #'compile_chi_channel_adapter_plan,
           "CHI ejection NodeID does not fit the flit")
+
   CHINoCEjectionConfig(
     site,
     p,
@@ -297,6 +311,7 @@ fun compile_chi_channel_adapter_plan_with_indices(
         route_width,
         input_index(site)
       )
+
   def ejections:
     for List (site in compilation.ejections):
       compile_chi_noc_ejection_config(
@@ -306,6 +321,7 @@ fun compile_chi_channel_adapter_plan_with_indices(
         route_width,
         target_index(site)
       )
+
   CHIChannelAdapterPlan(compilation, injections, ejections)
 
 /* Derive endpoint adapters from the channel's concrete compiled port layout. */
@@ -330,6 +346,7 @@ fun compile_chi_channel_family_adapter_plan(
   unless family.derives_from(compilation.network.network_plan)
   | error(~who: #'compile_chi_channel_family_adapter_plan,
           "router family must derive from the CHI channel network plan")
+
   compile_chi_channel_adapter_plan_with_indices(
     compilation,
     p,
@@ -509,6 +526,7 @@ fun connect_chi_rni(node_port :: Endpoint,
                        ~node: node_site,
                        ~ports: ports,
                        ~adapters: adapters)
+
   def icn_req :: Endpoint = icn_port.field("req")
   def icn_rsp :: Endpoint = icn_port.field("rsp")
   def icn_dat :: Endpoint = icn_port.field("dat")

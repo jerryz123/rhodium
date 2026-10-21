@@ -53,11 +53,13 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: B
           rd: issued.rd
           high_result: issued.control.high_result
           word_result: issued.control.word_result
+
       operands:
         MultiplierRequest(width):
           left: issued.left
           right: issued.right
           mode: issued.control.mode
+
   if speculative
   | block:
       // Admission promises this EX launch. WB decides its architectural fate
@@ -69,8 +71,10 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: B
       result_authorized <== authorized_result.valid
       when (issue.valid):
         assert(execution_request.ready, "scalar_multiply_launch_is_immediate")
+
       when (authorize.valid):
         assert(at_writeback.valid & (at_writeback.bits === authorize.bits), "scalar_multiply_authorization_is_wb_aligned")
+
       when (authorized_result.valid):
         assert(execution_result.valid & (execution_result.bits.tag.rd === authorized_result.bits), "scalar_multiply_return_is_scheduled")
         assert(completion.ready, "scalar_multiply_return_has_write_port")

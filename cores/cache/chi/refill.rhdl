@@ -38,15 +38,18 @@ sync_circuit CacheLineRefill(Context :: DataType,
   unless CacheLineBytes >= p.data_bytes
   | error(~who: #'CacheLineRefill,
           "cache line must span at least one complete CHI data packet")
+
   unless address_width >= alignment_bits(CacheLineBytes)
   | error(~who: #'CacheLineRefill,
           "address width must cover the line offset")
+
   def packet_count = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
 
   input node_id: Bits(p.node_id_width)
   interface command(Decoupled(CacheLineRefillCommand(Context, address_width)),
                     ~role: consumer)
+
   interface completion(Irrevocable(CacheLineRefillResult(Context, address_width)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
   interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
@@ -61,6 +64,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   reg received_packets(~init: vec(
     for List (_index in 0..packet_count): Bool(#false)
   ))
+
   reg acknowledgement_sent(~init: Bool(#false))
   reg line_address(~init: Bits(address_width)(0))
   reg opcode(~init: CHIReqOpcode.ReadClean)
@@ -78,6 +82,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   def acquiring = command |> trace_event("dcache/refill", ~residency: "data", ~fields: request):
     address: request.line_address
     opcode(~format: "enum"): request.opcode
+
   acquiring.ready <== !control.active
   def command_fire = command.fire()
   def command_home = config.home_map.lookup(cache_chi_address(command.bits.line_address, p))
@@ -119,6 +124,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
            "line_refill_retry_response_target")
     assert(incoming_response.src_id === home_id,
            "line_refill_retry_response_home")
+
   when retry_ack_fire:
     assert(incoming_response.txn_id === Bits(12)(0),
            "line_refill_retry_txn_id")
@@ -156,6 +162,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
            "line_refill_response_not_replicated")
     assert(incoming_data.resp_err === CHIRespErr.OK,
            "line_refill_response_ok")
+
   when (data_fire & !first_data_packet):
     assert(incoming_data.dbid_or_mecid[0..12] === dbid,
            "line_refill_response_dbid_consistent")
@@ -179,6 +186,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
     line: line.as_vec(Bits(64))
     state: response_state
     pass_dirty: pass_dirty
+
   def completion_fire = completion.fire()
 
   control.start <== command_fire
@@ -198,6 +206,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
     received_packets <== vec(
       for List (_index in 0..packet_count): Bool(#false)
     )
+
     acknowledgement_sent <== Bool(#false)
     line_address <== command.bits.line_address
     opcode <== command.bits.opcode

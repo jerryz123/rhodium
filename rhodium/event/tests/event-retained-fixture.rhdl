@@ -16,6 +16,7 @@ sync_circuit Residency(kind :: String):
     occupied <== Bool(#true)
   elsewhen release:
     occupied <== Bool(#false)
+
   unless kind == "missing"
   | describe_interface_retained_storage(resident.fire(), release & occupied, occupied, ~name: "owner")
 
@@ -38,6 +39,7 @@ sync_circuit RetainedCell(intrinsic :: Boolean):
     payload <== command.bits
   elsewhen finish_owner:
     occupied <== Bool(#false)
+
   describe_interface_retained_storage(command.fire(), finish_owner & occupied, occupied)
   if intrinsic
   | describe_interface_contract(command, attempt, "attempts", ~trace_model: interface_trace_retained())
@@ -60,9 +62,11 @@ sync_circuit RetainedRegion(mode :: String):
   if mode == "checkpoint"
   | mapped |> trace_event("mapped") |> attempt
   | mapped |> attempt
+
   describe_interface_contract(if mode == "internal" | storage.command | command,
                               if mode == "summary" | attempt | storage.attempt,
                               "attempts", ~trace_model: interface_trace_retained())
+
   if mode == "disjoint"
   | def source = interface_link(Decoupled(Bits(8)), "independent")
     source.left.field("valid") <== Bool(#false)
@@ -83,10 +87,12 @@ sync_circuit EventRetained(intrinsic :: Boolean = #true, region :: String = "reg
   if (!intrinsic) && region == ""
   | describe_interface_transform(InterfaceHandle(owner.command, owner.attempt), "attempts", {}, owner, ~trace_model: interface_trace_retained(owner))
   | #void
+
   source |> trace_event("accepted", ~payload: #true, ~residency: if residency | "owner" | #false) |> owner.command
   if residency
   | describe_interface_retained_storage(source.fire(), finish_owner & owner.active, owner.active, ~name: "owner")
   | #void
+
   Array(owner.attempt, unrelated) |> arbiter() |> trace_event("attempt", ~payload: #true) |> sink
 
 sync_circuit InvalidRetained(kind :: String):
@@ -125,9 +131,11 @@ sync_circuit RetainedOutputs():
     payload <== command.bits
   elsewhen release:
     active <== Bool(#false)
+
   for (index in 0..2):
     attempts[index].valid <== active
     attempts[index].bits <== payload
+
   describe_interface_retained_storage(command.fire(), release & active, active)
   describe_interface_contract(command, attempts, "outputs", ~trace_model: interface_trace_retained(~outputs: 2))
 
@@ -185,6 +193,7 @@ sync_circuit EventContractLinks():
     pair[1].left.field("bits") <== pair[0].right.field("bits") + Bits(8)(1)
     pair[0].right.field("ready") <== pair[1].left.field("ready")
     describe_interface_contract(pair[0].right, pair[1].left, name, ~trace_model: interface_trace_combinational())
+
   source |> trace_event("before") |> input
   output.right |> trace_event("after") |> sink
 

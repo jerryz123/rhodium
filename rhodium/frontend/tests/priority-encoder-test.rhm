@@ -29,8 +29,10 @@ check:
   five_module.operations.find(
     fun (operation): operation.opcode == "rtl.extract"
   ) is_a Operation ~is #true
+
   five_module.operations.find(
     fun (operation): operation.opcode == "rtl.concat"
   ) is_a Operation ~is #true
+
   verify_design(fixture_five_design) ~is #void
   verify_design(fixture_shapes_design) ~is #void

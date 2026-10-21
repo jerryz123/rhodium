@@ -65,6 +65,14 @@ force, while the whitespace guidance still applies to test RTL.
   fault classification, admission, and state updates with one blank line. Add
   a shorter block comment, followed by one blank line, when the group's purpose
   is not obvious from the surrounding section and names.
+- Generally put one blank line after a completed indented block before the next
+  independent statement at an enclosing indentation level. This includes bundle
+  construction, selection/decode arms, loops, declarations with bodies, and
+  complete conditional chains. For example, separate the final field of a
+  multiline bundle assignment from a following `if` statement with a blank line.
+  Keep attached branches such as `elsewhen`, `otherwise`, and `if`/`match` arms
+  together; do not insert a blank line merely before a closing delimiter or a
+  continuation of the same expression or flow chain.
 - Reserve `//` comments for local rationale inside a section, not its primary
   heading. Keep declaration comments immediately above their declarations;
   when a declaration's own comment also introduces a component, the declaration

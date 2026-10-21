@@ -110,12 +110,15 @@ fun certificate_signature(certificate):
       ]
       for (route in certificate.reachability.routes):
         rows := rows ++ [escape_route_signature(route)]
+
       rows := rows ++ certificate.dependency_graph.vertices.map(
         fun (vc): "escape vertex " ++ vc.describe()
       )
+
       rows := rows ++ certificate.dependency_graph.edges.map(
         fun (edge): "escape edge " ++ dependency_edge_signature(edge)
       )
+
       rows ++ certificate.acyclic_certificate.ordered_vcs.map(
         fun (vc): "escape rank " ++ vc.describe()
       )
@@ -126,6 +129,7 @@ fun certificate_signature(certificate):
 fun snapshot_routing(problem, ~escape: escape_request = #false):
   unless problem is_a RoutingProblem
   | error(~who: #'snapshot_routing, "expected a RoutingProblem")
+
   def result = compile_routing(problem, ~escape: escape_request)
   def graph:
     cond
@@ -134,6 +138,7 @@ fun snapshot_routing(problem, ~escape: escape_request = #false):
     | ~else:
         error(~who: #'snapshot_routing,
               "routing compilation did not produce a comparable result")
+
   def reachable = graph.reachable
   def materialized = reachable.materialized
   def result_kind:
@@ -141,22 +146,27 @@ fun snapshot_routing(problem, ~escape: escape_request = #false):
     | result is_a DependencyCycle: "dependency-cycle"
     | result.certificate is_a EscapeCertificate: "validated-escape"
     | ~else: "validated-acyclic"
+
   def proof:
     if result is_a DependencyCycle
     | ["cycle"] ++ result.edges.map(dependency_edge_signature)
     | certificate_signature(result.certificate)
+
   def route_table_rows:
     if result is_a ValidatedRouting
     | result.route_table.rows.map(fun (row): row.describe())
     | []
+
   def assumptions:
     if result is_a ValidatedRouting
     | result.assumptions.describe()
     | "none"
+
   def validator_kind:
     if result is_a ValidatedRouting
     | result.validator_kind
     | "none"
+
   RoutingSemantics(
     materialized.topology.nodes.map(fun (node): node.describe()),
     materialized.topology.links.map(fun (link): link.describe()),

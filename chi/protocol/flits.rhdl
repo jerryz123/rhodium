@@ -321,14 +321,19 @@ hardware_enum CHIDatOpcode(~width: 4):
 bundle CHIReqFlit(p :: CHIFlitParams):
   if p.req_rsvdc_width > 0:
     rsvdc: Bits(p.req_rsvdc_width)
+
   if p.sec_sid_width > 0:
     sec_sid1: Bits(p.sec_sid_width)
+
   if p.request_security_width > 0:
     mecid_or_stream_id: Bits(p.request_security_width)
+
   if p.pbha_width > 0:
     pbha: Bits(p.pbha_width)
+
   if p.mpam_width > 0:
     mpam: Bits(p.mpam_width)
+
   trace_tag: Bool
   tag_op: CHITagOp
   exp_comp_ack: Bool
@@ -374,8 +379,10 @@ bundle CHIRspFlit(p :: CHIFlitParams):
 bundle CHISnpFlit(p :: CHIFlitParams):
   if p.mecid_width > 0:
     mecid: Bits(p.mecid_width)
+
   if p.mpam_width > 0:
     mpam: Bits(p.mpam_width)
+
   trace_tag: Bool
   ret_to_src: Bool
   do_not_go_to_sd: Bool
@@ -392,12 +399,15 @@ bundle CHISnpFlit(p :: CHIFlitParams):
 bundle CHIDatFlit(p :: CHIFlitParams):
   if p.poison_width > 0:
     poison: Bits(p.poison_width)
+
   if p.data_check_width > 0:
     data_check: Bits(p.data_check_width)
+
   data: Bits(p.data_width)
   byte_enable: Bits(p.byte_enable_width)
   if p.dat_rsvdc_width > 0:
     rsvdc: Bits(p.dat_rsvdc_width)
+
   replicate: Bool
   num_dat: Bits(2)
   cah: Bool

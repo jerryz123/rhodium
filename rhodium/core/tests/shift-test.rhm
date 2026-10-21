@@ -55,6 +55,7 @@ block:
                             [result],
                             [],
                             {"name": "result"})
+
   value.add_user(operation_id)
   amount.add_user(operation_id)
   module_def.add_value(result)

@@ -48,6 +48,7 @@ fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: Vec
   def limit = priority_mux(~default: state.vl.zext(68)):
     whole: whole_limit
     mask: (state.vl.zext(68) + Bits(68)(7)) >> 3
+
   def nf = mux(whole ||| mask, Bits(3)(0), control.memory_nf)
   VectorFootprintGeometry():
     eligible: control.memory & ((control.memory_addressing === VectorMemoryAddressing.UnitStride) ||| zero_stride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)

@@ -98,11 +98,13 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
   def last_uses = MutableMap{}
   for (region in regions, number in 0..regions.length()):
     for (value in region.inputs): last_uses[value] := number
+
   def expirations = MutableMap{}
   def free = MutableMap{}
   for (region in regions, number in 0..regions.length()):
     for (entry in expirations.get(number, [])):
       free[entry[0]] := [entry[1], free.get(entry[0], [])]
+
     for (index in region.outputs):
       def step = plan.steps[index]
       def direct = backed_reference(index, plan.steps, constants, bindings)
@@ -112,12 +114,14 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
           step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"] && (record_type(step.type) || vector_type(step.type))
             && !region.conditionals.has_key(index)
             && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
+
         def borrow = aggregate_decode(step) || borrow_mux
         def carrier = [types.storage_name(step.type), borrow]
         unless groups.has_key(carrier)
         | groups[carrier] := carriers.length()
           counts[carrier] := 0
           carriers.add(carrier)
+
         def width = scalar_width(step.type)
         def reusable = reuse_scalars && !borrow && width != #false && width <= 64
         def available = if reusable | free.get(carrier, []) | []
@@ -125,9 +129,11 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
         if available.length() > 0
         | free[carrier] := available[1]
         | counts[carrier] := counts[carrier] + 1
+
         bindings[index] := StorageRef(ScratchSlot(groups[carrier], slot, borrow))
         when reusable
         | def expiry = last_uses[index] + 1
           unless expirations.has_key(expiry) | expirations[expiry] := MutableList[]
           expirations[expiry].add([carrier, slot])
+
   BoundaryStorage(bindings.snapshot(), for List (carrier in carriers): ScratchGroup(carrier[0], carrier[1], counts[carrier]))

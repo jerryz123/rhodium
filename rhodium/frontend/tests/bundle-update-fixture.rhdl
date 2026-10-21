@@ -18,6 +18,7 @@ bundle UpdatePayload(width :: PosInt, tagged :: Boolean):
   data: Bits(width)
   if tagged:
     tag: Bits(4)
+
   state: UpdateState
 
 bundle UpdateEnvelope():
@@ -33,6 +34,7 @@ def initial = UpdateEnvelope():
       data: Bits(8)(0x35)
       tag: Bits(4)(6)
       state: UpdateState.Idle
+
   valid: Bool(#true)
 
 circuit UpdateEcho():
@@ -94,10 +96,12 @@ sync_circuit BundleUpdateFixture():
   def untagged = UpdatePayload(8, #false):
     data: source.payload.data
     state: source.payload.state
+
   plain <== untagged.updated(~data: data)
   def pair = record(Structural):
     data: data
     tag: tag
+
   swapped <== pair.updated(~tag: source.payload.tag, ~data: source.payload.data)
   methods <== vec(
     update.updated(~valid: Bool(#true)).active(),

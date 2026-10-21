@@ -69,6 +69,7 @@ class Uart16550Params(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+
   /* Derives the fabric-facing counterpart of the UART node. */
   property icn_port: node.icn_peer()
   /* Maps the eight UART register offsets to the single-byte service. */
@@ -87,12 +88,15 @@ class Uart16550Params(name :: NonemptyString,
     unless base_address mod Uart16550WindowBytes == 0
     | error(~who: #'Uart16550Params,
             "base address must be aligned to the UART register window")
+
     unless bits.length((base_address + Uart16550WindowBytes) - 1) <= config.flit.request_address_width
     | error(~who: #'Uart16550Params,
             "UART register window must fit in the CHI request address width")
+
     unless bits.length(node_id) <= config.flit.node_id_width
     | error(~who: #'Uart16550Params,
             "NodeID must fit in the physical NodeID width")
+
     super(name, node_id, config, base_address)
 
 /* Carries the occurrence's NodeID and register-window base. */
@@ -222,6 +226,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def interrupt_cause = priority_mux(~default: Bits(8)(0x01)):
     receive_interrupt: Bits(8)(0x04)
     transmit_interrupt: Bits(8)(0x02)
+
   def interrupt_identification = interrupt_cause ||| mux(fifo_enabled, Bits(8)(0xc0), Bits(8)(0))
   interrupt <== receive_interrupt ||| transmit_interrupt
 
@@ -239,6 +244,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
      [Uart16550MsrOffset, Bits(8)(0)],
      [Uart16550ScrOffset, scratch]]
   )
+
   def register_read_data = selected_read_byte.zext(p.data_width) << register_shift
   // Snapshot and read effects share REQ acceptance, not response transfer.
   def read_rbr = accepted_read & !dlab & (
@@ -327,6 +333,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   when receive_byte:
     when (!rx_has_space):
       overrun_error <== Bool(#true)
+
     when (receiver.framing_error):
       framing_error <== Bool(#true)
   elsewhen read_lsr:
@@ -335,18 +342,24 @@ sync_circuit Uart16550(config :: Uart16550Config):
 
   when write_dll:
     divisor_latch_low <== write_byte
+
   when write_dlm:
     divisor_latch_high <== write_byte
+
   when write_ier:
     interrupt_enable <== write_byte & Bits(8)(0x03)
+
   when write_lcr:
     line_control <== write_byte
     assert(write_byte[7].into(Bool) ||| ((write_byte & Bits(8)(0x7f)) === Bits(8)(0x03)),
            "uart16550_line_control_is_8n1")
+
   when write_mcr:
     modem_control <== write_byte
+
   when write_scr:
     scratch <== write_byte
+
   when write_fcr:
     fifo_enabled <== next_fifo_enabled
 

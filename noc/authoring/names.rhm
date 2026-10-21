@@ -36,6 +36,7 @@ fun normalize_name_path(who :: Symbol,
   for (segment in segments):
     when segment.contains("/")
     | error(~who: who, "name path segments must not contain '/'")
+
   segments
 
 /* Stores a nonempty hierarchical name as explicit path segments. */
@@ -48,6 +49,7 @@ class NamePath(segments :: NonemptyList.of(NonemptyString)):
   method child(segment :: NonemptyString):
     when segment.contains("/")
     | error(~who: #'child, "child name must not contain '/'")
+
     NamePath(segments ++ [segment])
 
   /* Renders the hierarchy with slash-separated segments. */
@@ -117,6 +119,7 @@ class VCGroup(name :: NonemptyString, count :: PosInt):
   constructor (name :: NonemptyString, count :: PosInt):
     when name.contains("/")
     | error(~who: #'VCGroup, "VC-group name must not contain '/'")
+
     super(name, count)
 
   /* Formats the group name and declared VC count. */
@@ -129,6 +132,7 @@ class VCRef(link :: LinkRef, group :: NonemptyString, index :: Nat):
   constructor (link :: LinkRef, group :: NonemptyString, index :: Nat):
     when group.contains("/")
     | error(~who: #'VCRef, "VC reference group must not contain '/'")
+
     super(link, group, index)
 
   /* Formats the link path, group name, and group-local VC index. */

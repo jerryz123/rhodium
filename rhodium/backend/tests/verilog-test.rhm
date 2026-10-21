@@ -29,6 +29,7 @@ for (width in [1, 5, 65]):
     result.manifest.signature ~is circt.manifest.signature
     dump_ir(program.design) ~is before
     program.design.sealed ~is #false
+
   // Compilation may not seal the original inventory against later construction.
   def builder = Builder(program.design)
   def unused = builder.module("Unused")
@@ -80,6 +81,7 @@ for (width in [1, 5, 65]):
     text.contains("\\_sv_0 (") ~is #true
     dump_ir(program.design) ~is before
     program.design.sealed ~is #false
+
   for (name in direct.manifest.modules):
     check: text.split("\n").filter(~keep: fun (line): line == ("module \\" ++ name ++ " (")).length() ~is 1
 
@@ -323,6 +325,7 @@ check:
   memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_input("bad_data", RecordType([RecordField("value", Bits(5))])), memory_clock, memory_enable) ~throws "data has the wrong DataType"
   memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_enable, memory_enable) ~throws "clock must be Clock"
   memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_clock, memory_input("bad_enable", Bits(2))) ~throws "enable must be a one-bit"
+
 memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_clock, memory_enable)
 check:
   memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_other_clock, memory_enable) ~throws "ports must use the same clock"
@@ -383,11 +386,13 @@ check:
   (for all (line in cdc_attributes): !line.contains("wire ")) ~is #true
   dump_ir(cdc_program.design) ~is cdc_before
   cdc_program.design.sealed ~is #false
+
 for (name in ["sync2", "sync3", "ordinary"]):
   def drive = cdc_lines.filter(~keep: fun (line): line.contains("assign \\" ++ name ++ " "))[0]
   def driver = drive.split(" = ")[1]
   check:
     (cdc_attributes.find(fun (line): line.contains(driver)) != #false) ~is (name != "ordinary")
+
 for (kind in ["clock", "reset", "chain", "fanout"], message in ["stages must use the destination clock", "stages must be resetless registers", "stages must form a direct register chain", "intermediate stages must not have functional fanout"]):
   check:
     compile_program(make_invalid_cdc_program(kind), verilog_target) ~throws message
@@ -463,6 +468,7 @@ block:
   check:
     builder.sync_memory(top, "uneven", 3, Bits(10), clock, #true, #true, #false, 4) ~throws "must divide"
     builder.sync_memory(top, "read_mask", 3, Bits(8), clock, #true, #false, #false, 2) ~throws "write-capable"
+
   def memory = builder.sync_memory(top, "storage", 3, Bits(8), clock, #false, #true, #false, 2)
   def port = memory.write_ports[0]
   builder.drive(port.address, builder.constant(top, Bits(2), 0))
@@ -470,6 +476,7 @@ block:
   builder.drive(port.enable, builder.constant(top, Bits(1), 1))
   check:
     builder.drive(port.mask, builder.constant(top, Bits(3), 0)) ~throws "type"
+
   builder.finish(top)
   check:
     compile_program(DesignElaboration(design, top), verilog_target) ~throws "storage.write.mask is undriven"

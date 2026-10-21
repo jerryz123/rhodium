@@ -46,6 +46,7 @@ statinfo.key hardware_method_static_info_key:
       let '($left_entry, ...)' = left
       let '($right_entry, ...)' = right
       '($left_entry, ..., $right_entry, ...)'
+
   ~or: fun (_left, right): right
 
 // Associates a circuit definition with the exact static surface of each
@@ -74,6 +75,7 @@ annot.macro 'CircuitPortFields($(port_name :: Identifier): $(port_type :: expr_m
   let [port_infos, ...]:
     for List (type in [port_type, ...]):
       annot_meta.parse_to_packed_statinfo('ValueSurfaceFields($type)')
+
   annot_meta.pack_predicate(
     'fun (_value): #true',
     '((hardware_port_static_info_key, (($port_name, $port_infos), ...)))'
@@ -87,6 +89,7 @@ annot.macro 'CircuitMemberFields($(member_name :: Identifier): $(member_annotati
       // Array annotations are converters, while scalar hardware and interface
       // annotations are predicates; only their result static information matters.
       annot_meta.parse_to_packed_statinfo(annotation)
+
   annot_meta.pack_predicate(
     'fun (_value): #true',
     '((hardware_port_static_info_key, (($member_name, $member_infos), ...)))'
@@ -120,6 +123,7 @@ fun hardware_value_type(value :~ HardwareEntity):
   def type = hardware_entity_type(value)
   unless type is_a HardwareType
   | error(~who: #'hardware_value_type, "expected hardware data")
+
   type
 
 /* Compares a hardware entity's discovered descriptor with the expected exact type. */
@@ -282,6 +286,7 @@ fun require_hardware_variant_type(value :: HardwareEntity, who :: Symbol):
   def type = hardware_entity_type(value)
   unless type is_a HardwareVariantType
   | error(~who: who, "expected hardware data with variants")
+
   type
 
 /* Delegates tag construction to the receiver's variant descriptor. */
@@ -316,6 +321,7 @@ fun hardware_variant_view_valid(view :: HardwareVariantView) :~ HardwareFields:
 fun hardware_variant_view_payload(view :: HardwareVariantView) :~ HardwareFields:
   unless view.payload
   | error(~who: #'view, "nullary hardware variants do not have payloads")
+
   view.payload
 
 annot.macro 'HardwareVariantViewFields':
@@ -371,11 +377,13 @@ fun hardware_index(value :: HardwareEntity,
       unless start is_a Nat && end is_a Nat
       | error(~who: #'extract,
               "hardware slice indices must form a bounded host natural-number range")
+
       def low = start + (if index.includes_start() | 0 | 1)
       def high = end - (if index.includes_end() | 0 | 1)
       unless low <= high
       | error(~who: #'extract,
               "hardware slice range must select at least one bit")
+
       kernel.extract(value, high, low)
   | index is_a HardwareEntity && vector_type(value_type):
       kernel.vector_index(value, index)
@@ -431,6 +439,7 @@ fun hardware_as_bits(value :: HardwareEntity,
   def width = source.type.packed_width()
   unless data_type(source.type) && width
   | error(~who: who, role ++ " must have a packable DataType")
+
   if bits_type(source.type)
   | source
   | kernel.cast(source, Bits(width), name, location)
@@ -458,12 +467,15 @@ fun hardware_as_vec(value :: HardwareEntity,
   def source_width = source.type.packed_width()
   unless data_type(source.type) && source_width
   | error(~who: #'as_vec, "value must have a packable DataType")
+
   def element_width = element_type.packed_width()
   unless element_width
   | error(~who: #'as_vec, "element type must be a packable DataType")
+
   unless source_width mod element_width == 0
   | error(~who: #'as_vec,
           "value width must be evenly divisible by the element width")
+
   def target_type = VectorType(source_width div element_width, element_type)
   if type_equal(source.type, target_type)
   | source
@@ -490,20 +502,24 @@ fun hardware_updated(value :: HardwareEntity,
   | source.type is_a RecordType:
       unless arguments.length() == 0
       | error(~who: #'updated, "record updates require named field replacements")
+
       def names = source.type.fields.map(fun (field): Keyword.from_string(field.name))
       for (key in replacements.keys()):
         unless names.contains(key)
         | error(~who: #'updated, "record has no field for " ++ to_string(key))
+
       def fields = for List (field in source.type.fields):
         def key = Keyword.from_string(field.name)
         [field.name,
          if replacements.has_key(key)
          | replacements[key]
          | kernel.project(source, field.name)]
+
       kernel.record_create(source.type, fields)
   | source.type is_a VectorType:
       unless arguments.length() == 2 && replacements.length() == 0
       | error(~who: #'updated, "vector updates require a selector and replacement")
+
       kernel.vector_updated(source, arguments[0], arguments[1])
   | ~else:
       error(~who: #'updated, "updated receiver must have a RecordType or VectorType")
@@ -517,11 +533,14 @@ fun hardware_vector_map(value :: HardwareEntity,
   def source = kernel.read(value)
   unless source.type is_a VectorType
   | error(~who: #'map, "map receiver must have a VectorType")
+
   def transformed = for List (index in 0..source.type.length):
     transform(kernel.vector_get(source, index))
+
   def first = kernel.read(transformed[0])
   unless first.type is_a DataType
   | error(~who: #'map, "map results must have a DataType")
+
   kernel.vector_create(VectorType(source.type.length, first.type), transformed)
 
 /*
@@ -536,6 +555,7 @@ fun hardware_zero_extend(value :: HardwareEntity,
   unless bits_type(source.type)
   | error(~who: #'zext,
           location.describe() ++ ": .zext receiver must have a Bits type")
+
   kernel.zext(source, target_width, name, location)
 
 /*
@@ -550,6 +570,7 @@ fun hardware_sign_extend(value :: HardwareEntity,
   unless signed_arithmetic_type(source.type)
   | error(~who: #'sext,
           location.describe() ++ ": .sext receiver must have a SignedArithmeticType")
+
   kernel.sext(source, target_width, name, location)
 
 /* Recover literal packed images through representation casts only. Other
@@ -571,15 +592,18 @@ fun build_membership_predicate(value :: HardwareEntity,
   unless scalar_data_type(value_read.type)
   | error(~who: #'is_one_of,
           location.describe() ++ ": .is_one_of subject must have a ScalarDataType")
+
   def candidates:
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
+
   def alternatives = candidates.map(fun (alternative): kernel.read(alternative, location))
   for (alternative in alternatives):
     unless scalar_data_type(alternative.type) && type_equal(value_read.type, alternative.type)
     | error(~who: #'is_one_of,
             location.describe() ++ ": .is_one_of operands must have exactly the same ScalarDataType")
+
   if alternatives.length() == 0
   | kernel.cast(kernel.literal(Bits(1), 0, #false, location), Bool, #false, location)
   | block:
@@ -598,6 +622,7 @@ fun build_membership_predicate(value :: HardwareEntity,
                            hardware_as_bits(alternative, #'is_one_of, ".is_one_of operand", #false, location),
                            #false, location)
           )
+
           if comparisons.length() == 1
           | kernel.cast(comparisons[0], Bool, #false, location)
           | block:
@@ -741,6 +766,7 @@ dot.macro 'hardware_value_method_dot $left $dot $right':
                             $method_function($left, $argument, ...)'
       | ~else:
           syntax_meta.error("invalid hardware method static information", entry)
+
   if expansion
   | expansion
   | common_hardware_method(left, right, '$right $tail ...', '$tail ...')
@@ -774,6 +800,7 @@ dot.macro 'hardware_field_dot $left $dot $right':
         | 'next': 'hardware_next($left) :: HardwareFields'
         | 'tag': 'hardware_variant_tag_or_project($left) :: HardwareFields'
         | ~else: #false
+
       if expansion
       | values(expansion, '$tail ...')
       | if reserved

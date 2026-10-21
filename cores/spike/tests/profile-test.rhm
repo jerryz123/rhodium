@@ -21,6 +21,7 @@ def architecture = RiscvHartDescription(
   cache,
   ~cbo_block_bytes: 64
 )
+
 def default_config = SpikeConfig(architecture)
 def config = SpikeConfig(architecture, ~max_retired_instructions_per_cycle: 1)
 
@@ -35,6 +36,7 @@ check:
   config.max_vaddr_bits ~is 39
   SpikeConfig(RiscvHartDescription(isa, RiscvMmuType.Bare, cache, cache,
                                    ~cbo_block_bytes: 64)).max_vaddr_bits ~is 0
+
   (config.isa_bytes bits.and 0xffffffff) ~is 0x34367672
 
 def vector_isa = RiscvIsaProfile(XLen.X32, ["i", "zve32x"], [MisaExtension.I])

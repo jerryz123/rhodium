@@ -21,9 +21,11 @@ def family_noc_topology = topology:
   directed source_middle:
     source -> middle
     vcs [transport]
+
   directed middle_target:
     middle -> target
     vcs [transport]
+
 def family_noc_source_router = family_noc_topology.node("source")
 def family_noc_middle_router = family_noc_topology.node("middle")
 def family_noc_target_router = family_noc_topology.node("target")
@@ -62,8 +64,10 @@ fun require_family_link(source_router :: NodeRef, destination_router :: NodeRef)
       connection.destination_site_key == destination_site_key
     )
   )
+
   unless found
   | error(~who: #'require_family_link, "missing family link connection")
+
   found
 
 def family_noc_source_middle = require_family_link(
@@ -87,10 +91,12 @@ sync_circuit CHIFamilyNoCFixture():
     CHIReqFlit(family_noc_flit), family_noc_router_config, family_noc_source_node,
     ~site_key: source.site_key, ~ingress: source.ingress, ~targets: source.target
   )
+
   bind_simple_router_family_site(
     CHIReqFlit(family_noc_flit), family_noc_router_config, family_noc_middle_node,
     ~site_key: middle.site_key, ~ingress: middle.ingress, ~targets: middle.target
   )
+
   bind_simple_router_family_site(
     CHIReqFlit(family_noc_flit), family_noc_router_config, family_noc_target_node,
     ~site_key: target.site_key, ~ingress: target.ingress, ~targets: target.target
@@ -124,6 +130,7 @@ def family_noc_program = elaborate(CHIFamilyNoCFixture())
 
 def other_topology = topology:
   node xbar
+
 def other_router = other_topology.node("xbar")
 def other_source = chi_authoring.CHIInjectionSite(7, InjectionRef("other-source"), other_router)
 def other_target = chi_authoring.CHIEjectionSite(8, EjectionRef("other-target"), other_router)

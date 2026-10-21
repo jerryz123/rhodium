@@ -105,8 +105,10 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
       full[bank] <== Bool(#false)
     elsewhen (writing & last_word):
       full[bank] <== Bool(#true)
+
     when (writing):
       assert(!reading, "hdmi_scanout_bank_ownership")
+
     storage.port.response.bits[0]
 
 
@@ -154,6 +156,7 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
         fill_bank <== mux(fill_bank === Bits(bank_width)(rows - 1), Bits(bank_width)(0), fill_bank + Bits(bank_width)(1))
         fill_row <== fill_row + Bits(index_width(t.vertical_active))(1)
         frame_filled <== last_row
+
     when releases:
       read_bank <== mux(read_bank === Bits(bank_width)(rows - 1), Bits(bank_width)(0), read_bank + Bits(bank_width)(1))
 
@@ -176,6 +179,7 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     sample_de <== active_pixel
     sample_hs <== horizontal_sync_active === Bool(t.horizontal_sync_positive)
     sample_vs <== vertical_sync_active === Bool(t.vertical_sync_positive)
+
   def returned = mux_lookup(sample_bank, ~default: Bits(512)(0), for List (bank in 0..rows): [bank, bank_words[bank]])
   def pixel = returned.as_vec(Bits(32))[sample_lane]
   video <== HDMIVideo():
@@ -183,6 +187,7 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     hsync: sample_hs
     vsync: sample_vs
     data_enable: sample_de
+
   pixel_valid <== sample_valid
   underflow <== starvation
   fetch_failed <== failure

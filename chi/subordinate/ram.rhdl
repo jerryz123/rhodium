@@ -42,6 +42,7 @@ sync_circuit CHIRam(config :: CHIRamConfig):
             data: operation.data.into(Data)
             mask: operation.mask
       ) <=> storage.port.request
+
       (
         issue |> valid_pipe(1) |> map_valid(operation):
           CHIRamMemoryCompletion(p, slot_width):
@@ -50,6 +51,7 @@ sync_circuit CHIRam(config :: CHIRamConfig):
                       Bits(p.data_width)(0),
                       storage.port.response.bits.as_bits())
       ) <=> completion
+
     connect
 
   build_chi_ram_controller(config, identity, port, backend)

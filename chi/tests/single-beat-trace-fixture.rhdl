@@ -20,13 +20,16 @@ sync_circuit EventSubordinate():
   transaction.read_data <== Bits(p.data_width)(42)
   def requests = port.req |> trace_event("request", ~when: port.req.bits.opcode =/= CHIReqOpcode.ReqLCrdReturn, ~fields: flit):
     txn: flit.txn_id
+
   requests |> transaction.port.req
   port.dat.request |> transaction.port.dat.request
   def responses = transaction.port.rsp |> trace_event("response", ~fields: flit):
     txn: flit.txn_id
+
   responses |> port.rsp
   def data = transaction.port.dat.response |> trace_event("data", ~fields: flit):
     txn: flit.txn_id
+
   data |> port.dat.response
 
 def traced_subordinate = elaborate(EventSubordinate())

@@ -20,5 +20,6 @@ fun site_header(manifest):
       "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
     ""
   ) ++ "}\n"
+
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 export program target

@@ -10,6 +10,7 @@ circuit BadSwitchCaseAfterOtherwise():
   switch selector:
     otherwise:
       selected <== Bits(1)(0)
+
     case 0:
       selected <== Bits(1)(1)
 

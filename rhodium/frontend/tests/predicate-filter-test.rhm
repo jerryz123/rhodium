@@ -13,6 +13,7 @@ def fixture_design = compile_program(fixture.program, rtl_target).report.design
 def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "SingleEvenFilter"
 )
+
 def instances = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.instance"
 )
@@ -25,10 +26,13 @@ check:
   top.operations.find(
     fun (operation): operation.opcode == "rtl.ult"
   ) != #false ~is #true
+
   top.operations.find(
     fun (operation): operation.opcode == "rtl.extract"
   ) != #false ~is #true
+
   top.operations.find(
     fun (operation): operation.opcode == "rtl.constant" && operation.attribute("value") == 9
   ) != #false ~is #true
+
   verify_design(fixture_design) ~is #void

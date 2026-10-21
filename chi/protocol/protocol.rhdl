@@ -35,6 +35,7 @@ fun chi_data_beats_minus_one(size :: CHITransferSize,
     | p.data_width == 128: 3
     | p.data_width == 256: 1
     | ~else: 0
+
   mux_lookup(size, ~default: Bits(2)(0)):
     CHITransferSize.Bytes32: Bits(2)(size_32_beats_minus_one)
     CHITransferSize.Bytes64: Bits(2)(size_64_beats_minus_one)
@@ -62,6 +63,7 @@ fun chi_transfer_data_ids(address :: Bits,
       if p.data_width == 128
       | mux(address[5].into(Bool), Bits(4)(0xc), Bits(4)(0x3))
       | one_packet
+
     CHITransferSize.Bytes64:
       cond
       | p.data_width == 128: Bits(4)(0xf)

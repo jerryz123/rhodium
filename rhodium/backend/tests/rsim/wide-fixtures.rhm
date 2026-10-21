@@ -4,6 +4,7 @@ import:
   "../../../core/main.rhm" open
   "memory-fixtures.rhm".make_memory
   "sync-memory-fixtures.rhm".make_sync_memory
+
 export make_wide make_wide_aggregate make_relayout make_wide_memories make_constant_rom
 
 // Equal constant casts in separate occurrences must share immutable storage,
@@ -19,6 +20,7 @@ fun make_constant_rom(width :: PosInt):
   def mutable seed = 0
   for (index in 0..3):
     seed := seed + ((index + 3) * 2 ** width + 2 ** (width - 1) + index + 1) * 2 ** (index * element.packed_width())
+
   def address = b.input(leaf, "address", Bits(2))
   def data = b.input(leaf, "data", Bits(width))
   def contents = b.cast(leaf, b.cast(leaf, b.constant(leaf, Bits(total), seed), layout), vector)
@@ -28,10 +30,12 @@ fun make_constant_rom(width :: PosInt):
   def replacement = b.record_create(leaf, element, [["mark", b.constant(leaf, Bits(5), 0)], ["data", data]])
   def updated_lanes = for List (index in 0..3):
     b.mux_lookup(leaf, b.eq(leaf, address, b.constant(leaf, Bits(2), index)), b.vector_get(leaf, contents, index), [[1, replacement]])
+
   def updated = b.vector_create(leaf, vector, updated_lanes)
   def modified = b.mux_lookup(leaf, valid, contents, [[1, updated]])
   for (entry in [["selected", selected], ["original", contents], ["modified", modified]]):
     b.drive(b.output(leaf, entry[0], Bits(entry[1].type.packed_width())), b.cast(leaf, entry[1], Bits(entry[1].type.packed_width())))
+
   b.finish(leaf)
   def top = b.module("ConstantROM" ++ to_string(width))
   def data_input = b.input(top, "data", Bits(width))
@@ -41,6 +45,7 @@ fun make_constant_rom(width :: PosInt):
     b.drive(child.input("data"), data_input)
     for (port in leaf.outputs):
       b.drive(b.output(top, name ++ "_" ++ port.name, port.type), child.output(port.name))
+
   b.finish(top)
   DesignElaboration(design, top)
 
@@ -48,9 +53,11 @@ fun make_wide_memories():
   def programs = MutableList[]
   for (width in [65, 129, 512]):
     for (aggregate in [#false, #true]): programs.add(make_memory(3, aggregate, width))
+
   for (entry in [[65, #false, 1], [65, #true, 3], [129, #true, 1], [129, #false, 129],
                  [512, #false, 8], [512, #true, 7], [512, #false, #false], [512, #false, 1], [64, #true, 1]]):
     programs.add(make_sync_memory(3, entry[1], entry[2], entry[0]))
+
   programs.snapshot()
 
 class Signed(width :: PosInt):
@@ -105,6 +112,7 @@ fun make_wide(width :: PosInt):
   def packet_type = RecordType([RecordField("tag", Bits(5)), RecordField("data", Bits(64))])
   def packets = for List (tag in [3, 17, 29], data in [narrow, b.extract(top, a, 63, 0), b.extract(top, z, 63, 0)]):
     b.record_create(top, packet_type, [["tag", b.constant(top, Bits(5), tag)], ["data", data]])
+
   def packet = b.mux_lookup(top, amount, packets[0], [[1, packets[1]], [2 ** 64 + 1, packets[2]]])
   def outputs:
     [["both", b.bit_and(top, a, z)], ["either", b.bit_or(top, a, z)],
@@ -148,13 +156,16 @@ fun make_wide(width :: PosInt):
      ["onehot_wide", picked],
      ["onehot_narrow", b.onehot_mux(top, amount, for List (index in 0..129): b.constant(top, Bits(8), index + 1))],
      ["guarded_onehot", b.mux_lookup(top, select, b.constant(top, Bits(width), 0), [[1, picked]])]]
+
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   for (name in ["first", "second"]):
     def child = b.instance(top, leaf, name)
     for (entry in [["clock", tc], ["reset", tr], ["enable", te], ["data", if name == "first" | selected | z]]):
       b.drive(child.input(entry[0]), entry[1])
+
     for (output in ["q", "delayed"]):
       b.drive(b.output(top, name ++ "_" ++ output, Bits(width)), child.output(output))
+
   b.finish(top)
   DesignElaboration(design, top)
 
@@ -188,6 +199,7 @@ fun make_wide_aggregate(width :: PosInt):
   def replacements = [replacement, b.vector_get(top, items, 0)]
   def valid_indices = for List (index in indices, enable in enable_values):
     b.bit_or(top, b.bit_not(top, enable), b.ult(top, index, b.constant(top, Bits(2), 3)))
+
   def collision = b.bit_and(top, b.eq(top, index0, index1), b.bit_and(top, enable_values[0], enable_values[1]))
   def valid_write = b.bit_and(top, b.bit_and(top, valid_indices[0], valid_indices[1]), b.bit_not(top, collision))
   fun writes(source :: Value, reverse :: Boolean):
@@ -195,7 +207,9 @@ fun make_wide_aggregate(width :: PosInt):
                                      b.vector_create(top, VectorType(2, Bits(1)), if reverse | enable_values.reverse() | enable_values),
                                      b.vector_create(top, VectorType(2, Bits(2)), if reverse | indices.reverse() | indices),
                                      b.vector_create(top, VectorType(2, element), if reverse | replacements.reverse() | replacements))
+
     b.mux_lookup(top, valid_write, source, [[1, written]])
+
   b.drive(state.next, writes(state.current, #false))
   def captured = b.register(top, "captured_q", element, clock, reset, zero)
   b.drive(captured.next, b.mux_lookup(top, read_ok, zero, [[1, b.vector_index(top, state.current, selector)]]))
@@ -215,6 +229,7 @@ fun make_wide_aggregate(width :: PosInt):
   def filled = b.vector_create(top, VectorType(4, element), [read, read, read, read])
   def gathered_values = for List (index in 0..4):
     b.add(top, b.record_get(top, replacement, "data"), b.constant(top, Bits(width), index))
+
   def gathered = b.vector_create(top, VectorType(4, Bits(width)), gathered_values)
   def care = 2 ** (total - 1) + 2 ** (width - 1) + 1
   def full = 2 ** total - 1

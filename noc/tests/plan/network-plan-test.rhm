@@ -44,12 +44,15 @@ check:
   network.router_plans.map(fun (router): router.node.describe()) ~is [
     "n0", "n1", "n2", "n3"
   ]
+
   network.router_plans.map(fun (router): router.injection_terminals.length()) ~is [
     1, 1, 0, 0
   ]
+
   network.router_plans.map(fun (router): router.ejection_terminals.length()) ~is [
     0, 1, 1, 0
   ]
+
   network.describe() ~is "network plan: routers=4, injections=2, ejections=2, vcs=4"
 
 check:
@@ -57,10 +60,12 @@ check:
     "inject i0@n0 -> router[0].input[0]",
     "inject i1@n1 -> router[1].input[0]"
   ]
+
   network.ejection_ports.map(fun (port): port.describe()) ~is [
     "eject e1@n1 <- router[1].target[2]",
     "eject e2@n2 <- router[2].target[0]"
   ]
+
   network.injection_port(InjectionId(1)) === network.injection_ports[1] ~is #true
   network.ejection_port(EjectionId(2)) === network.ejection_ports[1] ~is #true
 
@@ -71,10 +76,12 @@ check:
     "l1.vc0: router[1].target[0] -> router[2].input[0]",
     "l1.vc1: router[1].target[1] -> router[2].input[1]"
   ]
+
   network.link_connections.map(fun (connection): connection.describe()) ~is [
     "l0: router[0].targets[0, 1] -> router[1].inputs[1, 2]",
     "l1: router[1].targets[0, 1] -> router[2].inputs[0, 1]"
   ]
+
   network.link_connection(first.id).source_target_indices ~is [0, 1]
   network.link_connection(first.id).destination_input_indices ~is [1, 2]
   network.vc_connection(VCId(first.id, 1)) === (
@@ -97,14 +104,17 @@ check:
 def crossbar_node = NodeId(10)
 def crossbar_injections = for List (index in 0..3):
   InjectionTerminal(InjectionId(index), crossbar_node)
+
 def crossbar_ejections = for List (index in 0..3):
   EjectionTerminal(EjectionId(index), crossbar_node)
+
 def mutable crossbar_routes = []
 for (source in crossbar_injections):
   for (destination in crossbar_ejections):
     crossbar_routes := crossbar_routes ++ [
       RouteClass(RouteClassId(crossbar_routes.length()), source, destination)
     ]
+
 def crossbar_routing = compile_routing(
   RoutingProblem(
     Topology([crossbar_node], []),
@@ -112,6 +122,7 @@ def crossbar_routing = compile_routing(
     RoutingRelation(fun (_route, _origin, _candidate): #false)
   )
 )
+
 def crossbar_network = NetworkPlan(crossbar_routing)
 def crossbar_router = crossbar_network.router_plan(crossbar_node)
 
@@ -120,14 +131,17 @@ check:
   crossbar_router.origins.map(fun (origin): origin.describe()) ~is [
     "inject(i0@n10)", "inject(i1@n10)", "inject(i2@n10)"
   ]
+
   crossbar_router.targets.map(fun (target): target.describe()) ~is [
     "e0@n10", "e1@n10", "e2@n10"
   ]
+
   crossbar_router.rows.map(fun (row): row.target_mask) ~is [
     0b001, 0b010, 0b100,
     0b001, 0b010, 0b100,
     0b001, 0b010, 0b100
   ]
+
   crossbar_network.injection_ports.map(fun (port): port.input_index) ~is [0, 1, 2]
   crossbar_network.ejection_ports.map(fun (port): port.target_index) ~is [0, 1, 2]
   crossbar_network.vc_connections ~is []

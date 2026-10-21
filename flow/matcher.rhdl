@@ -21,6 +21,7 @@ circuit GreedyMatcher(input_count :: PosInt, output_count :: PosInt):
   def output_taken = Array.make(output_count)
   for (output_index in 0..output_count):
     output_taken[output_index] := Bool(#false)
+
   def mutable grant_rows = []
   for (input_index in 0..input_count):
     def mutable input_taken = Bool(#false)
@@ -31,6 +32,7 @@ circuit GreedyMatcher(input_count :: PosInt, output_count :: PosInt):
       row := row ++ [grant]
       input_taken := input_taken ||| grant
       output_taken[output_index] := output_taken[output_index] ||| grant
+
     grant_rows := grant_rows ++ [vec(row)]
 
   grants <== vec(grant_rows)
@@ -50,6 +52,7 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
   def initial_priorities = vec(
     for List (_ in 0..output_count): Bits(priority_width)(0)
   )
+
   reg next_priorities(~init: initial_priorities)
 
   def input_taken = Array.make(input_count)
@@ -66,6 +69,7 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
       for List (input_index in 0..input_count):
         requests[input_index][output_index] & !input_taken[input_index]
     )
+
     def choice :: CircularPriorityChoice(input_count, priority_width) = circular_priority_onehot(eligible, next_priorities[output_index])
     def selected_row = choice.grant
     output_grant_rows := output_grant_rows ++ [selected_row]

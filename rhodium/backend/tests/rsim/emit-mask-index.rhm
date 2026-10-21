@@ -13,6 +13,7 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[1] in ["rsim", "verilog", "circt"]
 | error("expected OUTPUT_DIRECTORY rsim|verilog|circt")
+
 def target = {"rsim": rsim_target, "verilog": verilog_target, "circt": circt_target}[arguments[1]]
 def result = compile_program(program, target)
 for (artifact in result.artifacts):

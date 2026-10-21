@@ -6,6 +6,7 @@ import:
   "fixtures.rhm" open
   "../../../compile/program.rhm".compile_program
   "../../verilog-target.rhm".verilog_target
+
 // DPI artifacts are separate because their live foreign effects reject synthesis.
 def args = rkt.#{current-command-line-arguments}()
 cond
@@ -20,6 +21,7 @@ cond
       print(compile_program(make_hierarchy_program(width), verilog_target).artifacts[0].content)
       print(compile_program(make_aggregate_program(width), verilog_target).artifacts[0].content)
       print(compile_program(make_sequential_program(width), verilog_target).artifacts[0].content)
+
     print(compile_program(make_keyword_program(), verilog_target).artifacts[0].content)
     print(compile_program(make_type_program(), verilog_target).artifacts[0].content)
 

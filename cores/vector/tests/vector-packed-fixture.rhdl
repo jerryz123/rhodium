@@ -81,6 +81,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
             vstart: vstart[0..xlen.width]
             vxrm: Bits(2)(0)
             vxsat: Bool(#false)
+
         control: control.updated(~memory: Bool(#true), ~store: store, ~memory_data_eew: eew, ~memory_nf: nf, ~memory_mode: mode)
         scalar: base[0..xlen.width]
         floating_scalar: Bits(xlen.width)(0)
@@ -91,6 +92,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
+
   launches.right |> sequencer.request
   operand_fetch.begin_macro <== sequencer.request.fire()
   def Array(scheduled, reservation) = operand_fetch.issue |> atomic_fork(2)
@@ -110,6 +112,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
       store_data: operation.beat.left
       completion_tag: tail
   ) |> issue_link.left
+
   (
     reservation |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, slots, 2)):
       tag: tail
@@ -122,6 +125,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
           segmented: operation.beat.control.memory_nf.or_reduce() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
           owner: Bits(1)(0)
   ) |> engine.reserve
+
   issue_path |> to_valid() |> attempts.ingress
   attempts.egress |> attempt
   attempts.flush <== attempts.egress.valid & retry
@@ -129,8 +133,10 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
     tail <== attempts.egress.bits.completion_tag
   elsewhen (issue_path.fire()):
     tail <== if slots == 1 | Bits(1)(0) | tail + Bits(index_width(slots))(1)
+
   when (engine.released.valid):
     head <== if slots == 1 | Bits(1)(0) | head + Bits(index_width(slots))(1)
+
   slots_owner.reserve.valid <== issue_path.fire()
   slots_owner.reserve.bits <== tail
   slots_owner.accept.valid <== attempts.egress.valid & !retry
@@ -147,12 +153,14 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
       cause: Bits(xlen.width)(0)
       fault_address: Bits(xlen.width)(0)
   ) |> engine.commit
+
   response |> engine.completion
   for (port in 0..3):
     Array(operand_fetch.reads[port], sequencer.prepare_reads[port]) |> valid_arbiter() |> registers.reads[port]
     def Array(operands, preparation) = registers.results[port] |> fork_valid(2)
     operands |> operand_fetch.results[port]
     preparation |> sequencer.prepare_results[port]
+
   Array(operand_fetch.mask_read, sequencer.prepare_mask_read) |> valid_arbiter() |> registers.mask_read
   def Array(operand_mask, prepare_mask) = registers.mask_result |> fork_valid(2)
   operand_mask |> operand_fetch.mask_result
@@ -169,6 +177,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
     last: engine.resolved.layout.last
     compress_state: literal(VectorCompressState(xlen, vlen), 0)
     packed_layout: engine.resolved.layout
+
   def Array(bank_write, observed_write) = engine.write |> fork_valid(2)
   Array(initialize, bank_write) |> valid_arbiter() |> registers.write
   observed_write |> written

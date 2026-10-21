@@ -119,6 +119,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
 sync_circuit PipelinedMultiplier(width :: Pow2Int):
   unless width >= 2
   | error(~who: #'PipelinedMultiplier, "width must be at least two")
+
   def half_width = width / 2
   def product_width = width * 2
 
@@ -136,6 +137,7 @@ sync_circuit PipelinedMultiplier(width :: Pow2Int):
       left_correction: mux(left_negative, !operation.right, Bits(width)(0))
       right_correction: mux(right_negative, !operation.left, Bits(width)(0))
       correction_carry: (left_negative & right_negative).as_bits() ++ (left_negative ^ right_negative).as_bits()
+
   def multiplied = partials |> valid_pipe(1)
   def reductions = multiplied |> map_valid(operation):
     def low = multiplier_carry_save(width, operation.low_low.zext(product_width), operation.low_high.zext(product_width) << half_width, operation.high_low.zext(product_width) << half_width)
@@ -143,6 +145,7 @@ sync_circuit PipelinedMultiplier(width :: Pow2Int):
     def combined = multiplier_carry_save(width, low.first, low.second, high.first)
     def folded = multiplier_carry_save(width, combined.first, combined.second, high.second)
     multiplier_carry_save(width, folded.first, folded.second, operation.correction_carry.zext(product_width) << width)
+
   def reduced = reductions |> valid_pipe(1)
   reduced |> map_valid(operation => operation.first + operation.second) |> valid_pipe(1) |> response
 

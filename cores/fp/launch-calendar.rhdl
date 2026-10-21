@@ -33,6 +33,7 @@ sync_circuit FpLaunchCalendar(timing :: FpExecutionTiming, span :: PosInt):
     vector_turn <== Bool(#false)
   elsewhen (book.valid):
     vector_turn <== Bool(#true)
+
   when (book.valid):
     assert(calendar.reserve[1].ready, "fp_booked_return")
 

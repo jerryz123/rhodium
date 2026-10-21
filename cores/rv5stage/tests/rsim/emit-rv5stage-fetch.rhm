@@ -12,4 +12,5 @@ import:
 
 def program = elaborate(RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))
 )
+
 export program

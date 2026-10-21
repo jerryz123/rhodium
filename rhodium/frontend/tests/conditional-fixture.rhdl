@@ -48,6 +48,7 @@ circuit ProjectedRegisterHold():
   reg state(ConditionalCell(), ~clock: clock)
   when load:
     state.value <== data
+
   result <== state.value
 
 circuit NestedProjectedRegisterHold():
@@ -59,6 +60,7 @@ circuit NestedProjectedRegisterHold():
   reg state(NestedConditionalCell(), ~clock: clock)
   when load:
     state.cell.value <== data
+
   result <== state.cell.value
 
 circuit IndexedRegisterHold():
@@ -70,6 +72,7 @@ circuit IndexedRegisterHold():
   reg state(Vec(1, Bits(8)), ~clock: clock)
   when load:
     state[0] <== data
+
   result <== state[0]
 
 sync_circuit StateOrientedRegisterUpdates():
@@ -144,6 +147,7 @@ sync_circuit ConditionalMemoryWrites():
     storage.write(first_address, first_data)
   elsewhen second:
     storage.write(second_address, second_data, ~enable: second_enable)
+
   read_data <== storage[read_address]
 
 sync_circuit ConditionalMemoryWritePorts():
@@ -164,6 +168,7 @@ sync_circuit ConditionalMemoryWritePorts():
     storage.write(second_address, second_data)
   elsewhen second:
     storage.write(alternate_address, alternate_data)
+
   read_data <== storage[read_address]
 
 circuit HostCondition():
@@ -212,6 +217,7 @@ circuit SeparateConditionals():
     selected <== Bits(1)(0)
   otherwise:
     selected <== Bits(1)(1)
+
   when second:
     selected <== Bits(1)(0)
   otherwise:

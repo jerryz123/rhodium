@@ -38,6 +38,7 @@ sync_circuit VectorRegisterFile(xlen :: XLen, vlen :: VectorLength):
   for (row in 0..VectorRegisterLayout(vlen, xlen.width).depth):
     when (writing & (write.bits.address === Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))(row))):
       storage[row] <== masked_merge(storage[row], write.bits.data, write.bits.mask)
+
   for (chunk in 0..VectorRegisterLayout(vlen, xlen.width).rows_per_register):
     when (writing & (write.bits.address === Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))(chunk))):
       mask_shadow[chunk] <== masked_merge(mask_shadow[chunk], write.bits.data, write.bits.mask)

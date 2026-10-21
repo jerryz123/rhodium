@@ -11,6 +11,7 @@ import:
 def sn_noc_flit = CHIFlitParams()
 def sn_noc_topology = topology:
   node xbar
+
 def sn_noc_router = sn_noc_topology.node("xbar")
 def sn_noc_home = CHISNICNSite(
   NamePath(["home", "subordinate"]),
@@ -66,9 +67,11 @@ sync_circuit CHISNNoCFixture():
   connect_chi_hn_subordinate(home,
                              ~home: sn_noc_home,
                              ~ports: router_ports, ~adapters: sn_noc_adapters)
+
   connect_chi_sn_node(first,
                       ~node: sn_noc_first,
                       ~ports: router_ports, ~adapters: sn_noc_adapters)
+
   connect_chi_sn_node(second,
                       ~node: sn_noc_second,
                       ~ports: router_ports, ~adapters: sn_noc_adapters)

@@ -66,6 +66,7 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
   bundle Response():
     data: Bits(xlen.width)
     vector: Bool
+
   (
     Array(memory.response, owners.egress) |> zip_flow(data, vector):
       Response():
@@ -99,8 +100,10 @@ sync_circuit RV2WideMemoryPorts(xlen :: XLen):
     split_vector <== fragments.chosen.into(Bool)
   elsewhen (split.response.valid):
     split_busy <== Bool(#false)
+
   when (split.response.valid):
     assert(split_busy, "rv2wide_split_response_retains_client")
+
   describe_cosim_signals({
     "pipeline_vector": mem_vector,
     "request_vector": request_vector,

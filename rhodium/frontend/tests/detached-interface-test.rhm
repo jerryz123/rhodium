@@ -59,6 +59,7 @@ class RejectImplementation():
   override method validate_signature(signature :: ModuleSignature): #void
   override method validate_implementation(module_def :: core.Module): error("additional declaration rejected implementation")
   override method member(instance :: core.HardwareEntity, name :: String): #false
+
 def rejecting = CircuitReference(CircuitIdentity("Reject"), fixture.signature, fun (): fixture.Pass(), ~declarations: fixture.declarations ++ [RejectImplementation()])
 check:
   fixture.aliases(fixture.ordinary, rejecting) ~throws "additional declaration rejected implementation"

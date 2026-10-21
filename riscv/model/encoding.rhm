@@ -13,6 +13,7 @@ export:
 fun require_word(word :: Nat, width :: PosInt, who :: Symbol):
   unless word <= width_mask(width)
   | error(~who: who, "instruction word must fit the encoding width")
+
   word
 
 /* Represents a validated host value/care relation over an instruction word. */
@@ -29,13 +30,16 @@ class InstructionEncoding(width :: PosInt,
       unless constraint.field.high < width
       | error(~who: #'InstructionEncoding,
               "encoding constraint lies outside the instruction width")
+
       def overlap = care bits.and constraint.mask
       def disagreement = (value bits.xor constraint.value_bits) bits.and overlap
       when disagreement != 0
       | error(~who: #'InstructionEncoding,
               "encoding constraints assign conflicting values to the same bit")
+
       value := (value bits.and (all_bits bits.xor constraint.mask)) bits.or constraint.value_bits
       care := care bits.or constraint.mask
+
     super(width, constraints, value bits.and care, care)
 
   /* Tests a width-checked host word against all cared encoding bits. */
@@ -48,6 +52,7 @@ class InstructionEncoding(width :: PosInt,
     unless other.width == width
     | error(~who: #'overlaps,
             "encoding overlap requires an InstructionEncoding of equal width")
+
     def differing = value bits.xor other.value
     def jointly_cared = care bits.and other.care
     (differing bits.and jointly_cared) == 0
@@ -57,6 +62,7 @@ class InstructionEncoding(width :: PosInt,
     unless other.width == width
     | error(~who: #'subsumes,
             "encoding subsumption requires an InstructionEncoding of equal width")
+
     def shared_care = care bits.and other.care
     def differing = value bits.xor other.value
     shared_care == care && (differing bits.and care) == 0
@@ -68,4 +74,5 @@ fun instruction_encoding(constraint :: FieldConstraint || List.of(FieldConstrain
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
+
   InstructionEncoding(constraints)

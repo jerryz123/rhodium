@@ -37,6 +37,7 @@ fun aggregate_module(name, implementation):
           | [["high", low], ["low", high]]
           | [["high", high], ["low", low]]
         )
+
       def vector_value:
         builder.vector_create(
           top,
@@ -45,10 +46,12 @@ fun aggregate_module(name, implementation):
           | [element2, element1, element0]
           | [element0, element1, element2]
         )
+
       builder.drive(record_bits, builder.cast(top, record_value, Bits(4)))
       builder.drive(record_high, builder.record_get(top, record_value, "high"))
       builder.drive(vector_bits, builder.cast(top, vector_value, Bits(6)))
       builder.drive(vector_one, builder.vector_get(top, vector_value, 1))
+
   builder.finish(top)
 
 def direct = aggregate_module("DirectAggregates", "direct")

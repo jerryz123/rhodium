@@ -34,8 +34,10 @@ class RectOutline(width :: Length, height :: Length):
   constructor (width :: Length, height :: Length):
     unless width.picometers > 0
     | error(~who: #'RectOutline, "width must be positive")
+
     unless height.picometers > 0
     | error(~who: #'RectOutline, "height must be positive")
+
     super(width, height)
 
 /* Locates a child rectangle's origin within its parent using nonnegative exact lengths. */
@@ -107,6 +109,7 @@ fun physical_view(value :~ PhysicalView):
 fun require_module(module_def :: Module, location :: Location = Location()):
   unless module_def.finished
   | rfpl_fail("physical views require a finished Rhodium module", location)
+
   module_def
 
 /* Checks positive dimensions with an RFPL source diagnostic before building the exact outline. */
@@ -115,8 +118,10 @@ fun require_outline(width :: Length,
                     location :: Location = Location()):
   unless width.picometers > 0
   | rfpl_fail("physical width must be positive", location)
+
   unless height.picometers > 0
   | rfpl_fail("physical height must be positive", location)
+
   RectOutline(width, height)
 
 /* Resolves a named direct instance in a finished module without reconstructing its hierarchy. */
@@ -131,6 +136,7 @@ fun child_instance(module_def :: Module,
                     " has no direct instance named ", name),
       location
     )
+
   operation
 
 /* Reads an existing rtl.instance's exact target Module, rejecting other or malformed operations. */
@@ -138,9 +144,11 @@ fun instance_target(instance :: Operation,
                     location :: Location = Location()):
   unless instance.opcode == "rtl.instance"
   | rfpl_fail("instance_target requires an Rhodium instance operation", location)
+
   def target = instance.attribute("module", #false)
   unless target is_a Module
   | rfpl_fail("instance operation has no Rhodium target module", location)
+
   target
 
 /* Constructs an opaque view after checking the existing module and positive outline dimensions. */
@@ -159,9 +167,11 @@ fun build_placement(instance :: Operation,
                     location :: Location = Location()):
   unless instance.opcode == "rtl.instance"
   | rfpl_fail("place requires an Rhodium instance operation", location)
+
   unless physical_view(child)
   | rfpl_fail("place requires a hard-macro or composite-floorplan child view",
               location)
+
   def target = instance_target(instance, location)
   unless target === child.module_def
   | rfpl_fail(
@@ -171,6 +181,7 @@ fun build_placement(instance :: Operation,
                     child.module_def.name),
       location
     )
+
   FloorplanPlacement(instance.module_def, child, instance, coordinate, location)
 
 /* Checks that the child's right and top edges fit inside its parent; sibling overlap is not checked. */
@@ -203,10 +214,12 @@ fun build_composite_floorplan(module_def :: Module,
     unless placement.parent_module === module_def
     | rfpl_fail("placement selects an instance from a different parent circuit",
                 placement.location)
+
   verify_composite_module(
     module_def,
     placements.map(fun (placement): placement.instance)
   )
+
   def view = CompositeFloorplan(
     module_def,
     require_outline(width, height, location),
@@ -215,6 +228,7 @@ fun build_composite_floorplan(module_def :: Module,
   )
   for (placement in placements):
     verify_containment(view, placement)
+
   view
 
 /* Revalidates a view's finished module and outline. Transparent views additionally require direct,
@@ -222,35 +236,46 @@ fun build_composite_floorplan(module_def :: Module,
 fun validate_physical_view(view :: PhysicalView):
   unless physical_view(view)
   | rfpl_fail("expected a hard-macro or composite-floorplan view")
+
   require_module(view.module_def, view.location)
   unless view.outline is_a RectOutline
   | rfpl_fail("physical view must have a rectangular outline", view.location)
+
   when view is_a CompositeFloorplan
   | unless view.placements is_a List
     | rfpl_fail("floorplan placements must be supplied as a List", view.location)
+
     for (placement in view.placements):
       unless placement is_a FloorplanPlacement
       | rfpl_fail("floorplan placements must be created with place", view.location)
+
       unless placement.parent_module === view.module_def
       | rfpl_fail("placement selects an instance from a different parent circuit",
                   placement.location)
+
       def direct_instance = placement.instance is_a Operation && placement.instance.opcode == "rtl.instance" && placement.instance.module_def === view.module_def
       unless direct_instance
       | rfpl_fail("placement must select a direct Rhodium instance",
                   placement.location)
+
       unless physical_view(placement.child)
       | rfpl_fail("placement child must have a physical view", placement.location)
+
       unless placement.instance.attribute("module", #false) === placement.child.module_def
       | rfpl_fail("placement child view does not match its instance target",
                   placement.location)
+
       unless placement.coordinate is_a Coordinate
       | rfpl_fail("placement must have an exact physical coordinate",
                   placement.location)
+
       verify_containment(view, placement)
+
     verify_composite_module(
       view.module_def,
       view.placements.map(fun (placement): placement.instance)
     )
+
   view
 
 /* Validates the exact logical top and reachable physical tree, requiring common Design ownership
@@ -261,6 +286,7 @@ fun annotate(logical :: DesignElaboration,
   unless physical_view(top)
   | rfpl_fail("annotate requires a hard-macro or composite-floorplan top view",
               location)
+
   top.validate()
   unless top.module_def === logical.top
   | rfpl_fail(
@@ -268,6 +294,7 @@ fun annotate(logical :: DesignElaboration,
                     " does not match logical top ", logical.top.name),
       location
     )
+
   def mutable views = []
   def mutable placements = []
   /* Visits each distinct view once, rejects conflicting module views or foreign designs, and
@@ -280,9 +307,11 @@ fun annotate(logical :: DesignElaboration,
                       " belongs to a different logical design"),
         view.location
       )
+
     def existing = views.find(
       fun (candidate): candidate.module_def === view.module_def
     )
+
     if existing
     | unless existing === view
       | rfpl_fail(
@@ -302,7 +331,9 @@ fun annotate(logical :: DesignElaboration,
                               " belongs to a different logical design"),
                 placement.location
               )
+
             visit(placement.child)
+
   visit(top)
   FloorplanDesign(logical, top, views, placements)
 

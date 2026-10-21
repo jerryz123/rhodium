@@ -54,6 +54,7 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   tagged_union Owner():
     Scalar(RV2WideFpOwner(xlen))
     Vector(Bits(index_width(slots)))
+
   def SharedRequest = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Owner())
   def SharedResult = FpExecutionResult(xlen, rv2wide_fp_profile(xlen), Owner())
   def VectorRequest = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)))
@@ -75,10 +76,13 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
 
   def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(request):
     fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag))
+
   def scalar_variable = variable_issue |> map_flow(request):
     fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag))
+
   def vector = vector_request |> map_flow(request):
     fp_request_with_tag(xlen, rv2wide_fp_profile(xlen), Bits(index_width(slots)), Owner(), request, Owner().Vector(request.tag))
+
   def unreserved = Array(scalar_variable, vector) |> rr_arbiter()
   inst selection(GrantMerge(SharedRequest, 2))
   selection.grants <== vec([launch_calendar.reserved, !launch_calendar.reserved]).into(MaybeOneHot(2))
@@ -108,6 +112,7 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
     |> vector_returns.completion
   def scalar_result = scalar_return |> map_flow(result):
     fp_result_with_tag(xlen, rv2wide_fp_profile(xlen), Owner(), RV2WideFpOwner(xlen), result, result.tag.view(Owner().Scalar).payload)
+
   when (fixed_issue.valid):
     assert(launch_calendar.reserved & selection.ingress[0].ready, "rv2wide_fp_ex_launch_reserved")
 
@@ -119,14 +124,17 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   def authorization_matches = wb_owner.valid & (wb_owner.bits.tag.as_bits() === authorize.bits.tag.as_bits())
   when (authorize.valid):
     assert(authorization_matches, "rv2wide_fp_wb_owner")
+
   def authorized = align_fp_authorization(
     authorize, timing,
     fun (operation :: FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpOwner(xlen))): operation.control.execution,
     ~elapsed: 2
   )
+
   def return_matches = scalar_result.valid & (scalar_result.bits.tag.as_bits() === authorized.bits.tag.as_bits())
   when (authorized.valid):
     assert(return_matches, "rv2wide_fp_authorized_return")
+
   def completed = scalar_result |> filter_flow(result => !result.tag.speculative ||| authorized.valid) |> to_valid() |> fork_valid(2)
   completed[0] |> completion
 
@@ -160,6 +168,7 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   def load_port = loaded[1] |> map_valid(result => FloatingPointRegisterWrite(rv2wide_fp_profile(xlen))):
     address: result.owner.rd
     data: fp_load_value(rv2wide_fp_profile(xlen), result.precision, result.data)
+
   Array(load_port, vector_move_result) |> valid_arbiter() |> registers.writes[0]
   when (vector_write.valid):
     assert(!vector_move.egress.valid, "rv2wide_vector_fpr_move_retains_one_owner")

@@ -27,6 +27,7 @@ sync_circuit RV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, Sc
   tagged_union FpOwner():
     Scalar(ScalarTag)
     Vector(VectorTag)
+
   inst wb_fp_execution(FpExecutionService(xlen, profile, FpOwner(), ~half_precision: half_precision, ~zfa: zfa_enabled, ~scheduled_writeback: #true, ~timing: fp_timing))
   inst launch_calendar(FpLaunchCalendar(fp_timing, calendar_span))
   launch_calendar.probe <== id_execution

@@ -148,37 +148,45 @@ def register_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs2: Bool(#true)
   left: OperandASelect.Register
   right: OperandBSelect.Register
+
 def register_immediate_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
   immediate: RV5StageImmediateSelect.I
+
 def unary_register_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
+
 def atomic_operands = pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#true)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
   immediate: RV5StageImmediateSelect.None
+
 def load_reserved_operands = pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
   immediate: RV5StageImmediateSelect.None
+
 def csr_register_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
+
 def csr_immediate_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#false)
   uses_rs2: Bool(#false)
+
 def no_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#false)
   uses_rs2: Bool(#false)
+
 def RV5StageSystemOperandCases = combine_case_groups([
   instruction_cases([CSRRW, CSRRS, CSRRC], csr_register_operands),
   instruction_cases([CSRRWI, CSRRSI, CSRRCI], csr_immediate_operands),

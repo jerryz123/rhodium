@@ -33,6 +33,7 @@ circuit CHIRequestUpdateFixture():
   projector.identity <== CHIAddressProjectorIdentity(p):
     global_service_base: Bits(52)(0x80000080)
     local_base: Bits(52)(0x1000)
+
   projector.upstream.req.bits <== source
   projector.upstream.req.valid <== valid
   projector.downstream.req.ready <== ready

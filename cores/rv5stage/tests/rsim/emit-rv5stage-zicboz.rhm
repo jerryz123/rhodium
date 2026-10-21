@@ -12,4 +12,5 @@ def program = elaborate(RV5StageCoreFixture(RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicboz: #true)
 ), ~reset_address: 0x100))
+
 export program

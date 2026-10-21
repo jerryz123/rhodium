@@ -26,6 +26,7 @@ check:
   fixture.invalid("missing-ready") ~throws "stall tracing requires valid and ready"
   fixture.invalid("collision-before") ~throws "event label must be unique"
   fixture.invalid("collision-after") ~throws "event label must be unique"
+
 for (site in stalls):
   def transfer = manifest.site(site.observation_of)
   check:

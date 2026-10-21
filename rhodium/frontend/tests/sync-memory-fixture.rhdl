@@ -10,6 +10,7 @@ circuit ReadOnlySyncMemory():
 
   sync_mem storage(4, Bits(8), ~clock: clock):
     read
+
   storage.read.address <== address
   storage.read.enable <== enable
   data <== storage.read.data
@@ -22,6 +23,7 @@ circuit WriteOnlySyncMemory():
 
   sync_mem storage(4, Bits(8), ~clock: clock):
     write
+
   storage.write.address <== address
   storage.write.data <== data
   storage.write.enable <== enable
@@ -35,6 +37,7 @@ circuit MaskedWriteOnlySyncMemory():
 
   sync_mem storage(4, Bits(32), ~mask_granularity: 8, ~clock: clock):
     write
+
   storage.write.address <== address
   storage.write.data <== data
   storage.write.mask <== mask
@@ -46,6 +49,7 @@ circuit UnmaskedMaskAccess():
 
   sync_mem storage(4, Bits(8), ~clock: clock):
     write
+
   storage.write.mask <== mask
 
 circuit WrongMaskWidth():
@@ -54,6 +58,7 @@ circuit WrongMaskWidth():
 
   sync_mem storage(4, Bits(32), ~clock: clock, ~mask_granularity: 8):
     write
+
   storage.write.mask <== mask
 
 circuit MissingWritePort():
@@ -62,6 +67,7 @@ circuit MissingWritePort():
 
   sync_mem storage(4, Bits(8), ~clock: clock):
     read
+
   storage.write.address <== address
 
 circuit MaskedReadOnlySyncMemory():
@@ -69,6 +75,7 @@ circuit MaskedReadOnlySyncMemory():
 
   sync_mem storage(4, Bits(8), ~mask_granularity: 8, ~clock: clock):
     read
+
   #void
 
 export:

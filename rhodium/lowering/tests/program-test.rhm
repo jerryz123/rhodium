@@ -54,6 +54,7 @@ class RejectCopy():
   override method check_materialized(module_def :: Module):
     check: module_def.design.sealed ~is #true
     error("certification rejected copied hardware")
+
 def checked_design = Design()
 def checked_builder = Builder(checked_design)
 def checked_top = checked_builder.module("Checked")

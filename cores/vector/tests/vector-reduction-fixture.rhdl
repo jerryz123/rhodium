@@ -49,6 +49,7 @@ sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
             vstart: vstart
             vxrm: Bits(2)(0)
             vxsat: Bool(#false)
+
         control: decode.control
         scalar: scalar
         floating_scalar: Bits(xlen.width)(0)
@@ -59,6 +60,7 @@ sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
+
   vector.issue |> to_valid() |> tokens.ingress
   tokens.flush <== cancel
   compute_maturity.flush <== cancel
@@ -74,6 +76,7 @@ sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
     data: load_data
     cause: Bits(xlen.width)(0)
     fault_address: Bits(xlen.width)(0)
+
   vector.completion.valid <== Bool(#false)
   vector.completion.bits <== dont_care(VectorCompletion(xlen, 8))
   vector.memory_drained <== Bool(#true)

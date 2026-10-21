@@ -68,6 +68,7 @@ fun SIntLiteral(type :: _SIntType,
   unless minimum <= value && value <= maximum
   | error(~who: #'sint,
           "literal value must fit the declared signed width")
+
   packed_literal(
     type,
     if value < 0 | (1 << type.width) + value | value,
@@ -88,6 +89,7 @@ fun require_signed_value(entity :: HardwareEntity,
   unless signed_arithmetic_type(value.type)
   | error(~who: who,
           location.describe() ++ ": expected a signed arithmetic hardware value")
+
   value
 
 /*
@@ -101,6 +103,7 @@ fun strunc(entity :: HardwareEntity,
   def value = require_signed_value(entity, #'strunc, location)
   unless target_width < scalar_width(value.type)
   | error(~who: #'strunc, "target width must be smaller than the source width")
+
   def source_bits = hardware_as_bits(value, #'strunc, "strunc operand", #false, location)
   def result_bits = kernel.trunc(source_bits, target_width, #false, location)
   kernel.cast(result_bits,

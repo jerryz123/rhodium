@@ -47,6 +47,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
             vstart: vstart
             vxrm: Bits(2)(0)
             vxsat: Bool(#false)
+
         control: decode.control.vector
         scalar: Bits(64)(0)
         floating_scalar: Bits(64)(0)
@@ -57,6 +58,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
+
   vector.issue |> to_valid() |> tokens.ingress
   def recovering = cancel ||| (tokens.egress.valid & (disposition =/= VectorDisposition.Authorized))
   tokens.flush <== recovering
@@ -71,10 +73,12 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
       cause: Bits(64)(0)
       fault_address: Bits(64)(0)
   ) |> vector.decision
+
   vector.completion.valid <== response_valid
   vector.completion.bits <== VectorCompletion(xlen, slots):
     tag: response_tag
     data: Bits(64)(0)
+
   response_ready <== vector.completion.ready
   vector.memory_drained <== Bool(#true)
   vector.fp_request.ready <== Bool(#false)

@@ -16,6 +16,7 @@ def module_def = design.modules[0]
 def subtractions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.sub"
 )
+
 def unsigned_zero = module_def.find_operation(subtractions[0].operands[0].defining_op_id)
 def signed_zero_cast = module_def.find_operation(subtractions[1].operands[0].defining_op_id)
 def signed_zero = module_def.find_operation(signed_zero_cast.operands[0].defining_op_id)
