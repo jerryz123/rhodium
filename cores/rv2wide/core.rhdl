@@ -160,7 +160,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   split_guest_access <== memory_ports.split_guest_access
   pipeline_vector <== memory_ports.pipeline_vector
   request_vector <== memory_ports.request_vector
-  inst vector(if vector_enabled | RV2WideVectorPipeline(xlen, profile.vector_length, ~vector_completion_slots: vector_slots) | RV2WideVectorDisabled(xlen, ~vector_completion_slots: vector_slots))
+  inst vector(if vector_enabled | RV2WideVectorPipeline(xlen, profile.vector_length, ~vector_completion_slots: vector_slots, ~dispatch_depth: profile.vector_dispatch_depth) | RV2WideVectorDisabled(xlen, ~vector_completion_slots: vector_slots))
   vector.memory <=> memory_ports.vector_memory
   vector.pipeline <=> memory_ports.vector_pipeline
   vector.split <=> memory_ports.vector_split

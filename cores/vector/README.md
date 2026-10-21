@@ -65,8 +65,10 @@ must not cancel a descriptor that has already become nonspeculative.
 support certification. The caller owns the DTLB/PTW arbitration and WB context
 revalidation. A failed certificate selects precise execution, not an exception.
 
-[`VectorAdmission`](admission.rhdl) supplies a two-descriptor queue, head
+[`VectorAdmission`](admission.rhdl) supplies a descriptor queue, head
 certification, pinned-window release, and registered early/precise outcomes.
+`~dispatch_depth` is a positive host integer, defaulting to two stored descriptors
+in addition to the active sequencer. RV2Wide selects four; RV5Stage retains two.
 Its explicit `~pipe` option selects whether admission credit can depend on
 same-cycle dequeue. Fault provenance is an opaque caller-supplied type.
 [`VectorReplay`](replay.rhdl) retains certified requests through local retries;

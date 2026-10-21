@@ -67,6 +67,10 @@ accepted response ownership. Recovery suppresses attempts while still allowing
 durable capture. Keep acknowledgement readiness independent of cache commit.
 Preserve caller-selected pipelined versus registered descriptor credit: changing
 it can introduce a combinational cycle through WB and LSU readiness.
+Descriptor capacity is independently selected with `~dispatch_depth`; size the
+queued-kind counters for the full inclusive occupancy range. Capacity changes
+must not change faultable-memory barriers, head certification ownership, or
+the single sequencer's dispatch order.
 
 Move direct behavioral fixtures with their implementation. Shared fixtures
 decode vector controls directly rather than instantiating a named core decoder.
@@ -92,6 +96,12 @@ RV5Stage admission fixture checks the caller boundary. Add its vector-memory
 and MMU replay fixtures for translation/LSU behavior changes, FP/muldiv fixtures
 for shared arithmetic changes, and cosim/event fixtures for observation changes.
 Use the managed Racket wrappers and keep generated HDL/native builds untracked.
+
+For descriptor-capacity changes, run the shared `vector-admission-one`,
+`vector-admission-two`, `vector-admission-three`, `vector-admission-four`, and
+`vector-admission-eight` rsim fixtures. Their FIFO oracle covers full registered
+credit, empty bypass, simultaneous transfers, pointer wrap, immutable snapshots,
+full-capacity kind summaries, reset, and the uncertified-memory outcome barrier.
 
 For admission/replay extractions, cover both callers with
 `rv2wide-core-vector`, `rv2wide-core-vector-rv32`, `rv2wide-vector-memory`,

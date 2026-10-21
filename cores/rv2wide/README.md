@@ -957,6 +957,11 @@ interfaces. `RV2WideCore` supplies the architectural integration:
 
 - Vector instructions issue singly, snapshot CSR/scalar operands, and enter
   the descriptor queue only through successful WB dispatch.
+- The queue stores four descriptors by default, in addition to the active
+  sequencer. `RV2WideConfig(~vector_dispatch_depth: 4)` selects its positive
+  capacity independently of `vector_completion_slots`. The standalone
+  `RV2WideVectorPipeline` exposes the same selection as `~dispatch_depth`.
+  A full queue replays the WB instruction; it never drops accepted work.
 - Faultable memory instructions retain their architectural owner until page
   certification or precise execution determines the outcome. Successful page
   certification permits younger independent scalar work while execution drains.
@@ -981,6 +986,12 @@ WB-authorized descriptors -> queue -> shared vector execution
                                                                   |
                                                         vector completion slots
 ```
+
+The descriptor queue retains instructions and their captured scalar/CSR context,
+not fetched vector operands or completed results. Compute acceptance permits retirement before
+execution finishes; faultable memory still retains its scalar architectural
+owner until certification or precise execution determines the outcome. Greater
+queue capacity does not relax that barrier or add another sequencer.
 
 Faultable attempts replay before memory acceptance. Split accesses retain the
 attempt through the final outcome and report the faulting fragment address.

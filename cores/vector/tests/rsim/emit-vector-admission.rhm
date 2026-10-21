@@ -1,0 +1,16 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../admission-fixture.rhdl" open
+def depth_one = elaborate(VectorAdmissionFixture(1))
+def depth_two = elaborate(VectorAdmissionFixture(2))
+def depth_three = elaborate(VectorAdmissionFixture(3))
+def depth_four = elaborate(VectorAdmissionFixture(4))
+def depth_eight = elaborate(VectorAdmissionFixture(8))
+export:
+  depth_one
+  depth_two
+  depth_three
+  depth_four
+  depth_eight

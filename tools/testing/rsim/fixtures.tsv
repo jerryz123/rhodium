@@ -210,6 +210,11 @@ rv5stage-vector-mask-512	cores-vector-configurations	cores/vector/tests/rsim/emi
 rv5stage-vector-packed	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-packed.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed.cpp
 rv5stage-vector-overlap	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	program	cores/vector/tests/rsim/rv5stage-vector-overlap.cpp
 rv5stage-vector-admission	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-admission.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-admission.cpp
+vector-admission-one	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_one	cores/vector/tests/rsim/vector-admission.cpp
+vector-admission-two	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_two	cores/vector/tests/rsim/vector-admission.cpp
+vector-admission-three	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_three	cores/vector/tests/rsim/vector-admission.cpp
+vector-admission-four	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_four	cores/vector/tests/rsim/vector-admission.cpp
+vector-admission-eight	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_eight	cores/vector/tests/rsim/vector-admission.cpp
 rv5stage-vector-packed-rv32	cores-vector-configurations	cores/vector/tests/rsim/emit-rv5stage-vector-packed-rv32.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed-rv32.cpp
 rv5stage-zvkt	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-zvkt.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zvkt.cpp
 rv5stage-hypervisor-core	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-hypervisor-core.rhm	program	cores/rv5stage/tests/rsim/rv5stage-hypervisor-core.cpp

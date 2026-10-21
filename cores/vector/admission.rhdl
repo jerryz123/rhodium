@@ -16,7 +16,7 @@ import:
 /* Accepts only nonspeculative descriptors. The caller owns WB admission and LSU timing;
    this controller owns head certification, pinned-window release, and registered outcomes.
    Fault is opaque provenance; early certified outcomes carry its zero value. */
-sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, Fault :: DataType, ~pipe: pipe :: Boolean):
+sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, Fault :: DataType, ~pipe: pipe :: Boolean, ~dispatch_depth: depth :: PosInt = 2):
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface dispatch(Decoupled(VectorInstruction(xlen, Bits(xlen.width))), ~role: producer)
   interface precheck(VectorPrecheck(), ~role: requester)
@@ -35,7 +35,8 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
      Queue timing is caller-selected. Faultable memory holds admission until
      its registered architectural outcome, independently of execution drain. */
 
-  inst descriptors(Queue(VectorDescriptor(xlen), 2, ~pipe: pipe, ~flow: #true))
+  def count_width = index_width(depth + 1)
+  inst descriptors(Queue(VectorDescriptor(xlen), depth, ~pipe: pipe, ~flow: #true))
   reg waiting_retirement(~init: Bool(#false))
   reg uncertified_memory(~init: Bool(#false))
   reg check_started(~init: Bool(#false))
@@ -145,16 +146,19 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   /* Queued-kind summaries count descriptor transfers, not execution completion.
      Increment and decrement may coincide, including flow-through dispatch. */
 
-  reg queued_loads(~init: Bits(2)(0))
-  reg queued_stores(~init: Bits(2)(0))
-  reg queued_fp(~init: Bits(2)(0))
+  reg queued_loads(~init: Bits(count_width)(0))
+  reg queued_stores(~init: Bits(count_width)(0))
+  reg queued_fp(~init: Bits(count_width)(0))
   def incoming = descriptors.ingress.bits.control
   def outgoing = head.bits.control
   def descriptor_enqueued = descriptors.ingress.fire()
   def descriptor_dequeued = head.fire()
-  queued_loads <== queued_loads + (descriptor_enqueued & incoming.memory & !incoming.store).as_bits().zext(2) - (descriptor_dequeued & outgoing.memory & !outgoing.store).as_bits().zext(2)
-  queued_stores <== queued_stores + (descriptor_enqueued & incoming.memory & incoming.store).as_bits().zext(2) - (descriptor_dequeued & outgoing.memory & outgoing.store).as_bits().zext(2)
-  queued_fp <== queued_fp + (descriptor_enqueued & incoming.floating_point).as_bits().zext(2) - (descriptor_dequeued & outgoing.floating_point).as_bits().zext(2)
+  /* Encodes a transfer in the inclusive occupancy width, including a one-entry queue. */
+  fun count_event(event :: Bool):
+    if count_width == 1 | event.as_bits() | event.as_bits().zext(count_width)
+  queued_loads <== queued_loads + count_event(descriptor_enqueued & incoming.memory & !incoming.store) - count_event(descriptor_dequeued & outgoing.memory & !outgoing.store)
+  queued_stores <== queued_stores + count_event(descriptor_enqueued & incoming.memory & incoming.store) - count_event(descriptor_dequeued & outgoing.memory & outgoing.store)
+  queued_fp <== queued_fp + count_event(descriptor_enqueued & incoming.floating_point) - count_event(descriptor_dequeued & outgoing.floating_point)
   assert((queued_loads <= descriptors.count) & (queued_stores <= descriptors.count) & (queued_fp <= descriptors.count), "vector_queued_kinds_match_occupancy")
 
   active <== waiting_retirement ||| head.valid

@@ -1,0 +1,41 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../admission.rhdl" open
+  "../bundles.rhdl" open
+  lib("cores/mmu/vector.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("flow/main.rhdl") open
+
+sync_circuit VectorAdmissionFixture(depth :: PosInt):
+  def xlen = XLen.X64
+  interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
+  interface dispatch(Decoupled(VectorInstruction(xlen, Bits(64))), ~role: producer)
+  interface precheck(VectorPrecheck(), ~role: requester)
+  interface sequencing_done(Pulse(), ~role: consumer)
+  interface precise(Valid(VectorCommit(xlen, 4)), ~role: consumer)
+  interface outcome(Valid(VectorCommit(xlen, 4)), ~role: producer)
+  input(requests_idle, sequencing, issue_valid): Bool
+  output(available, active, certification_pending, loads_pending, stores_pending, fp_pending): Bool
+  output capacity: Bits(8)
+  inst admission(VectorAdmission(xlen, 128, 4, Bool, ~pipe: #false, ~dispatch_depth: depth))
+  request |> admission.request
+  admission.dispatch |> dispatch
+  admission.precheck <=> precheck
+  sequencing_done |> admission.sequencing_done
+  precise |> admission.precise
+  admission.outcome |> outcome
+  admission.precise_fault <== Bool(#false)
+  admission.requests_idle <== requests_idle
+  admission.sequencing <== sequencing
+  admission.issue_valid <== issue_valid
+  available <== admission.available
+  active <== admission.active
+  certification_pending <== admission.certification_pending
+  loads_pending <== admission.loads_pending
+  stores_pending <== admission.stores_pending
+  fp_pending <== admission.fp_pending
+  capacity <== Bits(8)(depth)
+
+export VectorAdmissionFixture

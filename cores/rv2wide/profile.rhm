@@ -1,5 +1,5 @@
 #lang rhombus
-/* Defines RV2Wide's optional ISA subsets, private caches, and predictor capacities. */
+/* Defines RV2Wide's optional ISA subsets, private caches, and predictor/vector capacities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,7 +22,7 @@ def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
 )
 
 /* Selects implementation resources and optional scalar, supervisor, and hypervisor features with RV32/RV64 scalar widths, mandatory C, and Bare or RV64 Sv39 translation. */
-class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int):
+class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int, vector_dispatch_depth :: PosInt):
   implements StableCircuitParam
 
   /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and three 4K-counter tournament tables. */
@@ -58,7 +58,8 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
                ~ziccamoa: ziccamoa :: Boolean = #false,
                ~ziccrse: ziccrse :: Boolean = #false,
                ~vector_length: vector_length :: VectorLength = 128,
-               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
+               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
+               ~vector_dispatch_depth: vector_dispatch_depth :: PosInt = 4):
     unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
     | error(~who: #'RV2WideConfig, "RV2Wide supports Bare or RV64 Sv39")
     when xlen == XLen.X32 && (hypervisor || ssnpm || supm)
@@ -85,7 +86,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     validate_vector_extensions(vector, vector_extensions)
     when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
     | error(~who: #'RV2WideConfig, "Zvfh requires scalar Zfhmin or Zfh")
-    super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots)
+    super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots, vector_dispatch_depth)
 
   /* Sizes the shared FP datapath for scalar and vector operations without enabling additional scalar instructions. */
   property execution_half_precision :: HalfPrecisionProfile:
