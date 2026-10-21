@@ -266,7 +266,7 @@ a route never overrides those interlocks. Classify consumers with decoded
 controls and displacement; the AUIPC/ADDI operand rewrite additionally checks
 its exact instruction forms.
 
-RR may waive the younger rs1 RAW/read interlock only for a zero-displacement
+For scalar memory, RR may waive the younger rs1 RAW/read interlock only for a zero-displacement
 integer load (including HLV/HLVX) whose base is the same-pair older non-memory,
 non-M, non-FP, non-system, non-branch writer. The older writer still passes every
 ordinary admission interlock.
@@ -294,6 +294,18 @@ to deferred/FP/system/control-transfer producers or a dependent JALR base.
 EX still calculates the PC-relative or JALR target independently. MEM resolves
 direction, target alignment, effective successor, RAS mismatch, and tournament
 outcome before its existing oldest-stop qualification and WB transfer.
+
+For younger non-memory vector arithmetic, the same ordinary ALU producer may
+replace a genuine integer rs1 dependency with `VectorScalar`. This route permits
+the scalar/vector issue pair and waives only that rs1 RAW/read interlock.
+EX captures slot zero's ALU result into the younger descriptor's existing
+`scalar` field at the EX/MEM edge. Leave the younger scalar ALU operands and
+vector memory base/stride and footprint logic unchanged; there is no dependent
+second ALU operation or new storage stage. Canonical scalar-use metadata keeps
+immediate and VRF operands from being mistaken for GPR dependencies. Producer
+admission, destination hazards, calendar reservations, and WB's successful
+retirement/dispatch prefix remain authoritative. Do not extend the route to
+load/M/FP/system/control-transfer producers or dependent vector configuration.
 
 M instructions use the shared physical control relations in the same composed
 decoder. Only one memory-or-M deferred destination may issue per group, matching
@@ -809,15 +821,27 @@ replay. Forward the adapter's physical-address flags through the selected memory
 owner: MMU lookup and WB demand must not translate these physical retries again
 or depend on the original TLB entry or fallback page window remaining resident.
 
-`vsetvli`, `vsetivli`, and `vsetvl` issue alone in slot zero but do not drain
-vector execution. EX computes configuration and its GPR result using the shared
-architectural helpers. The newest nonfaulted configuration in MEM, then WB,
-precedes committed CSR state. EX legality and descriptor snapshot capture use
-that forwarded state, never RR's potentially stale committed vtype. Ordinary
-operand forwarding carries the new VL to dependent scalar work and configurations.
-WB alone commits the architectural vector CSRs; a successful configuration
-does not squash or refetch successors. Faults, replays, interrupts, and branch
-recovery still suppress wrong-path configuration and descriptor admission.
+`vsetvli`, `vsetivli`, and `vsetvl` may pair with one vector operation in either
+order, without draining vector execution. Keep ordinary scalar RAW/WAW and
+resource gates; there is no same-pair VL-to-GPR bypass. EX computes configuration
+and its GPR result using shared architectural helpers. The newest nonfaulted
+configuration in MEM, then WB, precedes committed CSR state; slot one is newer
+than slot zero. Within EX only an older configuration forwards to its younger
+peer. Legality, descriptor snapshots, and fast memory geometry all use that
+forwarded state, never RR's potentially stale committed vtype. Ordinary operand
+forwarding carries the new VL to dependent scalar work and configurations.
+
+WB selects the configuration's actual lane for CSR commands, GPR data, and
+write enables, without qualifying vector requests with final retirement feedback.
+EX-validated configurations must succeed at WB. A younger fault uses the existing
+fault-retention register for one extra cycle when an older configuration needs
+the single CSR command port first. A trap behind an accepted older vector must
+also observe that cycle's admission, then drain it before entering the handler.
+Replays and retained vector memory discard
+only the unsuccessful suffix: an older configuration commits once, while an
+older rejected/retained vector suppresses its younger configuration. Successful
+configuration does not squash or refetch successors. Faults, interrupts, and
+branch recovery still suppress wrong-path configuration and descriptor admission.
 Direct CSR writes, traps, and translation/context changes retain full drain.
 
 `memory-ports.rhdl` retains fixed-stage lookup ownership, queues every accepted
@@ -857,6 +881,13 @@ Their vset streams check all configuration forms, MEM/WB and GPR forwarding,
 consecutive issue without refetch, forwarded-vill legality, illegal keep-VL
 transitions, configuration overlap with delayed vector loads, immutable old/new
 memory geometry, and wrong-path configuration suppression after a MEM branch.
+Paired streams check both lane orders, slot-one MEM/WB state forwarding,
+same-pair legality and memory geometry, scalar RAW/WAW splits, precise younger
+traps, replayed suffixes under injected rejection and full descriptor credit,
+and retained older vector memory.
+Scalar/vector arithmetic streams check same-cycle MEM/retirement, add/sub and
+vector multiply/divide consumers, LUI/AUIPC and XLEN-width values, x0, a producer
+waiting on a delayed load, late multiply interlocks, and either lane's fault/replay.
 They also check certified loads/stores retiring at ordinary WB without recovery,
 younger scalar progress, physical remapping, stale-certificate fallback, and
 cross-page fallback. MMU checks cover nonallocating cold certification, warm

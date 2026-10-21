@@ -14,16 +14,19 @@ bool fast_enabled = false, fast_current = true;
 unsigned fast_checks = 0;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 unsigned redirect_count = 0, response_delay = 12;
-std::uint64_t next_pc = 0x8000, replay_pc = 0, fault_at = 0;
+std::uint64_t next_pc = 0x8000, replay_pc = 0, recovery_pc = 0, fault_at = 0;
+std::uint64_t resolve_pc = 0;
+unsigned resolve_disposition = 0;
 std::array<std::uint64_t, 32> gprs{};
 std::map<std::uint64_t, std::uint64_t> words;
 std::set<std::uint64_t> retired_pcs;
 std::map<std::uint64_t, unsigned> memory_cycles;
 std::map<std::uint64_t, unsigned> retirement_cycles;
+std::map<std::uint64_t, unsigned> retirement_lanes;
 struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
-std::uint64_t last_cause = 0, last_tval = 0;
+std::uint64_t last_cause = 0, last_tval = 0, last_fault_pc = 0;
 
 std::uint32_t vi(unsigned funct6, unsigned vs2, unsigned vs1,
                  unsigned funct3, unsigned vd) {
@@ -67,6 +70,17 @@ void settle() {
   vector_fast_in.presponse.pvalid = fast_enabled && vector_fast_out.prequest.pvalid;
   vector_fast_in.presponse.pbits.prange = vector_fast_out.prequest.pbits;
   vector_fast_in.presponse.pbits.pppn = (vector_fast_out.prequest.pbits.pfirst >> 12) + 1;
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    auto &resolution = lane ? resolution_1_in : resolution_0_in;
+    const auto &stage = lane ? memory_stage_1_out : memory_stage_0_out;
+    resolution = {};
+    if (resolve_pc && stage.pvalid && stage.pbits.ppc == resolve_pc) {
+      resolution.pvalid = 1;
+      resolution.pbits.pdisposition = resolve_disposition;
+      resolution.pbits.pcause = 2;
+      resolution.pbits.pvalue = stage.pbits.pinstruction;
+    }
+  }
   eval();
   if (fault_at && memory_out.prequest.pvalid &&
       memory_out.prequest.pbits.paddress == fault_at) {
@@ -90,6 +104,7 @@ void step() {
       const auto &result = port->pbits;
       CHECK(retired_pcs.insert(result.pfetched.ppc).second);
       retirement_cycles.emplace(result.pfetched.ppc, cycle);
+      retirement_lanes.emplace(result.pfetched.ppc, port == &retired_1_out);
       if (result.pwrite && !result.pdeferred) gprs[result.prd] = result.pdata;
     }
     if (completed_out.pvalid && completed_out.pbits.pwrite) {
@@ -100,10 +115,14 @@ void step() {
       ++redirect_count;
       if (redirect_out.pbits.presolution.pdisposition == 2)
         replay_pc = redirect_out.pbits.ptarget;
+      if (redirect_out.pbits.presolution.pdisposition == 2 ||
+          redirect_out.pbits.presolution.pdisposition == 3)
+        recovery_pc = redirect_out.pbits.ptarget;
       if (redirect_out.pbits.presolution.pdisposition == 1) {
         ++fault_count;
         last_cause = redirect_out.pbits.presolution.pcause;
         last_tval = redirect_out.pbits.presolution.pvalue;
+        last_fault_pc = redirect_out.pbits.ppc;
       }
     }
     if (pipeline_out.pcommit) write(commit_owner);
@@ -173,14 +192,23 @@ std::uint32_t vsetivli(unsigned rd, unsigned avl, unsigned type) {
 std::uint32_t vsetvli(unsigned rd, unsigned rs1, unsigned type) {
   return 0x7057 | type << 20 | rs1 << 15 | rd << 7;
 }
-void stream(std::initializer_list<std::uint32_t> words, bool fault = false) {
+void stream(std::initializer_list<std::uint32_t> words, bool fault = false,
+            bool recover = false) {
   const std::vector<std::uint32_t> program(words);
   const auto base = next_pc;
   next_pc += 4 * program.size();
   const unsigned faults_before = fault_count, redirects_before = redirect_count;
+  recovery_pc = 0;
   unsigned sent = 0;
   for (unsigned wait = 0; ; ++wait) {
-    CHECK(wait < 3000 && !replay_pc);
+    CHECK(wait < 3000);
+    if (recovery_pc) {
+      CHECK(recover && recovery_pc >= base && recovery_pc < next_pc);
+      sent = (recovery_pc - base) / 4;
+      recovery_pc = replay_pc = 0;
+      resolve_pc = 0; // An injected replay rejects only the first attempt.
+    }
+    CHECK(!replay_pc);
     instructions_in = {};
     instructions_in.pvalid = sent < program.size();
     const unsigned count = std::min<unsigned>(2, program.size() - sent);
@@ -200,7 +228,7 @@ void stream(std::initializer_list<std::uint32_t> words, bool fault = false) {
   instructions_in.pvalid = 0;
   CHECK(fault == (fault_count != faults_before));
   if (!fault) {
-    CHECK(redirect_count == redirects_before);
+    CHECK(recover ? redirect_count > redirects_before : redirect_count == redirects_before);
     for (unsigned index = 0; index < program.size(); ++index)
       CHECK(retired_pcs.contains(base + 4 * index));
   }
@@ -238,8 +266,9 @@ void vector_configuration_overlap() {
   stream({vsetivli(5, 4, 0), vsetvli(6, 5, 8), addi(7, 6, 3),
           vsetvli(0, 0, 7), vi(23, 0, 7, 4, 18)});
   CHECK(gprs[5] == 4 && gprs[6] == 4 && gprs[7] == 7);
-  for (unsigned index = 1; index < 5; ++index)
+  for (unsigned index = 1; index < 4; ++index)
     CHECK(memory_cycles.at(first + 4 * index) == memory_cycles.at(first) + index);
+  CHECK(memory_cycles.at(first + 16) == memory_cycles.at(first + 12));
   extract(18, 7, 7);
 
   // vsetvl consumes ordinary forwarded scalar sources; keep-VL uses its new state.
@@ -365,6 +394,242 @@ void vector_memory_fast_path() {
   CHECK(fast_checks == checks_before && proof_count == proofs_before + 2);
   fast_enabled = false;
 }
+void paired_vector_configurations() {
+  run(120);
+  setvl(0, 4);
+  send(addi(2, 0, 0x123));
+  const auto base = next_pc;
+  stream({vsetivli(10, 4, 8), vi(23, 0, 2, 4, 8),
+          vi(23, 0, 2, 4, 9), vsetivli(11, 2, 0),
+          vi(23, 0, 2, 4, 10)});
+  for (unsigned index : {0u, 2u}) {
+    CHECK(memory_cycles.at(base + 4 * index) == memory_cycles.at(base + 4 * (index + 1)));
+    CHECK(retirement_cycles.at(base + 4 * index) == retirement_cycles.at(base + 4 * (index + 1)));
+    CHECK(retirement_lanes.at(base + 4 * index) == 0);
+    CHECK(retirement_lanes.at(base + 4 * (index + 1)) == 1);
+  }
+  CHECK(gprs[10] == 4 && gprs[11] == 2);
+  setvl(1, 4);
+  extract(8, 7, 0x123);
+  extract(9, 7, 0x123); // older vector keeps the halfword state
+  setvl(0, 2);
+  extract(10, 7, 0x23); // MEM slot-one configuration supplies the next vector
+
+  // A slot-one configuration also supplies dependent configurations in MEM and WB.
+  stream({vi(23, 0, 2, 4, 11), vsetivli(12, 3, 8),
+          vsetvli(0, 0, 7), vi(23, 0, 2, 4, 12)});
+  CHECK(gprs[12] == 3);
+  extract(12, 7, 0x23);
+  stream({vi(23, 0, 2, 4, 13), vsetivli(12, 3, 8),
+          addi(20, 0, 1), addi(21, 0, 2), vsetvli(0, 0, 7)});
+  send(0xc20023f3); // csrr x7,vl
+  CHECK(gprs[7] == 3);
+
+  // Same-pair scalar RAW and deferred WAW still split rather than bypassing vset.
+  const auto raw = next_pc;
+  stream({vsetivli(13, 3, 0), vi(23, 0, 13, 4, 14)});
+  CHECK(memory_cycles.at(raw + 4) > memory_cycles.at(raw));
+  extract(14, 7, 3);
+  const auto waw = next_pc;
+  stream({vi(16, 14, 0, 2, 13), vsetivli(13, 2, 0)});
+  CHECK(memory_cycles.at(waw + 4) > memory_cycles.at(waw));
+  CHECK(gprs[13] == 2);
+
+  // Register-supplied vtype/AVL configurations pair in either lane as well.
+  send(addi(10, 0, 8));
+  send(addi(11, 0, 3));
+  const auto register_pair = next_pc;
+  const auto configure = 0x80007057 | (10 << 20) | (11 << 15) | (12 << 7);
+  stream({configure, vi(23, 0, 2, 4, 18),
+          vi(23, 0, 2, 4, 19), configure});
+  CHECK(retirement_cycles.at(register_pair) == retirement_cycles.at(register_pair + 4));
+  CHECK(retirement_cycles.at(register_pair + 8) == retirement_cycles.at(register_pair + 12));
+  CHECK(gprs[12] == 3);
+  extract(18, 7, 0x123);
+  extract(19, 7, 0x123);
+
+  // A younger vector trap cannot discard the older configuration's CSR/GPR commit.
+  const auto fault_pair = next_pc;
+  const auto illegal = vi(23, 0, 2, 4, 15);
+  stream({vsetivli(14, 4, 256), illegal}, true);
+  CHECK(retired_pcs.contains(fault_pair) && !retired_pcs.contains(fault_pair + 4));
+  CHECK(gprs[14] == 0 && last_fault_pc == fault_pair + 4);
+  CHECK(last_cause == 2 && last_tval == illegal);
+  send(0xc21023f3); // csrr x7,vtype
+  CHECK(gprs[7] == (UINT64_C(1) << (bytes * 8 - 1)));
+
+  // A faulting older vector suppresses its paired configuration entirely.
+  const auto older_fault = next_pc;
+  stream({illegal, vsetivli(14, 4, 0)}, true);
+  CHECK(!retired_pcs.contains(older_fault) && !retired_pcs.contains(older_fault + 4));
+  CHECK(last_fault_pc == older_fault && gprs[14] == 0);
+  send(0xc21023f3);
+  CHECK(gprs[7] == (UINT64_C(1) << (bytes * 8 - 1)));
+
+  // Recovery reoffers only the rejected suffix, never an already committed vset.
+  setvl(0, 4);
+  const auto younger_replay = next_pc;
+  resolve_pc = younger_replay + 4;
+  resolve_disposition = 2;
+  stream({vsetivli(14, 3, 8), vi(23, 0, 2, 4, 15)}, false, true);
+  CHECK(gprs[14] == 3);
+  CHECK(retirement_cycles.at(younger_replay) < retirement_cycles.at(younger_replay + 4));
+  extract(15, 7, 0x123);
+  const auto older_replay = next_pc;
+  resolve_pc = older_replay;
+  stream({vi(23, 0, 2, 4, 16), vsetivli(14, 2, 0)}, false, true);
+  CHECK(gprs[14] == 2);
+  setvl(1, 3);
+  extract(16, 7, 0x123);
+
+  // Fast memory certification uses the paired new VL/vtype, not committed geometry.
+  run(60);
+  send(addi(1, 0, 0x500));
+  fast_enabled = true;
+  const auto memory_pair = next_pc;
+  stream({vsetivli(14, 3, 8), 0x02005027 | (1 << 15) | (16 << 7)});
+  CHECK(retirement_cycles.at(memory_pair) == retirement_cycles.at(memory_pair + 4));
+  run(60);
+  CHECK(words[0x1500] == (bytes == 8 ? UINT64_C(0x012301230123) : UINT64_C(0x01230123)));
+  if constexpr (bytes == 4) CHECK(words[0x1504] == 0x123);
+
+  // A paired younger configuration trap drains the just-accepted older vector load.
+  slow = true;
+  response_delay = 80;
+  const auto draining_pair = next_pc;
+  stream({0x02005007 | (1 << 15) | (17 << 7), vsetvli(0, 0, 0)}, true);
+  CHECK(last_fault_pc == draining_pair + 4 && last_cause == 2);
+  CHECK(retired_pcs.contains(draining_pair) && !retired_pcs.contains(draining_pair + 4));
+  CHECK(cycle >= retirement_cycles.at(draining_pair) + response_delay && responses.empty());
+  slow = false;
+  response_delay = 12;
+  fast_enabled = false;
+
+  // An uncertified older load retains its old geometry and restarts the younger vset.
+  const auto retained_pair = next_pc;
+  const auto proofs_before = proof_count;
+  stream({0x02005007 | (1 << 15) | (17 << 7), vsetivli(14, 2, 0)}, false, true);
+  CHECK(proof_count == proofs_before + 1 && gprs[14] == 2);
+  CHECK(retirement_cycles.at(retained_pair) < retirement_cycles.at(retained_pair + 4));
+  run(60);
+  send(0xc21023f3);
+  CHECK(gprs[7] == 0);
+
+  // Actual full descriptor credit replays configuration/vector pairs without double commit.
+  fast_enabled = true;
+  slow = true;
+  response_delay = 160;
+  stream({0x02000007 | (1 << 15) | (20 << 7),
+          vsetivli(14, 2, 0), vi(0, 20, 0, 3, 21),
+          vi(0, 21, 0, 3, 22), vsetivli(14, 2, 0),
+          vsetivli(14, 2, 0), vi(0, 22, 0, 3, 23),
+          vi(0, 23, 0, 3, 24), vsetivli(14, 2, 0),
+          vsetivli(14, 2, 0), vi(0, 24, 0, 3, 25),
+          vi(0, 25, 0, 3, 26), vsetivli(14, 2, 0),
+          vsetivli(14, 2, 0), vi(0, 26, 0, 3, 27)}, false, true);
+  CHECK(gprs[14] == 2);
+  run(240);
+  fast_enabled = slow = false;
+  response_delay = 12;
+}
+void arithmetic_pair(std::uint32_t producer, std::uint32_t consumer) {
+  const auto pc = next_pc;
+  stream({producer, consumer});
+  if (memory_cycles.at(pc) != memory_cycles.at(pc + 4))
+    std::cerr << "split pair at " << std::hex << pc << ": " << producer << ", " << consumer
+              << std::dec << "; MEM cycles " << memory_cycles.at(pc) << ", " << memory_cycles.at(pc + 4) << '\n';
+  CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+  CHECK(retirement_cycles.at(pc) == retirement_cycles.at(pc + 4));
+  CHECK(retirement_lanes.at(pc) == 0 && retirement_lanes.at(pc + 4) == 1);
+}
+void paired_vector_arithmetic() {
+  run(120);
+  setvl(0, 4);
+  send(addi(2, 0, 7));
+  send(vi(23, 0, 2, 4, 8)); // v8 = 7
+  arithmetic_pair(addi(2, 0, 5), vi(0, 8, 2, 4, 9)); // vadd.vx
+  CHECK(gprs[2] == 5);
+  extract(9, 7, 12);
+  arithmetic_pair((2 << 20) | (2 << 15) | (3 << 7) | 0x33,
+                  vi(2, 8, 3, 4, 10)); // add x3,x2,x2; vsub.vx
+  CHECK(gprs[3] == 10);
+  extract(10, 7, (UINT64_MAX - 2) & low_mask(bytes * 8));
+  arithmetic_pair(addi(4, 0, 3), vi(37, 8, 4, 6, 11)); // vmul.vx
+  extract(11, 7, 21);
+  arithmetic_pair(addi(4, 0, 7), vi(32, 11, 4, 6, 12)); // vdivu.vx
+  extract(12, 7, 3);
+
+  // Capture XLEN values unchanged; element truncation/sign interpretation stays in execution.
+  setvl(bytes == 8 ? 3 : 2, 2);
+  const auto high = (UINT64_C(0xffffffff80000000) & low_mask(bytes * 8));
+  arithmetic_pair(0x80000337, vi(23, 0, 6, 4, 13)); // lui x6,0x80000; vmv.v.x
+  CHECK(gprs[6] == high);
+  extract(13, 7, high);
+  const auto auipc = next_pc;
+  arithmetic_pair(0x00001317, vi(23, 0, 6, 4, 14)); // auipc x6,1
+  CHECK(gprs[6] == auipc + 0x1000);
+  extract(14, 7, auipc + 0x1000);
+  const auto negative = bytes == 8 ? 0xfff0031bu : addi(6, 0, -1); // addiw on RV64
+  arithmetic_pair(negative, vi(23, 0, 6, 4, 15));
+  extract(15, 7, low_mask(bytes * 8));
+  stream({addi(0, 0, 73), vi(0, 14, 0, 4, 16)}); // x0 is not an ALU producer
+  extract(16, 7, auipc + 0x1000);
+
+  // A delayed load still interlocks the producer; its returning GPR port may split the pair.
+  send(addi(1, 0, 0x600));
+  words[0x600] = 41;
+  slow = true;
+  response_delay = 80;
+  send((1 << 15) | (2 << 12) | (6 << 7) | 0x03); // lw x6,0(x1)
+  CHECK(!responses.empty());
+  const auto due = responses.front().due;
+  const auto waiting = next_pc;
+  stream({addi(7, 6, 1), vi(23, 0, 7, 4, 17)});
+  CHECK(memory_cycles.at(waiting) >= due && gprs[7] == 42);
+  slow = false;
+  response_delay = 12;
+  extract(17, 7, 42);
+
+  // M producers keep their late-result RAW interlock instead of forwarding their EX ALU.
+  const auto multiply = next_pc;
+  stream({0x02000033 | (2 << 20) | (2 << 15) | (6 << 7), vi(23, 0, 6, 4, 18)});
+  CHECK(memory_cycles.at(multiply + 4) > memory_cycles.at(multiply));
+  CHECK(gprs[6] == 25);
+  extract(18, 7, 25);
+
+  // An older fault must suppress both retirement and vector dispatch.
+  const auto old_scalar = gprs[6];
+  const auto older_fault = next_pc;
+  resolve_pc = older_fault;
+  resolve_disposition = 1;
+  stream({addi(6, 0, 55), vi(23, 0, 6, 4, 18)}, true);
+  resolve_pc = 0;
+  CHECK(last_fault_pc == older_fault && gprs[6] == old_scalar);
+  CHECK(!retired_pcs.contains(older_fault) && !retired_pcs.contains(older_fault + 4));
+  extract(18, 7, 25);
+
+  // A younger vector legality fault preserves the older scalar's normal WB write.
+  send(vsetivli(5, 4, 256));
+  const auto younger_fault = next_pc;
+  stream({addi(6, 0, 55), vi(23, 0, 6, 4, 18)}, true);
+  CHECK(retired_pcs.contains(younger_fault) && !retired_pcs.contains(younger_fault + 4));
+  CHECK(last_fault_pc == younger_fault + 4 && gprs[6] == 55);
+  setvl(bytes == 8 ? 3 : 2, 2);
+  extract(18, 7, 25);
+
+  // Replaying either owner preserves the successful prefix and captures the retried value.
+  const auto younger_replay = next_pc;
+  resolve_pc = younger_replay + 4;
+  resolve_disposition = 2;
+  stream({addi(6, 0, 56), vi(23, 0, 6, 4, 19)}, false, true);
+  CHECK(retirement_cycles.at(younger_replay) < retirement_cycles.at(younger_replay + 4));
+  CHECK(gprs[6] == 56);
+  extract(19, 7, 56);
+  resolve_pc = next_pc;
+  stream({addi(6, 0, 57), vi(23, 0, 6, 4, 20)}, false, true);
+  CHECK(gprs[6] == 57);
+  extract(20, 7, 57);
+}
 void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) {
   send(addi(2, 0, guest_status >> 8));
   send((8 << 20) | (2 << 15) | (1 << 12) | (2 << 7) | 0x13); // slli x2,x2,8
@@ -410,6 +675,9 @@ void extract(unsigned vector_register, unsigned rd, std::uint64_t value,
   scalar_burst();
   if (require_progress) CHECK(gprs[rd] == value);
   for (unsigned wait = 0; gprs[rd] != value && wait < 2000; ++wait) step();
+  if (gprs[rd] != value)
+    std::cerr << "extract v" << vector_register << " at PC " << std::hex << next_pc
+              << ": got " << gprs[rd] << ", expected " << value << std::dec << '\n';
   CHECK(gprs[rd] == value);
 }
 int main() {
@@ -533,5 +801,7 @@ int main() {
     CHECK(fault_count == (bytes == 8 ? 7 : 1));
     vector_configuration_overlap();
     vector_memory_fast_path();
+    paired_vector_configurations();
+    paired_vector_arithmetic();
   });
 }

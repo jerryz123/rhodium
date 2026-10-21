@@ -518,7 +518,8 @@ in EX and no extra redirect cycle. Other comparison operands retain normal
 interlocks. Load, M, FP, CSR, and control-transfer producers, and dependent
 JALR targets, do not use this bypass. Older faults and replay suppress the
 younger branch's recovery, retirement, and predictor training.
-Other same-group RAW dependencies split the pair.
+Vector arithmetic also supports an older ALU-produced integer scalar operand;
+see [vector execution](#vector-execution). Other same-group RAW dependencies split the pair.
 
 Same-destination writes can pair when the older writer is guaranteed to use
 normal WB, even if the younger writer completes later. An older memory, M, or late FP-to-GPR
@@ -956,8 +957,11 @@ usable service. It composes the shared sequencer, VRF, SIMD datapath, and
 completion scoreboard with RV2Wide lookup, ordered-memory, and split-access
 interfaces. `RV2WideCore` supplies the architectural integration:
 
-- Vector instructions issue singly, snapshot CSR/scalar operands, and enter
-  the descriptor queue only through successful WB dispatch.
+- At most one vector operation issues per cycle; it may pair with one vector
+  configuration in either order. Vector arithmetic may also pair with an older
+  ordinary integer ALU instruction producing its integer scalar operand.
+  Operations snapshot CSR/scalar operands and enter the descriptor queue only
+  through successful WB dispatch.
 - The queue stores four descriptors by default, in addition to the active
   sequencer. `RV2WideConfig(~vector_dispatch_depth: 4)` selects its positive
   capacity independently of `vector_completion_slots`. The standalone
@@ -980,6 +984,14 @@ interfaces. `RV2WideCore` supplies the architectural integration:
 - Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
   retain their destination until the shared load-write port accepts the result.
 
+For example, `addi a0, a1, 7` followed by `vadd.vx v8, v9, a0` can issue and
+retire together when otherwise unblocked. The older ALU result is captured in
+the vector descriptor; it is not fed through a second dependent scalar ALU.
+This includes integer-scalar arithmetic using the shared vector multiply/divide
+services. Loads, scalar multiply/divide, FP, system, and control-transfer
+producers retain their existing interlocks. Vector memory base/stride forwarding
+and dependent vset VL-to-GPR pairing are unchanged.
+
 Standalone callers supply WB-authorized, nonspeculative `VectorDescriptor` requests, page-window
 certification, shared FP/multiply/divide services, and scalar write reservations.
 Standalone `RV2WideCore` integrations also connect `vector_fast` to their MEM
@@ -987,12 +999,17 @@ translation service; withholding a certificate selects the ordinary fallback.
 Only the caller may retire an instruction, publish a fault, or grant a scalar
 register write. A scalar redirect must not cancel an accepted descriptor.
 
-`vsetvli`, `vsetivli`, and `vsetvl` issue singly without waiting for older vector
-execution to complete. They compute configuration and VL results in EX, forward
-the newest configuration to younger vector instructions and configurations, and
-commit the architectural CSR state at WB. Younger descriptors retain their own
-scalar/vector-state snapshots. Successful configuration does not flush or refetch
-its successors; ordinary CSR accesses and precise recovery retain their existing
+`vsetvli`, `vsetivli`, and `vsetvl` do not wait for older vector execution to
+complete. One configuration may pair with one vector operation in either order,
+subject to ordinary scalar dependencies and resource availability. Two
+configurations or two vector operations still issue separately. An older vset
+supplies the paired younger operation's configuration; an older vector operation
+keeps its pre-vset state. Configurations compute their VL result in EX, forward
+the newest state to younger instructions, and commit the architectural CSRs at
+WB. Successful configuration does not flush or refetch successors. Retirement
+remains an oldest-first prefix: a younger vector fault/replay preserves the older
+configuration, while a rejected older vector prevents the younger configuration
+from committing. Ordinary CSR accesses and precise recovery retain their existing
 serialization rules.
 
 ```text

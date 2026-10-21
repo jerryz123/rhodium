@@ -19,6 +19,7 @@ hardware_enum RV2WidePairRoute:
   StoreData
   BranchOperand
   AuipcAddi
+  VectorScalar
 
 /* Shares one route decision between source interlocks and pipeline mux controls. */
 bundle RV2WidePairing():
@@ -41,12 +42,13 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
   def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen.width).or_reduce()
   def store_data = integer_memory & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
+  def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1
   def is_auipc = DecodeGen([DecodeCase(instruction_pattern(rv32.AUIPC), Bool(#true))], ~default: Bool(#false))
   def is_addi = DecodeGen([DecodeCase(instruction_pattern(rv32.ADDI), Bool(#true))], ~default: Bool(#false))
   def auipc_addi = is_auipc(instructions[0]) & is_addi(instructions[1])
 
-  /* Only rs1 has the AUIPC+ADDI rewrite. Otherwise memory consumers precede
-     conditional-branch consumers; an ineligible producer keeps the RF route. */
+  /* Only rs1 has the AUIPC+ADDI rewrite or vector scalar capture.
+     Memory and branch consumers retain their existing routes; an ineligible producer keeps the RF route. */
 
   def routes = vec(
     for List (source in 0..2):
@@ -56,6 +58,7 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
         Bool(source == 0) & auipc_addi: RV2WidePairRoute.AuipcAddi
         consumer: memory_route
         branch_operand: RV2WidePairRoute.BranchOperand
+        Bool(source == 0) & vector_scalar: RV2WidePairRoute.VectorScalar
 
       mux(producer & dependency[source], selected, RV2WidePairRoute.Register)
   )
