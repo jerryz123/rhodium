@@ -199,6 +199,41 @@ def vector_load_control = control_for_instruction(controls.VectorCoreControlCase
 def vector_store_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSE64_V)
 def vector_config_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSETVLI)
 
+// Dedicated arithmetic services bypass the scalar ALU operand muxes.
+for (cases in [operand_controls.RV32RV5StageOperandCases, operand_controls.RV64RV5StageOperandCases],
+     instructions in [RV32MInstructions, RV64MInstructions]):
+  for (instruction in instructions):
+    def operand = control_for_instruction(cases, instruction)
+    check:
+      field_pattern(operand, "uses_rs1").value_bits ~is 1
+      fully_cared(field_pattern(operand, "uses_rs1")) ~is #true
+      field_pattern(operand, "uses_rs2").value_bits ~is 1
+      fully_cared(field_pattern(operand, "uses_rs2")) ~is #true
+      field_is_free(operand, "left") ~is #true
+      field_is_free(operand, "right") ~is #true
+      field_is_free(operand, "immediate") ~is #true
+
+// Preserve memory ordering classification without constraining the unused scalar LSU payload.
+for (row in controls.VectorCoreControlCases):
+  def control = row.output
+  check:
+    field_is_free(control, "alu") ~is #true
+    field_is_free(field_pattern(control, "operand"), "left") ~is #true
+    field_is_free(field_pattern(control, "operand"), "right") ~is #true
+    field_is_free(field_pattern(control, "operand"), "immediate") ~is #true
+    fully_cared(field_pattern(field_pattern(control, "memory"), "access")) ~is #true
+    field_is_free(field_pattern(control, "memory"), "width") ~is #true
+    field_is_free(field_pattern(control, "memory"), "unsigned") ~is #true
+
+for (cases in [memory_controls.RV32IMemoryCases, memory_controls.RV64IMemoryCases,
+               memory_controls.RV32AMemoryCases, memory_controls.RV64AMemoryCases],
+     instruction in [LW, LD, LR_W, LR_D]):
+  check: field_is_free(control_for_instruction(cases, instruction), "unsigned") ~is #true
+
+check:
+  fully_cared(field_pattern(control_for_instruction(memory_controls.RV64IMemoryCases, LW), "unsigned")) ~is #true
+  fully_cared(field_pattern(control_for_instruction(memory_controls.RV64AMemoryCases, LR_W), "unsigned")) ~is #true
+
 def addi_operand = scalar_operands.OperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#false)
@@ -461,10 +496,10 @@ check:
   field_is_free(field_pattern(vector_add_control, "operand"), "left") ~is #true
   field_is_free(field_pattern(vector_add_control, "memory"), "width") ~is #true
   field_is_free(field_pattern(vector_add_control, "writeback"), "source") ~is #true
-  field_pattern(vector_load_control, "alu").care_bits != 0 ~is #true
-  field_pattern(field_pattern(vector_load_control, "operand"), "right").care_bits != 0 ~is #true
+  field_is_free(vector_load_control, "alu") ~is #true
+  field_is_free(field_pattern(vector_load_control, "operand"), "right") ~is #true
   field_is_free(field_pattern(vector_load_control, "operand"), "immediate") ~is #true
-  field_pattern(field_pattern(vector_load_control, "memory"), "unsigned").care_bits != 0 ~is #true
+  field_is_free(field_pattern(vector_load_control, "memory"), "unsigned") ~is #true
   field_is_free(field_pattern(vector_store_control, "memory"), "unsigned") ~is #true
   field_is_free(vector_config_control, "alu") ~is #true
   field_is_free(field_pattern(vector_config_control, "operand"), "left") ~is #true

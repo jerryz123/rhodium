@@ -32,6 +32,13 @@ def czero_eqz_control = control_for(controls.ZicondAluCases, zicond.CZERO_EQZ)
 def czero_nez_control = control_for(controls.ZicondAluCases, zicond.CZERO_NEZ)
 def control_width = alu.AluControl().packed_width()
 
+for (instruction in [SLT, SLTU, SLTI, SLTIU]):
+  def control = control_for(controls.RV64IAluCases, instruction)
+  check:
+    field_is_constrained(control, "word") ~is #false
+    field_is_constrained(control, "subtract") ~is #true
+    field_is_constrained(control, "signed_compare") ~is #true
+
 check:
   controls.RV64IAluCases.length() ~is 28
   controls.RV64BAluCases.length() ~is 40

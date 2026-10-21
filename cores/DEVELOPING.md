@@ -111,9 +111,10 @@ launch/authorization timing, and architectural writeback scheduling.
 
 `operand.rhdl` owns scalar source-use, ALU routing, and immediate controls;
 `operand-decode.rhdl` owns the common I/B relations and reusable partial
-patterns. Named decoders compose their domains and retain different MOP and
-multiply routing policies. Preserve care masks when moving relations: sharing
-a type is not permission to constrain an unobserved field.
+patterns. Named decoders compose their domains and retain different MOP
+routing policies; dedicated M services leave ALU operand routing free. Preserve
+care masks when moving relations: sharing a type is not permission to constrain
+an unobserved field.
 
 UDB declarations follow implementation ownership: `csr/udb.rhm` describes the
 bank, `cache/udb.rhm` describes L1D reservation/maintenance policies, and

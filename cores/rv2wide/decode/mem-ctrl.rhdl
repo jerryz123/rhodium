@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "../../memory-decode.rhdl" open
   lib("cores/load-store.rhdl") open
   lib("cores/cache/operation.rhdl") open
@@ -39,12 +40,12 @@ def RV2WideZeroCases = block_cases_for(ZicbozInstructions)
 def RV2WideManagementCases = block_cases_for(ZicbomInstructions)
 def RV2WideLoads = RiscvWordLoads ++ RiscvDoubleLoads
 def RV2WideStores = RiscvWordStores ++ RiscvDoubleStores
-def RV2WideMemoryCases = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~double: #true)) ++ instruction_cases(
+def RV2WideMemoryCases = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~xlen: XLen.X64)) ++ instruction_cases(
   excluding_instructions(RV64IInstructions, RV2WideLoads ++ RV2WideStores),
   partial_pattern(RV2WideMemoryControl()): enable: Bool(#false)
 )
 
-def RV2WideAtomicCases = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~double: #true))
+def RV2WideAtomicCases = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~xlen: XLen.X64))
 
 export:
   enabled_cases

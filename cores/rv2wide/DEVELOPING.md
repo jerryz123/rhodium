@@ -79,6 +79,10 @@ instruction-kind enum followed by a second runtime control decoder.
 Core control rows join exact canonical instruction patterns using
 `component_output`, following RV5Stage's composition pattern. Unobserved
 payload controls stay don't-cares behind cared enables/source-use bits.
+`tests/decode-test.rhm` checks these masks across XLEN, FP/vector, and guest
+rows. Only ordinary ALU results and jumps constrain the EX writeback `link`
+selection; other result owners overwrite it. Guest-access and side-effect
+discriminators remain explicit even when their payloads are unused.
 The selected B catalog joins `RV32BAluCases` or `RV64BAluCases` into each decoder.
 Operand policy distinguishes binary, unary, and immediate B operations; only
 observed routing fields are constrained. Reuse each slot's existing shared ALU

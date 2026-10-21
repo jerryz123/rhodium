@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "../../memory-decode.rhdl" open
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
@@ -37,20 +38,18 @@ def shared_memory_instructions = shared_loads ++ shared_stores
 def no_memory = partial_pattern(RV5StageMemoryControl()):
   access: CacheOperation.None
 
-def SharedMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~double: #false)
-
-def RV32IMemoryCases = SharedMemoryCases ++ instruction_cases(
+def RV32IMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X32) ++ instruction_cases(
   excluding_instructions(rv32.RV32IInstructions, shared_memory_instructions),
   no_memory
 )
 def rv64_memory_instructions = shared_memory_instructions ++ [LWU, LD, SD]
-def RV64IMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~double: #true) ++ instruction_cases(
+def RV64IMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X64) ++ instruction_cases(
   excluding_instructions(RV64IInstructions, rv64_memory_instructions),
   no_memory
 )
 
-def RV32AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~double: #false)
-def RV64AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~double: #true)
+def RV32AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X32)
+def RV64AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X64)
 def RV32RV5StageMemoryCases = RV32IMemoryCases ++ instruction_cases(
   RV32MInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   no_memory

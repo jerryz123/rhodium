@@ -48,6 +48,11 @@ void check_compare(bool signed_compare, std::uint64_t left_value,
   control.psigned_ucompare = signed_compare;
   left = left_value;
   right = right_value;
+  // A comparison produces only 0/1, independent of final word sign-extension.
+  control.pword = 0;
+  eval();
+  CHECK(result == expected);
+  control.pword = 1;
   eval();
   CHECK(result == expected);
 }

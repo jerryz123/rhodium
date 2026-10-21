@@ -1,8 +1,9 @@
 #lang rhodium
-/* Composes RV5Stage operand columns, retaining its multiply and MOP routing policy. */
+/* Composes RV5Stage source-use and routing columns for scalar execution units. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/operand.rhdl") open
   lib("cores/operand-decode.rhdl") open
   lib("riscv/isa/zawrs.rhm") open
   lib("riscv/isa/zicboz.rhm") open
@@ -22,9 +23,14 @@ def RV5StageSystemOperandCases = combine_case_groups([
   instruction_cases([CSRRWI, CSRRSI, CSRRCI], no_operands),
   instruction_cases(PrivilegedInstructions ++ ZifenceiInstructions ++ ZimopInstructions, no_operands)
 ])
+/* Dedicated M services read forwarded registers without using the ALU input muxes. */
+def multiply_operands = partial_pattern(OperandControl()):
+  uses_rs1: Bool(#true)
+  uses_rs2: Bool(#true)
+
 def RV32RV5StageOperandCases = RV32IOperandCases ++ instruction_cases(
   RV32MInstructions,
-  register_operands
+  multiply_operands
 ) ++ instruction_cases(
   excluding_instructions(RV32AInstructions, [LR_W]),
   atomic_operands
@@ -34,7 +40,7 @@ def RV32RV5StageOperandCases = RV32IOperandCases ++ instruction_cases(
 ) ++ RV5StageSystemOperandCases ++ RV32BOperandCases ++ instruction_cases(ZicondInstructions, register_operands)
 def RV64RV5StageOperandCases = RV64IOperandCases ++ instruction_cases(
   RV64MInstructions,
-  register_operands
+  multiply_operands
 ) ++ instruction_cases(
   excluding_instructions(RV64AInstructions, [LR_W, LR_D]),
   atomic_operands

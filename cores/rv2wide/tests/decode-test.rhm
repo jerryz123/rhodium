@@ -1,0 +1,95 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus.bits.(<<) as <<
+  rhombus.bits.(>>) as >>
+  lib("rhodium/frontend/support/hardware-literal.rhm").PackedLiteral
+  lib("cores/vector/instruction-metadata.rhm").vector_base_instructions
+  "../decode/core-ctrl.rhdl".rv2wide_control_cases
+  "../profile.rhm".RV2WideConfig
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/a.rhm") open
+  lib("riscv/isa/zicsr.rhm") open
+  lib("riscv/isa/h.rhm") open
+  lib("riscv/isa/svinval.rhm") open
+  lib("riscv/isa/f.rhm") as f
+  lib("riscv/isa/d.rhm") as d
+  lib("riscv/isa/zfhmin.rhm") as half
+
+fun field(value, name):
+  def mutable selected = #false
+  def mutable offset = 0
+  for (declared in value.literal_type().fields):
+    cond
+    | selected: offset := offset + declared.type.packed_width()
+    | declared.name == name: selected := declared
+    | ~else: #void
+
+  unless selected | error("unknown field")
+  PackedLiteral(selected.type, (value.packed_value() >> offset) bits.and ((1 << selected.type.packed_width()) - 1))
+
+fun output_for(cases, instruction):
+  cases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output
+
+fun cared(control, group, name):
+  field(field(control.care, group), name).packed_value() != 0
+
+for (xlen in [XLen.X32, XLen.X64]):
+  def rv64 = xlen == XLen.X64
+  def config = RV2WideConfig(
+    ~xlen: xlen,
+    ~floating_point: if rv64 | FloatingPointProfile.D | FloatingPointProfile.F,
+    ~half_precision: HalfPrecisionProfile.Zfh,
+    ~vector: if rv64 | VectorProfile.V | VectorProfile.Zve32f,
+    ~vector_length: if rv64 | 128 | 64,
+    ~hypervisor: rv64,
+    ~svinval: rv64
+  )
+  def cases = rv2wide_control_cases(config)
+  def returned_elsewhere = [LB, LH, LW, LBU, LHU] ++ ZicsrInstructions ++ (
+    if rv64 | [LD, LWU] ++ RV64AInstructions ++ RV64MInstructions | RV32AInstructions ++ RV32MInstructions
+  )
+  for (instruction in returned_elsewhere):
+    def control = output_for(cases, instruction)
+    check:
+      cared(control, "writeback", "link") ~is #false
+      cared(control, "writeback", "enable") ~is #true
+      field(field(control.value, "writeback"), "enable").packed_value() ~is 1
+
+  for (instruction in [ADDI, ADD, JAL, JALR]):
+    check: cared(output_for(cases, instruction), "writeback", "link") ~is #true
+
+  // FP and vector result ownership bypasses the EX link/ALU selection entirely.
+  def fp = if rv64 | f.RV64FInstructions ++ d.RV64DInstructions | f.RV32FInstructions
+  for (instruction in fp ++ [half.FLH, half.FSH] ++ vector_base_instructions(config.vector)):
+    check: cared(output_for(cases, instruction), "writeback", "link") ~is #false
+
+  for (instruction in [f.FSW, half.FSH] ++ (if rv64 | [d.FSD] | [])):
+    def control = output_for(cases, instruction)
+    check:
+      cared(control, "memory", "unsigned") ~is #false
+      cared(control, "memory", "width") ~is #true
+      cared(control, "memory", "enable") ~is #true
+
+  for (instruction in (if rv64 | [LD, LR_D] | [LW, LR_W])):
+    check: cared(output_for(cases, instruction), "memory", "unsigned") ~is #false
+
+  for (instruction in [LB, LH] ++ (if rv64 | [LW, LR_W] | [])):
+    check: cared(output_for(cases, instruction), "memory", "unsigned") ~is #true
+
+  for (instruction in (if rv64 | [HFENCE_VVMA, HFENCE_GVMA, HINVAL_VVMA, HINVAL_GVMA] | [])):
+    def control = output_for(cases, instruction)
+    check:
+      field(control.care, "alu").packed_value() ~is 0
+      cared(control, "system", "action") ~is #true
+
+  for (instruction in (if rv64 | [HLV_W, HLV_D, HSV_W, HSV_D] | [])):
+    def control = output_for(cases, instruction)
+    check:
+      cared(control, "writeback", "link") ~is #false
+      field(control.care, "guest_access").packed_value() != 0 ~is #true

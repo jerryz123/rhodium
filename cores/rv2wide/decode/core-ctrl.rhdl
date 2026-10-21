@@ -102,7 +102,6 @@ fun rv2wide_vector_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
       writeback:
         partial_pattern(RV2WideWritebackControl()):
           enable: Bool(configuration || scalar_destination)
-          link: Bool(#false)
 
       system:
         partial_pattern(RV2WideSystemControl()):
@@ -138,8 +137,8 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
   def operands = rv2wide_operand_cases(xlen)
   def loads = RiscvWordLoads ++ (if xlen == XLen.X64 | RiscvDoubleLoads | [])
   def RV2WideStores = RiscvWordStores ++ (if xlen == XLen.X64 | RiscvDoubleStores | [])
-  def memory = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~double: xlen == XLen.X64)) ++ instruction_cases(excluding_instructions(base, loads ++ RV2WideStores), inactive_core_memory)
-  def atomics = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~double: xlen == XLen.X64))
+  def memory = enabled_cases(scalar_memory_cases(RV2WideMemoryControl(), ~xlen: xlen)) ++ instruction_cases(excluding_instructions(base, loads ++ RV2WideStores), inactive_core_memory)
+  def atomics = enabled_cases(atomic_memory_cases(RV2WideMemoryControl(), ~xlen: xlen))
   def instructions = integer_instructions(xlen)
   def addition_alu_cases = instruction_cases(atomic ++ ZimopInstructions, component_output(alu, instruction_pattern(ADDI)))
   def system_alu_cases = instruction_cases(multiply ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, unused_alu)
@@ -156,10 +155,10 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
       enable: Bool(#true)
       link: Bool(#true)
 
-    group ZicsrInstructions:
+    group ZicsrInstructions ++ loads ++ atomic ++ multiply:
       enable: Bool(#true)
 
-    group excluding_instructions(instructions, branches ++ jumps ++ RV2WideStores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ RV2WidePrivilegedInstructions ++ ZicsrInstructions):
+    group excluding_instructions(instructions, branches ++ jumps ++ RV2WideStores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ RV2WidePrivilegedInstructions ++ ZicsrInstructions ++ loads ++ atomic ++ multiply):
       enable: Bool(#true)
       link: Bool(#false)
 
@@ -413,7 +412,7 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
         | instruction.name in ["FLW", "FSW"]: MemoryWidth.Word
         | ~else: MemoryWidth.Double
 
-      unsigned: Bool(#true)
+      unsigned: if load | Bool(#true) | pattern(Bool, _)
 
     def output = pattern(RV2WideControl()):
       guest_access: RiscvGuestMemoryAccess.Normal
@@ -427,7 +426,6 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
       writeback:
         partial_pattern(RV2WideWritebackControl()):
           enable: Bool(integer_destination)
-          link: Bool(#false)
 
       system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
       muldiv: component_output(fp_long, input)
@@ -465,7 +463,6 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
       writeback:
         partial_pattern(RV2WideWritebackControl()):
           enable: Bool(!store)
-          link: if store | pattern(Bool, _) | Bool(#false)
 
       system: component_output(RV2WideSystemCases, input)
       muldiv: inactive_long
@@ -478,7 +475,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
   memory_cases ++ for List (entry in fences):
     def input = instruction_pattern(SFENCE_VMA)
     def output = pattern(RV2WideControl()):
-      alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
+      alu: unused_alu
       operand: component_output(RV2WideOperandCases, input)
       branch: inactive_branch
       memory: inactive_core_memory

@@ -172,9 +172,13 @@ software defaults:
 - An FP compute row leaves scalar address generation, operand routing, and
   memory payloads unconstrained. FP loads and stores constrain only the scalar
   address and memory fields that carry their request.
-- A non-memory vector row leaves the scalar ALU, scalar operand routing, and
-  inactive memory payload unconstrained. Vector memory rows constrain address
-  generation and width; stores leave load extension unconstrained.
+- Vector rows leave scalar ALU, scalar operand routing, and memory payloads
+  unconstrained: the vector pipeline owns its address generation and requests.
+  Vector loads/stores retain their scalar memory-action classification for
+  ordering, while source-use bits retain register dependencies.
+- Dedicated multiply/divide services leave scalar ALU operand routing free.
+  XLEN-wide integer loads leave signed extension free; narrower signed loads
+  still constrain it.
 
 An omitted field is sound only when every downstream observation of that field
 is dominated by a cared discriminator such as `enable`, `access`, an execution

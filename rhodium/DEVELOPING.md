@@ -223,6 +223,8 @@ descriptors own no physical rows.
 
 The reusable `cores/*-decode.rhdl` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
+`cores/memory-decode.rhdl` also consumes architectural `XLen` to select the
+catalog and leave full-width load extension unconstrained.
 `cores/cache/` owns shared cache hardware, not architectural completion policy.
 Its protocols use public ready-valid and Bits helpers, XLEN, memory-width,
 atomic, and locality types. `config.rhm` uses core index-width calculation and

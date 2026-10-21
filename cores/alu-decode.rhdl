@@ -53,7 +53,7 @@ fun logic_control(select :: AluLogicSelect, invert_right :: Boolean, right_selec
 
 /*
  * Configure subtraction-based signed or unsigned less-than with full-width operand
- * preparation.
+ * preparation. Final word sign-extension cannot change the resulting zero or one.
  */
 fun compare_control(signed_mode :: Boolean):
   partial_pattern(AluControl()):
@@ -62,7 +62,6 @@ fun compare_control(signed_mode :: Boolean):
     signed_compare: Bool(signed_mode)
     unsigned_word: Bool(#false)
     shift_add_amount: Bits(2)(0)
-    word: Bool(#false)
 
 /* Reuse subtraction-based ordering to choose a signed or unsigned minimum or maximum. */
 fun minmax_control(signed_mode :: Boolean, maximum :: Boolean):

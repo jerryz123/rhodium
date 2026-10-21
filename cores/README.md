@@ -55,8 +55,8 @@ and destination/write-port scheduling.
 
 ### Shared memory decode
 
-`memory-decode.rhdl` supplies `scalar_memory_cases(Control, ~double: enabled)`,
-`atomic_memory_cases(Control, ~double: enabled)`, and
+`memory-decode.rhdl` supplies `scalar_memory_cases(Control, ~xlen: xlen)`,
+`atomic_memory_cases(Control, ~xlen: xlen)`, and
 `cache_block_memory_cases(Control)`. The caller-shaped control bundle supplies
 `access`, `atomic`, `width`, and `unsigned` fields as needed. The returned partial
 relations leave irrelevant controls unconstrained; callers add validity fields,

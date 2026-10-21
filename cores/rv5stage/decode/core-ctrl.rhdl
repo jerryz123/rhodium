@@ -327,7 +327,8 @@ def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_rea
 
   DecodeCase(instruction_pattern(instruction), control)
 
-/* Adds scalar operand, configuration, memory-address, and scalar-result columns to vector rows. */
+/* Adds vector source-use, ordering classification, configuration, and scalar-result columns.
+   The vector pipeline owns address generation and LSU payloads, not the scalar ALU. */
 fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
                               vector_controls :: List.of(DecodeCase)):
   for List (instruction in instructions):
@@ -336,23 +337,10 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
     def memory = metadata.memory
     def store = metadata.store
     def scalar_destination = metadata.scalar_destination
-    def memory_width = cond
-    | [vector_isa.VLE8_V, vector_isa.VSE8_V, vector_isa.VLSE8_V, vector_isa.VSSE8_V].contains(instruction): MemoryWidth.Byte
-    | [vector_isa.VLE16_V, vector_isa.VSE16_V, vector_isa.VLSE16_V, vector_isa.VSSE16_V].contains(instruction): MemoryWidth.Half
-    | [vector_isa.VLE32_V, vector_isa.VSE32_V, vector_isa.VLSE32_V, vector_isa.VSSE32_V].contains(instruction): MemoryWidth.Word
-    | ~else: MemoryWidth.Double
-
     def input = instruction_pattern(instruction)
-    def operand_control:
-      if memory
-      | partial_pattern(OperandControl()):
-          uses_rs1: Bool(#true)
-          uses_rs2: Bool(metadata.uses_rs2)
-          left: OperandASelect.Register
-          right: OperandBSelect.Immediate
-      | partial_pattern(OperandControl()):
-          uses_rs1: Bool(metadata.uses_rs1)
-          uses_rs2: Bool(metadata.uses_rs2)
+    def operand_control = partial_pattern(OperandControl()):
+      uses_rs1: Bool(metadata.uses_rs1)
+      uses_rs2: Bool(metadata.uses_rs2)
 
     def memory_control:
       cond
@@ -360,12 +348,9 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
       | store:
           partial_pattern(RV5StageMemoryControl()):
             access: CacheOperation.Store
-            width: memory_width
       | ~else:
           partial_pattern(RV5StageMemoryControl()):
             access: CacheOperation.Load
-            width: memory_width
-            unsigned: Bool(#true)
 
     def writeback_control:
       cond
@@ -390,7 +375,7 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
       input,
       partial_pattern(RV5StageControl()):
         guest_access: RiscvGuestMemoryAccess.Normal
-        alu: if memory | scalar_address_alu | unused_scalar_alu
+        alu: unused_scalar_alu
         operand: operand_control
         branch: inactive_branch_control
         memory: memory_control

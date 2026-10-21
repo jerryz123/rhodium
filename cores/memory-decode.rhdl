@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "load-store.rhdl" open
   "cache/operation.rhdl" open
   lib("riscv/rtl/atomic.rhdl") open
@@ -19,8 +20,8 @@ def RiscvWordStores = [SB, SH, SW]
 def RiscvDoubleLoads = [LWU, LD]
 def RiscvDoubleStores = [SD]
 
-/* Generates only active scalar load/store rows; the caller supplies inactive-domain coverage. */
-fun scalar_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List.of(DecodeCase):
+/* Generates active XLEN-specific load/store rows; full-width loads need no extension policy. */
+fun scalar_memory_cases(Control :: DataType, ~xlen: xlen :: XLen) :: List.of(DecodeCase):
   def SharedMemoryCases = decode_groups(Control, ~input: instruction_pattern):
     [LB]:
       access: CacheOperation.Load
@@ -45,7 +46,7 @@ fun scalar_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List
     [LW]:
       access: CacheOperation.Load
       width: MemoryWidth.Word
-      unsigned: Bool(#false)
+      unsigned: if xlen == XLen.X64 | Bool(#false) | pattern(Bool, _)
 
     [SB]:
       access: CacheOperation.Store
@@ -68,21 +69,20 @@ fun scalar_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List
     [LD]:
       access: CacheOperation.Load
       width: MemoryWidth.Double
-      unsigned: Bool(#false)
 
     [SD]:
       access: CacheOperation.Store
       width: MemoryWidth.Double
 
-  SharedMemoryCases ++ (if double | RV64IOnlyMemoryCases | [])
+  SharedMemoryCases ++ (if xlen == XLen.X64 | RV64IOnlyMemoryCases | [])
 
 /* Generates word/double LR/SC and AMO controls, leaving unused fields unconstrained. */
-fun atomic_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List.of(DecodeCase):
+fun atomic_memory_cases(Control :: DataType, ~xlen: xlen :: XLen) :: List.of(DecodeCase):
   def RV32AMemoryCases = decode_groups(Control, ~input: instruction_pattern):
     [LR_W]:
       access: CacheOperation.LoadReserved
       width: MemoryWidth.Word
-      unsigned: Bool(#false)
+      unsigned: if xlen == XLen.X64 | Bool(#false) | pattern(Bool, _)
 
     [SC_W]:
       access: CacheOperation.StoreConditional
@@ -137,7 +137,6 @@ fun atomic_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List
     [LR_D]:
       access: CacheOperation.LoadReserved
       width: MemoryWidth.Double
-      unsigned: Bool(#false)
 
     [SC_D]:
       access: CacheOperation.StoreConditional
@@ -188,7 +187,7 @@ fun atomic_memory_cases(Control :: DataType, ~double: double :: Boolean) :: List
       atomic: RiscvAtomicOperation.MaxUnsigned
       width: MemoryWidth.Double
 
-  RV32AMemoryCases ++ (if double | RV64AOnlyMemoryCases | [])
+  RV32AMemoryCases ++ (if xlen == XLen.X64 | RV64AOnlyMemoryCases | [])
 
 /* Maps cache-block operations; access width remains caller-owned because these operate on a whole line. */
 fun cache_block_memory_cases(Control :: DataType) :: List.of(DecodeCase):
