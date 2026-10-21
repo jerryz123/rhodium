@@ -245,6 +245,32 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       for List (index in 0..resident_count): Bits(12)(index * slots)
     )[target]
 
+  /* Carry snoop-source validity with its decoded resident and demand-slot indices. */
+  bundle SnoopOwner():
+    valid: Bool
+    resident: Bits(resident_width)
+    slot: Bits(slot_width)
+
+  /* Decode the source ID and its reserved transaction range together.
+     Callers retain their own invalid-slot default and admission policy. */
+  fun decode_snoop_owner(source_id :: Bits(p.node_id_width), txn_id :: Bits(12)) :~ SnoopOwner():
+    def matches = vec(
+      for List (index in 0..resident_count):
+        def range_base = index * slots
+        (source_id === Bits(p.node_id_width)(residents[index].node_id)) & ((txn_id - Bits(12)(range_base)) < Bits(12)(slots))
+    )
+
+    def resident = priority_encoder(matches)
+    def local_slots = vec(
+      for List (index in 0..resident_count):
+        (txn_id - Bits(12)(index * slots))[0..slot_width]
+    )
+
+    SnoopOwner():
+      valid: matches.or_reduce()
+      resident: resident
+      slot: local_slots[resident]
+
   /* Advance circular demand-slot arbitration, wrapping at the configured slot count. */
   fun next_slot_priority(slot :: Bits(slot_width)):
     mux(slot === Bits(slot_width)(slots - 1), Bits(slot_width)(0), slot + Bits(slot_width)(1))
@@ -323,26 +349,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def incoming_set = cache_set(incoming_request.address)
   def incoming_requester_data_txn = requester.request_data.bits.txn_id
   def incoming_requester_data_is_snoop = requester.request_data.bits.opcode.is_one_of(CHIDatOpcode.SnpRespData, CHIDatOpcode.SnpRespDataPtl)
-  def incoming_requester_data_snoop_target_matches = vec(
-    for List (index in 0..resident_count):
-      block:
-        def range_base = index * slots
-        (requester.request_data.bits.src_id === Bits(p.node_id_width)(residents[index].node_id)) & ((incoming_requester_data_txn - Bits(12)(range_base)) < Bits(12)(slots))
-  )
-
-  def incoming_requester_data_snoop_target_valid = incoming_requester_data_snoop_target_matches.or_reduce()
-  def incoming_requester_data_snoop_target = priority_encoder(incoming_requester_data_snoop_target_matches)
-  def incoming_requester_data_snoop_slots = vec(
-    for List (index in 0..resident_count):
-      (incoming_requester_data_txn - Bits(12)(index * slots))[0..slot_width]
-  )
-
+  def incoming_requester_data_snoop_owner :: SnoopOwner() = decode_snoop_owner(requester.request_data.bits.src_id, incoming_requester_data_txn)
   def incoming_requester_data_direct_slot_valid = incoming_requester_data_txn < Bits(12)(slots)
-  def incoming_requester_data_slot_valid = mux(incoming_requester_data_is_snoop, incoming_requester_data_snoop_target_valid, incoming_requester_data_direct_slot_valid)
+  def incoming_requester_data_direct_slot = mux(incoming_requester_data_direct_slot_valid, incoming_requester_data_txn[0..slot_width], Bits(slot_width)(0))
+  def incoming_requester_data_slot_valid = mux(incoming_requester_data_is_snoop, incoming_requester_data_snoop_owner.valid, incoming_requester_data_direct_slot_valid)
   def incoming_requester_data_slot = mux(
     incoming_requester_data_is_snoop,
-    incoming_requester_data_snoop_slots[incoming_requester_data_snoop_target],
-    mux(incoming_requester_data_direct_slot_valid, incoming_requester_data_txn[0..slot_width], Bits(slot_width)(0))
+    incoming_requester_data_snoop_owner.slot,
+    incoming_requester_data_direct_slot
   )
   def incoming_requester_data_phase_valid = phases[incoming_requester_data_slot].is_one_of(CHIInclusiveHNFPhase.ReceiveRequesterData, CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.AwaitSnoop)
   def incoming_requester_data_eligible = incoming_requester_data_slot_valid & (occupied[incoming_requester_data_slot]) & incoming_requester_data_phase_valid
@@ -387,41 +401,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   def requester_data_txn = requester_data.bits.txn_id
   def requester_data_is_snoop = requester_data.bits.opcode.is_one_of(CHIDatOpcode.SnpRespData, CHIDatOpcode.SnpRespDataPtl)
-  def requester_data_snoop_target_matches = vec(
-    for List (index in 0..resident_count):
-      block:
-        def range_base = index * slots
-        (requester_data.bits.src_id === Bits(p.node_id_width)(residents[index].node_id)) & ((requester_data_txn - Bits(12)(range_base)) < Bits(12)(slots))
-  )
-
-  def requester_data_snoop_target_valid = requester_data_snoop_target_matches.or_reduce()
-  def requester_data_snoop_target = priority_encoder(requester_data_snoop_target_matches)
-  def requester_data_snoop_slots = vec(
-    for List (index in 0..resident_count):
-      (requester_data_txn - Bits(12)(index * slots))[0..slot_width]
-  )
-
+  def requester_data_snoop_owner :: SnoopOwner() = decode_snoop_owner(requester_data.bits.src_id, requester_data_txn)
+  def requester_data_snoop_target = requester_data_snoop_owner.resident
   def requester_data_direct_slot_valid = requester_data_txn < Bits(12)(slots)
-  def requester_data_slot_valid = mux(requester_data_is_snoop, requester_data_snoop_target_valid, requester_data_direct_slot_valid)
-  def requester_data_slot = mux(requester_data_is_snoop, requester_data_snoop_slots[requester_data_snoop_target], mux(requester_data_direct_slot_valid, requester_data_txn[0..slot_width], Bits(slot_width)(0)))
+  def requester_data_direct_slot = mux(requester_data_direct_slot_valid, requester_data_txn[0..slot_width], Bits(slot_width)(0))
+  def requester_data_slot_valid = mux(requester_data_is_snoop, requester_data_snoop_owner.valid, requester_data_direct_slot_valid)
+  def requester_data_slot = mux(requester_data_is_snoop, requester_data_snoop_owner.slot, requester_data_direct_slot)
   def requester_response_flit = requester_response.bits
   def incoming_comp_ack = requester_response_flit.opcode === CHIRspOpcode.CompAck
-  def requester_response_target_matches = vec(
-    for List (index in 0..resident_count):
-      block:
-        def range_base = index * slots
-        (requester_response_flit.src_id === Bits(p.node_id_width)(residents[index].node_id)) & ((requester_response_flit.txn_id - Bits(12)(range_base)) < Bits(12)(slots))
-  )
-
-  def requester_response_target_valid = requester_response_target_matches.or_reduce()
-  def requester_response_target = priority_encoder(requester_response_target_matches)
-  def requester_response_slots = vec(
-    for List (index in 0..resident_count):
-      (requester_response_flit.txn_id - Bits(12)(index * slots))[0..slot_width]
-  )
-
-  def requester_response_slot_valid = requester_response_target_valid
-  def requester_response_slot = mux(requester_response_slot_valid, requester_response_slots[requester_response_target], Bits(slot_width)(0))
+  def requester_response_owner :: SnoopOwner() = decode_snoop_owner(requester_response_flit.src_id, requester_response_flit.txn_id)
+  def requester_response_target = requester_response_owner.resident
+  def requester_response_slot_valid = requester_response_owner.valid
+  def requester_response_slot = mux(requester_response_slot_valid, requester_response_owner.slot, Bits(slot_width)(0))
   def subordinate_response_slot_valid = subordinate_response.bits.txn_id < Bits(12)(slots)
   def subordinate_response_is_writeback = (subordinate_response.bits.txn_id >= Bits(12)(slots)) & (subordinate_response.bits.txn_id < Bits(12)(slots + victim_writeback_entries))
   def subordinate_response_slot = mux(subordinate_response_slot_valid, subordinate_response.bits.txn_id[0..slot_width], Bits(slot_width)(0))

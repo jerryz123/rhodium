@@ -446,9 +446,11 @@ circuit FpFixedD(xlen :: XLen,
   def right_widening_flags = mux(request.right_precision === FloatPrecision.Single, widen_right.exception_flags, Bits(5)(0))
   def third_widening_flags = mux(request.third_precision === FloatPrecision.Single, widen_third.exception_flags, Bits(5)(0))
   def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
+  def arithmetic_flags = ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))
+  def completion_flags = mux(cross_precision, converted_flags, arithmetic_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0)))
+    ~exception_flags: completion_flags
   )
 
 /* Adds half moves or arithmetic and half/single conversion to the F fixed datapath. */
@@ -522,9 +524,11 @@ circuit FpFixedFHalf(xlen :: XLen,
   def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, Bits(5)(0))
   def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, Bits(5)(0))
   def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
+  def arithmetic_flags = ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))
+  def completion_flags = mux(cross_precision, converted_flags, arithmetic_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))),
+    ~exception_flags: completion_flags,
     ~exception_flags_valid: mux(cross_precision, Bool(#true), ordinary.exception_flags_valid)
   )
 
@@ -613,9 +617,11 @@ circuit FpFixedDHalf(xlen :: XLen,
   def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, Bits(5)(0))
   def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, Bits(5)(0))
   def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
+  def arithmetic_flags = ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))
+  def completion_flags = mux(half_cross, converted_flags, arithmetic_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(half_cross, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(half_cross, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))),
+    ~exception_flags: completion_flags,
     ~exception_flags_valid: mux(half_cross, Bool(#true), ordinary.exception_flags_valid)
   )
 

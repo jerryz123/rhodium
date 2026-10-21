@@ -5,7 +5,7 @@
 import:
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
-  "../load-store.rhdl".MemoryWidth
+  "../load-store.rhdl".memory_access_bytes
   "../cache/operation.rhdl" open
   "profile.rhm".CacheLineBytes
   "../cache/io-mshr.rhdl".IOMSHR
@@ -26,23 +26,22 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   interface cache(CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
   interface uncached(UncachedMemoryAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
   output ordered_busy: Bool
-  // Input capacity must not depend on the same-cycle response sink: request
-  // admission can otherwise feed back through the core's flush ready path.
-  inst uncached_management(Queue(PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)), 1))
 
+
+  /* Retained uncached capacity
+     Request capacity is independent of the response sink to avoid a flush-ready loop. */
+
+  inst uncached_management(Queue(PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)), 1))
   inst io_mshr(IOMSHR(xlen, RV5StageMemoryContext(vector_completion_slots)))
   io_mshr.memory |> uncached
 
+
+  /* Full-access permission classification
+     Check both endpoints of a scalar access or the complete cache-block operation. */
+
   def request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = core.request.bits.memory
   def operation = request.access
-  def last_byte_offset :: Bits(xlen.width) = mux_lookup(
-    request.width,
-    ~default: Bits(xlen.width)(7),
-    [[MemoryWidth.Byte, Bits(xlen.width)(0)],
-     [MemoryWidth.Half, Bits(xlen.width)(1)],
-     [MemoryWidth.Word, Bits(xlen.width)(3)]]
-  )
-
+  def last_byte_offset = memory_access_bytes(xlen, request.width) - Bits(xlen.width)(1)
   def zero_block = operation.is_cache_block_zero()
   def management = operation.is_cache_management()
   def first_address = mux(operation.is_cache_block(), request.address.align_down(CacheLineBytes), request.address)
@@ -60,6 +59,12 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   def request_permitted = mux(management, cbo_management_physical_permission(physical), ordinary_permitted)
   // Maintenance must still reach cached aliases when PBMT disables allocation.
   def request_is_uncached = !mux(management, physical.cacheable, attributes.cacheable)
+  def local_management = management & request_is_uncached
+
+
+  /* Ordered path admission
+     Cached and uncached traffic exclude one another; local maintenance waits for both to drain. */
+
   // Readiness reports registered slot availability. Unlike drained it does
   // not include a same-cycle acceptance, avoiding a cross-path ready loop.
   def cache_available = io_mshr.core.request.ready & !uncached_management.egress.valid
@@ -69,8 +74,9 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
     core.request
       |> filter_flow(_request => request_permitted)
       |> map_flow(request => request.memory)
-      |> demux_flow(3, _request => mux(management & request_is_uncached, Bits(2)(2), request_is_uncached.as_bits().zext(2)))
+      |> demux_flow(3, _request => mux(local_management, Bits(2)(2), request_is_uncached.as_bits().zext(2)))
   )
+
   // The static physical map forbids cached copies of these regions. After
   // permission checks and older traffic drain, maintenance needs no device IO.
   (
@@ -90,16 +96,15 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
           device: attributes.strongly_ordered
   ) |> io_mshr.core.request
 
-  core.request_fault <== core.request.valid & request_permitted & !(management & request_is_uncached) & mux(
-    request_is_uncached,
-    io_mshr.core.request_fault,
-    cache.request_fault
-  )
-  core.request_access_fault <== core.request.valid & (!request_permitted ||| (!(management & request_is_uncached) & mux(
-    request_is_uncached,
-    io_mshr.core.request_access_fault,
-    cache.request_access_fault
-  )))
+
+  /* Fault reporting and completion return
+     Local maintenance has no path fault; all retained completions return through one arbiter. */
+
+  def selected_request_fault = mux(request_is_uncached, io_mshr.core.request_fault, cache.request_fault)
+  def selected_access_fault = mux(request_is_uncached, io_mshr.core.request_access_fault, cache.request_access_fault)
+  core.request_fault <== core.request.valid & request_permitted & !local_management & selected_request_fault
+  core.request_access_fault <== core.request.valid & (!request_permitted ||| (!local_management & selected_access_fault))
+
   Array(uncached_management.egress, io_mshr.core.response, cache.response) |> arbiter() |> core.response
   core.drained <== cache.drained & io_mshr.core.drained & !uncached_management.egress.valid & !management_requests.fire()
   core.reservation_valid <== cache.reservation_valid

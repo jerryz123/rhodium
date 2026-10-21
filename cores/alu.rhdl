@@ -87,21 +87,23 @@ circuit ALU(xlen :: XLen):
   def low_word :: Bits(32) = if xlen == XLen.X64 | left[0..32] | left
   def unsigned_word_left :: Bits(width) = if xlen == XLen.X64 | low_word.zext(width) | left
 
-  // Zba operand preparation feeds the ordinary adder instead of introducing
-  // another shift-add result path.
+
+  /* Shared addition and comparison
+     Zba uses the ordinary adder; signed/unsigned comparisons and MIN/MAX reuse its subtraction. */
+
   def adder_left = mux(control.unsigned_word, unsigned_word_left, left) << control.shift_add_amount
   def adder_right = mux(control.subtract, !right, right)
   def adder_result :: Bits(width) = adder_left + adder_right + control.subtract.as_bits().zext(width)
 
-  // Signed and unsigned comparisons consume the subtraction result. MIN/MAX
-  // consequently reuse the same comparison rather than building another one.
   def left_sign = left[width - 1].into(Bool)
   def right_sign = right[width - 1].into(Bool)
   def less = mux(left_sign === right_sign, adder_result[width - 1].into(Bool), mux(control.signed_compare, left_sign, right_sign))
   def minmax_result = mux(less ^ control.maximum, left, right)
 
-  // One-hot and conditional-mask operands turn Zbs and Zicond into ordinary
-  // logic operations. Optional inversion also provides ANDN/ORN/XNOR.
+
+  /* Logic operand selection
+     Zbs and Zicond select masks before the shared logic; inversion also provides ANDN/ORN/XNOR. */
+
   def bit_index = right[0..shift_width]
   def bit_mask = one_hot(bit_index).into(Bits(width))
   def conditional_mask = mux(right.or_reduce(), !Bits(width)(0), Bits(width)(0))
@@ -127,8 +129,11 @@ circuit ALU(xlen :: XLen):
     ]
   )
 
-  // One signed right shifter implements SLL, SRL, SRA, SLLI.UW and BEXT.
-  // Left shifts reverse the input and output around that shared shifter.
+
+  /* Shared shift and rotation
+     SLL reverses wiring around the signed right shifter used by SRL/SRA, SLLI.UW, and BEXT.
+     Rotates reuse that result and compute only the complementary half separately. */
+
   def word_shift_amount = right[0..5]
   def shift_amount :: Bits(shift_width) = if xlen == XLen.X64 | right[0..6] | word_shift_amount
   def effective_shift_amount = if xlen == XLen.X64 | mux(control.word, word_shift_amount.zext(6), shift_amount) | shift_amount
@@ -137,7 +142,8 @@ circuit ALU(xlen :: XLen):
     | mux(control.arithmetic_shift, low_word.into(SInt(32)).sext(64).as_bits(), unsigned_word_left)
     | left
 
-  def shift_source = if xlen == XLen.X64 | mux(control.word, word_shift_source, mux(control.unsigned_word, unsigned_word_left, left)) | left
+  def full_shift_source = mux(control.unsigned_word, unsigned_word_left, left)
+  def shift_source = if xlen == XLen.X64 | mux(control.word, word_shift_source, full_shift_source) | left
   def reversed_shift_source :: Bits(width) = concat(for List (index in 0..width): shift_source[index])
   def shifter_input = mux(control.shift_right, shift_source, reversed_shift_source)
   def shift_fill = control.arithmetic_shift & shifter_input[width - 1].into(Bool)
@@ -147,7 +153,7 @@ circuit ALU(xlen :: XLen):
   def reversed_shift_result :: Bits(width) = concat(for List (index in 0..width): shifted_right[index])
   def shared_shift_result = mux(control.shift_right, shifted_right, reversed_shift_result)
   def shift_result = mux(control.extract_bit, shared_shift_result[0].zext(width), shared_shift_result)
-  // Rotates reuse the shared shift result and add only the complementary half.
+
   def word_shift_complement = -word_shift_amount
   def shift_complement = -shift_amount
   def effective_shift_complement = if xlen == XLen.X64 | mux(control.word, word_shift_complement.zext(6), shift_complement) | shift_complement
@@ -157,8 +163,10 @@ circuit ALU(xlen :: XLen):
   def rotate_other = mux(control.shift_right, reversed_rotate_other, rotate_other_shifted)
   def rotate_result = shared_shift_result ||| rotate_other
 
-  // Word/full and leading/trailing selection happens before counting, leaving
-  // one priority encoder and one population-count network in the RV64 ALU.
+
+  /* Shared counting networks
+     Select word/full and leading/trailing operands before one encoder and one population count. */
+
   def count_source = if xlen == XLen.X64 | mux(control.word, unsigned_word_left, left) | left
   def reversed_full_count_source :: Bits(width) = concat(for List (index in 0..width): left[index])
   def reversed_word_count_source :: Bits(32) = concat(for List (index in 0..32): low_word[index])
@@ -174,8 +182,10 @@ circuit ALU(xlen :: XLen):
   def population_count = popcount(count_source).zext(width)
   def count_result = mux(control.count_select === AluCountSelect.Population, population_count, zero_count)
 
-  // These unary transforms are genuinely distinct from the shared arithmetic,
-  // logic, shift and count resources.
+
+  /* Unary transforms
+     Byte permutation and extension are separate wiring/logic paths, not extra arithmetic resources. */
+
   def byte_results = for List (byte in 0..(width / 8)):
     mux(left[(byte * 8)..((byte + 1) * 8)].or_reduce(), Bits(8)(0xff), Bits(8)(0))
 
@@ -195,6 +205,10 @@ circuit ALU(xlen :: XLen):
       [AluUnarySelect.ZeroExtendHalf, left[0..16].zext(width)]
     ]
   )
+
+
+  /* Result selection
+     Decode selects one resource result; RV64 word instructions sign-extend its low word. */
 
   def selected_result :: Bits(width) = mux_lookup(
     control.result_select,

@@ -442,9 +442,16 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   def rr_fp_structural_blocked = for List (lane in 0..2): rr_decodable[lane] & rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !rr_fp_gpr_available))
 
-  /* Deferred returns forward at RR admission and again at the reserved write edge. */
+  /* Deferred returns forward at RR admission and again at the reserved write edge.
+     Each later rr_returns entry overrides earlier entries and the vector/late-FP/RF fallback. */
   fun rr_stored(address :: Bits(5)) :: Bits(xlen.width):
-    def mutable value = mux(vector.scalar_result.valid & (vector.scalar_result.bits.address === address), vector.scalar_result.bits.data, mux(wb_fp_late_gpr.valid & (wb_fp_late_gpr.bits.tag.rd === address), wb_fp_late_gpr.bits.integer_value, rr_registers[address]))
+    def vector_match = vector.scalar_result.valid & (vector.scalar_result.bits.address === address)
+    def late_fp_match = wb_fp_late_gpr.valid & (wb_fp_late_gpr.bits.tag.rd === address)
+    def initial_value = priority_mux(~default: rr_registers[address]):
+      vector_match: vector.scalar_result.bits.data
+      late_fp_match: wb_fp_late_gpr.bits.integer_value
+
+    def mutable value = initial_value
     for (source in rr_returns):
       def returned :: RV2WideRetirement(xlen) = source.bits
       value := mux(source.valid & returned.write & (returned.rd === address), returned.data, value)
