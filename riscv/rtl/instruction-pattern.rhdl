@@ -11,8 +11,8 @@ import:
  * declared instruction width. The pure model remains unaware of Rhodium. */
 fun encoding_pattern(encoding :: InstructionEncoding):
   Pattern(
-    ~value: bits(encoding.value, encoding.width),
-    ~care: bits(encoding.care, encoding.width)
+    ~value: Bits(encoding.width)(encoding.value),
+    ~care: Bits(encoding.width)(encoding.care)
   )
 
 /* Converts an instruction's fixed encoding relation into a typed host decode cube. */

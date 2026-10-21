@@ -26,10 +26,10 @@ sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = 
   output selector: Bits(64)
   interface overflow(Pulse(), ~role: producer)
 
-  reg count(~init: bits(0, 64))
-  reg control(~init: bits(0, 64))
+  reg count(~init: Bits(64)(0))
+  reg control(~init: Bits(64)(0))
   def control_fields = [MhpmeventOF, MhpmeventMINH, MhpmeventSINH, MhpmeventUINH, MhpmeventSelect] ++ (if hypervisor | [MhpmeventVSINH, MhpmeventVUINH] | [])
-  def control_mask = bits(csr_fields_mask(control_fields), 64)
+  def control_mask = Bits(64)(csr_fields_mask(control_fields))
   def guest = if hypervisor | event.bits.virtualized | Bool(#false)
   def mode_inhibited = mux_lookup(
     event.bits.privilege,

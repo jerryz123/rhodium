@@ -166,7 +166,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def current_packed = sequencer.packed
   inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext()))
   inst registers(VectorRegisterFile(xlen, vlen))
-  reg serial_fold_inflight(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg serial_fold_inflight(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
   reg accumulators(Vec(vector_completion_slots, Bits(xlen.width)))
   reg scan_carries(Vec(vector_completion_slots, Bits(xlen.width)))
   def retry = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Retry)
@@ -245,9 +245,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_descriptor = sequencer.sequence_request.bits.context.instruction.descriptor
   def s1_local_result = !s1_service ||| s1_control.memory ||| s1_descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty
   def s1_local_write = !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
-  def s1_write_delay = mux(s1_control.memory, bits(4, 4), bits(2, 4))
+  def s1_write_delay = mux(s1_control.memory, Bits(4)(4), Bits(4)(2))
   def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
-  def s1_next_slot = if vector_completion_slots == 1 | bits(0, tag_width) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
+  def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().or_reduce() & !operand_fetch.scheduled_return))
   def returning_control = operand_fetch.issue.bits.beat.control
@@ -279,7 +279,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   /* VRF response ownership and shared alignment port */
 
-  reg read_element(~init: bits(0, 3))
+  reg read_element(~init: Bits(3)(0))
   reg mask_element(~init: Bool(#false))
   read_element <== vec(for List (port in 0..3): operand_fetch.reads[port].valid).as_bits()
   mask_element <== operand_fetch.mask_read.valid
@@ -318,17 +318,20 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Scheduled reads enter execution without another admission decision.
      Prepared compression suffixes use the same sequence-stage reservations. */
 
+  // The demux, gate, and fork below are combinational copies of this offer.
+  def issued_lanes :: Mask(vector_word_bytes(xlen)) = operand_fetch.issue.bits.beat.enabled
+  def issued_first_lane_enabled = issued_lanes[0]
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
-  writeback_calendar.probe_client <== bits(2, index_width(3))
+  writeback_calendar.probe_client <== Bits(index_width(3))(2)
   writeback_calendar.probe_delay <== s1_calendar_delay
-  def Array(pending_issue, skipped_splat) = operand_fetch.issue |> demux_flow(2, operation => !operation.packed & splat.probing & !operation.beat.enabled.as_bits()[0].into(Bool) & !operation.beat.last & (operation.context.owner === splat.owner))
+  def Array(pending_issue, skipped_splat) = operand_fetch.issue |> demux_flow(2, operation => !operation.packed & splat.probing & !issued_first_lane_enabled & !operation.beat.last & (operation.context.owner === splat.owner))
   def splat_skip = skipped_splat |> to_valid()
   def issued = pending_issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
     packed: operation.packed
     address: operation.beat.address
     byte_mask: operation.byte_mask
-    memory_bytes(~format: "unsigned"): bits(vector_word_bytes(xlen), 4)
+    memory_bytes(~format: "unsigned"): Bits(4)(vector_word_bytes(xlen))
     store: operation.beat.control.store
     slot(~format: "unsigned"): allocate_slot
     op_index(~format: "unsigned"): operation.beat.sequence
@@ -345,11 +348,11 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       store: operation.beat.control.store
       byte_mask: mux(operation.packed, operation.byte_mask, memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)))
       context: operation.context.value
-      last: operation.beat.last ||| (!operation.packed & splat.probing & operation.beat.enabled.as_bits()[0].into(Bool) & (operation.context.owner === splat.owner))
+      last: operation.beat.last ||| (!operation.packed & splat.probing & issued_first_lane_enabled & (operation.context.owner === splat.owner))
       truncate_on_fault: !operation.packed & (operation.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & operation.beat.first.or_reduce()
       memory: operation.beat.control.memory
-      memory_width: mux(operation.packed, bits(if xlen == XLen.X64 | 3 | 2, 2), operation.beat.element_width.into(Bits(2)))
-      enabled: mux(operation.packed, operation.byte_mask.or_reduce(), operation.beat.enabled.as_bits()[0].into(Bool))
+      memory_width: mux(operation.packed, Bits(2)(if xlen == XLen.X64 | 3 | 2), operation.beat.element_width.into(Bits(2)))
+      enabled: mux(operation.packed, operation.byte_mask.or_reduce(), issued_first_lane_enabled)
       address: operation.beat.address
       store_data: operation.beat.left
       completion_tag: allocate_slot
@@ -391,7 +394,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       tag: allocate_slot
       owner: operation.context.owner
       pc: operation.context.pc
-      splat: splat.probing & operation.beat.enabled.as_bits()[0].into(Bool) & (operation.context.owner === splat.owner)
+      splat: splat.probing & issued_first_lane_enabled & (operation.context.owner === splat.owner)
       precertified: operation.context.precertified
   ) |> to_valid() |> ex_pipe.ingress
   def ex_beat = ex_pipe.egress.bits.beat
@@ -402,7 +405,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   execute.scan_carry <== scan_carries[ex_owner]
   def Array(ex_operands, ex_progress) = ex_pipe.egress |> fork_valid(2)
   def executed = ex_operands |> map_valid(operation => VectorOwnedResult(xlen, vlen, vector_completion_slots)):
-    beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: bits(0, xlen.width))), execute.result)
+    beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: Bits(xlen.width)(0))), execute.result)
     tag: operation.tag
     owner: operation.owner
     pc: operation.pc
@@ -440,8 +443,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def Array(fp_launch, fp_reservation) = fp_authorized.egress |> atomic_fork(2)
   fp_launch |> fp_request
   fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => fp_timing.latency(operation.control.execution, ~width: calendar_width)) |> writeback_calendar.reserve[1]
-  reg fp_returns(~init: bits(0, fp_timing.maximum + 1))
-  def fp_return_reservation = mux(writeback_calendar.reserve[1].fire(), bits(1, fp_timing.maximum + 1) << writeback_calendar.reserve[1].bits, bits(0, fp_timing.maximum + 1))
+  reg fp_returns(~init: Bits(fp_timing.maximum + 1)(0))
+  def fp_return_reservation = mux(writeback_calendar.reserve[1].fire(), Bits(fp_timing.maximum + 1)(1) << writeback_calendar.reserve[1].bits, Bits(fp_timing.maximum + 1)(0))
   fp_returns <== (fp_returns ||| fp_return_reservation) >> 1
   completions.fixed_fp_return <== fp_returns[0].into(Bool)
   completions.reserved_write <== writeback_calendar.occupied[0].into(Bool)
@@ -451,7 +454,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
   def Array(multiply_launch, multiply_reservation) = multiply_authorized.egress |> atomic_fork(2)
   multiply_launch |> multiply_request
-  multiply_reservation |> filter_flow(_operation => Bool(multiply_latency != #false)) |> map_flow(_operation => bits(if multiply_latency | multiply_latency | 1, calendar_width)) |> writeback_calendar.reserve[0]
+  multiply_reservation |> filter_flow(_operation => Bool(multiply_latency != #false)) |> map_flow(_operation => Bits(calendar_width)(if multiply_latency | multiply_latency | 1)) |> writeback_calendar.reserve[0]
   divide_authorized.egress |> divide_request
   multiply_result |> completions.multiply_result
   divide_result |> completions.divide_result
@@ -476,13 +479,13 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   // Keep each accumulator at its owner's resolved frontier. An overlapping
   // destination is written only when that owner's final result drains.
   for (owner in 0..vector_completion_slots):
-    def owner_tag = bits(owner, tag_width)
+    def owner_tag = Bits(tag_width)(owner)
     when (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.reduction & !compute_beat.floating_point):
       accumulators[owner] <== compute_beat.write.data
     elsewhen (drain & (completions.drained.bits.owner === owner_tag) & head_result.reduction & head_result.floating_point):
       accumulators[owner] <== drained_data
     when (request.fire() & (next_owner === owner_tag)):
-      scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, xlen.width), bits(0, xlen.width))
+      scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
     elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan):
       scan_carries[owner] <== compute_beat.scan_carry
     def owner_replaced = (request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag))
@@ -525,8 +528,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     first: operation.beat.first
     end: operation.beat.end
     disposition: VectorDisposition.Authorized
-    cause: bits(0, xlen.width)
-    fault_address: bits(0, xlen.width)
+    cause: Bits(xlen.width)(0)
+    fault_address: Bits(xlen.width)(0)
     last: operation.beat.last
     compress_state: operation.beat.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
@@ -539,8 +542,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     first: operation.beat.first
     end: operation.beat.end
     disposition: VectorDisposition.Authorized
-    cause: bits(0, xlen.width)
-    fault_address: bits(0, xlen.width)
+    cause: Bits(xlen.width)(0)
+    fault_address: Bits(xlen.width)(0)
     last: Bool(#false)
     compress_state: operation.beat.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
@@ -577,13 +580,27 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   completion_memory |> completions.memory_attempt
   element_memory_decision |> completions.decision
   local_completion |> completions.response
-  def variable_waiting = (completion.valid & !completion.ready) ||| (divide_result.valid & !divide_result.ready) ||| (Bool(multiply_latency == #false) & multiply_result.valid & !multiply_result.ready) ||| (!fp_returns[0].into(Bool) & fp_result.valid & !fp_result.ready)
-  reg variable_age(~init: bits(0, 3))
+
+
+  /* Variable-response starvation guard.
+     Persistent stalls pause new fixed bookings without revoking promised writes. */
+
+  def completion_stalled = completion.valid & !completion.ready
+  def divide_stalled = divide_result.valid & !divide_result.ready
+  def multiply_stalled = Bool(multiply_latency == #false) & multiply_result.valid & !multiply_result.ready
+  def fp_stalled = !fp_returns[0].into(Bool) & fp_result.valid & !fp_result.ready
+  def variable_waiting = or_reduce([completion_stalled, divide_stalled, multiply_stalled, fp_stalled])
+  reg variable_age(~init: Bits(3)(0))
   when (!variable_waiting):
-    variable_age <== bits(0, 3)
+    variable_age <== Bits(3)(0)
   elsewhen (!variable_age.and_reduce()):
-    variable_age <== variable_age + bits(1, 3)
+    variable_age <== variable_age + Bits(3)(1)
   writeback_calendar.pause <== variable_age.and_reduce()
+
+
+  /* Completion-slot allocation and VRF write arbitration.
+     Independent slot and response owners survive the sequencing descriptor. */
+
   completions.replay.valid <== replay
   completions.packed_release.valid <== packed.released.valid
   completions.reserve.valid <== issue.fire()

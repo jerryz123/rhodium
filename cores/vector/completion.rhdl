@@ -66,11 +66,11 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   inst slots(VectorSlots(vector_completion_slots))
   def allocated = slots.allocated
   def authorized_slots = slots.accepted
-  reg completed(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg completed(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
   reg entries(Vec(vector_completion_slots, VectorResultBeat(xlen, vlen)))
-  reg drain_cursor(~init: bits(0, index_width(vector_completion_slots)))
-  reg allocate_cursor(~init: bits(0, index_width(vector_completion_slots)))
-  reg accept_cursor(~init: bits(0, index_width(vector_completion_slots)))
+  reg drain_cursor(~init: Bits(index_width(vector_completion_slots))(0))
+  reg allocate_cursor(~init: Bits(index_width(vector_completion_slots))(0))
+  reg accept_cursor(~init: Bits(index_width(vector_completion_slots))(0))
   replay |> slots.replay
 
 
@@ -118,7 +118,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     beat: result.beat
     owner: result.owner
     data: result.beat.write.data
-    flags: bits(0, 5)
+    flags: Bits(5)(0)
     saturated: result.beat.saturated
   def hit_valid = memory_accepted & !decision.bits.slow
   def multiply_write_available = !local_result.valid & !hit_valid & (Bool(fixed_multiply) ||| !reserved_write)
@@ -127,7 +127,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     beat: entries[result.tag.slot]
     owner: entry_owner[result.tag.slot]
     data: multiply_completion.data
-    flags: bits(0, 5)
+    flags: Bits(5)(0)
     saturated: multiply_completion.saturated
   def fp_write_available = !local_result.valid & !hit_valid & !multiplication.valid & (fixed_fp_return ||| !reserved_write)
   def floating = fp_result |> gate_flow(fp_write_available) |> to_valid() |> map_valid(result => Writeback()):
@@ -135,7 +135,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     beat: entries[result.tag]
     owner: entry_owner[result.tag]
     data: fp_arrival_data
-    flags: mux(result.exception_flags_valid, result.exception_flags, bits(0, 5))
+    flags: mux(result.exception_flags_valid, result.exception_flags, Bits(5)(0))
     saturated: Bool(#false)
   def divide_write_available = !local_result.valid & !hit_valid & !multiplication.valid & !floating.valid & !reserved_write
   def division = divide_result |> gate_flow(divide_write_available) |> to_valid() |> map_valid(result => Writeback()):
@@ -143,7 +143,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     beat: entries[result.tag.slot]
     owner: entry_owner[result.tag.slot]
     data: vector_divide_value(xlen, vector_completion_slots, result)
-    flags: bits(0, 5)
+    flags: Bits(5)(0)
     saturated: Bool(#false)
   def compute_arrival = local_result.valid ||| multiplication.valid ||| floating.valid ||| division.valid
   def hit_result = hit_attempt |> filter_valid(_result => hit_valid) |> map_valid(result => Writeback()):
@@ -151,7 +151,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     beat: result.beat
     owner: result.owner
     data: decision.bits.data
-    flags: bits(0, 5)
+    flags: Bits(5)(0)
     saturated: Bool(#false)
   def slow_write_available = !compute_arrival & !hit_valid
   def slow_result = response |> gate_flow(slow_write_available) |> to_valid() |> map_valid(result => Writeback()):
@@ -159,7 +159,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     beat: entries[result.tag]
     owner: entry_owner[result.tag]
     data: result.data
-    flags: bits(0, 5)
+    flags: Bits(5)(0)
     saturated: Bool(#false)
   compute_writeback <== compute_arrival ||| hit_valid ||| slow_result.valid
 
@@ -170,7 +170,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def accepted_memory = accepted_attempt |> filter_valid(_result => memory_accepted & decision.bits.slow)
   def accepted_per_slot = accepted_memory |> fork_valid(vector_completion_slots)
   def memory_results = for Array (slot in 0..vector_completion_slots):
-    def tag = bits(slot, tag_width)
+    def tag = Bits(tag_width)(slot)
     def capture = accepted_per_slot[slot] |> filter_valid(operation => operation.tag === tag)
     def returned = inject_interface(Valid(Writeback()), ~valid: slow_result.valid & (slow_result.bits.tag === tag), ~bits: slow_result.bits)
     def name = "memory-result-" ++ to_string(slot)
@@ -222,10 +222,10 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
            def element_width = result.beat.element_width
            def boxed_data:
              if xlen == XLen.X32
-             | mux(element_width === SimdElementWidth.E16, (!bits(0, 16)) ++ data[0..16], data[0..32])
+             | mux(element_width === SimdElementWidth.E16, (!Bits(16)(0)) ++ data[0..16], data[0..32])
              | mux_lookup(element_width, ~default: data):
-                 SimdElementWidth.E16: (!bits(0, 48)) ++ data[0..16]
-                 SimdElementWidth.E32: (!bits(0, 32)) ++ data[0..32]
+                 SimdElementWidth.E16: (!Bits(48)(0)) ++ data[0..16]
+                 SimdElementWidth.E32: (!Bits(32)(0)) ++ data[0..32]
            FloatingPointRegisterWrite(fp_profile):
              address: result.beat.destination
              data: boxed_data
@@ -257,20 +257,20 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   slots.release.valid <== drain ||| packed_release.valid
   slots.release.bits <== drain_cursor
   when (slots.release.valid):
-    drain_cursor <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_cursor + bits(1, tag_width)
+    drain_cursor <== if vector_completion_slots == 1 | Bits(tag_width)(0) | drain_cursor + Bits(tag_width)(1)
   when durable:
     assert(durable_tag === accept_cursor, "vector_resolution_follows_acceptance_frontier")
-    accept_cursor <== if vector_completion_slots == 1 | bits(0, tag_width) | durable_tag + bits(1, tag_width)
+    accept_cursor <== if vector_completion_slots == 1 | Bits(tag_width)(0) | durable_tag + Bits(tag_width)(1)
   when (replay.valid):
-    allocate_cursor <== mux(durable, if vector_completion_slots == 1 | bits(0, tag_width) | durable_tag + bits(1, tag_width), accept_cursor)
+    allocate_cursor <== mux(durable, if vector_completion_slots == 1 | Bits(tag_width)(0) | durable_tag + Bits(tag_width)(1), accept_cursor)
   elsewhen (reserve.valid):
-    allocate_cursor <== if vector_completion_slots == 1 | bits(0, tag_width) | allocate_cursor + bits(1, tag_width)
+    allocate_cursor <== if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_cursor + Bits(tag_width)(1)
 
 
   /* Writes release hazards immediately; metadata reclamation remains ordered. */
 
   for (slot in 0..vector_completion_slots):
-    def tag = bits(slot, tag_width)
+    def tag = Bits(tag_width)(slot)
     def resolving = element_resolved & (resolution_tag === tag)
     def releasing = slots.release.valid & (drain_cursor === tag)
     when (reserve.valid & (allocate_cursor === tag)):

@@ -51,7 +51,7 @@ interface ForwardingEnvelope(tag :: String):
 
 circuit PolicyForwardSource(tag :: String):
   interface port(ForwardingPolicy(tag), ~role: producer)
-  port.payload <== bits(90, 8)
+  port.payload <== Bits(8)(90)
 
 circuit PolicyForwardSink(tag :: String):
   interface port(ForwardingPolicy(tag), ~role: consumer)
@@ -72,7 +72,7 @@ circuit ConsumerPolicyForwarding():
 
 circuit NestedPolicyForwardSource(tag :: String):
   interface port(ForwardingEnvelope(tag), ~role: producer)
-  port.link.payload <== bits(165, 8)
+  port.link.payload <== Bits(8)(165)
 
 circuit NestedPolicyForwarding():
   interface port(ForwardingEnvelope("same"), ~role: producer)
@@ -81,8 +81,8 @@ circuit NestedPolicyForwarding():
 
 circuit PolicyForwardArraySource(tag :: String):
   interface ports[2](ForwardingPolicy(tag), ~role: producer)
-  ports[0].payload <== bits(1, 8)
-  ports[1].payload <== bits(2, 8)
+  ports[0].payload <== Bits(8)(1)
+  ports[1].payload <== Bits(8)(2)
 
 circuit ArrayPolicyForwarding():
   interface ports[2](ForwardingPolicy("same"), ~role: producer)

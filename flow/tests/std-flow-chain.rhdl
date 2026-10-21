@@ -111,7 +111,7 @@ circuit ZipFlowArrowChain():
 
   def zipped = Array(data, owner) |> zip_flow(
     data_bits,
-    owner_bits => mux(owner_bits, data_bits, bits(0, 8))
+    owner_bits => mux(owner_bits, data_bits, Bits(8)(0))
   )
   zipped |> egress
 
@@ -212,7 +212,7 @@ sync_circuit ValidPipeWrongProtocol():
   ingress |> valid_pipe(1)
 
 sync_circuit ValidPipeNonEndpoint():
-  bits(0, 8) |> valid_pipe(1)
+  Bits(8)(0) |> valid_pipe(1)
 
 // Verifies that the stronger CtrlPipe result can feed a CtrlQueue.
 sync_circuit CtrlPipeToQueueChain():
@@ -249,14 +249,14 @@ sync_circuit WrongEndpointType():
   require_byte_irrevocable(ingress)
 
 sync_circuit NonEndpointChain():
-  bits(0, 8) |> queue(2)
+  Bits(8)(0) |> queue(2)
 
 sync_circuit CtrlWrongProtocolChain():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   ingress |> ctrl_queue(2)
 
 sync_circuit CtrlNonEndpointChain():
-  bits(0, 8) |> ctrl_queue(2)
+  Bits(8)(0) |> ctrl_queue(2)
 
 circuit MissingSyncDomain():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

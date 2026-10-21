@@ -40,12 +40,12 @@ import:
   "../kernel.rhm".hw_shrs as kernel_hw_shrs
   "../support/fields.rhm".HardwareFields
   "../support/fields.rhm".hardware_as_bits
+  "../support/bits-type.rhm".Bits as LiteralBits
   "../support/hardware-literal.rhm" open
   "../support/mux-lookup.rhm" open
 
 export:
   HardwareEntity
-  bits
   literal
   dont_care
   bit_not
@@ -86,12 +86,6 @@ fun literal(type :: DataType,
             name :: maybe(String) = #false):
   packed_literal(type, value, name)
 
-/* Constructs an immutable Bits literal with an explicit positive width. */
-fun bits(value :: Nat,
-         width :: PosInt,
-         name :: maybe(String) = #false) :~ HardwareFields:
-  literal(Bits(width), value, name)
-
 /*
  * Host shift amounts are elaboration-time constants. Convert them to the
  * narrowest positive-width Bits literal while leaving dynamic hardware
@@ -109,7 +103,7 @@ fun required_shift_amount_width(amount :: Nat):
 fun normalize_shift_amount(amount :: Int || HardwareEntity, who :: Symbol):
   cond
   | amount is_a Nat:
-      bits(amount, required_shift_amount_width(amount))
+      LiteralBits(required_shift_amount_width(amount))(amount)
   | amount is_a Int:
       error(~who: who, "shift amount must be a host natural number or hardware Bits")
   | ~else: amount

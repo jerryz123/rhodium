@@ -93,7 +93,7 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def block = request.access.is_cache_block()
   def physical_address = if xlen == XLen.X64 | request.address | request.address.zext(64)
   def first = mux(block, physical_address.align_down(CacheLineBytes), physical_address)
-  def last = first +& mux(block, bits(CacheLineBytes - 1, 64), memory_access_bytes(XLen.X64, request.width) - bits(1, 64))
+  def last = first +& mux(block, Bits(64)(CacheLineBytes - 1), memory_access_bytes(XLen.X64, request.width) - Bits(64)(1))
   def region = config.physical_map.lookup(first, last)
   def atomic = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def access_permitted = mux(request.access.store_fault_class(), region.writable, region.readable)
@@ -130,7 +130,7 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
 
   def masked_address :: Bits(xlen.width) = apply_pointer_mask(xlen, misaligned.request.bits.address, state.pointer_masking)
   def fragment_address = if xlen == XLen.X64 | masked_address | masked_address.zext(64)
-  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& bits(bytes - 1, 64))
+  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& Bits(64)(bytes - 1))
   def fragment_access_permitted = mux(misaligned.request.bits.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
   def fragment_normal_memory = fragment_region.cacheable & fragment_region.read_idempotent & !fragment_region.device
   def fragment_permitted = fragment_region.mapped & fragment_normal_memory & fragment_access_permitted
@@ -189,7 +189,7 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   prefetch |> hints.ingress
   def hint :: CachePrefetchReq(64) = hints.egress.bits
   def hint_address = hint.address.align_down(CacheLineBytes)
-  def hint_region = config.physical_map.lookup(hint_address, hint_address +& bits(CacheLineBytes - 1, 64))
+  def hint_region = config.physical_map.lookup(hint_address, hint_address +& Bits(64)(CacheLineBytes - 1))
   def hint_permission = mux_lookup(hint.operation, ~default: Bool(#false)):
     CachePrefetchOperation.Instruction: hint_region.executable
     CachePrefetchOperation.Read: hint_region.readable

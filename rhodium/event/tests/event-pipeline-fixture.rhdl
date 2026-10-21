@@ -23,7 +23,7 @@ sync_circuit EventPipelineChild(~flushable: flushable :: Boolean = #false):
   ingress |> storage.ingress
   storage.egress
     |> trace_valid_event("middle", ~payload: #true)
-    |> map_valid(payload => payload + bits(1, 8))
+    |> map_valid(payload => payload + Bits(8)(1))
     |> valid_pipe(1, ~flush: clear)
     |> egress
 
@@ -44,11 +44,11 @@ sync_circuit EventPipeline(~flushable: flushable :: Boolean = #false):
   describe_interface_transform(InterfaceHandle(child.ingress, child.egress), "pipeline-wrapper", {}, child)
   source
     |> trace_valid_event("accepted", ~payload: #true)
-    |> filter_valid(payload => !(payload === bits(0, 8)))
+    |> filter_valid(payload => !(payload === Bits(8)(0)))
     |> valid_pipe(1, ~flush: clear)
     |> child.ingress
   child.egress
-    |> filter_valid(payload => !(payload === bits(4, 8)))
+    |> filter_valid(payload => !(payload === Bits(8)(4)))
     |> trace_valid_event("completed", ~payload: #true)
     |> sink
 
@@ -77,7 +77,7 @@ sync_circuit EventValidConversion():
   interface sinks[2](Valid(Bits(8)), ~role: producer)
   def Array(left, right) = source |> trace_event("accepted", ~payload: #true) |> to_valid() |> valid_pipe_always_capture(1) |> fork_valid(2)
   left |> trace_valid_event("left", ~payload: #true) |> sinks[0]
-  right |> filter_valid(payload => payload =/= bits(0, 8)) |> trace_valid_event("right", ~payload: #true) |> sinks[1]
+  right |> filter_valid(payload => payload =/= Bits(8)(0)) |> trace_valid_event("right", ~payload: #true) |> sinks[1]
 
 def valid_conversion = compile_program(elaborate(EventValidConversion()), rtl_target).report.elaboration
 
@@ -104,7 +104,7 @@ sync_circuit EventNestedRequester():
   interface bus(EventNestedEnvelope(), ~role: requester)
   source |> trace_valid_event("request") |> to_decoupled() |> bus.traffic.request
   bus.traffic.auxiliary.valid <== Bool(#false)
-  bus.traffic.auxiliary.bits <== bits(0, 8)
+  bus.traffic.auxiliary.bits <== Bits(8)(0)
   bus.traffic.response |> trace_valid_event("completed") |> sink
 
 sync_circuit EventNestedResponder():
@@ -140,8 +140,8 @@ export nested_projected_channels
 
 sync_circuit EventPrivateResetChild():
   output value: Bits(8)
-  reg count(~init: bits(0, 8))
-  count <== count + bits(1, 8)
+  reg count(~init: Bits(8)(0))
+  count <== count + Bits(8)(1)
   value <== count
 
 sync_circuit EventPrivateReset():

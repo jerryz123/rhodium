@@ -128,9 +128,9 @@ bundle NestedOperand(width :: PosInt):
 
 fun select_operand(width :: PosInt, value :: NestedOperand(width)):
   value.operand.stage_sel.mux({
-    OneHotState.Idle: bits(0, width),
+    OneHotState.Idle: Bits(width)(0),
     OneHotState.Read: value.operand.value,
-    OneHotState.Write: bits(1, width)
+    OneHotState.Write: Bits(width)(1)
   })
 
 circuit AnnotatedBundleSelection(width :: PosInt, annotated :: Boolean):
@@ -147,9 +147,9 @@ circuit AnnotatedBundleSelection(width :: PosInt, annotated :: Boolean):
       active <== is_active(identity(source))
   | block:
       result <== source.operand.stage_sel.mux({
-        OneHotState.Idle: bits(0, width),
+        OneHotState.Idle: Bits(width)(0),
         OneHotState.Read: source.operand.value,
-        OneHotState.Write: bits(1, width)
+        OneHotState.Write: Bits(width)(1)
       })
       active <== source.operand.stage_sel.is_access()
 

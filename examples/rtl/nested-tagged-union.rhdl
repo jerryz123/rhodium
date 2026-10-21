@@ -12,7 +12,7 @@ tagged_union OuterMessage:
   Nested(InnerMessage)
 
 def nested_literal = OuterMessage.Nested(
-  InnerMessage.Word(bits(0x3C, 8))
+  InnerMessage.Word(Bits(8)(0x3C))
 )
 
 /* Exposes nested_word_valid, nested_word, rebuilt for this nested tagged union example. */

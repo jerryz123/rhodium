@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
@@ -36,4 +37,4 @@ check:
   ).length() ~is 1
   verify_design(fixture_design) ~is #void
   dont_care(Clock) ~throws "DataType"
-  pattern_value(bits(0, 1)) ~throws "Pattern"
+  pattern_value(hw.Bits(1)(0)) ~throws "Pattern"

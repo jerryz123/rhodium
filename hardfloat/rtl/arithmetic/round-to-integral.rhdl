@@ -23,7 +23,7 @@ circuit RoundToIntegralRecFN(format :: FloatFormat):
   def raw_exponent = raw.signed_exponent.as_bits()
   def magnitude_at_least_one = raw_exponent[format.exponent_width].into(Bool)
   def positive_exponent = raw_exponent[0..format.exponent_width]
-  def already_integral = magnitude_at_least_one & (positive_exponent >= bits(format.significand_width - 1, format.exponent_width))
+  def already_integral = magnitude_at_least_one & (positive_exponent >= Bits(format.exponent_width)(format.significand_width - 1))
   def conversion_width = format.significand_width + 1
   inst to_integer(RecFNToIntegerModulo(format, conversion_width))
   to_integer.value <== value
@@ -34,8 +34,8 @@ circuit RoundToIntegralRecFN(format :: FloatFormat):
   to_float.value <== to_integer.out
   to_float.rounding_mode <== RoundingMode.NearEven
   to_float.tininess_mode <== TininessMode.AfterRounding
-  def rounded_zero = to_integer.out === bits(0, conversion_width)
-  def signed_zero = concat(raw.sign, bits(0, format.recoded_width - 1)).into(RecFloat(format))
+  def rounded_zero = to_integer.out === Bits(conversion_width)(0)
+  def signed_zero = concat(raw.sign, Bits(format.recoded_width - 1)(0)).into(RecFloat(format))
   def rounded = mux(rounded_zero, signed_zero, to_float.out)
   def unchanged = raw.is_zero ||| raw.is_infinite ||| already_integral
   out <== mux(raw.is_nan, canonical_recoded_nan(format), mux(unchanged, value, rounded))

@@ -92,8 +92,8 @@ sync_circuit RV2WideMmuFixture():
     access: access
     atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Double
-    data: bits(0, 64)
-    mask: bits(0xff, 8)
+    data: Bits(64)(0)
+    mask: Bits(8)(0xff)
     locality: locality
     pbmt: PageMemoryType.PMA
   mmu.pipeline.request.valid <== ex_valid
@@ -104,7 +104,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.physical_pipeline.response.bits <== CachePipelineResult(XLen.X64):
     outcome: CachePipelineOutcome.LoadHit
     reason: CachePipelineReason.None
-    data: bits(0xabcd, 64)
+    data: Bits(64)(0xabcd)
   index_valid <== mmu.pipeline_lookup.valid
   index_address <== mmu.pipeline_lookup.bits.address
   resolve_valid <== mmu.physical_pipeline.request.valid
@@ -121,7 +121,7 @@ sync_circuit RV2WideMmuFixture():
     width: split_width
     unsigned: Bool(#true)
     data: split_data
-    byte_mask: bits(0, 8)
+    byte_mask: Bits(8)(0)
     context: Bool(#false)
     locality: locality
   split_ready <== mmu.split.request.ready
@@ -141,7 +141,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.physical_memory.fault.bits <== RV2WideResolution(XLen.X64):
     guest: literal(RiscvGuestFault(), 0)
     disposition: RV2WideDisposition.Fault
-    cause: bits(5, 64)
+    cause: Bits(64)(5)
     value: mmu.physical_memory.request.bits.address
   mmu.physical_memory.response.valid <== response_valid
   mmu.physical_memory.response.bits <== response_data

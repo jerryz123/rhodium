@@ -69,15 +69,15 @@ fun channel_monitor_design(node :: CHINodeParams, peer :: CHIICNPortParams, tran
 sync_circuit TypedPacketMonitor(channel :: String, Packet :: DataType):
   def p = transaction_flit
   input packet: Packet
-  reg balance(~init: bits(0, 1))
+  reg balance(~init: Bits(1)(0))
   def idle = Bool(#false)
   cond
   | channel == "req":
-      monitor_chi_req(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+      monitor_chi_req(p, 1, idle, packet, Bits(p.node_id_width)(0), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
   | channel == "rsp":
-      monitor_chi_rsp(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+      monitor_chi_rsp(p, 1, idle, packet, Bits(p.node_id_width)(0), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
   | channel == "dat":
-      monitor_chi_dat(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+      monitor_chi_dat(p, 1, idle, packet, Bits(p.node_id_width)(0), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
   | channel == "unelided":
       when idle:
         monitor_chi_unelided_data(p, packet, "typed")

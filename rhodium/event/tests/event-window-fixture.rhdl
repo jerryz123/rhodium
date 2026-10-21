@@ -19,26 +19,26 @@ sync_circuit WindowCell(intrinsic :: Boolean, live_support :: Boolean = #true, b
   input(remove_count, selected): Bits(2)
   input append_count: Bits(2)
   output occupancy: Bits(2)
-  reg count(~init: bits(0, 2))
-  reg words(~init: vec([bits(0, 8), bits(0, 8), bits(0, 8)]))
+  reg count(~init: Bits(2)(0))
+  reg words(~init: vec([Bits(8)(0), Bits(8)(0), Bits(8)(0)]))
   def remaining = count - remove_count
   occupancy <== count
   sink.valid <== emit & !flush
   def include_live = if live_support | live | Bool(#false)
   def enqueue = source.valid & capture
-  def appended = if batched | append_count | bits(1, 2)
-  sink.bits <== mux(selected[0].into(Bool), words[0], bits(0, 8)) ^ mux(selected[1].into(Bool), words[1], bits(0, 8)) ^ mux(include_live, source.bits, bits(0, 8))
+  def appended = if batched | append_count | Bits(2)(1)
+  sink.bits <== mux(selected[0].into(Bool), words[0], Bits(8)(0)) ^ mux(selected[1].into(Bool), words[1], Bits(8)(0)) ^ mux(include_live, source.bits, Bits(8)(0))
   when flush:
-    count <== bits(0, 2)
+    count <== Bits(2)(0)
   otherwise:
-    count <== remaining + mux(enqueue, appended, bits(0, 2))
+    count <== remaining + mux(enqueue, appended, Bits(2)(0))
   for (index in 0..3):
-    def mutable shifted = bits(0, 8)
+    def mutable shifted = Bits(8)(0)
     for (offset in 0..(3 - index)):
-      shifted := mux(remove_count === bits(offset, 2), words[index + offset], shifted)
+      shifted := mux(remove_count === Bits(2)(offset), words[index + offset], shifted)
     when flush:
-      words[index] <== bits(0, 8)
-    elsewhen (enqueue & (bits(index, 2) >= remaining) & ((bits(index, 2) - remaining) < appended)):
+      words[index] <== Bits(8)(0)
+    elsewhen (enqueue & (Bits(2)(index) >= remaining) & ((Bits(2)(index) - remaining) < appended)):
       words[index] <== source.bits
     otherwise:
       words[index] <== shifted

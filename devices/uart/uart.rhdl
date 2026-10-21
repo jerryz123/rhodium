@@ -18,37 +18,37 @@ sync_circuit Uart8N1Transmitter():
 
   reg active(~init: Bool(#false))
   reg data(Bits(8))
-  reg phase(~init: bits(0, 4))
-  reg subtick(~init: bits(0, 4))
+  reg phase(~init: Bits(4)(0))
+  reg subtick(~init: Bits(4)(0))
 
   bytes.ready <== !active
   def accept = fire(bytes)
-  def data_index = phase - bits(1, 4)
+  def data_index = phase - Bits(4)(1)
   def serial_bit = priority_mux(~default: Bool(#true)):
     !active: Bool(#true)
-    phase === bits(0, 4): Bool(#false)
-    (phase >= bits(1, 4)) & (phase <= bits(8, 4)): (data >> data_index)[0].into(Bool)
+    phase === Bits(4)(0): Bool(#false)
+    (phase >= Bits(4)(1)) & (phase <= Bits(4)(8)): (data >> data_index)[0].into(Bool)
 
   tx <== serial_bit.as_bits()
   busy <== active
 
-  def phase_boundary = subtick === bits(UartOversampleCount - 1, 4)
+  def phase_boundary = subtick === Bits(4)(UartOversampleCount - 1)
   when accept:
     active <== Bool(#true)
-  elsewhen (active & oversample_tick & phase_boundary & (phase === bits(9, 4))):
+  elsewhen (active & oversample_tick & phase_boundary & (phase === Bits(4)(9))):
     active <== Bool(#false)
   when accept:
     data <== bytes.bits
   when accept:
-    phase <== bits(0, 4)
-  elsewhen (active & oversample_tick & phase_boundary & (phase =/= bits(9, 4))):
-    phase <== phase + bits(1, 4)
+    phase <== Bits(4)(0)
+  elsewhen (active & oversample_tick & phase_boundary & (phase =/= Bits(4)(9))):
+    phase <== phase + Bits(4)(1)
   when accept:
-    subtick <== bits(0, 4)
+    subtick <== Bits(4)(0)
   elsewhen (active & oversample_tick):
     subtick <== mux(phase_boundary,
-                    bits(0, 4),
-                    subtick + bits(1, 4))
+                    Bits(4)(0),
+                    subtick + Bits(4)(1))
 
 /* Separates idle/start validation, bit capture, stop checking, and recovery from a low stop. */
 hardware_enum UartReceiverState:
@@ -74,13 +74,13 @@ sync_circuit Uart8N1Receiver():
 
   reg state(~init: UartReceiverState.Idle)
   reg data(Bits(8))
-  reg bit_index(~init: bits(0, 3))
-  reg subtick(~init: bits(0, 4))
+  reg bit_index(~init: Bits(3)(0))
+  reg subtick(~init: Bits(4)(0))
 
-  def midpoint = subtick === bits((UartOversampleCount / 2) - 1, 4)
-  def boundary = subtick === bits(UartOversampleCount - 1, 4)
+  def midpoint = subtick === Bits(4)((UartOversampleCount / 2) - 1)
+  def boundary = subtick === Bits(4)(UartOversampleCount - 1)
   def complete = (state === UartReceiverState.Stop) & oversample_tick & boundary
-  def data_mask = bits(1, 8) << bit_index
+  def data_mask = Bits(8)(1) << bit_index
 
   received.valid <== complete
   received.bits <== data
@@ -102,7 +102,7 @@ sync_circuit Uart8N1Receiver():
     state <== UartReceiverState.Idle
   elsewhen (validate_start & !serial_bit):
     state <== UartReceiverState.Data
-  elsewhen (sample_data & (bit_index === bits(7, 3))):
+  elsewhen (sample_data & (bit_index === Bits(3)(7))):
     state <== UartReceiverState.Stop
   elsewhen (sample_stop & serial_bit):
     state <== UartReceiverState.Idle
@@ -112,18 +112,18 @@ sync_circuit Uart8N1Receiver():
     state <== UartReceiverState.Idle
 
   when detect_start:
-    subtick <== bits(0, 4)
+    subtick <== Bits(4)(0)
   elsewhen (oversample_tick & timing_active):
     subtick <== mux(
       validate_start ||| sample_data ||| sample_stop,
-      bits(0, 4),
-      subtick + bits(1, 4)
+      Bits(4)(0),
+      subtick + Bits(4)(1)
     )
 
   when (validate_start & !serial_bit):
-    bit_index <== bits(0, 3)
-  elsewhen (sample_data & (bit_index =/= bits(7, 3))):
-    bit_index <== bit_index + bits(1, 3)
+    bit_index <== Bits(3)(0)
+  elsewhen (sample_data & (bit_index =/= Bits(3)(7))):
+    bit_index <== bit_index + Bits(3)(1)
 
   when sample_data:
     data <== mux(serial_bit, data ||| data_mask, data & !data_mask)

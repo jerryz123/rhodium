@@ -7,6 +7,6 @@ sync_circuit WideResetScope():
   input condition: Bits(2)
   output value: Bits(1)
   reset_when(condition):
-    value <== bits(0, 1)
+    value <== Bits(1)(0)
 
 elaborate(WideResetScope())

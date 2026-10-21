@@ -45,7 +45,7 @@ hardware_enum RV5StageImmediateSelect:
   Prefetch
   /* Extracts and extends the selected immediate to the caller's width; None produces zero. */
   method decode(select, instruction :: Bits(32), width :: PosInt) :: Bits(width):
-    mux_lookup(select, ~default: bits(0, width)):
+    mux_lookup(select, ~default: Bits(width)(0)):
       RV5StageImmediateSelect.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
       RV5StageImmediateSelect.S: instruction_immediate(riscv_fields.SImmediate, instruction, width)
       RV5StageImmediateSelect.B: instruction_immediate(riscv_fields.BImmediate, instruction, width)

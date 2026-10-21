@@ -50,7 +50,7 @@ def deferred = compile_program(elaborate(Pair(#true)), rtl_target).report.elabor
 sync_circuit SyncLeaf():
   input source: Bits(8)
   output result: Bits(8)
-  reg stored(~init: bits(0, 8))
+  reg stored(~init: Bits(8)(0))
   stored <== source
   result <== stored
 

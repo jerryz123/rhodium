@@ -17,8 +17,8 @@ sync_circuit TestObserver(instance :: Nat, context :: Boolean):
     if context
     | input external_child_value: Bits(8)
       external_child_value
-    | bits(0, 8)
-  cosim_test_sample.call(bits(instance, 64), value ^ component_child_value ^ extra, ~enable: accepted)
+    | Bits(8)(0)
+  cosim_test_sample.call(Bits(64)(instance), value ^ component_child_value ^ extra, ~enable: accepted)
 
 fun recipe(configuration :: Map, types :: Map, _parameters :: Map, instance :: Nat):
   if configuration["unsupported"] | error(~who: #'recipe, "unsupported test profile") | #void

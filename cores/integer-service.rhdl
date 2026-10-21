@@ -61,14 +61,14 @@ sync_circuit BufferedMultiplyReturns(Result :: DataType, capacity :: PosInt):
   // Standalone clients with arbitrary sink backpressure use the elastic
   // adapter. The integrated core selects scheduled writeback instead.
   inst completed(Queue(Result, capacity))
-  reg outstanding(~init: bits(0, count_width))
+  reg outstanding(~init: Bits(count_width)(0))
   completed.egress |> result
   completion |> to_decoupled() |> completed.ingress
-  capacity_available <== (outstanding =/= bits(capacity, count_width)) ||| result.fire()
+  capacity_available <== (outstanding =/= Bits(count_width)(capacity)) ||| result.fire()
   when (launched.valid & !result.fire()):
-    outstanding <== outstanding + bits(1, count_width)
+    outstanding <== outstanding + Bits(count_width)(1)
   elsewhen (result.fire() & !launched.valid):
-    outstanding <== outstanding - bits(1, count_width)
+    outstanding <== outstanding - Bits(count_width)(1)
 
 /* Delays tags alongside fixed-latency products; either guarantees immediate writeback
    or bounds in-flight launches so every return fits the elastic completion queue. */

@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/layers/comb.rhm".bits
   "../../../rhodium/frontend/layers/enum.rhm" as enum
   "../../../rhodium/frontend/layers/tagged-union.rhm" as union
   "../../../rhodium/frontend/support/hardware-literal.rhm".HardwareLiteral
@@ -50,7 +50,7 @@ check:
   fixture.OneHotRequest.Data.tag.packed_value() ~is 2
   type_equal(fixture.Option(Bits(8)), fixture.Option(Bits(8))) ~is #true
   type_equal(fixture.Option(Bits(8)), fixture.Option(Bits(16))) ~is #false
-  fixture.Option(Bits(8)).Some(bits(0xA5, 8)).packed_value() ~is 0x1A5
+  fixture.Option(Bits(8)).Some(hw.Bits(8)(0xA5)).packed_value() ~is 0x1A5
   fixture.Request.Idle is_a HardwareLiteral ~is #true
   fixture.Request.Idle.packed_value() ~is 0
   fixture.read_request is_a HardwareLiteral ~is #true

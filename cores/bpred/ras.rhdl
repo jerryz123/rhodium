@@ -15,8 +15,8 @@ fun riscv_ras_action(instruction :: Bits(32)) :~ RasAction:
   def opcode = instruction_field(riscv_fields.opcode, instruction)
   def rd = instruction_field(riscv_fields.rd, instruction)
   def rs1 = instruction_field(riscv_fields.rs1, instruction)
-  def rd_link = rd.is_one_of(bits(1, 5), bits(5, 5))
-  def rs1_link = rs1.is_one_of(bits(1, 5), bits(5, 5))
+  def rd_link = rd.is_one_of(Bits(5)(1), Bits(5)(5))
+  def rs1_link = rs1.is_one_of(Bits(5)(1), Bits(5)(5))
   def indirect_action = priority_mux(~default: RasAction.None):
     rd_link & rs1_link: mux(rd === rs1, RasAction.Push, RasAction.PopPush)
     rd_link: RasAction.Push
@@ -27,13 +27,13 @@ fun riscv_ras_action(instruction :: Bits(32)) :~ RasAction:
 
 /* Classifies raw C.JAL, C.JR, and C.JALR hints, including RV32-only direct calls. */
 fun riscv_compressed_ras_action(xlen :: XLen, instruction :: Bits(16)) :~ RasAction:
-  def direct_call = Bool(xlen == XLen.X32) & (instruction[0..2] === bits(1, 2)) & (instruction[13..16] === bits(1, 3))
-  def indirect = (instruction[0..2] === bits(2, 2)) & (instruction[13..16] === bits(4, 3)) & (instruction[2..7] === bits(0, 5)) & instruction[7..12].or_reduce()
+  def direct_call = Bool(xlen == XLen.X32) & (instruction[0..2] === Bits(2)(1)) & (instruction[13..16] === Bits(3)(1))
+  def indirect = (instruction[0..2] === Bits(2)(2)) & (instruction[13..16] === Bits(3)(4)) & (instruction[2..7] === Bits(5)(0)) & instruction[7..12].or_reduce()
   def rs1 = instruction[7..12]
-  def rs1_link = rs1.is_one_of(bits(1, 5), bits(5, 5))
+  def rs1_link = rs1.is_one_of(Bits(5)(1), Bits(5)(5))
   def link = instruction[12].into(Bool)
   def indirect_action = priority_mux(~default: RasAction.None):
-    link: mux(rs1 === bits(5, 5), RasAction.PopPush, RasAction.Push)
+    link: mux(rs1 === Bits(5)(5), RasAction.PopPush, RasAction.Push)
     rs1_link: RasAction.Pop
   priority_mux(~default: RasAction.None):
     direct_call: RasAction.Push
@@ -61,40 +61,40 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
 
   def index_bits = index_width(entry_count)
   def count_bits = index_width(entry_count + 1)
-  def empty_entries = vec(for List (_index in 0..entry_count): bits(0, xlen.width))
+  def empty_entries = vec(for List (_index in 0..entry_count): Bits(xlen.width)(0))
   reg speculative_entries(Vec(entry_count, Bits(xlen.width)), ~init: empty_entries)
-  reg speculative_top(~init: bits(0, index_bits))
-  reg speculative_count(~init: bits(0, count_bits))
+  reg speculative_top(~init: Bits(index_bits)(0))
+  reg speculative_count(~init: Bits(count_bits)(0))
 
   reg committed_entries(Vec(entry_count, Bits(xlen.width)), ~init: empty_entries)
-  reg committed_top(~init: bits(0, index_bits))
-  reg committed_count(~init: bits(0, count_bits))
+  reg committed_top(~init: Bits(index_bits)(0))
+  reg committed_count(~init: Bits(count_bits)(0))
 
   /* Advances a circular stack index with wrap at the configured depth. */
   fun increment(index :: Bits(index_bits)) :~ Bits(index_bits):
-    mux(index === bits(entry_count - 1, index_bits), bits(0, index_bits), index + bits(1, index_bits))
+    mux(index === Bits(index_bits)(entry_count - 1), Bits(index_bits)(0), index + Bits(index_bits)(1))
 
   /* Moves a circular stack index backwards with wrap from zero. */
   fun decrement(index :: Bits(index_bits)) :~ Bits(index_bits):
-    mux(index === bits(0, index_bits), bits(entry_count - 1, index_bits), index - bits(1, index_bits))
+    mux(index === Bits(index_bits)(0), Bits(index_bits)(entry_count - 1), index - Bits(index_bits)(1))
 
   /* Computes the top after push/pop; pop-then-push replaces the current top. */
   fun updated_top(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
     mux_lookup(action, ~default: top):
-      RasAction.Push: mux(count === bits(0, count_bits), top, increment(top))
-      RasAction.Pop: mux(count === bits(0, count_bits), top, decrement(top))
+      RasAction.Push: mux(count === Bits(count_bits)(0), top, increment(top))
+      RasAction.Pop: mux(count === Bits(count_bits)(0), top, decrement(top))
 
   /* Saturates depth on push/pop and makes pop-then-push nonempty without increasing
      existing depth. */
   fun updated_count(count :: Bits(count_bits), action :: RasAction) :~ Bits(count_bits):
     mux_lookup(action, ~default: count):
-      RasAction.Push: mux(count === bits(entry_count, count_bits), count, count + bits(1, count_bits))
-      RasAction.Pop: mux(count === bits(0, count_bits), count, count - bits(1, count_bits))
-      RasAction.PopPush: mux(count === bits(0, count_bits), bits(1, count_bits), count)
+      RasAction.Push: mux(count === Bits(count_bits)(entry_count), count, count + Bits(count_bits)(1))
+      RasAction.Pop: mux(count === Bits(count_bits)(0), count, count - Bits(count_bits)(1))
+      RasAction.PopPush: mux(count === Bits(count_bits)(0), Bits(count_bits)(1), count)
 
   /* Selects the next top for push, or the current top for pop-then-push replacement. */
   fun write_index(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
-    mux(action === RasAction.Push, mux(count === bits(0, count_bits), top, increment(top)), top)
+    mux(action === RasAction.Push, mux(count === Bits(count_bits)(0), top, increment(top)), top)
 
   /* Resolved and speculative update candidates.
      Computes both stacks' next payloads before choosing recovery priority;
@@ -108,7 +108,7 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
   def committed_next_count = updated_count(committed_count, resolve.bits.actual.action)
   def reconcile = resolve.valid & (resolve.bits.actual.action =/= resolve.bits.predicted_action)
 
-  head_valid <== speculative_count =/= bits(0, count_bits)
+  head_valid <== speculative_count =/= Bits(count_bits)(0)
   head <== speculative_entries[speculative_top]
 
   /* Stack publication and recovery.
@@ -117,11 +117,11 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
 
   when (clear.valid):
     committed_entries <== empty_entries
-    committed_top <== bits(0, index_bits)
-    committed_count <== bits(0, count_bits)
+    committed_top <== Bits(index_bits)(0)
+    committed_count <== Bits(count_bits)(0)
     speculative_entries <== empty_entries
-    speculative_top <== bits(0, index_bits)
-    speculative_count <== bits(0, count_bits)
+    speculative_top <== Bits(index_bits)(0)
+    speculative_count <== Bits(count_bits)(0)
   otherwise:
     // Resolution may advance committed state while a new speculative action
     // advances the other stack. Recovery includes this edge's resolved action.

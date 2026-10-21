@@ -73,11 +73,11 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
      before acceptance, without reissuing a completed prefix. */
 
   def offset = saved.address[0..alignment_bits(word_bytes)]
-  def shift = offset ++ bits(0, 3)
-  def remaining_bytes = bits(word_bytes, alignment_bits(word_bytes) + 1) - offset.zext(alignment_bits(word_bytes) + 1)
-  def remaining_shift = remaining_bytes ++ bits(0, 3)
+  def shift = offset ++ Bits(3)(0)
+  def remaining_bytes = Bits(alignment_bits(word_bytes) + 1)(word_bytes) - offset.zext(alignment_bits(word_bytes) + 1)
+  def remaining_shift = remaining_bytes ++ Bits(3)(0)
   def crosses_word = memory_crosses_word(xlen, saved.address, saved.width)
-  def second_address = saved.address.align_down(word_bytes) + bits(word_bytes, width)
+  def second_address = saved.address.align_down(word_bytes) + Bits(width)(word_bytes)
   def first_fragment = saved.updated(
     ~byte_mask: memory_byte_mask(xlen, saved.address, saved.width),
     ~address: saved.address.align_down(word_bytes),
@@ -111,16 +111,16 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   when (second_response.valid):
     second_data <== second_response.bits.data
   inst load(LoadGen(xlen, word_bytes))
-  load.address <== bits(0, width)
+  load.address <== Bits(width)(0)
   load.width <== saved.width
   load.unsigned_load <== saved.unsigned
-  load.data <== (first_data >> shift) ||| mux(crosses_word, second_data << remaining_shift, bits(0, width))
+  load.data <== (first_data >> shift) ||| mux(crosses_word, second_data << remaining_shift, Bits(width)(0))
   completion.valid <== state === RiscvMisalignedState.Complete
   completion.bits <== RiscvSplitResult(xlen, Context):
     response:
       PhysicalMemoryResp(xlen, Context):
         access_fault: access_fault
-        data: mux(saved.access === CacheOperation.Store, bits(0, width), load.value)
+        data: mux(saved.access === CacheOperation.Store, Bits(width)(0), load.value)
         context: saved.context
     page_fault: page_fault
     fault_address: fault_address

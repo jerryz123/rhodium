@@ -25,11 +25,11 @@ sync_circuit RouterFamilyFixture():
   def hub_incoming = for Array (index in 0..family_plan.ingress_count): hub_ingress[family_plan.injection_count + index]
   def hub_outgoing = for Array (index in 0..family_plan.egress_count): hub_egress[index]
   bind_router_plane(config, ~router_site_key: source.site_key,
-                    ~site_key: bits(family_plan.site_key(fixture.source_a), config.route_decoder.site_width),
+                    ~site_key: Bits(config.route_decoder.site_width)(family_plan.site_key(fixture.source_a)),
                     ~ingress: source.ingress, ~targets: source.target,
                     ~incoming: source_incoming, ~outgoing: source_outgoing)
   bind_router_plane(config, ~router_site_key: hub.site_key,
-                    ~site_key: bits(family_plan.site_key(fixture.hub), config.route_decoder.site_width),
+                    ~site_key: Bits(config.route_decoder.site_width)(family_plan.site_key(fixture.hub)),
                     ~ingress: hub.ingress, ~targets: hub.target,
                     ~incoming: hub_incoming, ~outgoing: hub_outgoing)
   source.ingress[0] <=> source_ingress[0]

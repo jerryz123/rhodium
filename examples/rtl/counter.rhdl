@@ -9,7 +9,7 @@ fun wrap_around(n :: Bits,
   def width = n.type.width
   def comparable_max:
     if (max.type.width == width) | max | max.zext(width)
-  mux(n > comparable_max, bits(0, width), n)
+  mux(n > comparable_max, Bits(width)(0), n)
 
 /* This is an ordinary host function, but calling it during elaboration creates
    a register and returns its readable hardware value. */
@@ -17,7 +17,7 @@ fun counter(max :: Bits,
             en :: Bool,
             amt :: Bits) :: Bits(max.type.width):
   def width = max.type.width
-  reg x(~init: bits(0, width))
+  reg x(~init: Bits(width)(0))
 
   when en:
     // Preserve the carry so the hardware comparison can detect crossing max,
@@ -32,7 +32,7 @@ sync_circuit Counter():
   input amt: Bits(4)
   output tot: Bits(8)
 
-  tot <== counter(bits(255, 8), inc, amt)
+  tot <== counter(Bits(8)(255), inc, amt)
 
 def program = elaborate(Counter())
 

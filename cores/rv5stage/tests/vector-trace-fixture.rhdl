@@ -33,10 +33,10 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   decode.instruction <== instruction
   vector.request.valid <== request_valid
   vector.request.bits <== VectorInstruction(xlen, Bits(64)):
-    context: bits(0x100, 64)
+    context: Bits(64)(0x100)
     descriptor:
       VectorDescriptor(xlen):
-        pc: bits(0x100, 64)
+        pc: Bits(64)(0x100)
         precertified: Bool(#false)
         certificate: dont_care(vector.request.bits.descriptor.certificate.type)
         instruction: instruction
@@ -45,12 +45,12 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
             vl: vl
             vtype: vtype
             vstart: vstart
-            vxrm: bits(0, 2)
+            vxrm: Bits(2)(0)
             vxsat: Bool(#false)
         control: decode.control.vector
-        scalar: bits(0, 64)
-        floating_scalar: bits(0, 64)
-        stride: bits(0, 64)
+        scalar: Bits(64)(0)
+        floating_scalar: Bits(64)(0)
+        stride: Bits(64)(0)
         masked: !instruction[25].into(Bool)
         rounding_mode: RoundingMode.NearEven
         pointer_masking:
@@ -64,17 +64,17 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   (
     tokens.egress |> filter_valid(token => token.memory & !cancel) |> map_valid(token => VectorCommit(xlen, slots)):
       tag: token.completion_tag
-      pc: bits(0x100, 64)
+      pc: Bits(64)(0x100)
       disposition: disposition
       slow: slow & token.enabled
-      data: bits(0, 64)
-      cause: bits(0, 64)
-      fault_address: bits(0, 64)
+      data: Bits(64)(0)
+      cause: Bits(64)(0)
+      fault_address: Bits(64)(0)
   ) |> vector.decision
   vector.completion.valid <== response_valid
   vector.completion.bits <== VectorCompletion(xlen, slots):
     tag: response_tag
-    data: bits(0, 64)
+    data: Bits(64)(0)
   response_ready <== vector.completion.ready
   vector.memory_drained <== Bool(#true)
   vector.fp_request.ready <== Bool(#false)

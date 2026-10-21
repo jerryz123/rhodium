@@ -57,7 +57,7 @@ fun cache_chi_address_fits(address :: Bits,
 fun cache_chi_snoop_address(p :: CHIFlitParams,
                             address_width :: PosInt,
                             snoop_address :: Bits(p.snoop_address_width)) :~ Bits(address_width):
-  def raw_address = snoop_address ++ bits(0, 3)
+  def raw_address = snoop_address ++ Bits(3)(0)
   if address_width <= p.request_address_width
   | raw_address[0..address_width]
   | raw_address.zext(address_width)
@@ -112,10 +112,10 @@ fun cache_chi_response(p :: CHIFlitParams,
                        target_id :: Bits(p.node_id_width),
                        txn_id :: Bits(12),
                        opcode :: CHIRspOpcode,
-                       ~resp: response :: Bits(3) = bits(0, 3))
+                       ~resp: response :: Bits(3) = Bits(3)(0))
   :~ CHIRspFlit(p):
   chi_response(p, node_id, target_id, txn_id, opcode,
-               ~dbid: bits(0, 12), ~resp: response, ~error: CHIRespErr.OK, ~qos: bits(0, 4))
+               ~dbid: Bits(12)(0), ~resp: response, ~error: CHIRespErr.OK, ~qos: Bits(4)(0))
 
 /* Selects snoops that downgrade a retained clean line to SharedClean. */
 fun cache_snoop_shares_cache_state(opcode :: CHISnpOpcode) :~ Bool:

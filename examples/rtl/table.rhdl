@@ -8,7 +8,7 @@ circuit Tbl():
   input addr: Bits(8)
   output out: Bits(8)
 
-  def r = vec(for List (i in 0..256): bits(i, 8))
+  def r = vec(for List (i in 0..256): Bits(8)(i))
 
   // Every possible eight-bit selector names exactly one table element.
   out <== r[addr]

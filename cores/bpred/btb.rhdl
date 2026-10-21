@@ -56,8 +56,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
 
   reg pages(~init: vec(for List (_index in 0..page_count): literal(Page, 0)))
   reg entries(~init: vec(for List (_index in 0..entry_count): literal(Entry, 0)))
-  reg replacement(~init: bits(0, index_bits))
-  reg page_replacement(~init: bits(0, page_index_bits))
+  reg replacement(~init: Bits(index_bits)(0))
+  reg page_replacement(~init: Bits(page_index_bits)(0))
   /* Extracts upper address bits shared by PC and target page entries. */
   fun page_tag(address :: Bits(xlen.width)) :~ Bits(xlen.width - match_bits):
     address[match_bits..xlen.width]
@@ -66,7 +66,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
     vec(for List (index in 0..page_count): pages[index].valid & (pages[index].tag === page_tag(address)))
   /* Advances the shared-page replacement cursor with wrap at the configured page count. */
   fun next_page(index :: Bits(page_index_bits)) :~ Bits(page_index_bits):
-    mux(index === bits(page_count - 1, page_index_bits), bits(0, page_index_bits), index + bits(1, page_index_bits))
+    mux(index === Bits(page_index_bits)(page_count - 1), Bits(page_index_bits)(0), index + Bits(page_index_bits)(1))
 
 
   /* Combinational prediction lookup.
@@ -83,7 +83,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
       entry.valid & pages[entry.target_page].valid & block_matches & at_or_after_cursor & predicted_taken
   )
   def offsets = for List (offset in 0..(fetch_bytes / 2)):
-    vec(for List (index in 0..entry_count): candidates[index] & (entries[index].pc_low[0..offset_bits] === bits(offset * 2, offset_bits)))
+    vec(for List (index in 0..entry_count): candidates[index] & (entries[index].pc_low[0..offset_bits] === Bits(offset_bits)(offset * 2)))
   def mutable earliest = candidates
   // Visit later offsets first so an earlier nonempty offset wins the fold.
   for (offset :: Vec(entry_count, Bool) in offsets.reverse()):
@@ -114,8 +114,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
     matched: priority_encoder(matches)
     empty.or_reduce(): priority_encoder(empty)
   def previous = entries[selected_index]
-  def incremented = mux(previous.counter === bits(3, 2), previous.counter, previous.counter + bits(1, 2))
-  def decremented = mux(previous.counter === bits(0, 2), previous.counter, previous.counter - bits(1, 2))
+  def incremented = mux(previous.counter === Bits(2)(3), previous.counter, previous.counter + Bits(2)(1))
+  def decremented = mux(previous.counter === Bits(2)(0), previous.counter, previous.counter - Bits(2)(1))
   def write = (update.valid & (matched ||| (update.bits.branch & update.bits.taken))) ||| discovering
   def commit_write = write & !invalidate.valid
   def write_valid = mux(update.valid, update.bits.branch, Bool(#true))
@@ -135,7 +135,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def pc_page = priority_mux(~default: pc_replacement):
     pc_page_found: priority_encoder(write_pc_pages)
     empty_pages.or_reduce(): priority_encoder(empty_pages)
-  def target_empty_pages = vec(for List (index in 0..page_count): empty_pages[index] & (pc_page =/= bits(index, page_index_bits)))
+  def target_empty_pages = vec(for List (index in 0..page_count): empty_pages[index] & (pc_page =/= Bits(page_index_bits)(index)))
   def target_replacement = mux(page_replacement === pc_page, next_page(page_replacement), page_replacement)
   def target_page = priority_mux(~default: target_replacement):
     same_page: pc_page
@@ -145,7 +145,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def replace_target_page = allocate_pages & !same_page & !target_page_found & pages[target_page].valid
   def replaced_page = vec(
     for List (index in 0..page_count):
-      (replace_pc_page & (pc_page === bits(index, page_index_bits))) ||| (replace_target_page & (target_page === bits(index, page_index_bits)))
+      (replace_pc_page & (pc_page === Bits(page_index_bits)(index))) ||| (replace_target_page & (target_page === Bits(page_index_bits)(index)))
   )
   def invalidated_entries = vec(
     for List (index in 0..entry_count):
@@ -163,21 +163,21 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
      independently, so their update guards must remain separate. */
 
   when (invalidate_all.valid):
-    replacement <== bits(0, index_bits)
+    replacement <== Bits(index_bits)(0)
   elsewhen (commit_write & !matched):
-    replacement <== mux(selected_index === bits(entry_count - 1, index_bits), bits(0, index_bits), selected_index + bits(1, index_bits))
+    replacement <== mux(selected_index === Bits(index_bits)(entry_count - 1), Bits(index_bits)(0), selected_index + Bits(index_bits)(1))
   when (invalidate_all.valid):
-    page_replacement <== bits(0, page_index_bits)
+    page_replacement <== Bits(page_index_bits)(0)
   elsewhen (allocate_pages & (!pc_page_found ||| (!same_page & !target_page_found))):
     page_replacement <== next_page(mux(!same_page & !target_page_found, target_page, pc_page))
   for (index in 0..page_count):
     when (invalidate_all.valid):
       pages[index] <== literal(Page, 0)
-    elsewhen (allocate_pages & !pc_page_found & (pc_page === bits(index, page_index_bits))):
+    elsewhen (allocate_pages & !pc_page_found & (pc_page === Bits(page_index_bits)(index))):
       pages[index] <== BtbPage(xlen.width - match_bits):
         valid: Bool(#true)
         tag: page_tag(write_pc)
-    elsewhen (allocate_pages & !same_page & !target_page_found & (target_page === bits(index, page_index_bits))):
+    elsewhen (allocate_pages & !same_page & !target_page_found & (target_page === Bits(page_index_bits)(index))):
       pages[index] <== BtbPage(xlen.width - match_bits):
         valid: Bool(#true)
         tag: page_tag(write_target)
@@ -187,13 +187,13 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
      then invalidation caused by a replaced shared page. */
 
   def trained_counter = mux(update.bits.taken, incremented, decremented)
-  def write_counter = mux(update.valid & matched, trained_counter, bits(2, 2))
+  def write_counter = mux(update.valid & matched, trained_counter, Bits(2)(2))
   for (index in 0..entry_count):
     when (invalidate_all.valid):
       entries[index] <== literal(Entry, 0)
     elsewhen (invalidate.valid & invalidate_matches[index]):
       entries[index] <== entries[index].updated(~valid: Bool(#false))
-    elsewhen (commit_write & (selected_index === bits(index, index_bits))):
+    elsewhen (commit_write & (selected_index === Bits(index_bits)(index))):
       entries[index] <== BtbEntry(match_bits, page_count):
         valid: write_valid
         pc_low: write_pc[0..match_bits]

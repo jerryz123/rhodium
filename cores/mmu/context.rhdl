@@ -22,8 +22,8 @@ fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privileg
     access: access
     context:
       RiscvGuestTranslationContext():
-        vs_mode: mux(mux(guest, csr_field(state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
-        g_mode: mux(guest & (csr_field(state.hgatp, Hgatp64Mode) === bits(Sv39Mode, 4)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
+        vs_mode: mux(mux(guest, csr_field(state.vsatp, Satp64Mode) === Bits(4)(Sv39Mode), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
+        g_mode: mux(guest & (csr_field(state.hgatp, Hgatp64Mode) === Bits(4)(Sv39Mode)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
         vs_root_ppn: mux(guest, csr_field(state.vsatp, Satp64PPN), root_ppn)
         g_root_ppn: csr_field(state.hgatp, Hgatp64PPN)
         privilege: privilege

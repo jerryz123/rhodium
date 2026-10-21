@@ -10,7 +10,7 @@ circuit ValidMapForkChain():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress[2](Valid(Bits(9)), ~role: producer)
 
-  def mapped = ingress |> map_valid(payload => (bits(0, 1) ++ payload))
+  def mapped = ingress |> map_valid(payload => (Bits(1)(0) ++ payload))
   def outputs = mapped |> fork_valid(2)
   egress <=> outputs
 

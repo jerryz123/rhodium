@@ -20,8 +20,8 @@ class CHIRequestSupport(opcode :: CHIReqOpcode, sizes :: TransferSizes):
    */
   method matches(request_opcode :: CHIReqOpcode, size :: CHITransferSize) :~ Bool:
     (request_opcode === opcode) & (
-      size.as_bits() >= bits(alignment_bits(sizes.min_bytes), 3)
-    ) & (size.as_bits() <= bits(alignment_bits(sizes.max_bytes), 3))
+      size.as_bits() >= Bits(3)(alignment_bits(sizes.min_bytes))
+    ) & (size.as_bits() <= Bits(3)(alignment_bits(sizes.max_bytes)))
 
 /* Reject multiple size-range entries for the same opcode in one service profile. */
 fun require_unique_request_support(requests :: List.of(CHIRequestSupport),
@@ -161,7 +161,7 @@ class CHISubordinateMapEntry(address_set :: AddressSet,
 fun chi_map_lookup(address :: Bits, address_sets :: NonemptyList.of(AddressSet), node_ids :: NonemptyList.of(Nat), node_id_width :: PosInt):
   def matches = vec(for List (address_set in address_sets): address_set.matches(address))
   def selection = matches.as_bits().into(MaybeOneHot(address_sets.length()))
-  def node_id = selection.mux(for List (target in node_ids): bits(target, node_id_width), ~default: bits(0, node_id_width))
+  def node_id = selection.mux(for List (target in node_ids): Bits(node_id_width)(target), ~default: Bits(node_id_width)(0))
   [selection.valid, node_id]
 
 /* Return subordinate decode validity independently of a possibly zero NodeID. */

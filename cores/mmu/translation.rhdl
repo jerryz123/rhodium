@@ -83,7 +83,7 @@ fun riscv_host_lookup(request :: RiscvTranslationRequest(), ~enabled: enabled ::
     vs_mode: mux(enabled, RiscvVSMode.Sv39, RiscvVSMode.Bare)
     g_mode: RiscvGMode.Bare
     vs_root_ppn: request.root_ppn
-    g_root_ppn: bits(0, 44)
+    g_root_ppn: Bits(44)(0)
     privilege: request.privilege
     vs_sum: request.sum
     vs_mxr: request.mxr
@@ -103,8 +103,8 @@ fun riscv_host_mapping(result :: RiscvTranslationResult()) :~ RiscvTlbMapping():
     ppn: result.base_ppn
     napot: Bool(#false)
     pbmt: result.pbmt
-    reserved: bits(0, 7)
-    rsw: bits(0, 2)
+    reserved: Bits(7)(0)
+    rsw: Bits(2)(0)
     dirty: result.dirty
     accessed: result.accessed
     global_mapping: result.global_mapping

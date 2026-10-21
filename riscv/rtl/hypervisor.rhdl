@@ -45,13 +45,13 @@ bundle RiscvGuestTranslationContext():
 
 /* Checks that the unsigned guest-physical address fits Sv39x4's 41-bit input geometry. */
 fun sv39x4_address_valid(address :: Bits(64)) :~ Bool:
-  address[41..64] === bits(0, 23)
+  address[41..64] === Bits(23)(0)
 
 /* Selects the G-stage VPN, widening ordinary lower-level indices to the 11-bit root-index width. */
 fun sv39x4_vpn(address :: Bits(64), level :: Bits(2)) :~ Bits(11):
   mux_lookup(level, ~default: address[30..41]):
-    0: bits(0, 2) ++ address[12..21]
-    1: bits(0, 2) ++ address[21..30]
+    0: Bits(2)(0) ++ address[12..21]
+    1: Bits(2)(0) ++ address[21..30]
 
 /* Captured with a fault, not reconstructed from a later translation context.
  * guest_physical_address is the original GPA; trap CSRs expose it shifted by two. */
@@ -115,7 +115,7 @@ fun hypervisor_trap_target(context :: RiscvExecutionContext(), cause :: Bits(64)
 fun guest_fault_instruction(fault :: RiscvGuestFault()) :~ Bits(64):
   // RV64 implicit VS page-table read pseudo-instruction; explicit traps may
   // report zero instead of providing a transformed instruction.
-  mux(fault.access === RiscvGuestFaultAccess.PageTableRead, bits(0x3000, 64), bits(0, 64))
+  mux(fault.access === RiscvGuestFaultAccess.PageTableRead, Bits(64)(0x3000), Bits(64)(0))
 
 export:
   RiscvGuestMemoryAccess

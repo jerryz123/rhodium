@@ -106,17 +106,17 @@ fun bind_simple_router_family_site(T :: DataType,
                                    config :: SimpleRouterFamilyConfig,
                                    node :: NodeId,
                                    ~site_key: site_key :: Bits(config.route_decoder.site_width),
-                                   ~ingress: ingress :: Array,
-                                   ~targets: targets :: Array):
+                                   ~ingress: ingress :: Array.later_of(Endpoint),
+                                   ~targets: targets :: Array.later_of(Endpoint)):
   def site = config.router_family_plan.site(node)
   def Beat = RoutedBeat(T, config.route_decoder.route_width)
-  site_key <== bits(site.site_key, config.route_decoder.site_width)
+  site_key <== Bits(config.route_decoder.site_width)(site.site_key)
   for (input_index in site.unused_input_indices):
-    def input :: Endpoint = ingress[input_index]
+    def input = ingress[input_index]
     input.valid <== Bool(#false)
     input.bits <== dont_care(Beat)
   for (target_index in site.unused_target_indices):
-    def target :: Endpoint = targets[target_index]
+    def target = targets[target_index]
     target.available <== Bool(#false)
     target.egress.ready <== Bool(#false)
 
@@ -125,18 +125,18 @@ fun bind_simple_router_family_site(T :: DataType,
 fun bind_router_plane(config :: SimpleRouterFamilyConfig,
                       ~router_site_key: router_site_key :: Bits(config.route_decoder.site_width),
                       ~site_key: site_key :: Bits(config.route_decoder.site_width),
-                      ~ingress: ingress :: Array,
-                      ~targets: targets :: Array,
-                      ~incoming: incoming :: Array,
-                      ~outgoing: outgoing :: Array):
+                      ~ingress: ingress :: Array.later_of(Endpoint),
+                      ~targets: targets :: Array.later_of(Endpoint),
+                      ~incoming: incoming :: Array.later_of(Endpoint),
+                      ~outgoing: outgoing :: Array.later_of(Endpoint)):
   def family = config.router_family_plan
   router_site_key <== site_key
   for (index in 0..family.ingress_count):
-    def incoming_link :: Endpoint = incoming[index]
+    def incoming_link = incoming[index]
     incoming_link <=> ingress[family.injection_count + index]
   for (index in 0..family.egress_count):
-    def outgoing_link :: Endpoint = outgoing[index]
-    def target :: Endpoint = targets[index]
+    def outgoing_link = outgoing[index]
+    def target = targets[index]
     target.egress <=> outgoing_link
     target.available <== target.egress.ready
 
@@ -144,8 +144,8 @@ fun bind_router_plane(config :: SimpleRouterFamilyConfig,
    are absolute. */
 fun close_router_local_ports(T :: DataType,
                              config :: SimpleRouterFamilyConfig,
-                             ingress :: Array,
-                             targets :: Array,
+                             ingress :: Array.later_of(Endpoint),
+                             targets :: Array.later_of(Endpoint),
                              connected_inputs :: List.of(Nat),
                              connected_targets :: List.of(Nat)):
   def family = config.router_family_plan
@@ -153,25 +153,25 @@ fun close_router_local_ports(T :: DataType,
   for (index in 0..family.injection_count):
     unless connected_inputs.contains(index)
     | block:
-        def input :: Endpoint = ingress[index]
+        def input = ingress[index]
         input.valid <== Bool(#false)
         input.bits <== dont_care(Beat)
   for (offset in 0..family.ejection_count):
     def index = family.egress_count + offset
     unless connected_targets.contains(index)
     | block:
-        def target :: Endpoint = targets[index]
+        def target = targets[index]
         target.available <== Bool(#false)
         target.egress.ready <== Bool(#false)
 
 /* Asserts every offered route is valid for its physical ingress origin before buffering. */
-fun monitor_router_ingress(inputs :: Array,
+fun monitor_router_ingress(inputs :: Array.later_of(Endpoint),
                            route_decoder :: RouteDecoder):
   for (input_index in 0..inputs.length()):
-    def input :: Endpoint = inputs[input_index]
+    def input = inputs[input_index]
     def decision = route_decoder.lookup(
       input.bits.route_key,
-      bits(input_index, route_decoder.origin_width)
+      Bits(route_decoder.origin_width)(input_index)
     )
     assert(!input.valid ||| decision.valid,
            String.append("simple_router_ingress_valid_route_",
@@ -179,15 +179,15 @@ fun monitor_router_ingress(inputs :: Array,
 
 /* Asserts ingress-route validity for the selected family site and physical input origin. */
 fun monitor_router_family_ingress(
-      inputs :: Array,
+      inputs :: Array.later_of(Endpoint),
       route_decoder :: RouterFamilyRouteDecoder,
       site_key :: Bits(route_decoder.site_width)):
   for (input_index in 0..inputs.length()):
-    def input :: Endpoint = inputs[input_index]
+    def input = inputs[input_index]
     def decision = route_decoder.lookup(
       site_key,
       input.bits.route_key,
-      bits(input_index, route_decoder.origin_width)
+      Bits(route_decoder.origin_width)(input_index)
     )
     assert(!input.valid ||| decision.valid,
            String.append("simple_router_family_ingress_valid_route_",
@@ -202,27 +202,34 @@ sync_circuit SimpleRouter(T :: DataType, config :: SimpleRouterConfig):
   interface target[config.target_count](SimpleRouterTarget(Beat), ~role: router)
   monitor_router_ingress(ingress, config.route_decoder)
 
-  // Compose the ingress array with one ordinary queue per local origin.
-  // Leaving pipe and flow disabled preserves the original registered timing.
-  def input_buffers = ingress |> parallel_handles(
+
+  /* Registered ingress queues and route decoding.
+     One queue per origin has neither flow nor pipe bypass. */
+
+  def input_buffers :: Array.later_of(Endpoint) = ingress |> parallel_handles(
     for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth)
   )
 
   def route_decisions = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
       config.route_decoder.lookup(
         input_buffer.bits.route_key,
-        bits(input_index, config.route_decoder.origin_width)
+        Bits(config.route_decoder.origin_width)(input_index)
       )
   )
 
+
+  /* Candidate and escape-fallback requests.
+     Decode validity gates both sets; downstream availability stays separate. */
+
   def requests = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
+      def candidates :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].target_mask
       def row = vec(
         for List (target_index in 0..config.target_count):
-          def candidate = route_decisions[input_index].target_mask.as_bits()[target_index].into(Bool)
+          def candidate = candidates[target_index]
           input_buffer.valid & route_decisions[input_index].valid & candidate
       )
       row
@@ -230,13 +237,19 @@ sync_circuit SimpleRouter(T :: DataType, config :: SimpleRouterConfig):
 
   def fallback_requests = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
+      def fallbacks :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].fallback_mask
       vec(
         for List (target_index in 0..config.target_count):
-          def fallback = route_decisions[input_index].fallback_mask.as_bits()[target_index].into(Bool)
+          def fallback = fallbacks[target_index]
           input_buffer.valid & route_decisions[input_index].valid & fallback
       )
   )
+
+
+  /* Allocation and traversal.
+     Only actual egress transfers advance allocator priority. */
+
   inst allocator(RouterAllocator(config.input_count, config.target_count))
   allocator.requests <== requests
   allocator.fallback_requests <== fallback_requests
@@ -255,26 +268,34 @@ sync_circuit SimpleRouterFamily(T :: DataType,
   interface target[config.target_count](SimpleRouterTarget(Beat), ~role: router)
   monitor_router_family_ingress(ingress, config.route_decoder, site_key)
 
-  def input_buffers = ingress |> parallel_handles(
+
+  /* Registered ingress queues and site-selected route decoding.
+     The uniform family shape does not change per-origin queue timing. */
+
+  def input_buffers :: Array.later_of(Endpoint) = ingress |> parallel_handles(
     for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth)
   )
 
   def route_decisions = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
       config.route_decoder.lookup(
         site_key,
         input_buffer.bits.route_key,
-        bits(input_index, config.route_decoder.origin_width)
+        Bits(config.route_decoder.origin_width)(input_index)
       )
   )
 
+
+  /* Candidate and escape-fallback requests for this site. */
+
   def requests = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
+      def candidates :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].target_mask
       def row = vec(
         for List (target_index in 0..config.target_count):
-          def candidate = route_decisions[input_index].target_mask.as_bits()[target_index].into(Bool)
+          def candidate = candidates[target_index]
           input_buffer.valid & route_decisions[input_index].valid & candidate
       )
       row
@@ -282,13 +303,18 @@ sync_circuit SimpleRouterFamily(T :: DataType,
 
   def fallback_requests = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
+      def fallbacks :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].fallback_mask
       vec(
         for List (target_index in 0..config.target_count):
-          def fallback = route_decisions[input_index].fallback_mask.as_bits()[target_index].into(Bool)
+          def fallback = fallbacks[target_index]
           input_buffer.valid & route_decisions[input_index].valid & fallback
       )
   )
+
+
+  /* Allocation and traversal retain independent target availability. */
+
   inst allocator(RouterAllocator(config.input_count, config.target_count))
   allocator.requests <== requests
   allocator.fallback_requests <== fallback_requests

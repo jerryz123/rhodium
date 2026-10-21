@@ -6,6 +6,6 @@
 sync_circuit ManualClockReference():
   output value: Bits(1)
   def leaked_clock = clock
-  value <== bits(0, 1)
+  value <== Bits(1)(0)
 
 elaborate(ManualClockReference())

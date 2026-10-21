@@ -27,7 +27,7 @@ fun compressed_selector_cases(instructions :: NonemptyList.of(CompressedInstruct
        index in 0..instructions.length()):
     for (encoding in instruction.encodings):
       for (term in compressed_instruction_patterns(instruction, encoding).terms):
-        cases := cases ++ [DecodeCase(term, bits(index, operation_width))]
+        cases := cases ++ [DecodeCase(term, Bits(operation_width)(index))]
   cases
 
 /* Builds the forbidden zero cube for a supported nonzero field/immediate legality predicate. */
@@ -42,7 +42,7 @@ fun constraint_zero_pattern(constraint :: ExpansionConstraint):
   | ~else:
       error(~who: #'constraint_zero_pattern,
             "unknown instruction-expansion legality constraint")
-  Pattern(~value: bits(0, 16), ~care: bits(care, 16))
+  Pattern(~value: Bits(16)(0), ~care: Bits(16)(care))
 
 /* Subtracts each forbidden zero cube from an encoding's accepted compact-word set. */
 fun compressed_instruction_patterns(instruction :: CompressedInstructionSpec,
@@ -58,11 +58,11 @@ fun expansion_source_bits(source :: ExpansionValueSource,
                           compressed :: Bits(16)) :~ Bits(width):
   cond
   | source is_a ConstantExpansionValue:
-      bits(source.value, width)
+      Bits(width)(source.value)
   | source is_a FieldExpansionValue:
       def field_value = instruction_field(source.field, compressed.zext(32))
       def extended = if source.field.width == width | field_value | field_value.zext(width)
-      extended + bits(source.addend, width)
+      extended + Bits(width)(source.addend)
   | ~else:
       error(~who: #'expansion_source_bits,
             "unknown instruction-expansion value source")
@@ -70,7 +70,7 @@ fun expansion_source_bits(source :: ExpansionValueSource,
 /* Places a semantic immediate's pieces into their canonical 32-bit instruction slices. */
 fun scatter_immediate_bits(layout :: ImmediateLayout,
                            value :: Bits(layout.width)) :~ Bits(32):
-  def mutable result = bits(0, 32)
+  def mutable result = Bits(32)(0)
   for (piece in layout.pieces):
     def fragment = value[piece.output_low..(piece.output_high + 1)]
     def extended = if fragment.type.width == 32 | fragment | fragment.zext(32)
@@ -80,7 +80,7 @@ fun scatter_immediate_bits(layout :: ImmediateLayout,
 /* Assembles canonical instruction hardware from descriptor fixed bits, operand bindings, and optional immediate. */
 fun materialize_expansion(expansion :: InstructionExpansion,
                           compressed :: Bits(16)) :~ Bits(32):
-  def mutable instruction = bits(expansion.target.encoding.value, 32)
+  def mutable instruction = Bits(32)(expansion.target.encoding.value)
   for (binding in expansion.bindings):
     def source = expansion_source_bits(binding.source, binding.target.width, compressed)
     instruction := instruction ||| (source.zext(32) << binding.target.low)
@@ -93,8 +93,7 @@ fun materialize_expansion(expansion :: InstructionExpansion,
       instruction ||| scatter_immediate_bits(target_immediate, immediate)
   | if expansion.immediate is_a Nat
     | instruction ||| scatter_immediate_bits(expansion.target.immediate,
-                                             bits(expansion.immediate,
-                                                  expansion.target.immediate.width))
+                                             Bits(expansion.target.immediate.width)(expansion.immediate))
     | instruction
 
 /* Combinationally decodes the selected compressed profile and returns its canonical expansion with an explicit validity bit. */
@@ -114,7 +113,7 @@ circuit RiscvCompressedExpander(xlen :: XLen,
     [index, materialize_expansion(instruction.expansion, compressed)]
   expansion <== RiscvCompressedExpansion():
     valid: decoded.valid
-    instruction: mux_lookup(decoded.value, ~default: bits(0, 32), expansion_cases)
+    instruction: mux_lookup(decoded.value, ~default: Bits(32)(0), expansion_cases)
 
 export:
   RiscvCompressedExpansion

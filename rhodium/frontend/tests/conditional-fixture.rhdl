@@ -81,17 +81,17 @@ sync_circuit StateOrientedRegisterUpdates():
   output result_out: Bits(4)
 
   reg active(~init: Bool(#false))
-  reg count(~init: bits(0, 4))
+  reg count(~init: Bits(4)(0))
   reg result(Bits(4))
 
   when start:
     active <== Bool(#true)
-    count <== bits(0, 4)
+    count <== Bits(4)(0)
   elsewhen finish:
     active <== Bool(#false)
     result <== count
   elsewhen step:
-    count <== count + bits(1, 4)
+    count <== count + Bits(4)(1)
 
   active_out <== active
   count_out <== count
@@ -169,26 +169,26 @@ sync_circuit ConditionalMemoryWritePorts():
 circuit HostCondition():
   output selected: Bits(1)
   when #true:
-    selected <== bits(1, 1)
+    selected <== Bits(1)(1)
 
 circuit WideCondition():
   input condition: Bits(2)
   output selected: Bits(1)
   when condition:
-    selected <== bits(1, 1)
+    selected <== Bits(1)(1)
 
 circuit MissingOtherwise():
   input condition: Bool
   output selected: Bits(1)
   when condition:
-    selected <== bits(1, 1)
+    selected <== Bits(1)(1)
 
 circuit DuplicateBranch():
   input condition: Bool
   output selected: Bits(1)
   when condition:
-    selected <== bits(0, 1)
-    selected <== bits(1, 1)
+    selected <== Bits(1)(0)
+    selected <== Bits(1)(1)
 
 circuit MissingBranch():
   input first: Bool
@@ -209,13 +209,13 @@ circuit SeparateConditionals():
   input second: Bool
   output selected: Bits(1)
   when first:
-    selected <== bits(0, 1)
+    selected <== Bits(1)(0)
   otherwise:
-    selected <== bits(1, 1)
+    selected <== Bits(1)(1)
   when second:
-    selected <== bits(0, 1)
+    selected <== Bits(1)(0)
   otherwise:
-    selected <== bits(1, 1)
+    selected <== Bits(1)(1)
 
 export:
   PrioritySelect

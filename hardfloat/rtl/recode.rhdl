@@ -19,29 +19,26 @@ fun raw_float_from_ieee(value :: IEEEFloat) :~ RawFloat(value.type.format.expone
   def sign = packed_value[format.ieee_width - 1].into(Bool)
   def exponent = packed_value[(significand_width - 1)..=(format.ieee_width - 2)]
   def fraction = packed_value[0..=(significand_width - 2)]
-  def zero_exponent = exponent === bits(0, exponent_width)
-  def zero_fraction = fraction === bits(0, significand_width - 1)
+  def zero_exponent = exponent === Bits(exponent_width)(0)
+  def zero_fraction = fraction === Bits(significand_width - 1)(0)
   def normalization_distance = fraction.count_leading_zeros()
   def shifted_fraction = fraction << normalization_distance
-  def subnormal_fraction = (shifted_fraction[0..=(significand_width - 3)] ++ bits(0, 1))
+  def subnormal_fraction = (shifted_fraction[0..=(significand_width - 3)] ++ Bits(1)(0))
   def exponent_width_plus_one = exponent_width + 1
-  def subnormal_exponent = normalization_distance.zext(exponent_width_plus_one) ^ bits(
-    (1 << exponent_width_plus_one) - 1,
-    exponent_width_plus_one
-  )
+  def subnormal_exponent = normalization_distance.zext(exponent_width_plus_one) ^ Bits(exponent_width_plus_one)((1 << exponent_width_plus_one) - 1)
   def selected_exponent = mux(
     zero_exponent,
     subnormal_exponent,
     exponent.zext(exponent_width_plus_one)
   )
-  def exponent_adjustment = bits(1 << (exponent_width - 1), exponent_width_plus_one) ||| mux(
+  def exponent_adjustment = Bits(exponent_width_plus_one)(1 << (exponent_width - 1)) ||| mux(
     zero_exponent,
-    bits(2, exponent_width_plus_one),
-    bits(1, exponent_width_plus_one)
+    Bits(exponent_width_plus_one)(2),
+    Bits(exponent_width_plus_one)(1)
   )
   def adjusted_exponent = selected_exponent + exponent_adjustment
   def zero = zero_exponent & zero_fraction
-  def special = adjusted_exponent[(exponent_width - 1)..=exponent_width] === bits(3, 2)
+  def special = adjusted_exponent[(exponent_width - 1)..=exponent_width] === Bits(2)(3)
 
   RawFloat(exponent_width, significand_width):
     is_nan: special & !zero_fraction
@@ -49,7 +46,7 @@ fun raw_float_from_ieee(value :: IEEEFloat) :~ RawFloat(value.type.format.expone
     is_zero: zero
     sign: sign
     signed_exponent: adjusted_exponent.zext(exponent_width + 2).into(SInt(exponent_width + 2))
-    significand: concat(bits(0, 1), !zero, mux(zero_exponent, subnormal_fraction, fraction))
+    significand: concat(Bits(1)(0), !zero, mux(zero_exponent, subnormal_fraction, fraction))
 
 /* Packs a decoded IEEE value into the same format's recoded representation,
    using exponent tags for zero, infinity, and NaN. */
@@ -59,9 +56,9 @@ fun to_recoded(value :: IEEEFloat) :~ RecFloat(value.type.format):
   def exponent = raw.signed_exponent.as_bits()
   def recoded_top = mux(
     raw.is_zero,
-    bits(0, 3),
+    Bits(3)(0),
     exponent[(format.exponent_width - 2)..=format.exponent_width]
-  ) ||| mux(raw.is_nan, bits(1, 3), bits(0, 3))
+  ) ||| mux(raw.is_nan, Bits(3)(1), Bits(3)(0))
   concat(
       raw.sign,
       recoded_top,
@@ -77,8 +74,8 @@ fun raw_float_from_recoded(value :: RecFloat) :~ RawFloat(value.type.format.expo
   def significand_width = format.significand_width
   def packed_value = value.as_bits()
   def exponent = packed_value[(significand_width - 1)..=(format.recoded_width - 2)]
-  def zero = exponent[(exponent_width - 2)..=exponent_width] === bits(0, 3)
-  def special = exponent[(exponent_width - 1)..=exponent_width] === bits(3, 2)
+  def zero = exponent[(exponent_width - 2)..=exponent_width] === Bits(3)(0)
+  def special = exponent[(exponent_width - 1)..=exponent_width] === Bits(2)(3)
   def nan_code = exponent[exponent_width - 2].into(Bool)
 
   RawFloat(exponent_width, significand_width):
@@ -87,7 +84,7 @@ fun raw_float_from_recoded(value :: RecFloat) :~ RawFloat(value.type.format.expo
     is_zero: zero
     sign: packed_value[format.recoded_width - 1].into(Bool)
     signed_exponent: exponent.zext(exponent_width + 2).into(SInt(exponent_width + 2))
-    significand: concat(bits(0, 1), !zero, packed_value[0..=(significand_width - 2)])
+    significand: concat(Bits(1)(0), !zero, packed_value[0..=(significand_width - 2)])
 
 /* Selects IEEE or recoded decoding from the nominal input type and returns
    a raw value with the input format's exponent width and precision. */
@@ -107,22 +104,19 @@ fun to_ieee(value :: RecFloat) :~ IEEEFloat(value.type.format):
   def minimum_normal_exponent = (1 << (exponent_width - 1)) + 2
   def subnormal = raw.signed_exponent < sint(minimum_normal_exponent, exponent_width + 2)
   def distance_width = index_width(significand_width - 1)
-  def denormal_shift_distance = bits(1, distance_width) - raw_exponent[0..distance_width]
+  def denormal_shift_distance = Bits(distance_width)(1) - raw_exponent[0..distance_width]
   def denormal_fraction = ((raw.significand >> 1) >> denormal_shift_distance)[0..=(significand_width - 2)]
-  def finite_exponent = raw_exponent[0..exponent_width] - bits(
-    (1 << (exponent_width - 1)) + 1,
-    exponent_width
-  )
+  def finite_exponent = raw_exponent[0..exponent_width] - Bits(exponent_width)((1 << (exponent_width - 1)) + 1)
   def special = raw.is_nan ||| raw.is_infinite
-  def exponent = mux(subnormal, bits(0, exponent_width), finite_exponent) ||| mux(
+  def exponent = mux(subnormal, Bits(exponent_width)(0), finite_exponent) ||| mux(
     special,
-    bits((1 << exponent_width) - 1, exponent_width),
-    bits(0, exponent_width)
+    Bits(exponent_width)((1 << exponent_width) - 1),
+    Bits(exponent_width)(0)
   )
   def fraction = mux(
     subnormal,
     denormal_fraction,
-    mux(raw.is_infinite, bits(0, significand_width - 1), raw.significand[0..=(significand_width - 2)])
+    mux(raw.is_infinite, Bits(significand_width - 1)(0), raw.significand[0..=(significand_width - 2)])
   )
   concat(raw.sign, exponent, fraction).into(IEEEFloat(format))
 
@@ -133,7 +127,7 @@ fun is_signaling_nan(raw :: Hardware.packable) :~ Bool:
 
 /* Constructs the format's positive canonical quiet NaN in recoded form. */
 fun canonical_recoded_nan(format :: FloatFormat) :~ RecFloat(format):
-  concat(bits(0, 1), bits(7 << (format.exponent_width - 2), format.exponent_width + 1), bits(1 << (format.significand_width - 2), format.significand_width - 1)).into(RecFloat(format))
+  concat(Bits(1)(0), Bits(format.exponent_width + 1)(7 << (format.exponent_width - 2)), Bits(format.significand_width - 1)(1 << (format.significand_width - 2))).into(RecFloat(format))
 
 export:
   to_raw

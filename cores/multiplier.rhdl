@@ -60,7 +60,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   reg preparing(~init: Bool(#false))
   reg left_negative(Bool)
   reg right_negative(Bool)
-  reg count(~init: bits(0, count_width))
+  reg count(~init: Bits(count_width)(0))
   reg multiplicand(Bits(product_width))
   reg multiplier(Bits(width))
   reg accumulator(Bits(product_width))
@@ -79,9 +79,9 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   def left_operand = multiplicand[0..width]
   def left_magnitude = mux(left_negative, -left_operand, left_operand)
   def right_magnitude = mux(right_negative, -multiplier, multiplier)
-  def addend = mux(multiplier[0].into(Bool), multiplicand, bits(0, product_width))
+  def addend = mux(multiplier[0].into(Bool), multiplicand, Bits(product_width)(0))
   def accumulated = accumulator + addend
-  def last_iteration = count === bits(width - 1, count_width)
+  def last_iteration = count === Bits(count_width)(width - 1)
   def signed_product = mux(negate_result, -accumulated, accumulated)
 
   when request_fire:
@@ -89,10 +89,10 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     preparing <== Bool(#true)
     left_negative <== request_left_negative
     right_negative <== request_right_negative
-    count <== bits(0, count_width)
+    count <== Bits(count_width)(0)
     multiplicand <== request.bits.left.zext(product_width)
     multiplier <== request.bits.right
-    accumulator <== bits(0, product_width)
+    accumulator <== Bits(product_width)(0)
     negate_result <== request_left_negative ^ request_right_negative
     response_valid <== Bool(#false)
   elsewhen preparing:
@@ -104,7 +104,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     response_valid <== Bool(#true)
     response_bits <== signed_product
   elsewhen active:
-    count <== count + bits(1, count_width)
+    count <== count + Bits(count_width)(1)
     multiplicand <== multiplicand << 1
     multiplier <== multiplier >> 1
     accumulator <== accumulated
@@ -133,8 +133,8 @@ sync_circuit PipelinedMultiplier(width :: Pow2Int):
       low_high: operation.left[0..half_width] *& operation.right[half_width..width]
       high_low: operation.left[half_width..width] *& operation.right[0..half_width]
       high_high: operation.left[half_width..width] *& operation.right[half_width..width]
-      left_correction: mux(left_negative, !operation.right, bits(0, width))
-      right_correction: mux(right_negative, !operation.left, bits(0, width))
+      left_correction: mux(left_negative, !operation.right, Bits(width)(0))
+      right_correction: mux(right_negative, !operation.left, Bits(width)(0))
       correction_carry: (left_negative & right_negative).as_bits() ++ (left_negative ^ right_negative).as_bits()
   def multiplied = partials |> valid_pipe(1)
   def reductions = multiplied |> map_valid(operation):

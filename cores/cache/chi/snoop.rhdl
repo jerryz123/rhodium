@@ -55,10 +55,10 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   reg line_hit(~init: Bool(#false))
   reg line_state(~init: CHICacheState.Invalid)
   reg line(Vec(CacheLineBytes / 8, Bits(64)))
-  reg packet_index(~init: bits(0, packet_index_width))
+  reg packet_index(~init: Bits(packet_index_width)(0))
   reg dvm_first_pending(~init: Bool(#false))
-  reg dvm_source_id(~init: bits(0, p.node_id_width))
-  reg dvm_txn_id(~init: bits(0, 12))
+  reg dvm_source_id(~init: Bits(p.node_id_width)(0))
+  reg dvm_txn_id(~init: Bits(12)(0))
 
   def incoming_snoop = snoops.bits
   def ordinary_snoop = incoming_snoop.opcode =/= CHISnpOpcode.SnpLCrdReturn
@@ -114,7 +114,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
   def snoop_data = inactive_data.updated(
     ~data: packet_data,
-    ~byte_enable: !bits(0, p.byte_enable_width),
+    ~byte_enable: !Bits(p.byte_enable_width)(0),
     ~trace_tag: request.trace_tag,
     ~tag_op: CHITagOp.Invalid,
     ~data_id: packet_data_id,
@@ -131,7 +131,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   data.valid <== active_state & lookup_complete & dirty_hit
   data.bits <== snoop_data
   def data_fire = data.fire()
-  def final_packet = packet_index === bits(packet_count - 1, packet_index_width)
+  def final_packet = packet_index === Bits(packet_index_width)(packet_count - 1)
   def snoop_complete = response_fire ||| (data_fire & final_packet)
   completed <== snoop_complete
 
@@ -154,14 +154,14 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
     lookup_complete <== Bool(#false)
     line_hit <== Bool(#false)
     line_state <== CHICacheState.Invalid
-    packet_index <== bits(0, packet_index_width)
+    packet_index <== Bits(packet_index_width)(0)
   elsewhen lookup_result_fire:
     lookup_complete <== Bool(#true)
     line_hit <== lookup_result.bits.hit
     line_state <== lookup_result.bits.state
     line <== lookup_result.bits.line
   elsewhen (data_fire & !final_packet):
-    packet_index <== packet_index + bits(1, packet_index_width)
+    packet_index <== packet_index + Bits(packet_index_width)(1)
   elsewhen snoop_complete:
     active_state <== Bool(#false)
     uses_lookup <== Bool(#false)

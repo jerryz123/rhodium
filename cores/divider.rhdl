@@ -32,7 +32,7 @@ sync_circuit IterativeDivider(width :: PosInt):
 
   reg active(~init: Bool(#false))
   reg finalizing(~init: Bool(#false))
-  reg count(~init: bits(0, count_width))
+  reg count(~init: Bits(count_width)(0))
   reg dividend(Bits(width))
   reg divisor(Bits(width))
   reg partial_remainder(Bits(remainder_width))
@@ -56,17 +56,17 @@ sync_circuit IterativeDivider(width :: PosInt):
   def request_negate_quotient = dividend_negative ^ divisor_negative
   def request_negate_remainder = dividend_negative
   def divisor_zero = !divisor_magnitude.or_reduce()
-  def divisor_one = divisor_magnitude === bits(1, width)
+  def divisor_one = divisor_magnitude === Bits(width)(1)
   def dividend_smaller = dividend_magnitude < divisor_magnitude
   def dividend_equal = dividend_magnitude === divisor_magnitude
   def direct_result = divisor_zero ||| divisor_one ||| dividend_smaller ||| dividend_equal
   def signed_dividend_magnitude = mux(request_negate_quotient, -dividend_magnitude, dividend_magnitude)
-  def signed_one = mux(request_negate_quotient, -bits(1, width), bits(1, width))
-  def direct_quotient = priority_mux(~default: bits(0, width)):
-    divisor_zero: !bits(0, width)
+  def signed_one = mux(request_negate_quotient, -Bits(width)(1), Bits(width)(1))
+  def direct_quotient = priority_mux(~default: Bits(width)(0)):
+    divisor_zero: !Bits(width)(0)
     divisor_one: signed_dividend_magnitude
     dividend_equal: signed_one
-  def direct_remainder = mux(divisor_zero ||| dividend_smaller, request.bits.dividend, bits(0, width))
+  def direct_remainder = mux(divisor_zero ||| dividend_smaller, request.bits.dividend, Bits(width)(0))
   def dividend_leading_zeros = count_leading_zeros(dividend_magnitude)
   def initial_count = dividend_leading_zeros[0..count_width]
   def aligned_dividend = dividend_magnitude << dividend_leading_zeros
@@ -79,7 +79,7 @@ sync_circuit IterativeDivider(width :: PosInt):
   def quotient_value = mux(negate_quotient, -dividend, dividend)
   def remainder_magnitude :: Bits(width) = partial_remainder[0..width]
   def remainder_value = mux(negate_remainder, -remainder_magnitude, remainder_magnitude)
-  def last_iteration = count === bits(width - 1, count_width)
+  def last_iteration = count === Bits(count_width)(width - 1)
 
   when (request_fire & direct_result):
     active <== Bool(#false)
@@ -94,7 +94,7 @@ sync_circuit IterativeDivider(width :: PosInt):
     count <== initial_count
     dividend <== aligned_dividend
     divisor <== divisor_magnitude
-    partial_remainder <== bits(0, remainder_width)
+    partial_remainder <== Bits(remainder_width)(0)
     negate_quotient <== request_negate_quotient
     negate_remainder <== request_negate_remainder
     response_valid <== Bool(#false)
@@ -110,7 +110,7 @@ sync_circuit IterativeDivider(width :: PosInt):
       quotient: quotient_value
       remainder: remainder_value
   elsewhen active:
-    count <== count + bits(1, count_width)
+    count <== count + Bits(count_width)(1)
     dividend <== next_dividend
     partial_remainder <== next_remainder
   elsewhen response_fire:

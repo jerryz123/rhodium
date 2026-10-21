@@ -25,7 +25,7 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   output(active, request_ready, legal, issued, committed, data_differed): Bool
   output probe_count: Bits(16)
   output(control_vs1, control_rs1, sew64, v0_data): Bool
-  def instruction = mux_lookup(probe, ~default: bits(probes[0].word, 32), for List (index in 0..probes.length()): [index, bits(probes[index].word, 32)])
+  def instruction = mux_lookup(probe, ~default: Bits(32)(probes[0].word), for List (index in 0..probes.length()): [index, Bits(32)(probes[index].word)])
   def vs1_control = mux_lookup(probe, ~default: Bool(probes[0].control_vs1), for List (index in 0..probes.length()): [index, Bool(probes[index].control_vs1)])
   def rs1_control = mux_lookup(probe, ~default: Bool(probes[0].control_rs1), for List (index in 0..probes.length()): [index, Bool(probes[index].control_rs1)])
   def use_sew64 = mux_lookup(probe, ~default: Bool(probes[0].sew64), for List (index in 0..probes.length()): [index, Bool(probes[index].sew64)])
@@ -43,7 +43,7 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   left.issue_ready <== issue_ready
   left.cancel <== cancel
   left.retry_enable <== Bool(#false)
-  left.retry_first <== bits(0, index_width(vlen + 1))
+  left.retry_first <== Bits(index_width(vlen + 1))(0)
   right.instruction <== instruction
   right.vtype <== vtype
   right.vl <== vl
@@ -55,7 +55,7 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   right.issue_ready <== issue_ready
   right.cancel <== cancel
   right.retry_enable <== Bool(#false)
-  right.retry_first <== bits(0, index_width(vlen + 1))
+  right.retry_first <== Bits(index_width(vlen + 1))(0)
   left.initialize <=> left_initialize
   right.initialize <=> right_initialize
   def position_equal = (left.result.sequence === right.result.sequence) & (left.result.first === right.result.first) & (left.result.end === right.result.end)
@@ -88,7 +88,7 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   issued <== left.issued
   committed <== left.committed
   data_differed <== left.committed & (left.result.write.data =/= right.result.write.data)
-  probe_count <== bits(probes.length(), 16)
+  probe_count <== Bits(16)(probes.length())
   control_vs1 <== vs1_control
   control_rs1 <== rs1_control
   sew64 <== use_sew64

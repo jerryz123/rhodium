@@ -1,5 +1,5 @@
 #lang rhodium
-// Supplies FESVR, external memory, UART, and trace boundaries to any shared single-core SoC binding.
+/* Supplies FESVR, external memory, UART, and trace boundaries to any shared single-core SoC binding. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -55,8 +55,8 @@ sync_circuit SoCHarness(params :: SingleCoreSoCParams,
       byte_enable: flit.byte_enable
     data |> sink
   memory.identity <== CHIRamIdentity(fabric.flit):
-    node_id: bits(fabric.memory_port.node_id, fabric.flit.node_id_width)
-    base_address: bits(fabric.memory_base, fabric.flit.request_address_width)
+    node_id: Bits(fabric.flit.node_id_width)(fabric.memory_port.node_id)
+    base_address: Bits(fabric.flit.request_address_width)(fabric.memory_base)
   exit <== requester.exit
 
 export:

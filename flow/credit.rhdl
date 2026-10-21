@@ -20,20 +20,20 @@ sync_circuit CreditCounter(limit :: PosInt):
   output empty: Bool
   output full: Bool
 
-  reg state(~init: bits(0, count_width))
-  def state_empty = state === bits(0, count_width)
-  def state_full = state === bits(limit, count_width)
+  reg state(~init: Bits(count_width)(0))
+  def state_empty = state === Bits(count_width)(0)
+  def state_full = state === Bits(count_width)(limit)
 
   assert(!decrement ||| !state_empty, "credit_counter_underflow")
   assert(!increment ||| decrement ||| !state_full,
          "credit_counter_overflow")
-  assert(state <= bits(limit, count_width), "credit_counter_in_range")
+  assert(state <= Bits(count_width)(limit), "credit_counter_in_range")
 
   when (increment ^ decrement):
     state <== mux(
       increment,
-      state + bits(1, count_width),
-      state - bits(1, count_width)
+      state + Bits(count_width)(1),
+      state - Bits(count_width)(1)
     )
 
   count <== state

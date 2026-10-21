@@ -17,7 +17,7 @@ bundle RiscvTrapDecision(xlen :: XLen):
 /* Materializes an architectural synchronous cause number at the supplied width. */
 fun exception_cause_bits(cause :: ExceptionCause,
                          width :: PosInt) :~ Bits(width):
-  bits(exception_code(cause), width)
+  Bits(width)(exception_code(cause))
 
 /* Prioritizes explicit exceptions over generated exceptions and applies supported medeleg routing below Machine mode. */
 fun resolve_riscv_trap(xlen :: XLen,

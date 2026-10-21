@@ -98,10 +98,10 @@ class CHIResponseProfile(name :: NonemptyString,
       for List:
         each rule in rules
         each rule_opcode in rule.opcodes
-        [rule_opcode, bits(rule_effect_mask(rule), effect_width)]
+        [rule_opcode, Bits(effect_width)(rule_effect_mask(rule))]
     if cases.length() == 0
-    | bits(0, effect_width)
-    | mux_lookup(opcode, ~default: bits(0, effect_width), cases)
+    | Bits(effect_width)(0)
+    | mux_lookup(opcode, ~default: Bits(effect_width)(0), cases)
 
   /* Test a declared milestone in the hardware effect vector. */
   method milestone(effects :: Bits(effect_width), milestone :: NonemptyString) :~ Bool:
@@ -190,12 +190,12 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
 
   reg active_state(~init: Bool(#false))
   reg attempt_sent(~init: Bool(#false))
-  reg received_state(~init: bits(0, profile.effect_width))
+  reg received_state(~init: Bits(profile.effect_width)(0))
   reg irreversible_progress(~init: Bool(#false))
   reg retry_received(~init: Bool(#false))
   reg retry_credit_received(~init: Bool(#false))
-  reg retry_credit_type(~init: bits(0, 4))
-  reg granted_credit_type(~init: bits(0, 4))
+  reg retry_credit_type(~init: Bits(4)(0))
+  reg granted_credit_type(~init: Bits(4)(0))
 
   active <== active_state
   attempt_outstanding <== attempt_sent
@@ -206,7 +206,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
   attempt.valid <== active_state & !attempt_sent & attempt_available
   attempt.bits <== CHIRequestAttempt():
     allow_retry: Bool(profile.retryable) & !retry_received
-    pcrd_type: mux(retry_received, retry_credit_type, bits(0, 4))
+    pcrd_type: mux(retry_received, retry_credit_type, Bits(4)(0))
   def attempt_fire = attempt.fire()
 
   def incoming_response = response.bits
@@ -257,7 +257,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
     attempt_sent <== Bool(#true)
 
   when (start ||| finish):
-    received_state <== bits(0, profile.effect_width)
+    received_state <== Bits(profile.effect_width)(0)
   elsewhen progress_fire:
     received_state <== received_state ||| response_effects
 
@@ -269,8 +269,8 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
   when (start ||| (attempt_fire & retry_received) ||| finish):
     retry_received <== Bool(#false)
     retry_credit_received <== Bool(#false)
-    retry_credit_type <== bits(0, 4)
-    granted_credit_type <== bits(0, 4)
+    retry_credit_type <== Bits(4)(0)
+    granted_credit_type <== Bits(4)(0)
   elsewhen retry_fire:
     retry_received <== Bool(#true)
     retry_credit_type <== incoming_response.pcrd_type

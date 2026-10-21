@@ -7,6 +7,7 @@ import:
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm") as hw
   "../../../rhodium/frontend/support/hardware-literal.rhm" open
   "hardware-literal-fixture.rhdl" as fixture
 
@@ -54,6 +55,22 @@ check:
   fixture.lanes_initial is_a HardwareLiteral ~is #true
   fixture.aggregate_initial is_a HardwareLiteral ~is #true
   fixture.bits_initial is_a PackedLiteral ~is #true
+  bits_type(hw.Bits(4)) ~is #true
+  arithmetic_type(hw.Bits(4)) ~is #true
+  hw.Bits(4) ~is hw.Bits(4)
+  hw.Bits(4).with_bit_width(8) ~is hw.Bits(8)
+  type_equal(hw.Bits(4), Bits(4)) ~is #true
+  type_equal(Bits(4), hw.Bits(4)) ~is #true
+  type_equal(hw.Bits(4), Bits(5)) ~is #false
+  fixture.bits_initial.packed_value() ~is 9
+  fixture.named_bits_initial.packed_value() ~is 2
+  fixture.named_bits_initial.literal_name() ~is "named_bits"
+  type_equal(fixture.resized_bits_initial.literal_type(), Bits(8)) ~is #true
+  fixture.resized_bits_initial.packed_value() ~is 255
+  hw.Bits(1)(0).packed_value() ~is 0
+  hw.Bits(129)(2 ** 129 - 1).packed_value() ~is 2 ** 129 - 1
+  fixture.bits_initial.same_stable_circuit_param(packed_literal(Bits(4), 9)) ~is #true
+  packed_literal(Bits(4), 9).same_stable_circuit_param(fixture.bits_initial) ~is #true
   fixture.bool_initial is_a PackedLiteral ~is #true
   fixture.raw_nibble_initial is_a PackedLiteral ~is #true
 
@@ -68,6 +85,12 @@ check:
   fixture.aggregate_initial.packed_value() ~is 0xA354
 
   packed_literal(Bits(4), 16) ~throws "does not fit bits<4>"
+  hw.Bits(0) ~throws "PosInt"
+  hw.Bits(4)(16) ~throws "does not fit bits<4>"
+  hw.Bits(129)(2 ** 129) ~throws "does not fit bits<129>"
+  hw.Bits(4)(-1) ~throws "Nat"
+  hw.Bits(4)(#true) ~throws "Nat"
+  hw.Bits(4)(1, 42) ~throws "String"
   packed_literal(Clock, 0) ~throws "DataType"
 
   module_def.name ~is "LiteralParameters"

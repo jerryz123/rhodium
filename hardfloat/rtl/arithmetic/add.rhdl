@@ -39,16 +39,16 @@ circuit AddRawFN(format :: FloatFormat):
   def shifted_exponent_difference = exponent_difference >> align_distance_width
   def maximum_alignment = (shifted_exponent_difference =/= sint(0, exponent_width + 2)) & (
     (shifted_exponent_difference =/= sint(-1, exponent_width + 2)) ||| (
-      exponent_difference.as_bits()[0..align_distance_width] === bits(0, align_distance_width)
+      exponent_difference.as_bits()[0..align_distance_width] === Bits(align_distance_width)(0)
     )
   )
   def alignment_distance = mux(
     maximum_alignment,
-    bits((1 << align_distance_width) - 1, align_distance_width),
+    Bits(align_distance_width)((1 << align_distance_width) - 1),
     modular_alignment_distance
   )
   def close_subtraction = !equal_signs & !maximum_alignment & (
-    modular_alignment_distance <= bits(1, align_distance_width)
+    modular_alignment_distance <= Bits(align_distance_width)(1)
   )
 
   /* Near-equal exponents on an effective subtraction use the close path so
@@ -57,15 +57,15 @@ circuit AddRawFN(format :: FloatFormat):
   def aligned_a = mux(
     !negative_exponent_difference & exponent_difference.as_bits()[0].into(Bool),
     a.significand.zext(close_width) << 2,
-    bits(0, close_width)
+    Bits(close_width)(0)
   ) ||| mux(
     !negative_exponent_difference & !exponent_difference.as_bits()[0].into(Bool),
     a.significand.zext(close_width) << 1,
-    bits(0, close_width)
+    Bits(close_width)(0)
   ) ||| mux(
     negative_exponent_difference,
     a.significand.zext(close_width),
-    bits(0, close_width)
+    Bits(close_width)(0)
   )
   def shifted_b = b.significand.zext(close_width) << 1
   def signed_close_sum = aligned_a.into(SInt(close_width)) - shifted_b.into(SInt(close_width))
@@ -80,7 +80,7 @@ circuit AddRawFN(format :: FloatFormat):
     | close_sum.zext(significand_width + 3) << 1
     | close_sum
   def close_groups = close_adjusted_sum.as_vec(Bits(2))
-  def close_reduced_groups = close_groups.map(fun (group): group =/= bits(0, 2))
+  def close_reduced_groups = close_groups.map(fun (group): group =/= Bits(2)(0))
   def close_reduced_sum = close_reduced_groups.as_bits()
   def close_normalization_reduced = close_reduced_sum.count_leading_zeros()
   def close_normalization_distance:
@@ -102,11 +102,11 @@ circuit AddRawFN(format :: FloatFormat):
   def far_mask_width = (significand_width + 5) div 4
   def far_reduced_source = far_smaller.zext(far_mask_width * 4) << 2
   def far_groups = far_reduced_source.as_vec(Bits(4))
-  def far_reduced_groups = far_groups.map(fun (group): group =/= bits(0, 4))
+  def far_reduced_groups = far_groups.map(fun (group): group =/= Bits(4)(0))
   def far_reduced = far_reduced_groups.as_bits()
   def far_round_extra_mask:
     if align_distance_width <= 2
-    | bits(0, far_mask_width)
+    | Bits(far_mask_width)(0)
     | low_mask(alignment_distance[2..align_distance_width], far_mask_width, 0)
   def far_sticky = far_main_aligned[0..=2].or_reduce() ||| or_reduce(far_reduced & far_round_extra_mask)
   def far_aligned_smaller = (

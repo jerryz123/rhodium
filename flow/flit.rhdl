@@ -14,9 +14,8 @@ import:
 fun flit_phase_state(flits_per_packet :: PosInt, transfer :: Bool):
   inst phase_counter(Counter(flits_per_packet))
   phase_counter.enable <== transfer
-  def first = phase_counter.value === bits(0, index_width(flits_per_packet))
-  def last = phase_counter.value === bits(flits_per_packet - 1,
-                                          index_width(flits_per_packet))
+  def first = phase_counter.value === Bits(index_width(flits_per_packet))(0)
+  def last = phase_counter.value === Bits(index_width(flits_per_packet))(flits_per_packet - 1)
   [phase_counter.value, first, last]
 
 /* Returns transfer-counted packet boundaries for transforms that do not need
@@ -76,7 +75,7 @@ sync_circuit Reassembler(T :: DataType, chunk_width :: PosInt):
   def chunk_count = (payload_width + chunk_width - 1) div chunk_width
   def padded_width = chunk_count * chunk_width
   def initial_chunks = vec(
-    for List (_ in 0..chunk_count): bits(0, chunk_width)
+    for List (_ in 0..chunk_count): Bits(chunk_width)(0)
   )
 
   interface ingress(Decoupled(FramedFixedFlit(Bits(chunk_width))), ~role: consumer)

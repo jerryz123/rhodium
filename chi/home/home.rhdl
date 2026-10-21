@@ -130,8 +130,8 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def writes_waiting_dbid = write_await_dbid.busy.into(Vec(limit, Bool))
   def writes_waiting_data = write_await_data.busy.into(Vec(limit, Bool))
   def writes_waiting_comp = write_await_comp.busy.into(Vec(limit, Bool))
-  reg received_write_data_ids(~init: vec(for List (_index in 0..limit): bits(0, 4)))
-  reg received_read_data_ids(~init: vec(for List (_index in 0..limit): bits(0, 4)))
+  reg received_write_data_ids(~init: vec(for List (_index in 0..limit): Bits(4)(0)))
+  reg received_read_data_ids(~init: vec(for List (_index in 0..limit): Bits(4)(0)))
   mem requests(limit, CHIReqFlit(p))
   mem subordinate_ids(limit, Bits(p.node_id_width))
   mem subordinate_dbids(limit, Bits(12))
@@ -171,7 +171,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
 
   when (requester.req.valid & request_ordinary):
     assert(request_supported, "chi_hni_request_opcode_supported")
-    assert(upstream_request.tgt_id === bits(home.node_id, p.node_id_width),
+    assert(upstream_request.tgt_id === Bits(p.node_id_width)(home.node_id),
            "chi_hni_request_targets_home")
     assert(subordinate_lookup.valid, "chi_hni_request_address_mapped")
     assert(request_service_supported,
@@ -195,7 +195,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def response_dbid = downstream_response.opcode === CHIRspOpcode.DBIDResp
   def response_comp = downstream_response.opcode === CHIRspOpcode.Comp
   def response_slot = downstream_response.txn_id[0..slot_width]
-  def response_slot_valid = downstream_response.txn_id < bits(limit, 12)
+  def response_slot_valid = downstream_response.txn_id < Bits(12)(limit)
   def response_request = requests[response_slot]
   def response_subordinate_id = subordinate_ids[response_slot]
   def response_phase_match = (
@@ -205,7 +205,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   )
   def response_identity_match = (
     downstream_response.src_id === response_subordinate_id
-  ) & (downstream_response.tgt_id === bits(home.node_id, p.node_id_width))
+  ) & (downstream_response.tgt_id === Bits(p.node_id_width)(home.node_id))
   def response_match = response_slot_valid & response_phase_match & response_identity_match
   (
     subordinate.rsp
@@ -230,7 +230,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
     when (response_slot_valid & response_phase_match):
       assert(downstream_response.src_id === response_subordinate_id,
              "chi_hni_response_source_subordinate")
-      assert(downstream_response.tgt_id === bits(home.node_id, p.node_id_width),
+      assert(downstream_response.tgt_id === Bits(p.node_id_width)(home.node_id),
              "chi_hni_response_targets_home")
 
   write_await_dbid.clear.valid <== dbid_transfer
@@ -248,7 +248,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def upstream_write_data = requester.dat.request.bits
   def write_data_ordinary = upstream_write_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def write_data_slot = upstream_write_data.txn_id[0..slot_width]
-  def write_data_slot_valid = upstream_write_data.txn_id < bits(limit, 12)
+  def write_data_slot_valid = upstream_write_data.txn_id < Bits(12)(limit)
   def write_data_request = requests[write_data_slot]
   def write_data_id = one_hot(upstream_write_data.data_id).as_bits()
   def write_data_expected_ids = chi_transfer_data_ids(write_data_request.address, chi_req_size(p, write_data_request), p)
@@ -268,7 +268,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
           data,
           data.data_id,
           write_data_request.qos,
-          bits(home.node_id, p.node_id_width),
+          Bits(p.node_id_width)(home.node_id),
           subordinate_ids[write_data_slot],
           subordinate_dbids[write_data_slot]
         ))
@@ -292,7 +292,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def downstream_read_data = subordinate.dat.response.bits
   def read_data_ordinary = downstream_read_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def read_data_slot = downstream_read_data.txn_id[0..slot_width]
-  def read_data_slot_valid = downstream_read_data.txn_id < bits(limit, 12)
+  def read_data_slot_valid = downstream_read_data.txn_id < Bits(12)(limit)
   def read_data_request = requests[read_data_slot]
   def read_data_id = one_hot(downstream_read_data.data_id).as_bits()
   def read_data_expected_ids = chi_transfer_data_ids(read_data_request.address, chi_req_size(p, read_data_request), p)
@@ -303,7 +303,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def read_data_phase_match = reads[read_data_slot]
   def read_data_identity_match = (
     downstream_read_data.src_id === read_data_subordinate_id
-  ) & (downstream_read_data.tgt_id === bits(home.node_id, p.node_id_width))
+  ) & (downstream_read_data.tgt_id === Bits(p.node_id_width)(home.node_id))
   def read_data_id_expected = or_reduce(read_data_expected_ids & read_data_id)
   def read_data_id_duplicate = or_reduce(read_data_received_ids & read_data_id)
   def read_data_match = read_data_slot_valid & read_data_phase_match & read_data_identity_match & read_data_id_expected & !read_data_id_duplicate
@@ -329,7 +329,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
     when (read_data_slot_valid & read_data_phase_match):
       assert(downstream_read_data.src_id === read_data_subordinate_id,
              "chi_hni_read_data_source_subordinate")
-      assert(downstream_read_data.tgt_id === bits(home.node_id, p.node_id_width),
+      assert(downstream_read_data.tgt_id === Bits(p.node_id_width)(home.node_id),
              "chi_hni_read_data_targets_home")
 
 
@@ -346,11 +346,11 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def next_received_write_data_ids = vec(
     for List (index in 0..limit):
       block:
-        def index_bits = bits(index, slot_width)
+        def index_bits = Bits(slot_width)(index)
         def allocate_here = allocate_write & (allocation_slot === index_bits)
         def data_here = write_data_transfer & (write_data_slot === index_bits)
         priority_mux(~default: received_write_data_ids[index]):
-          allocate_here: bits(0, 4)
+          allocate_here: Bits(4)(0)
           data_here: next_write_data_ids
   )
   when (allocate_write ||| write_data_transfer):
@@ -359,11 +359,11 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def next_received_read_data_ids = vec(
     for List (index in 0..limit):
       block:
-        def index_bits = bits(index, slot_width)
+        def index_bits = Bits(slot_width)(index)
         def allocate_here = allocate_read & (allocation_slot === index_bits)
         def data_here = read_data_transfer & (read_data_slot === index_bits)
         priority_mux(~default: received_read_data_ids[index]):
-          allocate_here: bits(0, 4)
+          allocate_here: Bits(4)(0)
           data_here: next_read_data_ids
   )
   when (allocate_read ||| read_data_transfer):

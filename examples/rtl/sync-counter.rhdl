@@ -7,8 +7,8 @@
 sync_circuit Counter(width :: PosInt):
   output count: Bits(width)
 
-  reg state(Bits(width), ~init: bits(0, width))
-  state <== state + bits(1, width)
+  reg state(Bits(width), ~init: Bits(width)(0))
+  state <== state + Bits(width)(1)
   count <== state
 
 /* Instantiates a counter under the enclosing synchronous domain. */
@@ -24,7 +24,7 @@ sync_circuit ResetlessCounter(width :: PosInt):
   output count: Bits(width)
 
   reg state(Bits(width))
-  state <== state + bits(1, width)
+  state <== state + Bits(width)(1)
   count <== state
 
 /* An ordinary parent can supply a sync child's domain explicitly. */

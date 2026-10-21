@@ -157,7 +157,7 @@ sync_circuit EventArbiter():
   join4 <== lane4.join_fire
 
 sync_circuit EventBadSelectionWidth():
-  describe_interface_selection([bits(0, 2)])
+  describe_interface_selection([Bits(2)(0)])
 sync_circuit EventDuplicateSelection():
   describe_interface_selection([Bool(#false)])
   describe_interface_selection([Bool(#false)])

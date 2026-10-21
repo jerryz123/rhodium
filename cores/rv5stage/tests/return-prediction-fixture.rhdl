@@ -19,8 +19,8 @@ sync_circuit ReturnPredictionFixture():
   for (index in 0..2):
     inst core(RV5StageCoreFixture(profile, ~reset_address: 0, ~btb_entries: 2, ~ras_entries: if index == 0 | 6 | 0))
     core.interrupts <== literal(RiscvInterrupts(), 0)
-    core.hart_id <== bits(0, 64)
-    core.time_counter <== bits(0, 64)
+    core.hart_id <== Bits(64)(0)
+    core.time_counter <== Bits(64)(0)
     core.instruction_access |> instruction[index]
     core.data_access |> data[index]
     core.pipeline_access.response.valid <== Bool(#false)

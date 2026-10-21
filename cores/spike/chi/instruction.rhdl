@@ -25,14 +25,14 @@ sync_circuit SpikeInstructionCHI(config :: RiscvHartCHIConfig):
 
   inst read(CHIReadOnce(p, Bits(1)))
   read.node_id <== node_id
-  read.txn_id <== bits(0, 12)
+  read.txn_id <== Bits(12)(0)
   (transaction.request |> map_flow(request => CHIReadOnceCommand(p, Bits(1))):
     address: spike_chi_address(request.address.align_down(64), p)
     home_id: config.home_map.lookup(spike_chi_address(request.address, p)).node_id
     pas: CHIPAS.Secure
     allocate: Bool(#true)
-    qos: bits(0, 4)
-    context: bits(0, 1)
+    qos: Bits(4)(0)
+    context: Bits(1)(0)
   ) |> read.command
   (read.completion |> map_flow(result => SpikeInstructionResponse()):
     line: result.line

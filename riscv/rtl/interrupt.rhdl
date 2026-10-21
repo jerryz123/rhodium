@@ -40,7 +40,7 @@ fun riscv_interrupt_pending(xlen :: XLen,
 /* Builds an interrupt cause image with the top interrupt bit and architectural cause number. */
 fun interrupt_cause_bits(cause :: InterruptCause,
                          width :: PosInt) :~ Bits(width):
-  bits((1 bits.(<<) (width - 1)) bits.or interrupt_code(cause), width)
+  Bits(width)((1 bits.(<<) (width - 1)) bits.or interrupt_code(cause))
 
 /* Selects enabled M/S interrupts by trap destination first, then architectural cause priority.
  * Each destination retains its own global privilege gate; counter overflow is last within it.
@@ -54,7 +54,7 @@ fun resolve_riscv_interrupt(xlen :: XLen,
   def width = xlen.width
   def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| csr_flag(mstatus, MstatusMIE)
   def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| ((privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
-  def supported = bits(interrupt_mask(InterruptCauses ++ [InterruptCause.LocalCounterOverflow]), width)
+  def supported = Bits(width)(interrupt_mask(InterruptCauses ++ [InterruptCause.LocalCounterOverflow]))
   def active = pending & enabled & supported
   /* Applies cause priority within one already-partitioned trap destination. */
   fun select_destination(candidates :: Bits(width), globally_enabled :: Bool, target :: RiscvTrapTarget) :~ RiscvInterruptDecision(xlen):
@@ -81,13 +81,13 @@ fun resolve_riscv_hypervisor_interrupt(
   mstatus :: Bits(64), vsstatus :: Bits(64), context :: RiscvExecutionContext()
 ) :~ RiscvInterruptDecision(XLen.X64):
   def effective_host_privilege = mux(context.virtualized, PrivilegeMode.User, context.privilege)
-  def machine = resolve_riscv_interrupt(XLen.X64, pending & !mideleg, enabled, bits(0, 64), mstatus, effective_host_privilege)
-  def overflow_mask = bits(interrupt_mask([InterruptCause.LocalCounterOverflow]), 64)
+  def machine = resolve_riscv_interrupt(XLen.X64, pending & !mideleg, enabled, Bits(64)(0), mstatus, effective_host_privilege)
+  def overflow_mask = Bits(64)(interrupt_mask([InterruptCause.LocalCounterOverflow]))
   def supervisor = resolve_riscv_interrupt(XLen.X64, pending & mideleg & !overflow_mask, enabled, mideleg, mstatus, effective_host_privilege)
   def overflow = resolve_riscv_interrupt(XLen.X64, pending & mideleg & overflow_mask, enabled, mideleg, mstatus, effective_host_privilege)
   def hs_enabled = context.virtualized ||| (context.privilege === PrivilegeMode.User) ||| ((context.privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
   def vs_enabled = context.virtualized & ((context.privilege === PrivilegeMode.User) ||| csr_flag(vsstatus, MstatusSIE))
-  def virtual_mask = bits(interrupt_mask(VirtualSupervisorInterruptCauses), 64)
+  def virtual_mask = Bits(64)(interrupt_mask(VirtualSupervisorInterruptCauses))
   def active = pending & enabled & mideleg & virtual_mask
   /* Selects virtual external/software/timer candidates for HS or VS and renumbers causes only for VS delivery. */
   fun virtual_candidate(delegated :: Boolean) :~ RiscvInterruptDecision(XLen.X64):

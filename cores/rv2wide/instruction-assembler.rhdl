@@ -40,30 +40,30 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   /* Parcel window and packet boundaries.
      Retained blocks precede live bypass; incomplete continuations keep their owner. */
 
-  reg count(~init: bits(0, 2))
+  reg count(~init: Bits(2)(0))
   reg retained(Vec(3, RV2WideFetchBlock(xlen)))
   // Input admission is independent of current instruction readiness: every S2 result is reserved.
-  blocks.ready <== count < bits(3, 2)
+  blocks.ready <== count < Bits(2)(3)
   def first_present = count.or_reduce() ||| blocks.valid
   def first_block = mux(count.or_reduce(), retained[0], blocks.bits)
-  def second_block = mux(count > bits(1, 2), retained[1], blocks.bits)
-  def second_present = ((count > bits(1, 2)) ||| ((count === bits(1, 2)) & blocks.valid)) & (second_block.pc === (first_block.pc.align_down(8) + bits(8, xlen.width)))
+  def second_block = mux(count > Bits(2)(1), retained[1], blocks.bits)
+  def second_present = ((count > Bits(2)(1)) ||| ((count === Bits(2)(1)) & blocks.valid)) & (second_block.pc === (first_block.pc.align_down(8) + Bits(xlen.width)(8)))
   reg repairing(~init: Bool(#false))
   def discard = clear.valid ||| repairing
-  reg consumed(~init: bits(0, 3))
+  reg consumed(~init: Bits(3)(0))
   def start = first_block.pc[1..3].zext(4) + consumed.zext(4)
-  def window = (second_block.data ++ first_block.data) >> (start ++ bits(0, 4))
-  def parcels = bits(4, 4) - start + mux(second_present, bits(4, 4), bits(0, 4))
+  def window = (second_block.data ++ first_block.data) >> (start ++ Bits(4)(0))
+  def parcels = Bits(4)(4) - start + mux(second_present, Bits(4)(4), Bits(4)(0))
   def first_pc = first_block.pc + (consumed.zext(xlen.width) << 1)
-  def first_compressed = window[0..2] =/= bits(3, 2)
-  def first_size = mux(first_compressed ||| first_block.fault.valid, bits(1, 4), bits(2, 4))
-  def first_crosses = (start + first_size) > bits(4, 4)
+  def first_compressed = window[0..2] =/= Bits(2)(3)
+  def first_size = mux(first_compressed ||| first_block.fault.valid, Bits(4)(1), Bits(4)(2))
+  def first_crosses = (start + first_size) > Bits(4)(4)
   def first_fault = first_block.fault.valid ||| (first_crosses & second_present & second_block.fault.valid)
   def first_valid = first_present & (first_block.fault.valid ||| (parcels >= first_size))
-  def second_window = window >> (first_size ++ bits(0, 4))
-  def second_compressed = second_window[0..2] =/= bits(3, 2)
+  def second_window = window >> (first_size ++ Bits(4)(0))
+  def second_compressed = second_window[0..2] =/= Bits(2)(3)
   def second_start = start + first_size
-  def second_size = mux(second_compressed ||| ((second_start >= bits(4, 4)) & second_block.fault.valid), bits(1, 4), bits(2, 4))
+  def second_size = mux(second_compressed ||| ((second_start >= Bits(4)(4)) & second_block.fault.valid), Bits(4)(1), Bits(4)(2))
   wire fetched: Vec(2, RV2WideInstruction(xlen))
   wire actions: Vec(2, RasAction)
   wire known_predictions: Vec(2, Bool)
@@ -73,12 +73,12 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   def both_update_ras = actions[0].is_one_of(RasAction.Push, RasAction.Pop, RasAction.PopPush) & actions[1].is_one_of(RasAction.Push, RasAction.Pop, RasAction.PopPush)
   def second_complete = parcels >= (first_size + second_size)
   def second_valid = first_valid & !first_fault & second_complete & !first_cut & !both_update_ras
-  def used = first_size + mux(second_valid, second_size, bits(0, 4))
+  def used = first_size + mux(second_valid, second_size, Bits(4)(0))
   def end = start + used
-  def uses_second = end > bits(4, 4)
+  def uses_second = end > Bits(4)(4)
   def cut = first_cut ||| (second_valid & fetched[1].prediction.valid)
   instructions.valid <== first_valid & !discard & !pause
-  instructions.bits.count <== mux(second_valid, bits(2, 2), bits(1, 2))
+  instructions.bits.count <== mux(second_valid, Bits(2)(2), Bits(2)(1))
 
 
   /* Per-lane predecode and prediction validation.
@@ -90,8 +90,8 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def size = if lane == 0 | first_size | second_size
     def pc = if lane == 0 | first_pc | first_pc + (first_size.zext(xlen.width) << 1)
     def position = if lane == 0 | start | second_start
-    def in_second = position >= bits(4, 4)
-    def crosses = (position < bits(4, 4)) & ((position + size) > bits(4, 4))
+    def in_second = position >= Bits(4)(4)
+    def crosses = (position < Bits(4)(4)) & ((position + size) > Bits(4)(4))
     def owner = mux(in_second, second_block, first_block)
     def fetch_fault = mux(in_second ||| crosses, second_block.fault, first_block.fault)
     def fault = mux(first_block.fault.valid, first_block.fault, fetch_fault)
@@ -107,7 +107,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def known = mux(bht_branch, direction.taken, predicted.valid & (predicted.pc === pc) & (predicted.compressed === compressed) & control_flow)
     def immediate_control_flow = legal & decoded.immediate
     def immediate_target = pc + decoded.offset
-    def direct = legal & (canonical[0..7] === bits(0x6f, 7)) & Bool(profile.btb_entries > 0)
+    def direct = legal & (canonical[0..7] === Bits(7)(0x6f)) & Bool(profile.btb_entries > 0)
     def returning = legal & action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid
     def fallback = !known & (direct ||| returning)
     def sequential_pc = pc + (size.zext(xlen.width) << 1)
@@ -170,8 +170,8 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   repairing <== repair.valid
   discover.valid <== instructions.fire() & fallback & !bad_entry
   discover.bits <== selected.prediction
-  def action_lane = mux(actions[0] =/= RasAction.None, bits(0, 1), bits(1, 1))
-  speculate.valid <== instructions.fire() & Bool(profile.ras_entries > 0) & (fetched[action_lane].speculated_ras_action =/= RasAction.None) & ((action_lane === bits(0, 1)) ||| second_valid)
+  def action_lane = mux(actions[0] =/= RasAction.None, Bits(1)(0), Bits(1)(1))
+  speculate.valid <== instructions.fire() & Bool(profile.ras_entries > 0) & (fetched[action_lane].speculated_ras_action =/= RasAction.None) & ((action_lane === Bits(1)(0)) ||| second_valid)
   speculate.bits <== RasUpdate(xlen):
     action: fetched[action_lane].speculated_ras_action
     return_address: fetched[action_lane].sequential_pc
@@ -181,14 +181,14 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
      A live-bypassed block may be consumed without ever occupying retained storage. */
 
   def exhausted = priority_mux(~default: (end >> 2)[0..2]):
-    cut ||| packet_fault: mux(uses_second, bits(2, 2), bits(1, 2))
-  def released = mux(advance, exhausted, bits(0, 2))
+    cut ||| packet_fault: mux(uses_second, Bits(2)(2), Bits(2)(1))
+  def released = mux(advance, exhausted, Bits(2)(0))
   def resident_release = mux(released > count, count, released)
   def remaining = count - resident_release
   def enqueue = blocks.fire() & (released <= count)
-  available <== bits(3, 2) - count + resident_release
+  available <== Bits(2)(3) - count + resident_release
   // A packet selects both parents only when its bytes or continuation fault use both blocks.
-  describe_interface_window_storage(3, enqueue, resident_release, count, discard, [count.or_reduce(), (count > bits(1, 2)) & uses_second], ~live: (count === bits(0, 2)) ||| ((count === bits(1, 2)) & uses_second))
+  describe_interface_window_storage(3, enqueue, resident_release, count, discard, [count.or_reduce(), (count > Bits(2)(1)) & uses_second], ~live: (count === Bits(2)(0)) ||| ((count === Bits(2)(1)) & uses_second))
   describe_interface_contract(blocks, instructions, "instruction-assembly", ~trace_model: interface_trace_window())
 
 
@@ -196,24 +196,24 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
      Discard wins over compaction; ordinary acceptance keeps an unfinished suffix. */
 
   when discard:
-    count <== bits(0, 2)
-    consumed <== bits(0, 3)
+    count <== Bits(2)(0)
+    consumed <== Bits(3)(0)
   otherwise:
     count <== remaining + enqueue.as_bits().zext(2)
     for (index in 0..3):
-      def position = bits(index, 2)
+      def position = Bits(2)(index)
       when (enqueue & (position === remaining)):
         retained[index] <== blocks.bits
       elsewhen (position < remaining):
         retained[index] <== retained[(position + resident_release)[0..2]]
     when (advance & !repair.valid):
       def next_consumed :: Bits(3) = priority_mux(~default: consumed + used[0..3]):
-        cut ||| packet_fault: bits(0, 3)
+        cut ||| packet_fault: Bits(3)(0)
         released.or_reduce(): (end - (released.zext(4) << 2))[0..3]
       consumed <== next_consumed
     elsewhen (repair.valid):
-      consumed <== bits(0, 3)
-  assert(count <= bits(3, 2), "rv2wide_assembly_capacity")
+      consumed <== Bits(3)(0)
+  assert(count <= Bits(2)(3), "rv2wide_assembly_capacity")
 
 export:
   RV2WideFetchBlock

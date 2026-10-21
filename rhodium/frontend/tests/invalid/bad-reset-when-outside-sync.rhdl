@@ -7,6 +7,6 @@ circuit ResetScopeOutsideSync():
   input local_reset: Reset
   output value: Bits(1)
   reset_when(local_reset):
-    value <== bits(0, 1)
+    value <== Bits(1)(0)
 
 elaborate(ResetScopeOutsideSync())

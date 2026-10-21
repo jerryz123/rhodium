@@ -9,86 +9,86 @@ import:
 circuit CosimHookSource(enabled :: Boolean):
   input clock: Clock
   input step: Bits(4)
-  def hart = CosimHart(clock, bits(0, 64), enabled)
-  def zero = bits(0, 64)
+  def hart = CosimHart(clock, Bits(64)(0), enabled)
+  def zero = Bits(64)(0)
   def id0 = CosimInstructionId():
     epoch: zero
     order: zero
   def id1 = CosimInstructionId():
     epoch: zero
-    order: bits(1, 64)
+    order: Bits(64)(1)
   def id2 = CosimInstructionId():
     epoch: zero
-    order: bits(2, 64)
+    order: Bits(64)(2)
   def id3 = CosimInstructionId():
     epoch: zero
-    order: bits(3, 64)
+    order: Bits(64)(3)
   def instruction = CosimInstruction():
-    pc: bits(0x80000000, 64)
-    encoding: bits(0x13, 32)
-    encoding_valid_bytes: bits(4, 3)
-    instruction_bytes: bits(4, 3)
+    pc: Bits(64)(0x80000000)
+    encoding: Bits(32)(0x13)
+    encoding_valid_bytes: Bits(3)(4)
+    instruction_bytes: Bits(3)(4)
     privilege: PrivilegeMode.Machine
     virtualized: Bool(#false)
-    producers: mux(step === bits(0, 4), bits(1, 64), zero)
+    producers: mux(step === Bits(4)(0), Bits(64)(1), zero)
   def retirement = CosimRetirement():
-    next_pc: bits(0x80000004, 64)
+    next_pc: Bits(64)(0x80000004)
     privilege: PrivilegeMode.Machine
     virtualized: Bool(#false)
   def trap = CosimTrap():
-    cause: bits(13, 64)
-    epc: bits(0x80000000, 64)
-    tval: bits(0x2000, 64)
-    target_pc: bits(0x100, 64)
+    cause: Bits(64)(13)
+    epc: Bits(64)(0x80000000)
+    tval: Bits(64)(0x2000)
+    target_pc: Bits(64)(0x100)
     privilege: PrivilegeMode.Supervisor
     virtualized: Bool(#true)
     guest_valid: Bool(#true)
-    htval: bits(0x800, 64)
-    htinst: bits(0x3000, 64)
+    htval: Bits(64)(0x800)
+    htinst: Bits(64)(0x3000)
   def register_write = CosimRegisterWrite():
     bank: CosimRegisterBank.Vector
-    register_index: bits(7, 5)
-    bit_offset: bits(128, 16)
+    register_index: Bits(5)(7)
+    bit_offset: Bits(16)(128)
     mask: !zero
-    value: bits(0x8000000000000042, 64)
+    value: Bits(64)(0x8000000000000042)
   def csr = CosimCsrUpdate():
-    address: bits(1, 12)
+    address: Bits(12)(1)
     operation: CosimCsrOperation.SetBits
-    mask: bits(31, 64)
-    value: bits(16, 64)
+    mask: Bits(64)(31)
+    value: Bits(64)(16)
   def memory = CosimMemoryEffect():
-    access_id: bits(7, 64)
-    fragment_offset: bits(3, 64)
+    access_id: Bits(64)(7)
+    fragment_offset: Bits(64)(3)
     kind: CosimAccessKind.Load
-    virtual_address: bits(0x2000, 64)
+    virtual_address: Bits(64)(0x2000)
     physical_valid: Bool(#true)
-    physical_address: bits(0x80001000, 64)
-    byte_mask: bits(0xff, 8)
+    physical_address: Bits(64)(0x80001000)
+    byte_mask: Bits(8)(0xff)
     read_valid: Bool(#true)
     write_valid: Bool(#false)
-    read_data: bits(0x8000000000000042, 64)
+    read_data: Bits(64)(0x8000000000000042)
     write_data: zero
     result: CosimAccessResult.Success
   def effect0 = CosimEffectId():
-    producer: bits(0, 6)
+    producer: Bits(6)(0)
     index: zero
   def effect1 = CosimEffectId():
-    producer: bits(0, 6)
-    index: bits(1, 64)
+    producer: Bits(6)(0)
+    index: Bits(64)(1)
   def effect2 = CosimEffectId():
-    producer: bits(0, 6)
-    index: bits(2, 64)
-  hart.instruction(step === bits(0, 4), id0, instruction)
-  hart.instruction(step === bits(1, 4), id1, instruction)
-  hart.retire(step === bits(1, 4), id1, retirement)
-  hart.reg_write(step === bits(1, 4), id0, effect0, register_write)
-  hart.csr_update(step === bits(1, 4), id0, effect1, csr)
-  hart.memory(step === bits(1, 4), id0, effect2, memory)
-  hart.seal(step === bits(1, 4), id0, bits(0, 6), bits(3, 64))
-  hart.retire(step === bits(2, 4), id0, retirement)
-  hart.instruction(step === bits(3, 4), id2, instruction)
-  hart.exception(step === bits(3, 4), id2, trap)
-  hart.interrupt(step === bits(4, 4), id3, trap, zero)
+    producer: Bits(6)(0)
+    index: Bits(64)(2)
+  hart.instruction(step === Bits(4)(0), id0, instruction)
+  hart.instruction(step === Bits(4)(1), id1, instruction)
+  hart.retire(step === Bits(4)(1), id1, retirement)
+  hart.reg_write(step === Bits(4)(1), id0, effect0, register_write)
+  hart.csr_update(step === Bits(4)(1), id0, effect1, csr)
+  hart.memory(step === Bits(4)(1), id0, effect2, memory)
+  hart.seal(step === Bits(4)(1), id0, Bits(6)(0), Bits(64)(3))
+  hart.retire(step === Bits(4)(2), id0, retirement)
+  hart.instruction(step === Bits(4)(3), id2, instruction)
+  hart.exception(step === Bits(4)(3), id2, trap)
+  hart.interrupt(step === Bits(4)(4), id3, trap, zero)
 
 /* Disabled hooks receive identical inputs and must emit no duplicate callbacks. */
 circuit CosimHooksFixture():

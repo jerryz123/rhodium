@@ -41,15 +41,15 @@ fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width), ~
   def count_width = index_width(vlen + 1)
   def cases = for List (encoding in 0..64):
     def config = vector_vtype_config(vlen, encoding, ~elen: elen)
-    [encoding, bits(if config | config.vlmax | 0, count_width)]
-  def maximum = mux_lookup(value[0..6], ~default: bits(0, count_width), cases)
+    [encoding, Bits(count_width)(if config | config.vlmax | 0)]
+  def maximum = mux_lookup(value[0..6], ~default: Bits(count_width)(0), cases)
   def illegal = value[8..xlen.width].or_reduce() ||| !maximum.or_reduce()
   RiscvVectorType(xlen, vlen):
-    value: mux(illegal, bits(1 << (xlen.width - 1), xlen.width), value)
+    value: mux(illegal, Bits(xlen.width)(1 << (xlen.width - 1)), value)
     vill: illegal
     sew: value[3..5]
     lmul: value[0..3]
-    vlmax: mux(illegal, bits(0, count_width), maximum)
+    vlmax: mux(illegal, Bits(count_width)(0), maximum)
 
 /* Selects deterministic min(AVL,VLMAX) or requested maximum/preserved VL and diagnoses incompatible preserve-VL transitions. */
 fun vector_configure(xlen :: XLen, vlen :: VectorLength, request :: RiscvVectorConfigRequest(xlen), old_type :: Bits(xlen.width), old_vl :: Bits(index_width(vlen + 1)), ~elen: elen :: VectorSEW = VectorSEW.E64) :~ RiscvVectorConfiguration(xlen, vlen):
@@ -60,7 +60,7 @@ fun vector_configure(xlen :: XLen, vlen :: VectorLength, request :: RiscvVectorC
   def selected = mux(request.maximum ||| (avl > maximum), maximum, avl)
   RiscvVectorConfiguration(xlen, vlen):
     vtype: next_type.value
-    vl: mux(next_type.vill, bits(0, index_width(vlen + 1)), selected[0..index_width(vlen + 1)])
+    vl: mux(next_type.vill, Bits(index_width(vlen + 1))(0), selected[0..index_width(vlen + 1)])
     illegal: request.keep_vl & (previous.vill ||| next_type.vill ||| (previous.vlmax =/= next_type.vlmax))
 
 export:

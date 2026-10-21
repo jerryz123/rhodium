@@ -20,12 +20,12 @@ sync_circuit TMDSChannelEncoder():
   output symbol: Bits(10)
 
   reg disparity(~init: sint(0, 6))
-  reg encoded(~init: bits(0b1101010100, 10))
+  reg encoded(~init: Bits(10)(0b1101010100))
   reg encoded_valid(~init: Bool(#false))
 
   def ones = popcount(data)
   def input_bits = data.as_vec(Bool)
-  def use_xnor = (ones > bits(4, 4)) ||| ((ones === bits(4, 4)) & !input_bits[0])
+  def use_xnor = (ones > Bits(4)(4)) ||| ((ones === Bits(4)(4)) & !input_bits[0])
   def mutable previous :: Bool = input_bits[0]
   def mutable transitions = [previous]
   for (index in 1..8):
@@ -44,11 +44,11 @@ sync_circuit TMDSChannelEncoder():
   // The two flag bits add +2, zero, or -2 to the payload disparity.
   def flag_balance = mux(invert, mux(xor_mode, sint(2, 6), sint(0, 6)), mux(xor_mode, sint(0, 6), sint(-2, 6)))
   def next_disparity = disparity + mux(invert, -balance, balance) + flag_balance
-  def control_symbol = mux_lookup(control, ~default: bits(0b1101010100, 10)):
-    0: bits(0b1101010100, 10)
-    1: bits(0b0010101011, 10)
-    2: bits(0b0101010100, 10)
-    3: bits(0b1010101011, 10)
+  def control_symbol = mux_lookup(control, ~default: Bits(10)(0b1101010100)):
+    0: Bits(10)(0b1101010100)
+    1: Bits(10)(0b0010101011)
+    2: Bits(10)(0b0101010100)
+    3: Bits(10)(0b1010101011)
 
   encoded_valid <== valid
   when valid:
@@ -81,8 +81,8 @@ sync_circuit TMDSVideoEncoder():
   green.data_enable <== data_enable
   red.data_enable <== data_enable
   blue.control <== vsync ++ hsync
-  green.control <== bits(0, 2)
-  red.control <== bits(0, 2)
+  green.control <== Bits(2)(0)
+  red.control <== Bits(2)(0)
   symbols <== TMDSSymbols():
     blue: blue.symbol
     green: green.symbol

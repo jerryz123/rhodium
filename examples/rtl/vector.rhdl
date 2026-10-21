@@ -16,7 +16,7 @@ circuit VectorMap():
   input lanes: Vec(3, Bits(4))
   output occupied: Vec(3, Bool)
 
-  occupied <== lanes.map(lane => lane =/= bits(0, 4))
+  occupied <== lanes.map(lane => lane =/= Bits(4)(0))
 
 /* Exercises vector construction, projection, selection, and packing. */
 circuit VectorDatapath():

@@ -310,7 +310,7 @@ circuit Incrementer(width):
   circuit Increment():
     input value_in: Bits(width)
     output value_out: Bits(width)
-    value_out <== value_in + bits(1, width)
+    value_out <== value_in + Bits(width)(1)
 
   inst increment(Increment())
   increment.value_in <== value_in

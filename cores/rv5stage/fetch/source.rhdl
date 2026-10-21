@@ -110,7 +110,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   def btb_prediction = stored_prediction.updated(~target: mux(predicted_return, ras.head, stored_prediction.target))
   def prediction = mux(s1.egress.bits.continuation, literal(BranchPrediction(xlen), 0), btb_prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
-  def next_pc = priority_mux(~default: s1.egress.bits.pc.align_down(4) + bits(4, width)):
+  def next_pc = priority_mux(~default: s1.egress.bits.pc.align_down(4) + Bits(width)(4)):
     s1.egress.bits.continuation: s1.egress.bits.continuation_target
     prediction.valid & !predicted_straddle: prediction.target
 
@@ -164,7 +164,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   Array(
     restart_update |> map_valid(attempt => attempt.updated(~continuation_target: saved.bits.continuation_target)),
     saved_clear |> filter_valid(_attempt => clear.valid) |> map_valid(attempt => attempt.updated(~continuation: Bool(#false))),
-    advanced |> to_valid() |> filter_valid(_attempt => !command) |> map_valid(attempt => attempt.updated(~pc: attempt.pc.align_down(4) + bits(4, width), ~continuation: Bool(#false), ~continuation_target: saved.bits.continuation_target)),
+    advanced |> to_valid() |> filter_valid(_attempt => !command) |> map_valid(attempt => attempt.updated(~pc: attempt.pc.align_down(4) + Bits(width)(4), ~continuation: Bool(#false), ~continuation_target: saved.bits.continuation_target)),
     replay_update |> filter_valid(_attempt => !command),
     next_update |> filter_valid(_attempt => !command)
   ) |> valid_arbiter() |> cursor.update

@@ -28,8 +28,8 @@ circuit RV5StageCHIRequestFixture():
   output snoop_32: Bits(32)
   output snoop_52: Bits(52)
   output snoop_64: Bits(64)
-  response <== cache_chi_response(params_w128, bits(0x1234, 16), bits(0x4321, 16), txn, CHIRspOpcode.CompAck, ~resp: flags[0..3])
-  other_response <== cache_chi_response(params_o512, bits(0x4321, 16), bits(0x1234, 16), !txn, CHIRspOpcode.SnpResp, ~resp: !flags[0..3])
+  response <== cache_chi_response(params_w128, Bits(16)(0x1234), Bits(16)(0x4321), txn, CHIRspOpcode.CompAck, ~resp: flags[0..3])
+  other_response <== cache_chi_response(params_o512, Bits(16)(0x4321), Bits(16)(0x1234), !txn, CHIRspOpcode.SnpResp, ~resp: !flags[0..3])
   snoop_32 <== cache_chi_snoop_address(params_w128, 32, address[3..52])
   snoop_52 <== cache_chi_snoop_address(params_w128, 52, address[3..52])
   snoop_64 <== cache_chi_snoop_address(params_w128, 64, address[3..52])
@@ -41,62 +41,62 @@ circuit RV5StageCHIRequestFixture():
   def early_ack = flags[5].into(Bool)
   output w128: CHIReqFlit(params_w128)
   w128 <== cache_chi_request(
-    params_w128, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    params_w128, Bits(16)(0x1234), Bits(16)(0x4321), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
     ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
   )
   output other_w128: CHIReqFlit(params_w128)
   other_w128 <== cache_chi_request(
-    params_w128, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    params_w128, Bits(16)(0x1234), Bits(16)(0x4321), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
   output o128: CHIReqFlit(params_o128)
   o128 <== cache_chi_request(
-    params_o128, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    params_o128, Bits(16)(0x1234), Bits(16)(0x4321), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
     ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
   )
   output other_o128: CHIReqFlit(params_o128)
   other_o128 <== cache_chi_request(
-    params_o128, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    params_o128, Bits(16)(0x1234), Bits(16)(0x4321), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
   output w256: CHIReqFlit(params_w256)
   w256 <== cache_chi_request(
-    params_w256, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    params_w256, Bits(16)(0x1234), Bits(16)(0x4321), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
     ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
   )
   output other_w256: CHIReqFlit(params_w256)
   other_w256 <== cache_chi_request(
-    params_w256, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    params_w256, Bits(16)(0x1234), Bits(16)(0x4321), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
   output o256: CHIReqFlit(params_o256)
   o256 <== cache_chi_request(
-    params_o256, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    params_o256, Bits(16)(0x1234), Bits(16)(0x4321), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
     ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
   )
   output other_o256: CHIReqFlit(params_o256)
   other_o256 <== cache_chi_request(
-    params_o256, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    params_o256, Bits(16)(0x1234), Bits(16)(0x4321), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
   output w512: CHIReqFlit(params_w512)
   w512 <== cache_chi_request(
-    params_w512, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    params_w512, Bits(16)(0x1234), Bits(16)(0x4321), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
     ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
   )
   output other_w512: CHIReqFlit(params_w512)
   other_w512 <== cache_chi_request(
-    params_w512, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    params_w512, Bits(16)(0x1234), Bits(16)(0x4321), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
   output o512: CHIReqFlit(params_o512)
   o512 <== cache_chi_request(
-    params_o512, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    params_o512, Bits(16)(0x1234), Bits(16)(0x4321), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
     ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
   )
   output other_o512: CHIReqFlit(params_o512)
   other_o512 <== cache_chi_request(
-    params_o512, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    params_o512, Bits(16)(0x1234), Bits(16)(0x4321), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
     ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
   )
 

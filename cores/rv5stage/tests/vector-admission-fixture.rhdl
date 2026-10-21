@@ -53,35 +53,35 @@ sync_circuit RV5StageVectorAdmission():
         range:
           VectorRange():
             first: scalar
-            last: scalar ||| bits(4095, 64)
+            last: scalar ||| Bits(64)(4095)
             store: decode.control.vector.store
-        ppn: scalar[12..56] + bits(16, 44)
+        ppn: scalar[12..56] + Bits(44)(16)
         virtualized: Bool(#false)
         context:
           RiscvGuestTranslationContext():
             vs_mode: RiscvVSMode.Bare
             g_mode: RiscvGMode.Bare
-            vs_root_ppn: bits(0, 44)
-            g_root_ppn: bits(0, 44)
+            vs_root_ppn: Bits(44)(0)
+            g_root_ppn: Bits(44)(0)
             privilege: PrivilegeMode.Machine
             vs_sum: Bool(#false)
             vs_mxr: Bool(#false)
             hs_mxr: Bool(#false)
             vs_pbmte: Bool(#false)
             g_pbmte: Bool(#false)
-        invalidation_epoch: bits(0, 2)
+        invalidation_epoch: Bits(2)(0)
     instruction: instruction
     state:
       RiscvVectorState(xlen):
         vl: vl
         vtype: vtype
-        vstart: bits(0, 64)
-        vxrm: bits(0, 2)
+        vstart: Bits(64)(0)
+        vxrm: Bits(2)(0)
         vxsat: Bool(#false)
     control: decode.control.vector
     scalar: scalar
-    floating_scalar: bits(0, 64)
-    stride: bits(8, 64)
+    floating_scalar: Bits(64)(0)
+    stride: Bits(64)(8)
     masked: !instruction[25].into(Bool)
     rounding_mode: RoundingMode.NearEven
     pointer_masking:

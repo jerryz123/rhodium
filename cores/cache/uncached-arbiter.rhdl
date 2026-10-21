@@ -31,7 +31,7 @@ sync_circuit UncachedFetchArbiter(xlen :: XLen, Context :: DataType):
   // A detached fetch owns its physical reply but no longer offers it to the frontend.
   fetch_response |> filter_flow(_response => instruction_live) |> instruction_response
   when (transport.request.fire()):
-    owner_is_instruction <== requests.chosen === bits(1, 1)
+    owner_is_instruction <== requests.chosen === Bits(1)(1)
   when flush:
     instruction_live <== Bool(#false)
   elsewhen (instruction_request.fire()):

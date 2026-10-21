@@ -52,11 +52,11 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
     for List (_index in 0..packet_count): Bool(#false)
   ))
   reg acknowledgement_sent(~init: Bool(#false))
-  reg line_address(~init: bits(0, address_width))
+  reg line_address(~init: Bits(address_width)(0))
   reg context(Context)
-  reg line(~init: bits(0, CacheLineBytes * 8))
-  reg home_id(~init: bits(0, p.node_id_width))
-  reg dbid(~init: bits(0, 12))
+  reg line(~init: Bits(CacheLineBytes * 8)(0))
+  reg home_id(~init: Bits(p.node_id_width)(0))
+  reg dbid(~init: Bits(12)(0))
   reg access_fault(~init: Bool(#false))
   reg coherent(~init: Bool(#true))
 
@@ -65,7 +65,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
   acquiring.ready <== !control.active
   def command_fire = command.fire()
   def command_home = config.home_map.lookup(cache_chi_address(command.bits.line_address, p))
-  def command_physical = config.physical_map.lookup(command.bits.line_address, command.bits.line_address +& bits(CacheLineBytes - 1, address_width))
+  def command_physical = config.physical_map.lookup(command.bits.line_address, command.bits.line_address +& Bits(address_width)(CacheLineBytes - 1))
   when command_fire:
     // The integrated core's physical map makes these address checks internal
     // invariants; direct cache users still receive a precise assertion.
@@ -84,7 +84,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
       line_address,
       CHITransferSize.Bytes64,
       mux(coherent, CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp),
-      bits(0, 12),
+      Bits(12)(0),
       coherent,
       coherent,
       coherent & attempt.allow_retry,
@@ -105,7 +105,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
     assert(incoming_response.src_id === home_id,
            "line_read_retry_response_home")
   when retry_ack_fire:
-    assert(incoming_response.txn_id === bits(0, 12),
+    assert(incoming_response.txn_id === Bits(12)(0),
            "line_read_retry_txn_id")
 
   def incoming_data = response_data.bits
@@ -124,7 +124,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
   when data_fire:
     assert(incoming_data.opcode === CHIDatOpcode.CompData,
            "line_read_response_is_comp_data")
-    assert(incoming_data.txn_id === bits(0, 12),
+    assert(incoming_data.txn_id === Bits(12)(0),
            "line_read_response_txn_id")
     assert(incoming_data.tgt_id === node_id,
            "line_read_response_target")
@@ -134,11 +134,11 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
            "line_read_response_data_id")
     assert(!packet_was_received,
            "line_read_response_data_id_unique")
-    assert(incoming_data.num_dat === bits(0, 2),
+    assert(incoming_data.num_dat === Bits(2)(0),
            "line_read_response_num_dat_zero")
     assert(!incoming_data.replicate,
            "line_read_response_not_replicated")
-    assert(incoming_data.resp === bits(0, 3), "line_read_response_has_no_ownership")
+    assert(incoming_data.resp === Bits(3)(0), "line_read_response_has_no_ownership")
   when (data_fire & !first_data_packet):
     assert(incoming_data.dbid_or_mecid[0..12] === dbid,
            "line_read_response_dbid_consistent")
@@ -178,9 +178,9 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
     acknowledgement_sent <== Bool(#false)
     line_address <== command.bits.line_address
     context <== command.bits.context
-    line <== bits(0, CacheLineBytes * 8)
+    line <== Bits(CacheLineBytes * 8)(0)
     home_id <== command_home.node_id
-    dbid <== bits(0, 12)
+    dbid <== Bits(12)(0)
     access_fault <== Bool(#false)
     coherent <== command_physical.cacheable
   elsewhen data_fire:

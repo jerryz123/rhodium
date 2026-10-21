@@ -108,10 +108,10 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, types :: 
   def completion :: VectorCompletion(xlen, slots) = taps["vector_memory_completion"]
   def decision :: VectorCommit(xlen, slots) = taps["vector_execution_memory_decision"]
   def pipeline_valid :: Bool = if types.has_key("mmu_pipeline_valid") | mmu["mmu_pipeline_valid"] | Bool(#false)
-  def pipeline_address = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | bits(0, xlen.width)
+  def pipeline_address = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | Bits(xlen.width)(0)
   rhodium_vector_cycle.call(
-    instance, bits(xlen.width, 64), bits(vlen, 64), bits(slots, 64), pipeline_valid.as_bits().zext(64),
-    capture_lane(pipeline_address), lane("vector_memory_split"), bits(if types.has_key("mmu_fragment_completed") || types.has_key("mmu_fragment_response") | 1 | 0, 64),
+    instance, Bits(64)(xlen.width), Bits(64)(vlen), Bits(64)(slots), pipeline_valid.as_bits().zext(64),
+    capture_lane(pipeline_address), lane("vector_memory_split"), Bits(64)(if types.has_key("mmu_fragment_completed") || types.has_key("mmu_fragment_response") | 1 | 0),
     lane("vector_execution_replay"), ~enable: active
   )
   rhodium_vector_dispatch.call(

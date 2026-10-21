@@ -41,8 +41,8 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   inst data_port_arbiter(RV5StageDataPortArbiter(XLen.X64, vector_completion_slots))
   inst cache(L1DCache(XLen.X64, CacheConfig(32, 2), ~chi: test_rv5stage_uncached_config, ~context: RV5StageMemoryContext(vector_completion_slots)))
   core.interrupts <== literal(RiscvInterrupts(), 0)
-  core.hart_id <== bits(0, 64)
-  core.time_counter <== bits(0, 64)
+  core.hart_id <== Bits(64)(0)
+  core.time_counter <== Bits(64)(0)
   core.instruction_access |> instruction
   // The bench rejects the first WB offer to exercise replay without admission.
   core.data_access.request |> gate_flow(permit_demand) |> mmu.data.request
@@ -72,7 +72,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== router.ordered_busy
-  inject_interface(Valid(Bits(64)), ~valid: Bool(#false), ~bits: bits(0, 64)) |> mmu.instruction_replay_owner
+  inject_interface(Valid(Bits(64)), ~valid: Bool(#false), ~bits: Bits(64)(0)) |> mmu.instruction_replay_owner
   core.prefetch |> mmu.prefetch
   mmu.physical_prefetch |> cache.prefetch
   mmu.instruction.request.valid <== Bool(#false)
@@ -83,7 +83,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   mmu.instruction_lookup.ready <== Bool(#true)
   mmu.instruction_memory.response.valid <== Bool(#false)
   mmu.instruction_memory.response.bits <== literal(RV5StageFetchResult(#false), 0)
-  cache.node_id <== bits(3, 7)
+  cache.node_id <== Bits(7)(3)
   def traced_requests = cache.chi.requests |> trace_event("dcache/chi.txreq", ~fields: request):
     address: request.address
     opcode(~format: "enum"): request.opcode

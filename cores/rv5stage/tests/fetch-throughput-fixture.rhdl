@@ -70,12 +70,12 @@ sync_circuit RV5StageFetchThroughput():
   router.uncached.response.valid <== Bool(#false)
   router.uncached.response.bits <== literal(RV5StageInstructionResp(#false), 0)
   mmu.privilege <== PrivilegeMode.Machine
-  mmu.mstatus <== bits(0, 64)
+  mmu.mstatus <== Bits(64)(0)
   mmu.pbmte <== Bool(#false)
-  mmu.satp <== bits(0, 64)
+  mmu.satp <== Bits(64)(0)
   mmu.invalidate_all <== Bool(#false)
   mmu.ordered_busy <== Bool(#false)
-  inject_interface(Valid(Bits(64)), ~valid: Bool(#false), ~bits: bits(0, 64)) |> mmu.instruction_replay_owner
+  inject_interface(Valid(Bits(64)), ~valid: Bool(#false), ~bits: Bits(64)(0)) |> mmu.instruction_replay_owner
   mmu.prefetch.valid <== Bool(#false)
   mmu.prefetch.bits <== literal(CachePrefetchReq(64), 0)
   mmu.data.request.valid <== Bool(#false)
@@ -101,7 +101,7 @@ sync_circuit RV5StageFetchThroughput():
   mmu.walker_memory.response.bits <== literal(PhysicalMemoryResp(XLen.X64, RV5StageMemoryContext(8)), 0)
   mmu.walker_memory.drained <== Bool(#true)
   mmu.walker_memory.reservation_valid <== Bool(#false)
-  cache.node_id <== bits(2, 7)
+  cache.node_id <== Bits(7)(2)
   cache.prefetch.valid <== Bool(#false)
   cache.prefetch.bits <== literal(CachePrefetchReq(64), 0)
   def requests = cache.chi.req |> trace_event("icache/chi.txreq", ~fields: flit):

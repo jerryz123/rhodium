@@ -18,11 +18,11 @@ class NominalConfig(width :: PosInt):
 
 circuit ConfiguredLeaf(config :: WidthConfig):
   output value: Bits(config.width)
-  value <== bits(0, config.width)
+  value <== Bits(config.width)(0)
 
 circuit NominalLeaf(config :: NominalConfig):
   output value: Bits(config.width)
-  value <== bits(0, config.width)
+  value <== Bits(config.width)(0)
 
 circuit CircuitParamHierarchy():
   inst first(ConfiguredLeaf(WidthConfig(8)))

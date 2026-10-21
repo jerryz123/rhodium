@@ -17,8 +17,8 @@ sync_circuit VectorSlots(slots :: Pow2Int):
   interface replay(Pulse(), ~role: consumer)
   output allocated: Vec(slots, Bool)
   output accepted: Vec(slots, Bool)
-  reg reservations(~init: bits(0, slots).as_vec(Bool))
-  reg owners(~init: bits(0, slots).as_vec(Bool))
+  reg reservations(~init: Bits(slots)(0).as_vec(Bool))
+  reg owners(~init: Bits(slots)(0).as_vec(Bool))
   allocated <== reservations
   accepted <== owners
   when (reserve.valid):
@@ -28,7 +28,7 @@ sync_circuit VectorSlots(slots :: Pow2Int):
   when (release.valid):
     assert(owners[release.bits] ||| (accept.valid & (accept.bits === release.bits)), "vector_release_has_accepted_owner")
   for (slot in 0..slots):
-    def tag = bits(slot, index_width(slots))
+    def tag = Bits(index_width(slots))(slot)
     when (release.valid & (release.bits === tag)):
       reservations[slot] <== Bool(#false)
       owners[slot] <== Bool(#false)

@@ -23,14 +23,14 @@ fun low_mask(value :: Bits,
         def threshold = bottom_bound + 1 + index
         if threshold >= input_values
         | Bool(#false)
-        | value >= bits(threshold, input_width)
+        | value >= Bits(input_width)(threshold)
     | for List (index in 0..result_width):
         def threshold = bottom_bound - index
         if threshold >= input_values
         | Bool(#true)
         | if threshold == 0
           | Bool(#false)
-          | value < bits(threshold, input_width)
+          | value < Bits(input_width)(threshold)
   vec(lanes).as_bits()
 
 export:

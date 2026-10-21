@@ -38,7 +38,7 @@ circuit BitsAlignmentFixture():
   down_1 <== align_down(value, 1)
   down_4 <== align_down(value, 4)
   down_256 <== align_down(value, 256)
-  merged <== masked_merge(value, bits(0xa0, 8), bits(0xf0, 8))
+  merged <== masked_merge(value, Bits(8)(0xa0), Bits(8)(0xf0))
 
 circuit RuntimeAlignmentFixture():
   input value: Bits(8)

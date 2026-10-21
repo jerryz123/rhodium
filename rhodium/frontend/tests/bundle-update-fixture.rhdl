@@ -30,8 +30,8 @@ def Structural = RecordType([RecordField("data", Bits(8)), RecordField("tag", Bi
 def initial = UpdateEnvelope():
   payload:
     UpdatePayload(8, #true):
-      data: bits(0x35, 8)
-      tag: bits(6, 4)
+      data: Bits(8)(0x35)
+      tag: Bits(4)(6)
       state: UpdateState.Idle
   valid: Bool(#true)
 
@@ -75,7 +75,7 @@ sync_circuit BundleUpdateFixture():
   reg inferred_saved(~init: initial)
   inferred_saved <== source
   mem storage(2, UpdateEnvelope())
-  storage.write(bits(0, 1), source, ~enable: Bool(#true))
+  storage.write(Bits(1)(0), source, ~enable: Bool(#true))
   inst echo(UpdateEcho())
   echo.source <== source
   inst observer(ObservedUpdate())
@@ -89,7 +89,7 @@ sync_circuit BundleUpdateFixture():
   changed <== update
   registered <== saved.updated(~valid: source.valid)
   inferred <== inferred_saved.updated(~valid: source.valid)
-  remembered <== storage[bits(0, 1)].updated(~valid: source.valid)
+  remembered <== storage[Bits(1)(0)].updated(~valid: source.valid)
   tagged_payload <== source.payload.updated(~data: data).updated(~tag: tag)
   def untagged = UpdatePayload(8, #false):
     data: source.payload.data
@@ -106,7 +106,7 @@ sync_circuit BundleUpdateFixture():
     selected.updated(~valid: Bool(#true)).active(),
     initial.updated(~payload: source.payload).active(),
     choices[0].updated(~valid: Bool(#true)).active(),
-    storage[bits(0, 1)].updated(~valid: Bool(#true)).active(),
+    storage[Bits(1)(0)].updated(~valid: Bool(#true)).active(),
     echo.result.updated(~valid: Bool(#true)).payload.state.active(),
     source.as_bits().into(UpdateEnvelope()).updated(~valid: Bool(#true)).active()
   )
@@ -116,15 +116,15 @@ circuit InvalidRecordUpdate(kind :: String):
   input entries: Vec(2, Bits(8))
   output result: Bits(8)
   cond
-  | kind == "unknown": result <== source.updated(~missing: bits(0, 8)).data
-  | kind == "absent": result <== source.updated(~tag: bits(0, 4)).data
-  | kind == "width": result <== source.updated(~data: bits(0, 4)).data
+  | kind == "unknown": result <== source.updated(~missing: Bits(8)(0)).data
+  | kind == "absent": result <== source.updated(~tag: Bits(4)(0)).data
+  | kind == "width": result <== source.updated(~data: Bits(4)(0)).data
   | kind == "nominal": result <== source.updated(~state: OtherState.Active).data
   | kind == "host": result <== source.updated(~data: 3).data
-  | kind == "positional": result <== source.updated(bits(0, 1), bits(0, 8)).data
-  | kind == "mixed": result <== source.updated(bits(0, 1), ~data: bits(0, 8)).data
-  | kind == "vector": result <== entries.updated(~data: bits(0, 8))[0]
-  | ~else: result <== source.data.updated(~data: bits(0, 8))
+  | kind == "positional": result <== source.updated(Bits(1)(0), Bits(8)(0)).data
+  | kind == "mixed": result <== source.updated(Bits(1)(0), ~data: Bits(8)(0)).data
+  | kind == "vector": result <== entries.updated(~data: Bits(8)(0))[0]
+  | ~else: result <== source.data.updated(~data: Bits(8)(0))
 
 def program = elaborate(BundleUpdateFixture())
 

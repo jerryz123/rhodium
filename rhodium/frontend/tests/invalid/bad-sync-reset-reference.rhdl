@@ -6,6 +6,6 @@
 sync_circuit ManualResetReference():
   output value: Bits(1)
   def leaked_reset = reset
-  value <== bits(0, 1)
+  value <== Bits(1)(0)
 
 elaborate(ManualResetReference())

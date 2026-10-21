@@ -21,17 +21,17 @@ import:
  * unmapped, overflowing, or fragment-crossing requests receive no reusable grant.
  */
 fun spike_address_response(physical_map :: RiscvPhysicalMemoryMap, request :: SpikeAddressRequest()) :~ SpikeAddressResponse():
-  def last_address = request.address +& ((bits(1, 64) << request.size) - bits(1, 64))
+  def last_address = request.address +& ((Bits(64)(1) << request.size) - Bits(64)(1))
   def classified = physical_map.lookup(request.address, last_address)
   def mutable grant_valid = Bool(#false)
-  def mutable grant_base = bits(0, 64)
-  def mutable grant_limit = bits(0, 64)
+  def mutable grant_base = Bits(64)(0)
+  def mutable grant_limit = Bits(64)(0)
   for (region in physical_map.regions):
     def mutable run_mask = 0
     while ((region.address_set.mask bits.and (run_mask + 1)) != 0):
       run_mask := run_mask * 2 + 1
-    def base = request.address & !bits(run_mask, 64)
-    def limit = base ||| bits(run_mask, 64)
+    def base = request.address & !Bits(64)(run_mask)
+    def limit = base ||| Bits(64)(run_mask)
     def matches = classified.mapped & region.address_set.matches(request.address) & (last_address <= limit.zext(65))
     grant_valid := grant_valid ||| matches
     grant_base := mux(matches, base, grant_base)
@@ -75,7 +75,7 @@ sync_circuit SpikeCore(config :: SpikeConfig,
   inst uncached(SpikeUncachedCHI(chi_config))
 
   spike.hart_id <== if config.architecture.xlen.width == 64 | hart_id | hart_id.zext(64)
-  spike.reset_vector <== bits(reset_address, 64)
+  spike.reset_vector <== Bits(64)(reset_address)
   spike.time <== time_counter
   spike.interrupts <== interrupts.machine_external.as_bits() ++ (
     interrupts.supervisor_external.as_bits()

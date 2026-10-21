@@ -67,7 +67,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   ) |> gate_flow(certification_ready & memory_dispatch_ready) |> dispatch
   packed_memory <== head_certified & head.bits.control.memory & (head.bits.control.memory_addressing === VectorMemoryAddressing.UnitStride)
   precheck.request.valid <== head.valid & needs_check & !check_started
-  precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))
+  precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| Bits(64)(xlen.width / 8 - 1))
   def checked = precheck.response |> gate_flow(check_started & !check_complete) |> to_valid()
   precheck.release.valid <== sequencing_done.valid & active_precheck
 
@@ -79,13 +79,13 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: dispatch.fire() & head.bits.control.memory & footprint.empty, ~bits: head.bits.pc)
   def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => head.bits.pc)
   def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => VectorCommit(xlen, slots)):
-    tag: bits(0, index_width(slots))
+    tag: Bits(index_width(slots))(0)
     pc: pc
     disposition: VectorDisposition.Authorized
     slow: Bool(#false)
-    data: bits(0, xlen.width)
-    cause: bits(0, xlen.width)
-    fault_address: bits(0, xlen.width)
+    data: Bits(xlen.width)(0)
+    cause: Bits(xlen.width)(0)
+    fault_address: Bits(xlen.width)(0)
 
   /* Keeps precise fault provenance attached to its registered architectural outcome. */
   bundle Retirement():
@@ -145,9 +145,9 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   /* Queued-kind summaries count descriptor transfers, not execution completion.
      Increment and decrement may coincide, including flow-through dispatch. */
 
-  reg queued_loads(~init: bits(0, 2))
-  reg queued_stores(~init: bits(0, 2))
-  reg queued_fp(~init: bits(0, 2))
+  reg queued_loads(~init: Bits(2)(0))
+  reg queued_stores(~init: Bits(2)(0))
+  reg queued_fp(~init: Bits(2)(0))
   def incoming = descriptors.ingress.bits.control
   def outgoing = head.bits.control
   def descriptor_enqueued = descriptors.ingress.fire()

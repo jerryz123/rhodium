@@ -35,12 +35,12 @@ sync_circuit RiscvVectorCsrs(xlen :: XLen, profile :: VectorProfile, vlen :: Vec
   output configuration_illegal: Bool
   output configuration_vl: Bits(xlen.width)
 
-  reg vl(~init: bits(0, index_width(vlen + 1)))
-  reg vtype(~init: bits(1 << (xlen.width - 1), xlen.width))
-  reg vstart(~init: bits(0, index_width(vlen)))
-  reg vxrm(~init: bits(0, 2))
+  reg vl(~init: Bits(index_width(vlen + 1))(0))
+  reg vtype(~init: Bits(xlen.width)(1 << (xlen.width - 1)))
+  reg vstart(~init: Bits(index_width(vlen))(0))
+  reg vxrm(~init: Bits(2)(0))
   reg vxsat(~init: Bool(#false))
-  reg vs(~init: bits(0, 2))
+  reg vs(~init: Bits(2)(0))
   def next_config = vector_configure(xlen, vlen, candidate, vtype, vl, ~elen: vector_profile_elen(profile))
   configuration_illegal <== next_config.illegal
   configuration_vl <== next_config.vl.zext(xlen.width)
@@ -49,13 +49,13 @@ sync_circuit RiscvVectorCsrs(xlen :: XLen, profile :: VectorProfile, vlen :: Vec
     vstart <== fault_start.bits[0..index_width(vlen)]
   elsewhen (truncate.valid):
     vl <== truncate.bits[0..index_width(vlen + 1)]
-    vstart <== bits(0, index_width(vlen))
+    vstart <== Bits(index_width(vlen))(0)
   elsewhen configuration_write:
     vl <== next_config.vl
     vtype <== next_config.vtype
-    vstart <== bits(0, index_width(vlen))
+    vstart <== Bits(index_width(vlen))(0)
   elsewhen (retire.valid):
-    vstart <== bits(0, index_width(vlen))
+    vstart <== Bits(index_width(vlen))(0)
   elsewhen (write.valid & (write.bits.address === csr_bits(CsrId.Vstart))):
     vstart <== write.bits.value[0..index_width(vlen)]
   when (write.valid & (write.bits.address === csr_bits(CsrId.Vcsr))):
@@ -71,7 +71,7 @@ sync_circuit RiscvVectorCsrs(xlen :: XLen, profile :: VectorProfile, vlen :: Vec
   when (status_write.valid):
     vs <== status_write.bits
   elsewhen (configuration_write ||| write.valid ||| retire.valid ||| fault_start.valid ||| truncate.valid ||| saturate.valid):
-    vs <== bits(3, 2)
+    vs <== Bits(2)(3)
   state <== RiscvVectorState(xlen):
     vl: vl.zext(xlen.width)
     vtype: vtype
@@ -96,9 +96,9 @@ sync_circuit DisabledRiscvVectorCsrs(xlen :: XLen):
   output configuration_illegal: Bool
   output configuration_vl: Bits(xlen.width)
   state <== literal(RiscvVectorState(xlen), 0)
-  status <== bits(0, 2)
+  status <== Bits(2)(0)
   configuration_illegal <== Bool(#true)
-  configuration_vl <== bits(0, xlen.width)
+  configuration_vl <== Bits(xlen.width)(0)
 
 export:
   RiscvVectorCsrWrite

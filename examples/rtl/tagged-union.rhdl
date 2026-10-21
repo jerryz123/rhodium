@@ -25,7 +25,7 @@ tagged_union Option(T :: DataType):
   Some(T)
 
 def idle_request = Request.Idle
-def read_request = Request.Read(bits(0x5A, 8))
+def read_request = Request.Read(Bits(8)(0x5A))
 
 /* Exposes request_tag, is_idle, is_read, read_payload, write_address, rebuilt_write for this tagged union example. */
 circuit TaggedUnionRouter():

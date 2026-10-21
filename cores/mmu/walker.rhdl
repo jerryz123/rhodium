@@ -89,7 +89,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def pbmte = mux(virtual_stage, operation.context.vs_pbmte, operation.context.g_pbmte)
   def encoding_fault = !sv39_pte_structurally_valid(pte, ~level: frame.level, ~svnapot: svnapot, ~pbmte: pbmte)
   def superpage_alignment_fault = leaf & !pte.sv39_superpage_aligned(frame.level)
-  def nonleaf_fault = !leaf & ((frame.level === bits(0, 2)) ||| pte.dirty ||| pte.accessed ||| pte.user)
+  def nonleaf_fault = !leaf & ((frame.level === Bits(2)(0)) ||| pte.dirty ||| pte.accessed ||| pte.user)
   def structural_fault = encoding_fault ||| superpage_alignment_fault ||| nonleaf_fault
   def checked_access = mux(implicit_access, Sv39Access.Load, operation.access)
   def user = !virtual_stage ||| (operation.context.privilege === PrivilegeMode.User)
@@ -100,8 +100,8 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def permission_fault = leaf & !sv39_permission_valid(pte, checked_access, user, supervisor, sum, mxr, operation.execute_read & !implicit_access)
   def page_size = sv39_page_size(pte, frame.level)
   def translated_address = sv39_physical_address(frame.address, sv39_base_ppn(pte.ppn, page_size), page_size)
-  def pte_offset = mux(virtual_stage, (frame.address.sv39_vpn(frame.level) ++ bits(0, 3)).zext(64), (sv39x4_vpn(frame.address, frame.level) ++ bits(0, 3)).zext(64))
-  def pte_address = (frame.table_ppn ++ bits(0, 12)).zext(64) + pte_offset
+  def pte_offset = mux(virtual_stage, (frame.address.sv39_vpn(frame.level) ++ Bits(3)(0)).zext(64), (sv39x4_vpn(frame.address, frame.level) ++ Bits(3)(0)).zext(64))
+  def pte_address = (frame.table_ppn ++ Bits(12)(0)).zext(64) + pte_offset
   memory.request.bits <== RiscvPteRead():
     address: mux(operation.virtualized, memory_address, pte_address)
     pbmt: mux(operation.virtualized, memory_pbmt, PageMemoryType.PMA)
@@ -120,17 +120,17 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     virtual_stage: RiscvTranslationFault.PageFault
   def checking_address = state === RiscvPageWalkState.CheckAddress
   def preparing_read = state === RiscvPageWalkState.PrepareRead
-  def zero_leaf = bits(0, 64).into(Sv39Pte())
+  def zero_leaf = Bits(64)(0).into(Sv39Pte())
   def empty_mapping :: RiscvTlbMapping() = literal(RiscvTlbMapping(), 0)
   def vs_pte = (memory.response.bits[6..64] ++ (frame.global_mapping ||| pte.global_mapping).into(Bits(1)) ++ memory.response.bits[0..5]).into(Sv39Pte())
-  def g_pte = (memory.response.bits[6..64] ++ bits(0, 1) ++ memory.response.bits[0..5]).into(Sv39Pte())
+  def g_pte = (memory.response.bits[6..64] ++ Bits(1)(0) ++ memory.response.bits[0..5]).into(Sv39Pte())
 
   /* Starts a three-level traversal at the selected root without inherited global permissions. */
   fun root_frame(address :: Bits(64), ppn :: Bits(44)) :~ RiscvPageWalkFrame():
     RiscvPageWalkFrame():
       address: address
       table_ppn: ppn
-      level: bits(2, 2)
+      level: Bits(2)(2)
       global_mapping: Bool(#false)
 
   /* Captures the original access, stage leaves, and explicit or implicit guest-fault
@@ -138,7 +138,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   fun outcome(fault :: RiscvTranslationFault, physical :: Bits(56), guest_leaf :: Sv39Pte()) :~ RiscvTlbMapping():
     def details = RiscvGuestFault():
       guest_virtual_address: operation.virtualized
-      guest_physical_address: mux(virtual_stage, bits(0, 64), frame.address)
+      guest_physical_address: mux(virtual_stage, Bits(64)(0), frame.address)
       access: mux(implicit_access, RiscvGuestFaultAccess.PageTableRead, RiscvGuestFaultAccess.Explicit)
     RiscvTlbMapping():
       virtual_address: operation.virtual_address
@@ -170,7 +170,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     def host_first_state = mux(request.bits.virtual_address.sv39_canonical(), RiscvPageWalkState.Request, RiscvPageWalkState.Complete)
     state <== mux(direct_host_walk, host_first_state, RiscvPageWalkState.CheckAddress)
   elsewhen (checking_address & (bad_virtual_address ||| bad_guest_address ||| bare_overflow)):
-    result <== outcome(address_fault, bits(0, 56), zero_leaf)
+    result <== outcome(address_fault, Bits(56)(0), zero_leaf)
     state <== RiscvPageWalkState.Complete
   elsewhen (checking_address & !virtual_stage & guest_bare & implicit_access):
     memory_address <== frame.address
@@ -193,16 +193,16 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     memory_pbmt <== PageMemoryType.PMA
     state <== RiscvPageWalkState.Request
   elsewhen (memory_fire & memory.request_access_fault):
-    result <== outcome(RiscvTranslationFault.AccessFault, bits(0, 56), zero_leaf)
+    result <== outcome(RiscvTranslationFault.AccessFault, Bits(56)(0), zero_leaf)
     state <== RiscvPageWalkState.Complete
   elsewhen (response_received & (structural_fault ||| permission_fault)):
-    result <== outcome(mux(virtual_stage, RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault), bits(0, 56), zero_leaf)
+    result <== outcome(mux(virtual_stage, RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault), Bits(56)(0), zero_leaf)
     state <== RiscvPageWalkState.Complete
   elsewhen (response_received & !leaf):
     frame <== RiscvPageWalkFrame():
       address: frame.address
       table_ppn: pte.ppn
-      level: frame.level - bits(1, 2)
+      level: frame.level - Bits(2)(1)
       global_mapping: frame.global_mapping ||| (virtual_stage & pte.global_mapping)
     state <== mux(operation.virtualized, RiscvPageWalkState.PrepareRead, RiscvPageWalkState.Request)
   elsewhen (response_received & virtual_stage & !operation.virtualized):

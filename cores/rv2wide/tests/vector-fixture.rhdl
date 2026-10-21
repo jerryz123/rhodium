@@ -34,8 +34,8 @@ sync_circuit RV2WideVectorFixture():
   inst vector(RV2WideVectorPipeline(xlen, 128, ~vector_completion_slots: 4))
   def empty_certificate :: VectorFastCertificate(xlen) = literal(VectorFastCertificate(xlen), 0)
   def certified_range = VectorRange():
-    first: scalar & !bits(0xfff, 64)
-    last: scalar ||| bits(0xfff, 64)
+    first: scalar & !Bits(64)(0xfff)
+    last: scalar ||| Bits(64)(0xfff)
     store: decode.control.store
   decode.instruction <== instruction
   vector.request.valid <== request_valid
@@ -48,13 +48,13 @@ sync_circuit RV2WideVectorFixture():
       RiscvVectorState(xlen):
         vl: vl
         vtype: vtype
-        vstart: bits(0, 64)
-        vxrm: bits(0, 2)
+        vstart: Bits(64)(0)
+        vxrm: Bits(2)(0)
         vxsat: Bool(#false)
     control: decode.control
     scalar: scalar
-    floating_scalar: bits(0, 64)
-    stride: bits(8, 64)
+    floating_scalar: Bits(64)(0)
+    stride: Bits(64)(8)
     masked: !instruction[25].into(Bool)
     rounding_mode: RoundingMode.NearEven
     pointer_masking: literal(PointerMaskControl(), 0)

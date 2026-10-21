@@ -77,6 +77,7 @@ interface SignedArithmeticType:
 /* Represents a positive-width, unsigned packed bit vector with modular arithmetic and bitwise capabilities. */
 class Bits(width :: PosInt):
   implements ArithmeticType
+  nonfinal
 
   /* Formats the width-parameterized Bits type for diagnostics and IR inspection. */
   override method describe():

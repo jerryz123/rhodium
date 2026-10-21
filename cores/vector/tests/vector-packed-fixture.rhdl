@@ -42,13 +42,13 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   def issue_path = issue_link.right
   sequencer.packed_memory <== Bool(#true)
   sequencer.cancel.valid <== Bool(#false)
-  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
+  sequencer.blocked_rows <== Bits(VectorRegisterLayout(vlen, xlen.width).depth)(0).as_vec(Bool)
   engine.closed_owners <== vec([!sequencer.active, Bool(#true)])
-  reg tail(~init: bits(0, index_width(slots)))
-  reg head(~init: bits(0, index_width(slots)))
+  reg tail(~init: Bits(index_width(slots))(0))
+  reg head(~init: Bits(index_width(slots))(0))
   inst slots_owner(VectorSlots(slots))
   engine.head <== head
-  def next_tail = if slots == 1 | bits(0, index_width(slots)) | tail + operand_fetch.scheduled_return.as_bits().zext(index_width(slots))
+  def next_tail = if slots == 1 | Bits(index_width(slots))(0) | tail + operand_fetch.scheduled_return.as_bits().zext(index_width(slots))
   def slot_available = !slots_owner.allocated[next_tail] & (Bool(slots != 1) ||| !operand_fetch.scheduled_return)
   sequencer.sequence_request |> gate_flow(issue_ready & slot_available & alignment_available) |> operand_fetch.request
   operand_fetch.flush <== sequencer.read_flush
@@ -59,7 +59,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   engine.drain_enable <== Bool(#true)
   engine.alignment_available <== alignment_available & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
   engine.write_available <== write_available
-  engine.owner <== bits(0, 1)
+  engine.owner <== Bits(1)(0)
   inst registers(VectorRegisterFile(xlen, vlen))
   inst execute(VectorExecute(xlen, vlen))
   inst attempts(ValidPipe(VectorToken(xlen, Bits(64), slots), 3, ~flushable: #true))
@@ -67,24 +67,24 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   def launches :: Handle = interface_link(Decoupled(VectorInstruction(xlen, Bits(64))))
   launches.left.valid <== request_valid
   launches.left.bits <== VectorInstruction(xlen, Bits(64)):
-    context: bits(0x100, 64)
+    context: Bits(64)(0x100)
     descriptor:
       VectorDescriptor(xlen):
-        pc: bits(0x100, xlen.width)
+        pc: Bits(xlen.width)(0x100)
         precertified: Bool(#false)
         certificate: dont_care(sequencer.request.bits.descriptor.certificate.type)
-        instruction: bits(8, 32) << 7
+        instruction: Bits(32)(8) << 7
         state:
           RiscvVectorState(xlen):
             vl: vl[0..xlen.width]
             vtype: vtype[0..xlen.width]
             vstart: vstart[0..xlen.width]
-            vxrm: bits(0, 2)
+            vxrm: Bits(2)(0)
             vxsat: Bool(#false)
         control: control.updated(~memory: Bool(#true), ~store: store, ~memory_data_eew: eew, ~memory_nf: nf, ~memory_mode: mode)
         scalar: base[0..xlen.width]
-        floating_scalar: bits(0, xlen.width)
-        stride: bits(0, xlen.width)
+        floating_scalar: Bits(xlen.width)(0)
+        stride: Bits(xlen.width)(0)
         masked: masked
         rounding_mode: RoundingMode.NearEven
         pointer_masking:
@@ -97,14 +97,14 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   (
     scheduled |> map_flow(operation => VectorToken(xlen, Bits(64), slots)):
       precertified: Bool(#false)
-      physical_address: bits(0, xlen.width)
+      physical_address: Bits(xlen.width)(0)
       store: store
       byte_mask: operation.byte_mask
       context: operation.context
       last: operation.beat.last
       truncate_on_fault: Bool(#false)
       memory: Bool(#true)
-      memory_width: bits(if xlen == XLen.X64 | 3 | 2, 2)
+      memory_width: Bits(2)(if xlen == XLen.X64 | 3 | 2)
       enabled: operation.byte_mask.or_reduce()
       address: operation.beat.address
       store_data: operation.beat.left
@@ -120,7 +120,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
           mask: operation.byte_mask
           store: operation.beat.control.store
           segmented: operation.beat.control.memory_nf.or_reduce() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
-          owner: bits(0, 1)
+          owner: Bits(1)(0)
   ) |> engine.reserve
   issue_path |> to_valid() |> attempts.ingress
   attempts.egress |> attempt
@@ -128,9 +128,9 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   when (attempts.egress.valid & retry):
     tail <== attempts.egress.bits.completion_tag
   elsewhen (issue_path.fire()):
-    tail <== if slots == 1 | bits(0, 1) | tail + bits(1, index_width(slots))
+    tail <== if slots == 1 | Bits(1)(0) | tail + Bits(index_width(slots))(1)
   when (engine.released.valid):
-    head <== if slots == 1 | bits(0, 1) | head + bits(1, index_width(slots))
+    head <== if slots == 1 | Bits(1)(0) | head + Bits(index_width(slots))(1)
   slots_owner.reserve.valid <== issue_path.fire()
   slots_owner.reserve.bits <== tail
   slots_owner.accept.valid <== attempts.egress.valid & !retry
@@ -140,12 +140,12 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   (
     attempts.egress |> map_valid(token => VectorCommit(xlen, slots)):
       tag: token.completion_tag
-      pc: bits(0x100, xlen.width)
+      pc: Bits(xlen.width)(0x100)
       disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
       slow: slow
       data: hit_data[0..xlen.width]
-      cause: bits(0, xlen.width)
-      fault_address: bits(0, xlen.width)
+      cause: Bits(xlen.width)(0)
+      fault_address: Bits(xlen.width)(0)
   ) |> engine.commit
   response |> engine.completion
   for (port in 0..3):
@@ -164,8 +164,8 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
     first: engine.resolved.layout.before.element
     end: engine.resolved.layout.after.element
     disposition: engine.commit.bits.disposition
-    cause: bits(0, xlen.width)
-    fault_address: bits(0, xlen.width)
+    cause: Bits(xlen.width)(0)
+    fault_address: Bits(xlen.width)(0)
     last: engine.resolved.layout.last
     compress_state: literal(VectorCompressState(xlen, vlen), 0)
     packed_layout: engine.resolved.layout
@@ -179,7 +179,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   engine.aligned <== execute.aligned
   assert(!engine.alignment.valid ||| alignment_available, "packed_alignment_obeys_availability")
   execute.beat <== literal(VectorBeat(xlen, vlen), 0)
-  execute.scan_carry <== bits(0, xlen.width)
+  execute.scan_carry <== Bits(xlen.width)(0)
   request_ready <== launches.left.ready
   active <== sequencer.active ||| operand_fetch.active ||| engine.active
   issued <== issue_path.fire()

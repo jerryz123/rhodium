@@ -81,7 +81,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   input identity: BootAddressIdentity(p)
   interface port(CHISNChannels(p), ~role: node)
 
-  reg address(~init: bits(config.reset_value, 64))
+  reg address(~init: Bits(64)(config.reset_value))
   inst transaction(CHISingleBeatSubordinate(p, "boot_address"))
   port <=> transaction.port
   transaction.node_id <== identity.node_id
@@ -89,11 +89,11 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
 
   def incoming = port.req.bits
   def relative = incoming.address - identity.base_address
-  def word_access = (incoming.size_or_num_req === bits(2, 6)) & incoming.address.is_aligned(4)
-  def doubleword_access = (incoming.size_or_num_req === bits(3, 6)) & incoming.address.is_aligned(8)
+  def word_access = (incoming.size_or_num_req === Bits(6)(2)) & incoming.address.is_aligned(4)
+  def doubleword_access = (incoming.size_or_num_req === Bits(6)(3)) & incoming.address.is_aligned(8)
   def incoming_supported = incoming.opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl) & (
     incoming.tgt_id === identity.node_id
-  ) & (incoming.address >= identity.base_address) & (relative < bits(8, p.request_address_width)) & (word_access ||| doubleword_access)
+  ) & (incoming.address >= identity.base_address) & (relative < Bits(p.request_address_width)(8)) & (word_access ||| doubleword_access)
   transaction.request_supported <== incoming_supported
 
   // The register occupies the first eight byte lanes of its aligned window.
@@ -101,7 +101,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   def incoming_data = port.dat.request.bits
   def requested_mask = transfer_byte_mask(request.address[0..lane_width], chi_req_size(p, request).as_bits(), p.data_bytes).as_bits()
   def full_write = request.opcode === CHIReqOpcode.WriteNoSnpFull
-  def mask_supported = (incoming_data.byte_enable & !requested_mask) === bits(0, p.data_bytes)
+  def mask_supported = (incoming_data.byte_enable & !requested_mask) === Bits(p.data_bytes)(0)
   transaction.write_supported <== (incoming_data.data_id === chi_line_data_id(request.address, p)) & mask_supported & (!full_write ||| (incoming_data.byte_enable === requested_mask))
   transaction.write_ready <== Bool(#true)
   def write_data_fire = transaction.write_data_fire

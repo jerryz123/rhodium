@@ -29,7 +29,7 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
   reg active(~init: Bool(#false))
   reg packet_pending(~init: Bool(#false))
   reg snapshot(Bits(64))
-  reg hart_index(~init: bits(0, hart_width))
+  reg hart_index(~init: Bits(hart_width)(0))
 
   update |> pending.update
   // An update arriving while idle supersedes the stored offer before the next
@@ -37,7 +37,7 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
   pending.egress.ready <== !active & !update.valid
 
   def begin_sweep = pending.egress.fire()
-  def last_hart = hart_index === bits(hart_count - 1, hart_width)
+  def last_hart = hart_index === Bits(hart_width)(hart_count - 1)
 
   packetizer.ingress.valid <== active & packet_pending
   packetizer.ingress.bits <== snapshot
@@ -55,13 +55,13 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
     active <== Bool(#true)
     packet_pending <== Bool(#true)
     snapshot <== pending.egress.bits
-    hart_index <== bits(0, hart_width)
+    hart_index <== Bits(hart_width)(0)
   elsewhen (packet_fire & last_hart):
     active <== Bool(#false)
     packet_pending <== Bool(#false)
-    hart_index <== bits(0, hart_width)
+    hart_index <== Bits(hart_width)(0)
   elsewhen packet_fire:
-    hart_index <== hart_index + bits(1, hart_width)
+    hart_index <== hart_index + Bits(hart_width)(1)
     packet_pending <== Bool(#true)
   elsewhen (packetizer.ingress.fire()):
     packet_pending <== Bool(#false)
@@ -72,7 +72,7 @@ sync_circuit TiledTimeReceiver():
   output value: Bits(64)
 
   inst reassembler(Reassembler(Bits(64), TiledTimeChunkWidth))
-  reg time_value(~init: bits(0, 64))
+  reg time_value(~init: Bits(64)(0))
 
   ingress |> reassembler.ingress
   reassembler.egress.ready <== Bool(#true)

@@ -55,7 +55,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def halfword :: Bits(16) = priority_mux(~default: packets.bits.word[0..16]):
     residual_valid: residual.halfword
     upper: packets.bits.word[16..32]
-  def compressed = if compressed_enabled | halfword[0..2] =/= bits(3, 2) | Bool(#false)
+  def compressed = if compressed_enabled | halfword[0..2] =/= Bits(2)(3) | Bool(#false)
   def packet_fault = packets.bits.page_fault ||| packets.bits.access_fault
   def head_fault = !residual_valid & packet_fault
   def straddle = upper & !compressed & !head_fault
@@ -84,7 +84,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
 
   def page_fault = (!residual_valid ||| straddle) & packets.bits.page_fault
   def access_fault = (!residual_valid ||| straddle) & packets.bits.access_fault
-  def sequential_pc = pc + mux(instruction_is_compressed, bits(2, width), bits(4, width))
+  def sequential_pc = pc + mux(instruction_is_compressed, Bits(width)(2), Bits(width)(4))
   def continuation_prediction = residual_valid & packets.bits.prediction.valid & (packets.bits.prediction.pc === pc)
   def prediction :: BranchPrediction(xlen) = priority_mux(~default: packets.bits.prediction):
     continuation_prediction: packets.bits.prediction
@@ -136,13 +136,13 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   elsewhen (packets.fire()):
     residual_valid <== capture_partial ||| keep_upper
     residual <== RV5StageFetchParcel(xlen):
-      pc: packets.bits.pc.align_down(4) + bits(2, width)
+      pc: packets.bits.pc.align_down(4) + Bits(width)(2)
       halfword: packets.bits.word[16..32]
       prediction: packets.bits.prediction
   elsewhen (fetched.fire()):
     residual_valid <== Bool(#false)
   when (fetched.valid & straddle):
-    assert(packets.bits.mask[0].into(Bool) & (packets.bits.pc.align_down(4) === (pc.align_down(4) + bits(4, width))), "ibuf_contiguous_instruction")
+    assert(packets.bits.mask[0].into(Bool) & (packets.bits.pc.align_down(4) === (pc.align_down(4) + Bits(width)(4))), "ibuf_contiguous_instruction")
 
 export:
   RV5StageInstructionBuffer

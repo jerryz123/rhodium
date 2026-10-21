@@ -89,7 +89,7 @@ sync_circuit Aclint(config :: AclintConfig):
   def lane_width = alignment_bits(data_bytes)
   def hart_index_width = index_width(hart_count)
   def initial_mtimecmp = vec(
-    for List (_index in 0..hart_count): !bits(0, 64)
+    for List (_index in 0..hart_count): !Bits(64)(0)
   )
 
   input identity: AclintIdentity(p)
@@ -104,7 +104,7 @@ sync_circuit Aclint(config :: AclintConfig):
   port <=> transaction.port
   transaction.node_id <== identity.node_id
   def request = transaction.request
-  reg mtime(~init: bits(0, 64))
+  reg mtime(~init: Bits(64)(0))
   reg mtimecmp(Vec(hart_count, Bits(64)), ~init: initial_mtimecmp)
   reg msip(Vec(hart_count, Bool), ~init: vec(
     for List (_index in 0..hart_count): Bool(#false)
@@ -113,11 +113,11 @@ sync_circuit Aclint(config :: AclintConfig):
   def incoming = port.req.bits
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
-  def base_address = bits(AclintBase, p.request_address_width)
+  def base_address = Bits(p.request_address_width)(AclintBase)
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - base_address
   def incoming_in_window = (incoming.address >= base_address) & !incoming_relative_full[AclintAddressWidth..p.request_address_width].or_reduce()
   def incoming_supported = incoming_opcode.supports_initial_transaction() & incoming_in_window & (
-    incoming.size_or_num_req[0..3] <= bits(3, 3)
+    incoming.size_or_num_req[0..3] <= Bits(3)(3)
   ) & (
     incoming.tgt_id === identity.node_id
   )
@@ -133,16 +133,16 @@ sync_circuit Aclint(config :: AclintConfig):
   def bus_lane = active_address[0..lane_width]
   def mswi_raw_index :: Bits(12) = active_address[2..14]
   def mswi_index :: Bits(hart_index_width) = active_address[2..(2 + hart_index_width)]
-  def mtimecmp_relative :: Bits(AclintAddressWidth) = active_address - bits(AclintMtimecmpOffset, AclintAddressWidth)
+  def mtimecmp_relative :: Bits(AclintAddressWidth) = active_address - Bits(AclintAddressWidth)(AclintMtimecmpOffset)
   def mtimecmp_index :: Bits(hart_index_width) = mtimecmp_relative[3..(3 + hart_index_width)]
-  def mswi_access = (active_address < bits(AclintMtimecmpOffset, AclintAddressWidth)) & (
-    mswi_raw_index < bits(hart_count, 12)
+  def mswi_access = (active_address < Bits(AclintAddressWidth)(AclintMtimecmpOffset)) & (
+    mswi_raw_index < Bits(12)(hart_count)
   )
-  def mtimecmp_access = (active_address >= bits(AclintMtimecmpOffset, AclintAddressWidth)) & (
-    active_address < bits(AclintMtimecmpOffset + (hart_count * 8), AclintAddressWidth)
+  def mtimecmp_access = (active_address >= Bits(AclintAddressWidth)(AclintMtimecmpOffset)) & (
+    active_address < Bits(AclintAddressWidth)(AclintMtimecmpOffset + (hart_count * 8))
   )
-  def mtime_access = (active_address >= bits(AclintMtimeOffset, AclintAddressWidth)) & (
-    active_address < bits(AclintMtimeOffset + 8, AclintAddressWidth)
+  def mtime_access = (active_address >= Bits(AclintAddressWidth)(AclintMtimeOffset)) & (
+    active_address < Bits(AclintAddressWidth)(AclintMtimeOffset + 8)
   )
   def timer_register_offset:
     if lane_width == 3 | active_address[0..3] | active_address[0..3].zext(lane_width)
@@ -150,12 +150,12 @@ sync_circuit Aclint(config :: AclintConfig):
                             active_address[0..2].zext(lane_width),
                             timer_register_offset)
   def register_lane = bus_lane - register_offset
-  def register_shift = (register_lane ++ bits(0, 3))
+  def register_shift = (register_lane ++ Bits(3)(0))
   def register_data :: Bits(p.data_width) = port.dat.request.bits.data >> register_shift
   def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
   def write_value = register_data[0..64]
   def write_mask = register_mask[0..8].expand_mask(8)
-  def selected_value = priority_mux(~default: bits(0, 64)):
+  def selected_value = priority_mux(~default: Bits(64)(0)):
     mswi_access: msip[mswi_index].as_bits().zext(64)
     mtimecmp_access: mtimecmp[mtimecmp_index]
     mtime_access: mtime
@@ -170,7 +170,7 @@ sync_circuit Aclint(config :: AclintConfig):
   // allowing sparse consumers to capture the new timer value without polling.
   def mtime_write = write_data_fire & mtime_access
   def written_mtime = mtime.masked_merge(write_value, write_mask)
-  def incremented_mtime = mtime + bits(1, 64)
+  def incremented_mtime = mtime + Bits(64)(1)
 
   transaction.read_data <== register_read_data
 

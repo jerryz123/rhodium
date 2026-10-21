@@ -40,7 +40,7 @@ hardware_enum RV2WideImmediate:
   /* Extracts the selected architectural immediate as a sign-extended XLEN-wide value. */
   method decode(select, instruction :: Bits(32), xlen :: XLen) :: Bits(xlen.width):
     mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, xlen.width)):
-      RV2WideImmediate.Zero: bits(0, xlen.width)
+      RV2WideImmediate.Zero: Bits(xlen.width)(0)
       RV2WideImmediate.B: instruction_immediate(fields.BImmediate, instruction, xlen.width)
       RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, xlen.width)
       RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, xlen.width)

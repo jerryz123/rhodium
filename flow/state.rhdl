@@ -39,9 +39,9 @@ sync_circuit StateChangeSource(T :: DataType,
 
   reg published(Vec(count, T), ~init: initial_values)
   reg held_valid(~init: Bool(#false))
-  reg held_index(~init: bits(0, state_index_width))
+  reg held_index(~init: Bits(state_index_width)(0))
   reg held_value(T, ~init: initial_value)
-  reg next_priority(~init: bits(0, state_index_width))
+  reg next_priority(~init: Bits(state_index_width)(0))
 
   egress.valid <== held_valid
   egress.bits <== IndexedState(T, count):
@@ -62,12 +62,12 @@ sync_circuit StateChangeSource(T :: DataType,
   def capture = choice.valid & (!held_valid ||| transfer)
   def selected_value = current[choice.index]
   def following_priority = mux(
-    choice.index === bits(count - 1, state_index_width),
-    bits(0, state_index_width),
-    choice.index + bits(1, state_index_width)
+    choice.index === Bits(state_index_width)(count - 1),
+    Bits(state_index_width)(0),
+    choice.index + Bits(state_index_width)(1)
   )
 
-  assert(next_priority <= bits(count - 1, state_index_width),
+  assert(next_priority <= Bits(state_index_width)(count - 1),
          "state_change_priority_in_range")
 
   when transfer:

@@ -33,13 +33,13 @@ sync_circuit RV5StageRetirementTrace():
   output data_address: Bits(64)
   output data_value: Bits(64)
   core.interrupts <== literal(RiscvInterrupts(), 0)
-  core.hart_id <== bits(0, 64)
-  core.time_counter <== bits(0, 64)
+  core.hart_id <== Bits(64)(0)
+  core.time_counter <== Bits(64)(0)
   core.packets.valid <== packet_valid
   core.packets.bits <== RV5StageFetchPacket(XLen.X64, #false):
     pc: pc
     word: instruction
-    mask: mux(instruction[0..2] =/= bits(3, 2), bits(1, 2), bits(3, 2))
+    mask: mux(instruction[0..2] =/= Bits(2)(3), Bits(2)(1), Bits(2)(3))
     page_fault: Bool(#false)
     access_fault: Bool(#false)
     prediction:
@@ -47,7 +47,7 @@ sync_circuit RV5StageRetirementTrace():
         valid: predicted
         pc: pc
         target: target
-        compressed: instruction[0..2] =/= bits(3, 2)
+        compressed: instruction[0..2] =/= Bits(2)(3)
         ras_action: ras
   packet_ready <== core.packets.ready
   core.pipeline_access.response.valid <== Bool(#false)
@@ -68,7 +68,7 @@ sync_circuit RV5StageRetirementTrace():
   core.data_access.response.valid <== response_valid
   core.data_access.response.bits <== PhysicalMemoryResp(XLen.X64, RV5StageMemoryContext(8)):
     access_fault: response_fault
-    data: bits(0, 64)
+    data: Bits(64)(0)
     context:
       RV5StageMemoryContext(8):
         writeback: response_tag

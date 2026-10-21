@@ -25,7 +25,7 @@ hardware_type PLRUState(ways :: PosInt):
 
 /* Constructs the all-zero replacement-tree image for the selected associativity. */
 fun plru_initial_state(ways :: PosInt) :~ PLRUState(ways):
-  bits(0, plru_state_width(ways)).into(PLRUState(ways))
+  Bits(plru_state_width(ways))(0).into(PLRUState(ways))
 
 /* Follows replacement bits to a real way, forcing branches that would otherwise lead only to padded leaves. */
 fun plru_victim(ways :: PosInt,
@@ -34,7 +34,7 @@ fun plru_victim(ways :: PosInt,
   /* Elaborates a subtree selection, returning its leaf index and excluding branches beyond the real way count. */
   fun select(node :: Nat, first :: Nat, count :: PosInt):
     if count == 1
-    | bits(first, index_width(ways))
+    | Bits(index_width(ways))(first)
     | block:
         def half = count div 2
         def split = first + half
@@ -58,7 +58,7 @@ fun plru_touch(ways :: PosInt,
         def split = first + half
         def right_selected:
           if split < ways
-          | selected & !(way < bits(split, index_width(ways)))
+          | selected & !(way < Bits(index_width(ways))(split))
           | Bool(#false)
         def replacement = mux(selected, !right_selected, updated[node])
         updated := vec(

@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   rhombus.bits.(<<) as <<
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/layers/bool.rhm" as bool
-  "../../rhodium/frontend/layers/comb.rhm" as comb
   "../../noc/rtl/main.rhdl" open
   "../../noc/model/main.rhm" open
   "../../noc/plan/main.rhm" open
@@ -33,18 +33,12 @@ fun decoded_result(route_decoder, encoded_key):
     route_decoder.route_width,
     route_decoder.origin_width
   ):
-    route_key: comb.bits(
-      bits.field(
+    route_key: hw.Bits(route_decoder.route_width)(bits.field(
         encoded_key,
         route_decoder.origin_width,
         route_decoder.origin_width + route_decoder.route_width
-      ),
-      route_decoder.route_width
-    )
-    origin_key: comb.bits(
-      encoded_key bits.and origin_mask,
-      route_decoder.origin_width
-    )
+      ))
+    origin_key: hw.Bits(route_decoder.origin_width)(encoded_key bits.and origin_mask)
   def table = route_decoder.decoder.table
   def matching = table.cases.find(
     fun (case): case.input.matches(selector)

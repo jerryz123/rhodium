@@ -30,7 +30,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
   reg request(CHISnpFlit(p))
   reg response_valid(~init: Bool(#false))
   reg response(SpikeSnoopResponse())
-  reg packet_index(~init: bits(0, packet_index_width))
+  reg packet_index(~init: Bits(packet_index_width)(0))
   reg dvm_first_pending(~init: Bool(#false))
 
   // Credit returns do not start work. DVM waits for its second flit and responds without consulting the cache.
@@ -69,7 +69,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
   data.valid <== response_valid & response.has_data
   data.bits <== inactive_data.updated(
     ~data: response.line.as_vec(Bits(p.data_width))[packet_index],
-    ~byte_enable: !bits(0, p.byte_enable_width),
+    ~byte_enable: !Bits(p.byte_enable_width)(0),
     ~trace_tag: request.trace_tag,
     ~tag_op: CHITagOp.Invalid,
     ~data_id: data_id,
@@ -83,7 +83,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
     ~tgt_id: request.src_id,
     ~qos: request.qos
   )
-  def final_packet = packet_index === bits(packet_count - 1, packet_index_width)
+  def final_packet = packet_index === Bits(packet_index_width)(packet_count - 1)
   def final_data = data.fire() & final_packet
 
   when (lookup_start ||| dvm_second_fire):
@@ -94,13 +94,13 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
       state: CHIResponseState.Invalid
       pass_dirty: Bool(#false)
       has_data: Bool(#false)
-      line: bits(0, 512)
-    packet_index <== bits(0, packet_index_width)
+      line: Bits(512)(0)
+    packet_index <== Bits(packet_index_width)(0)
   elsewhen software_response_fire:
     response_valid <== Bool(#true)
     response <== software_response.bits
   elsewhen (data.fire() & !final_packet):
-    packet_index <== packet_index + bits(1, packet_index_width)
+    packet_index <== packet_index + Bits(packet_index_width)(1)
   elsewhen (response_fire ||| final_data):
     active <== Bool(#false)
     response_valid <== Bool(#false)

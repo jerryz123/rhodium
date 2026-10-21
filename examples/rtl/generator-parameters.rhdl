@@ -7,30 +7,30 @@
 circuit OrdinaryDefaults(width :: PosInt = 4 + 4,
                          ~extra: extra :: PosInt = 2 - 1):
   output result: Bits(width + extra)
-  result <== bits(0, width + extra)
+  result <== Bits(width + extra)(0)
 
 /* Applies typed default generator arguments before constructing ports. */
 circuit OrdinaryTypedDefaults(width :: PosInt = 3 * 2,
                               ~extra: extra :: Nat = 1 + 1):
   output result: Bits(width + extra)
-  result <== bits(0, width + extra)
+  result <== Bits(width + extra)(0)
 
 /* Builds ports from a required keyword width argument. */
 circuit OrdinaryRequiredKeyword(~width: width :: PosInt):
   output result: Bits(width)
-  result <== bits(0, width)
+  result <== Bits(width)(0)
 
 /* Applies host-evaluated defaults while constructing a synchronous circuit. */
 sync_circuit SyncDefaults(width :: PosInt = 2 + 3,
                           ~extra: extra :: PosInt = 1 + 1):
   output result: Bits(width + extra)
-  result <== bits(0, width + extra)
+  result <== Bits(width + extra)(0)
 
 /* Validates typed generator defaults in the ambient synchronous domain. */
 sync_circuit SyncTypedDefaults(width :: PosInt = 2 * 2,
                                ~extra: extra :: Nat = 1 + 2):
   output result: Bits(width + extra)
-  result <== bits(0, width + extra)
+  result <== Bits(width + extra)(0)
 
 def ordinary_defaults_program = elaborate(OrdinaryDefaults())
 def ordinary_overrides_program = elaborate(OrdinaryDefaults(3, ~extra: 4))

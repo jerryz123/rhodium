@@ -48,7 +48,7 @@ bundle Sv39Translation():
 
 /* Checks RV64 sign extension above the Sv39 virtual-address sign bit. */
 fun sv39_canonical(address :: Bits(64)) :~ Bool:
-  address[39..64] === mux(address[38].into(Bool), !bits(0, 25), bits(0, 25))
+  address[39..64] === mux(address[38].into(Bool), !Bits(25)(0), Bits(25)(0))
 
 /* Selects one of the three nine-bit Sv39 VPN components. */
 fun sv39_vpn(address :: Bits(64), level :: Bits(2)) :~ Bits(9):
@@ -61,9 +61,9 @@ fun sv39_leaf(pte :: Sv39Pte()) :~ Bool:
   pte.read ||| pte.execute
 
 /* Checks V/R/W constraints, reserved bits, enabled leaf PBMT, and the supported level-zero 64 KiB NAPOT encoding. */
-fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~level: level :: Bits(2) = bits(0, 2), ~svnapot: svnapot :: Boolean = #false, ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
+fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~level: level :: Bits(2) = Bits(2)(0), ~svnapot: svnapot :: Boolean = #false, ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
   def pbmt_valid = (pte.pbmt === PageMemoryType.PMA) ||| (pbmte & sv39_leaf(pte) & (pte.pbmt =/= PageMemoryType.Reserved))
-  def napot_valid = !pte.napot ||| (Bool(svnapot) & sv39_leaf(pte) & (level === bits(0, 2)) & (pte.ppn[0..4] === bits(8, 4)))
+  def napot_valid = !pte.napot ||| (Bool(svnapot) & sv39_leaf(pte) & (level === Bits(2)(0)) & (pte.ppn[0..4] === Bits(4)(8)))
   pte.valid & !(pte.write & !pte.read) & napot_valid & !pte.reserved.or_reduce() & pbmt_valid
 
 /* Requires lower PPN components to be zero for the selected superpage level. */
@@ -83,9 +83,9 @@ fun sv39_page_size(pte :: Sv39Pte(), level :: Bits(2)) :~ Sv39PageSize:
 /* Clears page-offset PPN bits to normalize a leaf into its mapping base. */
 fun sv39_base_ppn(ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(44):
   mux_lookup(page_size, ~default: ppn):
-    Sv39PageSize.Page64KiB: ppn[4..44] ++ bits(0, 4)
-    Sv39PageSize.Page2MiB: ppn[9..44] ++ bits(0, 9)
-    Sv39PageSize.Page1GiB: ppn[18..44] ++ bits(0, 18)
+    Sv39PageSize.Page64KiB: ppn[4..44] ++ Bits(4)(0)
+    Sv39PageSize.Page2MiB: ppn[9..44] ++ Bits(9)(0)
+    Sv39PageSize.Page1GiB: ppn[18..44] ++ Bits(18)(0)
 
 /* Compares addresses above the offset width of the selected mapping size. */
 fun sv39_same_page(left :: Bits, right :: Bits(left.type.packed_width()), page_size :: Sv39PageSize) :~ Bool:

@@ -47,7 +47,7 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
   chi.req.bits <== spike_chi_request(
     p, node_id, home_id, request.address, request.size.into(CHITransferSize),
     mux(request.write, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp),
-    bits(0, 12), Bool(#false), Bool(#false), Bool(#false), bits(0, 4),
+    Bits(12)(0), Bool(#false), Bool(#false), Bool(#false), Bits(4)(0),
     ~cacheable: Bool(#false), ~device: request.device
   )
   def request_fire = chi.req.fire()
@@ -64,9 +64,9 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
   def dbid_fire = response_fire & dbid_expected
   def completion_fire = response_fire & completion_expected
 
-  def lane = if lanes == 1 | bits(0, lane_width) | request.address[3..alignment_bits(p.data_bytes)]
-  def shift_data = lane ++ bits(0, 6)
-  def shift_mask = lane ++ bits(0, 3)
+  def lane = if lanes == 1 | Bits(lane_width)(0) | request.address[3..alignment_bits(p.data_bytes)]
+  def shift_data = lane ++ Bits(6)(0)
+  def shift_mask = lane ++ Bits(3)(0)
   def aligned_write_data = if p.data_width == 64 | request.data | request.data.zext(p.data_width)
   def aligned_write_mask = if p.byte_enable_width == 8 | request.mask | request.mask.zext(p.byte_enable_width)
   chi.dat.request.valid <== state === SpikeUncachedState.WriteData
@@ -89,7 +89,7 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
   transaction.response.bits <== SpikeUncachedResponse():
     data: mux(read_expected,
               incoming_data.data.as_vec(Bits(64))[lane],
-              bits(0, 64))
+              Bits(64)(0))
     access_fault: mux(read_expected,
                       incoming_data.resp_err =/= CHIRespErr.OK,
                       incoming_response.resp_err =/= CHIRespErr.OK)

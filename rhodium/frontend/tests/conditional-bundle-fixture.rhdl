@@ -31,15 +31,15 @@ bundle WidthOptional(width):
     payload: Bits(width)
 
 def plain_literal = OptionalPacket(#false, #false):
-  payload: bits(0xa5, 8)
+  payload: Bits(8)(0xa5)
   parity: Bool(#true)
 
 def tagged_literal = OptionalPacket(#true, #true):
-  payload: bits(0xa5, 8)
-  tag: bits(0xb, 4)
+  payload: Bits(8)(0xa5)
+  tag: Bits(4)(0xb)
   parity: Bool(#true)
-  source: bits(0x3, 3)
-  sequence: bits(0x12, 5)
+  source: Bits(3)(0x3)
+  sequence: Bits(5)(0x12)
 
 circuit ConditionalBundleShapes():
   input plain: OptionalPacket(#false, #false)
@@ -81,14 +81,14 @@ circuit AbsentConditionalProjection():
 
 circuit SuppliedAbsentConditionalField():
   def invalid = OptionalPacket(#false, #false):
-    payload: bits(0, 8)
-    tag: bits(0, 4)
+    payload: Bits(8)(0)
+    tag: Bits(4)(0)
     parity: Bool(#false)
   #void
 
 circuit MissingPresentConditionalField():
   def invalid = OptionalPacket(#true, #false):
-    payload: bits(0, 8)
+    payload: Bits(8)(0)
     parity: Bool(#false)
   #void
 

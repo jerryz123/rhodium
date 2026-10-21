@@ -105,7 +105,7 @@ sync_circuit EventRoutingRejoin():
   Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed", ~payload: #true) |> sink
 
 sync_circuit EventBadRoutingWidth():
-  interface_trace_routing([bits(0, 2)])
+  interface_trace_routing([Bits(2)(0)])
 
 sync_circuit EventSingletonDemux():
   input selector: Bits(1)

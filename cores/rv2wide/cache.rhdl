@@ -82,8 +82,8 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
           width: MemoryWidth.Double
           unsigned: Bool(#true)
           data: dont_care(Bits(64))
-          byte_mask: bits(0xff, 8)
-          context: bits(0, 3)
+          byte_mask: Bits(8)(0xff)
+          context: Bits(3)(0)
           locality: RiscvMemoryLocality.Default
   ) |> ownership.instruction_request
   (prefetch |> filter_valid(_request => io.core.drained & !uncached_management.egress.valid) |> map_valid(hint):
@@ -104,7 +104,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   def management = request.access.is_cache_management()
   def cache_block = request.access.is_cache_block()
   def first_address = mux(cache_block, request.address.align_down(CacheLineBytes), request.address)
-  def last_address = first_address +& mux(cache_block, bits(CacheLineBytes - 1, 64), memory_access_bytes(XLen.X64, request.width) - bits(1, 64))
+  def last_address = first_address +& mux(cache_block, Bits(64)(CacheLineBytes - 1), memory_access_bytes(XLen.X64, request.width) - Bits(64)(1))
   def physical = config.physical_map.lookup(first_address, last_address)
   def attributes = resolve_memory_attributes(physical, request.pbmt)
   def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
@@ -131,13 +131,13 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
      Accepted operations retain response ownership across speculative redirects. */
 
   def cached_service = mux(management, physical.cacheable, cacheable)
-  def service_route :: Bits(2) = priority_mux(~default: bits(0, 2)):
-    management & !physical.cacheable: bits(2, 2)
-    !cached_service: bits(1, 2)
+  def service_route :: Bits(2) = priority_mux(~default: Bits(2)(0)):
+    management & !physical.cacheable: Bits(2)(2)
+    !cached_service: Bits(2)(1)
   def Array(cached, uncached, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => service_route)
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
-  local_management |> gate_flow(storage.core.drained & !ordered_busy) |> map_flow(_request => bits(0, xlen.width)) |> uncached_management.ingress
+  local_management |> gate_flow(storage.core.drained & !ordered_busy) |> map_flow(_request => Bits(xlen.width)(0)) |> uncached_management.ingress
   def Array(authorized, authorized_index) = cached |> gate_flow(!ordered_busy) |> atomic_fork(2)
   authorized_index |> to_valid() |> map_valid(request => mux(atomic_request, request.address[0..xlen.width], request.address[0..xlen.width].align_down(bytes))) |> storage.virtual_lookup
   (
@@ -157,13 +157,13 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
       device: attributes.strongly_ordered
       request:
         PhysicalMemoryReq(XLen.X64, Bits(3)):
-          byte_mask: if xlen == XLen.X64 | request.mask | request.mask.zext(8) << (request.address[2].as_bits() ++ bits(0, 2))
+          byte_mask: if xlen == XLen.X64 | request.mask | request.mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
           address: request.address
           access: request.access
           atomic: request.atomic
           width: request.width
           unsigned: Bool(#true)
-          data: if xlen == XLen.X64 | request.data >> (request.address[0..3] ++ bits(0, 3)) | (request.data >> (request.address[0..2] ++ bits(0, 3))).zext(64)
+          data: if xlen == XLen.X64 | request.data >> (request.address[0..3] ++ Bits(3)(0)) | (request.data >> (request.address[0..2] ++ Bits(3)(0))).zext(64)
           context: if xlen == XLen.X64 | request.address[0..3] | request.address[0..2].zext(3)
           locality: request.locality
   ) |> io.core.request
@@ -181,7 +181,7 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   Array(
     uncached_management.egress,
     storage.core.response |> map_flow(response => response.data),
-    io.core.response |> map_flow(response => response.data[0..xlen.width] << (response.context ++ bits(0, 3)))
+    io.core.response |> map_flow(response => response.data[0..xlen.width] << (response.context ++ Bits(3)(0)))
   ) |> arbiter() |> memory.response
   memory.drained <== storage.core.drained & io.core.drained & !uncached_management.egress.valid & !local_management.fire()
   memory.reservation_valid <== storage.core.reservation_valid

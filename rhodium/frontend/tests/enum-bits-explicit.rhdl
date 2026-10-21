@@ -12,9 +12,9 @@ circuit StateMachine():
   input reset: Reset
   output state_out: Bits(2)
 
-  def idle = bits(0, 2)
-  def running = bits(1, 2)
-  def done = bits(2, 2)
+  def idle = Bits(2)(0)
+  def running = Bits(2)(1)
+  def done = Bits(2)(2)
   reg current(Bits(2), ~clock: clock, ~reset: reset, ~init: idle)
   when (current === idle):
     current <== running

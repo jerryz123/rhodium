@@ -26,10 +26,10 @@ sync_circuit CompletionQueue(Request :: DataType,
 
   def count_width = index_width(depth + 1)
   def accounting_width = count_width + 1
-  reg outstanding(~init: bits(0, count_width))
+  reg outstanding(~init: Bits(count_width)(0))
 
   def response_fire = response.fire()
-  def capacity_available = outstanding < bits(depth, count_width)
+  def capacity_available = outstanding < Bits(count_width)(depth)
   request.ready <== if pipe | capacity_available ||| response_fire | capacity_available
   def request_fire = request.fire()
 
@@ -46,13 +46,13 @@ sync_circuit CompletionQueue(Request :: DataType,
          "completion_queue_completion_has_request")
   when (completion.valid):
     assert(completed.ingress.ready, "completion_queue_slot_reserved")
-  assert(outstanding <= bits(depth, count_width),
+  assert(outstanding <= Bits(count_width)(depth),
          "completion_queue_reservations_in_range")
 
   def next_outstanding = mux(
     request_fire,
-    outstanding + bits(1, count_width),
-    outstanding - bits(1, count_width)
+    outstanding + Bits(count_width)(1),
+    outstanding - Bits(count_width)(1)
   )
   when (request_fire ^ response_fire):
     outstanding <== next_outstanding

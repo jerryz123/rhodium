@@ -56,9 +56,9 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   store_response.valid <== Bool(#false)
   store_response.bits <== dont_care(RV5StageFpStoreResponse(Context))
   state_update.valid <== Bool(#false)
-  state_update.bits <== bits(0, 5)
+  state_update.bits <== Bits(5)(0)
   vector_reserve.ready <== Bool(#false)
-  snapshot_read_data <== bits(0, 64)
+  snapshot_read_data <== Bits(64)(0)
   busy <== Mask(register_count)(0)
   drained <== Bool(#true)
 
@@ -110,7 +110,7 @@ sync_circuit RV5StageFpScalar(
   // owner; scheduled execution does not require additional payload storage.
   def outstanding_limit = timing.maximum + 4
   def outstanding_width = index_width(outstanding_limit + 1)
-  reg outstanding(~init: bits(0, outstanding_width))
+  reg outstanding(~init: Bits(outstanding_width)(0))
   reg vector_pending(~init: Bool(#false))
   /* Builds the scoreboard mask for one architectural FPR. */
   fun register_bit(index :: Bits(5)) :~ Mask(register_count):
@@ -255,7 +255,7 @@ sync_circuit RV5StageFpScalar(
   ) |> execution_request
   def issue_fire = issue.fire() ||| authorize.valid
   def admitted = mux(authorize.valid, authorize.bits, issue.bits)
-  def immediate_authorization = authorize.valid & (timing.latency(authorize.bits.control.execution) === bits(2, timing.width))
+  def immediate_authorization = authorize.valid & (timing.latency(authorize.bits.control.execution) === Bits(timing.width)(2))
   when (issue.valid & Bool(speculative_fixed)):
     assert(issue.bits.control.execution.unit === FloatUnit.DivideSquareRoot, "scalar_fp_wb_launch_is_variable")
 
@@ -343,14 +343,14 @@ sync_circuit RV5StageFpScalar(
   def execution_flags_update = completion_fire & execution_completion.exception_flags_valid
   def execution_fpr_update = completion_fire & (execution_completion.destination === FloatDestination.FloatingPoint)
   state_update.valid <== vector_write.valid ||| completed_loads.valid ||| execution_flags_update ||| execution_fpr_update
-  state_update.bits <== mux(execution_flags_update, execution_completion.exception_flags, bits(0, 5))
-  def next_outstanding = mux(issue_fire, outstanding + bits(1, outstanding_width), outstanding - bits(1, outstanding_width))
+  state_update.bits <== mux(execution_flags_update, execution_completion.exception_flags, Bits(5)(0))
+  def next_outstanding = mux(issue_fire, outstanding + Bits(outstanding_width)(1), outstanding - Bits(outstanding_width)(1))
   when (issue_fire ^ completion_fire):
     outstanding <== next_outstanding
   when completion_fire:
     assert(outstanding.or_reduce() ||| issue_fire,
            "rv5stage_fp_completion_has_issue")
-  assert(outstanding <= bits(outstanding_limit, outstanding_width), "rv5stage_fp_outstanding_in_range")
+  assert(outstanding <= Bits(outstanding_width)(outstanding_limit), "rv5stage_fp_outstanding_in_range")
   // Speculative store-operand probes are not authorized work and must not
   // prevent a trap or interrupt from draining accepted FP operations.
   drained <== !outstanding.or_reduce() & !busy_state.or_reduce()

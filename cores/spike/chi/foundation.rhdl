@@ -144,7 +144,7 @@ fun spike_chi_address_fits(address :: Bits, p :: CHIFlitParams) :~ Bool:
  */
 fun spike_chi_snoop_address(p :: CHIFlitParams,
                             snoop_address :: Bits(p.snoop_address_width)) :~ Bits(64):
-  def raw_address = snoop_address ++ bits(0, 3)
+  def raw_address = snoop_address ++ Bits(3)(0)
   if p.request_address_width < 64 | raw_address.zext(64) | raw_address[0..64]
 
 /*
@@ -200,10 +200,10 @@ fun spike_chi_response(p :: CHIFlitParams,
                        target_id :: Bits(p.node_id_width),
                        txn_id :: Bits(12),
                        opcode :: CHIRspOpcode,
-                       ~resp: response :: Bits(3) = bits(0, 3)) :~ CHIRspFlit(p):
+                       ~resp: response :: Bits(3) = Bits(3)(0)) :~ CHIRspFlit(p):
   chi_response(p, node_id, target_id, txn_id, opcode,
-               ~dbid: bits(0, 12), ~resp: response,
-               ~error: CHIRespErr.OK, ~qos: bits(0, 4))
+               ~dbid: Bits(12)(0), ~resp: response,
+               ~error: CHIRespErr.OK, ~qos: Bits(4)(0))
 
 /*
  * Recognize the delivered snoop opcodes that request a shared-state transition in the software

@@ -27,7 +27,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   inst requests(Arbiter(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)), 2))
   Array(vector.request, scalar.request) <=> requests.ingress
   requests.egress |> memory.request
-  def selected_vector = requests.chosen === bits(0, 1)
+  def selected_vector = requests.chosen === Bits(1)(0)
   scalar.request_fault <== memory.request_fault & !selected_vector
   scalar.request_access_fault <== memory.request_access_fault & !selected_vector
   vector.request_fault <== memory.request_fault & selected_vector
@@ -51,7 +51,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   Array(scalar_lookup, vector_lookup) <=> lookups.ingress
   def Array(selected_lookup, selected_owner) = lookups.egress |> fork_valid(2)
   selected_lookup |> pipeline.request
-  def lookup_vector = lookups.chosen === bits(1, 1)
+  def lookup_vector = lookups.chosen === Bits(1)(1)
   pipeline_vector <== lookup_vector
   def scalar_result = scalar_context |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
   def vector_result = vector_context |> map_valid(_request => lookup_vector) |> valid_pipe(1)
@@ -65,7 +65,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   def replay = CachePipelineResult(xlen):
     outcome: CachePipelineOutcome.Replay
     reason: CachePipelineReason.ArrayPort
-    data: bits(0, xlen.width)
+    data: Bits(xlen.width)(0)
   def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: CachePipelineOutcome.Slow))
   def Array(scalar_return, vector_return) = pipeline.response |> fork_valid(2)
   def scalar_bits = mux(scalar_result.bits, selected_result, replay)

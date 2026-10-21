@@ -12,8 +12,8 @@ export:
 fun pattern_value(cube :: Pattern):
   def all_ones = (1 << cube.width) - 1
   def free_bits = all_ones bits.xor cube.care_bits
-  def fixed = bits(cube.value_bits, cube.width)
+  def fixed = Bits(cube.width)(cube.value_bits)
   def freedom = dont_care(Bits(cube.width))
   def packed = bit_or(fixed,
-                      bit_and(freedom, bits(free_bits, cube.width)))
+                      bit_and(freedom, Bits(cube.width)(free_bits)))
   packed.into(cube.type)

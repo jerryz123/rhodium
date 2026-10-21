@@ -8,6 +8,6 @@ import:
 circuit BadCHISemanticField():
   output tag_op: CHITagOp
 
-  tag_op <== bits(0, 2)
+  tag_op <== Bits(2)(0)
 
 elaborate(BadCHISemanticField())

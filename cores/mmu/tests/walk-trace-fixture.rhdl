@@ -28,7 +28,7 @@ sync_circuit RiscvWalkTrace():
   def translation = RiscvTranslationRequest():
     pbmte: Bool(#false)
     virtual_address: address
-    root_ppn: bits(1, 44)
+    root_ppn: Bits(44)(1)
     access: Sv39Access.Load
     privilege: PrivilegeMode.Supervisor
     sum: Bool(#false)

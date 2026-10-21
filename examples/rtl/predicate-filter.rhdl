@@ -16,7 +16,7 @@ class SingleDigitPolicy(T :: DataType):
 
   /* Constructs the policy predicate on the supplied hardware value. */
   method apply(value :: Hardware.of(T)) :: Bool:
-    value <= bits(9, T.width)
+    value <= Bits(T.width)(9)
 
 /* Specializes an inline predicate that accepts values with bit zero set. */
 class LowBitSetPolicy(T :: DataType):

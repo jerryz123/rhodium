@@ -4,7 +4,7 @@
 
 circuit ParameterSink(~parameter: parameter):
   output result: Bits(1)
-  result <== bits(0, 1)
+  result <== Bits(1)(0)
 
 class PlainHostConfig()
 
@@ -13,7 +13,7 @@ circuit InvalidKeywordHardwareParameter():
   output result: Bits(1)
 
   def child = ParameterSink(~parameter: source)
-  result <== bits(0, 1)
+  result <== Bits(1)(0)
 
 circuit OpaqueHostParameters():
   def host_values = Array(1)

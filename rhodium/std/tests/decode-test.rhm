@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
@@ -36,14 +37,14 @@ circuit WrongSelectorDecoder():
 check:
   compile_program(elaborate(WrongSelectorDecoder()), rtl_target).report.design ~throws "Hardware.of(table.input_type)"
 
-def in_a = Pattern(~value: bits(0b1000, 4), ~care: bits(0b1000, 4))
-def in_b = Pattern(~value: bits(0b1010, 4), ~care: bits(0b1100, 4))
-def out = Pattern(~value: bits(0, 2), ~care: bits(3, 2))
-def crossing = Pattern(~value: bits(0b0010, 4), ~care: bits(0b0110, 4))
-def selected = Pattern(~value: bits(1, 2), ~care: bits(3, 2))
-def literal_case = DecodeCase(bits(0b1111, 4), bits(0b01, 2))
-def literal_table = DecodeTable([literal_case], ~default: bits(0, 2))
-def literal_decode = DecodeGen([literal_case], ~default: bits(0, 2))
+def in_a = Pattern(~value: hw.Bits(4)(0b1000), ~care: hw.Bits(4)(0b1000))
+def in_b = Pattern(~value: hw.Bits(4)(0b1010), ~care: hw.Bits(4)(0b1100))
+def out = Pattern(~value: hw.Bits(2)(0), ~care: hw.Bits(2)(3))
+def crossing = Pattern(~value: hw.Bits(4)(0b0010), ~care: hw.Bits(4)(0b0110))
+def selected = Pattern(~value: hw.Bits(2)(1), ~care: hw.Bits(2)(3))
+def literal_case = DecodeCase(hw.Bits(4)(0b1111), hw.Bits(2)(0b01))
+def literal_table = DecodeTable([literal_case], ~default: hw.Bits(2)(0))
+def literal_decode = DecodeGen([literal_case], ~default: hw.Bits(2)(0))
 def set_cases = decode_cases(in_a.union(crossing), selected)
 def set_decode = DecodeGen(set_cases, ~default: out)
 
@@ -70,5 +71,5 @@ check:
   DecodeTable([DecodeCase(in_a, out), DecodeCase(in_b, out)],
               ~default: out) ~throws "overlap"
   DecodeTable([DecodeCase(in_a, out)],
-              ~default: Pattern(~value: bits(0, 3),
-                                ~care: bits(7, 3))) ~throws "default output type"
+              ~default: Pattern(~value: hw.Bits(3)(0),
+                                ~care: hw.Bits(3)(7))) ~throws "default output type"

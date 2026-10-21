@@ -110,7 +110,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
 | [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, Builder; `lowering/program.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
-| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
+| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including callable `Bits` descriptors and `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support including bit-descriptor support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
 | [`frontend/standard.rhm`](frontend/standard.rhm) | Aggregation only; defines no feature behavior | Foundation and all standard layers |
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
@@ -771,7 +771,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 
 | Layer | Provides | Direct Rhodium dependencies |
 |---|---|---|
-| `comb.rhm` | Static packed literals, typed synthesis don't-cares, decode relations, modular arithmetic, bitwise operations, muxes, extraction, and bit-vector truncation | core types and IR, kernel, field support, hardware-literal support, mux-lookup support |
+| `comb.rhm` | Generic packed literals, typed synthesis don't-cares, decode relations, modular arithmetic, bitwise operations, muxes, extraction, and bit-vector truncation | core types and IR, kernel, field support, bit-descriptor support, hardware-literal support, mux-lookup support |
 | `signed.rhm` | Explicit-width `SInt`, two's-complement literals, signed truncation, and signed operator participation | core types and IR, kernel, field support, hardware-literal support |
 | `expanding-arithmetic.rhm` | Lossless unsigned addition plus signed and unsigned multiplication with `+&` and `*&` sugar | core types, kernel, field support |
 | `bool.rhm` | Non-numeric lane `Mask`, compact `MaybeOneHot`, packed reductions, lower-index-first priority encoders, total optional-one-hot selection, equality, enum validity, signed and unsigned ordering, binary `mux`, and ordered `priority_mux` | core types and IR, kernel, finite-enum support, field support, hardware-literal support, mask-type support, one-hot-selection support |
@@ -808,6 +808,9 @@ language profiles:
 - `hardware-literal.rhm` validates reusable packed host images, exposes their
   hardware type and packed width to ordinary libraries, and materializes them
   as a `Bits` constant followed by an explicit equal-width cast.
+- `bits-type.rhm` extends the core `Bits` descriptor with frontend-only literal
+  construction. Core equality and representation remain width-based; core
+  imports no frontend literal or elaboration machinery.
 - `hardware-methods.rhm` attaches exact receiver-owned method declarations and
   anchors their dispatch ahead of conservative value surfaces.
 - `fields.rhm` owns `Bool`, the shared implementation behind exact and generic

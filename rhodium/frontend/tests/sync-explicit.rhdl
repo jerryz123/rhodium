@@ -12,9 +12,9 @@ circuit Counter(width):
   input reset: Reset
   output count: Bits(width)
 
-  def zero = bits(0, width)
+  def zero = Bits(width)(0)
   reg state(Bits(width), ~clock: clock, ~reset: reset, ~init: zero)
-  def one = bits(1, width)
+  def one = Bits(width)(1)
   state <== state + one
   count <== state
 

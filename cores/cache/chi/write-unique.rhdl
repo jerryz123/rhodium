@@ -40,13 +40,13 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
 
   inst control(CHIRetryableTransactionControl(p, CacheWriteUniqueResponses))
   reg data_sent(~init: Bool(#false))
-  reg address(~init: bits(0, address_width))
+  reg address(~init: Bits(address_width)(0))
   reg width(~init: MemoryWidth.Byte)
-  reg write_data(~init: bits(0, 64))
+  reg write_data(~init: Bits(64)(0))
   reg write_mask(~init: Mask(8)(0))
   reg context(Context)
-  reg home_id(~init: bits(0, p.node_id_width))
-  reg dbid(~init: bits(0, 12))
+  reg home_id(~init: Bits(p.node_id_width)(0))
+  reg dbid(~init: Bits(12)(0))
 
   command.ready <== !control.active
   def command_fire = command.fire()
@@ -64,7 +64,7 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
       address,
       width.as_bits().zext(3).into(CHITransferSize),
       CHIReqOpcode.WriteUniquePtl,
-      bits(txn_id, 12),
+      Bits(12)(txn_id),
       Bool(#false),
       Bool(#false),
       attempt.allow_retry,
@@ -89,15 +89,15 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
     assert(incoming_response.resp_err === CHIRespErr.OK,
            "write_unique_response_ok")
   when (response_fire & !response_protocol_credit):
-    assert(incoming_response.txn_id === bits(txn_id, 12),
+    assert(incoming_response.txn_id === Bits(12)(txn_id),
            "write_unique_response_txn_id")
   when (transaction_id_response_fire & transaction_id_already_received):
     assert(incoming_response.dbid_or_group_id === dbid,
            "write_unique_response_dbid_consistent")
 
   def data_lane = address[3..alignment_bits(p.data_bytes)]
-  def bus_data = write_data.zext(p.data_width) << (data_lane ++ bits(0, 6))
-  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ bits(0, 3))
+  def bus_data = write_data.zext(p.data_width) << (data_lane ++ Bits(6)(0))
+  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ Bits(3)(0))
   data.valid <== control.active & dbid_received & !data_sent
   data.bits <== cache_chi_write_data(
     p,

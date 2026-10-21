@@ -62,12 +62,12 @@ sync_circuit CacheLineRefill(Context :: DataType,
     for List (_index in 0..packet_count): Bool(#false)
   ))
   reg acknowledgement_sent(~init: Bool(#false))
-  reg line_address(~init: bits(0, address_width))
+  reg line_address(~init: Bits(address_width)(0))
   reg opcode(~init: CHIReqOpcode.ReadClean)
   reg context(Context)
-  reg line(~init: bits(0, CacheLineBytes * 8))
-  reg home_id(~init: bits(0, p.node_id_width))
-  reg dbid(~init: bits(0, 12))
+  reg line(~init: Bits(CacheLineBytes * 8)(0))
+  reg home_id(~init: Bits(p.node_id_width)(0))
+  reg dbid(~init: Bits(12)(0))
   reg response_state(~init: CHIResponseState.Invalid)
   reg pass_dirty(~init: Bool(#false))
 
@@ -101,7 +101,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
       line_address,
       CHITransferSize.Bytes64,
       opcode,
-      bits(0, 12),
+      Bits(12)(0),
       Bool(#true),
       Bool(#true),
       attempt.allow_retry,
@@ -120,7 +120,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
     assert(incoming_response.src_id === home_id,
            "line_refill_retry_response_home")
   when retry_ack_fire:
-    assert(incoming_response.txn_id === bits(0, 12),
+    assert(incoming_response.txn_id === Bits(12)(0),
            "line_refill_retry_txn_id")
 
 
@@ -140,7 +140,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   when data_fire:
     assert(incoming_data.opcode === CHIDatOpcode.CompData,
            "line_refill_response_is_comp_data")
-    assert(incoming_data.txn_id === bits(0, 12),
+    assert(incoming_data.txn_id === Bits(12)(0),
            "line_refill_response_txn_id")
     assert(incoming_data.tgt_id === node_id,
            "line_refill_response_target")
@@ -150,7 +150,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
            "line_refill_response_data_id")
     assert(!packet_was_received,
            "line_refill_response_data_id_unique")
-    assert(incoming_data.num_dat === bits(0, 2),
+    assert(incoming_data.num_dat === Bits(2)(0),
            "line_refill_response_num_dat_zero")
     assert(!incoming_data.replicate,
            "line_refill_response_not_replicated")
@@ -202,9 +202,9 @@ sync_circuit CacheLineRefill(Context :: DataType,
     line_address <== command.bits.line_address
     opcode <== command.bits.opcode
     context <== command.bits.context
-    line <== bits(0, CacheLineBytes * 8)
+    line <== Bits(CacheLineBytes * 8)(0)
     home_id <== command_home.node_id
-    dbid <== bits(0, 12)
+    dbid <== Bits(12)(0)
     response_state <== CHIResponseState.Invalid
     pass_dirty <== Bool(#false)
   elsewhen data_fire:

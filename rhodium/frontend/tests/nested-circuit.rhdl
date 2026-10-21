@@ -14,12 +14,12 @@ circuit LocalParent(width):
   circuit LocalChild():
     input value_in: Bits(width)
     output value_out: Bits(width)
-    value_out <== value_in + bits(1, width)
+    value_out <== value_in + Bits(width)(1)
 
   // A declaration alone does not materialize a module.
   circuit UnusedChild():
     output value_out: Bits(width)
-    value_out <== bits(0, width)
+    value_out <== Bits(width)(0)
 
   inst child(LocalChild())
   child.value_in <== value_in
@@ -45,9 +45,9 @@ sync_circuit SyncParent(width):
   sync_circuit SyncChild():
     input enable: Bool
     output value: Bits(width)
-    reg state(~init: bits(0, width))
+    reg state(~init: Bits(width)(0))
     when (enable):
-      state <== state + bits(1, width)
+      state <== state + Bits(width)(1)
     value <== state
 
   inst child(SyncChild())

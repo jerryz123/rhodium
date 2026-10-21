@@ -117,9 +117,9 @@ sync_circuit Plic(config :: PlicConfig):
   def context_index_width = index_width(context_count)
   def data_bytes = p.data_bytes
   def lane_width = alignment_bits(data_bytes)
-  def initial_priorities = vec(for List (_source in 0..source_count): bits(0, priority_width))
+  def initial_priorities = vec(for List (_source in 0..source_count): Bits(priority_width)(0))
   def initial_enables = vec(for List (_context in 0..context_count): Mask(source_count)(0))
-  def initial_thresholds = vec(for List (_context in 0..context_count): bits(0, priority_width))
+  def initial_thresholds = vec(for List (_context in 0..context_count): Bits(priority_width)(0))
 
   input identity: PlicIdentity(p)
   input sources: Vec(source_count, Bool)
@@ -135,8 +135,8 @@ sync_circuit Plic(config :: PlicConfig):
   transaction.node_id <== identity.node_id
   def request = transaction.request
   reg priorities(Vec(source_count, Bits(priority_width)), ~init: initial_priorities)
-  reg pending(~init: Mask(source_count)(0))
-  reg gateway_busy(~init: Mask(source_count)(0))
+  reg pending(Mask(source_count), ~init: Mask(source_count)(0))
+  reg gateway_busy(Mask(source_count), ~init: Mask(source_count)(0))
   reg enables(Vec(context_count, Mask(source_count)), ~init: initial_enables)
   reg thresholds(Vec(context_count, Bits(priority_width)), ~init: initial_thresholds)
 
@@ -150,7 +150,7 @@ sync_circuit Plic(config :: PlicConfig):
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
   def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[PlicAddressWidth..p.request_address_width].or_reduce()
   def incoming_opcode_supported = incoming_opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
-  def incoming_word_access = (incoming.size_or_num_req === bits(2, 6)) & incoming.address.is_aligned(4)
+  def incoming_word_access = (incoming.size_or_num_req === Bits(6)(2)) & incoming.address.is_aligned(4)
   def incoming_targets_device = incoming.tgt_id === identity.node_id
   def incoming_supported = incoming_opcode_supported & incoming_in_window & incoming_word_access & incoming_targets_device
   transaction.request_supported <== incoming_supported
@@ -163,32 +163,32 @@ sync_circuit Plic(config :: PlicConfig):
 
   def priority_source_id :: Bits(10) = active_address[2..12]
   def priority_index :: Bits(source_index_width) = (
-    priority_source_id - bits(1, 10)
+    priority_source_id - Bits(10)(1)
   )[0..source_index_width]
-  def priority_access = (active_address < bits(PlicPendingOffset, PlicAddressWidth)) & (
-    priority_source_id > bits(0, 10)
-  ) & (priority_source_id <= bits(source_count, 10))
-  def pending_relative = active_address - bits(PlicPendingOffset, PlicAddressWidth)
+  def priority_access = (active_address < Bits(PlicAddressWidth)(PlicPendingOffset)) & (
+    priority_source_id > Bits(10)(0)
+  ) & (priority_source_id <= Bits(10)(source_count))
+  def pending_relative = active_address - Bits(PlicAddressWidth)(PlicPendingOffset)
   def pending_word :: Bits(5) = pending_relative[2..7]
-  def pending_access = (active_address >= bits(PlicPendingOffset, PlicAddressWidth)) & (
-    active_address < bits(PlicPendingOffset + 0x80, PlicAddressWidth)
+  def pending_access = (active_address >= Bits(PlicAddressWidth)(PlicPendingOffset)) & (
+    active_address < Bits(PlicAddressWidth)(PlicPendingOffset + 0x80)
   )
-  def enable_relative = active_address - bits(PlicEnableOffset, PlicAddressWidth)
+  def enable_relative = active_address - Bits(PlicAddressWidth)(PlicEnableOffset)
   def enable_context_raw :: Bits(14) = enable_relative[7..21]
   def enable_context :: Bits(context_index_width) = enable_context_raw[0..context_index_width]
   def enable_word :: Bits(5) = enable_relative[2..7]
-  def enable_access = (active_address >= bits(PlicEnableOffset, PlicAddressWidth)) & (
-    active_address < bits(PlicContextOffset, PlicAddressWidth)
-  ) & (enable_context_raw < bits(context_count, 14))
-  def context_relative = active_address - bits(PlicContextOffset, PlicAddressWidth)
+  def enable_access = (active_address >= Bits(PlicAddressWidth)(PlicEnableOffset)) & (
+    active_address < Bits(PlicAddressWidth)(PlicContextOffset)
+  ) & (enable_context_raw < Bits(14)(context_count))
+  def context_relative = active_address - Bits(PlicAddressWidth)(PlicContextOffset)
   def context_raw :: Bits(14) = context_relative[12..26]
   def active_context :: Bits(context_index_width) = context_raw[0..context_index_width]
   def context_register_offset :: Bits(12) = context_relative[0..12]
-  def context_access = (active_address >= bits(PlicContextOffset, PlicAddressWidth)) & (
-    context_raw < bits(context_count, 14)
+  def context_access = (active_address >= Bits(PlicAddressWidth)(PlicContextOffset)) & (
+    context_raw < Bits(14)(context_count)
   )
-  def threshold_access = context_access & (context_register_offset === bits(0, 12))
-  def claim_access = context_access & (context_register_offset === bits(4, 12))
+  def threshold_access = context_access & (context_register_offset === Bits(12)(0))
+  def claim_access = context_access & (context_register_offset === Bits(12)(4))
 
 
   /* Per-context winner reduction and interrupt delivery.
@@ -205,16 +205,16 @@ sync_circuit Plic(config :: PlicConfig):
   def pending_bits = pending.as_bits()
   def winners = vec(
     for List (context in 0..context_count):
-      def enable_bits = enables[context].as_bits()
+      def context_enables :: Mask(source_count) = enables[context]
       tree_reduce(
         for List (source in 0..source_count):
           def priority = priorities[source]
           PlicCandidate(priority_width, source_id_width):
-            valid: pending_bits[source].into(Bool) & enable_bits[source].into(Bool) & (
-              priority =/= bits(0, priority_width)
+            valid: pending[source] & context_enables[source] & (
+              priority =/= Bits(priority_width)(0)
             )
             priority: priority
-            source_id: bits(source + 1, source_id_width),
+            source_id: Bits(source_id_width)(source + 1),
         prefer_candidate
       )
   )
@@ -226,16 +226,16 @@ sync_circuit Plic(config :: PlicConfig):
      Source zero stays reserved in software-visible pending and enable words. */
 
   def pending_word_value = (
-    (pending_bits.zext(source_count + 32) << 1) >> (pending_word ++ bits(0, 5))
+    (pending_bits.zext(source_count + 32) << 1) >> (pending_word ++ Bits(5)(0))
   )[0..32]
   def selected_enable_bits = enables[enable_context].as_bits()
   def enable_word_value = (
-    (selected_enable_bits.zext(source_count + 32) << 1) >> (enable_word ++ bits(0, 5))
+    (selected_enable_bits.zext(source_count + 32) << 1) >> (enable_word ++ Bits(5)(0))
   )[0..32]
   def priority_value = priorities[priority_index].zext(32)
   def threshold_value = thresholds[active_context].zext(32)
-  def claim_value = mux(selected_winner.valid, selected_winner.source_id.zext(32), bits(0, 32))
-  def selected_value = priority_mux(~default: bits(0, 32)):
+  def claim_value = mux(selected_winner.valid, selected_winner.source_id.zext(32), Bits(32)(0))
+  def selected_value = priority_mux(~default: Bits(32)(0)):
     priority_access: priority_value
     pending_access: pending_word_value
     enable_access: enable_word_value
@@ -243,7 +243,7 @@ sync_circuit Plic(config :: PlicConfig):
     claim_access: claim_value
 
   def register_lane = active_address[0..lane_width]
-  def register_shift = register_lane ++ bits(0, 3)
+  def register_shift = register_lane ++ Bits(3)(0)
   def register_data :: Bits(p.data_width) = port.dat.request.bits.data >> register_shift
   def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
   def write_value = register_data[0..32]
@@ -251,7 +251,7 @@ sync_circuit Plic(config :: PlicConfig):
 
   def incoming_data = port.dat.request.bits
   def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
-  def write_mask_supported = register_mask === bits(0xf, data_bytes)
+  def write_mask_supported = register_mask === Bits(data_bytes)(0xf)
   // The full-register mask rule is assertion-only, not a write-admission gate.
   transaction.write_supported <== Bool(#true)
   transaction.write_ready <== Bool(#true)
@@ -265,40 +265,40 @@ sync_circuit Plic(config :: PlicConfig):
   def claim_fire = accepted_read & claim_access
   def completion_source_id = write_value
   def completion_source_index :: Bits(source_index_width) = (
-    completion_source_id - bits(1, 32)
+    completion_source_id - Bits(32)(1)
   )[0..source_index_width]
-  def completion_source_valid = (completion_source_id > bits(0, 32)) & (
-    completion_source_id <= bits(source_count, 32)
+  def completion_source_valid = (completion_source_id > Bits(32)(0)) & (
+    completion_source_id <= Bits(32)(source_count)
   )
-  def completion_enabled = enables[active_context].as_bits().as_vec(Bool)[completion_source_index]
+  def active_enables :: Mask(source_count) = enables[active_context]
+  def completion_enabled = active_enables[completion_source_index]
   def completion_fire = write_data_fire & claim_access & completion_source_valid & completion_enabled
 
 
   /* Independent pending and gateway updates.
      Claim does not release a gateway; a still-high completed source can re-pend on a later edge. */
 
-  def gateway_busy_bits = gateway_busy.as_bits()
-  def forwarded_sources = vec(for List (source in 0..source_count): !gateway_busy_bits[source].into(Bool) & sources[source])
+  def forwarded_sources = vec(for List (source in 0..source_count): !gateway_busy[source] & sources[source])
   def next_pending = vec(
     for List (source in 0..source_count):
       def forwarded = forwarded_sources[source]
       def claimed = claim_fire & selected_winner.valid & (
-        selected_winner.source_id === bits(source + 1, source_id_width)
+        selected_winner.source_id === Bits(source_id_width)(source + 1)
       )
-      (pending_bits[source].into(Bool) ||| forwarded) & !claimed
+      (pending[source] ||| forwarded) & !claimed
   ).into(Mask(source_count))
   // Claim leaves the gateway busy. Completion frees it; a still-high source
   // can forward again on a later edge, independently of the claim context.
   def next_gateway_busy = vec(
     for List (source in 0..source_count):
       def forwarded = forwarded_sources[source]
-      def completed = completion_fire & (completion_source_id === bits(source + 1, 32))
-      (gateway_busy_bits[source].into(Bool) ||| forwarded) & !completed
+      def completed = completion_fire & (completion_source_id === Bits(32)(source + 1))
+      (gateway_busy[source] ||| forwarded) & !completed
   ).into(Mask(source_count))
   def next_enable = vec(
     for List (source in 0..source_count):
       def source_id = source + 1
-      mux(enable_word === bits(source_id div 32, 5),
+      mux(enable_word === Bits(5)(source_id div 32),
           write_value[source_id mod 32].into(Bool),
           selected_enable_bits[source].into(Bool))
   ).into(Mask(source_count))

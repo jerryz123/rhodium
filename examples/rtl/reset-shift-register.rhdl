@@ -11,7 +11,7 @@ sync_circuit ResetShiftRegister():
   input shift: Bool
   output data_out: Bits(4)
 
-  shift_register stages(data_in, 4, ~init: bits(0, 4), ~enable: shift)
+  shift_register stages(data_in, 4, ~init: Bits(4)(0), ~enable: shift)
   data_out <== stages[3]
 
 def program = elaborate(ResetShiftRegister())

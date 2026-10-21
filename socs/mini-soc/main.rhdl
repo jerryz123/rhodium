@@ -66,8 +66,8 @@ sync_circuit MiniSoC(config :: MiniSoCConfig):
                        config.hart.circuit(fabric.boot.reset_address, fabric.hart_config),
                        host, ram.port, uart)
   ram.identity <== CHIRamIdentity(fabric.flit):
-    node_id: bits(config.ram.node_id, fabric.flit.node_id_width)
-    base_address: bits(config.ram.base_address, fabric.flit.request_address_width)
+    node_id: Bits(fabric.flit.node_id_width)(config.ram.node_id)
+    base_address: Bits(fabric.flit.request_address_width)(config.ram.base_address)
 
 export:
   mini_soc_memory_base

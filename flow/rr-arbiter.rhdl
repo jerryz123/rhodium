@@ -17,8 +17,8 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
   output chosen: Bits(index_width(n))
 
   def width = index_width(n)
-  reg next_priority(~init: bits(0, width))
-  assert(next_priority <= bits(n - 1, width), "rr_priority_in_range")
+  reg next_priority(~init: Bits(width)(0))
+  assert(next_priority <= Bits(width)(n - 1), "rr_priority_in_range")
   def requests = vec(for List (index in 0..n): ingress[index].valid)
   def choice :: CircularPriorityChoice(n, width) = circular_priority_onehot(requests, next_priority)
   def grant = choice.grant
@@ -37,9 +37,9 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
 
   when (egress.fire()):
     next_priority <== mux(
-      choice.index === bits(n - 1, width),
-      bits(0, width),
-      choice.index + bits(1, width)
+      choice.index === Bits(width)(n - 1),
+      Bits(width)(0),
+      choice.index + Bits(width)(1)
     )
 
 /* The payloadless specialization owns the same direct rotating state. */
@@ -50,8 +50,8 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
   output chosen: Bits(index_width(n))
 
   def width = index_width(n)
-  reg next_priority(~init: bits(0, width))
-  assert(next_priority <= bits(n - 1, width), "ctrl_rr_priority_in_range")
+  reg next_priority(~init: Bits(width)(0))
+  assert(next_priority <= Bits(width)(n - 1), "ctrl_rr_priority_in_range")
   def requests = vec(for List (index in 0..n): ingress[index].valid)
   def choice :: CircularPriorityChoice(n, width) = circular_priority_onehot(requests, next_priority)
   def grant = choice.grant
@@ -64,9 +64,9 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
 
   when (egress.fire()):
     next_priority <== mux(
-      choice.index === bits(n - 1, width),
-      bits(0, width),
-      choice.index + bits(1, width)
+      choice.index === Bits(width)(n - 1),
+      Bits(width)(0),
+      choice.index + Bits(width)(1)
     )
 
 /* A connected endpoint array supplies its own input count. A disconnected

@@ -88,8 +88,8 @@ sync_circuit CHISharedRouterCompositionFixture():
   inst home(CHIHNI(home_fixture.home_params))
   inst router(CHIRouter(shared_router_params))
   inst transit(CHIRouter(shared_transit_params))
-  router.site_key <== bits(shared_site_key, shared_router_configs.req.route_decoder.site_width)
-  transit.site_key <== bits(shared_transit_site_key, shared_router_configs.req.route_decoder.site_width)
+  router.site_key <== Bits(shared_router_configs.req.route_decoder.site_width)(shared_site_key)
+  transit.site_key <== Bits(shared_router_configs.req.route_decoder.site_width)(shared_transit_site_key)
   requester <=> router.rni_local[0]
   home.port.requester <=> router.hni_requester_local[0]
   home.port.subordinate <=> router.hn_subordinate_local[0]
@@ -233,10 +233,10 @@ sync_circuit CHISplitRouterCompositionFixture():
   inst requester_transit(CHIRouter(requester_transit_params))
   inst subordinate_router(CHIRouter(subordinate_router_params))
   inst subordinate_transit(CHIRouter(subordinate_transit_params))
-  requester_router.site_key <== bits(requester_site_key, requester_router_configs.req.route_decoder.site_width)
-  requester_transit.site_key <== bits(requester_transit_site_key, requester_router_configs.req.route_decoder.site_width)
-  subordinate_router.site_key <== bits(subordinate_site_key, subordinate_router_configs.req.route_decoder.site_width)
-  subordinate_transit.site_key <== bits(subordinate_transit_site_key, subordinate_router_configs.req.route_decoder.site_width)
+  requester_router.site_key <== Bits(requester_router_configs.req.route_decoder.site_width)(requester_site_key)
+  requester_transit.site_key <== Bits(requester_router_configs.req.route_decoder.site_width)(requester_transit_site_key)
+  subordinate_router.site_key <== Bits(subordinate_router_configs.req.route_decoder.site_width)(subordinate_site_key)
+  subordinate_transit.site_key <== Bits(subordinate_router_configs.req.route_decoder.site_width)(subordinate_transit_site_key)
   requester <=> requester_router.rni_local[0]
   home.port.requester <=> requester_router.hni_requester_local[0]
   home.port.subordinate <=> subordinate_router.hn_subordinate_local[0]

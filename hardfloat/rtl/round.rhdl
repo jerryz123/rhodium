@@ -80,32 +80,32 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
      subnormal results; its boundary separates the round bit from the sticky tail. */
   def round_mask :: Bits(out_significand_width + 3):
     if never_underflows
-    | concat(bits(0, out_significand_width), shift_significand_down, bits(3, 2))
+    | concat(Bits(out_significand_width)(0), shift_significand_down, Bits(2)(3))
     | (
         (low_mask(
            adjusted_exponent.as_bits()[0..=out_exponent_width],
            (out_minimum_normal_exponent - out_significand_width) - 1,
            out_minimum_normal_exponent
          ) ||| shift_significand_down.as_bits().zext(out_significand_width + 1))
-          ++ bits(3, 2)
+          ++ Bits(2)(3)
       )
-  def shifted_round_mask = (bits(0, 1) ++ round_mask[1..=(out_significand_width + 2)])
+  def shifted_round_mask = (Bits(1)(0) ++ round_mask[1..=(out_significand_width + 2)])
   def round_position_mask = !shifted_round_mask & round_mask
   def round_position_bit = or_reduce(adjusted_significand & round_position_mask)
   def any_round_extra = or_reduce(adjusted_significand & shifted_round_mask)
   def any_round = round_position_bit ||| any_round_extra
   def round_increment = ((near_even ||| near_maximum_magnitude) & round_position_bit) ||| (round_magnitude_up & any_round)
   def incremented_significand = (
-    (adjusted_significand ||| round_mask)[2..=(out_significand_width + 2)].zext(out_significand_width + 2) + bits(1, out_significand_width + 2)
+    (adjusted_significand ||| round_mask)[2..=(out_significand_width + 2)].zext(out_significand_width + 2) + Bits(out_significand_width + 2)(1)
   ) & !mux(
     near_even & round_position_bit & !any_round_extra,
     round_mask[1..=(out_significand_width + 2)],
-    bits(0, out_significand_width + 2)
+    Bits(out_significand_width + 2)(0)
   )
   def truncated_significand = (adjusted_significand & !round_mask)[2..=(out_significand_width + 2)].zext(out_significand_width + 2) ||| mux(
     odd & any_round,
     round_position_mask[1..=(out_significand_width + 2)],
-    bits(0, out_significand_width + 2)
+    Bits(out_significand_width + 2)(0)
   )
   def rounded_significand = mux(round_increment, incremented_significand, truncated_significand)
   def rounded_exponent_width = exponent_work_width + 1
@@ -175,34 +175,34 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
   def peg_maximum_finite = overflow & !overflow_round_magnitude_up
   def infinite_out = special_infinite_out ||| (overflow & overflow_round_magnitude_up)
   def sign_out = mux(is_nan_out, Bool(#false), raw.sign)
-  def exponent_zero_mask = bits(7 << (out_exponent_width - 2), out_exponent_width + 1)
+  def exponent_zero_mask = Bits(out_exponent_width + 1)(7 << (out_exponent_width - 2))
   def exponent_out = (
-    common_exponent & !mux(raw.is_zero ||| common_total_underflow, exponent_zero_mask, bits(0, out_exponent_width + 1)) & !mux(
+    common_exponent & !mux(raw.is_zero ||| common_total_underflow, exponent_zero_mask, Bits(out_exponent_width + 1)(0)) & !mux(
       peg_minimum_nonzero,
-      bits(((1 << (out_exponent_width + 1)) - 1) - out_minimum_nonzero_exponent, out_exponent_width + 1),
-      bits(0, out_exponent_width + 1)
+      Bits(out_exponent_width + 1)(((1 << (out_exponent_width + 1)) - 1) - out_minimum_nonzero_exponent),
+      Bits(out_exponent_width + 1)(0)
     ) & !mux(
       peg_maximum_finite,
-      bits(1 << (out_exponent_width - 1), out_exponent_width + 1),
-      bits(0, out_exponent_width + 1)
+      Bits(out_exponent_width + 1)(1 << (out_exponent_width - 1)),
+      Bits(out_exponent_width + 1)(0)
     ) & !mux(
       infinite_out,
-      bits(1 << (out_exponent_width - 2), out_exponent_width + 1),
-      bits(0, out_exponent_width + 1)
+      Bits(out_exponent_width + 1)(1 << (out_exponent_width - 2)),
+      Bits(out_exponent_width + 1)(0)
     )
-  ) ||| mux(peg_minimum_nonzero, bits(out_minimum_nonzero_exponent, out_exponent_width + 1), bits(0, out_exponent_width + 1)) ||| mux(
+  ) ||| mux(peg_minimum_nonzero, Bits(out_exponent_width + 1)(out_minimum_nonzero_exponent), Bits(out_exponent_width + 1)(0)) ||| mux(
     peg_maximum_finite,
-    bits(out_max_finite_exponent, out_exponent_width + 1),
-    bits(0, out_exponent_width + 1)
-  ) ||| mux(infinite_out, bits(out_infinite_exponent, out_exponent_width + 1), bits(0, out_exponent_width + 1)) ||| mux(
+    Bits(out_exponent_width + 1)(out_max_finite_exponent),
+    Bits(out_exponent_width + 1)(0)
+  ) ||| mux(infinite_out, Bits(out_exponent_width + 1)(out_infinite_exponent), Bits(out_exponent_width + 1)(0)) ||| mux(
     is_nan_out,
-    bits(out_nan_exponent, out_exponent_width + 1),
-    bits(0, out_exponent_width + 1)
+    Bits(out_exponent_width + 1)(out_nan_exponent),
+    Bits(out_exponent_width + 1)(0)
   )
   def nan_or_zero_fraction = mux(
     is_nan_out,
-    bits(1 << (out_significand_width - 2), out_significand_width - 1),
-    bits(0, out_significand_width - 1)
+    Bits(out_significand_width - 1)(1 << (out_significand_width - 2)),
+    Bits(out_significand_width - 1)(0)
   )
   def fraction_out = mux(
     is_nan_out ||| raw.is_zero ||| common_total_underflow,

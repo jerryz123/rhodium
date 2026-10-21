@@ -14,23 +14,23 @@ sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt):
   input probe_delay: Bits(index_width(latency + 1))
   output occupied: Bits(latency)
   output probe_available: Bool
-  reg pending(~init: bits(0, latency))
+  reg pending(~init: Bits(latency)(0))
   def mutable claimed :: Bits(latency + 1) = pending.zext(latency + 1)
   def mutable probed :: Bool = Bool(#false)
-  def probe_selection = bits(1, latency + 1) << probe_delay
+  def probe_selection = Bits(latency + 1)(1) << probe_delay
   // Earlier clients have priority only over new reservations, never an issued
   // operation. Bit zero is the current write cycle; requests name future cycles.
   for (client in 0..clients):
     def delay = reserve[client].bits
-    def selection = bits(1, latency + 1) << delay
+    def selection = Bits(latency + 1)(1) << delay
     def free = !pause & !(claimed & selection).or_reduce()
     reserve[client].ready <== free
     // A separate query avoids feeding a reservation's packed handshake back
     // into its producer's combinational admission path.
-    probed := probed ||| ((probe_client === bits(client, index_width(clients))) & !pause & !(claimed & probe_selection).or_reduce())
+    probed := probed ||| ((probe_client === Bits(index_width(clients))(client)) & !pause & !(claimed & probe_selection).or_reduce())
     when (reserve[client].valid):
-      assert((delay > bits(0, index_width(latency + 1))) & (delay <= bits(latency, index_width(latency + 1))), "writeback_reservation_latency_in_range")
-    claimed := claimed ||| mux(reserve[client].fire(), selection, bits(0, latency + 1))
+      assert((delay > Bits(index_width(latency + 1))(0)) & (delay <= Bits(index_width(latency + 1))(latency)), "writeback_reservation_latency_in_range")
+    claimed := claimed ||| mux(reserve[client].fire(), selection, Bits(latency + 1)(0))
   pending <== (claimed >> 1)[0..latency]
   occupied <== pending
   probe_available <== probed

@@ -81,7 +81,7 @@ circuit Estimate7(format :: FloatFormat):
   def distance = fraction.count_leading_zeros()
   def normalized_fraction = mux(
     subnormal,
-    fraction << (distance + bits(1, distance.type.packed_width())),
+    fraction << (distance + Bits(distance.type.packed_width())(1)),
     fraction
   )
   def signed_width = exponent_width + 2
@@ -90,35 +90,35 @@ circuit Estimate7(format :: FloatFormat):
     -distance.zext(signed_width).into(SInt(signed_width)),
     exponent.zext(signed_width).into(SInt(signed_width))
   )
-  def exponent_ones = bits((1 << exponent_width) - 1, exponent_width)
-  def zero_fraction = bits(0, fraction_width)
+  def exponent_ones = Bits(exponent_width)((1 << exponent_width) - 1)
+  def zero_fraction = Bits(fraction_width)(0)
   def canonical_nan = canonical_recoded_nan(format).to_ieee()
-  def signed_zero = concat(sign, bits(0, exponent_width), zero_fraction).into(IEEEFloat(format))
+  def signed_zero = concat(sign, Bits(exponent_width)(0), zero_fraction).into(IEEEFloat(format))
   def signed_infinity = concat(sign, exponent_ones, zero_fraction).into(IEEEFloat(format))
 
-  def reciprocal_table = vec(ReciprocalEstimate7Table.map(fun (entry): bits(entry, 7)))
+  def reciprocal_table = vec(ReciprocalEstimate7Table.map(fun (entry): Bits(7)(entry)))
   def reciprocal_index = normalized_fraction[(fraction_width - 7)..fraction_width]
   def reciprocal_lookup = reciprocal_table[reciprocal_index]
   def reciprocal_fraction_base = reciprocal_lookup.zext(fraction_width) << (fraction_width - 7)
   def reciprocal_exponent :: SInt(signed_width) = sint((1 << exponent_width) - 3, signed_width) - normalized_exponent
   def reciprocal_fraction = mux(
     reciprocal_exponent === sint(-1, signed_width),
-    (reciprocal_fraction_base >> 2) ||| bits(1 << (fraction_width - 2), fraction_width),
+    (reciprocal_fraction_base >> 2) ||| Bits(fraction_width)(1 << (fraction_width - 2)),
     mux(reciprocal_exponent === sint(0, signed_width),
-        (reciprocal_fraction_base >> 1) ||| bits(1 << (fraction_width - 1), fraction_width),
+        (reciprocal_fraction_base >> 1) ||| Bits(fraction_width)(1 << (fraction_width - 1)),
         reciprocal_fraction_base)
   )
   def reciprocal_exponent_bits = mux(
     reciprocal_exponent <= sint(0, signed_width),
-    bits(0, exponent_width),
+    Bits(exponent_width)(0),
     reciprocal_exponent.as_bits()[0..exponent_width]
   )
   def reciprocal_ordinary = concat(sign, reciprocal_exponent_bits, reciprocal_fraction).into(IEEEFloat(format))
-  def reciprocal_abnormal = subnormal & (distance > bits(1, distance.type.packed_width()))
+  def reciprocal_abnormal = subnormal & (distance > Bits(distance.type.packed_width())(1))
   def reciprocal_rounds_to_maximum = (rounding_mode === RoundingMode.MinMagnitude) ||| (
     (rounding_mode === RoundingMode.Minimum) & !sign
   ) ||| ((rounding_mode === RoundingMode.Maximum) & sign)
-  def maximum_finite = concat(sign, bits((1 << exponent_width) - 2, exponent_width), bits((1 << fraction_width) - 1, fraction_width)).into(IEEEFloat(format))
+  def maximum_finite = concat(sign, Bits(exponent_width)((1 << exponent_width) - 2), Bits(fraction_width)((1 << fraction_width) - 1)).into(IEEEFloat(format))
   def reciprocal_overflow = mux(reciprocal_rounds_to_maximum, maximum_finite, signed_infinity)
   def reciprocal_result = mux(
     is_nan,
@@ -130,11 +130,11 @@ circuit Estimate7(format :: FloatFormat):
             mux(reciprocal_abnormal, reciprocal_overflow, reciprocal_ordinary)))
   )
 
-  def square_root_table = vec(ReciprocalSquareRootEstimate7Table.map(fun (entry): bits(entry, 7)))
+  def square_root_table = vec(ReciprocalSquareRootEstimate7Table.map(fun (entry): Bits(7)(entry)))
   def square_root_index = concat(normalized_exponent.as_bits()[0], normalized_fraction[(fraction_width - 6)..fraction_width])
   def square_root_fraction = square_root_table[square_root_index].zext(fraction_width) << (fraction_width - 7)
   def square_root_exponent :: SInt(signed_width) = (sint(3 * ((1 << (exponent_width - 1)) - 1), signed_width) - sint(1, signed_width) - normalized_exponent) >> 1
-  def square_root_ordinary = concat(bits(0, 1), square_root_exponent.as_bits()[0..exponent_width], square_root_fraction).into(IEEEFloat(format))
+  def square_root_ordinary = concat(Bits(1)(0), square_root_exponent.as_bits()[0..exponent_width], square_root_fraction).into(IEEEFloat(format))
   def square_root_result = mux(
     is_nan ||| negative_nonzero,
     canonical_nan,

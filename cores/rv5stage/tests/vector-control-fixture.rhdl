@@ -93,23 +93,23 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   divide <== decoder.control.vector.divide
   divide_remainder <== decoder.control.vector.remainder
   csrs.interrupts <== literal(RiscvInterrupts(), 0)
-  csrs.hart_id <== bits(0, xlen.width)
-  csrs.time_counter <== bits(0, 64)
+  csrs.hart_id <== Bits(xlen.width)(0)
+  csrs.time_counter <== Bits(64)(0)
   csrs.vector_retire.valid <== Bool(#false)
   csrs.vector_saturate.valid <== saturate
   csrs.vector_fault_start.valid <== Bool(#false)
-  csrs.vector_fault_start.bits <== bits(0, xlen.width)
+  csrs.vector_fault_start.bits <== Bits(xlen.width)(0)
   csrs.vector_truncate.valid <== Bool(#false)
-  csrs.vector_truncate.bits <== bits(0, xlen.width)
+  csrs.vector_truncate.bits <== Bits(xlen.width)(0)
   csrs.interrupt_boundary <== Bool(#false)
-  csrs.interrupt_pc <== bits(0, xlen.width)
+  csrs.interrupt_pc <== Bits(xlen.width)(0)
   csrs.fp_update.valid <== Bool(#false)
-  csrs.fp_update.bits <== bits(0, 5)
+  csrs.fp_update.bits <== Bits(5)(0)
   csrs.cbo_operation <== CboManagementOperation.Invalidate
   csrs.commit.valid <== commit_valid
   csrs.retire_count <== csrs.command_success.as_bits().zext(2)
   csrs.commit.bits <== RiscvCsrCommand(xlen):
-    pc: bits(0x100, xlen.width)
+    pc: Bits(xlen.width)(0x100)
     instruction: instruction
     rd: instruction[7..12]
     csr_operation: decoder.control.system.csr
@@ -118,7 +118,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
     csr_source: mux(decoder.control.system.immediate, instruction[15..20].zext(xlen.width), scalar1)
     vector_config: vector_configuration_request(xlen, decoder.control.vector.configure, instruction, scalar1, scalar2)
     exception_valid: exception_valid ||| !decoder.valid ||| decoder.control.vector.integer
-    exception_cause: bits(2, xlen.width)
+    exception_cause: Bits(xlen.width)(2)
     exception_value: if xlen == XLen.X32 | instruction | instruction.zext(xlen.width)
   writeback_valid <== csrs.writeback_valid
   writeback_value <== csrs.writeback_value

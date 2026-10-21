@@ -94,9 +94,9 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
   reg saved_command(CHIReadOnceCommand(p, Context))
   reg saved_node_id(Bits(p.node_id_width))
   reg saved_txn_id(Bits(12))
-  reg received_packets(~init: bits(0, packet_count).as_vec(Bool))
-  reg line(~init: bits(0, 512))
-  reg dbid(~init: bits(0, 12))
+  reg received_packets(~init: Bits(packet_count)(0).as_vec(Bool))
+  reg line(~init: Bits(512)(0))
+  reg dbid(~init: Bits(12)(0))
   reg response_error(~init: CHIRespErr.OK)
   reg poisoned(~init: Bool(#false))
   reg acknowledgement_sent(~init: Bool(#false))
@@ -151,11 +151,11 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
            "chi_read_once_data_id")
     assert(!packet_was_received,
            "chi_read_once_data_id_unique")
-    assert(incoming_data.num_dat === bits(0, 2),
+    assert(incoming_data.num_dat === Bits(2)(0),
            "chi_read_once_num_dat_zero")
     assert(!incoming_data.replicate,
            "chi_read_once_not_replicated")
-    assert(incoming_data.resp === bits(0, 3),
+    assert(incoming_data.resp === Bits(3)(0),
            "chi_read_once_no_ownership")
   when (data_fire & received_packets.or_reduce()):
     assert(incoming_data.dbid_or_mecid[0..12] === dbid,
@@ -168,8 +168,8 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
     saved_command.home_id,
     dbid,
     CHIRspOpcode.CompAck,
-    ~dbid: bits(0, 12),
-    ~resp: bits(0, 3),
+    ~dbid: Bits(12)(0),
+    ~resp: Bits(3)(0),
     ~error: CHIRespErr.OK,
     ~qos: saved_command.qos
   )
@@ -192,9 +192,9 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
     saved_command <== command.bits
     saved_node_id <== node_id
     saved_txn_id <== txn_id
-    received_packets <== bits(0, packet_count).as_vec(Bool)
-    line <== bits(0, 512)
-    dbid <== bits(0, 12)
+    received_packets <== Bits(packet_count)(0).as_vec(Bool)
+    line <== Bits(512)(0)
+    dbid <== Bits(12)(0)
     response_error <== CHIRespErr.OK
     poisoned <== Bool(#false)
     acknowledgement_sent <== Bool(#false)

@@ -30,13 +30,13 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
   interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
 
   inst control(CHIRetryableTransactionControl(p, SpikeAcquireResponses))
-  reg received_packets(~init: bits(0, packet_count).as_vec(Bool))
+  reg received_packets(~init: Bits(packet_count)(0).as_vec(Bool))
   reg acknowledgement_sent(~init: Bool(#false))
-  reg address(~init: bits(0, 64))
+  reg address(~init: Bits(64)(0))
   reg unique(~init: Bool(#false))
-  reg line(~init: bits(0, 512))
-  reg home_id(~init: bits(0, p.node_id_width))
-  reg dbid(~init: bits(0, 12))
+  reg line(~init: Bits(512)(0))
+  reg home_id(~init: Bits(p.node_id_width)(0))
+  reg dbid(~init: Bits(12)(0))
   reg response_state(~init: CHIResponseState.Invalid)
   reg pass_dirty(~init: Bool(#false))
   reg access_fault(~init: Bool(#false))
@@ -53,7 +53,7 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
     |> map_flow(attempt => spike_chi_request(
       p, node_id, home_id, address, CHITransferSize.Bytes64,
       mux(unique, CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean),
-      bits(0, 12), Bool(#true), Bool(#true), attempt.allow_retry, attempt.pcrd_type
+      Bits(12)(0), Bool(#true), Bool(#true), attempt.allow_retry, attempt.pcrd_type
     ))
     |> requests
 
@@ -75,7 +75,7 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
   def data_fire = response_data.fire()
   when data_fire:
     assert(incoming_data.opcode === CHIDatOpcode.CompData, "spike_acquire_comp_data")
-    assert(incoming_data.txn_id === bits(0, 12), "spike_acquire_data_txn")
+    assert(incoming_data.txn_id === Bits(12)(0), "spike_acquire_data_txn")
     assert(incoming_data.tgt_id === node_id, "spike_acquire_data_target")
     assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,
            "spike_acquire_data_home")
@@ -101,13 +101,13 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
   control.external_progress <== data_fire
 
   when command_fire:
-    received_packets <== bits(0, packet_count).as_vec(Bool)
+    received_packets <== Bits(packet_count)(0).as_vec(Bool)
     acknowledgement_sent <== Bool(#false)
     address <== command.bits.address
     unique <== command.bits.unique
-    line <== bits(0, 512)
+    line <== Bits(512)(0)
     home_id <== command_home.node_id
-    dbid <== bits(0, 12)
+    dbid <== Bits(12)(0)
     response_state <== CHIResponseState.Invalid
     pass_dirty <== Bool(#false)
     access_fault <== Bool(#false)

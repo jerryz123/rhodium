@@ -41,9 +41,9 @@ circuit MembershipSurfaces():
   exact_member <== exact_value.is_one_of(Exact3(0), Exact3(2))
   optional_member <== optional_value.is_one_of(Optional3(), Optional3(1))
   union_member <== union_value.is_one_of(MembershipUnion.Empty,
-                                         MembershipUnion.Value(bits(1, 2)))
+                                         MembershipUnion.Value(Bits(2)(1)))
   generic_member <== generic_membership(generic_bits,
-                                        [bits(3, 4), bits(12, 4)])
+                                        [Bits(4)(3), Bits(4)(12)])
 
 def design = compile_program(elaborate(MembershipSurfaces()), rtl_target).report.design
 

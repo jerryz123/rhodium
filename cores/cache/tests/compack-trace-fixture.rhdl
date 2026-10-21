@@ -32,18 +32,18 @@ sync_circuit EventCompAck():
   interface iack(Decoupled(CHIRspFlit(p)), ~role: producer)
   inst refill(CacheLineRefill(Bits(8), 32, config))
   inst read(CacheLineRead(Bits(8), 32, config))
-  refill.node_id <== bits(3, p.node_id_width)
-  read.node_id <== bits(2, p.node_id_width)
+  refill.node_id <== Bits(p.node_id_width)(3)
+  read.node_id <== Bits(p.node_id_width)(2)
   command_ready <== refill.command.ready & read.command.ready
   refill.command.valid <== command_valid & read.command.ready
   read.command.valid <== command_valid & refill.command.ready
   refill.command.bits <== CacheLineRefillCommand(Bits(8), 32):
-    line_address: bits(0x1000, 32)
+    line_address: Bits(32)(0x1000)
     opcode: CHIReqOpcode.ReadClean
-    context: bits(42, 8)
+    context: Bits(8)(42)
   read.command.bits <== CacheLineReadCommand(Bits(8), 32):
-    line_address: mux(instruction_rom, bits(0x8000, 32), bits(0x1000, 32))
-    context: bits(42, 8)
+    line_address: mux(instruction_rom, Bits(32)(0x8000), Bits(32)(0x1000))
+    context: Bits(8)(42)
   refill.requests |> dreq
   read.requests |> ireq
   for (engine in [refill, read]):

@@ -43,9 +43,9 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
   interface port(CHISNChannels(p), ~role: node)
 
   // Every reset edge initializes the native instance; no memory transaction is needed.
-  dpi_reg init_status = rhodium_chi_memory_init(bits(model_id, 32), bits(config.size_bytes, 64), identity.base_address.zext(64), ~enable: reset_active().into(Bool))
+  dpi_reg init_status = rhodium_chi_memory_init(Bits(32)(model_id), Bits(64)(config.size_bytes), identity.base_address.zext(64), ~enable: reset_active().into(Bool))
   when (!reset_active().into(Bool)):
-    assert(init_status === bits(0, 8), "chi_dpi_memory_initialized")
+    assert(init_status === Bits(8)(0), "chi_dpi_memory_initialized")
 
   /*
    * Construct the DPI backend connection procedure using this memory model's identity and
@@ -64,9 +64,9 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
       def raw_write_mask = operation.mask.as_bits()
       def write_mask = if p.data_bytes == 64 | raw_write_mask | raw_write_mask.zext(64)
       dpi_reg (read_data, status) = rhodium_chi_memory_access(
-        bits(model_id, 32),
-        bits(config.size_bytes, 64),
-        bits(p.data_bytes, 8),
+        Bits(32)(model_id),
+        Bits(64)(config.size_bytes),
+        Bits(8)(p.data_bytes),
         operation.write,
         relative_address.zext(64),
         write_data,
@@ -76,13 +76,13 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
 
       def completed_operation :: Endpoint = issue |> valid_pipe(1)
       when (completed_operation.valid):
-        assert(status === bits(0, 8), "chi_dpi_memory_access_succeeded")
+        assert(status === Bits(8)(0), "chi_dpi_memory_access_succeeded")
       (
         completed_operation |> map_valid(completed):
           CHIRamMemoryCompletion(p, slot_width):
             memory_operation: completed
             data: mux(completed.write,
-                      bits(0, p.data_width),
+                      Bits(p.data_width)(0),
                       read_data[0..p.data_width])
       ) <=> completion
     connect

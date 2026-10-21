@@ -31,19 +31,19 @@ fun memory_word_bytes(xlen :: XLen) :: PosInt:
 
 /* Encode the selected scalar access size as an XLEN-wide hardware byte count. */
 fun memory_access_bytes(xlen :: XLen, width :: MemoryWidth) :~ Bits(xlen.width):
-  mux_lookup(width, ~default: bits(8, xlen.width), [[MemoryWidth.Byte, bits(1, xlen.width)], [MemoryWidth.Half, bits(2, xlen.width)], [MemoryWidth.Word, bits(4, xlen.width)]])
+  mux_lookup(width, ~default: Bits(xlen.width)(8), [[MemoryWidth.Byte, Bits(xlen.width)(1)], [MemoryWidth.Half, Bits(xlen.width)(2)], [MemoryWidth.Word, Bits(xlen.width)(4)]])
 
 /*
  * Compare the first and last accessed word addresses to detect an access spanning an XLEN
  * boundary.
  */
 fun memory_crosses_word(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bool:
-  address.align_down(memory_word_bytes(xlen)) =/= (address + (memory_access_bytes(xlen, width) - bits(1, xlen.width))).align_down(memory_word_bytes(xlen))
+  address.align_down(memory_word_bytes(xlen)) =/= (address + (memory_access_bytes(xlen, width) - Bits(xlen.width)(1))).align_down(memory_word_bytes(xlen))
 
 /* Build a low-lane byte-enable pattern within one XLEN word for the selected access size. */
 fun memory_width_mask(xlen :: XLen, width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
   def bytes = memory_word_bytes(xlen)
-  mux_lookup(width, ~default: !bits(0, bytes), [[MemoryWidth.Byte, bits(1, bytes)], [MemoryWidth.Half, bits(3, bytes)], [MemoryWidth.Word, bits(15, bytes)]])
+  mux_lookup(width, ~default: !Bits(bytes)(0), [[MemoryWidth.Byte, Bits(bytes)(1)], [MemoryWidth.Half, Bits(bytes)(3)], [MemoryWidth.Word, Bits(bytes)(15)]])
 
 /*
  * Position the access-size byte enables within the containing XLEN word; crossing accesses are
@@ -69,7 +69,7 @@ circuit LoadGen(xlen :: XLen,
   input unsigned_load: Bool
   output value: Bits(xlen_bits)
 
-  def shifted :: Bits(beat_bits) = data >> (address[0..alignment_bits(beat_bytes)] ++ bits(0, 3))
+  def shifted :: Bits(beat_bits) = data >> (address[0..alignment_bits(beat_bytes)] ++ Bits(3)(0))
   def byte = shifted[0..8]
   def half = shifted[0..16]
   def word = shifted[0..32]
@@ -111,15 +111,15 @@ circuit StoreGen(xlen :: XLen,
   output mask: Mask(beat_bytes)
 
   def offset = address[0..alignment_bits(beat_bytes)]
-  def shift = (offset ++ bits(0, 3))
+  def shift = (offset ++ Bits(3)(0))
   // Byte/halfword/word choose fixed low masks; Double/default enables the whole beat before shifting.
   def base_mask = mux_lookup(
     width,
-    ~default: !bits(0, beat_bytes),
+    ~default: !Bits(beat_bytes)(0),
     [
-      [MemoryWidth.Byte, bits(0x01, beat_bytes)],
-      [MemoryWidth.Half, bits(0x03, beat_bytes)],
-      [MemoryWidth.Word, bits(0x0f, beat_bytes)]
+      [MemoryWidth.Byte, Bits(beat_bytes)(0x01)],
+      [MemoryWidth.Half, Bits(beat_bytes)(0x03)],
+      [MemoryWidth.Word, Bits(beat_bytes)(0x0f)]
     ]
   )
   def beat_value:

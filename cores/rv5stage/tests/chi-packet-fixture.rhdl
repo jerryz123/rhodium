@@ -21,14 +21,14 @@ sync_circuit CHIPacketWidthFixture(p :: CHIFlitParams):
   output valid_id: Bool
   output packet_address: Bits(8)
 
-  def data = cache_chi_write_data(p, bits(3, p.node_id_width), bits(9, p.node_id_width), bits(0, 12), address, bits(0, p.data_width), bits(0, p.data_bytes))
+  def data = cache_chi_write_data(p, Bits(p.node_id_width)(3), Bits(p.node_id_width)(9), Bits(12)(0), address, Bits(p.data_width)(0), Bits(p.data_bytes)(0))
   packet_set <== chi_transfer_data_ids(address, size, p)
   packet_count <== chi_data_beats_minus_one(size, p)
   write_id <== data.data_id
   critical_chunk <== data.ccid
   valid_id <== chi_data_id_valid(data_id, p)
   packet_address <== chi_data_address(address, data_id, p)
-  reg credit_balance(~init: bits(1, 1))
+  reg credit_balance(~init: Bits(1)(1))
   // An active link replenishes each consumed credit; the monitor owns balance updates.
   monitor_chi_dat(p, 1, valid, data, data.src_id, valid, credit_balance, Bool(#true), Bool(#true), Bool(#true), [CHIDatOpcode.NonCopyBackWriteData], 3, "_source", "packet_constructor")
 

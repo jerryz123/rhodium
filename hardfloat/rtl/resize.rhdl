@@ -34,7 +34,7 @@ fun resize_raw_float(in_exponent_width :: PosInt,
           negative
             ++ mux(
             discarded.or_reduce(),
-            (bits((1 << (out_exponent_width - 1)) - 1, out_exponent_width - 1) ++ bits(0, 2)),
+            (Bits(out_exponent_width - 1)((1 << (out_exponent_width - 1)) - 1) ++ Bits(2)(0)),
             adjusted_exponent.as_bits()[0..=out_exponent_width]
           )
         )

@@ -300,27 +300,27 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   inst dat_router(SimpleRouter(CHIDatFlit(params.flit), params.dat_router_config))
 
   hart.chi_identity <== RiscvHartCHIIdentity(params.flit):
-    instruction_node_id: bits(params.hart_params.instruction_node.node_id, params.flit.node_id_width)
-    data_node_id: bits(params.hart_params.data_node.node_id, params.flit.node_id_width)
-    uncached_node_id: bits(params.hart_params.uncached_node.node_id, params.flit.node_id_width)
+    instruction_node_id: Bits(params.flit.node_id_width)(params.hart_params.instruction_node.node_id)
+    data_node_id: Bits(params.flit.node_id_width)(params.hart_params.data_node.node_id)
+    uncached_node_id: Bits(params.flit.node_id_width)(params.hart_params.uncached_node.node_id)
   home.identity <== CHIHNFIdentity(params.flit):
-    home_node_id: bits(params.home_params.home.node_id, params.flit.node_id_width)
-    subordinate_node_id: bits(params.home_params.subordinate_endpoint.node_id, params.flit.node_id_width)
-    service_base: bits(params.memory_base, params.flit.request_address_width)
+    home_node_id: Bits(params.flit.node_id_width)(params.home_params.home.node_id)
+    subordinate_node_id: Bits(params.flit.node_id_width)(params.home_params.subordinate_endpoint.node_id)
+    service_base: Bits(params.flit.request_address_width)(params.memory_base)
   bootrom.identity <== CHIBootROMIdentity(params.flit):
-    node_id: bits(params.platform.bootrom.rom_params.node.node_id, params.flit.node_id_width)
-    base_address: bits(params.boot.reset_address, params.flit.request_address_width)
+    node_id: Bits(params.flit.node_id_width)(params.platform.bootrom.rom_params.node.node_id)
+    base_address: Bits(params.flit.request_address_width)(params.boot.reset_address)
   boot_address.identity <== BootAddressIdentity(params.flit):
-    node_id: bits(params.platform.boot_address.node.node_id, params.flit.node_id_width)
-    base_address: bits(params.platform.boot_address.base_address, params.flit.request_address_width)
+    node_id: Bits(params.flit.node_id_width)(params.platform.boot_address.node.node_id)
+    base_address: Bits(params.flit.request_address_width)(params.platform.boot_address.base_address)
   aclint.identity <== AclintIdentity(params.flit):
-    node_id: bits(params.platform.aclint.node.node_id, params.flit.node_id_width)
+    node_id: Bits(params.flit.node_id_width)(params.platform.aclint.node.node_id)
   plic.identity <== PlicIdentity(params.flit):
-    node_id: bits(params.platform.plic.node.node_id, params.flit.node_id_width)
-    base_address: bits(params.platform.plic.base_address, params.flit.request_address_width)
+    node_id: Bits(params.flit.node_id_width)(params.platform.plic.node.node_id)
+    base_address: Bits(params.flit.request_address_width)(params.platform.plic.base_address)
   uart_device.identity <== Uart16550Identity(params.flit):
-    node_id: bits(params.platform.uart.node.node_id, params.flit.node_id_width)
-    base_address: bits(params.platform.uart.base_address, params.flit.request_address_width)
+    node_id: Bits(params.flit.node_id_width)(params.platform.uart.node.node_id)
+    base_address: Bits(params.flit.request_address_width)(params.platform.uart.base_address)
 
   def router_ports = CHINoCPorts(
     CHINoCPlane(req_router.ingress, req_router.target),
@@ -353,7 +353,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
     machine_timer: aclint.machine_timer[0]
     supervisor_external: plic.context_interrupts[1]
     machine_external: plic.context_interrupts[0]
-  hart.hart_id <== bits(0, description.hart.xlen.width)
+  hart.hart_id <== Bits(description.hart.xlen.width)(0)
   hart.time_counter <== aclint.time_counter
 
 export:

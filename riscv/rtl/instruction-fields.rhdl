@@ -21,7 +21,7 @@ fun immediate_bits(layout :: ImmediateLayout,
     [piece.output_high,
      instruction_field(piece.source, instruction)]
   def zero_fragments = for List (bit in layout.zero_bits):
-    [bit, bits(0, 1)]
+    [bit, Bits(1)(0)]
   def fragments = (piece_fragments ++ zero_fragments).sort(
     fun (left, right): left[0] > right[0]
   )

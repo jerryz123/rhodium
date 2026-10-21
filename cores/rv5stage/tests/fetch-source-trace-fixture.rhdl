@@ -19,7 +19,7 @@ sync_circuit EventFetchSource():
   source.space <== space
   source.clear.valid <== clear
   source.redirect.valid <== Bool(#false)
-  source.redirect.bits <== bits(0, 64)
+  source.redirect.bits <== Bits(64)(0)
   source.ras_speculate.valid <== Bool(#false)
   source.ras_speculate.bits <== literal(RasUpdate(xlen), 0)
   source.ras_restore.valid <== Bool(#false)
@@ -27,7 +27,7 @@ sync_circuit EventFetchSource():
   source.btb_discover.bits <== literal(BranchPrediction(xlen), 0)
   source.predictor_flush.valid <== Bool(#false)
   source.predictor_invalidate.valid <== Bool(#false)
-  source.predictor_invalidate.bits <== bits(0, 64)
+  source.predictor_invalidate.bits <== Bits(64)(0)
   source.branch_update.valid <== Bool(#false)
   source.branch_update.bits <== literal(BranchUpdate(xlen), 0)
   def restart_event = restart |> trace_valid_event("restart", ~fields: pc):

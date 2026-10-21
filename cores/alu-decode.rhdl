@@ -23,7 +23,7 @@ fun adder_control(subtract :: Boolean, unsigned_word :: Boolean, shift_amount ::
     result_select: AluResultSelect.Adder
     subtract: Bool(subtract)
     unsigned_word: Bool(unsigned_word)
-    shift_add_amount: bits(shift_amount, 2)
+    shift_add_amount: Bits(2)(shift_amount)
     word: Bool(word)
 
 /*
@@ -61,7 +61,7 @@ fun compare_control(signed_mode :: Boolean):
     subtract: Bool(#true)
     signed_compare: Bool(signed_mode)
     unsigned_word: Bool(#false)
-    shift_add_amount: bits(0, 2)
+    shift_add_amount: Bits(2)(0)
     word: Bool(#false)
 
 /* Reuse subtraction-based ordering to choose a signed or unsigned minimum or maximum. */
@@ -72,7 +72,7 @@ fun minmax_control(signed_mode :: Boolean, maximum :: Boolean):
     signed_compare: Bool(signed_mode)
     maximum: Bool(maximum)
     unsigned_word: Bool(#false)
-    shift_add_amount: bits(0, 2)
+    shift_add_amount: Bits(2)(0)
     word: Bool(#false)
 
 /* Choose directional or population counting over the full word or low 32 bits. */

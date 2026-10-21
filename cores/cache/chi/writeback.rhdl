@@ -52,7 +52,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   reg home_id(Bits(p.node_id_width))
   reg dbid(Bits(12))
   reg response_state(Bits(3))
-  reg packet_index(~init: bits(0, packet_width))
+  reg packet_index(~init: Bits(packet_width)(0))
   reg data_sent(~init: Bool(#false))
   def returning = command |> trace_event("dcache/writeback", ~residency: "data", ~fields: request):
     address: request.line_address
@@ -75,7 +75,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   control.attempt
     |> map_flow(attempt => cache_chi_request(
       p, node_id, home_id, line_address, CHITransferSize.Bytes64, CHIReqOpcode.WriteBackFull,
-      bits(txn_id, 12), Bool(#false), Bool(#true), attempt.allow_retry, attempt.pcrd_type
+      Bits(12)(txn_id), Bool(#false), Bool(#true), attempt.allow_retry, attempt.pcrd_type
     ))
     |> requests
   def retry_or_credit = responses.bits.opcode.is_one_of(CHIRspOpcode.RetryAck, CHIRspOpcode.PCrdGrant)
@@ -89,9 +89,9 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
     assert(response.tgt_id === node_id, "copyback_response_target")
     assert(response.resp_err === CHIRespErr.OK, "copyback_response_ok")
     when (!control.event.bits.protocol_credit):
-      assert(response.txn_id === bits(txn_id, 12), "copyback_response_txn")
+      assert(response.txn_id === Bits(12)(txn_id), "copyback_response_txn")
   when grant:
-    assert(response.resp === bits(0, 3), "copyback_completion_has_no_state")
+    assert(response.resp === Bits(3)(0), "copyback_completion_has_no_state")
     assert(victim_state =/= CHICacheState.UniqueDirtyPartial, "copyback_complete_dirty_line")
     dbid <== response.dbid_or_group_id
     def granted_response_state :: CHIResponseState = priority_mux(~default: CHIResponseState.SharedClean):
@@ -110,7 +110,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   data.valid <== granted & !data_sent
   def packet_number = if packet_width == 2 | packet_index | packet_index.zext(2)
   data.bits <== chi_rn_copyback_data(p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p), line[packet_index], response_state)
-  def final_packet = packet_index === bits(packets - 1, packet_width)
+  def final_packet = packet_index === Bits(packet_width)(packets - 1)
   def final_data = data.fire() & final_packet
   completion.valid <== control.active & data_sent
   completion.bits <== CacheLineWritebackResult(Context):
@@ -121,12 +121,12 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   describe_interface_retained_storage(command_fire, completion.fire(), control.active)
   describe_interface_contract(returning, Array(control.attempt, data, completion), "copyback-outputs", ~trace_model: interface_trace_retained(~outputs: 3))
   when command_fire:
-    packet_index <== bits(0, packet_width)
+    packet_index <== Bits(packet_width)(0)
     data_sent <== Bool(#false)
   elsewhen final_data:
     data_sent <== Bool(#true)
   elsewhen (data.fire()):
-    packet_index <== packet_index + bits(1, packet_width)
+    packet_index <== packet_index + Bits(packet_width)(1)
 
 export:
   CacheLineWritebackCommand

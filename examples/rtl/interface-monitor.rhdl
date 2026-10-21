@@ -25,7 +25,7 @@ sync_circuit MonitoredProducer():
   interface stream(MonitoredWordStream(8), ~role: producer)
 
   stream.valid <== Bool(#false)
-  stream.bits <== bits(0, 8)
+  stream.bits <== Bits(8)(0)
   monitor_word_stream(stream.observe(), "producer")
 
 def program = elaborate(MonitoredProducer())

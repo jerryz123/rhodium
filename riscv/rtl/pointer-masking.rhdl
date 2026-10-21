@@ -35,12 +35,12 @@ fun pointer_mask_mode(xlen :: XLen, envcfg :: Bits(xlen.width)) :~ PointerMaskMo
 fun pointer_mask_hstatus_fields(value :: Bits(64), ~enabled: enabled :: Boolean) :~ Bits(64):
   if enabled
   | csr_field_value(HstatusHUPMM, pointer_mask_mode_bits(csr_field(value, HstatusHUPMM)).as_bits(), 64)
-  | bits(0, 64)
+  | Bits(64)(0)
 
 /* Returns only the normalized PMM field for enabled RV64 specialization. */
 fun pointer_mask_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
   if xlen == XLen.X32 || !enabled
-  | bits(0, xlen.width)
+  | Bits(xlen.width)(0)
   | csr_field_value(EnvcfgPMM, pointer_mask_mode(xlen, value).into(Bits(2)), xlen.width)
 
 /* Resolves effective user-access masking and virtual/physical reconstruction, bypassing disabled profiles and MXR. */
@@ -78,8 +78,8 @@ fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: Poi
       def sign7 = control.virtual_address & address[56].into(Bool)
       def sign16 = control.virtual_address & address[47].into(Bool)
       def upper = mux_lookup(control.mode, ~default: address[48..64], [
-        [PointerMaskMode.Bits7, mux(sign7, bits(0x7f, 7), bits(0, 7)) ++ address[48..57]],
-        [PointerMaskMode.Bits16, mux(sign16, bits(0xffff, 16), bits(0, 16))]
+        [PointerMaskMode.Bits7, mux(sign7, Bits(7)(0x7f), Bits(7)(0)) ++ address[48..57]],
+        [PointerMaskMode.Bits16, mux(sign16, Bits(16)(0xffff), Bits(16)(0))]
       ])
       upper ++ address[0..48]
 

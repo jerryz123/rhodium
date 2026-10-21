@@ -60,20 +60,20 @@ sync_circuit Queue(T :: DataType,
         occupied <== enqueue
       when (enqueue):
         payload <== ingress.bits
-      describe_interface_queue_storage(depth, enqueue, dequeue, bits(0, 1), bits(0, 1), !empty, if flow | empty | Bool(#false))
+      describe_interface_queue_storage(depth, enqueue, dequeue, Bits(1)(0), Bits(1)(0), !empty, if flow | empty | Bool(#false))
       #void
   | block:
       def count_width = index_width(depth + 1)
       mem storage(depth, T)
-      reg occupancy(~init: bits(0, count_width))
+      reg occupancy(~init: Bits(count_width)(0))
       def PointerCounter = Counter(depth)
       inst read_pointer(PointerCounter)
       inst write_pointer(PointerCounter)
 
       def empty = !occupancy.or_reduce()
-      def full = occupancy === bits(depth, count_width)
+      def full = occupancy === Bits(count_width)(depth)
       // Detects an encoded count beyond the queue's physical capacity.
-      assert(occupancy <= bits(depth, count_width),
+      assert(occupancy <= Bits(count_width)(depth),
              "queue_occupancy_in_range")
       def input_ready = ready_for_input(full)
       def output_valid = valid_for_output(empty)
@@ -92,8 +92,8 @@ sync_circuit Queue(T :: DataType,
       when (enqueue ^ dequeue):
         occupancy <== mux(
           enqueue,
-          occupancy + bits(1, count_width),
-          occupancy - bits(1, count_width)
+          occupancy + Bits(count_width)(1),
+          occupancy - Bits(count_width)(1)
         )
       describe_interface_queue_storage(depth, enqueue, dequeue, read_pointer.value, write_pointer.value, !empty, if flow | empty | Bool(#false))
       #void
@@ -143,11 +143,11 @@ sync_circuit CtrlQueue(depth :: PosInt,
       #void
   | block:
       def count_width = index_width(depth + 1)
-      reg occupancy(~init: bits(0, count_width))
+      reg occupancy(~init: Bits(count_width)(0))
       def empty = !occupancy.or_reduce()
-      def full = occupancy === bits(depth, count_width)
+      def full = occupancy === Bits(count_width)(depth)
       // The payloadless specialization obeys the same capacity invariant.
-      assert(occupancy <= bits(depth, count_width),
+      assert(occupancy <= Bits(count_width)(depth),
              "ctrl_queue_occupancy_in_range")
       def input_ready = ready_for_input(full)
       ingress.ready <== input_ready
@@ -160,8 +160,8 @@ sync_circuit CtrlQueue(depth :: PosInt,
       when (enqueue ^ dequeue):
         occupancy <== mux(
           enqueue,
-          occupancy + bits(1, count_width),
-          occupancy - bits(1, count_width)
+          occupancy + Bits(count_width)(1),
+          occupancy - Bits(count_width)(1)
         )
       #void
 /* Configures a fresh queue in the ambient sync domain, returning a connected

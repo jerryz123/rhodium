@@ -41,7 +41,7 @@ sync_circuit RV5StagePollingBoot():
   interface umem(CHIRNIChannels(p), ~role: node)
   output boot_words: Vec(image.size_bytes / 4, Bits(32))
   def words = for List (index in 0..(image.size_bytes / 4)):
-    bits(image.bytes[index * 4] + (image.bytes[index * 4 + 1] << 8) + (image.bytes[index * 4 + 2] << 16) + (image.bytes[index * 4 + 3] << 24), 32)
+    Bits(32)(image.bytes[index * 4] + (image.bytes[index * 4 + 1] << 8) + (image.bytes[index * 4 + 2] << 16) + (image.bytes[index * 4 + 3] << 24))
   boot_words <== vec(words)
   inst core(RV5Stage(RV5StageConfig(~xlen: XLen.X64), ~chi: config, ~reset_address: 0xc000))
   core.hart_id <== hart_id
@@ -52,11 +52,11 @@ sync_circuit RV5StagePollingBoot():
     machine_timer: Bool(#false)
     supervisor_external: Bool(#false)
     machine_external: Bool(#false)
-  core.time_counter <== bits(0, 64)
+  core.time_counter <== Bits(64)(0)
   core.chi_identity <== RiscvHartCHIIdentity(p):
-    instruction_node_id: bits(2, p.node_id_width)
-    data_node_id: bits(3, p.node_id_width)
-    uncached_node_id: bits(5, p.node_id_width)
+    instruction_node_id: Bits(p.node_id_width)(2)
+    data_node_id: Bits(p.node_id_width)(3)
+    uncached_node_id: Bits(p.node_id_width)(5)
   imem <=> core.imem
   dmem <=> core.dmem
   umem <=> core.umem

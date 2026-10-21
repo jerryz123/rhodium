@@ -6,6 +6,6 @@
 sync_circuit ExplicitWriteClock():
   input other_clock: Clock
   mem storage(2, Bits(1))
-  storage.write(bits(0, 1), bits(0, 1), ~clock: other_clock)
+  storage.write(Bits(1)(0), Bits(1)(0), ~clock: other_clock)
 
 elaborate(ExplicitWriteClock())

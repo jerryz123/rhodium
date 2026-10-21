@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/main.rhm" open
@@ -24,7 +25,7 @@ import:
   "../../alu.rhdl" as alu
 
 fun control_for_word(cases, word :: Nat):
-  cases.find(fun (candidate): candidate.input.matches(bits(word, 32))).output
+  cases.find(fun (candidate): candidate.input.matches(hw.Bits(32)(word))).output
 
 fun record_field(record, name :: String):
   record.fields.find(fun (field): field[0] == name)[1]

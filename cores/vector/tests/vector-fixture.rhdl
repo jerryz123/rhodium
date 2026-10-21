@@ -75,7 +75,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     extension: Bool(#false)
     extension_ratio: SimdExtensionRatio.By2
     extension_signed: Bool(#false)
-    extension_part: bits(0, 3)
+    extension_part: Bits(3)(0)
     upper_half: upper_half
     left_wide: left_wide
     left_signed: left_signed
@@ -109,8 +109,8 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   alu.right <== prepare.operands.right
   alu.element_width <== prepare.operands.element_width
   alu.enabled <== prepare.operands.enabled
-  alu.carry_in <== bits(0, 8).into(Mask(8))
-  alu.select_right <== bits(0, 8).into(Mask(8))
+  alu.carry_in <== Bits(8)(0).into(Mask(8))
+  alu.select_right <== Bits(8)(0).into(Mask(8))
   alu.rounding <== Bool(#false)
   alu.rounding_mode <== SimdRoundingMode.NearestUp
   alu.control <== SimdAluControl():
@@ -121,7 +121,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     mask_result_select: SimdMaskResultSelect.Comparison
     permutation_select: SimdPermutationSelect.ReverseBits
     count_select: SimdCountSelect.Population
-    subtract: c.operation === bits(1, 3)
+    subtract: c.operation === Bits(3)(1)
     signed_compare: Bool(#false)
     maximum: Bool(#false)
     shift_right: Bool(#false)

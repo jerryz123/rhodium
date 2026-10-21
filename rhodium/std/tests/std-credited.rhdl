@@ -34,7 +34,7 @@ sync_circuit CreditBufferWrapper():
 sync_circuit InvalidCreditLimit():
   interface link(Credited(Bits(8), 0), ~role: transmitter)
   link.valid <== Bool(#false)
-  link.bits <== bits(0, 8)
+  link.bits <== Bits(8)(0)
 
 sync_circuit InvalidSenderLimit():
   inst sender(CreditSender(Bits(8), 0))

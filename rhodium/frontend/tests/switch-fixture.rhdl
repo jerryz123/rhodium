@@ -116,83 +116,83 @@ circuit HostSwitchSelector():
   output selected: Bits(1)
   switch 0:
     case 0:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit UnsupportedSwitchSelector():
   input selector: Bool
   output selected: Bits(1)
   switch selector:
     case 0:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit DuplicateSwitchKey():
   input selector: Bits(2)
   output selected: Bits(1)
   switch selector:
     case 1:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
     case 1:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit WideSwitchKey():
   input selector: Bits(2)
   output selected: Bits(1)
   switch selector:
     case 4:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit NonIntegerSwitchKey():
   input selector: Bits(2)
   output selected: Bits(1)
   switch selector:
     case #true:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit MissingSwitchOtherwise():
   input selector: Bits(2)
   output selected: Bits(1)
   switch selector:
     case 0:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
 
 circuit MissingSwitchBranch():
   input selector: Bits(2)
   output selected: Bits(1)
   switch selector:
     case 0:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     case 1:
       #void
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit IntegerEnumSwitchKey():
   input selector: State
   output selected: Bits(1)
   switch selector:
     case 0:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 circuit ForeignEnumSwitchKey():
   input selector: State
   output selected: Bits(1)
   switch selector:
     case OtherState.Idle:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
 
 export:
   State

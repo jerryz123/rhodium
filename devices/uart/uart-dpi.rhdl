@@ -29,12 +29,12 @@ sync_circuit UartDPI(
   input uart_tx: Bits(1)
   output uart_rx: Bits(1)
 
-  reg baud_counter(~init: bits(0, 16))
-  def oversample_tick = baud_counter >= bits(oversample_divisor - 1, 16)
+  reg baud_counter(~init: Bits(16)(0))
+  def oversample_tick = baud_counter >= Bits(16)(oversample_divisor - 1)
   when oversample_tick:
-    baud_counter <== bits(0, 16)
+    baud_counter <== Bits(16)(0)
   otherwise:
-    baud_counter <== baud_counter + bits(1, 16)
+    baud_counter <== baud_counter + Bits(16)(1)
 
   inst transmitter(Uart8N1Transmitter())
   inst receiver(Uart8N1Receiver())
@@ -48,7 +48,7 @@ sync_circuit UartDPI(
   dpi_reg (pty_to_uart_valid,
            pty_to_uart_byte,
            status) = uart_pty_tick(
-    bits(model_id, 32),
+    Bits(32)(model_id),
     reset,
     receiver.received.valid & !reset,
     receiver.received.bits,
@@ -62,7 +62,7 @@ sync_circuit UartDPI(
   transmitter.bytes.valid <== pty_to_uart_valid & !reset
   transmitter.bytes.bits <== pty_to_uart_byte
   when (!reset):
-    assert(status === bits(0, 8), "uart_dpi_pty_tick_succeeded")
+    assert(status === Bits(8)(0), "uart_dpi_pty_tick_succeeded")
 
 export:
   UartDPI

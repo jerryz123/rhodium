@@ -24,11 +24,11 @@ sync_circuit RsimCHIMemory():
   output read_bits: Bits(CHIDatFlit(p).packed_width())
   reg launch_req_valid(~init: Bool(#false))
   launch_req_valid <== req_valid
-  reg launch_req_bits(~init: bits(0, CHIReqFlit(p).packed_width()))
+  reg launch_req_bits(~init: Bits(CHIReqFlit(p).packed_width())(0))
   launch_req_bits <== req_bits
   reg launch_dat_valid(~init: Bool(#false))
   launch_dat_valid <== dat_valid
-  reg launch_dat_bits(~init: bits(0, CHIDatFlit(p).packed_width()))
+  reg launch_dat_bits(~init: Bits(CHIDatFlit(p).packed_width())(0))
   launch_dat_bits <== dat_bits
   reg launch_rsp_ready(~init: Bool(#false))
   launch_rsp_ready <== rsp_ready
@@ -36,8 +36,8 @@ sync_circuit RsimCHIMemory():
   launch_read_ready <== read_ready
   inst memory(CHIDPIMemory(CHIRamConfig(p, 4096, ~max_outstanding: 2, ~max_transfer_bytes: 64), 0))
   memory.identity <== CHIRamIdentity(p):
-    node_id: bits(9, p.node_id_width)
-    base_address: bits(0x80000000, p.request_address_width)
+    node_id: Bits(p.node_id_width)(9)
+    base_address: Bits(p.request_address_width)(0x80000000)
   memory.port.req.valid <== launch_req_valid
   memory.port.req.bits <== launch_req_bits.into(CHIReqFlit(p))
   memory.port.dat.request.valid <== launch_dat_valid

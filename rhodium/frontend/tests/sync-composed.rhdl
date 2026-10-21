@@ -14,9 +14,9 @@ sync_circuit LocalResetCounter():
   output count: Bits(1)
 
   reset_when(local_reset):
-    def zero = bits(0, 1)
+    def zero = Bits(1)(0)
     reg state(Bits(1), ~init: zero)
-    state <== state + bits(1, 1)
+    state <== state + Bits(1)(1)
     count <== state
 
 sync_circuit LocalResetChildTop():
@@ -36,8 +36,8 @@ sync_circuit ExplicitNestedBoundary():
     input clock: Clock
     input reset: Reset
     output count: Bits(1)
-    reg state(Bits(1), ~clock: clock, ~reset: reset, ~init: bits(0, 1))
-    state <== state + bits(1, 1)
+    reg state(Bits(1), ~clock: clock, ~reset: reset, ~init: Bits(1)(0))
+    state <== state + Bits(1)(1)
     count <== state
 
   inst child(ExplicitChild())

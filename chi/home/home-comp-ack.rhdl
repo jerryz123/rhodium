@@ -30,7 +30,7 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
   def free_entries = vec(for List (index in 0..entries): !occupied[index])
   def next_slot = priority_encoder(free_entries)
   reg requester_ids(~init: vec(
-    for List (_index in 0..entries): bits(0, p.node_id_width)
+    for List (_index in 0..entries): Bits(p.node_id_width)(0)
   ))
 
   available <== free_entries.or_reduce()
@@ -52,11 +52,11 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
   def response_slot_in_range:
     if entries == (1 << index_width(entries))
     | Bool(#true)
-    | response.txn_id < bits(entries, 12)
+    | response.txn_id < Bits(12)(entries)
   def response_published = scoreboard_busy(entries, published.busy, response_slot)
   def expected_requester = requester_ids.lookup(
     response_slot,
-    ~default: bits(0, p.node_id_width)
+    ~default: Bits(p.node_id_width)(0)
   )
   acknowledgement.ready <== Bool(#true)
   def acknowledgement_fire = acknowledgement.fire()

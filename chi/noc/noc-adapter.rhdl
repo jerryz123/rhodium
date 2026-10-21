@@ -177,18 +177,18 @@ fun compile_chi_noc_family_injection_config(
       cases := cases ++ [
         DecodeCase(
           (pattern(CHINoCFamilyRouteKey(site_width, first.p.node_id_width)):
-             site_key: bits(row.site_key, site_width)
-             target_id: bits(route.destination.node_id, first.p.node_id_width)),
+             site_key: Bits(site_width)(row.site_key)
+             target_id: Bits(first.p.node_id_width)(route.destination.node_id)),
           (pattern(CHINoCRouteDecision(first.route_width)):
              valid: Bool(#true)
-             route_key: bits(route.route_key, first.route_width))
+             route_key: Bits(first.route_width)(route.route_key))
         )
       ]
   def decoder = DecodeGen(
     cases,
     ~default: (pattern(CHINoCRouteDecision(first.route_width)):
                  valid: Bool(#false)
-                 route_key: bits(0, first.route_width))
+                 route_key: Bits(first.route_width)(0))
   )
   CHINoCFamilyInjectionConfig(first.p,
                               first.route_width,
@@ -209,14 +209,14 @@ fun compile_chi_noc_family_ejection_config(
   def decoder = DecodeGen(
     for List (row in rows):
       DecodeCase(
-        bits(row.site_key, site_width),
+        Bits(site_width)(row.site_key),
         (pattern(CHINoCFamilyEjectionDecision(first.p.node_id_width)):
            valid: Bool(#true)
-           node_id: bits(row.config.site.node_id, first.p.node_id_width))
+           node_id: Bits(first.p.node_id_width)(row.config.site.node_id))
       ),
     ~default: (pattern(CHINoCFamilyEjectionDecision(first.p.node_id_width)):
                  valid: Bool(#false)
-                 node_id: bits(0, first.p.node_id_width))
+                 node_id: Bits(first.p.node_id_width)(0))
   )
   CHINoCFamilyEjectionConfig(first.p,
                              first.route_width,
@@ -242,17 +242,17 @@ fun compile_chi_noc_injection_config(
       | error(~who: #'compile_chi_channel_adapter_plan,
               "CHI destination NodeID does not fit the flit")
       DecodeCase(
-        bits(route.destination.node_id, p.node_id_width),
+        Bits(p.node_id_width)(route.destination.node_id),
         pattern(CHINoCRouteDecision(route_width)):
           valid: Bool(#true)
-          route_key: bits(route.route_key, route_width)
+          route_key: Bits(route_width)(route.route_key)
       )
   )
   def decoder = DecodeGen(
     cases,
     ~default: (pattern(CHINoCRouteDecision(route_width)):
                  valid: Bool(#false)
-                 route_key: bits(0, route_width))
+                 route_key: Bits(route_width)(0))
   )
   CHINoCInjectionConfig(
     site,
@@ -591,7 +591,7 @@ sync_circuit CHIReqNoCEjector(config :: CHINoCEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHIReqFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHIReqFlit(config.p), config.route_width, ingress, egress)
-  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === bits(config.site.node_id, config.p.node_id_width)),
+  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === Bits(config.p.node_id_width)(config.site.node_id)),
          "chi_req_noc_ejection_target")
 
 /* Remove the route wrapper from response flits and assert the destination NodeID. */
@@ -599,7 +599,7 @@ sync_circuit CHIRspNoCEjector(config :: CHINoCEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHIRspFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHIRspFlit(config.p), config.route_width, ingress, egress)
-  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === bits(config.site.node_id, config.p.node_id_width)),
+  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === Bits(config.p.node_id_width)(config.site.node_id)),
          "chi_rsp_noc_ejection_target")
 
 /* Remove the route wrapper from snoop flits; snoop flits carry no target NodeID. */
@@ -613,7 +613,7 @@ sync_circuit CHIDatNoCEjector(config :: CHINoCEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHIDatFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHIDatFlit(config.p), config.route_width, ingress, egress)
-  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === bits(config.site.node_id, config.p.node_id_width)),
+  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === Bits(config.p.node_id_width)(config.site.node_id)),
          "chi_dat_noc_ejection_target")
 
 /*

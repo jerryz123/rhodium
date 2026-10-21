@@ -13,7 +13,7 @@ fun align_fp_authorization(source :: Endpoint, timing :: FpExecutionTiming, cont
   | error(~who: #'align_fp_authorization, "authorization must precede every fixed return")
   def decisions = source |> fork_valid(timing.latencies.length())
   def returns = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
-    def selected = decisions[index] |> filter_valid(operation => timing.latency(control(operation)) === bits(latency, timing.width))
+    def selected = decisions[index] |> filter_valid(operation => timing.latency(control(operation)) === Bits(timing.width)(latency))
     if latency == elapsed | selected | selected |> valid_pipe(latency - elapsed)
   returns |> valid_arbiter()
 

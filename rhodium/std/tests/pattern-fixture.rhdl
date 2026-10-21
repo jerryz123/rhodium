@@ -7,8 +7,8 @@ import:
   "../../frontend/tests/hardware-literal-fixture.rhdl" as literals
 
 def bits_pattern = Pattern(
-  ~value: bits(0b1010, 4),
-  ~care: bits(0b1100, 4)
+  ~value: Bits(4)(0b1010),
+  ~care: Bits(4)(0b1100)
 )
 
 def bool_pattern = Pattern(
@@ -32,9 +32,9 @@ def nibble_pattern = Pattern(
 )
 
 def pair_care = literals.Pair():
-  left: bits(0b1111, 4)
-  right: bits(0, 4)
-def lane_care = vec(bits(0b1111, 4), bits(0b1000, 4))
+  left: Bits(4)(0b1111)
+  right: Bits(4)(0)
+def lane_care = vec(Bits(4)(0b1111), Bits(4)(0b1000))
 def aggregate_care = literals.Aggregate():
   pair: pair_care
   lanes: lane_care
@@ -45,33 +45,33 @@ def aggregate_pattern = Pattern(
 )
 
 def concise_pair_pattern = pattern(literals.Pair()):
-  left: bits(0b1010, 4)
+  left: Bits(4)(0b1010)
   right: _
 
 def partial_pair_pattern = partial_pattern(literals.Pair()):
-  left: bits(0b1010, 4)
+  left: Bits(4)(0b1010)
 
-def concise_lanes_pattern = pattern(Vec(2, Bits(4)), [bits(0b0100, 4), _])
+def concise_lanes_pattern = pattern(Vec(2, Bits(4)), [Bits(4)(0b0100), _])
 
 def concise_aggregate_pattern = pattern(literals.Aggregate()):
   pair: concise_pair_pattern
-  lanes: pattern(Vec(2, Bits(4)), [bits(0b0100, 4), _])
+  lanes: pattern(Vec(2, Bits(4)), [Bits(4)(0b0100), _])
 
-def concise_exact_bits = pattern(Bits(4), bits(0b1010, 4))
+def concise_exact_bits = pattern(Bits(4), Bits(4)(0b1010))
 def concise_wildcard_bits = pattern(Bits(4), _)
 
 def matching_pair = literals.Pair():
-  left: bits(0b1010, 4)
-  right: bits(0b1111, 4)
-def matching_lanes = vec(bits(0b0100, 4), bits(0b0111, 4))
+  left: Bits(4)(0b1010)
+  right: Bits(4)(0b1111)
+def matching_lanes = vec(Bits(4)(0b0100), Bits(4)(0b0111))
 def aggregate_match = literals.Aggregate():
   pair: matching_pair
   lanes: matching_lanes
 
 def missing_pair = literals.Pair():
-  left: bits(0b1011, 4)
-  right: bits(0b0011, 4)
-def missing_lanes = vec(bits(0b0100, 4), bits(0b0101, 4))
+  left: Bits(4)(0b1011)
+  right: Bits(4)(0b0011)
+def missing_lanes = vec(Bits(4)(0b0100), Bits(4)(0b0101))
 def aggregate_miss = literals.Aggregate():
   pair: missing_pair
   lanes: missing_lanes

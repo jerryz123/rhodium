@@ -17,21 +17,21 @@ sync_circuit UnmonitoredProducer():
   interface stream(MonitoredWordStream(8), ~role: producer)
 
   stream.valid <== Bool(#false)
-  stream.bits <== bits(0, 8)
+  stream.bits <== Bits(8)(0)
 
 sync_circuit MonitoredProducerArray():
   interface streams[2](MonitoredWordStream(8), ~role: producer)
 
   for (index in 0..2):
     streams[index].valid <== Bool(#false)
-    streams[index].bits <== bits(0, 8)
+    streams[index].bits <== Bits(8)(0)
     monitor_word_stream(streams[index].observe(), "producer")
 
 sync_circuit RefinedMonitoredProducer():
   interface stream(RefinedMonitoredWordStream(), ~role: producer)
 
   stream.valid <== Bool(#false)
-  stream.bits <== bits(0, 8)
+  stream.bits <== Bits(8)(0)
   monitor_word_stream(stream.observe(), "producer")
 
 export:

@@ -41,8 +41,8 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   output response: Vec(ways, Entry)
 
   reg swept(~init: Bool(#false))
-  reg sweep_set(~init: bits(0, set_width))
-  reg commit_priority(~init: bits(0, slot_width))
+  reg sweep_set(~init: Bits(set_width)(0))
+  reg commit_priority(~init: Bits(slot_width)(0))
   reg prefer_commit(~init: Bool(#false))
   def running = !reset_active().into(Bool)
   def ready = running & swept
@@ -51,8 +51,8 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   def read = ready & lookup_valid & !write
   def sweep = running & !swept
   def selected = commits[choice.index]
-  def zero_entry = bits(0, Entry.packed_width()).into(Entry)
-  def write_mask = vec(for List (way in 0..ways): selected.way === bits(way, index_width(ways))).into(Mask(ways))
+  def zero_entry = Bits(Entry.packed_width())(0).into(Entry)
+  def write_mask = vec(for List (way in 0..ways): selected.way === Bits(index_width(ways))(way)).into(Mask(ways))
 
   inst storage(SyncRam1RW(sets, Entry, ways))
   storage.port.request.valid <== sweep ||| read ||| write
@@ -68,12 +68,12 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   response <== storage.port.response.bits
 
   when sweep:
-    swept <== sweep_set === bits(sets - 1, set_width)
-    sweep_set <== mux(sweep_set === bits(sets - 1, set_width), sweep_set, sweep_set + bits(1, set_width))
+    swept <== sweep_set === Bits(set_width)(sets - 1)
+    sweep_set <== mux(sweep_set === Bits(set_width)(sets - 1), sweep_set, sweep_set + Bits(set_width)(1))
   when write:
-    commit_priority <== mux(choice.index === bits(slots - 1, slot_width), bits(0, slot_width), choice.index + bits(1, slot_width))
+    commit_priority <== mux(choice.index === Bits(slot_width)(slots - 1), Bits(slot_width)(0), choice.index + Bits(slot_width)(1))
     prefer_commit <== Bool(#false)
-    assert(selected.way.zext(index_width(ways) + 1) < bits(ways, index_width(ways) + 1), "chi_directory_commit_way_in_range")
+    assert(selected.way.zext(index_width(ways) + 1) < Bits(index_width(ways) + 1)(ways), "chi_directory_commit_way_in_range")
   elsewhen read:
     prefer_commit <== Bool(#true)
 

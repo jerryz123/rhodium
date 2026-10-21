@@ -14,14 +14,14 @@ sync_circuit CHIHomeSnoopTargets(config :: CHIHNFConfig):
   def p = config.flit
   def endpoints = config.snoop_endpoints
   def count :: PosInt = endpoints.length()
-  def node_ids = vec(for List (endpoint in endpoints): bits(endpoint.node_id, p.node_id_width))
+  def node_ids = vec(for List (endpoint in endpoints): Bits(p.node_id_width)(endpoint.node_id))
 
   interface load(Valid(Vec(count, Bool)), ~role: consumer)
   interface target(Decoupled(Bits(p.node_id_width)), ~role: producer)
   output expected_node: Bits(p.node_id_width)
 
   reg pending(~init: vec(for List (_index in 0..count): Bool(#false)))
-  reg accepted_node(~init: bits(0, p.node_id_width))
+  reg accepted_node(~init: Bits(p.node_id_width)(0))
   def next_index = priority_encoder(pending)
   def next_node = node_ids[next_index]
   target.valid <== pending.or_reduce()

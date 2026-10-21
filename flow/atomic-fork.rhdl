@@ -33,15 +33,12 @@ circuit SelectiveAtomicFork(T :: DataType, n :: PosInt):
   input selection: Mask(n)
   interface egress[n](Decoupled(T), ~role: producer)
 
-  def selected = vec(
-    for List (index in 0..n): selection.as_bits()[index].into(Bool)
-  )
   def ready_reduction = and_exclusion_reduce(vec(
-    for List (index in 0..n): !selected[index] ||| egress[index].ready
+    for List (index in 0..n): !selection[index] ||| egress[index].ready
   ))
   ingress.ready <== ready_reduction.all
   for (index in 0..n):
-    egress[index].valid <== ingress.valid & selected[index] & ready_reduction.except[index]
+    egress[index].valid <== ingress.valid & selection[index] & ready_reduction.except[index]
     egress[index].bits <== ingress.bits
 
 /* The control-only specialization atomically duplicates indistinguishable

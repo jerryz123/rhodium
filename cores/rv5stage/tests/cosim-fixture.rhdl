@@ -39,7 +39,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   output data_address: Bits(64)
   output data_value: Bits(64)
   output architectural_width: Bits(8)
-  architectural_width <== bits(xlen.width, 8)
+  architectural_width <== Bits(8)(xlen.width)
   def certified :: Bool:
     if vector
     | block:
@@ -79,22 +79,22 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       machine_timer: Bool(#false)
       supervisor_external: Bool(#false)
       machine_external: Bool(#false)
-    core.hart_id <== bits(0, xlen.width)
+    core.hart_id <== Bits(xlen.width)(0)
     core.time_counter <== ticks
     core.packets.valid <== packet_valid
     core.packets.bits <== RV5StageFetchPacket(xlen, #false):
       pc: pc[0..xlen.width]
       word: instruction
-      mask: mux(instruction[0..2] =/= bits(3, 2), bits(1, 2), bits(3, 2))
+      mask: mux(instruction[0..2] =/= Bits(2)(3), Bits(2)(1), Bits(2)(3))
       page_fault: Bool(#false)
       access_fault: Bool(#false)
       prediction: literal(BranchPrediction(xlen), 0)
     core.pipeline_access.response.valid <== lookup_valid & lookup_mode.or_reduce()
     core.pipeline_access.response.bits <== CachePipelineResult(xlen):
-      outcome: mux(lookup_mode === bits(1, 2), CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
+      outcome: mux(lookup_mode === Bits(2)(1), CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
       reason: CachePipelineReason.None
       data: lookup_data
-    core.pipeline_access.commit_ready <== pipeline_mode === bits(2, 2)
+    core.pipeline_access.commit_ready <== pipeline_mode === Bits(2)(2)
     core.vector_precheck.request |> map_flow(_request => certified) |> pipe(1) |> core.vector_precheck.response
     core.vector_fast.request |> filter_valid(_range => certified) |> map_valid(range => empty_certificate.updated(~range: range, ~ppn: range.first[12..56])) |> core.vector_fast.response
     core.vector_fast.candidate_current <== certified

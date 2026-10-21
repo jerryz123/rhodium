@@ -162,12 +162,26 @@ evidence hook directly.
 Integer hardware literals always state their width:
 
 ```rhombus
-def zero = bits(0, width)
-def one = bits(1, width)
+def zero = Bits(width)(0)
+def one = Bits(width)(1)
 ```
 
 These are immutable host-side `HardwareLiteral` shadows. They allocate IR only
-when consumed by hardware. The generic `literal(T, packed_value)` form covers
+when consumed by hardware. `Bits(width)` is a reusable type descriptor and
+literal constructor, like `Bool` and `Mask(width)`:
+
+```rhombus
+def Byte = Bits(8)
+def initial_byte = Byte(0xA5)
+def named_byte = Byte(0, "initial_byte")
+```
+
+Widths must be positive host integers; literal values must be nonnegative host
+integers that fit the declared width. The optional second argument names the
+constant when it is materialized. Frontend and core `Bits` descriptors compare
+with `type_equal` and retain identical packing and arithmetic semantics.
+
+The generic `literal(T, packed_value)` form covers
 every bit image of a packable `DataType`, including frontend-defined types,
 records, and vectors. Materialization creates a canonical `Bits` constant and,
 for non-`Bits` data, an explicit equal-width cast. `Clock`, `Reset`, and other
@@ -470,7 +484,7 @@ tagged_union Request:
   Read(Bits(8))
   Write(WritePayload())
 
-def request = Request.Read(bits(0x5A, 8))
+def request = Request.Read(Bits(8)(0x5A))
 def read = request.view(Request.Read)
 ```
 
@@ -597,8 +611,8 @@ ambient domain. Those ports are present in the core IR and emitted RTL, but
 ```rhombus
 sync_circuit Counter(width):
   output count: Bits(width)
-  reg state(~init: bits(0, width))
-  state <== state + bits(1, width)
+  reg state(~init: Bits(width)(0))
+  state <== state + Bits(width)(1)
   count <== state
 ```
 

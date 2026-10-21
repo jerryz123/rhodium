@@ -29,7 +29,7 @@ circuit MinMaxRecFN(format :: FloatFormat):
   def choose_a = mux(maximum, compare.gt, compare.lt)
   def ordered_result = mux(choose_a, a, b)
   def zero_sign = mux(maximum, raw_a.sign & raw_b.sign, raw_a.sign ||| raw_b.sign)
-  def zero_result = concat(zero_sign, bits(0, format.recoded_width - 1)).into(RecFloat(format))
+  def zero_result = concat(zero_sign, Bits(format.recoded_width - 1)(0)).into(RecFloat(format))
   def numeric_result = mux(raw_a.is_zero & raw_b.is_zero, zero_result, ordered_result)
   def one_nan_result = mux(raw_a.is_nan, b, a)
   def any_nan = raw_a.is_nan ||| raw_b.is_nan

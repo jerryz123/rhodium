@@ -57,7 +57,7 @@ sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format
   completion.valid <== busy & (done ||| result_valid)
   completion.bits <== FpExecutionResult(xlen, profile, Tag):
     tag: tag
-    integer_value: bits(0, xlen.width)
+    integer_value: Bits(xlen.width)(0)
     fp_value: riscv_nan_box(format, result, flen)
     exception_flags: riscv_exception_flags(operation.exception_flags)
     exception_flags_valid: Bool(#true)

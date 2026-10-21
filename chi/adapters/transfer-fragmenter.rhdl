@@ -93,17 +93,17 @@ fun chi_fragmented_request(p :: CHIFlitParams,
                            request :: CHIReqFlit(p),
                            child_index :: Bits(2),
                            last_child :: Bits(2)) :~ CHIReqFlit(p):
-  def child_offset = (child_index ++ bits(0, alignment_bits(p.data_bytes))).zext(p.request_address_width)
+  def child_offset = (child_index ++ Bits(alignment_bits(p.data_bytes))(0)).zext(p.request_address_width)
   request.updated(
     ~address: request.address + child_offset,
-    ~size_or_num_req: mux(last_child =/= bits(0, 2), bits(alignment_bits(p.data_bytes), 6), request.size_or_num_req)
+    ~size_or_num_req: mux(last_child =/= Bits(2)(0), Bits(6)(alignment_bits(p.data_bytes)), request.size_or_num_req)
   )
 
 /* Retag parent write data with the child DBID and normalize its single-beat packet metadata. */
 fun chi_fragmented_write_data(p :: CHIFlitParams,
                               data :: CHIDatFlit(p),
                               dbid :: Bits(12)) :~ CHIDatFlit(p):
-  data.updated(~replicate: Bool(#false), ~num_dat: bits(0, 2), ~txn_id: dbid)
+  data.updated(~replicate: Bool(#false), ~num_dat: Bits(2)(0), ~txn_id: dbid)
 
 /* Restore the parent DBID in the final write completion. */
 fun chi_fragmented_write_completion(p :: CHIFlitParams,
@@ -122,12 +122,12 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
 
   reg phase(~init: CHITransferFragmenterPhase.Idle)
   reg request(CHIReqFlit(p))
-  reg child_index(~init: bits(0, 2))
-  reg last_child(~init: bits(0, 2))
-  reg parent_dbid(~init: bits(0, 12))
-  reg child_dbid(~init: bits(0, 12))
+  reg child_index(~init: Bits(2)(0))
+  reg last_child(~init: Bits(2)(0))
+  reg parent_dbid(~init: Bits(12)(0))
+  reg child_dbid(~init: Bits(12)(0))
   reg write_data(Vec(4, CHIDatFlit(p)))
-  reg received_write_data_ids(~init: bits(0, 4))
+  reg received_write_data_ids(~init: Bits(4)(0))
 
   def idle = phase === CHITransferFragmenterPhase.Idle
   def incoming_request = upstream.req.bits
@@ -144,7 +144,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
                                      CHIReqOpcode.WriteNoSnpPtl),
            "chi_transfer_fragmenter_request_opcode_supported")
     assert(chi_size_valid(incoming_size) & (
-             incoming_size.as_bits() <= bits(alignment_bits(config.max_transfer_bytes), 3)
+             incoming_size.as_bits() <= Bits(3)(alignment_bits(config.max_transfer_bytes))
            ),
            "chi_transfer_fragmenter_request_size_supported")
     assert(incoming_address_aligned,
@@ -158,7 +158,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   def await_write_dbid = phase === CHITransferFragmenterPhase.AwaitWriteDBID
   def await_write_completion = phase === CHITransferFragmenterPhase.AwaitWriteCompletion
   def final_child = child_index === last_child
-  def relay_write_dbid = await_write_dbid & (child_index === bits(0, 2))
+  def relay_write_dbid = await_write_dbid & (child_index === Bits(2)(0))
   def relay_write_completion = await_write_completion & final_child
   def relay_write_response = relay_write_dbid ||| relay_write_completion
   upstream.rsp.valid <== relay_write_response & downstream.rsp.valid
@@ -203,16 +203,16 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
 
   when upstream_request_fire:
     request <== incoming_request
-    child_index <== bits(0, 2)
+    child_index <== Bits(2)(0)
     last_child <== incoming_last_child
-    received_write_data_ids <== bits(0, 4)
+    received_write_data_ids <== Bits(4)(0)
     phase <== CHITransferFragmenterPhase.SendRequest
   elsewhen downstream_request_fire:
     phase <== mux(request.opcode === CHIReqOpcode.ReadNoSnp, CHITransferFragmenterPhase.AwaitReadData, CHITransferFragmenterPhase.AwaitWriteDBID)
   elsewhen (downstream_response_fire & await_write_dbid):
     child_dbid <== downstream.rsp.bits.dbid_or_group_id
-    parent_dbid <== mux(child_index === bits(0, 2), downstream.rsp.bits.dbid_or_group_id, parent_dbid)
-    when (child_index === bits(0, 2)):
+    parent_dbid <== mux(child_index === Bits(2)(0), downstream.rsp.bits.dbid_or_group_id, parent_dbid)
+    when (child_index === Bits(2)(0)):
       phase <== CHITransferFragmenterPhase.ReceiveWriteData
     otherwise:
       phase <== CHITransferFragmenterPhase.SendWriteData
@@ -227,13 +227,13 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
     when final_child:
       phase <== CHITransferFragmenterPhase.Idle
     otherwise:
-      child_index <== child_index + bits(1, 2)
+      child_index <== child_index + Bits(2)(1)
       phase <== CHITransferFragmenterPhase.SendRequest
   elsewhen read_data_fire:
     when final_child:
       phase <== CHITransferFragmenterPhase.Idle
     otherwise:
-      child_index <== child_index + bits(1, 2)
+      child_index <== child_index + Bits(2)(1)
       phase <== CHITransferFragmenterPhase.SendRequest
 
 export:

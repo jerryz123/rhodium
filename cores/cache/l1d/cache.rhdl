@@ -139,7 +139,7 @@ sync_circuit L1DCache(xlen :: XLen,
   inst writeback(CacheLineWriteback(L1DTransactionContext(xlen, way_width, Context), width, config, 1))
   inst maintenance(CHICacheMaintenance(p, PhysicalMemoryReq(xlen, Context)))
   maintenance.node_id <== node_id
-  maintenance.txn_id <== bits(2, 12)
+  maintenance.txn_id <== Bits(12)(2)
   refill.node_id <== node_id
   snoop.node_id <== node_id
   writeback.node_id <== node_id
@@ -161,21 +161,21 @@ sync_circuit L1DCache(xlen :: XLen,
      Metadata, reservations, mutation, miss ownership, and gathering span
      transactions rather than fixed core pipeline stages. */
 
-  reg valid_lines(~init: vec(for List (_set in 0..sets): bits(0, ways).as_vec(Bool)))
+  reg valid_lines(~init: vec(for List (_set in 0..sets): Bits(ways)(0).as_vec(Bool)))
   reg replacement_state(~init: vec(for List (_set in 0..sets): plru_initial_state(ways)))
-  reg snoop_way(~init: bits(0, way_width))
+  reg snoop_way(~init: Bits(way_width)(0))
   // Fixed microarchitectural budget, not an ISA promise about cycle counts.
   // Give local LR/SC a turn, then admit probes even if the core is stalled.
   // This bounds probe deferral, not reservation lifetime; repeated LR cannot renew it.
   def reservation_cycles = 128
   def reservation_backoff = 3
   def reservation_count_width = index_width(reservation_cycles + reservation_backoff + 1)
-  reg reservation_count(~init: bits(0, reservation_count_width))
-  reg core_service_count(~init: bits(0, 4))
-  def reservation_protected = reservation_count > bits(reservation_backoff, reservation_count_width)
+  reg reservation_count(~init: Bits(reservation_count_width)(0))
+  reg core_service_count(~init: Bits(4)(0))
+  def reservation_protected = reservation_count > Bits(reservation_count_width)(reservation_backoff)
   reg reservation_valid(~init: Bool(#false))
   core.reservation_valid <== reservation_valid
-  reg reservation_address(~init: bits(0, width))
+  reg reservation_address(~init: Bits(width)(0))
   reg reservation_width(~init: MemoryWidth.Word)
   // An owned local store, AMO, or successful SC commits from this register
   // on the cycle after the S4 permission decision.
@@ -183,9 +183,9 @@ sync_circuit L1DCache(xlen :: XLen,
   reg pending_mutation_request(PhysicalMemoryReq(xlen, Context))
   reg pending_mutation_way(Bits(way_width))
   reg pending_mutation_old_value(Bits(width))
-  reg pending_zero_index(~init: bits(0, word_index_width))
+  reg pending_zero_index(~init: Bits(word_index_width)(0))
   reg refill_installing(~init: Bool(#false))
-  reg refill_install_index(~init: bits(0, word_index_width))
+  reg refill_install_index(~init: Bits(word_index_width)(0))
   // Reserve the whole set across victim gather, writeback, retry, and install.
   // Only ordinary demand loads/stores permit independent pipeline load hits.
   reg miss_active(~init: Bool(#false))
@@ -193,11 +193,11 @@ sync_circuit L1DCache(xlen :: XLen,
   reg miss_set(Bits(set_width))
   reg miss_line_address(Bits(width))
   reg gather_state(~init: L1DGatherState.Idle)
-  reg gather_issue_index(~init: bits(0, word_index_width))
+  reg gather_issue_index(~init: Bits(word_index_width)(0))
   reg gather_response_pending(~init: Bool(#false))
-  reg gather_response_index(~init: bits(0, word_index_width))
+  reg gather_response_index(~init: Bits(word_index_width)(0))
   reg gather_last_issued(~init: Bool(#false))
-  reg gathered_line(~init: bits(0, CacheLineBytes * 8))
+  reg gathered_line(~init: Bits(CacheLineBytes * 8)(0))
   reg gather_set(Bits(set_width))
   reg gather_way(Bits(way_width))
   reg eviction_line_address(Bits(width))
@@ -241,7 +241,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def s1_tag = pipeline.request.bits.address[(offset_width + set_width)..width]
   def s1_tag_matches = vec(for List (way in 0..ways): valid_lines[s1_set][way] & (arrays.tags.response.bits[way] === s1_tag))
   def s1_hit_way = priority_encoder_oh(s1_tag_matches)
-  s1_load_gen.data <== s1_hit_way.mux(for List (way in 0..ways): s1_array_words[way], ~default: bits(0, width))
+  s1_load_gen.data <== s1_hit_way.mux(for List (way in 0..ways): s1_array_words[way], ~default: Bits(width)(0))
   s1_load_gen.address <== pipeline.request.bits.address
   s1_load_gen.width <== pipeline.request.bits.width
   s1_load_gen.unsigned_load <== pipeline.request.bits.unsigned
@@ -379,7 +379,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def s3_hit_way = priority_encoder_oh(s3_matches)
   def s3_state = s3_hit_way.mux(for List (way in 0..ways): arrays.states.response.bits[way], ~default: CHICacheState.Invalid).into(CHICacheState)
   def s3_allocation_way = plru_replacement_way(ways, s3_valids, replacement_state[s3_set])
-  def s3_word = s3_hit_way.mux(for List (way in 0..ways): s1_array_words[way], ~default: bits(0, width))
+  def s3_word = s3_hit_way.mux(for List (way in 0..ways): s1_array_words[way], ~default: Bits(width)(0))
 
 
   /* S4: Retained permission and transaction resolution.
@@ -433,8 +433,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def gather_idle = gather_state === L1DGatherState.Idle
   def gather_read = gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.SnoopRead)
   def gather_issue = gather_read & !gather_last_issued
-  def gather_issue_final = gather_issue_index === bits(words_per_line - 1, word_index_width)
-  def gather_response_final = gather_response_index === bits(words_per_line - 1, word_index_width)
+  def gather_issue_final = gather_issue_index === Bits(word_index_width)(words_per_line - 1)
+  def gather_response_final = gather_response_index === Bits(word_index_width)(words_per_line - 1)
 
   // Every branch retains the complete resolved result until its consumer
   // constructs a command or captures state from the accepted event.
@@ -510,7 +510,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_context = refill.completion.bits.context
   def refill_can_complete = !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
   def refill_install_start = refill.completion.valid & refill_context.install & refill_can_complete
-  def refill_install_final = refill_install_index === bits(words_per_line - 1, word_index_width)
+  def refill_install_final = refill_install_index === Bits(word_index_width)(words_per_line - 1)
   def refill_install_word = refill_installing
   // ReadClean returns a clean copy, which CHI permits us to silently discard.
   // A bypass consumes the acknowledged transaction buffer without touching
@@ -550,8 +550,8 @@ sync_circuit L1DCache(xlen :: XLen,
   // Owned hits keep the SRAM until the complete block is zero. No new CHI
   // transaction is held up by this bounded interval; snoops resume afterward.
   def pending_zero = pending_mutation_access.is_cache_block_zero()
-  def local_mutation_commit = pending_mutation_valid & (!pending_zero ||| (pending_zero_index =/= bits(words_per_line - 1, word_index_width)) ||| service_responses.ingress.ready)
-  def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === bits(words_per_line - 1, word_index_width)))
+  def local_mutation_commit = pending_mutation_valid & (!pending_zero ||| (pending_zero_index =/= Bits(word_index_width)(words_per_line - 1)) ||| service_responses.ingress.ready)
+  def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === Bits(word_index_width)(words_per_line - 1)))
   local_atomic_alu.old_value <== pending_mutation_old_value
   local_atomic_alu.operand <== pending_mutation_request.data
   local_atomic_alu.word <== pending_mutation_request.width === MemoryWidth.Word
@@ -559,7 +559,7 @@ sync_circuit L1DCache(xlen :: XLen,
   local_store_gen.address <== pending_mutation_request.address
   local_store_gen.value <== mux(pending_mutation_access.is_atomic(), local_atomic_alu.value, pending_mutation_request.data)
   local_store_gen.width <== pending_mutation_request.width
-  def local_store_word_data = mux(pending_zero, bits(0, width), local_store_gen.data).as_vec(Bits(8))
+  def local_store_word_data = mux(pending_zero, Bits(width)(0), local_store_gen.data).as_vec(Bits(8))
 
   /* Refill mutation and byte merge.
      AMO/store/zero updates are applied to the selected refill word before
@@ -585,7 +585,7 @@ sync_circuit L1DCache(xlen :: XLen,
       mux(refill_store_byte_mask[byte_index], refill_store_word_data[byte_index], refill_install_bytes[byte_index])
   )
   def refill_install_data = priority_mux(~default: refill_install_bytes):
-    refill_access.is_cache_block_zero(): bits(0, width).as_vec(Bits(8))
+    refill_access.is_cache_block_zero(): Bits(width)(0).as_vec(Bits(8))
     mutate_refill_word: merged_refill_word
   def cache_write = refill_install_word ||| local_mutation_commit
   assert(refill.command.ready ||| writeback.command.ready, "l1d_backing_owner_exclusive")
@@ -620,7 +620,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def snoop_result = CacheDataSnoopLookupResult():
     hit: mux(snoop_gather_result, Bool(#true), snoop_line_hit)
     state: mux(snoop_gather_result, gathered_snoop_state, snoop_lookup_state)
-    line: mux(snoop_gather_result, gathered_line, bits(0, CacheLineBytes * 8)).as_vec(Bits(64))
+    line: mux(snoop_gather_result, gathered_line, Bits(CacheLineBytes * 8)(0)).as_vec(Bits(64))
   inject_interface(Valid(CacheDataSnoopLookupResult()), ~valid: snoop_direct_result ||| snoop_gather_result, ~bits: snoop_result) |> snoop.lookup_result
 
 
@@ -650,7 +650,7 @@ sync_circuit L1DCache(xlen :: XLen,
         allocation_way: s3_allocation_way
         victim_valid: s3_valids[s3_allocation_way]
         victim_state: arrays.states.response.bits[s3_allocation_way]
-        victim_address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, bits(0, offset_width))
+        victim_address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0))
   ) |> s4_result.ingress
   for (left in 0..ways):
     for (right in (left + 1)..ways):
@@ -699,7 +699,7 @@ sync_circuit L1DCache(xlen :: XLen,
           atomic: RiscvAtomicOperation.Swap
           width: MemoryWidth.Byte
           unsigned: Bool(#true)
-          data: bits(0, width)
+          data: Bits(width)(0)
           context: dont_care(Context)
           locality: RiscvMemoryLocality.Default
         L1DLookup(xlen, Context):
@@ -736,9 +736,9 @@ sync_circuit L1DCache(xlen :: XLen,
   def response_address = response_request.address
   def response_width = response_request.width
   def response_old_value = mux(local_mutation_commit, pending_mutation_old_value, service_load_gen.value)
-  def response_data = priority_mux(~default: bits(0, width)):
+  def response_data = priority_mux(~default: Bits(width)(0)):
     response_access.returns_old_value(): response_old_value
-    response_access.is_store_conditional() & s4_failed_sc: bits(1, width)
+    response_access.is_store_conditional() & s4_failed_sc: Bits(width)(1)
   def response = PhysicalMemoryResp(xlen, Context):
     access_fault: maintenance_complete & (maintenance_done.bits.error =/= CHIRespErr.OK)
     data: response_data
@@ -763,7 +763,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def install_way_mask = cache_way_mask(cache, refill_way)
   def local_mutation_way_mask = cache_way_mask(cache, pending_mutation_way)
   def snoop_update_way_mask = cache_way_mask(cache, snoop_way)
-  def full_byte_mask = (!bits(0, word_bytes)).into(Mask(word_bytes))
+  def full_byte_mask = (!Bits(word_bytes)(0)).into(Mask(word_bytes))
   def refill_lane_mask = cache_lane_mask(cache, refill_way, word_bytes, full_byte_mask)
   def local_mutation_lane_mask = cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, pending_mutation_request.byte_mask.into(Mask(word_bytes))))
   def line_write_bytes = priority_mux(~default: refill_install_data):
@@ -882,11 +882,11 @@ sync_circuit L1DCache(xlen :: XLen,
     pending_mutation_request <== s4_local.bits.lookup.into(L1DLookup(xlen, Context)).request
     pending_mutation_way <== s4_local.bits.hit_way
     pending_mutation_old_value <== service_load_gen.value
-    pending_zero_index <== bits(0, word_index_width)
+    pending_zero_index <== Bits(word_index_width)(0)
   elsewhen local_mutation_complete:
     pending_mutation_valid <== Bool(#false)
   elsewhen local_mutation_commit:
-    pending_zero_index <== pending_zero_index + bits(1, word_index_width)
+    pending_zero_index <== pending_zero_index + Bits(word_index_width)(1)
 
   when (s4_refill_path.fire() ||| eviction_gather_start):
     assert(!miss_active, "l1d_single_miss_owner")
@@ -900,12 +900,12 @@ sync_circuit L1DCache(xlen :: XLen,
 
   when refill_install_start:
     refill_installing <== Bool(#true)
-    refill_install_index <== bits(0, word_index_width)
+    refill_install_index <== Bits(word_index_width)(0)
   elsewhen install_refill:
     refill_installing <== Bool(#false)
-    refill_install_index <== bits(0, word_index_width)
+    refill_install_index <== Bits(word_index_width)(0)
   elsewhen (refill_install_word & !refill_install_final):
-    refill_install_index <== refill_install_index + bits(1, word_index_width)
+    refill_install_index <== refill_install_index + Bits(word_index_width)(1)
 
   /* Word-at-a-time gathering.
      Eviction and dirty snoops share the reader, but retain separate owners;
@@ -919,10 +919,10 @@ sync_circuit L1DCache(xlen :: XLen,
   // start; the inactive owner's payload remains unchanged.
   when (eviction_gather_start ||| snoop_gather_start):
     gather_state <== mux(eviction_gather_start, L1DGatherState.EvictionRead, L1DGatherState.SnoopRead)
-    gather_issue_index <== bits(0, word_index_width)
+    gather_issue_index <== Bits(word_index_width)(0)
     gather_response_pending <== Bool(#false)
     gather_last_issued <== Bool(#false)
-    gathered_line <== bits(0, CacheLineBytes * 8)
+    gathered_line <== Bits(CacheLineBytes * 8)(0)
     gather_set <== mux(eviction_gather_start, eviction_start.bits.lookup.into(L1DLookup(xlen, Context)).request.address[offset_width..(offset_width + set_width)], snoop_set)
     gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
     when eviction_gather_start:
@@ -934,7 +934,7 @@ sync_circuit L1DCache(xlen :: XLen,
     gather_response_pending <== gather_issue
     when gather_issue:
       gather_response_index <== gather_issue_index
-      gather_issue_index <== mux(gather_issue_final, gather_issue_index, gather_issue_index + bits(1, word_index_width))
+      gather_issue_index <== mux(gather_issue_final, gather_issue_index, gather_issue_index + Bits(word_index_width)(1))
       gather_last_issued <== gather_issue_final
     when gather_response_pending:
       assert(arrays.data.response.valid, "l1d_gather_read_response_valid")
@@ -973,20 +973,20 @@ sync_circuit L1DCache(xlen :: XLen,
 
   // A repeated LR may replace the reservation, but cannot renew protection.
   when (completing_lr & !reservation_count.or_reduce()):
-    reservation_count <== bits(reservation_cycles + reservation_backoff, reservation_count_width)
+    reservation_count <== Bits(reservation_count_width)(reservation_cycles + reservation_backoff)
   elsewhen ((reservation_valid & reservation_clear) ||| (completing_lr & reservation_protected)):
-    reservation_count <== bits(reservation_backoff, reservation_count_width)
+    reservation_count <== Bits(reservation_count_width)(reservation_backoff)
   elsewhen (reservation_count.or_reduce()):
-    reservation_count <== reservation_count - bits(1, reservation_count_width)
+    reservation_count <== reservation_count - Bits(reservation_count_width)(1)
 
   // A completed probe also gives a waiting local lookup a bounded turn.
   // Otherwise an endless stream of unrelated probes could prevent even the
   // first LR from reaching S4. Active CHI engines remain independently live.
   def waiting_lookup = service_requests.egress.valid ||| s3_lookup.egress.valid ||| virtual_lookup.valid
   when (install_refill ||| (snoop.completed & waiting_lookup)):
-    core_service_count <== bits(8, 4)
+    core_service_count <== Bits(4)(8)
   elsewhen (core_service_count.or_reduce()):
-    core_service_count <== core_service_count - bits(1, 4)
+    core_service_count <== core_service_count - Bits(4)(1)
 
 
   /* Line validity and replacement metadata.
@@ -1033,7 +1033,7 @@ sync_circuit L1DCache(xlen :: XLen,
   chi.snoops |> gate_flow(!(protect_refill ||| protect_core ||| protect_copyback)) |> snoop.snoops
   def writeback_active = !writeback.command.ready
   def Array(refill_response, writeback_response, maintenance_response) = (
-    chi.responses |> demux_flow(3, _response => mux(maintenance_active, bits(2, 2), writeback_active.as_bits().zext(2)))
+    chi.responses |> demux_flow(3, _response => mux(maintenance_active, Bits(2)(2), writeback_active.as_bits().zext(2)))
   )
   refill_response |> refill.responses
   writeback_response |> writeback.responses

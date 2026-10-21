@@ -15,7 +15,7 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
   interface clear(Pulse(), ~role: consumer)
   output pending: Bits(2)
 
-  reg count(~init: bits(0, 2))
+  reg count(~init: Bits(2)(0))
   reg entries(Vec(2, RV2WideBranchTraining(xlen)))
   def queued = count.or_reduce()
   def offered = incoming[0].valid ||| incoming[1].valid
@@ -27,14 +27,14 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
   pending <== count
   training.valid <== (queued ||| offered) & !clear.valid
   training.bits <== mux(queued, entries[0], first)
-  assert(clear.valid ||| (next_count <= bits(2, 3)), "rv2wide_branch_training_capacity")
+  assert(clear.valid ||| (next_count <= Bits(3)(2)), "rv2wide_branch_training_capacity")
   when (clear.valid):
-    count <== bits(0, 2)
+    count <== Bits(2)(0)
   otherwise:
     count <== next_count[0..2]
-    when (next_count > bits(0, 3)):
+    when (next_count > Bits(3)(0)):
       entries[0] <== mux(remaining.or_reduce(), entries[1], mux(bypass, incoming[1].bits, first))
-    when (next_count === bits(2, 3)):
+    when (next_count === Bits(3)(2)):
       entries[1] <== mux(remaining.or_reduce(), first, incoming[1].bits)
 
 export:

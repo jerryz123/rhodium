@@ -34,7 +34,7 @@ fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ 
   // SUM, VS MXR, and privilege are rechecked at lookup. HS MXR additionally
   // authorizes implicit G-stage PTE reads, whose leaves are not kept here;
   // changing it conservatively rewalks instead of reusing that lost proof.
-  def host_page = request.virtual_address.sv39_canonical() & sv39_same_page(entry.vpn[0..27] ++ bits(0, 12), request.virtual_address[0..39], entry.page_size)
+  def host_page = request.virtual_address.sv39_canonical() & sv39_same_page(entry.vpn[0..27] ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
   def same_page = mux(entry.virtualized, entry.vpn === request.virtual_address[12..64], host_page)
   def same_modes = (left.vs_mode === right.vs_mode) & (left.g_mode === right.g_mode)
   def same_roots = (left.vs_root_ppn === right.vs_root_ppn) & (left.g_root_ppn === right.g_root_ppn)
@@ -63,7 +63,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
 
   def index_bits = index_width(entry_count)
   reg entries(Vec(entry_count, RiscvTlbEntry()), ~init: literal(Vec(entry_count, RiscvTlbEntry()), 0))
-  reg replacement(~init: bits(0, index_bits))
+  reg replacement(~init: Bits(index_bits)(0))
   def matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], lookup))
   def selected = entries[priority_encoder(matches)]
 
@@ -80,7 +80,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   def guest_address = mux(lookup.virtualized, selected.guest_ppn ++ lookup.virtual_address[0..12], translated.zext(64))
   def details = RiscvGuestFault():
     guest_virtual_address: lookup.virtualized
-    guest_physical_address: mux(vs_fault, bits(0, 64), guest_address)
+    guest_physical_address: mux(vs_fault, Bits(64)(0), guest_address)
     access: RiscvGuestFaultAccess.Explicit
   def demand_fault = priority_mux(~default: RiscvTranslationFault.None):
     bare & lookup.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
@@ -134,7 +134,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   def probe_guest_address = mux(probe.virtualized, probe_entry.guest_ppn ++ probe.virtual_address[0..12], probe_physical.zext(64))
   def probe_fault_details = RiscvGuestFault():
     guest_virtual_address: probe.virtualized
-    guest_physical_address: mux(probe_vs_demand_fault, bits(0, 64), probe_guest_address)
+    guest_physical_address: mux(probe_vs_demand_fault, Bits(64)(0), probe_guest_address)
     access: RiscvGuestFaultAccess.Explicit
   def probe_mapping_fault = priority_mux(~default: RiscvTranslationFault.None):
     probe_bare & probe.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
@@ -173,10 +173,10 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     g_leaf: fill.bits.result.g_leaf
   when invalidate_all:
     entries <== literal(Vec(entry_count, RiscvTlbEntry()), 0)
-    replacement <== bits(0, index_bits)
+    replacement <== Bits(index_bits)(0)
   elsewhen (fill.valid & (fill.bits.result.fault === RiscvTranslationFault.None)):
     entries <== entries.updated(fill_index, next_entry)
-    replacement <== mux(fill_matches.or_reduce(), replacement, (replacement + bits(1, index_bits)) & bits(entry_count - 1, index_bits))
+    replacement <== mux(fill_matches.or_reduce(), replacement, (replacement + Bits(index_bits)(1)) & Bits(index_bits)(entry_count - 1))
 
 /* Projects the shared bank onto host-only ports without introducing a second entry store. */
 sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
@@ -210,7 +210,7 @@ sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
   fun host_lookup(address :: Bits(64), kind :: Sv39Access, mode :: PrivilegeMode, allow_user :: Bool, allow_execute :: Bool, paged :: Bool) :~ RiscvTlbLookup():
     def request = RiscvTranslationRequest():
       virtual_address: address
-      root_ppn: bits(0, 44)
+      root_ppn: Bits(44)(0)
       access: kind
       privilege: mode
       sum: allow_user

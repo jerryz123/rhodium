@@ -55,17 +55,27 @@ sync_circuit WormholeRouter(T :: DataType,
   input target_available: Vec(config.target_count, Bool)
   interface egress[config.target_count](Decoupled(Beat), ~role: producer)
 
-  def input_buffers = ingress |> parallel_handles(for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth))
-  def inactive = bits(0, config.input_count).as_vec(Bool)
-  def unreserved = bits(0, config.target_count).as_vec(Bool)
+
+  /* Registered ingress queues and packet ownership.
+     Each input retains its selected target until an accepted tail. */
+
+  def input_buffers :: Array.later_of(Endpoint) = ingress |> parallel_handles(
+    for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth)
+  )
+  def inactive = Bits(config.input_count)(0).as_vec(Bool)
+  def unreserved = Bits(config.target_count)(0).as_vec(Bool)
   def empty_reservations = vec(for List (_ in 0..config.input_count): unreserved)
   reg packet_active(~init: inactive)
   reg reservations(~init: empty_reservations)
 
+
+  /* Head route decoding and target reservations.
+     Reserved body/tail flits bypass fresh route selection. */
+
   def route_decisions = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
-      config.route_decoder.lookup(input_buffer.bits.payload.route_key, bits(input_index, config.route_decoder.origin_width))
+      def input_buffer = input_buffers[input_index]
+      config.route_decoder.lookup(input_buffer.bits.payload.route_key, Bits(config.route_decoder.origin_width)(input_index))
   )
 
   def target_busy = vec(
@@ -75,10 +85,11 @@ sync_circuit WormholeRouter(T :: DataType,
 
   def requests = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
+      def candidates :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].target_mask
       vec(
         for List (target_index in 0..config.target_count):
-          def candidate = route_decisions[input_index].target_mask.as_bits()[target_index].into(Bool)
+          def candidate = candidates[target_index]
           def new_request = input_buffer.valid & input_buffer.bits.head & route_decisions[input_index].valid & candidate & !target_busy[target_index]
           mux(packet_active[input_index], reservations[input_index][target_index], new_request)
       )
@@ -86,14 +97,20 @@ sync_circuit WormholeRouter(T :: DataType,
 
   def fallback_requests = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
+      def fallbacks :: Mask(config.route_decoder.mask_width) = route_decisions[input_index].fallback_mask
       vec(
         for List (target_index in 0..config.target_count):
-          def fallback = route_decisions[input_index].fallback_mask.as_bits()[target_index].into(Bool)
+          def fallback = fallbacks[target_index]
           def new_fallback = input_buffer.valid & input_buffer.bits.head & route_decisions[input_index].valid & fallback & !target_busy[target_index]
           mux(packet_active[input_index], reservations[input_index][target_index], new_fallback)
       )
   )
+
+
+  /* Allocation and traversal.
+     Downstream transfers alone update allocator fairness. */
+
   inst allocator(RouterAllocator(config.input_count, config.target_count))
   allocator.requests <== requests
   allocator.fallback_requests <== fallback_requests
@@ -101,15 +118,19 @@ sync_circuit WormholeRouter(T :: DataType,
   (input_buffers |> grant_crossbar(config.target_count, ~grants: allocator.grants)) <=> egress
   allocator.accepts <== vec(for List (target_index in 0..config.target_count): egress[target_index].fire())
 
+
+  /* Reservation capture and release.
+     Stalls hold ownership; an accepted single-flit packet releases immediately. */
+
   def next_active = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
       def transfer = input_buffer.fire()
       mux(transfer, !input_buffer.bits.tail, packet_active[input_index])
   )
   def next_reservations = vec(
     for List (input_index in 0..config.input_count):
-      def input_buffer :: Endpoint = input_buffers[input_index]
+      def input_buffer = input_buffers[input_index]
       def transfer = input_buffer.fire()
       def retained = mux(packet_active[input_index], reservations[input_index], allocator.grants[input_index])
       mux(transfer, mux(input_buffer.bits.tail, unreserved, retained), reservations[input_index])

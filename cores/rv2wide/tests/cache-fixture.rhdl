@@ -58,8 +58,8 @@ sync_circuit RV2WideCacheFixture():
   output uncached_activity: Bool
   inst core(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true)))
   core.interrupts <== literal(core.interrupts.type, 0)
-  core.hart_id <== bits(0, 64)
-  core.time_counter <== bits(0, 64)
+  core.hart_id <== Bits(64)(0)
+  core.time_counter <== Bits(64)(0)
   inst data(RV2WideL1D(test_cache, ~chi: test_fetch_chi))
   inst mmu(RV2WideMmu(test_fetch_chi))
   core.vector_precheck <=> mmu.vector_precheck
@@ -69,7 +69,7 @@ sync_circuit RV2WideCacheFixture():
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush
   mmu.instruction.request.valid <== Bool(#false)
-  mmu.instruction.request.bits <== bits(0, 64)
+  mmu.instruction.request.bits <== Bits(64)(0)
   instructions |> core.instructions
   core.retired <=> retired
   core.completed |> completed
@@ -99,7 +99,7 @@ sync_circuit RV2WideCacheFixture():
   data.instruction.response.ready <== Bool(#true)
   data.chi <=> chi
   data.node_id <== node_id
-  data.uncached_node_id <== bits(4, test_flit.node_id_width)
+  data.uncached_node_id <== Bits(test_flit.node_id_width)(4)
   data.uncached_chi <=> uncached_chi
   uncached_activity <== data.uncached_chi.req.valid ||| data.uncached_chi.dat.request.valid
   issued <== core.issued

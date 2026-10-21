@@ -52,7 +52,7 @@ sync_circuit RV2WideInstructionMemory():
      the attempt's cacheability chooses between their replay-qualified results. */
 
   def unavailable = InstructionCacheResult(64):
-    data: bits(0, 64)
+    data: Bits(64)(0)
     access_fault: Bool(#false)
     replay: Bool(#true)
   def cached_result = mux(cache.response.valid, cache.response.bits, unavailable)

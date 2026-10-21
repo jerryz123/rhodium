@@ -47,7 +47,7 @@ sync_circuit CHIRam(config :: CHIRamConfig):
           CHIRamMemoryCompletion(p, slot_width):
             memory_operation: operation
             data: mux(operation.write,
-                      bits(0, p.data_width),
+                      Bits(p.data_width)(0),
                       storage.port.response.bits.as_bits())
       ) <=> completion
     connect

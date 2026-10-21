@@ -18,9 +18,9 @@ import:
 fun distribution_route_key(keys :: NonemptyList.of(Nat),
                            index :: Bits(index_width(keys.length())),
                            route_width :: PosInt) :~ Bits(route_width):
-  vec(for List (key in keys): bits(key, route_width)).lookup(
+  vec(for List (key in keys): Bits(route_width)(key)).lookup(
     index,
-    ~default: bits(0, route_width)
+    ~default: Bits(route_width)(0)
   )
 
 /* Adapts a uniform router to typed one-VC links, preserving ready/availability handshakes and asserting that arriving beats use VC zero. */
@@ -44,13 +44,13 @@ sync_circuit TiledDistributionRouter(config :: SimpleRouterFamilyConfig):
     input.bits <== incoming_links[index].beat.bits.payload
     incoming_links[index].beat.ready <== input.ready
     incoming_links[index].vc_ready <== vec([input.ready])
-    assert(!incoming_links[index].beat.valid ||| (incoming_links[index].beat.bits.vc === bits(0, 1)),
+    assert(!incoming_links[index].beat.valid ||| (incoming_links[index].beat.bits.vc === Bits(1)(0)),
            "tiled_distribution_vc_is_zero")
   for (index in 0..family.egress_count):
     def target :: Endpoint = router.target[index]
     outgoing_links[index].beat.valid <== target.egress.valid
     outgoing_links[index].beat.bits <== VcBeat(Beat, 1):
-      vc: bits(0, 1)
+      vc: Bits(1)(0)
       payload: target.egress.bits
     target.egress.ready <== outgoing_links[index].beat.ready
     target.available <== outgoing_links[index].vc_ready[0]
@@ -93,15 +93,15 @@ sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
   inst external_interrupt_injector(RoutedFlowInjector(IndexedState(TiledExternalInterrupts(), hart_count), TiledDistributionMessage, route_width))
 
   time_ingress <=> time_injector.ingress
-  time_injector.route_valid <== time_ingress.bits.hart <= bits(hart_count - 1, index_width(hart_count))
+  time_injector.route_valid <== time_ingress.bits.hart <= Bits(index_width(hart_count))(hart_count - 1)
   time_injector.route_key <== distribution_route_key(plan.time_route_keys, time_ingress.bits.hart, route_width)
   time_injector.payload <== TiledDistributionMessage.Time(time_ingress.bits.flit)
   interrupt_ingress <=> interrupt_injector.ingress
-  interrupt_injector.route_valid <== interrupt_ingress.bits.index <= bits(hart_count - 1, index_width(hart_count))
+  interrupt_injector.route_valid <== interrupt_ingress.bits.index <= Bits(index_width(hart_count))(hart_count - 1)
   interrupt_injector.route_key <== distribution_route_key(plan.interrupt_route_keys, interrupt_ingress.bits.index, route_width)
   interrupt_injector.payload <== TiledDistributionMessage.Interrupt(interrupt_ingress.bits.value)
   external_interrupt_ingress <=> external_interrupt_injector.ingress
-  external_interrupt_injector.route_valid <== external_interrupt_ingress.bits.index <= bits(hart_count - 1, index_width(hart_count))
+  external_interrupt_injector.route_valid <== external_interrupt_ingress.bits.index <= Bits(index_width(hart_count))(hart_count - 1)
   external_interrupt_injector.route_key <== distribution_route_key(
     plan.external_interrupt_route_keys,
     external_interrupt_ingress.bits.index,
@@ -118,7 +118,7 @@ sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
 
   for (member in family.members):
     def router = routers[member.site_key]
-    router.site_key <== bits(member.site_key, site_width)
+    router.site_key <== Bits(site_width)(member.site_key)
     for (index in 0..family.injection_count):
       unless (member.site_key == plan.source_site_key && (
         index == plan.time_input_index || index == plan.interrupt_input_index

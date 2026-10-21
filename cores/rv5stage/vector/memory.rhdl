@@ -97,8 +97,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     pc: operation.context
     disposition: VectorDisposition.Authorized
     slow: Bool(#true)
-    data: bits(0, xlen.width)
-    cause: bits(0, xlen.width)
+    data: Bits(xlen.width)(0)
+    cause: Bits(xlen.width)(0)
     fault_address: operation.address
   def Array(lookup_path, context_path) = ex |> fork_valid(2)
   def access = ex.bits.memory & ex.bits.enabled

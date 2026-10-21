@@ -9,8 +9,8 @@ circuit BadSwitchCaseAfterOtherwise():
 
   switch selector:
     otherwise:
-      selected <== bits(0, 1)
+      selected <== Bits(1)(0)
     case 0:
-      selected <== bits(1, 1)
+      selected <== Bits(1)(1)
 
 elaborate(BadSwitchCaseAfterOtherwise())

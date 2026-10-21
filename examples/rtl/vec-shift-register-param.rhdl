@@ -10,7 +10,7 @@ sync_circuit VecShiftRegisterParam(n :: PosInt, w :: PosInt):
   input data_in: Bits(w)
   output data_out: Bits(w)
 
-  shift_register delays(data_in, n, ~init: bits(0, w))
+  shift_register delays(data_in, n, ~init: Bits(w)(0))
   data_out <== delays[n - 1]
 
 def program = elaborate(VecShiftRegisterParam(4, 4))

@@ -12,7 +12,7 @@ sync_circuit DiagramFlow():
   interface sinks[2](Decoupled(Bits(8)), ~role: producer)
 
   def Array(left, right) = source
-    |> map_flow(payload => payload + bits(1, 8))
+    |> map_flow(payload => payload + Bits(8)(1))
     |> filter_flow(payload => or_reduce(payload))
     |> pipe(1)
     |> atomic_fork(2)
@@ -68,7 +68,7 @@ circuit DiagramExplicitControl():
   input reset: Reset
   output observed: Bits(1)
 
-  observed <== bits(0, 1)
+  observed <== Bits(1)(0)
 
 // Reuses every intermediate twice so source tracing must memoize the
 // reconvergent combinational graph instead of enumerating all paths.

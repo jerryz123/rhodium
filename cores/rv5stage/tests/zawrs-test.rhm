@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../riscv/rtl/csr.rhdl" open
@@ -32,7 +33,7 @@ check:
   ZawrsSystemCases.length() ~is 2
 
 for (instruction in ZawrsInstructions, action in [RV5StageSystemOperation.WrsNto, RV5StageSystemOperation.WrsSto]):
-  def row = ZawrsCoreControlCases.find(fun (candidate): candidate.input.matches(bits(instruction.encode([]), 32)))
+  def row = ZawrsCoreControlCases.find(fun (candidate): candidate.input.matches(hw.Bits(32)(instruction.encode([]))))
   def expected = partial_pattern(RV5StageControl()):
     operand:
       partial_pattern(RV5StageOperandControl()):

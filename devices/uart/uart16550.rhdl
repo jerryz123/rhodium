@@ -124,16 +124,16 @@ sync_circuit Uart16550(config :: Uart16550Config):
   transaction.node_id <== identity.node_id
   def request = transaction.request
 
-  reg divisor_latch_low(~init: bits(1, 8))
-  reg divisor_latch_high(~init: bits(0, 8))
-  reg interrupt_enable(~init: bits(0, 8))
-  reg line_control(~init: bits(3, 8))
-  reg modem_control(~init: bits(0, 8))
-  reg scratch(~init: bits(0, 8))
+  reg divisor_latch_low(~init: Bits(8)(1))
+  reg divisor_latch_high(~init: Bits(8)(0))
+  reg interrupt_enable(~init: Bits(8)(0))
+  reg line_control(~init: Bits(8)(3))
+  reg modem_control(~init: Bits(8)(0))
+  reg scratch(~init: Bits(8)(0))
   reg fifo_enabled(~init: Bool(#false))
   reg overrun_error(~init: Bool(#false))
   reg framing_error(~init: Bool(#false))
-  reg baud_counter(~init: bits(0, 16))
+  reg baud_counter(~init: Bits(16)(0))
 
   // The software-visible FCR clear bits become scoped synchronous resets for
   // the reusable queues. Their storage need not be erased once count is zero.
@@ -147,12 +147,12 @@ sync_circuit Uart16550(config :: Uart16550Config):
      A zero divisor acts as one; disabled FIFO mode exposes a one-byte capacity. */
 
   def divisor = concat(divisor_latch_high, divisor_latch_low)
-  def effective_divisor = mux(divisor === bits(0, 16), bits(1, 16), divisor)
-  def oversample_tick = baud_counter >= (effective_divisor - bits(1, 16))
+  def effective_divisor = mux(divisor === Bits(16)(0), Bits(16)(1), divisor)
+  def oversample_tick = baud_counter >= (effective_divisor - Bits(16)(1))
   when oversample_tick:
-    baud_counter <== bits(0, 16)
+    baud_counter <== Bits(16)(0)
   otherwise:
-    baud_counter <== baud_counter + bits(1, 16)
+    baud_counter <== baud_counter + Bits(16)(1)
 
   inst transmitter(Uart8N1Transmitter())
   inst receiver(Uart8N1Receiver())
@@ -164,14 +164,14 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def tx_count = tx_fifo.count
   def tx_empty = !tx_fifo.egress.valid
   def tx_full_limit = mux(fifo_enabled,
-                          bits(fifo_depth, fifo_count_width),
-                          bits(1, fifo_count_width))
+                          Bits(fifo_count_width)(fifo_depth),
+                          Bits(fifo_count_width)(1))
 
   def rx_count = rx_fifo.count
   def rx_empty = !rx_fifo.egress.valid
   def rx_full_limit = mux(fifo_enabled,
-                          bits(fifo_depth, fifo_count_width),
-                          bits(1, fifo_count_width))
+                          Bits(fifo_count_width)(fifo_depth),
+                          Bits(fifo_count_width)(1))
   def rx_head = rx_fifo.egress.bits
 
 
@@ -184,7 +184,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def incoming_read = incoming_opcode === CHIReqOpcode.ReadNoSnp
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
   def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[Uart16550AddressWidth..p.request_address_width].or_reduce()
-  def incoming_byte_access = incoming.size_or_num_req[0..3] === bits(0, 3)
+  def incoming_byte_access = incoming.size_or_num_req[0..3] === Bits(3)(0)
   def incoming_targets_device = incoming.tgt_id === identity.node_id
   def incoming_supported = (incoming_read ||| incoming_write) & incoming_in_window & incoming_byte_access & incoming_targets_device
   transaction.request_supported <== incoming_supported
@@ -197,7 +197,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def active_offset :: Bits(Uart16550AddressWidth) = mux(accepted_read, incoming_relative, request_relative)
   def active_address :: Bits(p.request_address_width) = mux(accepted_read, incoming.address, request.address)
   def register_lane = active_address[0..lane_width]
-  def register_shift = concat(register_lane, bits(0, 3))
+  def register_shift = concat(register_lane, Bits(3)(0))
   def dlab = line_control[7].into(Bool)
 
 
@@ -219,33 +219,33 @@ sync_circuit Uart16550(config :: Uart16550Config):
   )
   def receive_interrupt = interrupt_enable[0].into(Bool) & receiver_data_available
   def transmit_interrupt = interrupt_enable[1].into(Bool) & transmitter_holding_empty
-  def interrupt_cause = priority_mux(~default: bits(0x01, 8)):
-    receive_interrupt: bits(0x04, 8)
-    transmit_interrupt: bits(0x02, 8)
-  def interrupt_identification = interrupt_cause ||| mux(fifo_enabled, bits(0xc0, 8), bits(0, 8))
+  def interrupt_cause = priority_mux(~default: Bits(8)(0x01)):
+    receive_interrupt: Bits(8)(0x04)
+    transmit_interrupt: Bits(8)(0x02)
+  def interrupt_identification = interrupt_cause ||| mux(fifo_enabled, Bits(8)(0xc0), Bits(8)(0))
   interrupt <== receive_interrupt ||| transmit_interrupt
 
-  def receive_read_byte = mux(rx_empty, bits(0, 8), rx_head)
+  def receive_read_byte = mux(rx_empty, Bits(8)(0), rx_head)
   def rbr_dll_read_byte = mux(dlab, divisor_latch_low, receive_read_byte)
   def selected_read_byte :: Bits(8) = mux_lookup(
     active_offset,
-    ~default: bits(0, 8),
+    ~default: Bits(8)(0),
     [[Uart16550RbrThrDllOffset, rbr_dll_read_byte],
      [Uart16550IerDlmOffset, mux(dlab, divisor_latch_high, interrupt_enable)],
      [Uart16550IirFcrOffset, interrupt_identification],
      [Uart16550LcrOffset, line_control],
      [Uart16550McrOffset, modem_control],
      [Uart16550LsrOffset, line_status],
-     [Uart16550MsrOffset, bits(0, 8)],
+     [Uart16550MsrOffset, Bits(8)(0)],
      [Uart16550ScrOffset, scratch]]
   )
   def register_read_data = selected_read_byte.zext(p.data_width) << register_shift
   // Snapshot and read effects share REQ acceptance, not response transfer.
   def read_rbr = accepted_read & !dlab & (
-    incoming_relative === bits(Uart16550RbrThrDllOffset, Uart16550AddressWidth)
+    incoming_relative === Bits(Uart16550AddressWidth)(Uart16550RbrThrDllOffset)
   ) & !rx_empty
   def read_lsr = accepted_read & (
-    incoming_relative === bits(Uart16550LsrOffset, Uart16550AddressWidth)
+    incoming_relative === Bits(Uart16550AddressWidth)(Uart16550LsrOffset)
   )
 
 
@@ -260,7 +260,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def write_byte = register_data[0..8]
   def write_enabled = register_mask[0].into(Bool)
   def write_thr_target = write_data_expected & !dlab & (
-    request_relative === bits(Uart16550RbrThrDllOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550RbrThrDllOffset)
   ) & write_enabled
   def tx_has_space = (tx_count < tx_full_limit) ||| transmitter.bytes.ready
   transaction.write_supported <== Bool(#true)
@@ -270,25 +270,25 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def write_thr = write_data_fire & write_thr_target
   def register_write = write_data_fire & write_enabled
   def write_dll = register_write & dlab & (
-    request_relative === bits(Uart16550RbrThrDllOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550RbrThrDllOffset)
   )
   def write_ier = register_write & !dlab & (
-    request_relative === bits(Uart16550IerDlmOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550IerDlmOffset)
   )
   def write_dlm = register_write & dlab & (
-    request_relative === bits(Uart16550IerDlmOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550IerDlmOffset)
   )
   def write_fcr = register_write & (
-    request_relative === bits(Uart16550IirFcrOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550IirFcrOffset)
   )
   def write_lcr = register_write & (
-    request_relative === bits(Uart16550LcrOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550LcrOffset)
   )
   def write_mcr = register_write & (
-    request_relative === bits(Uart16550McrOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550McrOffset)
   )
   def write_scr = register_write & (
-    request_relative === bits(Uart16550ScrOffset, Uart16550AddressWidth)
+    request_relative === Bits(Uart16550AddressWidth)(Uart16550ScrOffset)
   )
   def next_fifo_enabled = write_byte[0].into(Bool)
   def fifo_mode_change = write_fcr & (next_fifo_enabled =/= fifo_enabled)
@@ -338,10 +338,10 @@ sync_circuit Uart16550(config :: Uart16550Config):
   when write_dlm:
     divisor_latch_high <== write_byte
   when write_ier:
-    interrupt_enable <== write_byte & bits(0x03, 8)
+    interrupt_enable <== write_byte & Bits(8)(0x03)
   when write_lcr:
     line_control <== write_byte
-    assert(write_byte[7].into(Bool) ||| ((write_byte & bits(0x7f, 8)) === bits(0x03, 8)),
+    assert(write_byte[7].into(Bool) ||| ((write_byte & Bits(8)(0x7f)) === Bits(8)(0x03)),
            "uart16550_line_control_is_8n1")
   when write_mcr:
     modem_control <== write_byte

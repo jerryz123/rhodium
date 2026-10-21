@@ -181,7 +181,7 @@ fun chi_hnf_source_known(p :: CHIFlitParams,
                          request :: CHIReqFlit(p)) :~ Bool:
   request.src_id.is_one_of(
     for List (endpoint in params.requester_endpoints):
-      bits(endpoint.node_id, p.node_id_width)
+      Bits(p.node_id_width)(endpoint.node_id)
   )
 
 /* Recognize configured snoopable RN-F sources independently of RN-I traffic. */
@@ -190,7 +190,7 @@ fun chi_hnf_source_is_rnf(p :: CHIFlitParams,
                           request :: CHIReqFlit(p)) :~ Bool:
   request.src_id.is_one_of(
     for List (endpoint in params.snoop_endpoints):
-      bits(endpoint.node_id, p.node_id_width)
+      Bits(p.node_id_width)(endpoint.node_id)
   )
 
 /* Match a request against the capability subset advertised by its originating requester. */
@@ -199,7 +199,7 @@ fun chi_hnf_request_supported(p :: CHIFlitParams,
                               request :: CHIReqFlit(p)) :~ Bool:
   or_reduce(
     for List (endpoint in params.requester_endpoints):
-      (request.src_id === bits(endpoint.node_id, p.node_id_width)) & request.opcode.is_one_of(endpoint.supports.req)
+      (request.src_id === Bits(p.node_id_width)(endpoint.node_id)) & request.opcode.is_one_of(endpoint.supports.req)
   )
 
 /*
@@ -212,7 +212,7 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
                               service_base :: Bits(p.request_address_width)) :~ Bool:
   def opcode = chi_hnf_subordinate_opcode(request.opcode)
   def size = chi_req_size(p, request)
-  def address_supported = (request.address & !bits(config.service_mask, p.request_address_width)) === service_base
+  def address_supported = (request.address & !Bits(p.request_address_width)(config.service_mask)) === service_base
   def ordinary_supported = or_reduce(
     for List (support in config.service_requests):
       support.matches(opcode, size)
@@ -229,7 +229,7 @@ fun chi_hnf_snoop(p :: CHIFlitParams,
                   request :: CHIReqFlit(p),
                   ~address: address :: Bits(p.request_address_width) = request.address,
                   ~opcode: opcode :: CHISnpOpcode = chi_home_snoop_opcode(request.opcode),
-                  ~txn_id: txn_id :: Bits(12) = bits(0, 12)) :~ CHISnpFlit(p):
+                  ~txn_id: txn_id :: Bits(12) = Bits(12)(0)) :~ CHISnpFlit(p):
   chi_home_snoop(p, home_node_id, request, address, opcode, txn_id)
 
 /*
@@ -243,7 +243,7 @@ fun chi_hnf_downstream_request(p :: CHIFlitParams,
                                ~address: address :: Bits(p.request_address_width) = request.address,
                                ~size: size :: Bits(6) = request.size_or_num_req,
                                ~opcode: opcode :: CHIReqOpcode = chi_hnf_subordinate_opcode(request.opcode),
-                               ~txn_id: txn_id :: Bits(12) = bits(0, 12)) :~ CHIReqFlit(p):
+                               ~txn_id: txn_id :: Bits(12) = Bits(12)(0)) :~ CHIReqFlit(p):
   chi_home_downstream_request(p, home_node_id, subordinate_node_id, request, address, size, opcode, txn_id,
                               request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode))
 
@@ -256,7 +256,7 @@ fun chi_hnf_snoop_write_request(p :: CHIFlitParams,
                                 subordinate_node_id :: Bits(p.node_id_width),
                                 request :: CHIReqFlit(p),
                                 data :: CHIDatFlit(p),
-                                ~txn_id: txn_id :: Bits(12) = bits(0, 12)) :~ CHIReqFlit(p):
+                                ~txn_id: txn_id :: Bits(12) = Bits(12)(0)) :~ CHIReqFlit(p):
   chi_home_snoop_write_request(p, home_node_id, subordinate_node_id, request, data, txn_id,
                                request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode))
 
@@ -274,7 +274,7 @@ fun chi_hnf_upstream_read_data(p :: CHIFlitParams,
     state: mux(request.opcode === CHIReqOpcode.ReadUnique,
                CHIResponseState.Unique,
                CHIResponseState.SharedClean)
-  chi_home_upstream_read_data(p, home_node_id, request, mux(coherent, coherent_response.as_bits(), bits(0, 3)), data)
+  chi_home_upstream_read_data(p, home_node_id, request, mux(coherent, coherent_response.as_bits(), Bits(3)(0)), data)
 
 
 export:

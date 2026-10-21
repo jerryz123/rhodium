@@ -115,9 +115,9 @@ sync_circuit EventNestedBroadcast():
   outer[1] |> trace_event("c", ~payload: #true) |> sinks[2]
 
 sync_circuit EventBadBroadcastWidth():
-  describe_interface_broadcast_storage(Bool(#true), [bits(0, 2)])
+  describe_interface_broadcast_storage(Bool(#true), [Bits(2)(0)])
 sync_circuit EventBadBroadcastAccept():
-  describe_interface_broadcast_storage(bits(0, 2), [Bool(#true)])
+  describe_interface_broadcast_storage(Bits(2)(0), [Bool(#true)])
 sync_circuit EventMissingBroadcast():
   inst missing(Pipe(Bits(8), 1))
   interface_trace_buffered_broadcast(missing)

@@ -52,7 +52,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   reg write_data(Bits(64))
   reg write_mask(Mask(8))
   reg zero_active(~init: Bool(#false))
-  reg zero_index(Bits(index_width(CacheLineBytes / 8)), ~init: bits(0, index_width(CacheLineBytes / 8)))
+  reg zero_index(Bits(index_width(CacheLineBytes / 8)), ~init: Bits(index_width(CacheLineBytes / 8))(0))
 
   def idle = state === CHIUncachedState.Idle
   def command :: PhysicalMemoryReq(xlen, Context) = core.request.bits.request
@@ -61,7 +61,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
                                                    CacheOperation.Store,
                                                    CacheOperation.CacheBlockZero)
   def command_zero = command_access.is_cache_block_zero()
-  def zero_last = zero_index === bits(CacheLineBytes / 8 - 1, index_width(CacheLineBytes / 8))
+  def zero_last = zero_index === Bits(index_width(CacheLineBytes / 8))(CacheLineBytes / 8 - 1)
   def command_home = config.home_map.lookup(cache_chi_address(command.address, p))
   def selected_address = mux(command_zero, command.address.align_down(CacheLineBytes), command.address)
   def selected_size = mux(command_zero, CHITransferSize.Bytes8, command.width.as_bits().zext(3).into(CHITransferSize))
@@ -86,11 +86,11 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
     address,
     request_size,
     request_opcode,
-    bits(0, 12),
+    Bits(12)(0),
     Bool(#false),
     Bool(#false),
     Bool(#false),
-    bits(0, 4),
+    Bits(4)(0),
     ~cacheable: Bool(#false),
     ~device: request_device,
     ~early_write_acknowledge: Bool(#false)
@@ -114,8 +114,8 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def completion_fire = response_fire & completion_expected
 
   def data_lane = address[3..alignment_bits(p.data_bytes)]
-  def bus_data = write_data.zext(p.data_width) << (data_lane ++ bits(0, 6))
-  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ bits(0, 3))
+  def bus_data = write_data.zext(p.data_width) << (data_lane ++ Bits(6)(0))
+  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ Bits(3)(0))
   chi.dat.request.valid <== state === CHIUncachedState.WriteData
   chi.dat.request.bits <== cache_chi_write_data(
     p,
@@ -133,7 +133,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def read_expected = state === CHIUncachedState.ReadResponse
   def read_lanes = incoming_data.data.into(Vec(word_lanes, Bits(64)))
   def read_lane:
-    if word_lanes == 1 | bits(0, lane_width) | address[3..alignment_bits(p.data_bytes)]
+    if word_lanes == 1 | Bits(lane_width)(0) | address[3..alignment_bits(p.data_bytes)]
   load_gen.address <== address
   load_gen.data <== read_lanes[read_lane]
   load_gen.width <== memory_width
@@ -145,7 +145,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   core.response.valid <== data_read_valid ||| (chi.rsp.response.valid & response_ordinary & response_expected & completion_expected & (!zero_active ||| zero_last))
   core.response.bits <== PhysicalMemoryResp(xlen, Context):
     access_fault: Bool(#false)
-    data: mux(data_read_valid, load_gen.value, bits(0, width))
+    data: mux(data_read_valid, load_gen.value, Bits(width)(0))
     context: context
   core.drained <== idle
   chi.rsp.requester.valid <== Bool(#false)
@@ -160,10 +160,10 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
     request_size <== selected_size
     request_opcode <== selected_opcode
     request_device <== core.request.bits.device
-    write_data <== mux(command_zero, bits(0, 64), store_gen.data)
-    write_mask <== mux(command_zero, !bits(0, 8), if xlen == XLen.X64 | command.byte_mask | command.byte_mask.zext(8) << (command.address[2].as_bits() ++ bits(0, 2))).into(Mask(8))
+    write_data <== mux(command_zero, Bits(64)(0), store_gen.data)
+    write_mask <== mux(command_zero, !Bits(8)(0), if xlen == XLen.X64 | command.byte_mask | command.byte_mask.zext(8) << (command.address[2].as_bits() ++ Bits(2)(0))).into(Mask(8))
     zero_active <== command_zero
-    zero_index <== bits(0, index_width(CacheLineBytes / 8))
+    zero_index <== Bits(index_width(CacheLineBytes / 8))(0)
     state <== CHIUncachedState.Request
   elsewhen withdraw:
     state <== CHIUncachedState.Idle
@@ -177,8 +177,8 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   elsewhen write_data_fire:
     state <== CHIUncachedState.WriteResponse
   elsewhen (completion_fire & zero_active & !zero_last):
-    address <== address + bits(8, width)
-    zero_index <== zero_index + bits(1, index_width(CacheLineBytes / 8))
+    address <== address + Bits(width)(8)
+    zero_index <== zero_index + Bits(index_width(CacheLineBytes / 8))(1)
     state <== CHIUncachedState.Request
   elsewhen (read_fire ||| completion_fire):
     state <== CHIUncachedState.Idle

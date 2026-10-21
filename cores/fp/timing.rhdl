@@ -20,6 +20,6 @@ class FpExecutionTiming(single :: PosInt = 2, double :: PosInt = 2, other :: Pos
   /* Selects a fixed return delay from decoded execution controls, independently of ownership. */
   method latency(control :: FloatExecutionControl(), ~width: result_width :: PosInt = width) :~ Bits(result_width):
     def arithmetic = control.unit.is_one_of(FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd)
-    mux(arithmetic, mux(control.destination_precision === FloatPrecision.Double, bits(double, result_width), bits(single, result_width)), bits(other, result_width))
+    mux(arithmetic, mux(control.destination_precision === FloatPrecision.Double, Bits(result_width)(double), Bits(result_width)(single)), Bits(result_width)(other))
 
 export FpExecutionTiming

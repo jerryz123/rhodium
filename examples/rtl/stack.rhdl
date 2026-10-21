@@ -16,11 +16,11 @@ sync_circuit Stack(depth :: PosInt):
   output data_out: Bits(32)
 
   mem stack_mem(depth, Bits(32))
-  reg sp(~init: bits(0, pointer_width))
-  reg out(~init: bits(0, 32))
+  reg sp(~init: Bits(pointer_width)(0))
+  reg out(~init: Bits(32)(0))
 
-  def can_push = sp < bits(depth, pointer_width)
-  def nonempty = sp > bits(0, pointer_width)
+  def can_push = sp < Bits(pointer_width)(depth)
+  def nonempty = sp > Bits(pointer_width)(0)
   def pushing = push & can_push
   def popping = pop & nonempty
 
@@ -28,14 +28,14 @@ sync_circuit Stack(depth :: PosInt):
     when pushing:
       // The frontend lowers this effect to the memory port's hardware enable.
       stack_mem.write(sp[0..address_width], data_in)
-      sp <== sp + bits(1, pointer_width)
+      sp <== sp + Bits(pointer_width)(1)
     elsewhen popping:
-      sp <== sp - bits(1, pointer_width)
+      sp <== sp - Bits(pointer_width)(1)
 
     // As in the Chisel source, this uses the cycle's current pointer. After a
     // pop, the registered output shows the popped word for that cycle.
     when nonempty:
-      out <== stack_mem[sp[0..address_width] - bits(1, address_width)]
+      out <== stack_mem[sp[0..address_width] - Bits(address_width)(1)]
 
   data_out <== out
 

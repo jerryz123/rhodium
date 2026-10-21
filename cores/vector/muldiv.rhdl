@@ -87,9 +87,9 @@ fun fractional_multiply_value(xlen :: XLen, width :: PosInt, product :: Bits(wid
   def low = rounded[0..width]
   def negative = rounded[width * 2 - 1].into(Bool)
   def low_negative = low[width - 1].into(Bool)
-  def expected_high = mux(low_negative, !bits(0, width), bits(0, width))
+  def expected_high = mux(low_negative, !Bits(width)(0), Bits(width)(0))
   def saturated = rounded[width..width * 2] =/= expected_high
-  def limit = mux(negative, bits(1 << (width - 1), width), bits((1 << (width - 1)) - 1, width))
+  def limit = mux(negative, Bits(width)(1 << (width - 1)), Bits(width)((1 << (width - 1)) - 1))
   def selected = mux(saturated, limit, low)
   VectorMultiplyValue(xlen):
     data: if width == xlen.width | selected | selected.zext(xlen.width)

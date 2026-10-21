@@ -17,7 +17,7 @@ fun fp_move_to_integer(xlen :: XLen,
                        value :: IEEEFloat(format)) :~ Bits(xlen.width):
   if format.ieee_width <= xlen.width
   | riscv_float_to_integer_move(xlen, format, value)
-  | bits(0, xlen.width)
+  | Bits(xlen.width)(0)
 
 /* Transfers raw integer bits into an IEEE format when XLEN covers that format. */
 fun integer_move_to_fp(xlen :: XLen,
@@ -25,7 +25,7 @@ fun integer_move_to_fp(xlen :: XLen,
                        value :: Bits(xlen.width)) :~ IEEEFloat(format):
   if xlen.width >= format.ieee_width
   | riscv_integer_to_float_move(format, xlen.width, value)
-  | bits(0, format.ieee_width).into(IEEEFloat(format))
+  | Bits(format.ieee_width)(0).into(IEEEFloat(format))
 
 /* Normalizes a 32-bit signed or unsigned conversion source to XLEN. */
 fun fp_integer_word_input(xlen :: XLen,
@@ -74,9 +74,9 @@ circuit DisabledZfaFormatDatapath(format :: FloatFormat):
 
   immediate <== dont_care(IEEEFloat(format))
   rounded <== dont_care(RecFloat(format))
-  round_exception_flags <== bits(0, 5)
-  modulo <== bits(0, 32)
-  modulo_exception_flags <== bits(0, 5)
+  round_exception_flags <== Bits(5)(0)
+  modulo <== Bits(32)(0)
+  modulo_exception_flags <== Bits(5)(0)
 
 /* Supplies zero modulo outputs when the format has no enabled modulo conversion. */
 circuit DisabledZfaModulo(format :: FloatFormat):
@@ -84,8 +84,8 @@ circuit DisabledZfaModulo(format :: FloatFormat):
   output result: Bits(32)
   output exception_flags: Bits(5)
 
-  result <== bits(0, 32)
-  exception_flags <== bits(0, 5)
+  result <== Bits(32)(0)
+  exception_flags <== Bits(5)(0)
 
 /* Implements signed 32-bit modulo conversion with round-toward-zero and RISC-V flags. */
 circuit ZfaModulo(format :: FloatFormat):
@@ -279,7 +279,7 @@ circuit FpFormatDatapath(
   )
   def integer_value = mux_lookup(
     control.unit,
-    ~default: bits(0, width),
+    ~default: Bits(width)(0),
     [
       [FloatUnit.Compare, comparison_value.as_bits().zext(width)],
       [FloatUnit.Convert, converted_integer],
@@ -290,7 +290,7 @@ circuit FpFormatDatapath(
   )
   def exception_flags = mux_lookup(
     control.unit,
-    ~default: bits(0, 5),
+    ~default: Bits(5)(0),
     [
       [FloatUnit.FusedMultiplyAdd, riscv_exception_flags(fused.exception_flags)],
       [FloatUnit.Add, riscv_exception_flags(add.exception_flags)],
@@ -334,7 +334,7 @@ circuit FpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag
     tag: request.tag
     integer_value: fp_move_to_integer(xlen, format, source)
     fp_value: riscv_nan_box(format, integer_move_to_fp(xlen, format, request.integer_operand), flen)
-    exception_flags: bits(0, 5)
+    exception_flags: Bits(5)(0)
     exception_flags_valid: Bool(#false)
 
 /* Connects the F profile's combinational fixed path to a single-precision format datapath. */
@@ -438,13 +438,13 @@ circuit FpFixedD(xlen :: XLen,
   /* Completion flags
      The fused operation includes the third operand's widening flags; binary arithmetic does not. */
 
-  def left_widening_flags = mux(request.left_precision === FloatPrecision.Single, widen_left.exception_flags, bits(0, 5))
-  def right_widening_flags = mux(request.right_precision === FloatPrecision.Single, widen_right.exception_flags, bits(0, 5))
-  def third_widening_flags = mux(request.third_precision === FloatPrecision.Single, widen_third.exception_flags, bits(0, 5))
+  def left_widening_flags = mux(request.left_precision === FloatPrecision.Single, widen_left.exception_flags, Bits(5)(0))
+  def right_widening_flags = mux(request.right_precision === FloatPrecision.Single, widen_right.exception_flags, Bits(5)(0))
+  def third_widening_flags = mux(request.third_precision === FloatPrecision.Single, widen_third.exception_flags, Bits(5)(0))
   def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5)))
+    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0)))
   )
 
 /* Adds half moves or arithmetic and half/single conversion to the F fixed datapath. */
@@ -513,13 +513,13 @@ circuit FpFixedFHalf(xlen :: XLen,
   /* Completion flags
      The fused operation includes the third operand's widening flags; binary arithmetic does not. */
 
-  def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
-  def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
-  def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
+  def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, Bits(5)(0))
+  def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, Bits(5)(0))
+  def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, Bits(5)(0))
   def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5))),
+    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))),
     ~exception_flags_valid: mux(cross_precision, Bool(#true), ordinary.exception_flags_valid)
   )
 
@@ -603,13 +603,13 @@ circuit FpFixedDHalf(xlen :: XLen,
   /* Completion flags
      The fused operation includes the third operand's widening flags; binary arithmetic does not. */
 
-  def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, bits(0, 5))
-  def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, bits(0, 5))
-  def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, bits(0, 5))
+  def left_widening_flags = mux(request.left_precision === FloatPrecision.Half, widen_left.exception_flags, Bits(5)(0))
+  def right_widening_flags = mux(request.right_precision === FloatPrecision.Half, widen_right.exception_flags, Bits(5)(0))
+  def third_widening_flags = mux(request.third_precision === FloatPrecision.Half, widen_third.exception_flags, Bits(5)(0))
   def widening_flags = mux(control.unit === FloatUnit.FusedMultiplyAdd, left_widening_flags ||| right_widening_flags ||| third_widening_flags, left_widening_flags ||| right_widening_flags)
   completion <== ordinary.updated(
     ~fp_value: mux(half_cross, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(half_cross, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5))),
+    ~exception_flags: mux(half_cross, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))),
     ~exception_flags_valid: mux(half_cross, Bool(#true), ordinary.exception_flags_valid)
   )
 

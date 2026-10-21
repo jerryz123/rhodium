@@ -5,7 +5,7 @@
 
 circuit OrdinaryChild():
   output value: Bits(1)
-  value <== bits(0, 1)
+  value <== Bits(1)(0)
 
 sync_circuit DerivedResetOrdinaryChild():
   input condition: Bool

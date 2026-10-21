@@ -11,7 +11,7 @@ bundle ReplicatedControl():
 
 def IdleControl = ReplicatedControl():
   enabled: Bool(#false)
-  mode: bits(0, 3)
+  mode: Bits(3)(0)
 
 /* Exposes replica for this state flow example. */
 sync_circuit StateFlowExample():

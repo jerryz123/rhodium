@@ -59,8 +59,8 @@ sync_circuit DirectMemoryHTIF(xlen :: XLen,
            htif_response_ready,
            htif_exit) = rhodium_htif_tick(
     reset_active().into(Bool),
-    bits(xlen.width, 8),
-    bits(boot_address_register, 64),
+    Bits(8)(xlen.width),
+    Bits(64)(boot_address_register),
     request_ready,
     response_valid,
     response_data,
@@ -130,8 +130,8 @@ fun fesvr_chi_request(p :: CHIFlitParams,
     ~address: address,
     ~size_or_num_req: size.zext(6),
     ~opcode: mux(cacheable, mux(write, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadClean), mux(write, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp)),
-    ~return_nid_or_stash_nid_or_data_target: bits(node_id, p.node_id_width),
-    ~src_id: bits(node_id, p.node_id_width),
+    ~return_nid_or_stash_nid_or_data_target: Bits(p.node_id_width)(node_id),
+    ~src_id: Bits(p.node_id_width)(node_id),
     ~tgt_id: home_node_id
   )
 
@@ -143,18 +143,18 @@ fun fesvr_chi_snoop_response(p :: CHIFlitParams,
     pass_dirty: Bool(#false)
     state: CHIResponseState.Invalid
   CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
+    cache_line_id: Bits(6)(0)
     trace_tag: snoop.trace_tag
     tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: bits(0, 12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
+    pcrd_type: Bits(4)(0)
+    dbid_or_group_id: Bits(12)(0)
+    c_busy: Bits(3)(0)
+    fwd_state_or_data_pull: Bits(3)(0)
     resp: response.as_bits()
     resp_err: CHIRespErr.OK
     opcode: CHIRspOpcode.SnpResp
     txn_id: snoop.txn_id
-    src_id: bits(node_id, p.node_id_width)
+    src_id: Bits(p.node_id_width)(node_id)
     tgt_id: snoop.src_id
     qos: snoop.qos
 
@@ -167,8 +167,8 @@ sync_circuit FesvrSnoopResponder(p :: CHIFlitParams, node_id :: Nat):
   reg active(~init: Bool(#false))
   reg request(CHISnpFlit(p))
   reg dvm_first_pending(~init: Bool(#false))
-  reg dvm_source_id(~init: bits(0, p.node_id_width))
-  reg dvm_txn_id(~init: bits(0, 12))
+  reg dvm_source_id(~init: Bits(p.node_id_width)(0))
+  reg dvm_txn_id(~init: Bits(12)(0))
 
   def incoming = snoops.bits
   def ordinary = incoming.opcode =/= CHISnpOpcode.SnpLCrdReturn
@@ -212,10 +212,10 @@ fun fesvr_chi_write_data(p :: CHIFlitParams,
   def lane = address[0..alignment_bits(p.data_bytes)]
   def placed_data = data.zext(p.data_width) << (lane.zext(alignment_bits(p.data_width)) << 3)
   def byte_enable = transfer_byte_mask(address, size, p.data_bytes)
-  chi_rn_write_data(p, bits(node_id, p.node_id_width), home_node_id, dbid, placed_data, byte_enable.into(Bits(p.data_bytes)),
+  chi_rn_write_data(p, Bits(p.node_id_width)(node_id), home_node_id, dbid, placed_data, byte_enable.into(Bits(p.data_bytes)),
                     ~data_id: chi_line_data_id(address, p),
-                    ~ccid: bits(0, 2),
-                    ~dbid_or_mecid: bits(0, 16))
+                    ~ccid: Bits(2)(0),
+                    ~dbid_or_mecid: Bits(16)(0))
 
 // The complete chunk is validated before issuing any CHI traffic. Only normal
 // cacheable RAM can be fragmented; side-effecting MMIO retains its exact width.
@@ -246,10 +246,10 @@ fun fesvr_service_support(services :: NonemptyList.of(CHIHomeServiceParams),
   def opcode = mux(cacheable, mux(write, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadClean), mux(write, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp))
   def matches = for List (service in services):
     def sizes = for List (support in service.requests):
-      (opcode === support.opcode) & (size >= bits(alignment_bits(support.sizes.min_bytes), 3)) & (size <= bits(alignment_bits(support.sizes.max_bytes), 3))
+      (opcode === support.opcode) & (size >= Bits(3)(alignment_bits(support.sizes.min_bytes))) & (size <= Bits(3)(alignment_bits(support.sizes.max_bytes)))
     def regions = for List (region in service.address_sets):
       region.matches(address) & region.matches(last_address)
-    (home_id === bits(service.home.node_id, home_id.type.packed_width())) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
+    (home_id === Bits(home_id.type.packed_width())(service.home.node_id)) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
   or_reduce(vec(matches))
 
 /* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
@@ -275,25 +275,25 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   reg cacheable(Bool)
   reg device(Bool)
   reg remaining(Bits(4))
-  reg offset(~init: bits(0, 4))
+  reg offset(~init: Bits(4)(0))
   reg transfer_size(Bits(3))
   reg home_id(Bits(p.node_id_width))
   reg write_dbid(Bits(12))
-  reg result(~init: bits(0, 64))
+  reg result(~init: Bits(64)(0))
   reg status(~init: FesvrMemoryStatus.Success)
 
   def incoming = requests.bits
   def first = physical_map.lookup(incoming.address)
-  def last = incoming.address + incoming.length.zext(64) - bits(1, 64)
-  def legal_length = (incoming.length >= bits(1, 8)) & (incoming.length <= bits(8, 8))
+  def last = incoming.address + incoming.length.zext(64) - Bits(64)(1)
+  def legal_length = (incoming.length >= Bits(8)(1)) & (incoming.length <= Bits(8)(8))
   def byte_checks = for List (index in 0..8):
-    def byte_address = incoming.address + bits(index, 64)
+    def byte_address = incoming.address + Bits(64)(index)
     def attributes = physical_map.lookup(byte_address)
-    (bits(index, 8) >= incoming.length) ||| ((byte_address >= incoming.address) & attributes.mapped & (attributes.cacheable === first.cacheable) & mux(incoming.write, attributes.writable, attributes.readable))
+    (Bits(8)(index) >= incoming.length) ||| ((byte_address >= incoming.address) & attributes.mapped & (attributes.cacheable === first.cacheable) & mux(incoming.write, attributes.writable, attributes.readable))
   def legal_bytes = and_reduce(vec(byte_checks))
-  def exact_size = mux_lookup(incoming.length, ~default: bits(0, 3), [[2, bits(1, 3)], [4, bits(2, 3)], [8, bits(3, 3)]])
-  def aligned = (incoming.address[0..3] & (incoming.length - bits(1, 8))[0..3]) === bits(0, 3)
-  def exact = incoming.length.is_one_of(bits(1, 8), bits(2, 8), bits(4, 8), bits(8, 8)) & aligned
+  def exact_size = mux_lookup(incoming.length, ~default: Bits(3)(0), [[2, Bits(3)(1)], [4, Bits(3)(2)], [8, Bits(3)(3)]])
+  def aligned = (incoming.address[0..3] & (incoming.length - Bits(8)(1))[0..3]) === Bits(3)(0)
+  def exact = incoming.length.is_one_of(Bits(8)(1), Bits(8)(2), Bits(8)(4), Bits(8)(8)) & aligned
   def incoming_home = home_map.lookup(incoming.address[0..p.request_address_width])
   def mmio_supported = exact & incoming_home.valid & fesvr_service_support(services, incoming.address[0..p.request_address_width], last[0..p.request_address_width], incoming_home.node_id, incoming.write, first.cacheable, exact_size)
   def command_supported = legal_length & legal_bytes & (first.cacheable ||| mmio_supported)
@@ -304,20 +304,20 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
     status: status
 
   def current_home = home_map.lookup(address)
-  def mutable next_size = bits(0, 3)
+  def mutable next_size = Bits(3)(0)
   def mutable fragment_supported = Bool(#false)
   for (size in 0..4):
     def bytes = 1 << size
-    def candidate_last = address + bits(bytes - 1, p.request_address_width)
-    def candidate_aligned = (address & bits(bytes - 1, p.request_address_width)) === bits(0, p.request_address_width)
-    def supported = (remaining >= bits(bytes, 4)) & candidate_aligned & current_home.valid & fesvr_service_support(services, address, candidate_last, current_home.node_id, write, cacheable, bits(size, 3))
-    next_size := mux(supported, bits(size, 3), next_size)
+    def candidate_last = address + Bits(p.request_address_width)(bytes - 1)
+    def candidate_aligned = (address & Bits(p.request_address_width)(bytes - 1)) === Bits(p.request_address_width)(0)
+    def supported = (remaining >= Bits(4)(bytes)) & candidate_aligned & current_home.valid & fesvr_service_support(services, address, candidate_last, current_home.node_id, write, cacheable, Bits(3)(size))
+    next_size := mux(supported, Bits(3)(size), next_size)
     fragment_supported := fragment_supported ||| supported
   def request_pending = state === FesvrCHIState.Request
   port.requests.valid <== request_pending & fragment_supported
   port.requests.bits <== fesvr_chi_request(p, address, write, next_size, cacheable, device, node.node_id, current_home.node_id)
   def request_fire = port.requests.fire()
-  def transfer_bytes = bits(1, 4) << transfer_size
+  def transfer_bytes = Bits(4)(1) << transfer_size
   def data_shift = offset.zext(7) << 3
   port.request_data.valid <== state === FesvrCHIState.WriteData
   port.request_data.bits <== fesvr_chi_write_data(p, address, data >> data_shift, transfer_size, write_dbid, node.node_id, home_id)
@@ -334,13 +334,13 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   port.response_data.ready <== dat_credit ||| active
   def rsp_fire = port.responses.fire() & !rsp_credit
   def dat_fire = port.response_data.fire() & !dat_credit
-  def rsp_correct = (dbid_pending & (response.opcode === CHIRspOpcode.DBIDResp) ||| comp_pending & (response.opcode === CHIRspOpcode.Comp)) & (response.src_id === home_id) & (response.tgt_id === bits(node.node_id, p.node_id_width)) & (response.txn_id === bits(0, 12))
-  def dat_correct = (cacheable ||| (read_data.src_id === home_id)) & read_pending & (read_data.opcode === CHIDatOpcode.CompData) & (read_data.home_nid_or_pbha_or_mismatched_mecid === home_id) & (read_data.tgt_id === bits(node.node_id, p.node_id_width)) & (read_data.txn_id === bits(0, 12)) & (read_data.data_id === chi_line_data_id(address, p))
+  def rsp_correct = (dbid_pending & (response.opcode === CHIRspOpcode.DBIDResp) ||| comp_pending & (response.opcode === CHIRspOpcode.Comp)) & (response.src_id === home_id) & (response.tgt_id === Bits(p.node_id_width)(node.node_id)) & (response.txn_id === Bits(12)(0))
+  def dat_correct = (cacheable ||| (read_data.src_id === home_id)) & read_pending & (read_data.opcode === CHIDatOpcode.CompData) & (read_data.home_nid_or_pbha_or_mismatched_mecid === home_id) & (read_data.tgt_id === Bits(p.node_id_width)(node.node_id)) & (read_data.txn_id === Bits(12)(0)) & (read_data.data_id === chi_line_data_id(address, p))
   def protocol_error = (rsp_fire & !rsp_correct) ||| (dat_fire & !dat_correct)
   def slave_error = (rsp_fire & (response.resp_err =/= CHIRespErr.OK)) ||| (dat_fire & (read_data.resp_err =/= CHIRespErr.OK))
   def read_shift = address[0..alignment_bits(p.data_bytes)].zext(alignment_bits(p.data_width)) << 3
   def read_value = (read_data.data >> read_shift)[0..64]
-  def read_mask = mux_lookup(transfer_size, ~default: bits(0xffffffffffffffff, 64), [[0, bits(0xff, 64)], [1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)]])
+  def read_mask = mux_lookup(transfer_size, ~default: Bits(64)(0xffffffffffffffff), [[0, Bits(64)(0xff)], [1, Bits(64)(0xffff)], [2, Bits(64)(0xffffffff)]])
   def completed = dat_fire ||| (rsp_fire & comp_pending)
 
   // All fragments and the final host response belong to one accepted command.
@@ -354,8 +354,8 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
     cacheable <== first.cacheable
     device <== first.device
     remaining <== incoming.length[0..4]
-    offset <== bits(0, 4)
-    result <== bits(0, 64)
+    offset <== Bits(4)(0)
+    result <== Bits(64)(0)
     status <== mux(command_supported, FesvrMemoryStatus.Success, FesvrMemoryStatus.AccessFault)
     state <== mux(command_supported, FesvrCHIState.Request, FesvrCHIState.Response)
   elsewhen (protocol_error ||| slave_error):

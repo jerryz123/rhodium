@@ -21,21 +21,21 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   def Cursor = Bits(bits.length(slots))
   /* Projects an extended cursor onto physical storage, including the depth-one case. */
   fun request_index(cursor :: Bits(bits.length(slots))) :~ Bits(index_width(slots)):
-    if slots == 1 | bits(0, 1) | cursor[0..index_width(slots)]
+    if slots == 1 | Bits(1)(0) | cursor[0..index_width(slots)]
   reg requests(Vec(slots, Token))
-  reg head(~init: bits(0, Cursor.width))
-  reg tail(~init: bits(0, Cursor.width))
-  reg next_request(~init: bits(0, Cursor.width))
+  reg head(~init: Bits(Cursor.width)(0))
+  reg tail(~init: Bits(Cursor.width)(0))
+  reg next_request(~init: Bits(Cursor.width)(0))
   def count = tail - head
   occupied <== count.or_reduce()
   oldest <== requests[request_index(head)]
-  def capture = request |> gate_flow(count < bits(slots, Cursor.width)) |> to_valid()
+  def capture = request |> gate_flow(count < Bits(Cursor.width)(slots)) |> to_valid()
   def Array(retention, live, feedback) = capture |> fork_valid(3)
   feedback |> captured
   def pending = next_request =/= tail
   def captures = retention |> fork_valid(slots)
   def retained = for Array (slot in 0..slots):
-    def index = bits(slot, index_width(slots))
+    def index = Bits(index_width(slots))(slot)
     def entry = captures[slot] |> filter_valid(_token => request_index(tail) === index)
     def offered = inject_interface(Valid(Token), ~valid: pending & !recover & !blocked & (request_index(next_request) === index), ~bits: requests[slot])
     def present = if slots == 1 | occupied | (index - request_index(head)).zext(Cursor.width) < count
@@ -47,15 +47,15 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   Array(retained |> valid_arbiter(), bypassed) |> valid_arbiter() |> attempt
   when (capture.valid):
     requests[request_index(tail)] <== capture.bits
-    tail <== tail + bits(1, Cursor.width)
+    tail <== tail + Bits(Cursor.width)(1)
   when (skip & occupied):
-    next_request <== head + bits(1, Cursor.width)
+    next_request <== head + Bits(Cursor.width)(1)
   elsewhen (retry & occupied):
     next_request <== head
   elsewhen (attempt.valid):
-    next_request <== next_request + bits(1, Cursor.width)
+    next_request <== next_request + Bits(Cursor.width)(1)
   when release:
-    head <== head + bits(1, Cursor.width)
+    head <== head + Bits(Cursor.width)(1)
 
 /* Retains store acknowledgements independently of cache commit readiness; each allocated
    completion slot can hold one acknowledgement until the result arbiter accepts it. */
@@ -63,16 +63,16 @@ sync_circuit VectorStoreAcknowledgements(xlen :: XLen, slots :: Pow2Int):
   interface capture(Valid(Bits(index_width(slots))), ~role: consumer)
   interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
   output pending: Bool
-  reg acknowledgements(~init: bits(0, slots).as_vec(Bool))
+  reg acknowledgements(~init: Bits(slots)(0).as_vec(Bool))
   pending <== acknowledgements.as_bits().or_reduce()
   wire ready: Vec(slots, Bool)
   def captures = capture |> fork_valid(slots)
   def entries = for Array (slot in 0..slots):
-    def tag = bits(slot, index_width(slots))
+    def tag = Bits(index_width(slots))(slot)
     def entry = captures[slot] |> filter_valid(value => value === tag)
     def value = VectorCompletion(xlen, slots):
       tag: tag
-      data: bits(0, xlen.width)
+      data: Bits(xlen.width)(0)
     def offered = inject_interface(Decoupled(VectorCompletion(xlen, slots)), ~valid: acknowledgements[slot], ~bits: value, ~ready: ready[slot])
     def name = "ack-" ++ to_string(slot)
     describe_interface_retained_storage(entry.valid, offered.fire(), acknowledgements[slot], ~name: name)

@@ -36,9 +36,9 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
   output count: Bits(count_width)
   reg entries(Vec(depth, T))
   reg occupied(~init: vec(for List (_ in 0..depth): Bool(#false)))
-  reg head(~init: bits(0, pointer_width))
-  reg tail(~init: bits(0, pointer_width))
-  reg age(~init: bits(0, 4))
+  reg head(~init: Bits(pointer_width)(0))
+  reg tail(~init: Bits(pointer_width)(0))
+  reg age(~init: Bits(4)(0))
 
   empty <== !occupied.as_bits().or_reduce()
   full <== occupied.as_bits().and_reduce()
@@ -51,10 +51,10 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
     if depth == 1 | occupied[index].as_bits() | occupied[index].as_bits().zext(count_width)
   count <== tree_reduce(count_bits, fun (left, right): left + right)
   when (empty ||| drain.fire()):
-    age <== bits(0, 4)
-  elsewhen (age < bits(8, 4)):
-    age <== age + bits(1, 4)
-  urgent <== age >= bits(8, 4)
+    age <== Bits(4)(0)
+  elsewhen (age < Bits(4)(8)):
+    age <== age + Bits(4)(1)
+  urgent <== age >= Bits(4)(8)
 
   /* Tests physical word equality and intersecting byte masks against the speculative query. */
   fun overlaps(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
@@ -68,15 +68,15 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
   line_hazard <== queued_line_hazard ||| (enqueue.fire() & same_line(enqueue.bits))
 
   for (index in 0..depth):
-    when (enqueue.fire() & (tail === bits(index, pointer_width))):
+    when (enqueue.fire() & (tail === Bits(pointer_width)(index))):
       entries[index] <== enqueue.bits
       occupied[index] <== Bool(#true)
-    elsewhen (drain.fire() & (head === bits(index, pointer_width))):
+    elsewhen (drain.fire() & (head === Bits(pointer_width)(index))):
       occupied[index] <== Bool(#false)
   when (enqueue.fire()):
-    tail <== if depth == 1 | bits(0, pointer_width) | tail + bits(1, pointer_width)
+    tail <== if depth == 1 | Bits(pointer_width)(0) | tail + Bits(pointer_width)(1)
   when (drain.fire()):
-    head <== if depth == 1 | bits(0, pointer_width) | head + bits(1, pointer_width)
+    head <== if depth == 1 | Bits(pointer_width)(0) | head + Bits(pointer_width)(1)
 
 export:
   CacheStoreBufferEntry

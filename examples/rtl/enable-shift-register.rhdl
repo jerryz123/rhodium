@@ -12,13 +12,13 @@ circuit EnableShiftRegister():
   output data_out: Bits(4)
 
   reg r0(Bits(4), ~clock: clk, ~reset: reset,
-         ~init: bits(0, 4))
+         ~init: Bits(4)(0))
   reg r1(Bits(4), ~clock: clk, ~reset: reset,
-         ~init: bits(0, 4))
+         ~init: Bits(4)(0))
   reg r2(Bits(4), ~clock: clk, ~reset: reset,
-         ~init: bits(0, 4))
+         ~init: Bits(4)(0))
   reg r3(Bits(4), ~clock: clk, ~reset: reset,
-         ~init: bits(0, 4))
+         ~init: Bits(4)(0))
 
   when shift:
     r0 <== data_in

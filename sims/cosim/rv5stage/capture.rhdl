@@ -85,7 +85,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def fp_profile = profile.extensions.floating_point
   def fp_enabled = floating_point_supports_f(fp_profile)
   def vector_enabled = vector_profile_enabled(profile.vector)
-  def cosim_instance = bits(instance, 64)
+  def cosim_instance = Bits(64)(instance)
   def active = !reset_active().into(Bool)
   def taps = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): (!name.starts_with("vector_")) && name != "clock" && name != "reset")):
     values(name, observer_input(name, tap_types[name]))
@@ -96,7 +96,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
     def value :: Hardware.of(tap_types[name]) = taps[name]
     lane(value.as_bits())
   /* Missing sibling MMU context means no physical provenance is available. */
-  fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | bits(0, 64)
+  fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | Bits(64)(0)
   /* Missing MMU event taps never imply a completed translation. */
   fun mmu_flag(name :: String) :~ Bool: if tap_types.has_key(name) | taps[name] | Bool(#false)
   def wb_retained_memory_accepted :: Bool = taps["wb_retained_memory_accepted"]
@@ -158,8 +158,8 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def csr_interrupt_boundary :: Bool = taps["csr_interrupt_boundary"]
   def instruction = mux(wb_reservation_wait_accept, wb_input_bits, wb_offer_bits)
   rhodium_rv5stage_scalar_cycle.call(
-    cosim_instance, bits(width, 64), bits(if fp_enabled | floating_point_register_width(fp_profile) | 0, 64),
-    bits(if vector_enabled | 1 | 0, 64), wb_retained_memory_accepted.as_bits().zext(64),
+    cosim_instance, Bits(64)(width), Bits(64)(if fp_enabled | floating_point_register_width(fp_profile) | 0),
+    Bits(64)(if vector_enabled | 1 | 0), wb_retained_memory_accepted.as_bits().zext(64),
     wb_reservation_wait_accept.as_bits().zext(64), wb_vector_admission.as_bits().zext(64), wb_vector_return.as_bits().zext(64),
     wb_commit_valid.as_bits().zext(64), wb_memory_pending.as_bits().zext(64), wb_reservation_wait_pending.as_bits().zext(64),
     wb_pending_exception_valid.as_bits().zext(64), wb_current_exception_wait.as_bits().zext(64), wb_memory_accepted.as_bits().zext(64),
@@ -200,7 +200,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   )
   for (index in 0..2, request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) in [memory_request, wb_offer_bits.data_request]):
     rhodium_rv5stage_request.call(
-      cosim_instance, bits(index, 64), lane(request.address), lane(request.access.as_bits()), lane(request.width.as_bits()),
+      cosim_instance, Bits(64)(index), lane(request.address), lane(request.access.as_bits()), lane(request.width.as_bits()),
       lane(request.atomic.as_bits()), lane(request.data), lane(request.context.writeback.as_bits()),
       request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool).as_bits().zext(64),
       request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
@@ -208,7 +208,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
     )
   for (index in 0..2, accepted in [wb_commit_has_multiply, wb_commit_has_divide]):
     rhodium_rv5stage_arithmetic.call(
-      cosim_instance, bits(index, 64), accepted.as_bits().zext(64), wb_commit_bits.rd.zext(64), arithmetic_done[index].as_bits().zext(64),
+      cosim_instance, Bits(64)(index), accepted.as_bits().zext(64), wb_commit_bits.rd.zext(64), arithmetic_done[index].as_bits().zext(64),
       arithmetic_rd[index].zext(64), lane(arithmetic_value[index]), ~enable: active
     )
   if fp_enabled

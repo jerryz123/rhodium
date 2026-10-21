@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../riscv/rtl/csr.rhdl" open
@@ -49,11 +50,11 @@ def fence_control = partial_pattern(RV5StageControl()):
 for (base in [RV32RV5StageControlCases, RV64RV5StageControlCases]):
   def cases = overlay_decode_cases(base, ZihintpauseCoreControlCases)
   check:
-    pause_control.subsumes(cases.find(fun (row): row.input.matches(bits(PAUSE.encode([]), 32))).output) ~is #true
-    fence_control.subsumes(base.find(fun (row): row.input.matches(bits(PAUSE.encode([]), 32))).output) ~is #true
+    pause_control.subsumes(cases.find(fun (row): row.input.matches(hw.Bits(32)(PAUSE.encode([])))).output) ~is #true
+    fence_control.subsumes(base.find(fun (row): row.input.matches(hw.Bits(32)(PAUSE.encode([])))).output) ~is #true
   for (word in [0x0000000f, 0x0110000f, 0x0100008f, 0x0100800f, 0x1100000f, 0x0200000f]):
     check:
-      fence_control.subsumes(cases.find(fun (row): row.input.matches(bits(word, 32))).output) ~is #true
+      fence_control.subsumes(cases.find(fun (row): row.input.matches(hw.Bits(32)(word))).output) ~is #true
 
 for (config in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, FloatingPointProfile.None], [XLen.X32, FloatingPointProfile.F], [XLen.X64, FloatingPointProfile.D]]):
   for (enabled in [#false, #true]):

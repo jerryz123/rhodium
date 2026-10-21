@@ -73,7 +73,7 @@ circuit InterfaceTopologyMethods():
 
   def link = interface_link(Decoupled(Bits(8)), "local")
   link.left.valid <== offered
-  link.left.bits <== bits(0, 8)
+  link.left.bits <== Bits(8)(0)
   link.right.ready <== ready
   def endpoint = conservative_endpoint(link.right)
   accepted <== endpoint.fire()
@@ -83,7 +83,7 @@ circuit InterfaceTopologyMethods():
 circuit InterfaceTopologyMethodTypeMismatch():
   def link = interface_link(Valid(Bits(8)), "local")
   link.left.valid <== Bool(#true)
-  link.left.bits <== bits(0, 8)
+  link.left.bits <== Bits(8)(0)
   def endpoint = conservative_endpoint(link.right)
   def transfer = endpoint.fire()
   #void

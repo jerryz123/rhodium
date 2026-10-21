@@ -34,14 +34,14 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   inst decode(VectorTestDecoder(profile, vector_extensions))
   inst operation_legality(VectorOperationLegality(xlen, vlen, profile, vector_extensions))
   inst sequencer(VectorSequencer(xlen, vlen, Bits(xlen.width)))
-  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
+  sequencer.blocked_rows <== Bits(VectorRegisterLayout(vlen, xlen.width).depth)(0).as_vec(Bool)
   sequencer.packed_memory <== Bool(#false)
   sequencer.alignment_available <== Bool(#false)
-  sequencer.aligned <== bits(0, xlen.width)
+  sequencer.aligned <== Bits(xlen.width)(0)
   sequencer.prepare_mask_result.valid <== Bool(#false)
-  sequencer.prepare_mask_result.bits <== bits(0, xlen.width)
+  sequencer.prepare_mask_result.bits <== Bits(xlen.width)(0)
   inst operand_fetch(VectorOperandFetch(xlen, vlen, Bits(xlen.width)))
-  operand_fetch.aligned <== bits(0, xlen.width)
+  operand_fetch.aligned <== Bits(xlen.width)(0)
   inst bank(VectorRegisterFile(xlen, vlen))
   inst execute(VectorExecute(xlen, vlen))
   execute.alignment.valid <== Bool(#false)
@@ -55,10 +55,10 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   legal <== decode.valid & operation_legality.legal
   sequencer.request.valid <== request_valid
   sequencer.request.bits <== VectorInstruction(xlen, Bits(xlen.width)):
-    context: bits(0x100, xlen.width)
+    context: Bits(xlen.width)(0x100)
     descriptor:
       VectorDescriptor(xlen):
-        pc: bits(0x100, xlen.width)
+        pc: Bits(xlen.width)(0x100)
         precertified: Bool(#false)
         certificate: dont_care(sequencer.request.bits.descriptor.certificate.type)
         instruction: instruction
@@ -72,7 +72,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
         control: decode.control
         scalar: scalar
         floating_scalar: floating_scalar
-        stride: bits(0, xlen.width)
+        stride: Bits(xlen.width)(0)
         masked: !instruction[25].into(Bool)
         rounding_mode: RoundingMode.NearEven
         pointer_masking:
@@ -93,7 +93,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   sequencer.cancel.valid <== cancel
   operand_fetch.issue.ready <== Bool(#true)
   execute.beat <== operand_fetch.issue.bits.beat
-  execute.scan_carry <== bits(0, xlen.width)
+  execute.scan_carry <== Bits(xlen.width)(0)
   pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result
   def retained_control = sequencer.retained.descriptor.control
@@ -103,13 +103,13 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   def authorization = pipeline.egress.valid & !retry & !cancel
   operand_fetch.feedback.valid <== pipeline.egress.valid & !cancel & serialized
   operand_fetch.feedback.bits <== VectorFeedback(xlen, vlen, Bits(xlen.width)):
-    context: bits(0x100, xlen.width)
+    context: Bits(xlen.width)(0x100)
     sequence: pipeline.egress.bits.sequence
     first: pipeline.egress.bits.first
     end: pipeline.egress.bits.end
     disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
-    cause: bits(0, xlen.width)
-    fault_address: bits(0, xlen.width)
+    cause: Bits(xlen.width)(0)
+    fault_address: Bits(xlen.width)(0)
     last: pipeline.egress.bits.last
     compress_state: pipeline.egress.bits.compress_state
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))

@@ -33,7 +33,7 @@ sync_circuit CacheReplacementFixture():
   state_three <== three_state.as_bits()
 
   when touch_one_valid:
-    one_state <== plru_touch(1, one_state, bits(0, 1))
+    one_state <== plru_touch(1, one_state, Bits(1)(0))
   when touch_four_valid:
     four_state <== plru_touch(4, four_state, touch_four_way)
   when touch_three_valid:

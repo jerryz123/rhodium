@@ -22,13 +22,13 @@ circuit RV2WidePredecode(profile :: RV2WideConfig):
   output action: RasAction
   inst expander(RiscvCompressedExpander(xlen, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile).map(fun (instruction): instruction.name)))
   expander.compressed <== raw[0..16]
-  compressed <== raw[0..2] =/= bits(3, 2)
+  compressed <== raw[0..2] =/= Bits(2)(3)
   canonical <== mux(compressed, expander.expansion.instruction, raw)
   legal <== !compressed ||| expander.expansion.valid
-  conditional <== legal & (canonical[0..7] === bits(0x63, 7)) & !canonical[12..15].is_one_of(bits(2, 3), bits(3, 3))
-  def direct = legal & (canonical[0..7] === bits(0x6f, 7))
+  conditional <== legal & (canonical[0..7] === Bits(7)(0x63)) & !canonical[12..15].is_one_of(Bits(3)(2), Bits(3)(3))
+  def direct = legal & (canonical[0..7] === Bits(7)(0x6f))
   immediate <== direct ||| conditional
-  control_flow <== immediate ||| (legal & (canonical[0..7] === bits(0x67, 7)) & (canonical[12..15] === bits(0, 3)))
+  control_flow <== immediate ||| (legal & (canonical[0..7] === Bits(7)(0x67)) & (canonical[12..15] === Bits(3)(0)))
   offset <== mux(direct, instruction_immediate(fields.JImmediate, canonical, xlen.width), instruction_immediate(fields.BImmediate, canonical, xlen.width))
   action <== mux(control_flow, riscv_ras_action(canonical), RasAction.None)
 

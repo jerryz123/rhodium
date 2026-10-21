@@ -42,7 +42,7 @@ sync_circuit SpikeDataCHI(config :: RiscvHartCHIConfig):
   release.requests.ready <== chi.requests.ready
   acquire.requests.ready <== chi.requests.ready & !release_request_selected
 
-  def release_response_selected = chi.responses.bits.txn_id === bits(1, 12)
+  def release_response_selected = chi.responses.bits.txn_id === Bits(12)(1)
   release.responses.valid <== chi.responses.valid & release_response_selected
   release.responses.bits <== chi.responses.bits
   acquire.responses.valid <== chi.responses.valid & !release_response_selected

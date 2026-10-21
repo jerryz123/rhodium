@@ -35,7 +35,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
   reg home_id(Bits(p.node_id_width))
   reg dbid(Bits(12))
   reg response_state(Bits(3))
-  reg packet_index(~init: bits(0, packet_index_width))
+  reg packet_index(~init: Bits(packet_index_width)(0))
   reg data_sent(~init: Bool(#false))
   reg access_fault(~init: Bool(#false))
 
@@ -52,7 +52,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
   control.attempt
     |> map_flow(attempt => spike_chi_request(
       p, node_id, home_id, address, CHITransferSize.Bytes64,
-      CHIReqOpcode.WriteBackFull, bits(1, 12), Bool(#false), Bool(#true),
+      CHIReqOpcode.WriteBackFull, Bits(12)(1), Bool(#false), Bool(#true),
       attempt.allow_retry, attempt.pcrd_type
     ))
     |> requests
@@ -79,7 +79,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
     p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p),
     line.as_vec(Bits(p.data_width))[packet_index], response_state
   )
-  def final_packet = packet_index === bits(packet_count - 1, packet_index_width)
+  def final_packet = packet_index === Bits(packet_index_width)(packet_count - 1)
   def final_data = data.fire() & final_packet
   completion.valid <== control.active & data_sent
   completion.bits.access_fault <== access_fault
@@ -92,12 +92,12 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
     line <== command.bits.line
     state <== command.bits.state
     home_id <== command_home.node_id
-    packet_index <== bits(0, packet_index_width)
+    packet_index <== Bits(packet_index_width)(0)
     data_sent <== Bool(#false)
   elsewhen final_data:
     data_sent <== Bool(#true)
   elsewhen (data.fire()):
-    packet_index <== packet_index + bits(1, packet_index_width)
+    packet_index <== packet_index + Bits(packet_index_width)(1)
 
   when command_fire:
     access_fault <== Bool(#false)

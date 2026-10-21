@@ -26,7 +26,7 @@ fun circular_priority_onehot(requests :: Hardware.packable,
           "start width must equal the request index width")
   def eligible = vec(
     for List (index in 0..n):
-      requests[index] & (start <= bits(index, width))
+      requests[index] & (start <= Bits(width)(index))
   )
   def eligible_grant = priority_encoder_oh(eligible)
   def wrapped_grant = priority_encoder_oh(requests)

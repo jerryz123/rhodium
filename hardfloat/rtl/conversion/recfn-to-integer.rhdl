@@ -15,7 +15,7 @@ fun unsigned_equal_host(value :: Bits, constant :: Nat) :~ Bool:
   def width = value.type.packed_width()
   if constant >= (1 << width)
   | Bool(#false)
-  | value === bits(constant, width)
+  | value === Bits(width)(constant)
 
 /* Checks an unsigned value against a host lower bound without wrapping an
    out-of-range constant into the hardware operand width. */
@@ -23,7 +23,7 @@ fun unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
   def width = value.type.packed_width()
   if constant >= (1 << width)
   | Bool(#false)
-  | value >= bits(constant, width)
+  | value >= Bits(width)(constant)
 
 /* Combinationally rounds a recoded value to a dynamically signed or unsigned
    integer. Invalid and out-of-range values select the corresponding saturation
@@ -50,7 +50,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   def shift_amount = mux(
     magnitude_at_least_one,
     raw_exponent[0..exponent_index_width],
-    bits(0, exponent_index_width)
+    Bits(exponent_index_width)(0)
   )
   def shift_capacity = (1 << exponent_index_width) - 1
   def shifted_width = format.significand_width + shift_capacity
@@ -75,7 +75,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   def guard = mux(magnitude_at_least_one, aligned_significand[1].into(Bool), magnitude_just_below_one)
   def sticky = mux(magnitude_at_least_one, aligned_significand[0].into(Bool), !raw.is_zero & !magnitude_just_below_one) ||| (magnitude_just_below_one & aligned_significand[0..=1].or_reduce())
   def round_increment = rounding_increment(rounding_mode, raw.sign, retained_lsb, guard, sticky)
-  def rounded_magnitude = mux(round_increment, unrounded_integer + bits(1, integer_width), unrounded_integer) ||| rounding_force_odd(rounding_mode, common_inexact).as_bits().zext(integer_width)
+  def rounded_magnitude = mux(round_increment, unrounded_integer + Bits(integer_width)(1), unrounded_integer) ||| rounding_force_odd(rounding_mode, common_inexact).as_bits().zext(integer_width)
   def rounded_integer = mux(raw.sign, -rounded_magnitude, rounded_magnitude)
 
   def at_overflow_edge = positive_exponent.unsigned_equal_host(integer_width - 1)
@@ -106,12 +106,12 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   def exception_sign = !raw.is_nan & raw.sign
   def exception_value = mux(
     signed_output === exception_sign,
-    bits(1 << (integer_width - 1), integer_width),
-    bits(0, integer_width)
+    Bits(integer_width)(1 << (integer_width - 1)),
+    Bits(integer_width)(0)
   ) ||| mux(
     !exception_sign,
-    bits((1 << (integer_width - 1)) - 1, integer_width),
-    bits(0, integer_width)
+    Bits(integer_width)((1 << (integer_width - 1)) - 1),
+    Bits(integer_width)(0)
   )
 
   out <== mux(invalid ||| common_overflow, exception_value, rounded_integer)

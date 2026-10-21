@@ -103,7 +103,7 @@ sync_circuit RV5StageMultiplier(xlen :: XLen, kind :: RV5StageMultiplierKind):
   inst execution(RV5StageMultiplyService(kind, xlen.width, RV5StageMultiplyTag()))
   issue |> scalar.issue
   scalar.authorize.valid <== Bool(#false)
-  scalar.authorize.bits <== bits(0, 5)
+  scalar.authorize.bits <== Bits(5)(0)
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result
   scalar.completion |> completion

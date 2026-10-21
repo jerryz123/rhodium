@@ -76,7 +76,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
   if snoopable
   | block:
       def snoops = outer.field("snoops") |> trace_event(label ++ "/chi.rxsnp", ~stalls: #true, ~fields: flit):
-        address: flit.address ++ bits(0, 3)
+        address: flit.address ++ Bits(3)(0)
         opcode(~format: "enum", ~label: #true): flit.opcode
         txn_id(~format: "unsigned"): flit.txn_id
         src_id(~format: "unsigned"): flit.src_id

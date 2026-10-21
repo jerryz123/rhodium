@@ -45,8 +45,8 @@ fun resolve_memory_attributes(physical :: RiscvPhysicalMemoryLookup(), pbmt :: P
 /* Preserves only PBMTE for enabled RV64 specialization, returning zero otherwise. */
 fun svpbmt_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
   if enabled && xlen == XLen.X64
-  | value & bits(MenvcfgPBMTE.mask(), xlen.width)
-  | bits(0, xlen.width)
+  | value & Bits(xlen.width)(MenvcfgPBMTE.mask())
+  | Bits(xlen.width)(0)
 
 /* Reads RV64 PBMTE; RV32 specialization always disables page memory-type overrides. */
 fun svpbmt_enabled(xlen :: XLen, value :: Bits(xlen.width)) :~ Bool:

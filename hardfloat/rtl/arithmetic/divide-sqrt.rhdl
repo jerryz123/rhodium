@@ -52,7 +52,7 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
   def trial_width = significand_width + 4
   def second_trial_width = significand_width + 5
 
-  reg cycle_number(~init: bits(0, cycle_width))
+  reg cycle_number(~init: Bits(cycle_width)(0))
   reg ready_state(~init: Bool(#true))
   reg output_valid_state(~init: Bool(#false))
   reg square_root_state(Bool)
@@ -102,7 +102,7 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
   def saturated_quotient_exponent = (
       mux(
         sint(7 << (exponent_width - 2), quotient_exponent_width) <= quotient_exponent,
-        bits(6, 4),
+        Bits(4)(6),
         quotient_exponent.as_bits()[(exponent_width - 2)..=(exponent_width + 1)]
       )
         ++ quotient_exponent.as_bits()[0..=(exponent_width - 3)]
@@ -114,37 +114,37 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
   /* The countdown controls admission and completion, with readiness restored
      for the completion cycle. A following request may replace finished work;
      there is no output queue or downstream-ready input. */
-  def idle = cycle_number === bits(0, cycle_width)
+  def idle = cycle_number === Bits(cycle_width)(0)
   def entering = ready_state & input_valid
   def entering_normal = entering & normal_input
   def process_two_bits:
     if options.two_bits_per_cycle
-    | cycle_number >= bits(3, cycle_width)
+    | cycle_number >= Bits(cycle_width)(3)
     | Bool(#false)
   def skip_second_cycle:
     if options.two_bits_per_cycle
     | Bool(#false)
-    | (cycle_number === bits(3, cycle_width)) & significand_state[significand_width + 1].into(Bool)
-  def decrement = mux(process_two_bits, bits(2, cycle_width), bits(1, cycle_width))
+    | (cycle_number === Bits(cycle_width)(3)) & significand_state[significand_width + 1].into(Bool)
+  def decrement = mux(process_two_bits, Bits(cycle_width)(2), Bits(cycle_width)(1))
   def normal_initial_cycle = mux(
     square_root,
     mux(
       exponent_is_odd,
-      bits(significand_width, cycle_width),
-      bits(significand_width + 1, cycle_width)
+      Bits(cycle_width)(significand_width),
+      Bits(cycle_width)(significand_width + 1)
     ),
-    bits(significand_width + 2, cycle_width)
+    Bits(cycle_width)(significand_width + 2)
   )
   def next_cycle_number = mux(
     entering,
-    mux(entering_normal, normal_initial_cycle, bits(1, cycle_width)),
-    mux(skip_second_cycle, bits(1, cycle_width), cycle_number - decrement)
+    mux(entering_normal, normal_initial_cycle, Bits(cycle_width)(1)),
+    mux(skip_second_cycle, Bits(cycle_width)(1), cycle_number - decrement)
   )
 
   when (!idle ||| entering):
     cycle_number <== next_cycle_number
-    ready_state <== next_cycle_number <= bits(1, cycle_width)
-    output_valid_state <== next_cycle_number === bits(1, cycle_width)
+    ready_state <== next_cycle_number <= Bits(cycle_width)(1)
+    output_valid_state <== next_cycle_number === Bits(cycle_width)(1)
 
   input_ready <== ready_state
 
@@ -163,8 +163,8 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     rounding_mode_state <== rounding_mode
 
   def input_divisor_fraction = b.significand[0..=(significand_width - 2)].zext(significand_width) << 1
-  def odd_root_fraction = bits(1 << (significand_width - 2), significand_width)
-  def even_root_fraction = bits(1 << (significand_width - 1), significand_width)
+  def odd_root_fraction = Bits(significand_width)(1 << (significand_width - 2))
+  def even_root_fraction = Bits(significand_width)(1 << (significand_width - 1))
   when entering:
     divisor_fraction_state <== mux(
       square_root,
@@ -180,7 +180,7 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
 
   def initial_even_remainder = a.significand.zext(significand_width + 3) << 1
   def initial_odd_remainder = (
-    a.significand[(significand_width - 2)..significand_width] - bits(1, 2)
+    a.significand[(significand_width - 2)..significand_width] - Bits(2)(1)
       ++ (a.significand[0..=(significand_width - 3)].zext(significand_width + 1) << 3)
   )
   def busy_remainder = remainder_state.zext(significand_width + 3) << 1
@@ -190,15 +190,15 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     busy_remainder
   )
 
-  def shifted_cycle_one = bits(1, 1).zext(significand_width + 3) << cycle_number
+  def shifted_cycle_one = Bits(1)(1).zext(significand_width + 3) << cycle_number
   def bit_mask = shifted_cycle_one[2..=(significand_width + 2)]
   def initial_division_trial = b.significand.zext(significand_width + 3) << 1
-  def initial_even_root_trial = bits(1 << significand_width, significand_width + 3)
-  def initial_odd_root_trial = bits(5 << (significand_width - 1), significand_width + 3)
+  def initial_even_root_trial = Bits(significand_width + 3)(1 << significand_width)
+  def initial_odd_root_trial = Bits(significand_width + 3)(5 << (significand_width - 1))
   def busy_trial = divisor_fraction_state.zext(significand_width + 3) ||| mux(
     square_root_state,
     significand_state.zext(significand_width + 3) << 1,
-    bits(1 << significand_width, significand_width + 3)
+    Bits(significand_width + 3)(1 << significand_width)
   )
   def trial_term = mux(
     ready_state,
@@ -227,15 +227,12 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     (divisor_fraction_state >> 1).zext(significand_width + 3) ||| (
       significand_state.zext(significand_width + 3) << 1
     ),
-    divisor_fraction_state.zext(significand_width + 3) ||| bits(
-      1 << significand_width,
-      significand_width + 3
-    )
+    divisor_fraction_state.zext(significand_width + 3) ||| Bits(significand_width + 3)(1 << significand_width)
   )
   def second_trial_with_new_bit = second_trial_base ||| mux(
     square_root_state,
     divisor_fraction_state.zext(significand_width + 3) << 1,
-    bits(0, significand_width + 3)
+    Bits(significand_width + 3)(0)
   )
   def second_positive_remainder = trial_remainder.sext(second_trial_width) << 1
   def second_unsubtracted_remainder = (
@@ -272,16 +269,16 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
   )
 
   def initial_division_significand = new_bit.as_bits().zext(remainder_width) << (significand_width + 1)
-  def initial_root_significand = bits(1 << significand_width, remainder_width)
+  def initial_root_significand = Bits(remainder_width)(1 << significand_width)
   def initial_odd_root_bit = new_bit.as_bits().zext(remainder_width) << (significand_width - 1)
   def continued_significand = significand_state ||| mux(
     new_bit,
     bit_mask.zext(remainder_width),
-    bits(0, remainder_width)
+    Bits(remainder_width)(0)
   ) ||| mux(
     process_two_bits & second_new_bit,
     (bit_mask >> 1).zext(remainder_width),
-    bits(0, remainder_width)
+    Bits(remainder_width)(0)
   )
   def next_significand = mux(
     ready_state,
@@ -290,7 +287,7 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
       initial_root_significand ||| mux(
         odd_square_root,
         initial_odd_root_bit,
-        bits(0, remainder_width)
+        Bits(remainder_width)(0)
       ),
       initial_division_significand
     ),

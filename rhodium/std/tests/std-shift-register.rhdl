@@ -18,7 +18,7 @@ sync_circuit BundleShiftRegister():
   output oldest_data: Bits(8)
 
   def zero = Sample():
-    data: bits(0, 8)
+    data: Bits(8)(0)
     flag: Bool(#false)
   shift_register pipeline(source, 3, ~init: zero, ~enable: enable)
   stages <== pipeline
@@ -35,7 +35,7 @@ sync_circuit PerStageInitialShiftRegister():
   input source: Bits(4)
   output stages: Vec(3, Bits(4))
 
-  def initial = vec(bits(1, 4), bits(2, 4), bits(3, 4))
+  def initial = vec(Bits(4)(1), Bits(4)(2), Bits(4)(3))
   shift_register pipeline(source, 3, ~init: initial)
   stages <== pipeline
 
@@ -54,7 +54,7 @@ sync_circuit OptionCoverageShiftRegister():
   output(resetless, initialized): Vec(2, Bits(4))
 
   shift_register resetless_stages(source, 2, ~enable: enable)
-  shift_register initialized_stages(source, 2, ~enable: enable, ~init: bits(0, 4))
+  shift_register initialized_stages(source, 2, ~enable: enable, ~init: Bits(4)(0))
   resetless <== resetless_stages
   initialized <== initialized_stages
 
@@ -65,7 +65,7 @@ sync_circuit BadShiftRegisterInitialType():
 
 sync_circuit BadShiftRegisterInitialLength():
   input source: Bits(8)
-  def initial = vec(bits(0, 8), bits(0, 8), bits(0, 8))
+  def initial = vec(Bits(8)(0), Bits(8)(0), Bits(8)(0))
   shift_register stages(source, 2, ~init: initial)
   stages
 

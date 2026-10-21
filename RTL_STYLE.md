@@ -226,6 +226,9 @@ for cosmetic consistency. Conversely, do not mark an observable result as
 - Use `Bool` for predicates, enums for finite semantic choices, `Mask` for lane
   sets, and `OneHot` / `MaybeOneHot` for selector contracts. Keep those types
   through bundles and interfaces rather than repeatedly packing and recasting.
+- Construct literals through their type descriptors: `Bits(width)(value)`,
+  `Bool(#true)`, and `Mask(lanes)(mask)`. Reusable descriptor aliases such as
+  `def Byte = Bits(8)` also construct literals with `Byte(value)`.
 - Use widths derived from the configuration and actual range, including count
   endpoints and non-power-of-two capacities. Distinguish byte, word, lane,
   index, virtual-address, and physical-address quantities.

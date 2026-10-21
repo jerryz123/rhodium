@@ -19,9 +19,9 @@ bundle RiscvRoundingMode():
 
 /* Selects static or dynamic rounding mode and marks reserved encodings invalid. */
 fun riscv_rounding_mode(instruction_mode :: Bits(3), dynamic_mode :: Bits(3)) :~ RiscvRoundingMode():
-  def selected = mux(instruction_mode === bits(7, 3), dynamic_mode, instruction_mode)
+  def selected = mux(instruction_mode === Bits(3)(7), dynamic_mode, instruction_mode)
   RiscvRoundingMode():
-    valid: selected < bits(5, 3)
+    valid: selected < Bits(3)(5)
     mode: selected.into(RoundingMode)
 
 /* Packs HardFloat exception flags into architectural NV/DZ/OF/UF/NX bit order. */
@@ -30,11 +30,11 @@ fun riscv_exception_flags(flags :: ExceptionFlags()) :~ Bits(5):
 
 /* Packs integer-conversion invalid/overflow as architectural NV and preserves the inexact flag. */
 fun riscv_integer_exception_flags(flags :: IntegerExceptionFlags()) :~ Bits(5):
-  concat(flags.invalid ||| flags.overflow, bits(0, 3), flags.inexact)
+  concat(flags.invalid ||| flags.overflow, Bits(3)(0), flags.inexact)
 
 /* Constructs the positive quiet canonical NaN bit pattern for the selected IEEE format. */
 fun riscv_canonical_nan(format :: FloatFormat) :~ IEEEFloat(format):
-  concat(bits(0, 1), bits((1 << format.exponent_width) - 1, format.exponent_width), bits(1 << (format.significand_width - 2), format.significand_width - 1)).into(IEEEFloat(format))
+  concat(Bits(1)(0), Bits(format.exponent_width)((1 << format.exponent_width) - 1), Bits(format.significand_width - 1)(1 << (format.significand_width - 2))).into(IEEEFloat(format))
 
 /* Replaces any NaN with the architectural canonical image while preserving non-NaN values. */
 fun riscv_canonicalize_nan(format :: FloatFormat, value :: IEEEFloat(format)) :~ IEEEFloat(format):
@@ -83,16 +83,16 @@ fun riscv_float_immediate(format :: FloatFormat, index :: Bits(5)) :~ IEEEFloat(
   def constants = riscv_float_immediate_values(format)
   mux_lookup(
     index,
-    ~default: bits(constants[0], format.ieee_width),
+    ~default: Bits(format.ieee_width)(constants[0]),
     for List (value in constants, selector in 0..constants.length()):
-      [selector, bits(value, format.ieee_width)]
+      [selector, Bits(format.ieee_width)(value)]
   ).into(IEEEFloat(format))
 
 /* Embeds an IEEE value in a nonnarrower container with all-one upper bits. */
 fun riscv_nan_box(format :: FloatFormat, value :: IEEEFloat(format), width :: PosInt) :~ Bits(width):
   unless width >= format.ieee_width
   | error(~who: #'riscv_nan_box, "container width must cover the floating-point value")
-  if width == format.ieee_width | value.as_bits() | (bits((1 << (width - format.ieee_width)) - 1, width - format.ieee_width) ++ value.as_bits())
+  if width == format.ieee_width | value.as_bits() | (Bits(width - format.ieee_width)((1 << (width - format.ieee_width)) - 1) ++ value.as_bits())
 
 /* Checks all-one upper bits of a nonnarrower NaN-boxed container. */
 fun riscv_nan_box_valid(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ Bool:

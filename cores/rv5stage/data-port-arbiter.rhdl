@@ -22,7 +22,7 @@ sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
 
   inst requests(Arbiter(RV5StagePhysicalDataReq(xlen, slots), 2))
   Array(core.request, walker.request) <=> requests.ingress
-  def selected_walker = requests.chosen === bits(1, 1)
+  def selected_walker = requests.chosen === Bits(1)(1)
   requests.egress |> map_flow(request => request.updated(~memory: request.memory.updated(~context: request.memory.context.updated(~origin: mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core))))) |> memory.request
 
   core.request_fault <== memory.request_fault & !selected_walker

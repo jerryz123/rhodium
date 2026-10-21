@@ -14,7 +14,7 @@ sync_circuit EventLinear():
 
   source
     |> trace_event("accepted", ~payload: #true)
-    |> map_flow(payload => payload + bits(1, 8))
+    |> map_flow(payload => payload + Bits(8)(1))
     |> pipe(1)
     |> trace_event("issued", ~payload: #true)
     |> queue(2, ~flow: #true)
@@ -151,7 +151,7 @@ sync_circuit EventCaptures():
     pc: payload.nested.pc
     instruction(~format: "riscv", ~isa: "rv64im", ~pc: "pc"): payload.nested.instruction
     fault: payload.fault
-    low(~format: "unsigned"): payload.nested.pc[0..5] + bits(1, 5)
+    low(~format: "unsigned"): payload.nested.pc[0..5] + Bits(5)(1)
   selected |> trace_event("identity-only") |> sink
 
 sync_circuit InvalidCaptures(kind :: String):

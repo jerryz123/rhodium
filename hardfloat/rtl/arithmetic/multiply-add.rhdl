@@ -75,16 +75,16 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
     natural_c_alignment < sint(0, exponent_sum_width)
   )
   def c_dominant = !raw_c.is_zero & (
-    minimum_c_alignment ||| (positive_c_alignment <= bits(significand_width, exponent_width + 2))
+    minimum_c_alignment ||| (positive_c_alignment <= Bits(exponent_width + 2)(significand_width))
   )
   def full_alignment_width = index_width(significand_sum_width)
   def c_alignment = mux(
     minimum_c_alignment,
-    bits(0, full_alignment_width),
+    Bits(full_alignment_width)(0),
     mux(
-      positive_c_alignment < bits(significand_sum_width - 1, exponent_width + 2),
+      positive_c_alignment < Bits(exponent_width + 2)(significand_sum_width - 1),
       positive_c_alignment[0..full_alignment_width],
-      bits(significand_sum_width - 1, full_alignment_width)
+      Bits(full_alignment_width)(significand_sum_width - 1)
     )
   )
   /* Align c across the full fused-sum width, complementing subtraction terms
@@ -99,7 +99,7 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
   def c_extra_group_count = (significand_width + c_extra_shift + 3) div 4
   def c_extra_source = fma_extend(raw_c.significand, c_extra_group_count * 4) << c_extra_shift
   def c_extra_groups = c_extra_source.as_vec(Bits(4))
-  def reduced_c_extra_groups = c_extra_groups.map(fun (group): group =/= bits(0, 4))
+  def reduced_c_extra_groups = c_extra_groups.map(fun (group): group =/= Bits(4)(0))
   def reduced_c_extra = reduced_c_extra_groups.as_bits()
   def c_extra_mask_top = (significand_sum_width - 1) div 4
   def c_extra_mask_bottom = ((significand_sum_width - significand_width) - 1) div 4
@@ -169,7 +169,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def operation_sign_c = intermediate.product_sign ^ intermediate.subtract_magnitudes
   def high_sum = mux(
     multiply_add_result[significand_width * 2].into(Bool),
-    intermediate.high_aligned_c + bits(1, significand_width + 2),
+    intermediate.high_aligned_c + Bits(significand_width + 2)(1),
     intermediate.high_aligned_c
   )
   def significand_sum = concat(
@@ -185,7 +185,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     intermediate.subtract_magnitudes,
     !significand_sum[(significand_width + 1)..significand_sum_width],
     concat(
-      bits(0, 1),
+      Bits(1)(0),
       intermediate.high_aligned_c[significand_width..=(significand_width + 1)],
       significand_sum[(significand_width + 2)..=(significand_sum_width - 3)]
     )
@@ -206,7 +206,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     c_dominant_group_count * 4
   ) << c_dominant_extra_shift
   def c_dominant_groups = c_dominant_source.as_vec(Bits(4))
-  def c_dominant_reduced_groups = c_dominant_groups.map(fun (group): group =/= bits(0, 4))
+  def c_dominant_reduced_groups = c_dominant_groups.map(fun (group): group =/= Bits(4)(0))
   def c_dominant_reduced = c_dominant_reduced_groups.as_bits()
   def c_dominant_mask_width = significand_width div 4
   def c_dominant_reduced_extra:
@@ -232,7 +232,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   )
   def non_dominant_reduced_source = non_dominant_absolute_sum.zext((significand_width * 2) + 4)
   def non_dominant_groups = non_dominant_reduced_source.as_vec(Bits(2))
-  def non_dominant_reduced_groups = non_dominant_groups.map(fun (group): group =/= bits(0, 2))
+  def non_dominant_reduced_groups = non_dominant_groups.map(fun (group): group =/= Bits(2)(0))
   def non_dominant_reduced = non_dominant_reduced_groups.as_bits()
   def non_dominant_normalization_reduced = non_dominant_reduced.count_leading_zeros()
   def non_dominant_normalization_width = non_dominant_normalization_reduced.type.packed_width() + 1
@@ -252,7 +252,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     non_dominant_reduced_again_width
   ) << non_dominant_reduced_shift
   def non_dominant_groups_again = non_dominant_reduced_again_source.as_vec(Bits(2))
-  def non_dominant_reduced_groups_again = non_dominant_groups_again.map(fun (group): group =/= bits(0, 2))
+  def non_dominant_reduced_groups_again = non_dominant_groups_again.map(fun (group): group =/= Bits(2)(0))
   def non_dominant_reduced_again = non_dominant_reduced_groups_again.as_bits()
   def normalization_width = non_dominant_normalization_reduced.type.packed_width()
   def normalization_halves = non_dominant_normalization_reduced[1..normalization_width]
@@ -266,7 +266,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
       ++ (non_dominant_main[0..=2].or_reduce() ||| non_dominant_reduced_extra)
   )
   def non_dominant_cancellation:
-    non_dominant_significand[(significand_width + 1)..=(significand_width + 2)] === bits(0, 2)
+    non_dominant_significand[(significand_width + 1)..=(significand_width + 2)] === Bits(2)(0)
   def non_dominant_sign = mux(
     non_dominant_cancellation,
     minimum_rounding,

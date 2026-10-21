@@ -1,0 +1,23 @@
+#lang rhombus
+/* Adds literal construction to the frontend Bits descriptor without changing core bit-vector semantics. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/types.rhm".Bits as CoreBits
+  "fields.rhm".HardwareFields
+  "hardware-literal.rhm".packed_literal
+
+export Bits
+
+/* Retains core Bits equality and arithmetic while making each width descriptor a literal constructor. */
+class Bits():
+  extends CoreBits
+  implements Callable
+
+  /* Preserves literal construction when deriving another explicit bit width. */
+  override method with_bit_width(new_width :: PosInt):
+    Bits(new_width)
+
+  /* Creates an immutable, range-checked literal; an optional name is retained until materialization. */
+  override method call(value :: Nat, name :: maybe(String) = #false) :~ HardwareFields:
+    packed_literal(this, value, name)

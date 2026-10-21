@@ -31,7 +31,7 @@ class CsrBank(recognized :: Hardware.packable,
 
 /* Materializes one architectural CSR address as a 12-bit literal. */
 fun csr_bits(id :: CsrId) :~ Bits(12):
-  bits(csr_address(id), 12)
+  Bits(12)(csr_address(id))
 
 /* Requires the descriptor field to fit the hardware value and returns its packed width. */
 fun checked_csr_field_width(value :: Bits,
@@ -68,7 +68,7 @@ fun csr_field_replace(original :: Bits,
                       field :: BitField,
                       replacement :: Bits(field.width)) :~ Bits(original.type.packed_width()):
   def width = checked_csr_field_width(original, field, #'csr_field_replace)
-  def mask = bits(field.mask(), width)
+  def mask = Bits(width)(field.mask())
   (original & !mask) ||| csr_field_value(field, replacement, width)
 
 /* Replaces a one-bit CSR field using a Bool value. */
@@ -77,7 +77,7 @@ fun csr_flag_replace(original :: Bits,
                      enabled :: Bool) :~ Bits(original.type.packed_width()):
   unless field.width == 1
   | error(~who: #'csr_flag_replace, "CSR flag must be a one-bit field")
-  csr_field_replace(original, field, mux(enabled, bits(1, 1), bits(0, 1)))
+  csr_field_replace(original, field, mux(enabled, Bits(1)(1), Bits(1)(0)))
 
 /* Preserves only the selected architectural CSR fields, clearing all other bits. */
 fun csr_keep_fields(value :: Bits,
@@ -86,12 +86,12 @@ fun csr_keep_fields(value :: Bits,
   for (field in fields):
     unless field.high < width
     | error(~who: #'csr_keep_fields, "CSR field must fit the packed value")
-  value & bits(csr_fields_mask(fields), width)
+  value & Bits(width)(csr_fields_mask(fields))
 
 /* Constructs an XLEN-positioned summary-dirty bit from the supplied dirty condition. */
 fun mstatus_sd_value(width :: PosInt,
                      dirty :: Bool) :~ Bits(width):
-  mux(dirty, bits(1 bits.(<<) (width - 1), width), bits(0, width))
+  mux(dirty, Bits(width)(1 bits.(<<) (width - 1)), Bits(width)(0))
 
 /* Validates unique CSR identifiers and builds the recognized/read mux while retaining the supplied writer. */
 fun build_csr_bank(selector :: Bits(12),

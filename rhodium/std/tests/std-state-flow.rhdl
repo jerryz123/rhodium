@@ -6,7 +6,7 @@ import:
   lib("flow/state.rhdl") open
 
 sync_circuit WrongStateInitial():
-  inst source(StateChangeSource(Bits(4), 2, bits(0, 3)))
+  inst source(StateChangeSource(Bits(4), 2, Bits(3)(0)))
 
 export:
   WrongStateInitial

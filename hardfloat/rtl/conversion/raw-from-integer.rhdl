@@ -27,7 +27,7 @@ fun raw_float_from_integer(signed_input :: Bool,
   def normalization_distance = extended_magnitude.count_leading_zeros()
   def normalized = extended_magnitude << normalization_distance
   def significand = normalized[(extended_integer_width - integer_width)..extended_integer_width]
-  def exponent_bits = (bits(2, 2) ++ (!normalization_distance[0..=(exponent_width - 2)]))
+  def exponent_bits = (Bits(2)(2) ++ (!normalization_distance[0..=(exponent_width - 2)]))
 
   RawFloat(exponent_width, integer_width):
     is_nan: Bool(#false)

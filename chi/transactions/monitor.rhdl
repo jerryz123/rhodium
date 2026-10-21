@@ -71,7 +71,7 @@ fun monitor_chi_identity(node_id_width :: PosInt,
                          node_id :: Nat,
                          label_prefix :: String):
   when (valid & !lcrd_return):
-    assert(identity_value === bits(node_id, node_id_width),
+    assert(identity_value === Bits(node_id_width)(node_id),
            label_prefix)
 
 /* Combine physical REQ transport checks with opcode, identity, and transfer-Size assertions. */
@@ -122,7 +122,7 @@ fun monitor_chi_req_fields(p :: CHIFlitParams,
     assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(flit.txn_id === bits(0, 12),
+      assert(flit.txn_id === Bits(12)(0),
              label_prefix ++ "_lcrd_txn_id_zero")
     when (!lcrd_return & !flit.multi_req):
       assert(!flit.size_or_num_req[3..6].or_reduce(),
@@ -178,7 +178,7 @@ fun monitor_chi_rsp_fields(p :: CHIFlitParams,
     assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(flit.txn_id === bits(0, 12),
+      assert(flit.txn_id === Bits(12)(0),
              label_prefix ++ "_lcrd_txn_id_zero")
 
 /* Combine physical SNP transport checks with advertised opcode and credit-return assertions. */
@@ -217,7 +217,7 @@ fun monitor_chi_snp_fields(p :: CHIFlitParams,
     assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(flit.txn_id === bits(0, 12),
+      assert(flit.txn_id === Bits(12)(0),
              label_prefix ++ "_lcrd_txn_id_zero")
 
 /* Combine physical DAT transport checks with opcode, identity, and legal DataID assertions. */
@@ -268,7 +268,7 @@ fun monitor_chi_dat_fields(p :: CHIFlitParams,
     assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(flit.txn_id === bits(0, 12),
+      assert(flit.txn_id === Bits(12)(0),
              label_prefix ++ "_lcrd_txn_id_zero")
     when (!lcrd_return):
       assert(chi_data_id_valid(flit.data_id, p),
@@ -569,12 +569,12 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
   reg rn_tx_previous_ack(~init: Bool(#false))
   reg rn_rx_previous_request(~init: Bool(#false))
   reg rn_rx_previous_ack(~init: Bool(#false))
-  reg rn_tx_req_credit_balance(~init: bits(0, index_width(link.tx_req_credits + 1)))
-  reg rn_tx_rsp_credit_balance(~init: bits(0, index_width(link.tx_rsp_credits + 1)))
-  reg rn_tx_dat_credit_balance(~init: bits(0, index_width(link.tx_dat_credits + 1)))
-  reg rn_rx_rsp_credit_balance(~init: bits(0, index_width(link.rx_rsp_credits + 1)))
-  reg rn_rx_dat_credit_balance(~init: bits(0, index_width(link.rx_dat_credits + 1)))
-  reg rn_rx_snp_credit_balance(~init: bits(0, index_width(link.rx_snp_credits + 1)))
+  reg rn_tx_req_credit_balance(~init: Bits(index_width(link.tx_req_credits + 1))(0))
+  reg rn_tx_rsp_credit_balance(~init: Bits(index_width(link.tx_rsp_credits + 1))(0))
+  reg rn_tx_dat_credit_balance(~init: Bits(index_width(link.tx_dat_credits + 1))(0))
+  reg rn_rx_rsp_credit_balance(~init: Bits(index_width(link.rx_rsp_credits + 1))(0))
+  reg rn_rx_dat_credit_balance(~init: Bits(index_width(link.rx_dat_credits + 1))(0))
+  reg rn_rx_snp_credit_balance(~init: Bits(index_width(link.rx_snp_credits + 1))(0))
   monitor_chi_cache_maintenance(link.flit, observed.tx_req.valid, observed.tx_req.bits, label_prefix)
   monitor_chi_activation(observed.tx_link_active_request,
                          observed.tx_link_active_ack,
@@ -627,11 +627,11 @@ fun monitor_chi_rni(link :: CHIRNILinkParams,
   reg rni_tx_previous_ack(~init: Bool(#false))
   reg rni_rx_previous_request(~init: Bool(#false))
   reg rni_rx_previous_ack(~init: Bool(#false))
-  reg rni_tx_req_credit_balance(~init: bits(0, index_width(link.tx_req_credits + 1)))
-  reg rni_tx_rsp_credit_balance(~init: bits(0, index_width(link.tx_rsp_credits + 1)))
-  reg rni_tx_dat_credit_balance(~init: bits(0, index_width(link.tx_dat_credits + 1)))
-  reg rni_rx_rsp_credit_balance(~init: bits(0, index_width(link.rx_rsp_credits + 1)))
-  reg rni_rx_dat_credit_balance(~init: bits(0, index_width(link.rx_dat_credits + 1)))
+  reg rni_tx_req_credit_balance(~init: Bits(index_width(link.tx_req_credits + 1))(0))
+  reg rni_tx_rsp_credit_balance(~init: Bits(index_width(link.tx_rsp_credits + 1))(0))
+  reg rni_tx_dat_credit_balance(~init: Bits(index_width(link.tx_dat_credits + 1))(0))
+  reg rni_rx_rsp_credit_balance(~init: Bits(index_width(link.rx_rsp_credits + 1))(0))
+  reg rni_rx_dat_credit_balance(~init: Bits(index_width(link.rx_dat_credits + 1))(0))
   monitor_chi_cache_maintenance(link.flit, observed.tx_req.valid, observed.tx_req.bits, label_prefix)
   monitor_chi_activation(observed.tx_link_active_request,
                          observed.tx_link_active_ack,
@@ -682,10 +682,10 @@ fun monitor_chi_sn(link :: CHISNLinkParams,
   reg sn_tx_previous_ack(~init: Bool(#false))
   reg sn_rx_previous_request(~init: Bool(#false))
   reg sn_rx_previous_ack(~init: Bool(#false))
-  reg sn_tx_rsp_credit_balance(~init: bits(0, index_width(link.tx_rsp_credits + 1)))
-  reg sn_tx_dat_credit_balance(~init: bits(0, index_width(link.tx_dat_credits + 1)))
-  reg sn_rx_req_credit_balance(~init: bits(0, index_width(link.rx_req_credits + 1)))
-  reg sn_rx_dat_credit_balance(~init: bits(0, index_width(link.rx_dat_credits + 1)))
+  reg sn_tx_rsp_credit_balance(~init: Bits(index_width(link.tx_rsp_credits + 1))(0))
+  reg sn_tx_dat_credit_balance(~init: Bits(index_width(link.tx_dat_credits + 1))(0))
+  reg sn_rx_req_credit_balance(~init: Bits(index_width(link.rx_req_credits + 1))(0))
+  reg sn_rx_dat_credit_balance(~init: Bits(index_width(link.rx_dat_credits + 1))(0))
   monitor_chi_activation(observed.tx_link_active_request,
                          observed.tx_link_active_ack,
                          sn_tx_previous_request,

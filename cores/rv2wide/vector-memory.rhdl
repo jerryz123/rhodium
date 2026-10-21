@@ -82,8 +82,8 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     pc: token.context
     disposition: VectorDisposition.Authorized
     slow: Bool(#true)
-    data: bits(0, xlen.width)
-    cause: bits(0, xlen.width)
+    data: Bits(xlen.width)(0)
+    cause: Bits(xlen.width)(0)
     fault_address: token.address
 
 

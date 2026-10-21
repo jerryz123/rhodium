@@ -98,8 +98,8 @@ fun compile_route_decoder(router_plan :: RouterPlan) :: RouteDecoder:
     fun (entry):
       DecodeCase(
         (pattern(RouteLookupKey(route_width, origin_width)):
-           route_key: bits(entry.route_key, route_width)
-           origin_key: bits(entry.origin_key, origin_width)),
+           route_key: Bits(route_width)(entry.route_key)
+           origin_key: Bits(origin_width)(entry.origin_key)),
         (pattern(RouteDecision(mask_width)):
            target_mask: Mask(mask_width)(entry.target_mask)
            fallback_mask: Mask(mask_width)(entry.fallback_mask)
@@ -137,9 +137,9 @@ fun compile_router_family_route_decoder(
     fun (entry):
       DecodeCase(
         (pattern(SiteRouteLookupKey(site_width, route_width, origin_width)):
-           site_key: bits(entry.site_key, site_width)
-           route_key: bits(entry.route_key, route_width)
-           origin_key: bits(entry.origin_key, origin_width)),
+           site_key: Bits(site_width)(entry.site_key)
+           route_key: Bits(route_width)(entry.route_key)
+           origin_key: Bits(origin_width)(entry.origin_key)),
         (pattern(RouteDecision(mask_width)):
            target_mask: Mask(mask_width)(entry.target_mask)
            fallback_mask: Mask(mask_width)(entry.fallback_mask)

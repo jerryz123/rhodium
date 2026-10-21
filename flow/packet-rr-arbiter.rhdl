@@ -20,12 +20,12 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   output chosen: Bits(index_width(n))
 
   def width = index_width(n)
-  reg next_priority(~init: bits(0, width))
+  reg next_priority(~init: Bits(width)(0))
   reg locked(~init: Bool(#false))
-  reg owner(~init: bits(0, width))
+  reg owner(~init: Bits(width)(0))
 
-  assert(next_priority <= bits(n - 1, width), "packet_rr_priority_in_range")
-  assert(!locked ||| (owner <= bits(n - 1, width)), "packet_rr_owner_in_range")
+  assert(next_priority <= Bits(width)(n - 1), "packet_rr_priority_in_range")
+  assert(!locked ||| (owner <= Bits(width)(n - 1)), "packet_rr_owner_in_range")
 
   def requests = vec(for List (index in 0..n): ingress[index].valid)
   def choice :: CircularPriorityChoice(n, width) = circular_priority_onehot(requests, next_priority)
@@ -54,9 +54,9 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   when (transfer & selected_last):
     locked <== Bool(#false)
     next_priority <== mux(
-      selected_index === bits(n - 1, width),
-      bits(0, width),
-      selected_index + bits(1, width)
+      selected_index === Bits(width)(n - 1),
+      Bits(width)(0),
+      selected_index + Bits(width)(1)
     )
   elsewhen (transfer & !locked):
     locked <== Bool(#true)

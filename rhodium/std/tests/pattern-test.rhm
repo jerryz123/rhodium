@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/foundation.rhm") as hw
   "../../../rhodium/core/types.rhm".Bits
   "../../../rhodium/frontend/layers/comb.rhm" open
   "../../../rhodium/frontend/layers/vector.rhm".Vec
@@ -12,20 +13,20 @@ import:
   "pattern-fixture.rhdl" as fixture
 
 def narrower_pattern = Pattern(
-  ~value: bits(0b1000, 4),
-  ~care: bits(0b1000, 4)
+  ~value: hw.Bits(4)(0b1000),
+  ~care: hw.Bits(4)(0b1000)
 )
 def disjoint_pattern = Pattern(
-  ~value: bits(0b0100, 4),
-  ~care: bits(0b1100, 4)
+  ~value: hw.Bits(4)(0b0100),
+  ~care: hw.Bits(4)(0b1100)
 )
 def crossing_pattern = Pattern(
-  ~value: bits(0b0010, 4),
-  ~care: bits(0b0110, 4)
+  ~value: hw.Bits(4)(0b0010),
+  ~care: hw.Bits(4)(0b0110)
 )
 def empty_intersection_pattern = Pattern(
-  ~value: bits(0b0100, 4),
-  ~care: bits(0b1100, 4)
+  ~value: hw.Bits(4)(0b0100),
+  ~care: hw.Bits(4)(0b1100)
 )
 
 fun signatures(set :: PatternSet):
@@ -33,12 +34,12 @@ fun signatures(set :: PatternSet):
 
 fun equivalent_over_bits(set :: PatternSet, predicate :: Function):
   for all (candidate in 0..16):
-    set.matches(bits(candidate, 4)) == predicate(bits(candidate, 4))
+    set.matches(hw.Bits(4)(candidate)) == predicate(hw.Bits(4)(candidate))
 
 def singleton = as_pattern_set(fixture.bits_pattern)
-def converted_pattern :: PatternLike.to_pattern = bits(0b1010, 4)
+def converted_pattern :: PatternLike.to_pattern = hw.Bits(4)(0b1010)
 def retained_pattern :: PatternLike.to_pattern = fixture.bits_pattern
-def converted_set :: PatternSetLike.to_pattern_set = bits(0b1010, 4)
+def converted_set :: PatternSetLike.to_pattern_set = hw.Bits(4)(0b1010)
 def retained_set :: PatternSetLike.to_pattern_set = singleton
 def empty = PatternSet(Bits(4), [])
 def union = fixture.bits_pattern.union(crossing_pattern)
@@ -48,7 +49,7 @@ def inverse = fixture.bits_pattern.inverse()
 def pair_set = pattern_set(
   fixture.concise_pair_pattern,
   (pattern(literals.Pair()):
-     left: bits(0b0011, 4)
+     left: hw.Bits(4)(0b0011)
      right: _)
 )
 
@@ -57,8 +58,8 @@ check:
   fixture.bits_pattern.width ~is 4
   fixture.bits_pattern.value_bits ~is 0b1000
   fixture.bits_pattern.care_bits ~is 0b1100
-  fixture.bits_pattern.matches(bits(0b1011, 4)) ~is #true
-  fixture.bits_pattern.matches(bits(0b0110, 4)) ~is #false
+  fixture.bits_pattern.matches(hw.Bits(4)(0b1011)) ~is #true
+  fixture.bits_pattern.matches(hw.Bits(4)(0b0110)) ~is #false
 
   fixture.bool_pattern.matches(literals.bool_initial) ~is #true
   fixture.enum_pattern.matches(literals.mode_initial) ~is #true
@@ -86,8 +87,8 @@ check:
   fixture.concise_wildcard_bits.value_bits ~is 0
   fixture.concise_wildcard_bits.care_bits ~is 0
   as_pattern(fixture.bits_pattern) === fixture.bits_pattern ~is #true
-  as_pattern(bits(0b1010, 4)).value_bits ~is 0b1010
-  as_pattern(bits(0b1010, 4)).care_bits ~is 0b1111
+  as_pattern(hw.Bits(4)(0b1010)).value_bits ~is 0b1010
+  as_pattern(hw.Bits(4)(0b1010)).care_bits ~is 0b1111
   converted_pattern.value_bits ~is 0b1010
   converted_pattern.care_bits ~is 0b1111
   retained_pattern === fixture.bits_pattern ~is #true
@@ -99,18 +100,18 @@ check:
 
   singleton.type.type_equal(Bits(4)) ~is #true
   signatures(singleton) ~is [[0b1000, 0b1100]]
-  as_pattern_set(bits(0b1010, 4)).matches(bits(0b1010, 4)) ~is #true
-  converted_set.matches(bits(0b1010, 4)) ~is #true
+  as_pattern_set(hw.Bits(4)(0b1010)).matches(hw.Bits(4)(0b1010)) ~is #true
+  converted_set.matches(hw.Bits(4)(0b1010)) ~is #true
   retained_set === singleton ~is #true
   empty.is_empty() ~is #true
-  empty.matches(bits(0, 4)) ~is #false
+  empty.matches(hw.Bits(4)(0)) ~is #false
   signatures(empty.inverse()) ~is [[0, 0]]
 
   // Union removes overlapping coverage while retaining the exact denotation.
   signatures(union) ~is [[0b0010, 0b0110], [0b1000, 0b1110]]
-  union.matches(bits(0b0010, 4)) ~is #true
-  union.matches(bits(0b1011, 4)) ~is #true
-  union.matches(bits(0b1100, 4)) ~is #false
+  union.matches(hw.Bits(4)(0b0010)) ~is #true
+  union.matches(hw.Bits(4)(0b1011)) ~is #true
+  union.matches(hw.Bits(4)(0b1100)) ~is #false
   union.terms[0].overlaps(union.terms[1]) ~is #false
   signatures(crossing_pattern.union(fixture.bits_pattern)) ~is signatures(union)
   equivalent_over_bits(
@@ -150,18 +151,18 @@ check:
 
   pair_set.matches(
     literals.Pair():
-      left: bits(0b0011, 4)
-      right: bits(0b1111, 4)
+      left: hw.Bits(4)(0b0011)
+      right: hw.Bits(4)(0b1111)
   ) ~is #true
   as_pattern_set(fixture.nibble_pattern).matches(
     literals.NibbleLiteral(0b1011)
   ) ~is #true
 
-  Pattern(~value: bits(0, 4),
+  Pattern(~value: hw.Bits(4)(0),
           ~care: literal(literals.Nibble(), 0)) ~throws "exactly the same hardware type"
   fixture.bits_pattern.matches(literal(literals.Nibble(), 0)) ~throws "exactly the same hardware type"
   (pattern(literals.Pair()):
-     left: bits(0, 4)) ~throws "every field exactly once"
-  (pattern(Vec(2, Bits(4)), [bits(0, 4)])) ~throws "element count"
+     left: hw.Bits(4)(0)) ~throws "every field exactly once"
+  (pattern(Vec(2, Bits(4)), [hw.Bits(4)(0)])) ~throws "element count"
   as_pattern("not a pattern") ~throws "expected a HardwareLiteral or Pattern"
   PatternSet(Bits(4), [fixture.nibble_pattern]) ~throws "PatternSet hardware type"

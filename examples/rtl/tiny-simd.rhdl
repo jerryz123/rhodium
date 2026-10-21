@@ -54,7 +54,7 @@ sync_circuit Lane(width :: PosInt, enable_multiply :: Boolean):
   input instruction: Instruction(Bits(width))
   output result: Bits(width)
 
-  reg accumulator(~init: bits(0, width))
+  reg accumulator(~init: Bits(width)(0))
 
   // The host condition removes the case and multiplier during elaboration.
   // Lane results stay modular: expanding operators preserve overflow, then a
@@ -101,7 +101,7 @@ sync_circuit TinySIMD(config :: EngineConfig):
   // Program words stay packed in memory and become structured instructions
   // through an explicit equal-width representation cast at the read boundary.
   mem program(config.program_depth, Bits(instruction_width))
-  reg pc(~init: bits(0, address_width))
+  reg pc(~init: Bits(address_width)(0))
   def instruction = program[pc].into(InstructionType)
 
   program.write(loader.address, loader.data, ~enable: loader.write)
@@ -109,7 +109,7 @@ sync_circuit TinySIMD(config :: EngineConfig):
 
   when step:
     // Power-of-two depth lets fixed-width overflow wrap directly to address 0.
-    pc <== pc + bits(1, address_width)
+    pc <== pc + Bits(address_width)(1)
 
   // One host comprehension elaborates, wires, and collects the physical lanes.
   // Its List exists only during elaboration; vec packs the returned hardware

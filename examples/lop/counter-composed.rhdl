@@ -12,9 +12,9 @@ import:
 sync_circuit Counter(width):
   output count: Bits(width)
 
-  def zero = bits(0, width)
+  def zero = Bits(width)(0)
   reg state(Bits(width), ~init: zero)
-  def one = bits(1, width)
+  def one = Bits(width)(1)
   state <== state + one
   count <== state
 

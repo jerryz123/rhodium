@@ -34,23 +34,23 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
   reg partial_row(Bits(10))
   reg partial_prediction(BranchPrediction(xlen))
   prefix_row <== partial_row
-  def prefix = partial_valid & (pc === (partial_pc + bits(2, xlen.width)))
+  def prefix = partial_valid & (pc === (partial_pc + Bits(xlen.width)(2)))
   def mutable checkpoint = history
   def mutable cut = Bool(#false)
   def mutable effective :: BranchPrediction(xlen) = literal(BranchPrediction(xlen), 0)
   def mutable matched = Bool(#false)
   def mutable stale_target = Bool(#false)
-  def mutable boundary = mux(prefix, bits(1, 3), pc[1..3].zext(3))
+  def mutable boundary = mux(prefix, Bits(3)(1), pc[1..3].zext(3))
   def mutable pending = Bool(#false)
   // The retained prefix is inspected first; the four ordinary candidates then
   // advance only at real instruction boundaries, including compressed parcels.
   for (slot in 0..5):
     def parcel = if slot == 0 | 3 | slot - 1
     def raw = if slot == 0 | data[0..16] ++ partial_word | (data >> (parcel * 16))[0..32]
-    def address = if slot == 0 | partial_pc | pc.align_down(8) + bits(parcel * 2, xlen.width)
+    def address = if slot == 0 | partial_pc | pc.align_down(8) + Bits(xlen.width)(parcel * 2)
     inst decoded(RV2WidePredecode(profile))
     decoded.raw <== raw
-    def at_boundary = if slot == 0 | prefix | boundary === bits(parcel, 3)
+    def at_boundary = if slot == 0 | prefix | boundary === Bits(3)(parcel)
     def complete = if slot == 0 | Bool(#true) | decoded.compressed ||| Bool(parcel < 3)
     def live = at_boundary & !cut & !fault
     def candidate :: BranchPrediction(xlen) = if slot == 0 | partial_prediction | prediction
@@ -58,7 +58,7 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
     def taken = mux(decoded.conditional, (if slot == 0 | prefix_counter | counters[parcel])[1].into(Bool), known)
     def metadata = BhtPrediction(10):
       valid: live & complete & decoded.conditional
-      index: (if slot == 0 | partial_row | row) ++ bits(parcel, 2)
+      index: (if slot == 0 | partial_row | row) ++ Bits(2)(parcel)
       history: checkpoint
       taken: taken
     if slot == 0
@@ -77,12 +77,12 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
     cut := cut ||| (live & complete & decoded.control_flow & taken)
     pending := pending ||| (live & !complete)
     if slot > 0
-    | boundary := mux(live, bits(parcel, 3) + mux(decoded.compressed, bits(1, 3), bits(2, 3)), boundary)
+    | boundary := mux(live, Bits(3)(parcel) + mux(decoded.compressed, Bits(3)(1), Bits(3)(2)), boundary)
     | #void
   // An incomplete byte-six branch is still provisional until its upper parcel
   // arrives. Its original row and BTB metadata remain attached to that prefix.
-  corrected <== mux(pending & prediction.valid & !prediction.compressed & (prediction.pc === (pc.align_down(8) + bits(6, xlen.width))), prediction, effective)
-  next_pc <== mux(effective.valid, effective.target, pc.align_down(8) + bits(8, xlen.width))
+  corrected <== mux(pending & prediction.valid & !prediction.compressed & (prediction.pc === (pc.align_down(8) + Bits(xlen.width)(6))), prediction, effective)
+  next_pc <== mux(effective.valid, effective.target, pc.align_down(8) + Bits(xlen.width)(8))
   history_after <== checkpoint
   invalidate <== !fault & ((prediction.valid & !matched & !prefix) ||| stale_target)
   when clear:
@@ -90,7 +90,7 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
   elsewhen valid:
     partial_valid <== pending
     when pending:
-      partial_pc <== pc.align_down(8) + bits(6, xlen.width)
+      partial_pc <== pc.align_down(8) + Bits(xlen.width)(6)
       partial_word <== data[48..64]
       partial_row <== row
       partial_prediction <== prediction
@@ -117,7 +117,7 @@ sync_circuit DisabledRV2WideDirection(profile :: RV2WideConfig):
   prefix_direction <== literal(BhtPrediction(10), 0)
   corrected <== prediction
   history_after <== history
-  next_pc <== pc.align_down(8) + bits(8, xlen.width)
+  next_pc <== pc.align_down(8) + Bits(xlen.width)(8)
   invalidate <== Bool(#false)
 
 export:

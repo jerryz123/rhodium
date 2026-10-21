@@ -20,8 +20,8 @@ sync_circuit RiscvBaseCounters(xlen :: XLen):
   output cycle: Bits(64)
   output instret: Bits(64)
 
-  reg cycle_counter(~init: bits(0, 64))
-  reg instret_counter(~init: bits(0, 64))
+  reg cycle_counter(~init: Bits(64)(0))
+  reg instret_counter(~init: Bits(64)(0))
 
   def cycle_low_write = machine_write.valid & (machine_write.bits.address === csr_bits(CsrId.Mcycle))
   def cycle_high_write = if xlen == XLen.X32 | machine_write.valid & (machine_write.bits.address === csr_bits(CsrId.Mcycleh)) | Bool(#false)
@@ -43,7 +43,7 @@ sync_circuit RiscvBaseCounters(xlen :: XLen):
   when (cycle_low_write ||| cycle_high_write):
     cycle_counter <== cycle_replacement
   otherwise:
-    cycle_counter <== cycle_counter + bits(1, 64)
+    cycle_counter <== cycle_counter + Bits(64)(1)
 
   when (instret_low_write ||| instret_high_write):
     instret_counter <== instret_replacement

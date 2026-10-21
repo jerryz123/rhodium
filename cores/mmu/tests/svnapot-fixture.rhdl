@@ -57,7 +57,7 @@ sync_circuit RiscvSvnapotFixture():
   walker.request.valid <== command_valid
   walker.request.bits <== RiscvTranslationRequest():
     virtual_address: address
-    root_ppn: bits(1, 44)
+    root_ppn: Bits(44)(1)
     access: access
     privilege: privilege
     sum: sum

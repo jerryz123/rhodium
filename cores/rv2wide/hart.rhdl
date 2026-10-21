@@ -34,7 +34,7 @@ sync_circuit RV2WideHart(profile :: RV2WideConfig, ~reset_address: reset_address
   reg started(~init: Bool(#false))
   started <== Bool(#true)
   core.start.valid <== !started
-  core.start.bits <== bits(reset_address, 64)
+  core.start.bits <== Bits(64)(reset_address)
 
 export:
   RV2WideHart

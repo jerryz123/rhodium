@@ -179,7 +179,7 @@ The `csr_bank` form defines each implemented identifier once and derives:
 or write-ignored views, and `csr` entries provide custom read/write behavior
 for aliases and WARL masking. `read_all IDs: value` assigns one read value to
 each identifier in a host list of `CsrId` values, with writes ignored. For
-example, `read_all MachineHpmCounterIds: bits(0, width)` describes the permitted
+example, `read_all MachineHpmCounterIds: Bits(width)(0)` describes the permitted
 zero-valued HPM counter bank without allocating registers. Grouped entries
 participate in the same duplicate-identifier checks as individual entries;
 the caller still owns architectural read-only and privilege checks. The pure ISA

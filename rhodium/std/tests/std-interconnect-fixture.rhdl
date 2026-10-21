@@ -40,7 +40,7 @@ circuit TransferRangeTypeFixture(T :: DataType, window :: PosInt):
   input address: Bits(4)
   input length: T
   output matches: Bool
-  matches <== transfer_in_range(address, length, bits(0, 4), window)
+  matches <== transfer_in_range(address, length, Bits(4)(0), window)
 
 fun transfer_range_design(T :: DataType, window :: PosInt):
   compile_program(elaborate(TransferRangeTypeFixture(T, window)), rtl_target).report.design

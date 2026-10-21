@@ -5,7 +5,7 @@
 
 sync_circuit Child():
   output value: Bits(1)
-  value <== bits(0, 1)
+  value <== Bits(1)(0)
 
 circuit BadSyncParent():
   output value: Bits(1)

@@ -168,15 +168,15 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   /* Destination reservations and completion forwarding.
      Same-cycle clears win reservation sets and immediately release the busy view. */
 
-  reg reservations(~init: bits(0, 32))
+  reg reservations(~init: Bits(32)(0))
   def admitted = mux(authorize.valid, authorize.bits.tag, variable_issue.bits.tag)
   def arithmetic_set = (authorize.valid ||| variable_issue.fire()) & (admitted.destination === FloatDestination.FloatingPoint)
-  def arithmetic_reservation = mux(arithmetic_set, bits(1, 32) << admitted.rd, bits(0, 32))
-  def load_reservation = mux(load_reserve.valid, bits(1, 32) << load_reserve.bits.rd, bits(0, 32))
-  def arithmetic_release = mux(arithmetic_write.valid, bits(1, 32) << arithmetic_write.bits.tag.rd, bits(0, 32))
-  def load_release = mux(delayed_load.valid, bits(1, 32) << delayed_load.bits.owner.rd, bits(0, 32))
-  def vector_reservation = mux(vector_reserve.valid, bits(1, 32) << vector_reserve.bits, bits(0, 32))
-  def vector_release = mux(vector_written.valid, bits(1, 32) << vector_written.bits.address, bits(0, 32))
+  def arithmetic_reservation = mux(arithmetic_set, Bits(32)(1) << admitted.rd, Bits(32)(0))
+  def load_reservation = mux(load_reserve.valid, Bits(32)(1) << load_reserve.bits.rd, Bits(32)(0))
+  def arithmetic_release = mux(arithmetic_write.valid, Bits(32)(1) << arithmetic_write.bits.tag.rd, Bits(32)(0))
+  def load_release = mux(delayed_load.valid, Bits(32)(1) << delayed_load.bits.owner.rd, Bits(32)(0))
+  def vector_reservation = mux(vector_reserve.valid, Bits(32)(1) << vector_reserve.bits, Bits(32)(0))
+  def vector_release = mux(vector_written.valid, Bits(32)(1) << vector_written.bits.address, Bits(32)(0))
   def set_mask = arithmetic_reservation ||| load_reservation ||| vector_reservation
   def clear_mask = arithmetic_release ||| load_release ||| vector_release
   reservations <== (reservations ||| set_mask) & !clear_mask
@@ -187,14 +187,14 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
      Outstanding counts track authorization/load reservation through consumed completion. */
 
   def count_width = index_width(timing.maximum + 8)
-  reg outstanding(~init: bits(0, count_width))
+  reg outstanding(~init: Bits(count_width)(0))
   def accepted = authorize.valid.as_bits().zext(count_width) + variable_issue.fire().as_bits().zext(count_width) + load_reserve.valid.as_bits().zext(count_width) + vector_reserve.valid.as_bits().zext(count_width)
   def finished = completion.valid.as_bits().zext(count_width) + delayed_load.valid.as_bits().zext(count_width) + vector_written.valid.as_bits().zext(count_width)
   outstanding <== outstanding + accepted - finished
   drained <== !outstanding.or_reduce()
   def flags_update = completion.valid & completion.bits.exception_flags_valid
   state_update.valid <== arithmetic_write.valid ||| load_write.valid ||| flags_update
-  state_update.bits <== mux(flags_update, completion.bits.exception_flags, bits(0, 5))
+  state_update.bits <== mux(flags_update, completion.bits.exception_flags, Bits(5)(0))
 
 /* Provides the same pipeline-facing ports without FP state, execution, or accepted work. */
 sync_circuit RV2WideFpDisabled(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
@@ -231,8 +231,8 @@ sync_circuit RV2WideFpDisabled(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
   load_write.valid <== Bool(#false)
   load_write.bits <== dont_care(RV2WideFpLoad(xlen))
   state_update.valid <== Bool(#false)
-  state_update.bits <== bits(0, 5)
-  busy <== bits(0, 32)
+  state_update.bits <== Bits(5)(0)
+  busy <== Bits(32)(0)
   drained <== Bool(#true)
   vector_request.ready <== Bool(#false)
   vector_result.valid <== Bool(#false)

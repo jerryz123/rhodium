@@ -40,7 +40,7 @@ circuit ExactSelectorWithDefault():
   input choices: Vec(3, Bits(8))
   output result: Bits(8)
   result <== selector.mux(for List (lane in 0..3): choices[lane],
-                          ~default: bits(0, 8))
+                          ~default: Bits(8)(0))
 
 circuit MaybeSelectorWithoutDefault():
   input selector: Maybe3
@@ -59,7 +59,7 @@ circuit WrongMaybeChoiceCount():
   input choices: Vec(2, Bits(8))
   output result: Bits(8)
   result <== selector.mux(for List (lane in 0..2): choices[lane],
-                          ~default: bits(0, 8))
+                          ~default: Bits(8)(0))
 
 circuit WrongMaybeMaskWidth():
   input selector: Maybe3

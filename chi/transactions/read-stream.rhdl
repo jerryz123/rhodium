@@ -62,15 +62,15 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
 
   reg stream_active(~init: Bool(#false))
   reg starvation_seen(~init: Bool(#false))
-  reg next_address(~init: bits(0, p.request_address_width))
-  reg remaining_bytes(~init: bits(0, p.request_address_width))
-  reg stride(~init: bits(64, p.request_address_width))
+  reg next_address(~init: Bits(p.request_address_width)(0))
+  reg remaining_bytes(~init: Bits(p.request_address_width)(0))
+  reg stride(~init: Bits(p.request_address_width)(64))
   reg home_id(Bits(p.node_id_width))
   reg pas(CHIPAS)
   reg allocate(Bool)
   reg qos(Bits(4))
-  reg issue_slot(~init: bits(0, index_width(slots)))
-  reg output_slot(~init: bits(0, index_width(slots)))
+  reg issue_slot(~init: Bits(index_width(slots))(0))
+  reg output_slot(~init: Bits(index_width(slots))(0))
   reg occupied(Vec(slots, Bool), ~init: empty_slots)
   reg current(Vec(slots, Bool), ~init: empty_slots)
   reg completed(Vec(slots, Bool), ~init: empty_slots)
@@ -83,9 +83,9 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
 
   /* Advance the circular issue/output slot index, wrapping at the configured slot count. */
   fun following_slot(slot :: Bits(index_width(slots))):
-    mux(slot === bits(slots - 1, index_width(slots)),
-        bits(0, index_width(slots)),
-        slot + bits(1, index_width(slots)))
+    mux(slot === Bits(index_width(slots))(slots - 1),
+        Bits(index_width(slots))(0),
+        slot + Bits(index_width(slots))(1))
 
   command.ready <== Bool(#true)
   def command_fire = command.fire()
@@ -108,10 +108,10 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   inst completion_arbiter(RRArbiter(ReadResult, slots))
 
   def issue_available = stream_active & remaining_bytes.or_reduce() & !occupied[issue_slot]
-  def final_issue = remaining_bytes <= bits(64, p.request_address_width)
+  def final_issue = remaining_bytes <= Bits(p.request_address_width)(64)
   def issued_byte_count = mux(final_issue,
                               remaining_bytes,
-                              bits(64, p.request_address_width))
+                              Bits(p.request_address_width)(64))
   command_demux.ingress.valid <== issue_available & !command.valid
   command_demux.ingress.bits <== CHIReadOnceCommand(p, Bits(index_width(slots))):
     address: next_address
@@ -131,19 +131,19 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   chi.dat.request.bits <== literal(CHIDatFlit(p), 0)
 
   def response_txn_id = chi.rsp.response.bits.txn_id
-  def response_in_range = (response_txn_id >= bits(txn_base, 12)) & (
-    response_txn_id < bits(txn_base + slots, 12)
+  def response_in_range = (response_txn_id >= Bits(12)(txn_base)) & (
+    response_txn_id < Bits(12)(txn_base + slots)
   )
-  def response_slot = (response_txn_id - bits(txn_base, 12))[0..index_width(slots)]
+  def response_slot = (response_txn_id - Bits(12)(txn_base))[0..index_width(slots)]
   response_demux.select <== response_slot
   when (chi.rsp.response.valid):
     assert(response_in_range, "chi_read_stream_response_txn_in_range")
 
   def data_txn_id = chi.dat.response.bits.txn_id
-  def data_in_range = (data_txn_id >= bits(txn_base, 12)) & (
-    data_txn_id < bits(txn_base + slots, 12)
+  def data_in_range = (data_txn_id >= Bits(12)(txn_base)) & (
+    data_txn_id < Bits(12)(txn_base + slots)
   )
-  def data_slot = (data_txn_id - bits(txn_base, 12))[0..index_width(slots)]
+  def data_slot = (data_txn_id - Bits(12)(txn_base))[0..index_width(slots)]
   data_demux.select <== data_slot
   when (chi.dat.response.valid):
     assert(data_in_range, "chi_read_stream_data_txn_in_range")
@@ -209,7 +209,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
      occupied until their late completion drains without becoming output. */
 
   for (index in 0..slots):
-    def index_tag = bits(index, index_width(slots))
+    def index_tag = Bits(index_width(slots))(index)
     def issues_index = request_fire & (issue_slot === index_tag)
     def completes_index = completion_fire & (completion.context === index_tag)
     def outputs_index = line_fire & (output_slot === index_tag)
@@ -242,7 +242,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   for (index in 0..slots):
     inst reader(CHIReadOnce(p, Bits(index_width(slots))))
     reader.node_id <== node_id
-    reader.txn_id <== bits(txn_base + index, 12)
+    reader.txn_id <== Bits(12)(txn_base + index)
     command_demux.egress[index] |> reader.command
     reader.requests |> request_arbiter.ingress[index]
     reader.acknowledgements |> acknowledgement_arbiter.ingress[index]

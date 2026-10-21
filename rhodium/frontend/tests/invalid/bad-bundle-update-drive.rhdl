@@ -9,7 +9,7 @@ bundle Payload():
 circuit DriveUpdate():
   input source: Payload()
   output result: Payload()
-  def changed = source.updated(~data: bits(0, 8))
+  def changed = source.updated(~data: Bits(8)(0))
   changed.data <== source.data
   result <== changed
 

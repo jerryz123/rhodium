@@ -11,16 +11,16 @@ sync_circuit Counter(n :: PosInt):
   output value: Bits(width)
   output wrap: Bool
 
-  reg state(~init: bits(0, width))
-  def at_last = state === bits(n - 1, width)
+  reg state(~init: Bits(width)(0))
+  def at_last = state === Bits(width)(n - 1)
 
   // Protects the unused encodings when n is not a power of two.
-  assert(state <= bits(n - 1, width), "counter_state_in_range")
+  assert(state <= Bits(width)(n - 1), "counter_state_in_range")
 
   when enable:
     state <== mux(at_last,
-                  bits(0, width),
-                  state + bits(1, width))
+                  Bits(width)(0),
+                  state + Bits(width)(1))
 
   value <== state
   wrap <== enable & at_last

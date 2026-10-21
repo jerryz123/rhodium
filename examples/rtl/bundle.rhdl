@@ -82,8 +82,8 @@ circuit BundlePipeline(width :: PosInt):
   output result: Pair(Bits(width))
 
   def zero_pair = Pair(Bits(width)):
-    left: bits(0, width)
-    right: bits(0, width)
+    left: Bits(width)(0)
+    right: Bits(width)(0)
   def selected = mux(select, direct, alternate)
   reg state(Pair(Bits(width)), ~clock: clk, ~reset: reset, ~init: zero_pair)
   state <== selected

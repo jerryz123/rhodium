@@ -44,7 +44,7 @@ sync_circuit VcMux(T :: DataType, vc_count :: PosInt):
   fun tag_vc(vc_index :: Nat):
     map_flow(payload):
       VcBeat(T, vc_count):
-        vc: bits(vc_index, index_width(vc_count))
+        vc: Bits(index_width(vc_count))(vc_index)
         payload: payload
   def tagged = for Array (vc_index in 0..vc_count): ingress[vc_index] |> gate_flow(vc_ready[vc_index]) |> tag_vc(vc_index)
   (tagged |> rr_arbiter()) <=> egress
@@ -56,7 +56,7 @@ sync_circuit VcDemux(T :: DataType, vc_count :: PosInt):
   interface egress[vc_count](Decoupled(T), ~role: producer)
   output vc_ready: Vec(vc_count, Bool)
 
-  def vc_valid = ingress.bits.vc <= bits(vc_count - 1, index_width(vc_count))
+  def vc_valid = ingress.bits.vc <= Bits(index_width(vc_count))(vc_count - 1)
   assert(!ingress.valid ||| vc_valid, "vc_flow_index_in_range")
   vc_ready <== vec(for List (vc_index in 0..vc_count): egress[vc_index].ready)
   def demuxed = ingress |> demux_flow(vc_count, beat => beat.vc)

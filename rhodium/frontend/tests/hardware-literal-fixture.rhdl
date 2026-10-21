@@ -51,23 +51,26 @@ bundle Aggregate():
   pair: Pair()
   lanes: Vec(2, Bits(4))
 
-def bits_initial = bits(9, 4)
+def NibbleBits = Bits(4)
+def bits_initial = NibbleBits(9)
+def named_bits_initial = NibbleBits(2, "named_bits")
+def resized_bits_initial = NibbleBits.with_bit_width(8)(255)
 def bool_initial = Bool(#true)
 def mode_initial = Mode.Run
 def grant_initial = Grant(2)
 def nibble_initial = NibbleLiteral(10)
 def raw_nibble_initial = literal(Nibble(), 5)
 def pair_initial = Pair():
-  left: bits(10, 4)
-  right: bits(3, 4)
+  left: Bits(4)(10)
+  right: Bits(4)(3)
 def reordered_pair_initial = Pair():
-  right: bits(9, 4)
-  left: bits(8, 4)
+  right: Bits(4)(9)
+  left: Bits(4)(8)
 def PairType = Pair()
 def dynamic_pair_initial = record(PairType):
-  left: bits(6, 4)
-  right: bits(7, 4)
-def lanes_initial = vec(bits(4, 4), bits(5, 4))
+  left: Bits(4)(6)
+  right: Bits(4)(7)
+def lanes_initial = vec(Bits(4)(4), Bits(4)(5))
 def aggregate_initial = Aggregate():
   pair: pair_initial
   lanes: lanes_initial
@@ -76,19 +79,19 @@ def aggregate_initial = Aggregate():
 // uniqueness, and field types.
 circuit MissingBundleField():
   def invalid = Pair():
-    left: bits(1, 4)
+    left: Bits(4)(1)
   #void
 
 circuit DuplicateBundleField():
   def invalid = Pair():
-    left: bits(1, 4)
-    left: bits(2, 4)
+    left: Bits(4)(1)
+    left: Bits(4)(2)
   #void
 
 circuit WrongBundleFieldType():
   def invalid = Pair():
-    left: bits(1, 4)
-    right: bits(2, 3)
+    left: Bits(4)(1)
+    right: Bits(3)(2)
   #void
 
 circuit LiteralParameters(bits_value,
@@ -135,6 +138,8 @@ export:
   Pair
   Aggregate
   bits_initial
+  named_bits_initial
+  resized_bits_initial
   bool_initial
   mode_initial
   grant_initial

@@ -15,7 +15,7 @@ fun scoreboard_index_in_range(entries :: PosInt,
                               index :: Bits(index_width(entries))):
   if scoreboard_index_capacity(entries) == entries
   | Bool(#true)
-  | index < bits(entries, index_width(entries))
+  | index < Bits(index_width(entries))(entries)
 
 /* Reads a registered busy lane, returning false for unused index encodings in a non-power-of-two scoreboard. */
 fun scoreboard_busy(entries :: PosInt,

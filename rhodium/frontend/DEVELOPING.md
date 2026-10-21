@@ -155,6 +155,13 @@ IR operations. See the [layer contributor guide](layers/DEVELOPING.md) before
 changing those keys or providers; their propagation is shared by ports,
 instances, aggregates, muxes, casts, and state.
 
+[`support/bits-type.rhm`](support/bits-type.rhm) gives frontend `Bits(width)`
+descriptors callable literal construction by extending core's bit-vector
+descriptor. Keep the subclass width-equal to core `Bits`; do not add a distinct
+hardware type, operation, or frontend dependency to core. Width derivation
+retains the callable frontend surface, and literal materialization follows the
+same generic `HardwareLiteral` path as other data types.
+
 ## Making a frontend change
 
 First use the [public extension-routing table](README.md#extension-routing) to

@@ -19,10 +19,10 @@ bundle Control():
   write: Bool
 
 def add_input = pattern(Instruction()):
-  opcode: bits(0, 4)
+  opcode: Bits(4)(0)
   mode: _
 def sub_input = pattern(Instruction()):
-  opcode: bits(1, 4)
+  opcode: Bits(4)(1)
   mode: _
 
 def default_control = pattern(Control()):

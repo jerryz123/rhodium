@@ -54,12 +54,12 @@ fun pack_fields(width :: PosInt, fields :: List) :~ Bits(width):
     unless (offset + field_width) <= width
     | error(~who: #'pack_fields, "field must fit the result width")
     if offset > next_offset
-    | fragments := [bits(0, offset - next_offset)] ++ fragments
+    | fragments := [Bits(offset - next_offset)(0)] ++ fragments
     | #void
     fragments := [value] ++ fragments
     next_offset := offset + field_width
   if next_offset < width
-  | fragments := [bits(0, width - next_offset)] ++ fragments
+  | fragments := [Bits(width - next_offset)(0)] ++ fragments
   | #void
   if fragments.length() == 1
   | fragments[0]
@@ -125,13 +125,13 @@ fun align_down(value :: Bits,
   )
   if alignment == 1
   | value
-  | value & bits((1 << width) - alignment, width)
+  | value & Bits(width)((1 << width) - alignment)
 
 /* Input bit i controls the consecutive output lane starting at i * lane_width. */
 fun expand_mask(mask :: Bits, lane_width :: PosInt) :~ Bits(mask.type.packed_width() * lane_width):
   vec(
     for List (index in 0..mask.type.packed_width()):
-      mux(mask[index].into(Bool), bits((1 << lane_width) - 1, lane_width), bits(0, lane_width))
+      mux(mask[index].into(Bool), Bits(lane_width)((1 << lane_width) - 1), Bits(lane_width)(0))
   ).as_bits()
 
 /* Selects replacement bits where mask is one and original bits where it is zero. */
@@ -154,13 +154,13 @@ fun transfer_byte_mask(address :: Bits,
   def max_size = alignment_bits(beat_bytes)
   def base_mask = mux_lookup(
     size,
-    ~default: bits(0, beat_bytes),
+    ~default: Bits(beat_bytes)(0),
     for List (encoded_size in 0..(max_size + 1)):
       [encoded_size,
-       bits((1 << (1 << encoded_size)) - 1, beat_bytes)]
+       Bits(beat_bytes)((1 << (1 << encoded_size)) - 1)]
   )
   def lane_offset:
-    if lane_width == 0 | bits(0, 1) | address[0..lane_width]
+    if lane_width == 0 | Bits(1)(0) | address[0..lane_width]
   (base_mask << lane_offset).into(Mask(beat_bytes))
 
 export:

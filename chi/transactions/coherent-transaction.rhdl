@@ -50,14 +50,14 @@ bundle CHICopyBackTransaction(p :: CHIFlitParams):
 
 /* Assert the bounded snoop/forward profile's single unelided packet at DataID zero. */
 fun coherent_single_data_fields(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
-  assert(data.data_id === bits(0, 2), label_prefix ++ "_data_id_zero")
+  assert(data.data_id === Bits(2)(0), label_prefix ++ "_data_id_zero")
   monitor_chi_unelided_data(p, data, label_prefix)
 
 /* Check full-line alignment and dataless framing when an accepted request is maintenance. */
 fun monitor_chi_cache_maintenance(p :: CHIFlitParams, valid :: Bool, request :: CHIReqFlit(p), label_prefix :: String):
   when (valid & chi_cache_maintenance(request.opcode)):
-    assert(!request.multi_req & (request.size_or_num_req === bits(6, 6)), label_prefix ++ "_maintenance_line_size")
-    assert(request.address[0..6] === bits(0, 6), label_prefix ++ "_maintenance_aligned")
+    assert(!request.multi_req & (request.size_or_num_req === Bits(6)(6)), label_prefix ++ "_maintenance_line_size")
+    assert(request.address[0..6] === Bits(6)(0), label_prefix ++ "_maintenance_aligned")
     assert(!request.exp_comp_ack, label_prefix ++ "_maintenance_no_comp_ack")
 
 /*
@@ -110,14 +110,14 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       copybacks[index].live & copybacks[index].granted & (copybacks[index].dbid === tx_dat.txn_id) & (copybacks[index].home_id === tx_dat.tgt_id)
   )
   def copyback_data_id = one_hot(tx_dat.data_id).as_bits()
-  def copyback_expected = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
+  def copyback_expected = chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
   def live_reads = vec(for List (index in 0..limit): reads[index].phase =/= CHICoherentReadPhase.Free).as_bits()
   def live_copybacks = vec(for List (index in 0..limit): copybacks[index].live).as_bits()
   def live_requests = live_reads ++ live_copybacks
   def coherent_read_request = tx_req_valid & req.opcode.is_one_of(CHIReqOpcode.ReadShared, CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
   def new_retryable_read = coherent_read_request & req.allow_retry
   when (copyback_request ||| new_retryable_read):
-    assert(popcount(live_requests) < bits(limit, index_width(2 * limit + 1)), label_prefix ++ "_requests_within_outstanding_limit")
+    assert(popcount(live_requests) < Bits(index_width(2 * limit + 1))(limit), label_prefix ++ "_requests_within_outstanding_limit")
   when copyback_request:
     assert(free_copybacks.or_reduce(), label_prefix ++ "_copyback_capacity")
     def full_line = req.address.is_aligned(64) & (chi_req_size(p, req) === CHITransferSize.Bytes64)
@@ -130,7 +130,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         assert((reads[index].phase === CHICoherentReadPhase.Free) ||| (reads[index].txn_id =/= req.txn_id), label_prefix ++ "_copyback_read_txn_unique")
   when copyback_grant:
     assert(grant_matches.or_reduce(), label_prefix ++ "_copyback_grant_has_request")
-    assert((rx_rsp.resp_err === CHIRespErr.OK) & (rx_rsp.resp === bits(0, 3)), label_prefix ++ "_copyback_grant_ok")
+    assert((rx_rsp.resp_err === CHIRespErr.OK) & (rx_rsp.resp === Bits(3)(0)), label_prefix ++ "_copyback_grant_ok")
     for (index in 0..limit):
       def same_granted_dbid = copybacks[index].live & copybacks[index].granted & (
         copybacks[index].home_id === rx_rsp.src_id
@@ -149,23 +149,23 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       copybacks[index] <== entry.updated(~live: received =/= copyback_expected, ~received: received, ~state: tx_dat.resp)
     elsewhen (copyback_grant & grant_matches[index]):
       copybacks[index] <== entry.updated(~granted: Bool(#true), ~dbid: rx_rsp.dbid_or_group_id)
-    elsewhen (copyback_request & (copyback_slot === bits(index, index_width(limit)))):
+    elsewhen (copyback_request & (copyback_slot === Bits(index_width(limit))(index))):
       copybacks[index] <== CHICopyBackTransaction(p):
         live: Bool(#true)
         granted: Bool(#false)
         txn_id: req.txn_id
         home_id: req.tgt_id
-        dbid: bits(0, 12)
-        received: bits(0, 4)
-        state: bits(0, 3)
+        dbid: Bits(12)(0)
+        received: Bits(4)(0)
+        state: Bits(3)(0)
 
 
   /* Coherent read, snoop, and paired-DVM event classification.
      Only the second DVM packet allocates a snoop response obligation. */
 
   reg coherent_dvm_first_pending(~init: Bool(#false))
-  reg coherent_dvm_source_id(~init: bits(0, p.node_id_width))
-  reg coherent_dvm_txn_id(~init: bits(0, 12))
+  reg coherent_dvm_source_id(~init: Bits(p.node_id_width)(0))
+  reg coherent_dvm_txn_id(~init: Bits(12)(0))
 
   def req_event = coherent_read_request
   def comp_ack_event = tx_rsp_valid & (tx_rsp.opcode === CHIRspOpcode.CompAck)
@@ -238,13 +238,13 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       phase: CHICoherentReadPhase.AwaitData
       txn_id: req.txn_id
       home_id: req.tgt_id
-      comp_ack_txn_id: bits(0, 12)
+      comp_ack_txn_id: Bits(12)(0)
       expected_data_ids: chi_transfer_data_ids(
         req.address,
         chi_req_size(p, req),
         p
       )
-      received_data_ids: bits(0, 4)
+      received_data_ids: Bits(4)(0)
       comp_ack_seen: Bool(#false)
   def next_reads = vec(
     for List (index in 0..limit):
@@ -269,7 +269,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
                              updated_read,
                              entry)
         def allocate_here = allocate_read & (
-          read_allocation_index === bits(index, index_width(limit))
+          read_allocation_index === Bits(index_width(limit))(index)
         )
         mux(allocate_here, allocated_read, progressed)
   )
@@ -353,7 +353,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
           ~forward_data_seen: next_forward_data_seen
         )
         def allocate_here = allocate_snoop & (
-          snoop_allocation_index === bits(index, index_width(limit))
+          snoop_allocation_index === Bits(index_width(limit))(index)
         )
         mux(allocate_here, allocated_snoop, progressed)
   )

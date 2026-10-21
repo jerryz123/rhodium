@@ -48,7 +48,7 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
 
   def priority_width = index_width(input_count)
   def initial_priorities = vec(
-    for List (_ in 0..output_count): bits(0, priority_width)
+    for List (_ in 0..output_count): Bits(priority_width)(0)
   )
   reg next_priorities(~init: initial_priorities)
 
@@ -59,7 +59,7 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
   def mutable output_grant_rows = []
   def mutable output_choices = []
   for (output_index in 0..output_count):
-    assert(next_priorities[output_index] <= bits(input_count - 1, priority_width),
+    assert(next_priorities[output_index] <= Bits(priority_width)(input_count - 1),
            String.append("output_greedy_round_robin_matcher_priority_in_range_",
                          to_string(output_index)))
     def eligible = vec(
@@ -86,9 +86,9 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
     for List (output_index in 0..output_count):
       def choice :: Hardware.packable = output_choices[output_index]
       def following_index = mux(
-        choice.index === bits(input_count - 1, priority_width),
-        bits(0, priority_width),
-        choice.index + bits(1, priority_width)
+        choice.index === Bits(priority_width)(input_count - 1),
+        Bits(priority_width)(0),
+        choice.index + Bits(priority_width)(1)
       )
       mux(choice.valid & accepts[output_index],
           following_index,

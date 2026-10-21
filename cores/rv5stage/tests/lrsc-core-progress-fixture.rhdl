@@ -44,8 +44,8 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   inst loader(L1DCache(XLen.X64, CacheConfig(2, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
   inst home_node(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)))
   inst ram(CHIRam(ram_config))
-  cpu.hart_id <== bits(0, xlen.width)
-  cpu.time_counter <== bits(0, 64)
+  cpu.hart_id <== Bits(xlen.width)(0)
+  cpu.time_counter <== Bits(64)(0)
   cpu.interrupts <== RiscvInterrupts():
     supervisor_software: Bool(#false)
     machine_software: Bool(#false)
@@ -54,9 +54,9 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
     supervisor_external: Bool(#false)
     machine_external: Bool(#false)
   cpu.chi_identity <== RiscvHartCHIIdentity(p):
-    instruction_node_id: bits(2, p.node_id_width)
-    data_node_id: bits(3, p.node_id_width)
-    uncached_node_id: bits(6, p.node_id_width)
+    instruction_node_id: Bits(p.node_id_width)(2)
+    data_node_id: Bits(p.node_id_width)(3)
+    uncached_node_id: Bits(p.node_id_width)(6)
   cpu.umem.req.ready <== Bool(#false)
   cpu.umem.dat.request.ready <== Bool(#false)
   cpu.umem.rsp.requester.ready <== Bool(#false)
@@ -66,18 +66,18 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   cpu.umem.dat.response.bits <== dont_care(CHIDatFlit(p))
   assert(!cpu.umem.req.valid, "lrsc_test_remains_in_coherent_memory")
   home_node.identity <== CHIHNFIdentity(p):
-    home_node_id: bits(1, p.node_id_width)
-    subordinate_node_id: bits(9, p.node_id_width)
-    service_base: bits(0, p.request_address_width)
+    home_node_id: Bits(p.node_id_width)(1)
+    subordinate_node_id: Bits(p.node_id_width)(9)
+    service_base: Bits(p.request_address_width)(0)
   ram.identity <== CHIRamIdentity(p):
-    node_id: bits(9, p.node_id_width)
-    base_address: bits(0, p.request_address_width)
+    node_id: Bits(p.node_id_width)(9)
+    base_address: Bits(p.request_address_width)(0)
   home_node.port.subordinate.req |> queue(1) |> ram.port.req
   home_node.port.subordinate.dat.request |> queue(1) |> ram.port.dat.request
   ram.port.rsp |> queue(1) |> home_node.port.subordinate.rsp
   ram.port.dat.response |> queue(1) |> home_node.port.subordinate.dat.response
   host <=> loader.core
-  loader.node_id <== bits(5, p.node_id_width)
+  loader.node_id <== Bits(p.node_id_width)(5)
   loader.virtual_lookup.valid <== host.request.valid
   loader.virtual_lookup.bits <== host.request.bits.address
   loader.pipeline_lookup.valid <== Bool(#false)
@@ -94,11 +94,11 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   Array(cpu.imem.rsp.requester, cpu.dmem.requester_responses, loader.chi.requester_responses) |> parallel(queue(1), queue(1), queue(1)) |> rr_arbiter() |> home_node.port.requester.requester_responses
   Array(cpu.imem.dat.request, cpu.dmem.request_data, loader.chi.request_data) |> parallel(queue(1), queue(1), queue(1)) |> rr_arbiter() |> home_node.port.requester.request_data
   fun target(id :: Bits(p.node_id_width)) :~ Bits(2):
-    mux(id === bits(2, p.node_id_width), bits(0, 2), mux(id === bits(3, p.node_id_width), bits(1, 2), bits(2, 2)))
+    mux(id === Bits(p.node_id_width)(2), Bits(2)(0), mux(id === Bits(p.node_id_width)(3), Bits(2)(1), Bits(2)(2)))
   (home_node.port.requester.responses |> queue(1) |> demux_flow(3, response => target(response.tgt_id))) <=> Array(cpu.imem.rsp.response, cpu.dmem.responses, loader.chi.responses)
   (home_node.port.requester.response_data |> queue(1) |> demux_flow(3, data => target(data.tgt_id))) <=> Array(cpu.imem.dat.response, cpu.dmem.response_data, loader.chi.response_data)
   (
-    home_node.port.requester.snoops |> queue(1) |> demux_flow(2, dispatch => (dispatch.target_id === bits(5, p.node_id_width)).as_bits())
+    home_node.port.requester.snoops |> queue(1) |> demux_flow(2, dispatch => (dispatch.target_id === Bits(p.node_id_width)(5)).as_bits())
       |> parallel(map_flow(dispatch => dispatch.flit), map_flow(dispatch => dispatch.flit))
   ) <=> Array(cpu.dmem.snoops, loader.chi.snoops)
   instruction_requests <== cpu.imem.req.fire()

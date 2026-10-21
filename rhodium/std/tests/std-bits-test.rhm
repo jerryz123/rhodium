@@ -14,6 +14,12 @@ import:
 fun checked_pow2(value :: bits_std.Pow2Int):
   value
 
+fun output_types_match(module_def, expected_types):
+  module_def.outputs.length() == expected_types.length() && (
+    for all (port in module_def.outputs, expected in expected_types):
+      type_equal(port.type, expected)
+  )
+
 def design = compile_program(elaborate(fixture.BitsAlignmentFixture()), rtl_target).report.design
 def module_def = design.modules[0]
 def bit_order_design = compile_program(elaborate(fixture.BitOrderFixture()), rtl_target).report.design
@@ -36,7 +42,7 @@ check:
   elaborate(fixture.InvalidRuntimeAlignmentBoundFixture(9)) ~throws "maximum alignment must fit the Bits width"
   elaborate(fixture.NonBitsRuntimeAlignmentFixture()) ~throws "Bits"
   elaborate(fixture.NonBitsAlignmentExponentFixture()) ~throws "Bits"
-  mask_design.modules[0].outputs.map(fun (port): port.type) ~is [Bits(8), Bits(24), Bits(64), Bits(1), Bits(7), Bits(20)]
+  output_types_match(mask_design.modules[0], [Bits(8), Bits(24), Bits(64), Bits(1), Bits(7), Bits(20)]) ~is #true
   elaborate(fixture.InvalidMaskLaneWidthFixture(0)) ~throws "PosInt"
   elaborate(fixture.InvalidMaskLaneWidthFixture(-1)) ~throws "PosInt"
   elaborate(fixture.NonBitsMaskExpansionFixture()) ~throws "Bits"
@@ -55,9 +61,7 @@ check:
   bits_std.unsigned_value_count(1) ~is 2
   bits_std.unsigned_value_count(8) ~is 256
   bits_std.unsigned_value_count(-1) ~throws "Nat"
-  bit_order_module.outputs.map(fun (port): port.type) ~is [
-    Bits(8), Bits(4), Bits(1), Bits(1)
-  ]
+  output_types_match(bit_order_module, [Bits(8), Bits(4), Bits(1), Bits(1)]) ~is #true
   bit_order_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.concat"
   ).length() >= 2 ~is #true
@@ -82,15 +86,13 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.constant" && operation.attribute("value", #false) == 0 && operation.results[0].type.type_equal(Bits(8))
   ).length() >= 1 ~is #true
   verify_design(design) ~is #void
-  transfer_module.outputs.map(fun (port): port.type) ~is [
-    bool.Mask(1), bool.Mask(4), bool.Mask(16)
-  ]
+  output_types_match(transfer_module, [bool.Mask(1), bool.Mask(4), bool.Mask(16)]) ~is #true
   transfer_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.shl"
   ).length() ~is 3
   verify_design(transfer_design) ~is #void
   registered_transfer_compiled.has_errors ~is #false
-  pack_module.outputs.map(fun (port): port.type) ~is [Bits(8), Bits(2), Bits(8)]
+  output_types_match(pack_module, [Bits(8), Bits(2), Bits(8)]) ~is #true
   pack_module.operations.filter(
     ~keep: fun (operation): operation.opcode == "rtl.concat"
   ).length() ~is 1

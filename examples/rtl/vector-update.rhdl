@@ -19,7 +19,7 @@ sync_circuit IndexedVectorRegister():
   input replacement: Bits(4)
   output result: Vec(3, Bits(4))
 
-  reg state(~init: vec(bits(0, 4), bits(0, 4), bits(0, 4)))
+  reg state(~init: vec(Bits(4)(0), Bits(4)(0), Bits(4)(0)))
 
   when write_enable:
     state[selector] <== replacement

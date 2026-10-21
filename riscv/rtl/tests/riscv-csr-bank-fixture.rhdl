@@ -13,10 +13,10 @@ sync_circuit CsrBankFixture():
   output recognized: Bool
   output read_value: Bits(8)
 
-  reg stored(~init: bits(0, 8))
-  def bank = csr_bank(address, ~default: bits(0xff, 8)):
+  reg stored(~init: Bits(8)(0))
+  def bank = csr_bank(address, ~default: Bits(8)(0xff)):
     storage CsrId.Mscratch: stored
-    read CsrId.Misa: bits(0x42, 8)
+    read CsrId.Misa: Bits(8)(0x42)
   recognized <== bank.recognized
   read_value <== bank.read_value
   when write_enable:
@@ -25,24 +25,24 @@ sync_circuit CsrBankFixture():
 circuit DuplicateCsrBankFixture():
   input address: Bits(12)
   output read_value: Bits(8)
-  def bank = csr_bank(address, ~default: bits(0, 8)):
-    read CsrId.Misa: bits(1, 8)
-    read CsrId.Misa: bits(2, 8)
+  def bank = csr_bank(address, ~default: Bits(8)(0)):
+    read CsrId.Misa: Bits(8)(1)
+    read CsrId.Misa: Bits(8)(2)
   read_value <== bank.read_value
 
 circuit DuplicateCsrGroupFixture():
   input address: Bits(12)
   output read_value: Bits(8)
-  def bank = csr_bank(address, ~default: bits(0, 8)):
-    read CsrId.Mhpmcounter3: bits(1, 8)
-    read_all MachineHpmCounterIds: bits(0, 8)
+  def bank = csr_bank(address, ~default: Bits(8)(0)):
+    read CsrId.Mhpmcounter3: Bits(8)(1)
+    read_all MachineHpmCounterIds: Bits(8)(0)
   read_value <== bank.read_value
 
 circuit NarrowCsrBankFixture():
   input address: Bits(8)
   output read_value: Bits(8)
-  def bank = csr_bank(address, ~default: bits(0, 8)):
-    read CsrId.Misa: bits(1, 8)
+  def bank = csr_bank(address, ~default: Bits(8)(0)):
+    read CsrId.Misa: Bits(8)(1)
   read_value <== bank.read_value
 
 export:

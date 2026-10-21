@@ -56,13 +56,13 @@ sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyStrin
   def data = port.dat.request.bits
   def ordinary_data = data.opcode =/= CHIDatOpcode.DataLCrdReturn
   write_data_expected <== phase === CHISingleBeatPhase.WriteData
-  def supported = (data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (data.txn_id === bits(0, 12)) & (data.src_id === saved_request.src_id) & (data.tgt_id === node_id) & write_supported
+  def supported = (data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (data.txn_id === Bits(12)(0)) & (data.src_id === saved_request.src_id) & (data.tgt_id === node_id) & write_supported
   port.dat.request.ready <== !ordinary_data ||| (write_data_expected & supported & write_ready)
   write_data_fire <== port.dat.request.fire() & ordinary_data
 
   def dbid = phase === CHISingleBeatPhase.WriteDBID
   port.rsp.valid <== dbid ||| (phase === CHISingleBeatPhase.WriteResponse)
-  port.rsp.bits <== mux(dbid, chi_sn_dbid_response(p, node_id, saved_request, bits(0, 1)), chi_sn_write_completion(p, node_id, saved_request, bits(0, 1)))
+  port.rsp.bits <== mux(dbid, chi_sn_dbid_response(p, node_id, saved_request, Bits(1)(0)), chi_sn_write_completion(p, node_id, saved_request, Bits(1)(0)))
   port.dat.response.valid <== phase === CHISingleBeatPhase.ReadResponse
   port.dat.response.bits <== chi_sn_read_completion(p, node_id, saved_request, chi_line_data_id(saved_request.address, p), saved_read_data)
 

@@ -67,7 +67,7 @@ inside a `sync_circuit` or another ambient-clock scope:
 import:
   lib("rhodium/std/shift-register.rhdl").shift_register
 
-shift_register taps(sample, 4, ~init: bits(0, 8), ~enable: advance)
+shift_register taps(sample, 4, ~init: Bits(8)(0), ~enable: advance)
 filtered <== taps[3]
 ```
 
@@ -122,8 +122,8 @@ bundle Instruction():
   operands: Vec(2, Bits(4))
 
 def instruction_pattern = pattern(Instruction()):
-  opcode: bits(0b1010, 4)
-  operands: pattern(Vec(2, Bits(4)), [bits(2, 4), _])
+  opcode: Bits(4)(0b1010)
+  operands: pattern(Vec(2, Bits(4)), [Bits(4)(2), _])
 ```
 
 Within `pattern(T)`, a `HardwareLiteral` constrains the whole field, `_` leaves
@@ -467,7 +467,7 @@ controls output bits `[i * lane_width .. (i + 1) * lane_width)`, so the
 least-significant enable controls the least-significant lane. The result is
 `Bits(mask_width * lane_width)`. The mask must be a nonempty `Bits` value and
 the lane width a positive host integer; lane width one preserves the value.
-For example, `bits(0b0101, 4).expand_mask(8)` produces `bits(0x00ff00ff, 32)`.
+For example, `Bits(4)(0b0101).expand_mask(8)` produces `Bits(32)(0x00ff00ff)`.
 This combinational operation is independent of any bus protocol or byte size.
 
 The same module provides `masked_merge(original, replacement, mask)`, which

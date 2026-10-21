@@ -56,19 +56,19 @@ sync_circuit CacheCopyBackFixture():
     def attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
     def physical = RiscvPhysicalMemoryRegion(AddressSet(0, (1 << p.request_address_width) - 1), attributes)
     inst engine(CacheLineWriteback(Bits(8), 64, RiscvHartCHIConfig(p, 64, [RiscvHartCHIRegion(physical, home)]), 1))
-    engine.node_id <== bits(3, 7)
+    engine.node_id <== Bits(7)(3)
     engine.victim_state <== state
     engine.snoop_pending <== snoop_pending
     engine.command.valid <== enabled[index] & command_valid
     engine.command.bits <== CacheLineWritebackCommand(Bits(8), 64):
-      line_address: bits(0x80001240, 64)
+      line_address: Bits(64)(0x80001240)
       line: line.as_vec(Bits(64))
-      context: bits(0xa5, 8)
+      context: Bits(8)(0xa5)
     def requests = engine.requests |> trace_event("request/" ++ to_string(index))
     requests.ready <== request_ready
     engine.responses.valid <== enabled[index] & response_valid
     def response :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)
-    engine.responses.bits <== response.updated(~opcode: response_opcode, ~txn_id: bits(1, 12), ~src_id: bits(1, 7), ~tgt_id: bits(3, 7), ~dbid_or_group_id: bits(0x55, 12), ~pcrd_type: response_pcrd)
+    engine.responses.bits <== response.updated(~opcode: response_opcode, ~txn_id: Bits(12)(1), ~src_id: Bits(7)(1), ~tgt_id: Bits(7)(3), ~dbid_or_group_id: Bits(12)(0x55), ~pcrd_type: response_pcrd)
     def packets = engine.data |> trace_event("data/" ++ to_string(index))
     packets.ready <== data_ready
     engine.completion.ready <== completion_ready

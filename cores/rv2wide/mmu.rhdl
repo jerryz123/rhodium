@@ -121,7 +121,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   /* Captures both translation stages and their independent permission controls in each lookup owner. */
   fun lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode, guest :: Bool) :~ RiscvTlbLookup():
-    riscv_translation_lookup(address, access, privilege, (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === bits(Sv39Mode, 4)), csr_field(state.satp, Satp64PPN), csr_flag(state.mstatus, MstatusSUM), csr_flag(state.mstatus, MstatusMXR), state.pbmte, guest, guest_state)
+    riscv_translation_lookup(address, access, privilege, (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode)), csr_field(state.satp, Satp64PPN), csr_flag(state.mstatus, MstatusSUM), csr_flag(state.mstatus, MstatusMXR), state.pbmte, guest, guest_state)
 
   def instruction_lookup = lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
   def Array(early_index, retained_request) = pipeline.request |> fork_valid(2)
@@ -180,10 +180,10 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
   def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
   def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
-  def prefetch_translated = normal_data_guest ||| (prefetch_privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === bits(Sv39Mode, 4))
+  def prefetch_translated = normal_data_guest ||| (prefetch_privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode))
   def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].or_reduce()
   def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64).align_down(CacheLineBytes)
-  def prefetch_region = config.physical_map.lookup(prefetch_address, prefetch_address +& bits(CacheLineBytes - 1, 64))
+  def prefetch_region = config.physical_map.lookup(prefetch_address, prefetch_address +& Bits(64)(CacheLineBytes - 1))
   def prefetch_attributes = resolve_memory_attributes(prefetch_region, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
   def prefetch_permission = mux_lookup(prefetch_request.operation, ~default: Bool(#false)):
     CachePrefetchOperation.Instruction: prefetch_region.executable
@@ -232,7 +232,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def zero_block = mem.access.is_cache_block_zero()
   def cache_block = mem.access.is_cache_block()
   def first_address = mux(data_request.access.is_cache_block(), mem_address.align_down(CacheLineBytes), mem_address)
-  def last_address = first_address +& mux(data_request.access.is_cache_block(), bits(CacheLineBytes - 1, 64), memory_access_bytes(XLen.X64, data_request.width) - bits(1, 64))
+  def last_address = first_address +& mux(data_request.access.is_cache_block(), Bits(64)(CacheLineBytes - 1), memory_access_bytes(XLen.X64, data_request.width) - Bits(64)(1))
   def region = config.physical_map.lookup(first_address, last_address)
   def attributes = resolve_memory_attributes(region, data_pbmt)
   def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
@@ -334,7 +334,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   /* Split-fragment physical permission checks */
 
   def fragment_address = data_result.physical_address.zext(64).align_down(8)
-  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& bits(7, 64))
+  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& Bits(64)(7))
   def fragment_attributes = resolve_memory_attributes(fragment_region, data_pbmt)
   def fragment_normal_memory = fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent
   def fragment_access_permitted = mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
@@ -345,7 +345,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   /* Implicit PTE physical permission checks */
 
-  def pte_region = config.physical_map.lookup(walker.memory.request.bits.address, walker.memory.request.bits.address +& bits(7, 64))
+  def pte_region = config.physical_map.lookup(walker.memory.request.bits.address, walker.memory.request.bits.address +& Bits(64)(7))
   def pte_attributes = resolve_memory_attributes(pte_region, walker.memory.request.bits.pbmt)
   def pte_normal_memory = pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent
   def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable
@@ -356,8 +356,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
     access: CacheOperation.Load
     atomic: dont_care(memory.request.bits.atomic.type)
     width: MemoryWidth.Double
-    data: bits(0, 64)
-    mask: bits(0xff, 8)
+    data: Bits(64)(0)
+    mask: Bits(8)(0xff)
     locality: RiscvMemoryLocality.Default
     pbmt: walker.memory.request.bits.pbmt
 
@@ -407,7 +407,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def split_access_denied = split_translation_fault ||| !fragment_permitted ||| split_physical_fault
   misaligned.request_access_fault <== split_request.valid & data_known & !misaligned.request_fault & !misaligned.request_guest.page_fault & split_access_denied
 
-  memory.drained <== physical_memory.drained & (owners.count === bits(0, owners.count.type.width)) & !misaligned.busy
+  memory.drained <== physical_memory.drained & (owners.count === Bits(owners.count.type.width)(0)) & !misaligned.busy
   memory.ordered_busy <== physical_memory.ordered_busy
   memory.reservation_valid <== physical_memory.reservation_valid
 

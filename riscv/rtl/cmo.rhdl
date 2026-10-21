@@ -41,9 +41,9 @@ fun cbo_access(enabled :: Boolean, user_mode :: Bool, supervisor_mode :: Bool, v
 fun cmo_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width),
                       ~zicbom: zicbom :: Boolean, ~zicboz: zicboz :: Boolean) :~ Bits(xlen.width):
   def cbie = value[4..6]
-  def legal_cbie = mux(cbie === bits(2, 2), bits(0, 2), cbie)
-  def management = if zicbom | concat(value[6], legal_cbie, bits(0, 4)).zext(xlen.width) | bits(0, xlen.width)
-  def zero = if zicboz | value & bits(0x80, xlen.width) | bits(0, xlen.width)
+  def legal_cbie = mux(cbie === Bits(2)(2), Bits(2)(0), cbie)
+  def management = if zicbom | concat(value[6], legal_cbie, Bits(4)(0)).zext(xlen.width) | Bits(xlen.width)(0)
+  def zero = if zicboz | value & Bits(xlen.width)(0x80) | Bits(xlen.width)(0)
   management ||| zero
 
 /* Resolves management authorization and any required invalidate-to-flush conversion.
@@ -54,7 +54,7 @@ fun cbo_management_permission(xlen :: XLen, operation :: CboManagementOperation,
                               menvcfg :: Bits(xlen.width), senvcfg :: Bits(xlen.width),
                               ~zicbom: zicbom :: Boolean,
                               ~virtualized: virtualized :: Bool = Bool(#false),
-                              ~henvcfg: henvcfg :: Bits(xlen.width) = bits(0, xlen.width)) :~ CboManagementPermission():
+                              ~henvcfg: henvcfg :: Bits(xlen.width) = Bits(xlen.width)(0)) :~ CboManagementPermission():
   def below_machine = user_mode ||| supervisor_mode
   def machine_mode = menvcfg[4..6].into(CboInvalidateMode)
   def supervisor_control = senvcfg[4..6].into(CboInvalidateMode)
@@ -76,7 +76,7 @@ fun cbo_zero_permission(xlen :: XLen, user_mode :: Bool, supervisor_mode :: Bool
                         menvcfg :: Bits(xlen.width), senvcfg :: Bits(xlen.width),
                         ~zicboz: zicboz :: Boolean,
                         ~virtualized: virtualized :: Bool = Bool(#false),
-                        ~henvcfg: henvcfg :: Bits(xlen.width) = bits(0, xlen.width)) :~ CboAccess:
+                        ~henvcfg: henvcfg :: Bits(xlen.width) = Bits(xlen.width)(0)) :~ CboAccess:
   cbo_access(zicboz, user_mode, supervisor_mode, virtualized, menvcfg[7].into(Bool), henvcfg[7].into(Bool), senvcfg[7].into(Bool))
 
 /* The caller looks up the complete aligned block. Cacheability, atomics, and

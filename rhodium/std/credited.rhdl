@@ -15,19 +15,19 @@ fun check_credited(valid :: Bool,
   def count_width = index_width(credit_limit + 1)
   def transfer = valid
   def grant = credit
-  def empty = credit_balance === bits(0, count_width)
-  def full = credit_balance === bits(credit_limit, count_width)
+  def empty = credit_balance === Bits(count_width)(0)
+  def full = credit_balance === Bits(count_width)(credit_limit)
 
   assert(!transfer ||| !empty, "credited_transfer_has_credit")
   assert(!grant ||| transfer ||| !full, "credited_grant_within_limit")
-  assert(credit_balance <= bits(credit_limit, count_width),
+  assert(credit_balance <= Bits(count_width)(credit_limit),
          "credited_balance_in_range")
 
   when (grant ^ transfer):
     credit_balance <== mux(
       grant,
-      credit_balance + bits(1, count_width),
-      credit_balance - bits(1, count_width)
+      credit_balance + Bits(count_width)(1),
+      credit_balance - Bits(count_width)(1)
     )
 
   credit_balance
@@ -95,7 +95,7 @@ fun monitor_credited(endpoint :: Endpoint):
           "credited monitoring requires a Credited endpoint")
   def credit_limit = protocol.specialization_arguments[1]
   def link :: Observation = endpoint.observe()
-  reg credit_balance(~init: bits(0, index_width(credit_limit + 1)))
+  reg credit_balance(~init: Bits(index_width(credit_limit + 1))(0))
   check_credited(link.valid, link.credit, credit_limit, credit_balance)
 
 export:

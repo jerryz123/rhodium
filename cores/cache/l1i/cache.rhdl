@@ -89,7 +89,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   /* Resident validity and refill ownership */
 
   reg valid_lines(~init: vec(
-    for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
+    for List (_set in 0..sets): Bits(ways)(0).as_vec(Bool)
   ))
   reg replacement_state(~init: vec(
     for List (_set in 0..sets): plru_initial_state(ways)
@@ -97,7 +97,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   reg refill_live(~init: Bool(#false))
   reg refill_installable(~init: Bool(#false))
   reg refill_installing(~init: Bool(#false))
-  reg refill_install_index(~init: bits(0, word_index_width))
+  reg refill_install_index(~init: Bits(word_index_width)(0))
   reg refill_error_valid(~init: Bool(#false))
   reg refill_error_address(Bits(width))
 
@@ -142,7 +142,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def cached_words = lines.port.response.bits.as_bits().as_vec(Bits(row_bits))
   def cached_word = lookup_selection.mux(
     for List (way in 0..ways): cached_words[way],
-    ~default: bits(0, row_bits)
+    ~default: Bits(row_bits)(0)
   )
   def cached_fetch_word:
     if row_bits == fetch_bits
@@ -164,7 +164,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def completion_words = refill.completion.bits.line.as_bits().as_vec(Bits(row_bits))
   def refill_completion_discard = !refill_installable ||| core.invalidate_all ||| refill.completion.bits.access_fault
   def refill_install_start = refill.completion.valid & !refill_completion_discard & !refill_installing
-  def refill_install_final = refill_install_index === bits(words_per_line - 1, word_index_width)
+  def refill_install_final = refill_install_index === Bits(word_index_width)(words_per_line - 1)
   def refill_install_word = refill_installing & !core.invalidate_all
   def refill_completion_may_finish = refill_completion_discard ||| (refill_installing & refill_install_final)
 
@@ -232,7 +232,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def install = refill_complete & refill_installing & !refill_completion_discard
   def install_way_mask = cache_way_mask(cache, completion_way)
   def refill_word_bytes = completion_words[refill_install_index].as_vec(Bits(8))
-  def line_write_mask = cache_lane_mask(cache, completion_way, word_bytes, (!bits(0, word_bytes)).into(Mask(word_bytes)))
+  def line_write_mask = cache_lane_mask(cache, completion_way, word_bytes, (!Bits(word_bytes)(0)).into(Mask(word_bytes)))
   def mutable line_write_bytes = []
   for (_way in 0..ways):
     for (byte in 0..word_bytes):
@@ -278,7 +278,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
 
   when (core.invalidate_all):
     valid_lines <== vec(
-      for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
+      for List (_set in 0..sets): Bits(ways)(0).as_vec(Bool)
     )
   elsewhen install:
     valid_lines <== valid_lines.updated(completion_set, valid_lines[completion_set].updated(completion_way, Bool(#true)))
@@ -295,15 +295,15 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
 
   when (core.invalidate_all):
     refill_installing <== Bool(#false)
-    refill_install_index <== bits(0, word_index_width)
+    refill_install_index <== Bits(word_index_width)(0)
   elsewhen refill_install_start:
     refill_installing <== Bool(#true)
-    refill_install_index <== bits(0, word_index_width)
+    refill_install_index <== Bits(word_index_width)(0)
   elsewhen refill_complete:
     refill_installing <== Bool(#false)
-    refill_install_index <== bits(0, word_index_width)
+    refill_install_index <== Bits(word_index_width)(0)
   elsewhen (refill_install_word & !refill_install_final):
-    refill_install_index <== refill_install_index + bits(1, word_index_width)
+    refill_install_index <== refill_install_index + Bits(word_index_width)(1)
 
 
   /* Demand error retention and refill installability

@@ -30,9 +30,9 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
   def widening_adjustment = widened.as_bits().zext(5).into(SInt(5))
   def emul_adjustment = mux(memory, memory_emul_adjustment, widening_adjustment)
   def exponent = geometry.lmul.into(SInt(3)).sext(5) + emul_adjustment
-  def group_shift = mux(exponent < SInt(5)(0), bits(0, 3), exponent.as_bits()[0..3])
-  def group = bits(1, 6) << group_shift
-  def fields = control.memory_nf.zext(6) + bits(1, 6)
+  def group_shift = mux(exponent < SInt(5)(0), Bits(3)(0), exponent.as_bits()[0..3])
+  def group = Bits(6)(1) << group_shift
+  def fields = control.memory_nf.zext(6) + Bits(6)(1)
 
   /* Forms a selected field-count extent using constant elaboration-time repeated additions. */
   fun extent_for(n :: Nat) :~ Bits(6):
@@ -53,10 +53,10 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
   def count = priority_mux(~default: group):
     whole: fields
     control.integer & control.whole_register_move: control.whole_register_count.zext(6)
-    singleton: bits(1, 6)
+    singleton: Bits(6)(1)
     memory: extent
   def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
-  vec(for List (r in 0..32): writes & (bits(r, 6) >= vd.zext(6)) & (bits(r, 6) < vd.zext(6) + count)).as_bits()
+  vec(for List (r in 0..32): writes & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < vd.zext(6) + count)).as_bits()
 
 export vector_destination_registers

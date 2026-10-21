@@ -49,12 +49,12 @@ sync_circuit RV5StageZkt(profile :: RV5StageConfig):
     left: multiply_left
     right: multiply_right
     control: multiply_control
-    rd: bits(8, 5)
+    rd: Bits(5)(8)
   multiply_available <== multiplier.available
   multiply_valid <== multiplier.completion.valid
   completions.ingress[0].valid <== load_valid
   completions.ingress[0].bits <== RegisterFileWrite(profile.xlen):
-    address: bits(9, 5)
+    address: Bits(5)(9)
     data: load_value
   (multiplier.completion |> map_flow(~stable: #true, result => RegisterFileWrite(profile.xlen)):
     address: result.rd
@@ -62,15 +62,15 @@ sync_circuit RV5StageZkt(profile :: RV5StageConfig):
   ) |> completions.ingress[1]
   for (index in 2..4):
     completions.ingress[index].valid <== Bool(#false)
-    completions.ingress[index].bits <== bits(0, width + 5).into(RegisterFileWrite(profile.xlen))
+    completions.ingress[index].bits <== Bits(width + 5)(0).into(RegisterFileWrite(profile.xlen))
   completions.egress.ready <== completion_ready
   completion_valid <== completions.egress.valid
   completion_value <== completions.egress.bits.data
   completion_chosen <== completions.chosen
   inst core(RV5StageCoreFixture(profile, ~reset_address: 0x10000))
-  core.interrupts <== bits(0, 6).into(RiscvInterrupts())
-  core.hart_id <== bits(0, width)
-  core.time_counter <== bits(0, 64)
+  core.interrupts <== Bits(6)(0).into(RiscvInterrupts())
+  core.hart_id <== Bits(width)(0)
+  core.time_counter <== Bits(64)(0)
   core.instruction_access <=> instruction_access
   core.data_access <=> data_access
   core.pipeline_access.response.valid <== Bool(#false)
@@ -81,8 +81,8 @@ sync_circuit RV5StageZkt(profile :: RV5StageConfig):
   satp <== core.satp
   translation_flush <== core.translation_flush
   def program = zkt_program(profile)
-  probe_count <== bits(program.probes.length(), 32)
-  program_word <== mux_lookup(instruction_access.request.bits.address, ~default: bits(0x13, 32), for List (index in 0..program.words.length()): [0x10000 + index * 4, bits(program.words[index], 32)])
+  probe_count <== Bits(32)(program.probes.length())
+  program_word <== mux_lookup(instruction_access.request.bits.address, ~default: Bits(32)(0x13), for List (index in 0..program.words.length()): [0x10000 + index * 4, Bits(32)(program.words[index])])
 
 export:
   RV5StageZkt

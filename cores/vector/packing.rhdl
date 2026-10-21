@@ -82,7 +82,7 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
       def width = 8 << format
       def lanes = xlen.width / width
       def enabled = vec(for List (lane in 0..vector_word_bytes(xlen)):
-                          def element = control.first_element.zext(count_width + 1) + bits(lane, count_width + 1)
+                          def element = control.first_element.zext(count_width + 1) + Bits(count_width + 1)(lane)
                           def in_body = (element >= control.vstart.zext(count_width + 1)) & (element < control.vl.zext(count_width + 1))
                           def in_group = element < control.vlmax.zext(count_width + 1)
                           def unmasked = !control.masked ||| source_mask[lane].into(Bool)
@@ -115,13 +115,13 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
   widen.left_signed <== control.left_signed
   widen.right_signed <== control.right_signed
   widen.element_width <== control.element_width.as_bits().into(SimdWidenElementWidth)
-  def half_elements = bits(vector_word_bytes(xlen) / 2, count_width) >> control.element_width.as_bits()
+  def half_elements = Bits(count_width)(vector_word_bytes(xlen) / 2) >> control.element_width.as_bits()
   def widened = VectorPackedOperands(xlen, vlen):
     left: widen.operands.left
     right: widen.operands.right
     element_width: widen.operands.element_width
     enabled: widen.operands.enabled
-    first_element: control.first_element + mux(control.upper_half, half_elements, bits(0, count_width))
+    first_element: control.first_element + mux(control.upper_half, half_elements, Bits(count_width)(0))
   def changes_width = control.widening ||| control.narrowing
   operands <== priority_mux(~default: packed):
     control.extension: extended
@@ -130,11 +130,11 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
 
   /* Local row geometry checks, not architectural register-group legality. */
 
-  def aligned = !(control.first_element & (bits(vector_word_bytes(xlen) - 1, count_width) >> control.element_width.as_bits())).or_reduce()
-  def supported_width = control.element_width.as_bits() <= bits(vector_format_count(xlen) - 1, 2)
-  def bounded_length = (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce()
+  def aligned = !(control.first_element & (Bits(count_width)(vector_word_bytes(xlen) - 1) >> control.element_width.as_bits())).or_reduce()
+  def supported_width = control.element_width.as_bits() <= Bits(2)(vector_format_count(xlen) - 1)
+  def bounded_length = (control.vl <= control.vlmax) & (control.vlmax <= Bits(count_width)(vlen)) & control.vlmax.or_reduce()
   def valid_cursor = control.first_element < control.vlmax
-  def width_change_fits = !(changes_width & (control.element_width.as_bits() >= bits(vector_format_count(xlen) - 1, 2)))
+  def width_change_fits = !(changes_width & (control.element_width.as_bits() >= Bits(2)(vector_format_count(xlen) - 1)))
   legal <== supported_width & aligned & bounded_length & valid_cursor & width_change_fits & (!control.extension ||| extend.legal)
 
 /* Maps data or mask results into a bit-enabled VRF row, including narrowing clipping.
@@ -161,10 +161,10 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
   def calculation_width = index_width(vlen + 1) + 1
   def base = destination.zext(calculation_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
   def element = first_element.zext(calculation_width)
-  def data_chunk = element >> (bits(vector_byte_offset_width(xlen), 2) - element_width.as_bits())
+  def data_chunk = element >> (Bits(2)(vector_byte_offset_width(xlen)) - element_width.as_bits())
   def address = base + mux(mask_destination, element >> vector_bit_offset_width(xlen), data_chunk)
   def mask_write_mask = enabled.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)]
-  def upper_half = (first_element & (bits(vector_word_bytes(xlen) / 2, index_width(vlen + 1)) >> element_width.as_bits())).or_reduce()
+  def upper_half = (first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2) >> element_width.as_bits())).or_reduce()
 
 
   /* Per-format narrowing and clipping.
@@ -180,12 +180,12 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
       def upper = source[element_bits..source_bits]
       def result_negative = source[source_bits - 1].into(Bool)
       def low_negative = low[element_bits - 1].into(Bool)
-      def sign_fill = mux(low_negative, !bits(0, element_bits), bits(0, element_bits))
+      def sign_fill = mux(low_negative, !Bits(element_bits)(0), Bits(element_bits)(0))
       def unsigned_overflow = upper.or_reduce()
       def signed_overflow = upper =/= sign_fill
       def overflow = mux(clip_unsigned, unsigned_overflow, signed_overflow)
-      def unsigned_limit = !bits(0, element_bits)
-      def signed_limit = mux(result_negative, bits(1 << (element_bits - 1), element_bits), bits((1 << (element_bits - 1)) - 1, element_bits))
+      def unsigned_limit = !Bits(element_bits)(0)
+      def signed_limit = mux(result_negative, Bits(element_bits)(1 << (element_bits - 1)), Bits(element_bits)((1 << (element_bits - 1)) - 1))
       def clipped = mux(clip_unsigned, unsigned_limit, signed_limit)
       [mux(clip & overflow, clipped, low), (enabled[lane] & clip & overflow).as_bits()]
     def low_data :: Bits(xlen.width / 2) = if lanes == 1 | elements[0][0] | concat(elements.map(fun (element :: List): element[0]).reverse())
@@ -195,9 +195,9 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
     VectorNarrowedResult(xlen):
       result:
         SimdAluResult(xlen):
-          data: mux(upper_half, low_data ++ bits(0, xlen.width / 2), bits(0, xlen.width / 2) ++ low_data)
+          data: mux(upper_half, low_data ++ Bits(xlen.width / 2)(0), Bits(xlen.width / 2)(0) ++ low_data)
           mask_result: result.mask_result
-          write_mask: mux(upper_half, low_mask.as_bits() ++ bits(0, vector_word_bytes(xlen) / 2), bits(0, vector_word_bytes(xlen) / 2) ++ low_mask.as_bits()).into(Mask(vector_word_bytes(xlen)))
+          write_mask: mux(upper_half, low_mask.as_bits() ++ Bits(vector_word_bytes(xlen) / 2)(0), Bits(vector_word_bytes(xlen) / 2)(0) ++ low_mask.as_bits()).into(Mask(vector_word_bytes(xlen)))
           saturated: result.saturated
       saturated: saturation_bits.or_reduce()
   def narrowed :: VectorNarrowedResult(xlen) = mux_lookup(element_width, ~default: narrowed_results[0], for List (format in 1..(vector_format_count(xlen) - 1)): [SimdElementWidth.values()[format], narrowed_results[format]])
@@ -211,11 +211,11 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
     address: address[0..address_width]
     data: mux(mask_destination, effective_result.mask_result.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)], effective_result.data)
     mask: mux(mask_destination, mask_write_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
-  def aligned = !(first_element & (bits(vector_word_bytes(xlen) - 1, index_width(vlen + 1)) >> element_width.as_bits())).or_reduce()
-  def half_aligned = !(first_element & (bits(vector_word_bytes(xlen) / 2 - 1, index_width(vlen + 1)) >> element_width.as_bits())).or_reduce() & (element_width.as_bits() < bits(vector_format_count(xlen) - 1, 2))
-  def supported_width = element_width.as_bits() <= bits(vector_format_count(xlen) - 1, 2)
-  def address_in_bank = address < bits(VectorRegisterLayout(vlen, xlen.width).depth, calculation_width)
-  def mask_in_register = !mask_destination ||| (first_element < bits(vlen, index_width(vlen + 1)))
+  def aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) - 1) >> element_width.as_bits())).or_reduce()
+  def half_aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2 - 1) >> element_width.as_bits())).or_reduce() & (element_width.as_bits() < Bits(2)(vector_format_count(xlen) - 1))
+  def supported_width = element_width.as_bits() <= Bits(2)(vector_format_count(xlen) - 1)
+  def address_in_bank = address < Bits(calculation_width)(VectorRegisterLayout(vlen, xlen.width).depth)
+  def mask_in_register = !mask_destination ||| (first_element < Bits(index_width(vlen + 1))(vlen))
   legal <== supported_width & mux(narrowing, half_aligned, aligned) & address_in_bank & mask_in_register
 
 export:

@@ -69,8 +69,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries))
   inst bht(if profile.bht | Bht() | DisabledBht())
   inst direction(if profile.bht | RV2WideDirection(profile) | DisabledRV2WideDirection(profile))
-  reg speculative_history(~init: bits(0, 10))
-  reg committed_history(~init: bits(0, 10))
+  reg speculative_history(~init: Bits(10)(0))
+  reg committed_history(~init: Bits(10)(0))
   wire direction_repair: Bool
   inst s1(ValidPipeAlwaysCapture(RV2WideFetchCursor(xlen), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(xlen), 1, ~flushable: #true))
@@ -129,8 +129,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   btb.invalidate.valid <== mux(assembler.repair.valid, assembler.repair.bits.invalidate, direction.valid & direction.invalidate & Bool(profile.bht))
   btb.invalidate.bits <== mux(assembler.repair.valid, assembler.repair.bits.entry, s2.egress.bits.cursor.prediction.pc)
   def s2_prediction = s2.egress.bits.cursor.prediction
-  def s2_straddle = s2_prediction.valid & (s2_prediction.pc[0..3] === bits(6, 3)) & !s2_prediction.compressed & !s2.egress.bits.cursor.continuation
-  def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.target, s2.egress.bits.cursor.pc.align_down(8) + bits(8, xlen.width))
+  def s2_straddle = s2_prediction.valid & (s2_prediction.pc[0..3] === Bits(3)(6)) & !s2_prediction.compressed & !s2.egress.bits.cursor.continuation
+  def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.target, s2.egress.bits.cursor.pc.align_down(8) + Bits(xlen.width)(8))
   def direction_updates_history = Bool(profile.bht) & direction.valid & !result_fault
   direction_repair <== direction_updates_history & (direction.next_pc =/= provisional_successor)
 
@@ -144,8 +144,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     committed_next := mux(history_commit.valid & history_commit.bits.enable[lane], history[0..9] ++ history_commit.bits.taken[lane].as_bits(), history)
   def s1_history = mux(direction_updates_history, direction.history_after, speculative_history)
   when (bht.clear.valid):
-    speculative_history <== bits(0, 10)
-    committed_history <== bits(0, 10)
+    speculative_history <== Bits(10)(0)
+    committed_history <== Bits(10)(0)
   otherwise:
     committed_history <== committed_next
     when (history_restore.valid):
@@ -162,12 +162,12 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
      S1 prediction feeds S0 directly. Recovery cancels younger reservations,
      but direction correction still reserves the retained S2 response. */
 
-  def straddle = prediction.valid & (prediction.pc[0..3] === bits(6, 3)) & !prediction.compressed & !s1.egress.bits.continuation
+  def straddle = prediction.valid & (prediction.pc[0..3] === Bits(3)(6)) & !prediction.compressed & !s1.egress.bits.continuation
   def next_cursor = RV2WideFetchCursor(xlen):
-    pc: mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target, s1.egress.bits.pc.align_down(8) + bits(8, xlen.width))
+    pc: mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target, s1.egress.bits.pc.align_down(8) + Bits(xlen.width)(8))
     prediction: prediction
     continuation: straddle
-    row: bits(0, 10)
+    row: Bits(10)(0)
     hashed: Bool(#false)
   def restart = start.valid ||| redirect.valid
   def replace = restart ||| (!command & (repair ||| replay))
@@ -207,7 +207,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   elsewhen fault:
     active <== Bool(#false)
   when (attempt.fire()):
-    cursor <== selected.updated(~pc: selected.pc.align_down(8) + bits(8, xlen.width), ~continuation: Bool(#false), ~hashed: Bool(#false))
+    cursor <== selected.updated(~pc: selected.pc.align_down(8) + Bits(xlen.width)(8), ~continuation: Bool(#false), ~hashed: Bool(#false))
   elsewhen (replace ||| (continue_fetch & s1.egress.valid)):
     cursor <== selected
 
@@ -217,7 +217,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
      a fault token, never an aliased aligned fetch. */
 
   def s1_base = translation.address.align_down(8)
-  def physical = config.physical_map.lookup(s1_base, s1_base +& bits(7, 64))
+  def physical = config.physical_map.lookup(s1_base, s1_base +& Bits(64)(7))
   def attributes = resolve_memory_attributes(physical, translation.pbmt)
   def permitted = physical.mapped & physical.executable
   def misaligned = !s1.egress.bits.pc.is_aligned(2)

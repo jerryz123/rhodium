@@ -14,8 +14,8 @@ sync_circuit RetainedBank(intrinsic :: Boolean, residency :: Boolean, invalid ::
   reg occupied(~init: vec(for List (_ in 0..3): Bool(#false)))
   reg payload(Vec(3, Bits(8)))
   def admitted = if residency | command |> trace_event("resident", ~residency: "owners", ~payload: #true) | command
-  admitted.ready <== (allocation < bits(3, 2)) & (!occupied[allocation] ||| release[allocation])
-  def captures = for List (index in 0..3): admitted.fire() & (allocation === bits(index, 2))
+  admitted.ready <== (allocation < Bits(2)(3)) & (!occupied[allocation] ||| release[allocation])
+  def captures = for List (index in 0..3): admitted.fire() & (allocation === Bits(2)(index))
   def releases = for List (index in 0..3): release[index] & occupied[index]
   for (index in 0..3):
     when (captures[index]):
@@ -30,10 +30,10 @@ sync_circuit RetainedBank(intrinsic :: Boolean, residency :: Boolean, invalid ::
       link.left
     | attempts[index]
   for (index in 0..2):
-    outputs[index].field("valid") <== emit[index] & (selection[index] < bits(3, 2)) & occupied[selection[index]]
+    outputs[index].field("valid") <== emit[index] & (selection[index] < Bits(2)(3)) & occupied[selection[index]]
     outputs[index].field("bits") <== payload[selection[index]]
   def grants = for List (output in 0..2):
-    for List (index in 0..3): emit[output] & (selection[output] === bits(index, 2))
+    for List (index in 0..3): emit[output] & (selection[output] === Bits(2)(index))
   describe_interface_retained_bank(if invalid == "length" | captures.take(2) | captures,
                                    releases,
                                    if invalid == "width" | [allocation, allocation, allocation] | (for List (index in 0..3): occupied[index]),

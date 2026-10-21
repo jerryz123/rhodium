@@ -24,8 +24,8 @@ sync_circuit CHITransferFragmenterFixture():
   inst fragmenter(CHITransferFragmenter(fragmenter_config))
   inst ram(CHIRam(fragmenter_ram_config))
   ram.identity <== CHIRamIdentity(fragmenter_flit):
-    node_id: bits(fragmenter_ram_params.node_id, fragmenter_flit.node_id_width)
-    base_address: bits(fragmenter_ram_params.base_address, fragmenter_flit.request_address_width)
+    node_id: Bits(fragmenter_flit.node_id_width)(fragmenter_ram_params.node_id)
+    base_address: Bits(fragmenter_flit.request_address_width)(fragmenter_ram_params.base_address)
   port <=> fragmenter.upstream
   fragmenter.downstream <=> ram.port
 

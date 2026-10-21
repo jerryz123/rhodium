@@ -39,8 +39,8 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   fetch <=> icache.core
   virtual_lookup <=> icache.virtual_lookup
   host <=> dcache.core
-  icache.node_id <== bits(2, p.node_id_width)
-  dcache.node_id <== bits(3, p.node_id_width)
+  icache.node_id <== Bits(p.node_id_width)(2)
+  dcache.node_id <== Bits(p.node_id_width)(3)
   icache.prefetch.valid <== Bool(#false)
   icache.prefetch.bits <== dont_care(CachePrefetchReq(64))
   dcache.virtual_lookup.valid <== host.request.valid
@@ -53,12 +53,12 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   dcache.prefetch.valid <== Bool(#false)
   dcache.prefetch.bits <== dont_care(CachePrefetchReq(64))
   home.identity <== CHIHNFIdentity(p):
-    home_node_id: bits(1, p.node_id_width)
-    subordinate_node_id: bits(9, p.node_id_width)
-    service_base: bits(0, p.request_address_width)
+    home_node_id: Bits(p.node_id_width)(1)
+    subordinate_node_id: Bits(p.node_id_width)(9)
+    service_base: Bits(p.request_address_width)(0)
   ram.identity <== CHIRamIdentity(p):
-    node_id: bits(9, p.node_id_width)
-    base_address: bits(0, p.request_address_width)
+    node_id: Bits(p.node_id_width)(9)
+    base_address: Bits(p.request_address_width)(0)
   home.port.subordinate.req |> queue(1) |> ram.port.req
   home.port.subordinate.dat.request |> queue(1) |> ram.port.dat.request
   ram.port.rsp |> queue(1) |> home.port.subordinate.rsp
@@ -66,11 +66,11 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   Array(icache.chi.req, dcache.chi.requests) |> parallel(queue(1), queue(1)) |> rr_arbiter() |> home.port.requester.requests
   Array(icache.chi.rsp.requester, dcache.chi.requester_responses) |> parallel(queue(1), queue(1)) |> rr_arbiter() |> home.port.requester.requester_responses
   Array(icache.chi.dat.request, dcache.chi.request_data) |> parallel(queue(1), queue(1)) |> rr_arbiter() |> home.port.requester.request_data
-  (home.port.requester.responses |> queue(1) |> demux_flow(2, response => (response.tgt_id === bits(3, p.node_id_width)).as_bits())) <=> Array(icache.chi.rsp.response, dcache.chi.responses)
-  (home.port.requester.response_data |> queue(1) |> demux_flow(2, data => (data.tgt_id === bits(3, p.node_id_width)).as_bits())) <=> Array(icache.chi.dat.response, dcache.chi.response_data)
+  (home.port.requester.responses |> queue(1) |> demux_flow(2, response => (response.tgt_id === Bits(p.node_id_width)(3)).as_bits())) <=> Array(icache.chi.rsp.response, dcache.chi.responses)
+  (home.port.requester.response_data |> queue(1) |> demux_flow(2, data => (data.tgt_id === Bits(p.node_id_width)(3)).as_bits())) <=> Array(icache.chi.dat.response, dcache.chi.response_data)
   home.port.requester.snoops |> queue(1) |> map_flow(dispatch => dispatch.flit) |> dcache.chi.snoops
   when (home.port.requester.snoops.valid):
-    assert(home.port.requester.snoops.bits.target_id === bits(3, p.node_id_width), "instruction_snapshot_has_no_snoop_target")
+    assert(home.port.requester.snoops.bits.target_id === Bits(p.node_id_width)(3), "instruction_snapshot_has_no_snoop_target")
   instruction_request <== icache.chi.req.fire()
   instruction_fence <== fetch.invalidate_all
 

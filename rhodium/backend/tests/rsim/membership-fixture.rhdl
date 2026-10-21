@@ -16,18 +16,18 @@ sync_circuit RsimMembership():
   def small = value[0..5]
   def state = value[0..2].into(MembershipState)
   def predicates = vec(
-    value.is_one_of([bits(0, 64), bits(1, 64), bits(7, 64), bits(63, 64), bits(2 ** 63, 64), bits(2 ** 64 - 1, 64), bits(7, 64)]),
-    small.is_one_of(bits(0, 5), bits(3, 5), bits(5, 5), bits(13, 5), bits(31, 5), bits(31, 5)),
-    small.is_one_of(for List (index in 8..24): bits(index, 5)),
-    wide.is_one_of(bits(0, 65), bits(1, 65), bits(2 ** 64, 65), bits(2 ** 65 - 1, 65)),
-    value.is_one_of(other, bits(7, 64)),
+    value.is_one_of([Bits(64)(0), Bits(64)(1), Bits(64)(7), Bits(64)(63), Bits(64)(2 ** 63), Bits(64)(2 ** 64 - 1), Bits(64)(7)]),
+    small.is_one_of(Bits(5)(0), Bits(5)(3), Bits(5)(5), Bits(5)(13), Bits(5)(31), Bits(5)(31)),
+    small.is_one_of(for List (index in 8..24): Bits(5)(index)),
+    wide.is_one_of(Bits(65)(0), Bits(65)(1), Bits(65)(2 ** 64), Bits(65)(2 ** 65 - 1)),
+    value.is_one_of(other, Bits(64)(7)),
     value.is_one_of([]),
-    value.is_one_of(bits(3, 64), bits(3, 64), bits(3, 64)),
+    value.is_one_of(Bits(64)(3), Bits(64)(3), Bits(64)(3)),
     value[0].into(Bool).is_one_of(Bool(#true), Bool(#true)),
     value.into(SInt(64)).is_one_of(sint(-1, 64), sint(-2 ** 63, 64), sint(7, 64)),
     state.is_one_of(MembershipState.Idle, MembershipState.Done)
   ).as_bits()
-  reg held(~init: bits(0, 10))
+  reg held(~init: Bits(10)(0))
   when enable: held <== predicates
   result <== predicates
   sampled <== held

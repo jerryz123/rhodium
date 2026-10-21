@@ -102,7 +102,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
         details:
           RiscvGuestFault():
             guest_virtual_address: split_guest_fault
-            guest_physical_address: bits(0x2345, 64)
+            guest_physical_address: Bits(64)(0x2345)
             access: RiscvGuestFaultAccess.Explicit
   split_requested <== dut.split.request.valid
   split_store <== dut.split.request.bits.data
@@ -114,7 +114,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   completed <== dut.completion.bits
   dut.completion.ready <== completion_ready
   idle <== dut.idle
-  word_bytes <== bits(xlen.width / 8, 4)
-  capacity <== bits(slots, 4)
+  word_bytes <== Bits(4)(xlen.width / 8)
+  capacity <== Bits(4)(slots)
 
 export RV2WideVectorMemoryFixture

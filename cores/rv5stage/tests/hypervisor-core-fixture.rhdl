@@ -87,7 +87,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   mmu.ordered_busy <== Bool(#false)
   core.instruction_replay_owner |> mmu.instruction_replay_owner
   core.interrupts <== interrupts
-  core.hart_id <== bits(0, 64)
+  core.hart_id <== Bits(64)(0)
   core.time_counter <== time_counter
   translation_flush <== core.translation_flush
   virtualized <== core.guest_translation.virtualized
@@ -109,7 +109,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   (mmu.pipeline_memory.request |> map_valid(_request => CachePipelineResult(xlen)):
     outcome: CachePipelineOutcome.Slow
     reason: CachePipelineReason.Translation
-    data: bits(0, 64)
+    data: Bits(64)(0)
   ) |> mmu.pipeline_memory.response
   mmu.pipeline_memory.commit_ready <== Bool(#true)
   mmu.core_memory |> arbiter.core

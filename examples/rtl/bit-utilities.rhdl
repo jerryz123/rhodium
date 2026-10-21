@@ -66,9 +66,9 @@ circuit Membership():
   output never: Bool
 
   active <== state.is_one_of(MembershipState.Refill, MembershipState.Respond)
-  small <== value.is_one_of(bits(1, 4), bits(2, 4), bits(3, 4))
-  exact <== value.is_one_of(bits(7, 4))
-  listed <== value.is_one_of([bits(4, 4), bits(5, 4)])
+  small <== value.is_one_of(Bits(4)(1), Bits(4)(2), Bits(4)(3))
+  exact <== value.is_one_of(Bits(4)(7))
+  listed <== value.is_one_of([Bits(4)(4), Bits(4)(5)])
   never <== value.is_one_of([])
 
 /* Checks legal encodings of sparse, dense, and one-hot hardware enums. */

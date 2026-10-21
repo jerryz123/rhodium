@@ -4,7 +4,9 @@
 
 import:
   rhombus/meta open
-  "../core/types.rhm" open
+  "../core/types.rhm" open:
+    except: Bits
+  "support/bits-type.rhm".Bits
   "kernel.rhm".StableCircuitParam
   "kernel.rhm".CircuitIdentity
   "kernel.rhm".CircuitDefinition
