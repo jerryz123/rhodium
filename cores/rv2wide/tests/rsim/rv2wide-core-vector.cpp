@@ -11,10 +11,12 @@ Request lookup{}, commit_owner{};
 bool lookup_live = false, proof_pending = false, slow = false, safe = true;
 bool guest_fault = false;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
+unsigned redirect_count = 0, response_delay = 12;
 std::uint64_t next_pc = 0x8000, replay_pc = 0, fault_at = 0;
 std::array<std::uint64_t, 32> gprs{};
 std::map<std::uint64_t, std::uint64_t> words;
 std::set<std::uint64_t> retired_pcs;
+std::map<std::uint64_t, unsigned> memory_cycles;
 struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
@@ -84,6 +86,7 @@ void step() {
       gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
     }
     if (redirect_out.pvalid) {
+      ++redirect_count;
       if (redirect_out.pbits.presolution.pdisposition == 2)
         replay_pc = redirect_out.pbits.ptarget;
       if (redirect_out.pbits.presolution.pdisposition == 1) {
@@ -98,8 +101,10 @@ void step() {
     if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
       const auto request = memory_out.prequest.pbits;
       if (request.paccess == 2) write(request);
-      responses.push_back({words[request.paddress & ~(std::uint64_t(bytes) - 1)], cycle + 12});
+      responses.push_back({words[request.paddress & ~(std::uint64_t(bytes) - 1)], cycle + response_delay});
     }
+    for (const auto *port : {&memory_stage_0_out, &memory_stage_1_out})
+      if (port->pvalid) memory_cycles.try_emplace(port->pbits.ppc, cycle);
     CHECK(!split_out.prequest.pvalid);
   }
   const bool proof_accept = vector_precheck_out.prequest.pvalid && vector_precheck_in.prequest.pready;
@@ -150,6 +155,134 @@ void setvl(unsigned sew, unsigned vl = 16) {
   send(0xc0007057 | (vl << 15) | (sew << 23) | (5 << 7));
   CHECK(gprs[5] == vl);
 }
+std::uint32_t vsetivli(unsigned rd, unsigned avl, unsigned type) {
+  return 0xc0007057 | type << 20 | avl << 15 | rd << 7;
+}
+std::uint32_t vsetvli(unsigned rd, unsigned rs1, unsigned type) {
+  return 0x7057 | type << 20 | rs1 << 15 | rd << 7;
+}
+void stream(std::initializer_list<std::uint32_t> words, bool fault = false) {
+  const std::vector<std::uint32_t> program(words);
+  const auto base = next_pc;
+  next_pc += 4 * program.size();
+  const unsigned faults_before = fault_count, redirects_before = redirect_count;
+  unsigned sent = 0;
+  for (unsigned wait = 0; ; ++wait) {
+    CHECK(wait < 3000 && !replay_pc);
+    instructions_in = {};
+    instructions_in.pvalid = sent < program.size();
+    const unsigned count = std::min<unsigned>(2, program.size() - sent);
+    instructions_in.pbits.pcount = count;
+    for (unsigned lane = 0; lane < count; ++lane) {
+      auto &entry = instructions_in.pbits.pentries[lane];
+      entry.ppc = base + 4 * (sent + lane);
+      entry.psequential_upc = entry.ppc + 4;
+      entry.pinstruction = entry.praw_uinstruction = program[sent + lane];
+    }
+    settle();
+    const bool accepted = instructions_in.pvalid && instructions_out.pready;
+    step();
+    if (accepted) sent += count;
+    if (retired_pcs.contains(next_pc - 4) || fault_count != faults_before) break;
+  }
+  instructions_in.pvalid = 0;
+  CHECK(fault == (fault_count != faults_before));
+  if (!fault) {
+    CHECK(redirect_count == redirects_before);
+    for (unsigned index = 0; index < program.size(); ++index)
+      CHECK(retired_pcs.contains(base + 4 * index));
+  }
+  settle();
+}
+
+void extract(unsigned vector_register, unsigned rd, std::uint64_t value,
+             bool require_progress = false);
+void vector_configuration_overlap() {
+  // MEM forwarding supplies dependent AVL and vtype; a gap exercises WB forwarding.
+  const auto first = next_pc;
+  stream({vsetivli(5, 4, 0), vsetvli(6, 5, 8), addi(7, 6, 3),
+          vsetvli(0, 0, 7), vi(23, 0, 7, 4, 18)});
+  CHECK(gprs[5] == 4 && gprs[6] == 4 && gprs[7] == 7);
+  for (unsigned index = 1; index < 5; ++index)
+    CHECK(memory_cycles.at(first + 4 * index) == memory_cycles.at(first) + index);
+  extract(18, 7, 7);
+
+  // vsetvl consumes ordinary forwarded scalar sources; keep-VL uses its new state.
+  stream({addi(10, 0, 8), addi(11, 0, 3),
+          0x80007057 | (10 << 20) | (11 << 15) | (12 << 7),
+          addi(13, 12, 1), vsetvli(0, 0, 7), vi(23, 0, 13, 4, 19)});
+  CHECK(gprs[12] == 3 && gprs[13] == 4);
+  extract(19, 7, 4);
+
+  // Legality must use the new EX state, not the previously committed vill state.
+  send(vsetivli(5, 4, 256));
+  CHECK(gprs[5] == 0);
+  stream({vsetivli(5, 4, 0), vi(23, 0, 13, 4, 20)});
+  extract(20, 7, 4);
+  const auto illegal = vi(23, 0, 13, 4, 21);
+  stream({vsetivli(5, 4, 256), illegal}, true);
+  CHECK(last_cause == 2 && last_tval == illegal);
+  stream({vsetivli(5, 4, 0), vsetvli(0, 0, 8)}, true);
+  CHECK(last_cause == 2 && last_tval == vsetvli(0, 0, 8));
+  send(0xc21023f3); // csrr x7,vtype: faulting keep-VL must not commit
+  CHECK(gprs[7] == 0);
+
+  // A certified older load retains its original byte geometry while vset retires.
+  setvl(0, bytes * 2);
+  send(addi(1, 0, 0x400));
+  words[0x400] = bytes == 8 ? UINT64_C(0x1111111111111111) : UINT64_C(0x11111111);
+  words[0x400 + bytes] = bytes == 8 ? UINT64_C(0x2222222222222222) : UINT64_C(0x22222222);
+  slow = true;
+  safe = true;
+  response_delay = 80;
+  send(0x02000007 | (1 << 15) | (24 << 7));
+  for (unsigned wait = 0; responses.empty(); ++wait) {
+    CHECK(wait < 100);
+    step();
+  }
+  const auto due = responses.front().due;
+  stream({vsetivli(5, 4, 8), vi(23, 0, 13, 4, 25)});
+  CHECK(!responses.empty() && cycle < due);
+  run(120);
+  slow = false;
+  response_delay = 12;
+  send(addi(1, 0, 0x600));
+  send(0x02005027 | (1 << 15) | (25 << 7));
+  run();
+  CHECK(words[0x600] == (bytes == 8 ? UINT64_C(0x0004000400040004) : UINT64_C(0x00040004)));
+  if constexpr (bytes == 4) CHECK(words[0x604] == UINT64_C(0x00040004));
+  setvl(0, bytes * 2);
+  send(addi(1, 0, 0x700));
+  send(0x02000027 | (1 << 15) | (24 << 7));
+  run();
+  CHECK(words[0x700] == words[0x400] && words[0x700 + bytes] == words[0x400 + bytes]);
+  extract(24, 7, 0x11);
+
+  // A MEM branch kills the younger EX configuration before it can forward or commit.
+  const auto branch_pc = next_pc;
+  next_pc += 12;
+  instructions_in = {};
+  instructions_in.pvalid = 1;
+  instructions_in.pbits.pcount = 2;
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    auto &entry = instructions_in.pbits.pentries[lane];
+    entry.ppc = branch_pc + 4 * lane;
+    entry.psequential_upc = entry.ppc + 4;
+    entry.pinstruction = entry.praw_uinstruction = lane ? vsetivli(5, 4, 8) : 0x00000663;
+  }
+  for (unsigned wait = 0; ; ++wait) {
+    CHECK(wait < 100);
+    settle();
+    const bool accepted = instructions_out.pready;
+    step();
+    if (accepted) break;
+  }
+  instructions_in.pvalid = 0;
+  run(12);
+  CHECK(retired_pcs.contains(branch_pc) && !retired_pcs.contains(branch_pc + 4));
+  send(0xc21023f3);
+  CHECK(gprs[7] == 0);
+}
 void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) {
   send(addi(2, 0, guest_status >> 8));
   send((8 << 20) | (2 << 15) | (1 << 12) | (2 << 7) | 0x13); // slli x2,x2,8
@@ -189,7 +322,7 @@ void scalar_burst() {
   CHECK(retired_pcs.contains(pc) && gprs[20] == 100 && gprs[21] == 101);
 }
 void extract(unsigned vector_register, unsigned rd, std::uint64_t value,
-             bool require_progress = false) {
+             bool require_progress) {
   send(vi(16, vector_register, 0, 2, rd));
   // Sustained paired scalar traffic competes with the vector return for the 2W calendar.
   scalar_burst();
@@ -316,5 +449,6 @@ int main() {
     CHECK(deferred_count >= 5);
     CHECK(stores >= 2);
     CHECK(fault_count == (bytes == 8 ? 7 : 1));
+    vector_configuration_overlap();
   });
 }

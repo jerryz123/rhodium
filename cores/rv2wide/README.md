@@ -764,7 +764,8 @@ transactions block younger memory operations only.
 ## CSR, traps, and interrupts
 
 The shared `cores/csr` bank owns architectural state and permission checks;
-RV2Wide owns precise ordering. System instructions issue alone only after older
+RV2Wide owns precise ordering. Except for the non-draining vector configuration
+path described under [vector execution](#vector-execution), system instructions issue alone only after older
 pipeline work and accepted deferred operations (including GPR completion writes)
 drain. They execute once at WB. Younger instructions may execute speculatively,
 but WB system recovery squashes them and overrides same-cycle MEM branch recovery.
@@ -966,7 +967,7 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   certification or precise execution determines the outcome. Successful page
   certification permits younger independent scalar work while execution drains.
 - Younger scalar memory waits for older vector stores; younger scalar stores
-  also wait for older vector loads. CSR changes and traps drain accepted work.
+  also wait for older vector loads. Direct CSR accesses and traps drain accepted work.
 - Scalar EX multiply and fixed-FP reservations remain feed-forward. Vector
   operations share the same arithmetic units with retained completion tags.
 - Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
@@ -976,6 +977,14 @@ Standalone callers supply WB-authorized, nonspeculative `VectorDescriptor` reque
 certification, shared FP/multiply/divide services, and scalar write reservations.
 Only the caller may retire an instruction, publish a fault, or grant a scalar
 register write. A scalar redirect must not cancel an accepted descriptor.
+
+`vsetvli`, `vsetivli`, and `vsetvl` issue singly without waiting for older vector
+execution to complete. They compute configuration and VL results in EX, forward
+the newest configuration to younger vector instructions and configurations, and
+commit the architectural CSR state at WB. Younger descriptors retain their own
+scalar/vector-state snapshots. Successful configuration does not flush or refetch
+its successors; ordinary CSR accesses and precise recovery retain their existing
+serialization rules.
 
 ```text
 WB-authorized descriptors -> queue -> shared vector execution

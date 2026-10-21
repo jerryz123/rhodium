@@ -464,6 +464,8 @@ imports architectural pointer-masking and hypervisor RTL definitions for address
 normalization, guest lookup context, and fault provenance; its decode consumes
 the pure H catalog. Those contracts feed the existing shared MMU and CSR bank,
 not another named core's adapters.
+Its core also imports `riscv/rtl/vector.rhdl` for EX configuration computation
+and immutable vector-state snapshots; forwarding and WB commit remain core policy.
 
 `riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
 plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.

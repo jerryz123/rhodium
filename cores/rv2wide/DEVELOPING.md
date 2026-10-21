@@ -673,10 +673,11 @@ loads, killed hints, interrupt entry, and reset; the fetch fixture covers real
 instruction delivery and traced retirement. Keep neighboring FENCE decode intact.
 
 RR serializes system instructions after older pipeline and accepted memory work
-drain and never admits a system instruction as the younger slot. CSR results
+drain and never admits a system instruction as the younger slot, except for
+vector configuration's non-draining path described below. Ordinary CSR results
 are unavailable to speculative forwarding; WB writes the shared bank's result.
-Younger ordinary instructions may issue, but every WB system command flushes
-their effects and refetches from the architectural successor or trap/return PC.
+Younger ordinary instructions may issue, but a serializing WB system command
+flushes their effects and refetches from the architectural successor or trap/return PC.
 This cut gives WB CSR recovery priority over a younger MEM branch without
 making feed-forward stage registers elastic.
 
@@ -783,7 +784,18 @@ independently of completion slots and the single active sequencer. Keep the
 shared admission queue's `~pipe: #false` setting when varying capacity; at full
 occupancy its credit returns on the cycle after a dequeue.
 Faultable descriptors retain their WB owner until certification or precise
-execution produces an outcome. Traps and CSR changes drain accepted work.
+execution produces an outcome. Traps and direct CSR accesses drain accepted work.
+
+`vsetvli`, `vsetivli`, and `vsetvl` issue alone in slot zero but do not drain
+vector execution. EX computes configuration and its GPR result using the shared
+architectural helpers. The newest nonfaulted configuration in MEM, then WB,
+precedes committed CSR state. EX legality and descriptor snapshot capture use
+that forwarded state, never RR's potentially stale committed vtype. Ordinary
+operand forwarding carries the new VL to dependent scalar work and configurations.
+WB alone commits the architectural vector CSRs; a successful configuration
+does not squash or refetch successors. Faults, replays, interrupts, and branch
+recovery still suppress wrong-path configuration and descriptor admission.
+Direct CSR writes, traps, and translation/context changes retain full drain.
 
 `memory-ports.rhdl` retains fixed-stage lookup ownership, queues every accepted
 raw-response owner, and latches the selected split client. These owners survive
@@ -818,6 +830,10 @@ delayed certified loads feeding scalar extraction. These are service tests, not
 evidence of vector instruction execution by `RV2WideCore`. The core-vector
 fixtures additionally exercise real decode/vset/CSR state, shared arithmetic,
 packed and precise memory, two-port scalar writeback, and fault/vstart reporting.
+Their vset streams check all configuration forms, MEM/WB and GPR forwarding,
+consecutive issue without refetch, forwarded-vill legality, illegal keep-VL
+transitions, configuration overlap with delayed vector loads, immutable old/new
+memory geometry, and wrong-path configuration suppression after a MEM branch.
 The RV64 fixture combines H with V/FP, checking both host/guest FS/VS gates,
 guest-fault CSR provenance, and draining accepted vector loads before trap entry.
 The MMU fixture certifies and reuses a nonidentity G-stage vector page mapping.
