@@ -20,15 +20,15 @@ sync_circuit FpLaunchCalendar(timing :: FpExecutionTiming, span :: PosInt):
   def delay_width = index_width(span + 1)
   inst calendar(WritebackCalendar(2, span))
   calendar.pause <== Bool(#false)
-  calendar.probe_client <== Bits(1)(1)
-  calendar.probe_delay <== timing.latency(probe, ~width: delay_width) + Bits(delay_width)(1)
+  calendar.query_client[0] <== Bits(1)(1)
+  calendar.query_delay[0] <== timing.latency(probe, ~width: delay_width) + Bits(delay_width)(1)
   book |> map_valid(control => timing.latency(control, ~width: delay_width) + Bits(delay_width)(1)) |> to_decoupled() |> calendar.reserve[1]
   vector_book |> map_flow(control => timing.latency(control, ~width: delay_width)) |> calendar.reserve[0]
   reg booked(~init: Bool(#false))
   reg vector_turn(~init: Bool(#false))
   booked <== book.valid
   reserved <== booked
-  available <== calendar.probe_available & fixed_available & !(vector_turn & vector_waiting)
+  available <== calendar.prior_claims_available[0] & fixed_available & !(vector_turn & vector_waiting)
   when (!vector_waiting ||| vector_accepted):
     vector_turn <== Bool(#false)
   elsewhen (book.valid):

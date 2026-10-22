@@ -60,7 +60,11 @@ pipeline's disabled implementation owns inactive service outputs; scalar WB
 launch qualification, FPR reservation, and retained retirement context remain
 in `core.rhdl` and use the same connections for either specialization. Preserve
 the active vector instance's passive observation boundary when changing this
-selection. FP calendar/arbitration policy belongs in `fp/service.rhdl`, not in
+selection. The GPR writeback calendar uses `prior_claims_available` for younger
+ID bookings after WB vector claims, and `registered_free` at delay zero for
+current-cycle variable completions. The latter must ignore the fixed-booking
+pause so a starving variable return can still drain.
+FP calendar/arbitration policy belongs in `fp/service.rhdl`, not in
 the reusable numeric service.
 
 Follow the [source documentation requirements](../../AGENTS.md#source-documentation),

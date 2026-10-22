@@ -79,6 +79,8 @@ on the reserved edge. Completion retains the slot's bit mask and qualifies the
 numeric byte saturation against it. Passive cosim reports packed launch at
 allocation separately from queued scalar launch; their mutually exclusive
 architectural returns use the existing multiplier-return observation.
+Local read admission uses `prior_claims_available` for client 2, observing
+accepted scalar multiply/FP claims before promising the local return edge.
 
 `../mmu/vector.rhdl` owns certification/probe contracts and
 `../mmu/vector-window.rhdl` owns the pinned two-page window. The named MMU owns

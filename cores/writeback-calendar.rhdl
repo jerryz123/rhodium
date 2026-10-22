@@ -5,19 +5,23 @@
 import:
   lib("flow/main.rhdl") open
 
-/* Grants noncolliding future write cycles in client order and ages reservations each cycle.
-   Pause blocks new claims only; a separate probe observes earlier clients' reservations. */
-sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt):
+/* Grant future write cycles in client order and age reservations even while paused.
+   Registered queries ignore live claims; ordered queries see only earlier clients. */
+sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt, ~queries: queries :: PosInt = 1):
   interface reserve[clients](Decoupled(Bits(index_width(latency + 1))), ~role: consumer)
   input pause: Bool
-  input probe_client: Bits(index_width(clients))
-  input probe_delay: Bits(index_width(latency + 1))
+  input query_client: Vec(queries, Bits(index_width(clients)))
+  input query_delay: Vec(queries, Bits(index_width(latency + 1)))
   output occupied: Bits(latency)
-  output probe_available: Bool
+  output registered_free: Vec(queries, Bool)
+  output prior_claims_available: Vec(queries, Bool)
   reg pending(~init: Bits(latency)(0))
+  def selections = vec(for List (query in 0..queries): Bits(latency + 1)(1) << query_delay[query])
+  def in_range = vec(for List (query in 0..queries): query_delay[query] <= Bits(index_width(latency + 1))(latency))
+  registered_free <== vec(for List (query in 0..queries): in_range[query] & !(pending.zext(latency + 1) & selections[query]).or_reduce())
+
   def mutable claimed :: Bits(latency + 1) = pending.zext(latency + 1)
-  def mutable probed :: Bool = Bool(#false)
-  def probe_selection = Bits(latency + 1)(1) << probe_delay
+  def mutable available :: Vec(queries, Bool) = vec(for List (_query in 0..queries): Bool(#false))
   // Earlier clients have priority only over new reservations, never an issued
   // operation. Bit zero is the current write cycle; requests name future cycles.
   for (client in 0..clients):
@@ -25,9 +29,14 @@ sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt):
     def selection = Bits(latency + 1)(1) << delay
     def free = !pause & !(claimed & selection).or_reduce()
     reserve[client].ready <== free
-    // A separate query avoids feeding a reservation's packed handshake back
-    // into its producer's combinational admission path.
-    probed := probed ||| ((probe_client === Bits(index_width(clients))(client)) & !pause & !(claimed & probe_selection).or_reduce())
+    // Snapshot before this client claims: its own and later handshakes are invisible.
+    available := vec(
+      for List (query in 0..queries):
+        def selected_client = query_client[query] === Bits(index_width(clients))(client)
+        def cycle_free = !(claimed & selections[query]).or_reduce()
+        available[query] ||| (selected_client & in_range[query] & !pause & cycle_free)
+    )
+
     when (reserve[client].valid):
       assert((delay > Bits(index_width(latency + 1))(0)) & (delay <= Bits(index_width(latency + 1))(latency)), "writeback_reservation_latency_in_range")
 
@@ -35,6 +44,6 @@ sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt):
 
   pending <== (claimed >> 1)[0..latency]
   occupied <== pending
-  probe_available <== probed
+  prior_claims_available <== available
 
 export WritebackCalendar

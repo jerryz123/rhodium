@@ -63,6 +63,8 @@ with `rv2wide-core-fp-late` and `rv5stage-core-rv64d` when changing this helper.
 
 Both cores also use `FpLaunchCalendar`. Its book event reserves the next scalar
 launch and matching return; vector return bookings are atomic with launch.
+Its scalar return query uses `prior_claims_available`, so an earlier vector
+claim on the same edge blocks scalar booking without depending on its own claim.
 Callers supply their readiness/fairness observations and retain client arbitration
 and result buffering. Do not collapse RV2Wide's separate fixed/variable scalar
 paths into RV5Stage's combined scalar port merely to share wiring.

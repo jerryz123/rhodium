@@ -332,7 +332,9 @@ its unused booking simply ages out. Keep the multiplier feed-forward, with no
 result queue or extra return stages. The outstanding-owner count participates
 in precise drain, not capacity admission. FP bookings have first-client priority;
 same-group multiply/FP claims for the same edge split at RR before either
-executes. Other fixed pairs can book independently. Calendar bit three blocks
+executes. Other fixed pairs can book independently. RR uses the calendar's
+`registered_free` queries for FP, multiply, and delay-three ordinary returns;
+these must not depend on live reserve handshakes. The delay-three query blocks
 younger-slot issue and variable-return admission for their future WB edge.
 Pause new fixed bookings after bounded variable-return starvation. No third
 write port or WB backpressure is permitted.

@@ -275,7 +275,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def returning_width = operand_fetch.issue.bits.beat.element_width.as_bits().into(MemoryWidth)
   def returning_split = returning_memory & operand_fetch.issue.bits.beat.enabled[0] & !returning_width.is_aligned(operand_fetch.issue.bits.beat.address)
   def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
-  def s1_write_available = !(s1_local_write ||| s1_simd_multiply) ||| writeback_calendar.probe_available
+  def s1_write_available = !(s1_local_write ||| s1_simd_multiply) ||| writeback_calendar.prior_claims_available[0]
   def s1_memory_available = !s1_checked_memory ||| !(split_memory_pending ||| returning_split)
   def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
@@ -342,8 +342,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def issued_first_lane_enabled = issued_lanes[0]
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
-  writeback_calendar.probe_client <== Bits(index_width(3))(2)
-  writeback_calendar.probe_delay <== s1_calendar_delay
+  writeback_calendar.query_client[0] <== Bits(index_width(3))(2)
+  writeback_calendar.query_delay[0] <== s1_calendar_delay
   def Array(pending_issue, skipped_splat) = operand_fetch.issue |> demux_flow(2, operation => !operation.packed & splat.probing & !issued_first_lane_enabled & !operation.beat.last & (operation.context.owner === splat.owner))
   def splat_skip = skipped_splat |> to_valid()
   def issued = pending_issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):

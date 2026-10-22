@@ -109,6 +109,16 @@ feed-forward multiplication, with explicit scheduled or buffered return adapters
 physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
 
+`writeback-calendar.rhdl` owns registered write-cycle occupancy and ordered
+same-cycle claims. Keep `registered_free` independent of all reservation
+inputs and pause; `prior_claims_available` observes only earlier accepted
+claims and honors pause. Queries share the reservation delay numbering and
+add no state. Callers choose a dependency-safe view and retain same-group
+collision policy, result ownership, and authorization. The existing
+`rv5stage-writeback` rsim fixture checks both views, multiple simultaneous
+queries, reset, paused aging, and invalid reservations; pair it with named-core
+FP/multiply/vector fixtures when changing a caller.
+
 `operand.rhdl` owns scalar source-use, ALU routing, and immediate controls;
 `operand-decode.rhdl` owns the common I/B relations and reusable partial
 patterns. Named decoders compose their domains and retain different MOP

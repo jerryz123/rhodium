@@ -285,12 +285,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      request owners, flag updates, and booked return cycles. */
 
   def wb_scalar_fp_tag = RV5StageFpScalarTag(Bits(width))
-  inst wb_gpr_calendar(WritebackCalendar(2, wb_calendar_span))
+  inst wb_gpr_calendar(WritebackCalendar(2, wb_calendar_span, ~queries: 2))
   // WB services reserve before younger ID admissions; WB readiness must not
   // depend on an instruction whose admission depends on WB cancellation.
-  wb_gpr_calendar.probe_client <== Bits(1)(1)
+  wb_gpr_calendar.query_client <== vec(Bits(1)(1), Bits(1)(0))
   wire id_execution_return_delay: Bits(wb_calendar_width)
-  wb_gpr_calendar.probe_delay <== id_execution_return_delay
+  wb_gpr_calendar.query_delay <== vec(id_execution_return_delay, Bits(wb_calendar_width)(0))
   wire wb_fp_fixed_integer_return: Bool
   wire id_fp_admitted: Bool
   wire id_fp_available: Bool
@@ -317,7 +317,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_fp_service.vector_result |> wb_vector_fp_result_link.left
   wb_fp_service.id_execution <== id_fp_execution
   wb_fp_service.id_admitted <== id_fp_admitted
-  wb_fp_service.gpr_available <== !id_fp_gpr_reservation ||| wb_gpr_calendar.probe_available
+  wb_fp_service.gpr_available <== !id_fp_gpr_reservation ||| wb_gpr_calendar.prior_claims_available[0]
   id_fp_available <== wb_fp_service.id_available
   ex_fp_granted <== wb_fp_service.ex_granted
   wb_fp_fixed_integer_return <== wb_fp.execution_result.valid & wb_fp.execution_result.bits.tag.speculative & (wb_fp.execution_result.bits.tag.destination === FloatDestination.Integer)
@@ -351,7 +351,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       reg id_multiply_vector_turn(~init: Bool(#false))
       ex_multiply_reserved <== id_multiply_admitted
       def id_vector_multiply_waiting = wb_vector_multiply_request.valid & !fire(wb_vector_multiply_request)
-      id_multiply_available <== wb_gpr_calendar.probe_available & !(id_multiply_vector_turn & id_vector_multiply_waiting)
+      id_multiply_available <== wb_gpr_calendar.prior_claims_available[0] & !(id_multiply_vector_turn & id_vector_multiply_waiting)
       when (!wb_vector_multiply_request.valid ||| fire(wb_vector_multiply_request)):
         id_multiply_vector_turn <== Bool(#false)
       elsewhen id_multiply_admitted:
@@ -1713,20 +1713,20 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   // A returned slow load can wait at its producer. Give the fixed multiply
   // result the first deferred RF write slot, then arbitrate variable returns.
-  wb_integer_load_completion |> gate_flow(!wb_gpr_calendar.occupied[0].into(Bool)) |> wb_tag_completion(RV5StageCompletionSource.IntegerLoad) |> wb_completion_arbiter.ingress[4]
+  wb_integer_load_completion |> gate_flow(wb_gpr_calendar.registered_free[1]) |> wb_tag_completion(RV5StageCompletionSource.IntegerLoad) |> wb_completion_arbiter.ingress[4]
   (
     wb_multiplier.completion
       |> map_flow(~stable: #true, completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.value
-  ) |> gate_flow(Bool(wb_pipelined_multiplier) ||| !wb_gpr_calendar.occupied[0].into(Bool)) |> wb_tag_completion(RV5StageCompletionSource.Multiply) |> wb_completion_arbiter.ingress[0]
+  ) |> gate_flow(Bool(wb_pipelined_multiplier) ||| wb_gpr_calendar.registered_free[1]) |> wb_tag_completion(RV5StageCompletionSource.Multiply) |> wb_completion_arbiter.ingress[0]
 
   (
     wb_divider.completion
       |> map_flow(~stable: #true, completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.value
-  ) |> gate_flow(!wb_gpr_calendar.occupied[0].into(Bool)) |> wb_tag_completion(RV5StageCompletionSource.Divide) |> wb_completion_arbiter.ingress[1]
+  ) |> gate_flow(wb_gpr_calendar.registered_free[1]) |> wb_tag_completion(RV5StageCompletionSource.Divide) |> wb_completion_arbiter.ingress[1]
 
   (
     wb_fp_deferred_completion
@@ -1734,7 +1734,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.integer_value
-  ) |> gate_flow(wb_fp_fixed_integer_return ||| !wb_gpr_calendar.occupied[0].into(Bool)) |> wb_tag_completion(RV5StageCompletionSource.FpInteger) |> wb_completion_arbiter.ingress[2]
+  ) |> gate_flow(wb_fp_fixed_integer_return ||| wb_gpr_calendar.registered_free[1]) |> wb_tag_completion(RV5StageCompletionSource.FpInteger) |> wb_completion_arbiter.ingress[2]
 
   // Vector scalar results reserve their one-cycle write before private issue.
   def wb_vector_integer_completion = wb_vector_scalar_result_link.right |> filter_valid(write => write.address.or_reduce()) |> to_decoupled()

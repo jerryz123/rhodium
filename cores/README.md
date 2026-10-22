@@ -54,6 +54,36 @@ writeback, where every result must be consumed on its return cycle.
 Callers retain launch arbitration, scalar authorization, result projection,
 and destination/write-port scheduling.
 
+### Writeback calendar
+
+[`WritebackCalendar(clients, latency, ~queries: 1)`](writeback-calendar.rhdl)
+reserves future cycles of one write port without storing result payloads.
+Each `reserve[client]` is a Decoupled delay; lower-index clients win same-cycle
+collisions. Delays are `Bits(index_width(latency + 1))`; valid reservations
+must name cycles 1 through `latency`, or assert. `occupied` reports registered
+bookings, with bit zero naming the current cycle. Every clock ages bookings,
+including while `pause` blocks new reservations; synchronous reset clears them.
+
+The `query_client` and `query_delay` inputs are vectors of `queries` entries.
+Each entry has two distinct combinational answers:
+
+| Output | Bookings it observes | Effect of `pause` |
+|---|---|---|
+| `registered_free[q]` | Only registered occupancy; no same-cycle claim from any client | None |
+| `prior_claims_available[q]` | Registered occupancy plus accepted same-cycle claims from clients before `query_client[q]` | False while paused |
+
+The ordered answer excludes the selected client's own claim and all later
+clients. The registered answer ignores `query_client`. Queries may inspect
+cycle zero through `latency`; out-of-range delays return false for both
+answers, and an out-of-range client returns false for the ordered answer.
+Queries never reserve a cycle or consume a grant.
+
+Use registered queries when admission must not depend on other live claims;
+the caller must then resolve same-cycle conflicts separately and honor the
+real reservation handshake. Use ordered queries only when dependencies on
+earlier clients are safe. Neither query alone grants instruction admission,
+launch, authorization, or retirement.
+
 ### Shared memory decode
 
 `memory-decode.rhdl` supplies `scalar_memory_cases(Control, ~xlen: xlen)`,

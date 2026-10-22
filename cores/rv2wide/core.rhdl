@@ -253,7 +253,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       fp.vector_write.bits <== dont_care(fp.vector_write.bits.type)
 
   // Fixed FP and multiply share the younger RF port, booked at RR before EX launch.
-  inst wb_gpr_calendar(WritebackCalendar(4, gpr_span))
+  inst wb_gpr_calendar(WritebackCalendar(4, gpr_span, ~queries: 3))
+  wb_gpr_calendar.query_client <== vec(Bits(2)(0), Bits(2)(1), Bits(2)(3))
+  wb_gpr_calendar.query_delay[1] <== Bits(gpr_delay_width)(PipelinedMultiplierStages + 1)
+  wb_gpr_calendar.query_delay[2] <== Bits(gpr_delay_width)(3)
   wire wb_completion_priority: Bool
   inst wb_fp_gpr_scoreboard(Scoreboard(32))
   def wb_fp_gpr = fp.completion |> filter_valid(result => (result.tag.destination === FloatDestination.Integer) & result.tag.rd.or_reduce())
@@ -305,7 +308,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   for (source in [wb_load_response.completed, wb_divide.completed], index in 0..2):
     source |> rr_completions.ingress[index]
 
-  def rr_completion = rr_completions.egress |> gate_flow(!wb_gpr_calendar.occupied[3].into(Bool) & (!rr_vector_writeback_waiting ||| wb_completion_priority)) |> to_valid()
+  def rr_completion = rr_completions.egress |> gate_flow(wb_gpr_calendar.registered_free[2] & (!rr_vector_writeback_waiting ||| wb_completion_priority)) |> to_valid()
   reg rr_completion_age(~init: Bits(3)(0))
   when (!rr_completions.egress.valid ||| rr_completions.egress.fire()):
     rr_completion_age <== Bits(3)(0)
@@ -415,11 +418,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_fp_control :: FloatingPointControl() = rr_controls[rr_fp_lane].fp.bits
   fp.read_addresses <== vec(rr_rs1[rr_fp_lane], rr_rs2[rr_fp_lane], rr_head.entries[rr_fp_lane].instruction[27..32])
   fp.probe <== rr_fp_control.execution
-  wb_gpr_calendar.probe_client <== Bits(2)(0)
-  wb_gpr_calendar.probe_delay <== fp_timing.latency(rr_fp_control.execution, ~width: gpr_delay_width) + Bits(gpr_delay_width)(1)
+  wb_gpr_calendar.query_delay[0] <== fp_timing.latency(rr_fp_control.execution, ~width: gpr_delay_width) + Bits(gpr_delay_width)(1)
   // Probe registered bookings only. Same-group collisions are checked separately,
   // keeping admission independent of either client's packed reserve handshake.
-  def rr_fp_gpr_available = !wb_completion_priority & !rr_vector_writeback_waiting & !(wb_gpr_calendar.occupied & (Bits(gpr_span)(1) << wb_gpr_calendar.probe_delay)).or_reduce()
+  def rr_fp_gpr_available = !wb_completion_priority & !rr_vector_writeback_waiting & wb_gpr_calendar.registered_free[0]
 
   /* Pre-WB producers bridge the architectural scoreboard; both FPR write ports forward. */
   fun rr_fp_busy(address :: Bits(5)) :: Bool:
@@ -505,9 +507,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_long = for List (lane in 0..2): rr_controls[lane].muldiv.service =/= RV2WideLongOperation.None
   def rr_multiply = for List (lane in 0..2): rr_decodable[lane] & (rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].or_reduce()
   reg rr_vector_multiply_turn(~init: Bool(#false))
-  def rr_multiply_available = !wb_completion_priority & !rr_vector_writeback_waiting & !wb_gpr_calendar.occupied[PipelinedMultiplierStages + 1].into(Bool) & !rr_vector_multiply_turn
+  def rr_multiply_available = !wb_completion_priority & !rr_vector_writeback_waiting & wb_gpr_calendar.registered_free[1] & !rr_vector_multiply_turn
   // Two independent fixed operations may pair unless their numerical returns coincide.
-  def rr_pair_fixed_collision = ((rr_multiply[0] & rr_fp_late_gpr[1]) ||| (rr_fp_late_gpr[0] & rr_multiply[1])) & (wb_gpr_calendar.probe_delay === Bits(gpr_delay_width)(PipelinedMultiplierStages + 1))
+  def rr_pair_fixed_collision = ((rr_multiply[0] & rr_fp_late_gpr[1]) ||| (rr_fp_late_gpr[0] & rr_multiply[1])) & (wb_gpr_calendar.query_delay[0] === Bits(gpr_delay_width)(PipelinedMultiplierStages + 1))
   // Normal WB writes precede every younger write; a deferred older writer may return later.
   def rr_older_deferred = rr_controls[0].memory.enable ||| rr_long[0] ||| rr_fp_late_gpr[0] ||| rr_vector[0]
   def rr_pair_waw = rr_older_write & rr_older_deferred & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
@@ -590,7 +592,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_first = (rr_head.count =/= Bits(2)(0)) & !rr_blocked[0] & !rr_squash & !rr_pause_blocked & rr_serialization_clear[0] & rr_memory_order_clear[0]
   def rr_pair_resource_conflict = rr_pair_ras ||| rr_pair_memory ||| rr_pair_deferred ||| rr_pair_fixed_collision ||| (rr_controls[0].fp.valid & rr_controls[1].fp.valid)
   def rr_pair_conflict = rr_pair_raw ||| rr_pair_waw ||| rr_pair_resource_conflict
-  def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| wb_gpr_calendar.occupied[3].into(Bool)
+  def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| !wb_gpr_calendar.registered_free[2]
   def rr_second_decodable = rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_conflict)
   def rr_younger_prefix_allowed = rr_decodable[0] & !rr_controls[0].pause & !rr_system[0] & !rr_system[1]
   def rr_ordinary_alu = for List (lane in 0..2):
@@ -609,7 +611,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   fp.book.valid <== rr_fp_admitted
   fp.book.bits <== rr_fp_control.execution
   wb_gpr_calendar.reserve[0].valid <== rr_fp_admitted & rr_fp_late_gpr[rr_fp_lane]
-  wb_gpr_calendar.reserve[0].bits <== wb_gpr_calendar.probe_delay
+  wb_gpr_calendar.reserve[0].bits <== wb_gpr_calendar.query_delay[0]
   when (wb_gpr_calendar.reserve[0].valid):
     assert(wb_gpr_calendar.reserve[0].ready, "rv2wide_fp_booked_gpr_writeback")
 
