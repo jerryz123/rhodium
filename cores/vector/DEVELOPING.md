@@ -22,6 +22,16 @@ port counts and scalar scheduling.
 Keep instruction IDs, completion slots, and the sequencer cursor distinct.
 Return routing uses retained slot ownership, never the live descriptor. A retry
 restores the unauthorized checkpoint without deleting accepted memory ownership.
+
+Aligned faultable memory beats may sequence on consecutive cycles. Their
+slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
+frontier; retry flushes only the unaccepted suffix. Detect a misaligned element
+when its registered index/operands return, suppress that cycle's younger read,
+and retain a split barrier until that element's tagged decision. An older
+authorization must not release the barrier. Fault-only-first slot exclusivity
+and the splat engine's single probe remain unchanged. Both named LSU adapters
+must suppress younger attempts on recovery and commit stores only at resolution.
+
 Keep simultaneous fixed result lanes independent; Flow composition must not
 introduce buffering or lossy arbitration on a nonstallable return.
 Packed store release preserves the ordered completion head and pending-carry
@@ -121,8 +131,12 @@ make check-boundaries
 ```
 
 The overlap fixture covers persistent response ownership across sequencer
-replacement; packed and RV32 fixtures cover transport and row geometry. The
-packed fixtures hold the VRF write grant low throughout stores, checking ring
+replacement, consecutive faultable indexed stores, middle-element retry/fault
+with delayed accepted responses, and split authorization/retry/fault behind an
+accepted prefix. The RV2Wide memory adapter fixtures also check consecutive
+precise commits and younger-attempt suppression on retry/fault. Packed and RV32
+fixtures cover transport and row geometry. The packed fixtures hold the VRF
+write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.
 They verify memory contents, unchanged VRF state, and complete response drain.
 The `event-vector` rsim fixture checks result-completion versus slot-release

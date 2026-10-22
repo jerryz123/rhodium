@@ -86,7 +86,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def Array(certified_input, faultable_input) = issue |> demux_flow(2, token => !token.precertified)
   certified_input |> replay.request
   def capture_feedback = replay.captured
-  def direct = faultable_input |> gate_flow(!queued & !split_pending) |> to_valid()
+  def direct = faultable_input |> gate_flow(!queued & !recover & !split_pending) |> to_valid()
   def ex = Array(replay.attempt, direct) |> valid_arbiter() |> valid_pipe(1, ~flush: recover)
   requests_idle <== !queued & !split_pending
 

@@ -49,6 +49,41 @@ void drain() {
 }
 int main() {
   return run_test([] {
+    // Faultable stores are a fixed pipeline, not one outstanding transaction.
+    // A rejected/faulting middle commit flushes younger attempts before side effects.
+    for (int reject = 0; capacity >= 4 && reject < 3; ++reject) {
+      initialize();
+      is_store = 1;
+      lookup_outcome = 2;
+      int accepted = 0;
+      for (int cycle = 0; cycle < 9; ++cycle) {
+        issue_valid = cycle < 4;
+        tag = cycle % unsigned(capacity);
+        address = 0x1000 + cycle;
+        last = cycle == 3;
+        commit_ready = !(reject == 1 && cycle == 4);
+        lookup_outcome = reject == 2 && cycle == 3 ? 4 : 2;
+        eval();
+        if (cycle < 3)
+          CHECK(!feedback_valid);
+        if (cycle == 3 || (!reject && cycle >= 4 && cycle <= 6)) {
+          CHECK(feedback_valid && feedback.pdisposition == 0 && committed);
+          CHECK(feedback.ptag == unsigned(cycle - 3) % unsigned(capacity));
+          accepted++;
+        } else if (reject && cycle == 4) {
+          CHECK(feedback_valid && feedback.pdisposition == unsigned(reject) &&
+                feedback.ptag == 1 % unsigned(capacity) && !issue_ready);
+          if (reject == 2)
+            CHECK(!committed && outcome_valid);
+        } else if (cycle >= 5 && reject) {
+          CHECK(!feedback_valid && !committed && !requested);
+        }
+        step();
+      }
+      CHECK(accepted == (reject ? 1 : 4));
+      drain();
+    }
+
     initialize();
     const auto raw = std::uint64_t(lookup_data);
     // Subword lookup and delayed responses both extract the retained byte offset.

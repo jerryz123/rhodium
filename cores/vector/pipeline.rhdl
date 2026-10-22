@@ -267,21 +267,28 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def returning_serial_fold = operand_fetch.scheduled_return & ((returning_control.fp_service & returning_control.reduction) ||| (returning_control.integer & returning_control.scan & !returning_control.scan_control.index))
   def s1_serial_fold_available = !serial_fold_inflight[s1_owner] & !(returning_serial_fold & (operand_fetch.issue.bits.context.owner === s1_owner))
   def s1_alignment_ready = !s1_packed ||| !sequencer.sequence_request.bits.context.packed_store_read ||| !(operand_fetch.scheduled_return & !operand_fetch.issue.bits.packed)
-  // A faultable beat may wait for sequential fragment checks. Hold its issue
-  // frontier until the decision; preauthorized memory remains feed-forward.
-  reg checked_memory_pending(~init: Bool(#false))
+  // Aligned faultable beats advance speculatively behind the authorization
+  // frontier. A split beat must have no younger attempts for its LSU takeover.
+  reg split_memory_pending(~init: Bool(#false))
+  reg split_memory_tag(SlotId)
+  def returning_memory = operand_fetch.scheduled_return & !operand_fetch.issue.bits.packed & returning_control.memory & !operand_fetch.issue.bits.context.precertified
+  def returning_width = operand_fetch.issue.bits.beat.element_width.as_bits().into(MemoryWidth)
+  def returning_split = returning_memory & operand_fetch.issue.bits.beat.enabled[0] & !returning_width.is_aligned(operand_fetch.issue.bits.beat.address)
   def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
   def s1_write_available = !(s1_local_write ||| s1_simd_multiply) ||| writeback_calendar.probe_available
-  def s1_memory_available = !s1_checked_memory ||| !checked_memory_pending
+  def s1_memory_available = !s1_checked_memory ||| !(split_memory_pending ||| returning_split)
   def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
   splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
   s1_read |> operand_fetch.request
   s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
-  when (replay ||| element_memory_decision.valid):
-    checked_memory_pending <== Bool(#false)
-  elsewhen (sequencer.sequence_request.fire() & s1_checked_memory):
-    checked_memory_pending <== Bool(#true)
+  when replay:
+    split_memory_pending <== Bool(#false)
+  elsewhen returning_split:
+    split_memory_pending <== Bool(#true)
+    split_memory_tag <== allocate_slot
+  elsewhen (element_memory_decision.valid & (decision_tag === split_memory_tag)):
+    split_memory_pending <== Bool(#false)
 
   operand_fetch.suffix |> sequencer.suffix
   operand_fetch.flush <== sequencer.read_flush
@@ -438,9 +445,14 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def Array(early_memory, checked_memory) = memory_route |> demux_flow(2, _result => !ex_pipe.egress.bits.precertified)
   checked_memory |> to_valid() |> memory_pipe.ingress
   // Faultable memory retains its result metadata until the LSU's decision.
-  // Fall-through preserves ordinary fixed-latency decisions; split accesses
-  // can wait for additional translation/response cycles without losing owner.
-  def checked_memory_owner = memory_pipe.egress |> to_decoupled() |> shift_queue(1, ~flow: #true, ~flush: replay)
+  // Slot-bounded metadata follows the ordered authorization frontier, including
+  // a split access delayed behind older aligned attempts. Replay drops only
+  // this unauthorized suffix; accepted completion owners remain elsewhere.
+  def checked_memory_input = memory_pipe.egress |> to_decoupled()
+  def checked_memory_owner = checked_memory_input |> shift_queue(vector_completion_slots, ~flow: #true, ~flush: replay)
+  when (memory_pipe.egress.valid):
+    assert(checked_memory_input.ready, "vector_faultable_memory_has_owner_space")
+
   def checked_memory_maturity = checked_memory_owner |> gate_flow(element_memory_decision.valid) |> to_valid()
   def memory_maturity = Array(early_memory |> to_valid(), checked_memory_maturity) |> valid_arbiter()
   def Array(completion_memory, resolution_memory) = memory_maturity |> fork_valid(2)

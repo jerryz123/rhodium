@@ -819,6 +819,13 @@ occupancy its credit returns on the cycle after a dequeue.
 Faultable descriptors retain their WB owner until certification or precise
 execution produces an outcome. Traps and direct CSR accesses drain accepted work.
 
+The shared engine pipelines aligned faultable elements behind its ordered
+authorization frontier. `vector-memory.rhdl` resolves one attempt per cycle;
+retry/fault flushes younger unaccepted stages without erasing accepted response
+owners. Misaligned elements stop younger sequencing before split takeover and
+retain that barrier through their own feedback. Older aligned decisions do not
+release it. Keep store mutation at WB resolution, never speculative lookup.
+
 EX forms a conservative single-page range from the forwarded vector state,
 scalar base/stride, and vstart using shared vector footprint geometry. Its
 `vector_fast_eligible` flag qualifies only that proposed range; the descriptor's

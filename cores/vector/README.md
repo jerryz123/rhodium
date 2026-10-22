@@ -62,9 +62,12 @@ The VRF has three general read ports, one write port, and a separate `v0` mask
 shadow updated by the same writes.
 
 Compute and certified-memory beats may overlap older delayed results. Faultable
-memory instead retains an authorization checkpoint: retry discards only its
-unaccepted suffix. Accepted requests and responses survive. A scalar redirect
-must not cancel a descriptor that has already become nonspeculative.
+memory retains an ordered authorization checkpoint while aligned elements
+pipeline within the completion-slot capacity: retry discards only its
+unaccepted suffix. Misaligned elements hold younger sequencing until their
+split-access decision; fault-only-first elements remain serialized. Accepted
+requests and responses survive. A scalar redirect must not cancel a descriptor
+that has already become nonspeculative.
 
 `precheck.rhdl` computes conservative memory footprints; the reusable
 [MMU contracts](../mmu/vector.rhdl) and [page window](../mmu/vector-window.rhdl)

@@ -104,11 +104,14 @@ Misaligned elements are never precertified: `memory.rhdl` suppresses their
 speculative lookup and offers them to the shared WB slow path. That path owns
 one- or two-word fragmentation, translation, and physical checks. The vector
 adapter retains its decision until `split_completion`, then reports success or
-the precise failing portion to the sequencer. The execution pipeline permits
-one unresolved faultable element beat and retains its result metadata; packed
-and preauthorized memory remain pipelined. Successful split data uses the
-arbitrated completion path after slot authorization, never the expired
-fixed-cycle write reservation.
+the precise failing portion to the sequencer. Aligned faultable elements pipeline
+with slot-bounded, ordered result metadata. A misaligned element blocks younger
+reads as soon as its operands return, retaining its own tagged barrier until
+the split decision; older decisions cannot release it. Fault-only-first retains
+exclusive slots. The adapter suppresses new precise attempts on recovery and
+flushes younger unaccepted stages. Packed and preauthorized memory remain
+pipelined. Successful split data uses the arbitrated completion path after
+slot authorization, never the expired fixed-cycle write reservation.
 A completed store prefix is never reissued on a TLB miss. Vector completion
 still accounts for one element and one slot; a failed load does not modify
 that element's destination.

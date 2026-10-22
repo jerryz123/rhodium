@@ -23,6 +23,10 @@ int independent_packed_attempts = 0;
 
 int splat_older_last = 0, splat_first_attempt = 0;
 
+int checked_issues = 0, checked_last_issue = 0, checked_decisions = 0;
+bool consecutive_checked = false, retry_middle = false, misaligned_indices = false;
+std::uint64_t checked_addresses[16];
+
 std::uint64_t overlap_older_context = 0, overlap_memory_context = 0;
 
 int fp_tags[8], memory_tags[8];
@@ -44,6 +48,9 @@ std::uint32_t load_insn(int rd) {
 std::uint32_t store_insn(int rs) {
   return UINT64_C(0x2007027) | (((rs)&low_mask(32)) << 7);
 }
+std::uint32_t indexed_store_insn() {
+  return store_insn(8) | (UINT32_C(1) << 26) | (UINT32_C(2) << 20);
+}
 std::uint32_t splat_insn(int rd, std::uint8_t masked = 0) {
   return UINT64_C(0x8007007) | (masked ? UINT64_C(0) : UINT64_C(0x2000000)) |
          (((rd)&low_mask(32)) << 7);
@@ -64,9 +71,12 @@ std::uint32_t gather_insn(int vd) {
 }
 void tick() {
   settle();
-  hit_data = UINT64_C(4096) + attempt_out.pbits.paddress;
-  retry = retry_last && !retried && attempt_out.pvalid &&
-          attempt_out.pbits.pmemory && attempt_out.pbits.plast;
+  hit_data = UINT64_C(4096) + resolution_out.pbits.paddress;
+  if (misaligned_indices && resolution_out.pbits.paddress == 8)
+    hit_data++;
+  retry = !retried && resolution_out.pvalid && !decision_hold &&
+          ((retry_last && resolution_out.pbits.plast) ||
+           (retry_middle && checked_decisions == 1));
   settle();
   launch_seen = request_valid && request_ready;
   sequence_done_seen = sequencing_finished;
@@ -92,6 +102,24 @@ void tick() {
       phase1_last_issue = cycle;
       phase1_issue_count++;
     }
+    if (phase >= 26 && issued) {
+      if (consecutive_checked && checked_issues)
+        CHECK(cycle == checked_last_issue + 1);
+      checked_last_issue = cycle;
+      checked_issues++;
+    }
+    if (phase >= 26 && resolution_out.pvalid && !decision_hold && !cancel &&
+        !retry && !fault) {
+      CHECK(checked_decisions < 16);
+      CHECK(resolution_out.pbits.pstore_udata == unsigned(checked_decisions));
+      checked_addresses[checked_decisions++] = resolution_out.pbits.paddress;
+      if (slow) {
+        CHECK(memory_count < 8);
+        memory_tags[memory_count++] = int(resolution_out.pbits.pcompletion_utag);
+      }
+    }
+    if (retry)
+      retried = 1;
     if (fp_request_out.pvalid && fp_request_in.pready) {
       CHECK(fp_count < 8);
       fp_tags[fp_count++] = int(fp_request_out.pbits.ptag);
@@ -138,9 +166,7 @@ void tick() {
             splat_first_attempt = cycle;
         }
       }
-      if (retry)
-        retried = 1;
-      else if (attempt_out.pbits.pmemory) {
+      if (!retry && attempt_out.pbits.pmemory && phase < 26) {
         if (phase == 5 && attempt_out.pbits.paddress >= UINT64_C(384) &&
             attempt_out.pbits.paddress < UINT64_C(512))
           phase5_younger_attempts++;
@@ -214,6 +240,7 @@ void stimulus() {
   slow = 0;
   cancel = 0;
   issue_ready = 1;
+  decision_hold = fault = 0;
   {
     response_in = {};
     fp_result_in = {};
@@ -832,6 +859,124 @@ void stimulus() {
       drain();
       CHECK(store_count == 4 && stores[0] == 0 && stores[1] == 1 &&
             stores[2] == UINT64_C(4656) && stores[3] == UINT64_C(4656));
+    }
+
+    // Four indexed stores traverse the ordinary faultable path on consecutive
+    // cycles. Rejecting the second retries only the still-unauthorized suffix.
+    for (int rejected = 0; rejected < 2; ++rejected) {
+      reset = 1;
+      tick();
+      reset = 0;
+      phase = 0;
+      vl = 4;
+      vtype = 25; // e64, m2: four rows, indices in v2/v3.
+      slow = 0;
+      store_count = 0;
+      launch(load_insn(2), 0, 0);
+      drain();
+      launch(index_insn(8), 0, 0);
+      drain();
+      for (int i = 0; i < 4; ++i)
+        tick();
+      phase = 26 + rejected;
+      checked_issues = checked_decisions = checked_last_issue = 0;
+      consecutive_checked = !rejected;
+      retry_middle = rejected;
+      retried = 0;
+      slow = rejected;
+      memory_count = 0;
+      launch(indexed_store_insn(), 256, 0);
+      if (slow) {
+        while (checked_decisions < 4)
+          tick();
+        CHECK(memory_count == 4 && active);
+        for (int i = 3; i >= 0; --i)
+          return_memory(i, 0);
+      }
+      drain();
+      CHECK(checked_decisions == 4);
+      CHECK(rejected ? retried && checked_issues > 4 : checked_issues == 4);
+      for (int i = 0; i < 4; ++i)
+        CHECK(checked_addresses[i] == UINT64_C(4352) + 8 * i);
+      retry_middle = consecutive_checked = false;
+    }
+
+    // A fault in the middle discards already-issued younger attempts, but not
+    // the delayed response ownership of the accepted first store.
+    reset = 1;
+    tick();
+    reset = 0;
+    phase = 0;
+    slow = 0;
+    store_count = 0;
+    launch(load_insn(2), 0, 0);
+    drain();
+    launch(index_insn(8), 0, 0);
+    drain();
+    for (int i = 0; i < 4; ++i)
+      tick();
+    phase = 30;
+    checked_issues = checked_decisions = memory_count = 0;
+    decision_hold = slow = 1;
+    launch(indexed_store_insn(), 256, 0);
+    for (int i = 0; i < 12; ++i)
+      tick();
+    CHECK(checked_issues == 4 && checked_decisions == 0);
+    decision_hold = 0;
+    tick();
+    fault = 1;
+    tick();
+    fault = slow = 0;
+    for (int i = 0; i < 8; ++i)
+      tick();
+    CHECK(checked_decisions == 1 && memory_count == 1 && active);
+    return_memory(0, 0);
+    drain();
+    CHECK(checked_issues == 4 && checked_decisions == 1);
+
+    // Detect the second element's misalignment after its index returns. No
+    // younger beat may issue while either its metadata or split decision waits;
+    // authorizing the older aligned element must not clear that barrier.
+    for (int fail_split = 0; fail_split < 3; ++fail_split) {
+      reset = 1;
+      tick();
+      reset = 0;
+      phase = 0;
+      store_count = 0;
+      misaligned_indices = true;
+      launch(load_insn(2), 0, 0);
+      drain();
+      misaligned_indices = false;
+      launch(index_insn(8), 0, 0);
+      drain();
+      for (int i = 0; i < 4; ++i)
+        tick();
+      phase = 28 + fail_split;
+      checked_issues = checked_decisions = 0;
+      decision_hold = 1;
+      launch(indexed_store_insn(), 256, 0);
+      for (int i = 0; i < 12; ++i)
+        tick();
+      CHECK(checked_issues == 2 && checked_decisions == 0);
+      decision_hold = 0;
+      tick(); // Authorize the aligned prefix, not the split barrier's tag.
+      decision_hold = 1;
+      CHECK(checked_decisions == 1);
+      for (int i = 0; i < 8; ++i)
+        tick();
+      CHECK(checked_issues == 2 && resolution_out.pvalid &&
+            resolution_out.pbits.paddress == 4361);
+      fault = fail_split == 1;
+      retry_middle = fail_split == 2;
+      retried = 0;
+      decision_hold = 0;
+      tick();
+      fault = 0;
+      retry_middle = false;
+      drain();
+      CHECK(checked_issues == (fail_split == 1 ? 2 : fail_split == 2 ? 5 : 4));
+      CHECK(checked_decisions == (fail_split == 1 ? 1 : 4));
+      CHECK(fail_split != 2 || retried);
     }
 
     throw Finished{};

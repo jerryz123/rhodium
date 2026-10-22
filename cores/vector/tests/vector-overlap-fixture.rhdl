@@ -20,11 +20,12 @@ sync_circuit VectorOverlap():
   def slots = 8
   input instruction: Bits(32)
   input(vl, vtype, scalar, hit_data): Bits(64)
-  input(request_valid, packed_memory, retry, slow, cancel, issue_ready): Bool
+  input(request_valid, packed_memory, retry, slow, cancel, issue_ready, decision_hold, fault): Bool
   interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
   interface fp_request(Decoupled(FpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
   interface fp_result(Decoupled(FpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
   interface attempt(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
+  interface resolution(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
   inst decode(VectorTestDecoder())
   inst vector(VectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
@@ -62,15 +63,22 @@ sync_circuit VectorOverlap():
 
   vector.packed_memory <== packed_memory
   vector.issue |> to_valid() |> tokens.ingress
-  def Array(observed, feedback) = tokens.egress |> fork_valid(2)
+  def Array(observed, memory_tokens) = tokens.egress |> fork_valid(2)
   observed |> attempt
-  tokens.flush <== cancel ||| (tokens.egress.valid & retry)
+  wire recover: Bool
+  def pending_decision = memory_tokens |> filter_valid(token => token.memory) |> to_decoupled()
+    |> shift_queue(slots, ~flow: #true, ~flush: recover)
+  resolution.valid <== pending_decision.valid
+  resolution.bits <== pending_decision.bits
+  def feedback = pending_decision |> gate_flow(!cancel & !decision_hold) |> to_valid()
+  recover <== cancel ||| (feedback.valid & (retry ||| fault))
+  tokens.flush <== recover
   vector.cancel.valid <== cancel
   (
-    feedback |> filter_valid(token => token.memory & !cancel) |> map_valid(token => VectorCommit(xlen, 8)):
+    feedback |> map_valid(token => VectorCommit(xlen, 8)):
       tag: token.completion_tag
       pc: token.context
-      disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
+      disposition: mux(retry, VectorDisposition.Retry, mux(fault, VectorDisposition.Fault, VectorDisposition.Authorized))
       slow: slow & token.memory & token.enabled
       data: hit_data
       cause: Bits(64)(0)
