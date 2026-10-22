@@ -24,6 +24,12 @@ Return routing uses retained slot ownership, never the live descriptor. A retry
 restores the unauthorized checkpoint without deleting accepted memory ownership.
 Keep simultaneous fixed result lanes independent; Flow composition must not
 introduce buffering or lossy arbitration on a nonstallable return.
+Packed store release preserves the ordered completion head and pending-carry
+barrier but bypasses VRF write availability: acknowledging a store writes no
+register data. Packed loads and carry flushing retain their write-port grants.
+Trace packed VRF writes on `vector/complete` and packed metadata reclamation on
+`vector/slot.release`. Never use slot release as a result-completion proxy: it
+may follow assembly, include a store, or coincide with another VRF result.
 
 ## Implementation map
 
@@ -116,7 +122,12 @@ make check-boundaries
 
 The overlap fixture covers persistent response ownership across sequencer
 replacement; packed and RV32 fixtures cover transport and row geometry. The
-sequencer fixtures force selected uncared decode modifiers high to exercise
+packed fixtures hold the VRF write grant low throughout stores, checking ring
+wrap, empty stores, and masked segmented retries with delayed/reordered replies.
+They verify memory contents, unchanged VRF state, and complete response drain.
+The `event-vector` rsim fixture checks result-completion versus slot-release
+site ownership and capture schemas alongside its dynamic sequencing oracle.
+The sequencer fixtures force selected uncared decode modifiers high to exercise
 their unobservability through legality, operand preparation, and writeback.
 Care-mask regressions remain in `../rv5stage/tests/vector-ctrl-test.rhm`.
 The RV5Stage admission fixture checks the caller boundary. Add its vector-memory

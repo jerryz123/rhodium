@@ -68,11 +68,12 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
 
   /* Ordered head drain and shared alignment offer.
+     Stores reclaim metadata without a VRF grant; load writes still require it.
      Response arrival may reorder; alignment offers must not depend on the write-port grant. */
 
   def entry = entries[head]
   def head_ready = drain_enable & !carry_pending & accepted_slots[head] & completed[head]
-  def drainable = head_ready & write_available
+  def drainable = head_ready & (entry.store ||| write_available)
   def remaining = mux(draining, drain_remaining, entry.mask)
   def target_lane = priority_encoder(remaining)
   def target_row = entry.layout.rows[target_lane]
@@ -136,8 +137,15 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def word_drained = entry.store ||| !remaining.or_reduce() ||| (load_piece & (!suffix.or_reduce() ||| split_load))
   def release_slot = drainable & word_drained
   def write_previous_carry = load_piece & carry_valid & !same_row
-  write.valid <== write_previous_carry ||| flush_carry ||| split_load ||| full_row
-  write.bits <== mux(split_load ||| full_row, combined, carry)
+  def write_event = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: mux(split_load ||| full_row, combined, carry))
+  (
+    write_event |> trace_valid_event("vector/complete", ~fields: result):
+      packed: Bool(#true)
+      destination(~format: "unsigned"): (result.address >> bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1))[0..5]
+      row(~format: "unsigned"): result.address
+      write_enabled: result.mask.or_reduce()
+      write_mask: result.mask
+  ) |> write
   describe_cosim_signals({"write_owner": mux(split_load ||| full_row, entry.owner, carry_owner)})
 
 
@@ -149,7 +157,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   describe_interface_queue_storage(slots, successful, release_slot, head, wb.bits, accepted_slots[head], Bool(#false), ~name: "accepted-beats")
   describe_interface_contract(accepted, release_event, "accepted-beats", ~trace_model: interface_trace_queue(~name: "accepted-beats"))
   (
-    release_event |> trace_valid_event("vector/complete", ~fields: tag):
+    release_event |> trace_valid_event("vector/slot.release", ~fields: tag):
       packed: Bool(#true)
       memory_bytes(~format: "unsigned"): Bits(4)(bytes)
       store: entry.store

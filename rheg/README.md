@@ -352,8 +352,10 @@ helper process. Streaming and replay use identical uncompressed ordering and enc
 
 Sites of the same kind with the same complete label automatically share a
 Perfetto track when they have the same explicit instance-scope chain, regardless
-of their RTL module paths. This combines the ordinary and packed `vector/s2.issue`
-and `vector/complete` sites, including sibling modules. Distinct declared hart or
+of their RTL module paths. For example, ordinary vector result completion and
+packed-load VRF writes share `vector/complete` across sibling modules. Packed
+transport reclamation uses the separate `vector/slot.release` label and may
+coincide with a result completion. Distinct declared hart or
 bank scopes remain separate even when their runtime IDs match. Without instance
 context, matching labels and kinds share a track across the whole design.
 Their graph identities, captures, and parent edges remain distinct.

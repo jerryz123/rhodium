@@ -14,9 +14,13 @@ fun site_header(manifest):
 
   def sequence_path = manifest.sites.find(fun (site): site.label == "vector/s1.sequence").instance_path
   def execution_path = sequence_path.take(sequence_path.length() - 1)
-  for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall"]):
+  for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall", "vector/slot.release"]):
     def sites = manifest.sites.filter(~keep: fun (site): site.label == label)
-    def expected_paths = if label == "vector/complete" | [execution_path ++ ["completions"], execution_path ++ ["packed"]] | [execution_path]
+    def expected_paths:
+      cond
+      | label == "vector/complete": [execution_path ++ ["completions"], execution_path ++ ["packed"]]
+      | label == "vector/slot.release": [execution_path ++ ["packed"]]
+      | ~else: [execution_path]
     unless sites.length() == expected_paths.length()
     | error("expected unified vector issue and independently owned completion paths")
 
@@ -27,6 +31,16 @@ fun site_header(manifest):
     for (site in sites):
       unless site.fields.map(fun (field): field.name).contains("packed")
       | error("expected beat geometry metadata")
+
+      def required_fields:
+        cond
+        | label == "vector/complete": ["destination", "write_enabled"]
+        | label == "vector/slot.release": ["slot", "store"]
+        | ~else: []
+
+      for (field in required_fields):
+        unless site.fields.map(fun (capture): capture.name).contains(field)
+        | error("missing vector milestone capture: " ++ label ++ "." ++ field)
 
   "\nnamespace vector_sites {\n" ++ String.join(
     for List (label in ["s1.sequence", "s1.sequence.stall", "s2.issue", "complete", "s2.issue.stall"], name in ["sequence", "sequence_stall", "issue", "complete", "stall"]):

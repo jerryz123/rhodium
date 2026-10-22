@@ -87,6 +87,12 @@ Fixed shared services must honor their declared return latency and reserved
 write cycle. Variable services retain tagged results until accepted. Scalar
 results similarly require the caller to honor `scalar_writeback` reservations.
 Completion, sequencing release, and architectural retirement are separate events.
+Packed completion slots are reclaimed in order. A completed store does not need
+a VRF write-port grant to release its slot; packed load writes and retained
+partial-row carry still obey that port's arbitration.
+Tracing distinguishes `vector/complete` (execution results and actual packed-load
+VRF writes) from `vector/slot.release` (ordered packed transport bookkeeping,
+including stores). A slot release can coincide with an unrelated result completion.
 
 ### Packed integer multiplication
 

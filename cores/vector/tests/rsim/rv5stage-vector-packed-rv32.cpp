@@ -28,6 +28,7 @@ int tests = 0, max_consecutive = 0, consecutive = 0;
 int simultaneous_completions = 0;
 
 bool all_masked = 0;
+bool hold_write_port = false;
 
 std::uint64_t memory_word(int address) {
   std::uint64_t value = {};
@@ -43,7 +44,7 @@ void tick() {
     issue_ready = 1;
     alignment_available = 1;
   }
-  write_available = !exercise_stalls || cycle % 5 >= 2;
+  write_available = !hold_write_port && (!exercise_stalls || cycle % 5 >= 2);
   retry = 0;
   slow = 0;
   hit_data = 0;
@@ -206,6 +207,10 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
     tick();
   CHECK(retired_count == 1 && !active);
   CHECK(accepted == expected_beats);
+  for (bool pending : outstanding)
+    CHECK(!pending);
+  if (writing)
+    CHECK(writes == 0);
   if (replaying)
     CHECK(did_retry);
   for (int row = 0; row < 128; row++)
@@ -249,6 +254,12 @@ void stimulus() {
     tick();
     reset = 0;
     tick();
+    // Store acknowledgements reclaim ordered slots even while compute owns every VRF write cycle.
+    hold_write_port = true;
+    run_case(1, 0, 0, 1, 0, 0, 0, 0, 0, 3, 128); // wrap the eight-slot ring
+    run_case(1, 3, 0, 4, 1, 1, 1, 1); // masked segments, retry, and reordered responses
+    run_case(1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0); // empty store
+    hold_write_port = false;
     for (int size = 0; size <= 2; size++)
       for (int offset = 0; offset < 8; offset += (1 << size))
         for (int writing = 0; writing < 2; writing++) {
