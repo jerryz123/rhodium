@@ -19,8 +19,10 @@ DECODE_WORDS = (DECODE_BITS + 31) // 32
 def stimuli():
     rng = random.Random(1109)
     indices = list(range(131)) + [255, 1 << 32, 1 << 63, MASK64]
+    # Exercise each upper count limb independently, including its high bit.
+    high_counts = (0, 1, 1 << 31, 1 << 32, 1 << 63)
     cases = [(value, index, high) for value in (0, (1 << 129) - 1, 1, 1 << 128)
-             for index in indices for high in (0, 1)]
+             for index in indices for high in high_counts]
     cases += [(1 << bit, index, 0) for bit in range(129) for index in (bit, (bit + 1) % 129)]
     cases += [(rng.getrandbits(129), rng.randrange(160), rng.choice((0, 0, MASK64))) for _ in range(160)]
     rows, expected, held = [], [], 0

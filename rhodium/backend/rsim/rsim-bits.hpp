@@ -221,14 +221,20 @@ Carrier<To> sign_extend(const Carrier<From>& value) {
 // nonzero word above bit 63 already exceeds a 32- or 64-bit host's width bound.
 // Saturating to the operand width also makes the following limb shifts bounded.
 template <std::size_t Count> std::size_t shift_count(const Carrier<Count>& amount, std::size_t width) {
-  // The declared count width remains known even across generated helper calls.
-  if constexpr (Count < 64) {
-    if ((UINT64_C(1) << Count) <= width) return static_cast<std::size_t>(amount);
+  std::uint64_t low;
+  if constexpr (Count <= 64) {
+    // The declared count width remains known even across generated helper calls.
+    if constexpr (Count < 64) {
+      if ((UINT64_C(1) << Count) <= width) return static_cast<std::size_t>(amount);
+    }
+    low = amount;
+  } else {
+    // Inspect this carrier's storage directly, without zero-extending word reads.
+    for (std::size_t i = 2; i < amount.words.size(); ++i) {
+      if (amount.words[i] != 0) return width;
+    }
+    low = std::uint64_t(amount.words[0]) | (std::uint64_t(amount.words[1]) << 32);
   }
-  for (std::size_t i = 2; i < (Count + 31) / 32; ++i) {
-    if (word<Count>(amount, i) != 0) return width;
-  }
-  const auto low = std::uint64_t(word<Count>(amount, 0)) | (std::uint64_t(word<Count>(amount, 1)) << 32);
   return low < width ? static_cast<std::size_t>(low) : width;
 }
 

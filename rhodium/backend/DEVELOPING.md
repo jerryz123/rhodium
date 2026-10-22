@@ -605,8 +605,11 @@ one zeroed result; unaligned fields split across adjacent limbs. Left shifts use
 the same placement with truncation, and right shifts reuse slicing. Arithmetic
 right shifts fill bits above `width - count` from the declared sign bit.
 Saturate shift counts to the value width only after inspecting all count limbs;
-never discard high count bits during host-index conversion. Mixed narrow/wide
-data and counts use the support helpers. Preserve local uint64 helpers when
+never discard high count bits during host-index conversion. Inspect narrow counts
+as scalars and wide counts through their own bounded limb array before converting
+the low 64 bits. Keep this path independent of zero-extending `word` access so
+sanitizer-instrumented GCC optimization retains the carrier's storage bounds.
+Mixed narrow/wide data and counts use the support helpers. Preserve local uint64 helpers when
 both widths are at most 64, emitting those helpers only when actually called.
 For wide left shifts, a bounded producer walk recognizes zero/one constants,
 one-bit values, scalar casts/zero extensions, and muxes whose every arm satisfies
