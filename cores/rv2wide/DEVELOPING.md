@@ -794,6 +794,12 @@ existing ISA-smoke lanes, not a separate FP qualification matrix.
 
 ## Vector integration
 
+The vector wrapper enables the shared engine's packed multiplier. Keep its
+subword issue, VRF return reservations, and SIMD completion ownership inside
+`cores/vector/`; the named core continues to own only shared full-width
+multiply/divide scheduling and scalar pipeline policy. Do not route packed
+VRF results through the scalar GPR completion calendar.
+
 Keep architectural admission, retirement, and scalar hazards in `core.rhdl`;
 `vector.rhdl` adapts the reusable engine rather than importing RV5Stage policy.
 WB admission consumes registered descriptor credit, never downstream LSU

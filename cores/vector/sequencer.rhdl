@@ -24,7 +24,7 @@ import:
 /* Retains one descriptor and generates atomic read/resource schedules from registered progress.
    Compute and ordinary precertified memory release at the tail read; serialized
    schedules retain authorization checkpoints and restore only their rejected suffix. */
-sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~trace_isa: trace_isa :: maybe(String) = #false):
+sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~trace_isa: trace_isa :: maybe(String) = #false, ~packed_multiply: packed_multiply :: Boolean = #false):
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def Count = Bits(index_width(vlen + 1))
   def Sequence = Bits(vector_sequence_width(vlen))
@@ -87,7 +87,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def sew = vector_data_width(descriptor.control, geometry.sew)
   def mask_word = vector_mask_word(descriptor.control)
   def limit = vector_beat_limit(xlen, vlen, descriptor)
-  def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew)
+  def simd_multiply = vector_packed_multiply(xlen, descriptor.control, sew, packed_multiply)
+  def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
   def element_move = descriptor.control.element_move
   def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
   def segmented_memory = descriptor.control.memory & !whole_register_memory & descriptor.control.memory_nf.or_reduce()
@@ -113,10 +114,10 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def second_source = vector_reads_second(descriptor.control)
   def destination_source = vector_reads_destination(descriptor.control)
   def serialized = (descriptor.control.memory & (!descriptor.precertified ||| vector_zero_stride_load(xlen, descriptor))) ||| (scan & !descriptor.control.scan_control.index) ||| compress
-  def singleton = vector_single_element(descriptor.control)
+  def singleton = vector_single_element(descriptor.control, ~packed_multiply: simd_multiply)
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
-  def width_change = widening ||| narrowing
+  def width_change = widening ||| narrowing ||| (simd_multiply & descriptor.control.widening)
   def retry = feedback.valid & (feedback.bits.disposition === VectorDisposition.Retry)
   def fault = feedback.valid & (feedback.bits.disposition === VectorDisposition.Fault)
   def truncate = feedback.valid & (feedback.bits.disposition === VectorDisposition.Truncate)
@@ -389,10 +390,11 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def incoming_control = request.bits.descriptor.control
     def indexed_gather = incoming_control.gather & (incoming_control.operand === VectorOperandMode.Vector)
-    def single_schedule = incoming_control.memory ||| incoming_control.fp_service ||| incoming_control.multiply_divide ||| (incoming_control.integer & (incoming_control.reduction ||| indexed_gather))
+    def incoming_simd_multiply = vector_packed_multiply(xlen, incoming_control, request.bits.descriptor.state.vtype[3..5], packed_multiply)
+    def single_schedule = incoming_control.memory ||| incoming_control.fp_service ||| (incoming_control.multiply_divide & !incoming_simd_multiply) ||| (incoming_control.integer & (incoming_control.reduction ||| indexed_gather))
     def packed_start = vector_aligned_first(xlen, vlen, start, request.bits.descriptor.state.vtype[3..5])
     def width_change_start = start & !(Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2 - 1) >> request.bits.descriptor.state.vtype[3..5])
-    def request_width_change = (request.bits.descriptor.control.integer ||| request.bits.descriptor.control.fp_service) & (request.bits.descriptor.control.widening ||| request.bits.descriptor.control.narrowing)
+    def request_width_change = ((incoming_control.integer ||| incoming_control.fp_service) & (incoming_control.widening ||| incoming_control.narrowing)) ||| (incoming_simd_multiply & incoming_control.widening)
     def initial_cursor = priority_mux(~default: packed_start):
       word_schedule: start.align_down(xlen.width)
       single_schedule: start

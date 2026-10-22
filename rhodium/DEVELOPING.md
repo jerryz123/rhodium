@@ -594,6 +594,10 @@ and accepted shared-service request queues; it additionally imports the shared
 writeback calendar, integer
 register-write and FP contracts, vector mask-scan controls, pointer normalization,
 and pure FP profiles.
+`vector/pipeline.rhdl`, `vector/completion.rhdl`, and `vector/muldiv.rhdl`
+consume the shared `cores/simd-multiplier.rhdl` numeric pipeline/result contracts.
+The mul/div adapter and execute stage also consume vector geometry helpers;
+packed resource selection remains in shared execution, not instruction catalogs.
 `vector/slots.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
 `vector/sequencer.rhdl` imports vector bundles, destination-group dependency helpers, shared decode controls,

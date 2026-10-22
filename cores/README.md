@@ -163,7 +163,9 @@ Import `lib("cores/simd-multiplier.rhdl")`. Instantiate
 `SimdMultiplier(width, max_element_width)` for raw products, or
 `SimdMultiplyAccumulate(width, max_element_width)` for a complete numerical
 result pipeline. These physical dimensions are independent of core XLEN.
-Both are standalone components; neither is connected to the vector engine yet.
+Both can be used standalone. RV2Wide's shared vector engine uses the formatted
+pipeline for subword multiplication and retains scalar full-width fallback;
+see [packed vector multiplication](vector/README.md#packed-integer-multiplication).
 
 | Parameters | Multiplier banks | Products per cycle |
 |---|---|---|

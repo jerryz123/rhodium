@@ -1,0 +1,105 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../pipeline.rhdl" open
+  "../bundles.rhdl" open
+  "../muldiv.rhdl" open
+  "../../integer-service.rhdl" open
+  "../../multiplier.rhdl".PipelinedMultiplierStages
+  "decode.rhdl" open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/rtl/vector.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  lib("hardfloat/main.rhdl").RoundingMode
+  lib("flow/main.rhdl") open
+
+sync_circuit VectorMultiplyFixture(xlen :: XLen):
+  def slots = 8
+  def vlen = 256
+  input instruction: Bits(32)
+  input(vl, vtype, vstart, scalar, hit_data): Bits(xlen.width)
+  input vxrm: Bits(2)
+  input(request_valid, schedule_enable, scalar_available): Bool
+  interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface attempt(Valid(VectorToken(xlen, Bits(xlen.width), slots)), ~role: producer)
+  output(request_ready, active, issued, retired, saturated, scalar_launched): Bool
+  output fp_launch: Bool
+  output fp_return_ready: Bool
+  input fp_return_valid: Bool
+  input fp_return_tag: Bits(3)
+  input fp_return_value: Bits(xlen.width)
+  output fp_launch_tag: Bits(3)
+  input(slow, retry): Bool
+  inst decode(VectorTestDecoder(VectorProfile.V, DefaultVectorExtensions, ~uncared_ones: #true))
+  inst vector(VectorExecution(xlen, vlen, Bits(xlen.width), ~packed_multiply: #true, ~multiply_latency: PipelinedMultiplierStages))
+  inst multiply(PipelinedMultiplyService(xlen.width, VectorMultiplyTag(slots), ~scheduled_writeback: #true))
+  inst divide(DivideService(xlen.width, VectorDivideTag(slots)))
+  vector.multiply_request |> gate_flow(scalar_available) |> multiply.request
+  multiply.result |> vector.multiply_result
+  vector.divide_request |> divide.request
+  divide.result |> vector.divide_result
+  scalar_launched <== multiply.request.fire()
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== VectorInstruction(xlen, Bits(xlen.width)):
+    context: scalar
+    descriptor:
+      VectorDescriptor(xlen):
+        pc: scalar
+        precertified: Bool(#false)
+        certificate: dont_care(vector.request.bits.descriptor.certificate.type)
+        instruction: instruction
+        state:
+          RiscvVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: vstart
+            vxrm: vxrm
+            vxsat: Bool(#false)
+        control: decode.control
+        scalar: scalar
+        floating_scalar: scalar
+        stride: Bits(xlen.width)(0)
+        masked: !instruction[25].into(Bool)
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
+
+  vector.schedule_enable <== schedule_enable
+  vector.scalar_writeback.ready <== Bool(#true)
+  vector.packed_memory <== Bool(#false)
+  vector.memory_drained <== Bool(#true)
+  vector.cancel.valid <== Bool(#false)
+  def tokens = vector.issue |> to_valid() |> valid_pipe(3)
+  def Array(observed, feedback) = tokens |> fork_valid(2)
+  observed |> attempt
+  (feedback |> filter_valid(token => token.memory) |> map_valid(token => VectorCommit(xlen, slots)):
+     tag: token.completion_tag
+     pc: token.context
+     disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
+     slow: slow & token.enabled
+     data: hit_data
+     cause: Bits(xlen.width)(0)
+     fault_address: Bits(xlen.width)(0)
+  ) |> vector.decision
+  response |> vector.completion
+  vector.fp_request.ready <== Bool(#true)
+  fp_launch <== vector.fp_request.fire()
+  fp_launch_tag <== vector.fp_request.bits.tag
+  vector.fp_result.valid <== fp_return_valid
+  fp_return_ready <== vector.fp_result.ready
+  vector.fp_result.bits.tag <== fp_return_tag
+  vector.fp_result.bits.fp_value <== fp_return_value
+  vector.fp_result.bits.integer_value <== Bits(xlen.width)(0)
+  vector.fp_result.bits.exception_flags <== Bits(5)(0)
+  vector.fp_result.bits.exception_flags_valid <== Bool(#true)
+  request_ready <== vector.request.ready
+  active <== vector.active
+  issued <== vector.issue.fire()
+  retired <== vector.retire.valid
+  saturated <== vector.saturate.valid
+
+export VectorMultiplyFixture

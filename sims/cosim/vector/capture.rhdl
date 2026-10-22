@@ -18,7 +18,7 @@ dpi_import procedure rhodium_vector_admission(instance: Bits(64))
 dpi_import procedure rhodium_vector_service(
   instance: Bits(64), allocated: Bits(64), owner: Bits(64), tag: Bits(64), divide: Bits(64),
   multiply_launch: Bits(64), multiply_tag: Bits(64), divide_launch: Bits(64), divide_tag: Bits(64),
-  multiply_return: Bits(64), multiply_return_tag: Bits(64), divide_return: Bits(64), divide_return_tag: Bits(64)
+  multiply_return: Bits(64), multiply_return_tag: Bits(64), divide_return: Bits(64), divide_return_tag: Bits(64), packed: Bits(64)
 )
 
 /* Captures FP service ownership and instruction exception-flag contributions. */
@@ -104,7 +104,7 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, dispatch_
     lane("vector_execution_multiply_launch"), lane("vector_execution_multiply_tag"),
     lane("vector_execution_divide_launch"), lane("vector_execution_divide_tag"),
     lane("vector_execution_multiply_return"), lane("vector_execution_multiply_return_tag"),
-    lane("vector_execution_divide_return"), lane("vector_execution_divide_return_tag"), ~enable: active
+    lane("vector_execution_divide_return"), lane("vector_execution_divide_return_tag"), lane("vector_execution_service_packed"), ~enable: active
   )
 
   def issued :: VectorToken(xlen, Bits(xlen.width), slots) = taps["vector_execution_memory_token"]

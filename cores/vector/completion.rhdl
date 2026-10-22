@@ -9,9 +9,11 @@ import:
   "../fp/bundles.rhdl" open
   lib("cores/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("rhodium/std/bits.rhdl").expand_mask
   "bundles.rhdl" open
   "slots.rhdl" open
   "muldiv.rhdl" open
+  "../simd-multiplier.rhdl".SimdMultiplyResult
   "../simd-alu.rhdl".SimdElementWidth
   "../divider.rhdl" open
   "../../riscv/isa/fp-profile.rhm" open
@@ -44,6 +46,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   output compute_writeback: Bool
   interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
   interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(vector_completion_slots))), ~role: consumer)
+  interface simd_result(Valid(IntegerExecutionResult(SimdMultiplyResult(xlen.width), SlotId)), ~role: consumer)
   interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(vector_completion_slots))), ~role: consumer)
   interface drained(Valid(VectorDrained(xlen, vlen, vector_completion_slots)), ~role: producer)
   interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
@@ -123,7 +126,15 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     saturated: result.beat.saturated
 
   def hit_valid = memory_accepted & !decision.bits.slow
-  def multiply_write_available = !local_result.valid & !hit_valid & (Bool(fixed_multiply) ||| !reserved_write)
+  def packed_multiplication = simd_result |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: entries[result.tag]
+    owner: entry_owner[result.tag]
+    data: result.value.data
+    flags: Bits(5)(0)
+    saturated: (expand_mask(result.value.saturated.as_bits(), 8) & entries[result.tag].write.mask).or_reduce()
+
+  def multiply_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & (Bool(fixed_multiply) ||| !reserved_write)
   def multiplication = multiply_result |> gate_flow(multiply_write_available) |> to_valid() |> map_valid(result => Writeback()):
     tag: result.tag.slot
     beat: entries[result.tag.slot]
@@ -132,7 +143,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     flags: Bits(5)(0)
     saturated: multiply_completion.saturated
 
-  def fp_write_available = !local_result.valid & !hit_valid & !multiplication.valid & (fixed_fp_return ||| !reserved_write)
+  def fp_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & !multiplication.valid & (fixed_fp_return ||| !reserved_write)
   def floating = fp_result |> gate_flow(fp_write_available) |> to_valid() |> map_valid(result => Writeback()):
     tag: result.tag
     beat: entries[result.tag]
@@ -141,7 +152,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     flags: mux(result.exception_flags_valid, result.exception_flags, Bits(5)(0))
     saturated: Bool(#false)
 
-  def divide_write_available = !local_result.valid & !hit_valid & !multiplication.valid & !floating.valid & !reserved_write
+  def divide_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & !multiplication.valid & !floating.valid & !reserved_write
   def division = divide_result |> gate_flow(divide_write_available) |> to_valid() |> map_valid(result => Writeback()):
     tag: result.tag.slot
     beat: entries[result.tag.slot]
@@ -150,7 +161,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     flags: Bits(5)(0)
     saturated: Bool(#false)
 
-  def compute_arrival = local_result.valid ||| multiplication.valid ||| floating.valid ||| division.valid
+  def compute_arrival = local_result.valid ||| packed_multiplication.valid ||| multiplication.valid ||| floating.valid ||| division.valid
   def hit_result = hit_attempt |> filter_valid(_result => hit_valid) |> map_valid(result => Writeback()):
     tag: result.tag
     beat: result.beat
@@ -189,7 +200,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   /* Winning completion and ordered drain qualification */
 
   def memory_writeback = memory_results |> valid_arbiter()
-  def writeback = Array(local_result, multiplication, floating, division, hit_result, memory_writeback) |> valid_arbiter()
+  def writeback = Array(local_result, packed_multiplication, multiplication, floating, division, hit_result, memory_writeback) |> valid_arbiter()
   def finished = writeback |> trace_valid_event("vector/complete", ~fields: operation):
     packed: Bool(#false)
     destination(~format: "unsigned"): operation.beat.destination
@@ -212,6 +223,11 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   when (multiply_result.fire()):
     assert(authorized_slots[multiply_result.bits.tag.slot] & entries[multiply_result.bits.tag.slot].multiply_divide & !entries[multiply_result.bits.tag.slot].divide, "vector_multiply_result_has_authorized_owner")
     assert(!completed[multiply_result.bits.tag.slot], "vector_multiply_result_completes_once")
+
+  when (simd_result.valid):
+    assert(reserved_write & !local_result.valid & !hit_valid & !multiply_result.fire() & !fp_result.fire(), "vector_packed_multiply_has_exclusive_reserved_write")
+    assert(authorized_slots[simd_result.bits.tag] & entries[simd_result.bits.tag].multiply_execute, "vector_packed_multiply_has_authorized_owner")
+    assert(!completed[simd_result.bits.tag], "vector_packed_multiply_completes_once")
 
   when (divide_result.fire()):
     assert(authorized_slots[divide_result.bits.tag.slot] & entries[divide_result.bits.tag.slot].multiply_divide & entries[divide_result.bits.tag.slot].divide, "vector_divide_result_has_authorized_owner")

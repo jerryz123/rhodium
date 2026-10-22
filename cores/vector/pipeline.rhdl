@@ -13,6 +13,8 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
   "geometry.rhdl".vector_zero_stride_load
+  "geometry.rhdl".vector_packed_multiply
+  "../simd-multiplier.rhdl" open
   "instructions.rhdl" open
   "completion.rhdl" open
   "operand-fetch.rhdl" open
@@ -46,6 +48,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
                              ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
                              ~trace_isa: trace_isa :: maybe(String) = #false,
                              ~multiply_latency: multiply_latency :: maybe(PosInt) = #false,
+                             ~packed_multiply: packed_multiply :: Boolean = #false,
                              ~fixed_fp: fixed_fp :: Boolean = #false,
                              ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def tag_width = index_width(vector_completion_slots)
@@ -141,7 +144,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Fixed execute and memory-result stages */
 
   inst ex_pipe(ValidPipe(OwnedBeat(), 1, ~flushable: #true))
-  inst execute(VectorExecute(xlen, vlen))
+  inst execute(VectorExecute(xlen, vlen, ~packed_multiply: packed_multiply))
   inst memory_pipe(ValidPipe(OwnedResult, 2, ~flushable: #true))
   def decision_tag = decision.bits.tag
   def feedback_packed = entry_packed[decision_tag]
@@ -163,9 +166,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   /* Sequencing, operand capture, and owner-indexed recurrence state */
 
-  inst sequencer(VectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
+  inst sequencer(VectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa, ~packed_multiply: packed_multiply))
   def current_packed = sequencer.packed
-  inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext()))
+  inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext(), ~packed_multiply: packed_multiply))
   inst registers(VectorRegisterFile(xlen, vlen))
   reg serial_fold_inflight(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
   reg accumulators(Vec(vector_completion_slots, Bits(xlen.width)))
@@ -248,8 +251,11 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_packed = sequencer.sequence_request.bits.context.packed
   def s1_descriptor = sequencer.sequence_request.bits.context.instruction.descriptor
   def s1_local_result = !s1_service ||| s1_control.memory ||| s1_descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty
-  def s1_local_write = !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
-  def s1_write_delay = mux(s1_control.memory, Bits(4)(4), Bits(4)(2))
+  def s1_simd_multiply = vector_packed_multiply(xlen, s1_control, s1_descriptor.state.vtype[3..5], packed_multiply)
+  def s1_local_write = !s1_simd_multiply & !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
+  def s1_write_delay = priority_mux(~default: Bits(4)(2)):
+    s1_simd_multiply: Bits(4)(2 + SimdMultiplyAccumulateStages)
+    s1_control.memory: Bits(4)(4)
   def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
   def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
@@ -265,7 +271,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   // frontier until the decision; preauthorized memory remains feed-forward.
   reg checked_memory_pending(~init: Bool(#false))
   def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
-  def s1_write_available = !s1_local_write ||| writeback_calendar.probe_available
+  def s1_write_available = !(s1_local_write ||| s1_simd_multiply) ||| writeback_calendar.probe_available
   def s1_memory_available = !s1_checked_memory ||| !checked_memory_pending
   def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
@@ -379,7 +385,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
           owner: operation.context.owner
   ) |> packed.reserve
 
-  writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & s1_local_write
+  writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & (s1_local_write ||| s1_simd_multiply)
   writeback_calendar.reserve[2].bits <== s1_calendar_delay
   when (operand_fetch.scheduled_return):
     assert(slot_available, "vector_scheduled_read_has_completion_slot")
@@ -424,7 +430,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   def Array(compute_route, memory_route) = executed |> to_decoupled() |> demux_flow(2, result => result.beat.memory)
   def compute_maturity = compute_route |> to_valid()
-  def Array(fp_compute, multiply_compute, divide_compute, completion_compute, instruction_compute, resolution_compute) = compute_maturity |> fork_valid(6)
+  def Array(fp_compute, multiply_compute, divide_compute, completion_compute, instruction_compute, resolution_compute, simd_compute) = compute_maturity |> fork_valid(7)
+  def ex_simd_multiply = vector_packed_multiply(xlen, ex_effective_beat.control, ex_effective_beat.element_width.as_bits(), packed_multiply)
   def compute_result = compute_maturity.bits
   def compute_beat = compute_result.beat
   def compute_owner = compute_result.owner
@@ -474,13 +481,32 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   when (fp_authorized.ingress.valid):
     assert(fp_authorized.ingress.ready, "vector_fp_execute_has_reserved_request_space")
 
-  multiply_compute |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
+  multiply_compute |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide & !ex_simd_multiply) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
   divide_compute |> filter_valid(result => result.beat.multiply_execute & result.beat.divide) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
   when (multiply_authorized.ingress.valid):
     assert(multiply_authorized.ingress.ready, "vector_multiply_execute_has_reserved_request_space")
 
   when (divide_authorized.ingress.valid):
     assert(divide_authorized.ingress.ready, "vector_divide_execute_has_reserved_request_space")
+
+
+  /* Packed multiplication owns its prebooked return cycle. Even an all-masked
+     beat traverses this path so it cannot create an unreserved early local write. */
+
+  def simd_launch = simd_compute |> filter_valid(_result => ex_simd_multiply)
+  cond
+  | packed_multiply:
+      inst multiply(SimdMultiplyAccumulate(xlen.width, xlen.width / 2))
+      def Array(simd_operands, simd_owners) = simd_launch |> fork_valid(2)
+      simd_operands |> map_valid(_result => vector_simd_multiply_request(xlen, vlen, ex_effective_beat)) |> multiply.request
+      def owners = simd_owners |> map_valid(result => result.tag) |> valid_pipe(SimdMultiplyAccumulateStages)
+      (multiply.response |> map_valid(result => IntegerExecutionResult(SimdMultiplyResult(xlen.width), SlotId)):
+         tag: owners.bits
+         value: result
+      ) |> completions.simd_result
+  | ~else:
+      completions.simd_result.valid <== Bool(#false)
+      completions.simd_result.bits <== dont_care(completions.simd_result.bits.type)
 
 
   /* External decisions align only with memory attempts. Every compute route
@@ -673,16 +699,17 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     "packed_write": packed.write.valid,
     "splat_write": splat.write.valid,
     "splat_owner": splat.owner,
-    "service_allocate": compute_maturity.valid & compute_beat.multiply_execute,
+    "service_allocate": compute_maturity.valid & compute_beat.multiply_execute & (!ex_simd_multiply ||| compute_beat.write.mask.or_reduce()),
     "service_owner": compute_owner,
     "service_tag": compute_result.tag,
     "service_divide": compute_beat.divide,
+    "service_packed": ex_simd_multiply,
     "multiply_launch": multiply_request.fire(),
     "multiply_tag": multiply_request.bits.tag.slot,
     "divide_launch": divide_request.fire(),
     "divide_tag": divide_request.bits.tag.slot,
-    "multiply_return": multiply_result.fire(),
-    "multiply_return_tag": multiply_result.bits.tag.slot,
+    "multiply_return": multiply_result.fire() ||| (completions.simd_result.valid & completions.write.valid),
+    "multiply_return_tag": mux(completions.simd_result.valid, completions.simd_result.bits.tag, multiply_result.bits.tag.slot),
     "divide_return": divide_result.fire(),
     "divide_return_tag": divide_result.bits.tag.slot,
     "fp_allocate": compute_maturity.valid & compute_beat.fp_execute,

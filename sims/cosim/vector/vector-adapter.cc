@@ -20,11 +20,11 @@ extern "C" void rhodium_vector_fp(std::int64_t instance, std::int64_t allocated,
   });
 }
 
-extern "C" void rhodium_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag) noexcept {
+extern "C" void rhodium_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag, std::int64_t packed) noexcept {
   observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
     adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Service{
         Word(allocated), Word(owner), Word(tag), Word(divide), Word(multiply_launch), Word(multiply_tag), Word(divide_launch), Word(divide_tag),
-        Word(multiply_return), Word(multiply_return_tag), Word(divide_return), Word(divide_return_tag)});
+        Word(multiply_return), Word(multiply_return_tag), Word(divide_return), Word(divide_return_tag), Word(packed)});
   });
 }
 
@@ -231,7 +231,12 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
     token.launched = true;
   };
   if (service) {
-    if (service->allocated) allocated(service->tag, service->owner, service->divide ? ServiceKind::Divide : ServiceKind::Multiply);
+    if (service->allocated) {
+      allocated(service->tag, service->owner, service->divide ? ServiceKind::Divide : ServiceKind::Multiply);
+      // The packed feed-forward path launches at allocation; a queued scalar
+      // request can launch independently on the same edge.
+      if (service->packed) launched(service->tag, ServiceKind::Multiply);
+    }
     if (service->multiply_launch) launched(service->multiply_tag, ServiceKind::Multiply);
     if (service->divide_launch) launched(service->divide_tag, ServiceKind::Divide);
   }

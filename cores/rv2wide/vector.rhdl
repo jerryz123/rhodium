@@ -58,7 +58,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output(active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available): Bool
 
-  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
+  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   inst access(RV2WideVectorMemory(xlen, slots))
   inst admission(VectorAdmission(xlen, vlen, slots, RiscvGuestFault(), ~pipe: #false, ~dispatch_depth: dispatch_depth))
   request |> admission.request

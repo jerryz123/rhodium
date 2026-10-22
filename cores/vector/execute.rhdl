@@ -7,17 +7,19 @@ import:
   lib("cores/vector-layout.rhm") open
   "decode.rhdl".VectorOperandMode
   "bundles.rhdl" open
+  "geometry.rhdl".vector_packed_multiply
   "packing.rhdl" open
   "mask.rhdl" open
   "register-file.rhdl" open
   "../simd-alu.rhdl" open
   "../../riscv/isa/vector.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/bits.rhdl").expand_mask
 
 /* Adapts one beat to the shared SIMD ALU, mask scanner, and destination packer.
    Packed memory alignment reuses the full-word rotate slice; the parent owns
    write scheduling, service completion, and recurrence advancement. */
-circuit VectorExecute(xlen :: XLen, vlen :: VectorLength):
+circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: packed_multiply :: Boolean = #false):
   input beat: VectorBeat(xlen, vlen)
   input scan_carry: Bits(xlen.width)
   interface alignment(Valid(VectorAlignment(xlen)), ~role: consumer)
@@ -47,6 +49,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength):
   def any_scalar_destination = scalar_destination ||| floating_scalar_destination
   def widening_reduction = integer_reduction & beat.control.widening
   def first_lane_enabled = beat.enabled[0]
+  def simd_multiply = vector_packed_multiply(xlen, beat.control, beat.element_width.as_bits(), packed_multiply)
 
 
   /* Reduction operand widening
@@ -175,6 +178,14 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength):
     data: singleton_data
     mask: mux(first_lane_enabled & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, Bits(xlen.width)(0))
 
+  // Packed multiply writes a destination-sized beat, independent of the ALU's
+  // uncared controls. Widening uses only the selected source half's enables.
+  def multiply_bytes = vec(for List (byte in 0..vector_word_bytes(xlen)):
+                            def widths = for List (format in 1..vector_format_count(xlen)):
+                              [format, beat.enabled[byte >> format]]
+                            mux_lookup(singleton_width, ~default: beat.enabled[byte], widths)).as_bits()
+  def multiply_write = element_write.updated(~mask: expand_mask(multiply_bytes, 8))
+
 
   /* Element-zero results and reduction completion
      Inactive reduction elements retain the accumulator; only the final beat writes element zero. */
@@ -201,12 +212,14 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength):
 
   def ordinary_write = packing.write.updated(~mask: mux(beat.empty, Bits(xlen.width)(0), packing.write.mask))
   def selected_write = priority_mux(~default: ordinary_write):
+    simd_multiply: multiply_write
     scanning: scan_write
     reduction ||| element_move: element_zero_write
     singleton: mux(fp_mask_destination, packing.write, element_write)
     beat.control.mask_logic: mask_write
 
   def result_shift = priority_mux(~default: element_shift):
+    simd_multiply: Bits(vector_bit_offset_width(xlen))(0)
     fp_mask_destination: beat.first[0..vector_bit_offset_width(xlen)]
     reduction: Bits(vector_bit_offset_width(xlen))(0)
 
@@ -228,7 +241,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength):
     mask_destination: fp_mask_destination
     fp_result: beat.control.fp_result
     multiply_divide: beat.control.multiply_divide
-    multiply_execute: beat.control.multiply_divide & first_lane_enabled
+    multiply_execute: beat.control.multiply_divide & (simd_multiply ||| first_lane_enabled)
     divide: beat.control.divide
     multiply_accumulate: multiply_accumulate
     multiply_subtract: multiply_accumulate & beat.control.multiply_subtract

@@ -569,6 +569,12 @@ have `write` false. Non-writing data is unspecified on either interface.
 
 ## Multiply and divide
 
+Vector subword multiplies use the dedicated packed pipeline described in
+[shared vector execution](../vector/README.md#packed-integer-multiplication).
+It supports packed low/high products, MAC, widening, and fractional rounding
+without occupying the scalar multiplier. Full-width vector elements still
+share the scalar multiplier; division remains shared at every element width.
+
 RV32M and RV64M operations, including the RV64-only MULW, DIVW/DIVUW, and REMW/REMUW, use the
 shared physical control relations. One M instruction may issue per group and
 may pair with independent ALU or branch work. Memory and M instructions split

@@ -45,6 +45,25 @@ introduce buffering or lossy arbitration on a nonstallable return.
 | `profile.rhm` | Shared scalar/vector capability validation and execution half-precision selection |
 | `fp.rhdl`, `muldiv.rhdl` | Shared arithmetic operands and tagged result conversion |
 
+Packed multiply selection is a host choice on `VectorExecution`, forwarded to
+the sequencer, operand fetch, and execute geometry. The shared
+`vector_packed_multiply` predicate keeps subword bank selection consistent;
+full-width operations remain singleton scalar-service requests. Keep source
+rows narrow for widening multiplication: the numeric formatter selects the
+product half, while operand fetch remaps that half's enables and reads a full
+destination-width old-vd row. Do not widen inputs through the ALU packing path.
+Normalize uncared MAC product-select fields at the numeric boundary, not in
+instruction decode. Scalar returns use the same numeric formatter's lane zero.
+
+Packed multiplication reserves calendar client 2 before its synchronous reads,
+with a six-cycle delay through operand capture, EX, and the four-stage numeric
+pipeline. Ordinary local writes continue using that client's shorter delay;
+scalar multiply and FP retain clients 0 and 1. Even empty/masked beats finish
+on the reserved edge. Completion retains the slot's bit mask and qualifies the
+numeric byte saturation against it. Passive cosim reports packed launch at
+allocation separately from queued scalar launch; their mutually exclusive
+architectural returns use the existing multiplier-return observation.
+
 `../mmu/vector.rhdl` owns certification/probe contracts and
 `../mmu/vector-window.rhdl` owns the pinned two-page window. The named MMU owns
 lookups, walks, permissions context, and invalidation. Named vector wrappers
@@ -104,6 +123,14 @@ The RV5Stage admission fixture checks the caller boundary. Add its vector-memory
 and MMU replay fixtures for translation/LSU behavior changes, FP/muldiv fixtures
 for shared arithmetic changes, and cosim/event fixtures for observation changes.
 Use the managed Racket wrappers and keep generated HDL/native builds untracked.
+
+For packed multiply integration, run `vector-multiply` and
+`vector-multiply-rv32` for production-engine data, beat count, consecutive issue,
+scalar fallback, masks, vstart, widening, overlapping service returns, and replay
+checks; run `rv2wide-core-vector`
+and `rv2wide-core-vector-rv32` for caller integration. Shared scalar formatter
+changes also require `rv5stage-vector-muldiv`. The native vector cosim adapter
+test covers atomic packed launch and same-edge old-result/tag replacement.
 
 For descriptor-capacity changes, run the shared `vector-admission-one`,
 `vector-admission-two`, `vector-admission-three`, `vector-admission-four`, and

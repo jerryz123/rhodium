@@ -25,7 +25,7 @@ import:
    packing.
    There is no post-read stall queue; compression retains speculative and authorized
    suffix checkpoints and sends a final suffix back through the common sequencer. */
-sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~packed_multiply: packed_multiply :: Boolean = #false):
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def SequenceContext = VectorSequenceContext(xlen, vlen, Context)
   interface request(Decoupled(VectorSequenceRequest(xlen, vlen, Context)), ~role: consumer)
@@ -84,7 +84,9 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def mask_word = vector_mask_word(descriptor.control)
   def format = mux(mask_word, (if xlen == XLen.X32 | SimdElementWidth.E32 | SimdElementWidth.E64), sew.into(SimdElementWidth))
   def limit = vector_beat_limit(xlen, vlen, descriptor)
-  def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew)
+  def simd_multiply = vector_packed_multiply(xlen, descriptor.control, sew, packed_multiply)
+  def simd_widening = simd_multiply & descriptor.control.widening
+  def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
   def destination_width = vector_destination_width(descriptor.control, sew)
   def index_sew = vector_index_width(descriptor.control, sew)
   def gather = descriptor.control.integer & descriptor.control.gather
@@ -101,7 +103,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def indexed_memory = vector_indexed_memory(descriptor.control)
   def slide = descriptor.control.slide
   def scan = descriptor.control.integer & descriptor.control.scan
-  def singleton = vector_single_element(descriptor.control)
+  def singleton = vector_single_element(descriptor.control, ~packed_multiply: simd_multiply)
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def compress = !packed & descriptor.control.integer & descriptor.control.compress
   def destination_source = vector_reads_destination(descriptor.control)
@@ -174,7 +176,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   mask_read.bits <== request.bits.mask_address
   packing.control <== VectorPackingControl(vlen):
     element_width: format
-    first_element: mux(width_change, vector_aligned_first(xlen, vlen, beat_control.first, sew), beat_control.first)
+    first_element: mux(width_change ||| simd_widening, vector_aligned_first(xlen, vlen, beat_control.first, sew), beat_control.first)
     vl: limit
     vstart: minimum
     vlmax: mux(whole_register_move, limit, geometry.vlmax)
@@ -258,7 +260,12 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def packed_lanes = mux(beat_control.empty, Mask(vector_word_bytes(xlen))(0), packing.operands.enabled)
   def slide_lanes = mux(slide, slide_enabled, !Mask(vector_word_bytes(xlen))(0))
   def packed_enabled = packed_lanes & slide_lanes
+  // Widening products keep raw source rows. Select the matching enable half,
+  // while the numeric formatter selects that half of the full product word.
+  def multiply_upper = beat_control.first =/= vector_aligned_first(xlen, vlen, beat_control.first, sew)
+  def multiply_enables = (packed_enabled.as_bits() >> mux(multiply_upper, lanes[0..vector_byte_offset_width(xlen)], Bits(vector_byte_offset_width(xlen))(0))).into(Mask(vector_word_bytes(xlen)))
   def enabled_lanes = priority_mux(~default: packed_enabled):
+    simd_widening: multiply_enables
     mask_logic: beat_control.mask_enabled.or_reduce().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
     singleton: memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
 
@@ -272,11 +279,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     address: mux(indexed_memory, indexed_address, beat_control.address)
     left: left_operand
     right: right_operand
-    destination_data: results[2].bits >> destination_shift
+    destination_data: mux(simd_multiply, results[2].bits, results[2].bits >> destination_shift)
     carry_in: carry_lanes
     select_right: right_selection
     mask_enabled: beat_control.mask_enabled & mux(scan & descriptor.masked, element_mask_bits, !Bits(xlen.width)(0))
-    destination_first: packing.operands.first_element
+    destination_first: mux(simd_multiply, beat_control.first, packing.operands.first_element)
     element_width: packing.operands.element_width
     // One full-word logic lane computes the mask; mask_enabled controls its
     // independently writable architectural elements at the result port.

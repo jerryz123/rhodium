@@ -220,7 +220,9 @@ std::string services(unsigned seed, unsigned mutation=0) {
          []{test_rv5stage_vector_write(0,0,34,255,9,1,0,0,1,0,0);},
          []{test_rv5stage_vector_drain(0,0,1);}});
   frame({
-    [&]{service({1,0,0,0,1,0,0,0,mutation==4?0U:1U,0,mutation==4?1U:0U,0});},
+    // A packed beat allocates and launches atomically while an old scalar
+    // product returns on the same tag.
+    [&]{service({1,0,0,0,0,0,0,0,mutation==4?0U:1U,0,mutation==4?1U:0U,0,1});},
     [&]{if(mutation!=5) test_rv5stage_vector_write(0,0,32,255,7,1,0,0,mutation==6?1:0,0,0);},
     []{test_rv5stage_vector_drain(0,0,0);},
     [&]{allocate(2,0);}

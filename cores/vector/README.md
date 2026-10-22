@@ -88,6 +88,30 @@ write cycle. Variable services retain tagged results until accepted. Scalar
 results similarly require the caller to honor `scalar_writeback` reservations.
 Completion, sequencing release, and architectural retirement are separate events.
 
+### Packed integer multiplication
+
+`VectorExecution(..., ~packed_multiply: #true)` selects dedicated packed
+subword multiplication. RV2Wide enables it; RV5Stage retains the default shared
+scalar service. A 32-bit row uses `SimdMultiplyAccumulate(32, 16)` and a 64-bit
+row uses `(64, 32)`. Full-row-width multiplication and all division still use
+the caller's scalar services. These choices do not change the numeric component's
+physical-width API or the architectural instruction profile.
+
+Low/high products, MAC/subtract, widening multiply/MAC, and fractional multiply
+issue one packed destination beat per cycle when row dependencies, completion
+slots, and write reservations permit. Widening issues two half-source beats per
+source row, each producing one destination row. Masking, partial VL, and vstart
+qualify destination bytes and saturation; inactive bytes remain undisturbed.
+The third VRF port supplies old vd for MACs, while the separate v0 shadow
+supplies predication. Full-width fallback and packed multiplication can overlap.
+
+The read scheduler reserves the sole VRF port six cycles ahead: one operand-read
+cycle, one execute stage, then the numeric pipeline's four cycles. Tags advance
+with the feed-forward result; there is no multiplier backpressure or result
+queue. All-masked beats use the same delayed completion path without writing
+the VRF or changing saturation. Accepted owners survive successor admission
+and memory replay. Variable memory/FP/divide returns wait for unreserved cycles.
+
 ## Integration boundaries
 
 The scalar core owns profile selection, vector CSR state, scalar operand capture,

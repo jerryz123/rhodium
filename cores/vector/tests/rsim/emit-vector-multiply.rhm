@@ -1,0 +1,11 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  "../multiply-fixture.rhdl" open
+def program = elaborate(VectorMultiplyFixture(XLen.X64))
+def rv32_program = elaborate(VectorMultiplyFixture(XLen.X32))
+export:
+  program
+  rv32_program

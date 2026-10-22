@@ -25,6 +25,9 @@ circuit VectorTestDecoder(profile :: VectorProfile = VectorProfile.V, extensions
     clip_unsigned: Bool(#true)
     left_signed: Bool(#true)
     right_signed: Bool(#true)
+    multiply_result: VectorMultiplyResult.Fractional
+    multiply_destination: Bool(#true)
+    multiply_subtract: Bool(#true)
     scan_control: PackedLiteral(VectorMaskScanControl(), 0)
     invert_logic_result: Bool(#true)
     invert_comparison: Bool(#true)

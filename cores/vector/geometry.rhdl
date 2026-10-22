@@ -32,10 +32,14 @@ fun vector_mask_word(control :: VectorControl()) :~ Bool:
 
 /* Selects singleton scheduling for memory, services, reductions, element moves, and vector
    gather. */
-fun vector_single_element(control :: VectorControl()) :~ Bool:
+fun vector_single_element(control :: VectorControl(), ~packed_multiply: packed_multiply :: Bool = Bool(#false)) :~ Bool:
   def reduction = (control.integer ||| control.fp_service) & control.reduction
   def gather_vector = control.integer & control.gather & (control.operand === VectorOperandMode.Vector)
-  control.memory ||| control.fp_service ||| control.multiply_divide ||| control.element_move ||| reduction ||| gather_vector
+  control.memory ||| control.fp_service ||| (control.multiply_divide & !packed_multiply) ||| control.element_move ||| reduction ||| gather_vector
+
+/* Packed banks handle subword multiply; full-word multiply and division use scalar services. */
+fun vector_packed_multiply(xlen :: XLen, control :: VectorControl(), sew :: Bits(2), enabled :: Boolean) :~ Bool:
+  Bool(enabled) & control.multiply_divide & !control.divide & (sew < Bits(2)(vector_format_count(xlen) - 1))
 
 /* Identifies multiply-accumulate and fused FP operations that consume old vd. */
 fun vector_reads_destination(control :: VectorControl()) :~ Bool:
@@ -82,12 +86,12 @@ fun vector_beat_limit(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDe
     mask_memory: mask_memory_limit
 
 /* Selects physical packed, half-row, mask-bit, or singleton progress for one beat. */
-fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), sew :: Bits(2)) :~ Bits(index_width(vlen + 1)):
-  def width_change = control.integer & (control.widening ||| control.narrowing)
+fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), sew :: Bits(2), ~packed_multiply: packed_multiply :: Bool = Bool(#false)) :~ Bits(index_width(vlen + 1)):
+  def width_change = (control.integer & (control.widening ||| control.narrowing)) ||| (packed_multiply & control.widening)
   def packed = mux(width_change, Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2), Bits(index_width(vlen + 1))(vector_word_bytes(xlen))) >> sew
   priority_mux(~default: packed):
     vector_mask_word(control): Bits(index_width(vlen + 1))(xlen.width)
-    vector_single_element(control): Bits(index_width(vlen + 1))(1)
+    vector_single_element(control, ~packed_multiply: packed_multiply): Bits(index_width(vlen + 1))(1)
 
 /* Selects full-XLEN scalar, immediate, or fixed-one slide displacement before bounds checking. */
 fun vector_slide_distance(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bits(xlen.width):
@@ -111,6 +115,7 @@ export:
   vector_zero_stride_load
   vector_mask_word
   vector_single_element
+  vector_packed_multiply
   vector_reads_destination
   vector_reads_second
   vector_data_width
