@@ -832,10 +832,13 @@ Keep architectural admission, retirement, and scalar hazards in `core.rhdl`;
 WB admission consumes registered descriptor credit, never downstream LSU
 readiness. Memory admission checks retained scalar load owners and a sampled
 quiet memory boundary: live drain signals can depend on current admission.
-`profile.vector_dispatch_depth` selects descriptor capacity (four by default),
+`profile.vector_dispatch_depth` selects descriptor capacity (six by default),
 independently of completion slots and the single active sequencer. Keep the
 shared admission queue's `~pipe: #false` setting when varying capacity; at full
 occupancy its credit returns on the cycle after a dequeue.
+Six resident descriptors cover the nominal six-cycle WB replay/refetch/reissue
+round trip while dispatch drains one descriptor per cycle. This is not a bound
+on frontend cache misses, operand hazards, or other recovery delays.
 Faultable descriptors retain their WB owner until certification or precise
 execution produces an outcome. Eligible younger scalar instructions may execute
 but a live WB offer behind unresolved authorization replays its oldest PC once.

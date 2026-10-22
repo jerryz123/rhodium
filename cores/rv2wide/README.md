@@ -983,8 +983,8 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   and the branch trains the predictor only after successful retirement.
   Operations snapshot CSR/scalar operands and enter the descriptor queue only
   through successful WB dispatch.
-- The queue stores four descriptors by default, in addition to the active
-  sequencer. `RV2WideConfig(~vector_dispatch_depth: 4)` selects its positive
+- The queue stores six descriptors by default, in addition to the active
+  sequencer. `RV2WideConfig(~vector_dispatch_depth: 6)` selects its positive
   capacity independently of `vector_completion_slots`. The standalone
   `RV2WideVectorPipeline` exposes the same selection as `~dispatch_depth`.
   A full queue replays the WB instruction; it never drops accepted work.

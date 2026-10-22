@@ -61,7 +61,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
                ~ziccrse: ziccrse :: Boolean = #false,
                ~vector_length: vector_length :: VectorLength = 128,
                ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
-               ~vector_dispatch_depth: vector_dispatch_depth :: PosInt = 4):
+               ~vector_dispatch_depth: vector_dispatch_depth :: PosInt = 6):
     unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
     | error(~who: #'RV2WideConfig, "RV2Wide supports Bare or RV64 Sv39")
 

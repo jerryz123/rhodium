@@ -15,8 +15,9 @@ def integer = RV2WideConfig()
 def integer32 = RV2WideConfig(~xlen: XLen.X32)
 def bare64 = RV2WideConfig(~mmu_type: RiscvMmuType.Bare)
 check:
-  integer.vector_dispatch_depth ~is 4
+  integer.vector_dispatch_depth ~is 6
   RV2WideConfig(~vector_dispatch_depth: 1).vector_dispatch_depth ~is 1
+  RV2WideConfig(~vector_dispatch_depth: 4).vector_dispatch_depth ~is 4
   RV2WideConfig(~vector_dispatch_depth: 8).vector_dispatch_depth ~is 8
   RV2WideConfig(~vector_dispatch_depth: 0) ~throws "PosInt"
   integer32.xlen ~is XLen.X32

@@ -704,7 +704,9 @@ void paired_vector_configurations() {
           vi(0, 23, 0, 3, 24), vsetivli(14, 2, 0),
           vsetivli(14, 2, 0), vi(0, 24, 0, 3, 25),
           vi(0, 25, 0, 3, 26), vsetivli(14, 2, 0),
-          vsetivli(14, 2, 0), vi(0, 26, 0, 3, 27)}, false, true);
+          vsetivli(14, 2, 0), vi(0, 26, 0, 3, 27),
+          vi(0, 27, 0, 3, 28), vsetivli(14, 2, 0),
+          vsetivli(14, 2, 0), vi(0, 28, 0, 3, 29)}, false, true);
   CHECK(gprs[14] == 2);
   run(240);
   fast_enabled = slow = false;
@@ -1004,9 +1006,11 @@ void independent_vector_scalar_pairs() {
           vi(32, 12, 2, 6, 13), addi(3, 0, 104),
           vi(32, 13, 2, 6, 14), addi(3, 0, 105),
           vi(32, 14, 2, 6, 15), addi(3, 0, 106),
-          vi(32, 15, 2, 6, 16), addi(3, 0, 107)}, false, true);
-  CHECK(gprs[3] == 107);
-  extract(16, 7, 0);
+          vi(32, 15, 2, 6, 16), addi(3, 0, 107),
+          vi(32, 16, 2, 6, 17), addi(3, 0, 108),
+          vi(32, 17, 2, 6, 18), addi(3, 0, 109)}, false, true);
+  CHECK(gprs[3] == 109);
+  extract(18, 7, 0);
 }
 void conflict_based_pairing() {
   run(120);
