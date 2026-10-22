@@ -391,6 +391,9 @@ straddle. Assembly repair restores its accepted prefix, while fetch replay
 preserves predecode prefix state. MEM emits checkpoint recovery plus actual
 conditional outcome; WB rejection takes priority. WB emits separately qualified
 saved-index training. Repeated RAS restoration must not reset gshare history.
+Successful nonflushing vector configuration must not restore history: its
+younger fetch stream remains live. In particular it cannot override a
+simultaneous MEM branch correction. Only a configuration fault recovers history.
 Context/code invalidation clears both counter validity and history.
 
 Run `bpred-tournament`, `bpred-btb-external`, `rv2wide-bht`, the existing assembly/frontend baseline fixtures,
@@ -835,8 +838,11 @@ shared admission queue's `~pipe: #false` setting when varying capacity; at full
 occupancy its credit returns on the cycle after a dequeue.
 Faultable descriptors retain their WB owner until certification or precise
 execution produces an outcome. Eligible younger scalar instructions may execute
-but a live WB offer behind unresolved authorization replays its oldest PC. Keep
-the accepted vector owner, element checkpoints, and responses across that replay.
+but a live WB offer behind unresolved authorization replays its oldest PC once.
+After that rejection, a registered RR interlock parks the refetched suffix until
+the vector outcome; do not poll authorization by repeated pipeline/refetch trips.
+The initial speculative pass remains enabled and no scalar result is buffered.
+Keep the accepted vector owner, element checkpoints, and responses across that replay.
 Gate services and architectural effects through the existing retained-owner
 dispatch/retirement authority, before request formation. A younger fault is
 replayed rather than retained ahead of the older unresolved vector operation.
@@ -865,9 +871,12 @@ EX forms a conservative single-page range from the forwarded vector state,
 scalar base/stride, and vstart using shared vector footprint geometry. Its
 `vector_fast_eligible` flag qualifies only that proposed range; the descriptor's
 `precertified` remains false until MEM captures a successful `VectorFastCheck`.
-Only `certificate.range` is meaningful before that capture. MEM uses the existing
-DTLB below WB demand, fallback page probes, and ordinary speculative lookups;
-failure to certify never allocates a walk or produces a speculative fault.
+Only `certificate.range` is meaningful before that capture. MEM uses the DTLB's
+independent probe with demand-accurate permissions/A/D/PBMT. WB demand, fallback
+page proof, and ordinary lookups keep the demand port; certification replaces
+only an optional data-prefetch probe. Suppress that hint rather than forwarding
+metadata from the vector lookup. Failure never allocates a walk or produces a
+speculative fault.
 Bare memory supplies the same contract using identity mappings and page PMAs.
 
 WB revalidates context, invalidation epoch, and pointer masking, then retires an
@@ -951,8 +960,9 @@ same-pair legality and memory geometry, scalar RAW/WAW splits, precise younger
 traps, replayed suffixes under injected rejection and full descriptor credit,
 and retained older vector memory.
 Authorization regressions let younger scalar work reach MEM before the vector
-owner retires, force repeated WB replay without duplicate accepted stores, and
-sweep one/two-slot arrival timing across final authorization. They require an
+owner retires, bound WB retry independently of authorization delay without
+duplicate accepted stores, and sweep one/two-slot arrival timing across final
+authorization. They require an
 actual vector/scalar co-retirement, suppress younger GPR/FPR/multiply/store and
 fault effects, preserve the vector fault's `vstart`, and defer interrupts until
 the vector owner and accepted responses have drained.
@@ -980,8 +990,8 @@ a younger trap, and actual full-descriptor-queue replay without memory traffic.
 They also check certified loads/stores retiring at ordinary WB without recovery,
 younger scalar progress, physical remapping, stale-certificate fallback, and
 cross-page fallback. MMU checks cover nonallocating cold certification, warm
-host/guest mappings, current permissions/PBMT, demand-port priority, context/epoch
-revalidation, and self-contained physical retries after TLB invalidation.
+host/guest mappings, current permissions/PBMT, simultaneous demand/certification,
+context/epoch revalidation, and self-contained physical retries after TLB invalidation.
 The RV64 fixture combines H with V/FP, checking both host/guest FS/VS gates,
 guest-fault CSR provenance, and draining accepted vector loads before trap entry.
 The MMU fixture certifies and reuses a nonidentity G-stage vector page mapping.

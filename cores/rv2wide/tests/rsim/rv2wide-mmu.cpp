@@ -963,6 +963,10 @@ int main() {
     vector_fast_in.prequest.pvalid = 1;
     eval();
     CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 22);
+    // Data hints share only the optional probe and must drop, not use its PPN.
+    hint(0x50003f, 2, false);
+    eval();
+    CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 22);
     vector_fast_in.pcandidate = vector_fast_out.presponse.pbits;
     vector_fast_in.prequest.pvalid = 0;
     eval();
@@ -972,18 +976,22 @@ int main() {
     CHECK(!vector_fast_out.pcandidate_ucurrent);
     satp -= 1;
 
-    // Authorized WB and ordinary MEM lookups take priority over a speculative check.
+    // Independent certification survives WB/MEM demand for a different mapping.
+    offer_wb(0x600008);
+    walk_at(0x600008, (UINT64_C(23) << 10) | 0xcf);
     vector_fast_in.prequest.pvalid = 1;
-    address = 0x500008;
+    address = 0x600008;
     wb_valid = 1;
     eval();
-    CHECK(!vector_fast_out.presponse.pvalid && physical_valid && physical_address == 0x16008);
+    CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 22 &&
+          physical_valid && physical_address == 0x17008);
     wb_valid = 0;
     ex_valid = 1;
     tick_model();
     ex_valid = 0;
     eval();
-    CHECK(!vector_fast_out.presponse.pvalid && resolve_valid && resolve_address == 0x16008);
+    CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 22 &&
+          resolve_valid && resolve_address == 0x17008);
     tick_model();
     eval();
     CHECK(vector_fast_out.presponse.pvalid);

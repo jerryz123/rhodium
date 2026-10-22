@@ -154,7 +154,6 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def data_virtual_address = mux(split_request.valid, split_fault_address, data_request.address)
   def data_demand = split_request.valid ||| (memory.request.valid & !misaligned.busy)
   def vector_probe = vector_window.translation.request.valid & !data_demand & !misaligned.busy
-  def fast_selected = vector_fast.request.valid & !data_demand & !vector_probe & !misaligned.busy & !mem_request.valid
   def certified_physical = !split_request.valid & !vector_probe & mux(memory.request.valid, request_vector & vector_fast.request_physical, mem_request.valid & mem_physical)
   vector_window.addresses <== vec(mem.address, memory.request.bits.address)
   def window_hit = !split_request.valid & !vector_probe & !certified_physical & mux(memory.request.valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
@@ -173,19 +172,18 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
   def probe_lookup = lookup(probe_request.address, probe_access, data_privilege, normal_data_guest)
   def fast_lookup = lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load), data_privilege, normal_data_guest)
-  def data_lookup = priority_mux(~default: normal_lookup):
-    vector_probe: probe_lookup
-    fast_selected: fast_lookup
-
+  def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
   def vector_context = lookup(Bits(64)(0), Sv39Access.Load, data_privilege, normal_data_guest)
   vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.virtualized === vector_context.virtualized) & (vector_fast.candidate.context.as_bits() === vector_context.context.as_bits())
-  def fast_page = (dtlb.translation.physical_address[12..56] ++ Bits(12)(0)).zext(64)
-  vector_fast.response.valid <== fast_selected & !invalidate & dtlb.hit & (dtlb.translation.fault === RiscvTranslationFault.None) & (riscv_host_result(dtlb.translation).pbmt === PageMemoryType.PMA) & vector_page_permitted(config.physical_map, fast_page, vector_fast.request.bits.store)
+  // The independent probe certifies MEM while the demand port serves older work.
+  // Certification checks real A/D permissions; only optional data hints may drop.
+  def fast_page = (dtlb.probe_translation.physical_address[12..56] ++ Bits(12)(0)).zext(64)
+  vector_fast.response.valid <== vector_fast.request.valid & !invalidate & dtlb.probe_hit & (dtlb.probe_translation.fault === RiscvTranslationFault.None) & (dtlb.probe_pbmt === PageMemoryType.PMA) & vector_page_permitted(config.physical_map, fast_page, vector_fast.request.bits.store)
   vector_fast.response.bits <== VectorFastCertificate(XLen.X64):
     range: vector_fast.request.bits
-    ppn: dtlb.translation.physical_address[12..56]
+    ppn: dtlb.probe_translation.physical_address[12..56]
     virtualized: vector_context.virtualized
     context: vector_context.context
     invalidation_epoch: vector_invalidation_epoch
@@ -209,7 +207,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def prefetch_privilege = effective_data_privilege(XLen.X64, state.privilege, state.mstatus)
   def prefetch_lookup = lookup(prefetch_request.address, Sv39Access.Load, prefetch_privilege, normal_data_guest)
   itlb.probe <== prefetch_lookup
-  dtlb.probe <== prefetch_lookup
+  dtlb.probe <== mux(vector_fast.request.valid, fast_lookup, prefetch_lookup)
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
   def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
   def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
@@ -225,7 +223,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   def prefetch_cacheable = mux(instruction_prefetch, prefetch_attributes.instruction_cacheable, prefetch_attributes.cacheable)
   def prefetch_ordinary_memory = prefetch_region.mapped & prefetch_cacheable & !prefetch_attributes.strongly_ordered & prefetch_attributes.read_idempotent
-  def prefetch_eligible = !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_ordinary_memory & prefetch_permission
+  def prefetch_probe_available = instruction_prefetch ||| !vector_fast.request.valid
+  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_ordinary_memory & prefetch_permission
   (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_address))) |> physical_prefetch_pipe.ingress
   physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
 

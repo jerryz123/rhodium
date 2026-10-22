@@ -198,6 +198,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   inst branch_training(RV2WideBranchTrainingBuffer(xlen))
   wire wb_squash: Bool
   wire rr_squash: Bool
+  reg rr_vector_retry_wait(~init: Bool(#false))
   def ex_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2):
     def observed = ex_pipe[lane].egress |> filter_valid(_token => !rr_squash) |> trace_valid_event("core/s2.ex.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
@@ -603,12 +604,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_serialization_ready = rr_pipeline_empty & wb_drained
   def rr_serialization_clear = for List (lane in 0..2): !rr_system[lane] ||| rr_serialization_ready
   def rr_memory_order_clear = for List (lane in 0..2): !rr_ordered_memory[lane] ||| rr_ordered_memory_ready
-  def rr_structural_blocked = for List (lane in 0..2): rr_capacity_blocked[lane] ||| !rr_serialization_clear[lane] ||| !rr_memory_order_clear[lane]
+  def rr_structural_blocked = for List (lane in 0..2): rr_vector_retry_wait ||| rr_capacity_blocked[lane] ||| !rr_serialization_clear[lane] ||| !rr_memory_order_clear[lane]
 
   /* The oldest lane owns the admission prefix. A younger fault may enter
      without ordinary decode/pair eligibility, but cannot bypass its older peer. */
 
-  def rr_first = (rr_head.count =/= Bits(2)(0)) & !rr_blocked[0] & !rr_squash & !rr_pause_blocked & rr_serialization_clear[0] & rr_memory_order_clear[0]
+  def rr_first = (rr_head.count =/= Bits(2)(0)) & !rr_blocked[0] & !rr_squash & !rr_vector_retry_wait & !rr_pause_blocked & rr_serialization_clear[0] & rr_memory_order_clear[0]
   def rr_pair_resource_conflict = rr_pair_ras ||| rr_pair_wb_admission ||| rr_pair_csr ||| rr_pair_fpr_reads ||| rr_pair_fixed_collision
   def rr_pair_data_conflict = rr_pair_raw ||| rr_pair_waw ||| rr_pair_fpr_raw ||| rr_pair_fpr_waw
   def rr_pair_conflict = rr_pair_data_conflict ||| rr_pair_resource_conflict
@@ -1216,6 +1217,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vector_replay_owner = wb_live_group[wb_vector_scalar_lane]
   def wb_vector_live_suffix = mux(wb_vector_merge, !wb_scalar_lane.into(Bool) & wb_live_valid[1], wb_live_valid.as_bits().any())
   def wb_vector_scalar_replay = (wb_vector_pending & !(wb_retained_complete & !wb_vector_success) & wb_vector_live_suffix) ||| (wb_vector_capture & (wb_vector_lane === Bits(1)(0)) & wb_live_valid[1])
+  // Let scalars speculate once. After rejection, retain only a retry interlock,
+  // not their results; the refetched suffix waits in RR for the vector outcome.
+  when (!wb_vector_pending ||| wb_retained_complete):
+    rr_vector_retry_wait <== wb_vector_capture & wb_vector_scalar_replay
+  elsewhen (wb_vector_scalar_replay):
+    rr_vector_retry_wait <== Bool(#true)
+
   wb_vector_scoreboard.set.valid <== wb_vector_accepted & wb_vector.write
   wb_vector_scoreboard.set.bits <== wb_vector.rd
   fp.vector_reserve.valid <== wb_vector_accepted & wb_vector.vector.control.floating_point & wb_vector.vector.control.floating_scalar_destination
@@ -1641,12 +1649,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // A MEM correction keeps its branch. WB rejection is older and instead
   // restores the checkpoint before the oldest instruction being discarded.
-  history_restore.valid <== mem_branch_redirect ||| wb_stop_valid ||| wb_vector_scalar_replay ||| (wb_retained_capture & !wb_vector_capture) ||| wb_system
+  def wb_system_history_restore = wb_system & (!wb_vector_config ||| !wb_csrs.command_success)
+  history_restore.valid <== mem_branch_redirect ||| wb_stop_valid ||| wb_vector_scalar_replay ||| (wb_retained_capture & !wb_vector_capture) ||| wb_system_history_restore
   history_restore.bits <== priority_mux(~default: rv2wide_history_after(mem_branch.fetched.direction, mem_branch.branch.taken)):
     wb_stop_valid: wb_selected.fetched.direction.history
     wb_vector_scalar_replay: wb_vector_replay_owner.fetched.direction.history
     wb_retained_capture & !wb_vector_capture: wb_memory.fetched.direction.history
-    wb_system: wb_system_token.fetched.direction.history
+    wb_system_history_restore: wb_system_token.fetched.direction.history
 
   predictor_restore.valid <== wb_squash ||| wb_recover_ras.any()
   assert(!(wb_ras[0] & wb_ras[1]), "rv2wide_one_ras_resolution_per_group")

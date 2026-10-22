@@ -33,6 +33,8 @@ unsigned fault_count = 0;
 std::uint64_t last_cause = 0, last_tval = 0, last_fault_pc = 0;
 std::uint64_t authorization_owner = 0, guarded_store_address = 0;
 unsigned authorization_merges = 0;
+unsigned nonflushing_configurations = 0, configuration_branch_repairs = 0;
+std::uint64_t history_repair_branch_pc = 0;
 bool interrupt_after_admission = false;
 std::map<std::uint64_t, unsigned> trained_branches;
 struct Redirect { std::uint64_t pc, target; unsigned disposition; };
@@ -233,6 +235,20 @@ void step() {
     for (const auto *port : {&retired_0_out, &retired_1_out}) {
       if (!port->pvalid) continue;
       const auto &result = port->pbits;
+      const auto instruction = result.pfetched.pinstruction;
+      const bool configuration = (instruction & 0x707f) == 0x7057;
+      if (configuration && !fetch_flush_out.pvalid) {
+        CHECK(!history_restore_out.pvalid);
+        ++nonflushing_configurations;
+      }
+      if (configuration && history_repair_branch_pc && redirect_out.pvalid &&
+          redirect_out.pbits.ppc == history_repair_branch_pc &&
+          redirect_out.pbits.presolution.pdisposition == 0) {
+        // The correcting branch is in MEM, one cycle behind this vset.
+        // These tests offer history=5, so append its resolved outcome to it.
+        CHECK(history_restore_out.pvalid && history_restore_out.pbits == 10);
+        ++configuration_branch_repairs;
+      }
       CHECK(retired_pcs.insert(result.pfetched.ppc).second);
       retirement_cycles.emplace(result.pfetched.ppc, cycle);
       retirement_lanes.emplace(result.pfetched.ppc, port == &retired_1_out);
@@ -1003,6 +1019,36 @@ void conflict_based_pairing() {
   const auto vector_load = 0x02000007u | (1 << 15) | (8 << 7);
   const auto vector_store = 0x02000027u | (1 << 15) | (8 << 7);
   const auto configure = vsetivli(10, 4, 0);
+  // Separate consecutive packets put vset in WB while the branch corrects MEM.
+  // The live stream's branch checkpoint must win, not the older vset checkpoint.
+  const auto history_base = next_pc;
+  next_pc += 8;
+  history_repair_branch_pc = history_base + 4;
+  const auto repairs_before = configuration_branch_repairs;
+  for (unsigned sent = 0, wait = 0; !retired_pcs.contains(history_base + 4); ++wait) {
+    CHECK(wait < 100);
+    instructions_in = {};
+    instructions_in.pvalid = sent < 2;
+    instructions_in.pbits.pcount = 1;
+    auto &entry = instructions_in.pbits.pentries[0];
+    entry.ppc = history_base + sent * 4;
+    entry.psequential_upc = entry.ppc + 4;
+    entry.pinstruction = entry.praw_uinstruction = sent == 0 ? configure : 0x00001463;
+    entry.pdirection.phistory = sent == 0 ? 3 : 5;
+    entry.pdirection.pvalid = sent == 1;
+    entry.pdirection.ptaken = sent == 1;
+    entry.pprediction.pvalid = sent == 1;
+    entry.pprediction.ptarget = history_base + 12;
+    settle();
+    const bool accepted = instructions_in.pvalid && instructions_out.pready;
+    step();
+    if (accepted) ++sent;
+  }
+  instructions_in.pvalid = 0;
+  CHECK(configuration_branch_repairs == repairs_before + 1);
+  CHECK(nonflushing_configurations > 0);
+  history_repair_branch_pc = 0;
+  run(20);
   const auto load = (1 << 15) | (2 << 12) | (12 << 7) | 3u;
   const auto multiply = (1u << 25) | (2 << 20) | (2 << 15) | (12 << 7) | 0x33;
   const auto divide = multiply | (4 << 12);
@@ -1276,9 +1322,9 @@ void speculative_scalar_authorization() {
                              (1 << 15) | (8 << 7) | 0x27;
   const auto scalar_store = (2 << 20) | (1 << 15) | (2 << 12) | (8 << 7) | 0x23;
 
-  // Repeated WB rejection preserves one vector admission and every accepted
-  // store, while allowing scalar execution before the authorization frontier.
-  for (unsigned delay : {0u, 30u}) {
+  // One speculative rejection parks the retry until authorization rather than
+  // repeatedly refetching. Accepted vector work and stores survive unchanged.
+  for (unsigned delay : {0u, 30u, 100u}) {
     const auto base = next_pc;
     const auto stores_before = stores, admitted_before = vector_trace::admissions;
     const auto redirects_before = redirect_count;
@@ -1294,7 +1340,9 @@ void speculative_scalar_authorization() {
     for (unsigned i = 1; i < 6; ++i)
       CHECK(retirement_cycles.at(base + 4 * i) >= retirement_cycles.at(base));
     CHECK(vector_trace::admissions == admitted_before + 1);
-    if (delay) CHECK(redirect_count > redirects_before + 1);
+    // One retry for unresolved authorization, plus any service suffix recovery;
+    // the bound is independent of how long the vector request is blocked.
+    CHECK(redirect_count <= redirects_before + 3);
     CHECK(stores == stores_before + 5 && gprs[12] == 91 && gprs[13] == 92 && gprs[14] == 93);
     CHECK((words[0x500] & UINT64_C(0xffffffff)) == UINT64_C(0x33333333));
     CHECK((words[0x508] & UINT64_C(0xffffffff)) == 0x33);

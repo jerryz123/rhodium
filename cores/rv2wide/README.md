@@ -239,7 +239,8 @@ page walks or update PTE accessed/dirty bits. Translation-context changes and
 SFENCE.VMA discard staged hints. The full block must be cacheable, idempotent,
 non-device memory with the requested physical execute/read/write permission.
 Unmapped addresses, failed probes, and busy cache paths drop the hint without
-replay. Demand traffic takes priority. Accepted instruction hints fetch into
+replay. Demand traffic takes priority; MEM vector certification may also drop a
+data hint using its probe port. Accepted instruction hints fetch into
 L1I; read and write hints use the shared L1D's read or unique-ownership refill.
 No architectural load/store request or delayed completion is created.
 
@@ -992,11 +993,14 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   scalar instructions may execute meanwhile, but replay from their own oldest
   blocked WB PC if authorization is still pending. They cannot commit stores,
   registers, CSR state, or service requests ahead of that owner. Accepted vector
-  elements survive scalar replay. Successful authorization removes this barrier
+  elements survive scalar replay. The refetched retry waits in RR for the outcome
+  rather than repeatedly replaying while authorization is pending.
+  Successful authorization removes this barrier
   without an unconditional frontend restart; no scalar result queue is added.
 - Aligned, nonempty, single-page vector memory footprints can be certified in
   scalar MEM using a current DTLB hit (or Bare identity translation) and normal
-  cacheable-memory permissions. WB validates the captured translation context;
+  cacheable-memory permissions, independently of simultaneous demand lookup.
+  WB validates the captured translation context;
   accepted certified instructions retire without flushing younger work or
   waiting for older sequencing to drain. The descriptor carries its mapping
   through later TLB replacement. Cross-page, uncertain, or rejected checks keep
