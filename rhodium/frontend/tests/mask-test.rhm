@@ -28,18 +28,19 @@ check:
   fixture.Mask4(0b0101).packed_value() ~is 5
   (for all (name in ["literal", "from_bits", "from_exact", "from_optional",
                      "union", "intersection", "difference", "complement",
-                     "shifted"]):
+                     "shifted", "decoded", "enabled_decoded"]):
      type_equal(module_def.find_output(name).type, fixture.Mask4)) ~is #true
 
   bool.bool_type(module_def.find_output("lane_two").type) ~is #true
   bool.bool_type(module_def.find_output("dynamic_lane").type) ~is #true
+  bool.bool_type(module_def.find_output("decoded_lane").type) ~is #true
   type_equal(module_def.find_output("packed").type, Bits(4)) ~is #true
   bool.maybe_one_hot_type(module_def.find_output("selected").type) ~is #true
   operation_count("rtl.or") >= 1 ~is #true
   operation_count("rtl.and") >= 1 ~is #true
   operation_count("rtl.xor") >= 1 ~is #true
   operation_count("rtl.not") >= 1 ~is #true
-  operation_count("rtl.shru") ~is 1
+  operation_count("rtl.shru") ~is 2
   verify_design(design) ~is #void
 
   bool.Mask(0) ~throws "PosInt"
@@ -54,3 +55,7 @@ check:
   elaborate(fixture.BadMaskIndex(bool.Bool)) ~throws "hardware mask index must be Bits"
   elaborate(fixture.BadMaskIndex(fixture.Mask4)) ~throws "hardware mask index must be Bits"
   elaborate(fixture.OutOfRangeMaskIndex()) ~throws "index"
+  elaborate(fixture.BadMaskDecode(SInt(6), bool.Bool)) ~throws "index must be Bits"
+  elaborate(fixture.BadMaskDecode(fixture.Mask4, bool.Bool)) ~throws "index must be Bits"
+  elaborate(fixture.BadMaskDecode(bool.Bool, bool.Bool)) ~throws "index must be Bits"
+  elaborate(fixture.BadMaskDecode(Bits(6), Bits(1))) ~throws "valid must be Bool"

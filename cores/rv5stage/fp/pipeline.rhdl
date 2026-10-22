@@ -113,10 +113,6 @@ sync_circuit RV5StageFpScalar(
   def outstanding_width = index_width(outstanding_limit + 1)
   reg outstanding(~init: Bits(outstanding_width)(0))
   reg vector_pending(~init: Bool(#false))
-  /* Builds the scoreboard mask for one architectural FPR. */
-  fun register_bit(index :: Bits(5)) :~ Mask(register_count):
-    one_hot(index).into(Mask(register_count))
-
   interface execution_request(Decoupled(FpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context))), ~role: producer)
   interface execution_result(Decoupled(FpExecutionResult(xlen, profile, RV5StageFpScalarTag(Context))), ~role: consumer)
 
@@ -204,9 +200,9 @@ sync_circuit RV5StageFpScalar(
   def execution_clear = execution_write_valid
   def load_clear = load_completion.valid
   def vector_clear = vector_write.valid
-  def execution_clear_bit = register_bit(execution_completion.rd)
-  def load_clear_bit = register_bit(load_completion.bits.rd)
-  def vector_clear_bit = register_bit(vector_write.bits.address)
+  def execution_clear_bit = Mask(register_count).from_index(execution_completion.rd)
+  def load_clear_bit = Mask(register_count).from_index(load_completion.bits.rd)
+  def vector_clear_bit = Mask(register_count).from_index(vector_write.bits.address)
   def execution_release = mux(execution_clear, execution_clear_bit, Mask(register_count)(0))
   def load_release = mux(load_clear, load_clear_bit, Mask(register_count)(0))
   def vector_release = mux(vector_clear, vector_clear_bit, Mask(register_count)(0))
@@ -302,9 +298,9 @@ sync_circuit RV5StageFpScalar(
   vector_reserve.ready <== !vector_pending & !outstanding.or_reduce() & !busy_state.or_reduce()
   def vector_reserve_fire = vector_reserve.fire()
   def execution_set = issue_fire & (admitted.control.registers.destination === FloatDestination.FloatingPoint) & !immediate_authorization
-  def execution_set_bit = register_bit(admitted.frd)
-  def load_set_bit = register_bit(load_reserve.bits.rd)
-  def vector_set_bit = register_bit(vector_reserve.bits)
+  def execution_set_bit = Mask(register_count).from_index(admitted.frd)
+  def load_set_bit = Mask(register_count).from_index(load_reserve.bits.rd)
+  def vector_set_bit = Mask(register_count).from_index(vector_reserve.bits)
   def execution_reservation = mux(execution_set, execution_set_bit, Mask(register_count)(0))
   def load_reservation = mux(load_reserve_fire, load_set_bit, Mask(register_count)(0))
   def vector_reservation = mux(vector_reserve_fire, vector_set_bit, Mask(register_count)(0))

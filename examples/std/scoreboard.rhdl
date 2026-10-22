@@ -17,8 +17,8 @@ module Scoreboard(
 );
 
   reg  [2:0] state;
-  wire [3:0] _GEN = 4'h1 << set_in.bits;
-  wire [3:0] _GEN_0 = 4'h1 << clear_in.bits;
+  wire [2:0] _GEN = 3'h1 << set_in.bits;
+  wire [2:0] _GEN_0 = 3'h1 << clear_in.bits;
   wire       _GEN_1 = set_in.valid & ~reset;
   wire       _GEN_2 = ~_GEN_1;
   `ifndef SYNTHESIS
@@ -29,7 +29,7 @@ module Scoreboard(
   `ifndef SYNTHESIS
     scoreboard_set_free:
       assert property (@(posedge clock) disable iff (_GEN_3)
-                         (state & _GEN[2:0]) == 3'h0 | clear_in.valid
+                         (state & _GEN) == 3'h0 | clear_in.valid
                          & clear_in.bits == set_in.bits);
   `endif // not def SYNTHESIS
   wire       _GEN_4 = clear_in.valid & ~reset;
@@ -42,7 +42,7 @@ module Scoreboard(
   `ifndef SYNTHESIS
     scoreboard_clear_busy:
       assert property (@(posedge clock) disable iff (_GEN_6)
-                         (|(state & _GEN_0[2:0])) | set_in.valid
+                         (|(state & _GEN_0)) | set_in.valid
                          & set_in.bits == clear_in.bits);
   `endif // not def SYNTHESIS
   always @(posedge clock) begin
@@ -51,8 +51,7 @@ module Scoreboard(
     else
       state <=
         set_in.valid | clear_in.valid
-          ? (state | (set_in.valid ? _GEN[2:0] : 3'h0))
-            & ~(clear_in.valid ? _GEN_0[2:0] : 3'h0)
+          ? (state | (set_in.valid ? _GEN : 3'h0)) & ~(clear_in.valid ? _GEN_0 : 3'h0)
           : state;
   end // always @(posedge)
   assign busy = state;

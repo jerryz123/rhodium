@@ -865,7 +865,8 @@ focused coverage. Exact Boolean decode relations with scalar selectors up to
 64 bits use a C++ switch; other shapes use the bounded table selection described
 above or their existing typed fallback.
 
-`tests/rsim/mask_index.py` checks authored hardware mask indexing and scoreboard
+`tests/rsim/mask_index.py` checks authored hardware mask indexing, total
+`Mask.from_index` construction with optional enable gating, and scoreboard
 reads against an integer oracle. It covers widths 1/3/31/32/63/64/65/129,
 2/64/128-bit indices, out-of-range reads, dirty padding, reset, hold, and repeated
 eval under ASan/UBSan. Native and direct-SV coverage runs in the ordinary and

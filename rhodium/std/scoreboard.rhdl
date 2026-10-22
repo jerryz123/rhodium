@@ -23,14 +23,6 @@ fun scoreboard_busy(entries :: PosInt,
                     index :: Bits(index_width(entries))) :~ Bool:
   busy[index]
 
-/* Decodes an index into an entry mask, truncating unused encodings to an all-zero mask. */
-fun scoreboard_index_bit(entries :: PosInt,
-                         index :: Bits(index_width(entries))):
-  if scoreboard_index_capacity(entries) == entries
-  | one_hot(index).into(Mask(entries))
-  | trunc(one_hot(index).into(Bits(scoreboard_index_capacity(entries))),
-          entries).into(Mask(entries))
-
 /* Set and clear are nonbackpressured operations. Updates take effect at the
  * edge, with clear winning when both operations address the same entry. */
 sync_circuit Scoreboard(entries :: PosInt):
@@ -41,8 +33,8 @@ sync_circuit Scoreboard(entries :: PosInt):
   output busy: Mask(entries)
 
   reg state(~init: Mask(entries)(0))
-  def set_bit = scoreboard_index_bit(entries, set.bits)
-  def clear_bit = scoreboard_index_bit(entries, clear.bits)
+  def set_bit = Mask(entries).from_index(set.bits)
+  def clear_bit = Mask(entries).from_index(clear.bits)
   def set_mask = mux(set.valid, set_bit, Mask(entries)(0))
   def clear_mask = mux(clear.valid, clear_bit, Mask(entries)(0))
   def set_was_free = !or_reduce(state & set_bit) ||| (

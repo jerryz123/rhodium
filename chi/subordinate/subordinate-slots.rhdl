@@ -97,13 +97,9 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def allocate = allocated.fire()
   def accept_write_data = matched_write.fire()
 
-  /* Convert a valid slot selection into an occupancy update mask. */
-  fun selected_slot_mask(valid :: Bool, slot :: Bits(slot_width)):
-    vec(for List (index in 0..limit): valid & (slot === Bits(slot_width)(index))).into(Mask(limit))
-
-  def allocation_mask = selected_slot_mask(allocate, allocated.bits.slot)
-  def read_completion_mask = selected_slot_mask(read_completed.valid, read_completed.bits)
-  def write_completion_mask = selected_slot_mask(write_completed.valid, write_completed.bits)
+  def allocation_mask = Mask(limit).from_index(allocated.bits.slot, ~valid: allocate)
+  def read_completion_mask = Mask(limit).from_index(read_completed.bits, ~valid: read_completed.valid)
+  def write_completion_mask = Mask(limit).from_index(write_completed.bits, ~valid: write_completed.valid)
   def completion_mask = read_completion_mask ||| write_completion_mask
   when (read_completed.valid):
     assert(or_reduce(occupancy & read_completion_mask),

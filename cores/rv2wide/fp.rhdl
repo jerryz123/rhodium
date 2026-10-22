@@ -178,18 +178,14 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
      Same-cycle clears win reservation sets and immediately release the busy view. */
 
   reg reservations(~init: Mask(32)(0))
-  /* Decodes any architectural FPR, including f0, into its reservation lane. */
-  fun register_bit(address :: Bits(5)) :~ Mask(32):
-    one_hot(address).into(Mask(32))
-
   def admitted = mux(authorize.valid, authorize.bits.tag, variable_issue.bits.tag)
   def arithmetic_set = (authorize.valid ||| variable_issue.fire()) & (admitted.destination === FloatDestination.FloatingPoint)
-  def arithmetic_reservation = mux(arithmetic_set, register_bit(admitted.rd), Mask(32)(0))
-  def load_reservation = mux(load_reserve.valid, register_bit(load_reserve.bits.rd), Mask(32)(0))
-  def arithmetic_release = mux(arithmetic_write.valid, register_bit(arithmetic_write.bits.tag.rd), Mask(32)(0))
-  def load_release = mux(delayed_load.valid, register_bit(delayed_load.bits.owner.rd), Mask(32)(0))
-  def vector_reservation = mux(vector_reserve.valid, register_bit(vector_reserve.bits), Mask(32)(0))
-  def vector_release = mux(vector_written.valid, register_bit(vector_written.bits.address), Mask(32)(0))
+  def arithmetic_reservation = Mask(32).from_index(admitted.rd, ~valid: arithmetic_set)
+  def load_reservation = Mask(32).from_index(load_reserve.bits.rd, ~valid: load_reserve.valid)
+  def arithmetic_release = Mask(32).from_index(arithmetic_write.bits.tag.rd, ~valid: arithmetic_write.valid)
+  def load_release = Mask(32).from_index(delayed_load.bits.owner.rd, ~valid: delayed_load.valid)
+  def vector_reservation = Mask(32).from_index(vector_reserve.bits, ~valid: vector_reserve.valid)
+  def vector_release = Mask(32).from_index(vector_written.bits.address, ~valid: vector_written.valid)
   def set_mask = arithmetic_reservation ||| load_reservation ||| vector_reservation
   def clear_mask = arithmetic_release ||| load_release ||| vector_release
   reservations <== (reservations ||| set_mask) & !clear_mask

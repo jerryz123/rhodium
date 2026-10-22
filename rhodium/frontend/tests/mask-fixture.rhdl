@@ -10,6 +10,7 @@ circuit MaskFixture():
   input exact: OneHot(4)
   input optional: MaybeOneHot(4)
   input index: Bits(6)
+  input enable: Bool
   output literal: Mask4
   output from_bits: Mask4
   output from_exact: Mask4
@@ -23,6 +24,9 @@ circuit MaskFixture():
   output dynamic_lane: Bool
   output packed: Bits(4)
   output selected: MaybeOneHot(4)
+  output decoded: Mask4
+  output enabled_decoded: Mask4
+  output decoded_lane: Bool
 
   literal <== Mask4(0b0101)
   from_bits <== raw.into(Mask4)
@@ -38,6 +42,15 @@ circuit MaskFixture():
   dynamic_lane <== combined[index]
   packed <== combined.into(Bits(4))
   selected <== priority_encoder_oh(combined)
+  decoded <== Mask4.from_index(index)
+  enabled_decoded <== Mask4.from_index(index, ~valid: enable)
+  decoded_lane <== Mask4.from_index(index)[index]
+
+circuit BadMaskDecode(Index :: DataType, Enable :: DataType):
+  input index: Index
+  input enable: Enable
+  output result: Mask4
+  result <== Mask4.from_index(index, ~valid: enable)
 
 circuit ShiftMask():
   input source: Mask4
@@ -85,3 +98,4 @@ export:
   ImplicitBitsMask
   BadMaskIndex
   OutOfRangeMaskIndex
+  BadMaskDecode

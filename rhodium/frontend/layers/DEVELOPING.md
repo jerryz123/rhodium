@@ -76,6 +76,16 @@ width. Core overshift semantics provide the false result outside the mask.
 `mask_index.py` compares native, direct SV, and optionally CIRCT behavior,
 including wide masks/indices and the standard scoreboard helper.
 
+Index-to-mask construction also belongs to `bool.rhm`.
+`Mask(n).from_index(index, ~valid: enable)` selects a zero/one seed of
+`Bits(n)`, shifts it by the entire unsigned index, and casts the result to the
+receiver's mask type. Existing fixed-width overshift semantics provide the
+empty result for indices outside the lane range; do not narrow the index or
+build a `2 ** index_width` intermediate. `MaskTypeDescriptor` retains the
+descriptor's class surface, and the method returns `MaskValue` so aliases and
+chained Bool-valued indexing work. The mask oracle covers native and direct-SV
+results, disabled construction, narrow/wide indices, and lane boundaries.
+
 Dot providers must decline syntax they do not own so the shared resolution
 chain can continue. Preserve the documented precedence: receiver-owned methods,
 then universal built-ins, then a visible receiver-first function. Field

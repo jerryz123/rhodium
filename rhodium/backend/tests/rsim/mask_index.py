@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Check authored mask indexing, overshifts, and capture against an integer oracle."""
+"""Check authored mask indexing, index decoding, overshifts, and capture against integer oracles."""
 import argparse
 import os
 from pathlib import Path
@@ -12,6 +12,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 WIDTHS = (1, 3, 31, 32, 63, 64, 65, 129)
 MASK64 = (1 << 64) - 1
+DECODE_BITS = 129 * 11
+DECODE_WORDS = (DECODE_BITS + 31) // 32
 
 
 def stimuli():
@@ -36,7 +38,13 @@ def stimuli():
         # Native input padding must not create extra mask lanes.
         top = (rng.getrandbits(32) & ~1) | (value >> 128)
         rows.append([tick, reset, enable, value & MASK64, (value >> 64) & MASK64, top, index, high])
-        expected.append([result, held])
+        decoded = [int(bool(enable)) << index if index < width else 0 for width in WIDTHS]
+        decoded += [1 << index if index < 129 else 0,
+                    int(bool(enable)) << full_index if full_index < 129 else 0,
+                    int(bool(enable)) << (index & 3)]
+        packed_decoded = sum(mask << (129 * lane) for lane, mask in enumerate(decoded))
+        expected.append([result, held] + [(packed_decoded >> (32 * word)) & 0xffffffff
+                                          for word in range(DECODE_WORDS)])
     return '\n'.join(' '.join(f'{x:x}' for x in row) for row in rows) + '\n', expected
 
 
@@ -48,6 +56,7 @@ def driver(native):
     data = port('data') + ('.words' if native else '')
     index = port('wide_index') + ('.words' if native else '')
     outputs = ['dut.outputs().p' + name if native else 'dut.' + name for name in ('result', 'sampled')]
+    decoded = 'dut.outputs().pdecoded.words' if native else 'dut.decoded'
     return f'''// SPDX-License-Identifier: Apache-2.0
 #include "{header}"
 #include <cstdint>
@@ -67,7 +76,10 @@ int main() {{
     {index}[2] = std::uint32_t(high); {index}[3] = std::uint32_t(high >> 32);
     dut.eval(); dut.eval();
     if (tick) {{ {'dut.tick();' if native else 'dut.clock = 1; dut.eval();'} }}
-    std::cout << std::uint64_t({outputs[0]}) << ' ' << std::uint64_t({outputs[1]}) << '\\n';
+    std::cout << std::uint64_t({outputs[0]}) << ' ' << std::uint64_t({outputs[1]});
+    for (unsigned word = 0; word < {DECODE_WORDS}; ++word)
+      std::cout << ' ' << std::uint64_t({decoded}[word]);
+    std::cout << '\\n';
   }}
 }}
 '''

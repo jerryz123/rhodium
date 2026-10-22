@@ -50,6 +50,22 @@ export:
   <=
   >=
 
+annot.macro 'MaskValue':
+  let '$(base :: annot_meta.Parsed)' = 'HardwareFields'
+  let '$(bool_fields :: annot_meta.Parsed)' = 'HardwareFields.of(Bool)'
+  def (_base_predicate, base_infos) = annot_meta.unpack_predicate(base)
+  def (_bool_predicate, bool_infos) = annot_meta.unpack_predicate(bool_fields)
+  def result_infos = statinfo_meta.and(
+    '(($(statinfo_meta.index_get_key), mask_index),
+      ($(statinfo_meta.index_result_key),
+       $(statinfo_meta.pack_index_result(bool_infos, []))))',
+    base_infos
+  )
+  annot_meta.pack_predicate(
+    'fun (value): value is_a HardwareEntity && hardware_has_mask_type(value)',
+    result_infos
+  )
+
 /*
  * Represents an arbitrary set of fixed lanes. Every packed encoding is legal,
  * so bitwise set operations preserve the type while arithmetic and shifting do not.
@@ -78,6 +94,20 @@ class _MaskType(width :: PosInt):
   /* Host literals name a packed lane set, not a lane index. */
   override method call(value :: Nat):
     packed_literal(this, value)
+
+  /* Decode a full-width unsigned index into this lane set; disabled and out-of-range
+     indices yield the empty mask through ordinary Bits overshift semantics. */
+  method from_index(index :: HardwareEntity,
+                    ~valid: valid :: HardwareEntity = packed_literal(Bool, 1)) :~ MaskValue:
+    def selected = kernel.read(index)
+    unless bits_type(selected.type)
+    | error(~who: #'Mask, "from_index index must be Bits")
+
+    unless bool_type(hardware_value_type(valid))
+    | error(~who: #'Mask, "from_index valid must be Bool")
+
+    def seed = build_mux(valid, kernel.literal(Bits(width), 1), kernel.literal(Bits(width), 0))
+    kernel.cast(kernel.hw_shl(seed, selected), this)
 
 /* Constructs a fixed-width mask descriptor whose every packed lane-set encoding is legal. */
 fun build_mask_type(width :: PosInt):
@@ -122,26 +152,8 @@ fun mask_index(value :: HardwareEntity, index :: Nat || HardwareEntity) :~ Hardw
 
   kernel.cast(selected, Bool)
 
-annot.macro 'MaskValue':
-  let '$(base :: annot_meta.Parsed)' = 'HardwareFields'
-  let '$(bool_fields :: annot_meta.Parsed)' = 'HardwareFields.of(Bool)'
-  def (_base_predicate, base_infos) = annot_meta.unpack_predicate(base)
-  def (_bool_predicate, bool_infos) = annot_meta.unpack_predicate(bool_fields)
-  def result_infos = statinfo_meta.and(
-    '(($(statinfo_meta.index_get_key), mask_index),
-      ($(statinfo_meta.index_result_key),
-       $(statinfo_meta.pack_index_result(bool_infos, []))))',
-    base_infos
-  )
-  annot_meta.pack_predicate(
-    'fun (value): value is_a HardwareEntity && hardware_has_mask_type(value)',
-    result_infos
-  )
-
 annot.macro 'MaskTypeDescriptor':
-  annot_meta.pack_predicate(
-    'fun (value): value is_a HardwareType && mask_type(value)'
-  )
+  '_MaskType'
 
 annot.macro 'Mask($width)':
   let '$(base :: annot_meta.Parsed)' = 'HardwareFields.of(build_mask_type($width))'

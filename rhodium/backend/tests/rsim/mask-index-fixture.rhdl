@@ -11,6 +11,7 @@ sync_circuit RsimMaskIndex():
   input enable: Bool
   output result: Bits(14)
   output sampled: Bits(14)
+  output decoded: Bits(129 * 11)
   def packed = data.as_bits()
   def selected = vec(
     (for List (width in [1, 3, 31, 32, 63, 64, 65, 129]): packed[0..width].into(Mask(width))[index])
@@ -24,6 +25,14 @@ sync_circuit RsimMaskIndex():
   when enable: held <== selected
   result <== selected
   sampled <== held
+  decoded <== vec(
+    (for List (width in [1, 3, 31, 32, 63, 64, 65, 129]):
+       def decoded_mask = Mask(width).from_index(index, ~valid: enable).as_bits()
+       if width == 129 | decoded_mask | decoded_mask.zext(129))
+      ++ [Mask(129).from_index(index).as_bits(),
+          Mask(129).from_index(wide_index, ~valid: enable).as_bits(),
+          Mask(129).from_index(narrow_index, ~valid: enable).as_bits()]
+  ).as_bits()
 
 def program = elaborate(RsimMaskIndex())
 export program

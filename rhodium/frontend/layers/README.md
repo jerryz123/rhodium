@@ -335,6 +335,22 @@ packed representation. `Mask` implements `BitwiseType`, but deliberately does
 not implement `ArithmeticType`: addition, subtraction, multiplication, and
 both shifts are rejected.
 
+`Mask(n).from_index(index, ~valid: enable)` constructs a lane set from a
+hardware unsigned `Bits(k)` index. Exactly lane `index` is set when `enable`
+is true and `index < n`; otherwise the mask is empty. `valid` must be `Bool`
+and defaults to true. The full index is used without truncation, so unused
+encodings and wide indices cannot wrap onto a valid lane. The index width is
+independent of the mask width, including one-lane and non-power-of-two masks:
+
+```rhombus
+def reservation = Mask(17).from_index(destination, ~valid: admitted)
+def reserved = reservation[source]
+```
+
+The result retains the `Mask` indexing and set-operation surface; it does not
+refine to `OneHot` or `MaybeOneHot`. This construction uses ordinary numeric
+operations internally and does not enable shifting a mask.
+
 Equal-width representation changes remain explicit. `Bits`, `OneHot`, and
 `MaybeOneHot` values widen to an unrestricted lane set with `.into(Mask(n))`.
 A `Mask` does not safely refine to an exactly-one or optional-one selector;
