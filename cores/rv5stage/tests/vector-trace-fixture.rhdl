@@ -75,6 +75,8 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   ) |> vector.decision
 
   vector.completion.valid <== response_valid
+  vector.store_completed.valid <== Bool(#false)
+  vector.store_completed.bits <== dont_care(vector.store_completed.bits.type)
   vector.completion.bits <== VectorCompletion(xlen, slots):
     tag: response_tag
     data: Bits(64)(0)

@@ -36,7 +36,17 @@ Keep simultaneous fixed result lanes independent; Flow composition must not
 introduce buffering or lossy arbitration on a nonstallable return.
 Packed store release preserves the ordered completion head and pending-carry
 barrier but bypasses VRF write availability: acknowledging a store writes no
-register data. Packed loads and carry flushing retain their write-port grants.
+register data. Store-hit bookkeeping arrives on a separate Valid tag lane and
+never arbitrates against load data. Route it by retained slot metadata, not the
+live descriptor. Nonwriting slow returns bypass VRF arbitration as well; they
+complete only slot metadata, independently of a simultaneous compute result.
+Complete identity-mapped packed rows book the sequence-to-hit
+write edge in the existing calendar. Their payload goes directly from the LSU
+return to the VRF; only a written bit survives until ordered metadata reclamation.
+Clear the exact row claim at that write, not at slot release. Partial, rotated,
+and segmented words and carry flushing retain their assembly grants. Neither
+assembly, splat writes, nor variable element returns may consume another
+operation's reserved cycle.
 Trace packed VRF writes on `vector/complete` and packed metadata reclamation on
 `vector/slot.release`. Never use slot release as a result-completion proxy: it
 may follow assembly, include a store, or coincide with another VRF result.
@@ -147,6 +157,11 @@ fixtures cover transport and row geometry. The packed fixtures hold the VRF
 write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.
 They verify memory contents, unchanged VRF state, and complete response drain.
+Full-row hit checks require same-edge writes past older pending responses and
+while alignment is unavailable. Delayed full-row producers honor backpressure;
+immediate hits require the promised write grant. LSU tests cover concurrent
+store-hit bookkeeping and a backpressured load return. Passive cosim capture
+must retain both events independently in the same settled sample.
 The `event-vector` rsim fixture checks result-completion versus slot-release
 site ownership and capture schemas alongside its dynamic sequencing oracle.
 The sequencer fixtures force selected uncared decode modifiers high to exercise

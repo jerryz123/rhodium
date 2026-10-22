@@ -47,11 +47,14 @@ The optional compile-target cosim observer follows WB admission through the
 descriptor FIFO to the execution instruction ID. Passive metadata in the parent
 and `../../vector/pipeline.rhdl` exports the actual VRF port, its completion owner, and ordered
 instruction drain. Do not use sequencer release to seal a record or count the v0
-shadow as another architectural write. Packed-load metadata selects the current
-entry owner for an assembled row or the retained carry owner for a partial row.
+shadow as another architectural write. Packed-load metadata selects the
+returned slot's owner for a direct full-row write, the current head owner for an
+assembled row, or the retained carry owner for a partial row.
 The native RV5Stage adapter retains memory tokens, explicit sequencer element/field identities,
 packed/element modes, and their macro owners by completion slot;
-direct precise hits and delayed completions are separate accounting lanes.
+direct precise hits, delayed completions, and store-hit bookkeeping are separate
+accounting lanes. The latter may coincide with a load return and cannot be
+multiplexed into that return's passive callback.
 The simulation-owned `sims/cosim/rv5stage/vector.rhdl` only captures raw pre-edge events. It contains no vector
 bookkeeping registers, ownership queues, field normalization, or producer counts.
 Native processing resolves old writes/responses before installing new owners and

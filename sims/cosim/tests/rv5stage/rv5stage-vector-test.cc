@@ -45,6 +45,11 @@ void test_rv5stage_vector_complete(std::int64_t instance, std::int64_t epoch, st
     adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), Complete{Word(tag), Word(data)});
   });
 }
+void test_rv5stage_vector_store_complete(std::int64_t instance, std::int64_t epoch, std::int64_t tag) noexcept {
+  observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& collector) {
+    adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), StoreComplete{Word(tag)});
+  });
+}
 void test_rv5stage_vector_translation(std::int64_t instance, std::int64_t epoch, std::int64_t tag, std::int64_t physical) noexcept {
   observation::dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, observation::Collector& collector) {
     adapter.vector.capture(collector.sample(), Word(instance), Word(epoch), Translation{Word(tag), Word(physical)});
@@ -344,7 +349,41 @@ void address_domains(Word raw_base, Word effective_base, bool packed, bool fault
   collector.finish();
 }
 
+// Independent bookkeeping must survive a simultaneous load return and shuffled callbacks.
+std::string store_and_load_completion(unsigned seed) {
+  Collector collector; collector.reset(0,0,reset_state()); DpiBinding binding(collector);
+  std::mt19937 random(seed); std::ostringstream output; Word cycle=0;
+  auto frame=[&](std::vector<std::function<void()>> calls) {
+    collector.begin_sample(cycle++);
+    calls.push_back([]{test_rv5stage_vector_cycle(0,0,64,128,2,0,0,0,0,0);});
+    std::shuffle(calls.begin(),calls.end(),random);
+    for(auto& call:calls) call();
+    binding.check();
+    for(const auto& record:collector.end_sample()) vector_test::save(output,record);
+  };
+  for(Word owner=0;owner<2;++owner) {
+    const Word code=owner ? load : (load & ~Word{127}) | 39;
+    frame({[&,owner,code]{
+      collector.instruction(0,{0,owner},instruction(0x8000+4*owner,code));
+      collector.retire(0,{0,owner},{0x8004+4*owner,{3,false}});
+      test_rv5stage_vector_allocate(0,0,owner,1,1,code);
+      test_rv5stage_vector_dispatch(0,0,owner,0x1000+8*owner,2,code,16);
+      test_rv5stage_vector_issue(0,0,owner,owner,0,8,0,1,!owner,0x1000+8*owner,0x2000+8*owner,1,15,0x11223344);
+    }});
+    frame({[owner]{test_rv5stage_vector_decision(0,0,owner,0);}});
+  }
+  frame({[]{test_rv5stage_vector_store_complete(0,0,0);},
+         []{test_rv5stage_vector_complete(0,0,1,0x55667788);},
+         []{test_rv5stage_vector_write(0,0,16,UINT32_MAX,0x55667788,1,0,0,1,0,0);},
+         []{test_rv5stage_vector_drain(0,0,0);}});
+  frame({[]{test_rv5stage_vector_drain(0,0,1);}});
+  collector.finish();
+  return output.str();
+}
+
 int main() {
+  const auto simultaneous_baseline=store_and_load_completion(0);
+  for(unsigned seed=1;seed<64;++seed) require(store_and_load_completion(seed)==simultaneous_baseline);
   for (const auto& [raw,effective] : {std::pair{Word{0x7f00000000001000},Word{0x1000}},
                                    std::pair{Word{0x1234000000001000},Word{0x1000}},
                                    std::pair{Word{0x1234fffffffff000},Word{0xfffffffffffff000}}}) {

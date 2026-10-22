@@ -52,6 +52,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
+  interface store_completed(Valid(Tag), ~role: producer)
   input pointer_masking: PointerMaskControl()
   output outcome_guest: RiscvGuestFault()
   output(idle, requests_idle, pipeline_physical, request_physical): Bool
@@ -234,11 +235,10 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   retry <== access_retry ||| (hit_return.valid & !offered_hit.ready)
   recover <== retry ||| fault ||| split.request.fire()
   resolved <== wb.valid & token.precertified & !recover
-  // A store must not wait for completion readiness after it has mutated the
-  // cache. Retain only its acknowledgement bit in the already allocated slot.
-  inst store_ack(VectorStoreAcknowledgements(xlen, slots))
-  store_response |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_ack.capture
-  Array(offered_hit, store_ack.completion, delayed, split_returns.egress) |> arbiter() |> completion
+  // A committed store writes no register data. Report its slot independently
+  // of load-return arbitration, including alongside a younger cache hit.
+  store_response |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_completed
+  Array(offered_hit, delayed, split_returns.egress) |> arbiter() |> completion
   when (wb.valid & token.precertified):
     assert(!fault & !attempt.misaligned, "rv2wide_certified_vector_request_is_aligned_and_nonfaulting")
     assert(queued & (token.completion_tag === replay.oldest.completion_tag), "rv2wide_vector_retry_resolves_oldest_request")
@@ -296,7 +296,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
      A drained attempt pipeline alone does not release outstanding responses. */
 
   requests_idle <== !queued & !ex.valid & !mem.valid & !wb.valid & !split_pending
-  idle <== requests_idle & !owners.count.any() & !split_returns.count.any() & !store_ack.pending
+  idle <== requests_idle & !owners.count.any() & !split_returns.count.any()
   assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")
 
   /* Observe actual completion and retained split ownership without changing LSU timing. */
@@ -307,6 +307,8 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     "direct_data": hit_value,
     "completed": completion.fire(),
     "completion": completion.bits,
+    "store_completed": store_completed.valid,
+    "store_completed_tag": store_completed.bits,
     "fault": fault ||| (returned_split & split_fault),
     "fault_tag": mux(returned_split, split_token.token.completion_tag, token.completion_tag),
     "fault_address": mux(returned_split, split.response.bits.fault_address, immediate.bits.fault_address),

@@ -44,6 +44,14 @@ bundle VectorPackedEntry(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
   segmented: Bool
   owner: Bits(index_width(owners))
 
+/* Recognizes a complete, lane-aligned VRF row that needs no rotation or retained carry. */
+fun vector_packed_direct_row(xlen :: XLen, vlen :: VectorLength, layout :: VectorPackedLayout(xlen, vlen), mask :: Bits(xlen.width / 8)) :~ Bool:
+  def aligned = vec(
+    for List (lane in 0..vector_transport_bytes(xlen)):
+      (layout.rows[lane] === layout.rows[0]) & (layout.offsets[lane] === Bits(vector_byte_offset_width(xlen))(lane))
+  ).as_bits().all()
+  mask.all() & aligned
+
 /* Associates a prepared transport with its persistent completion slot. */
 bundle VectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int):
   tag: Bits(index_width(slots))
@@ -51,6 +59,7 @@ bundle VectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots :: Pow2
 
 export:
   vector_sequence_width
+  vector_packed_direct_row
   VectorPackedCursor
   VectorPackedLayout
   VectorPackedEntry

@@ -83,16 +83,21 @@ same-cycle dequeue. Fault provenance is an opaque caller-supplied type.
 [`VectorReplay`](replay.rhdl) retains certified requests through local retries;
 attempts may run ahead, but release remains ordered. A split takeover can move
 the attempt cursor past the oldest retained request without releasing its owner.
-`VectorStoreAcknowledgements` retains one acknowledgement per completion slot,
-independently of cache commit readiness.
+Store hits report `store_completed` independently of the backpressurable data
+completion port, so load returns cannot postpone store-hit bookkeeping. Accepted
+slow stores still complete through the tagged memory-return port, but consume
+no VRF write grant when their acknowledgement arrives.
 
 Fixed shared services must honor their declared return latency and reserved
 write cycle. Variable services retain tagged results until accepted. Scalar
 results similarly require the caller to honor `scalar_writeback` reservations.
 Completion, sequencing release, and architectural retirement are separate events.
 Packed completion slots are reclaimed in order. A completed store does not need
-a VRF write-port grant to release its slot; packed load writes and retained
-partial-row carry still obey that port's arbitration.
+a VRF write-port grant to release its slot. Complete, lane-aligned packed load
+rows reserve their hit write cycle at sequencing and write directly on return,
+without waiting for the ordered head or shared byte aligner. Delayed full-row
+returns remain backpressurable until a write cycle is available. Partial,
+rotated, and segmented rows retain ordered assembly and carry arbitration.
 Tracing distinguishes `vector/complete` (execution results and actual packed-load
 VRF writes) from `vector/slot.release` (ordered packed transport bookkeeping,
 including stores). A slot release can coincide with an unrelated result completion.

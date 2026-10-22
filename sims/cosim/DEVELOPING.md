@@ -52,6 +52,9 @@ then calls `finish_sample` on shared execution adapters. This ordering is
 independent of callback order and native type-map order. `vector/capture.rhdl`
 and `vector/adapter.h` / `vector/vector-adapter.cc` own common vector taps and reconstruction; named-core
 capture modules supply translated physical request/fragment provenance.
+Store-hit bookkeeping has its own callback beside the data-completion callback;
+both may occur in one sample. Preserve their distinct tags and reconstruct the
+store from its retained request, never from an unrelated returned load payload.
 
 The passive cycle capture carries descriptor dispatch depth separately from
 execution-slot capacity. RV2Wide supplies its configured depth; RV5Stage supplies

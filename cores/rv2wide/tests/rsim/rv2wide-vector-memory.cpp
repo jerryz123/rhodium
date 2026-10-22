@@ -229,7 +229,7 @@ int main() {
     step();
     drain();
 
-    // Once a certified store commits, downstream backpressure retains only its ACK.
+    // Store-hit completion bypasses load-return backpressure entirely.
     initialize();
     certified = is_store = 1;
     lookup_outcome = 2;
@@ -237,15 +237,42 @@ int main() {
     launch();
     CHECK(feedback_valid && feedback.pslow);
     step(2);
-    CHECK(committed);
+    CHECK(committed && store_completed_valid && store_completed_tag == 0);
     step();
-    CHECK(!committed && completion_valid && !idle);
+    CHECK(!committed && !completion_valid && !store_completed_valid);
     step(5);
-    CHECK(!committed && completion_valid && completed.ptag == 0);
+    CHECK(!committed && !completion_valid && !store_completed_valid && idle);
     completion_ready = 1;
     drain();
 
     if (capacity > 1) {
+      // A store hit and an older load response complete together even when
+      // the data-return lane was backpressured up to that commit cycle.
+      initialize();
+      certified = 1;
+      lookup_outcome = 0;
+      completion_ready = 0;
+      launch();
+      step(2);
+      CHECK(requested);
+      step();
+      is_store = 1;
+      tag = 1;
+      lookup_outcome = 2;
+      launch();
+      step(2);
+      response_valid = 1;
+      response_data = raw;
+      eval();
+      CHECK(committed && store_completed_valid && store_completed_tag == 1);
+      CHECK(completion_valid && completed.ptag == 0 && !response_ready);
+      completion_ready = 1;
+      eval();
+      CHECK(store_completed_valid && completion_valid && response_ready);
+      step();
+      response_valid = 0;
+      drain();
+
       // Retrying a younger certified beat must neither reissue the accepted
       // prefix nor erase its independently backpressured response owner.
       initialize();

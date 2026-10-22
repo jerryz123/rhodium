@@ -103,6 +103,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.issue |> filter_flow(operation => operation.memory) |> access.issue
   access.feedback |> execution.decision
   access.completion |> execution.completion
+  access.store_completed |> execution.store_completed
   when (admission.execution_certified & access.feedback.valid):
     assert(access.feedback.bits.disposition.is_one_of(VectorDisposition.Authorized, VectorDisposition.Retry), "certified_vector_cannot_fault")
 

@@ -55,6 +55,9 @@ dpi_import procedure rhodium_vector_direct(instance: Bits(64), tag: Bits(64), da
 /* Captures complete signals for native settled-cycle interpretation. */
 dpi_import procedure rhodium_vector_complete(instance: Bits(64), tag: Bits(64), data: Bits(64))
 
+/* Captures store-hit bookkeeping independently of a simultaneous data return. */
+dpi_import procedure rhodium_vector_store_complete(instance: Bits(64), tag: Bits(64))
+
 /* Captures translation signals for native settled-cycle interpretation. */
 dpi_import procedure rhodium_vector_translation(instance: Bits(64), tag: Bits(64), physical: Bits(64))
 
@@ -142,6 +145,7 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, dispatch_
 
   rhodium_vector_direct.call(instance, lane("vector_memory_direct_tag"), lane("vector_memory_direct_data"), ~enable: active & flag("vector_memory_direct"))
   rhodium_vector_complete.call(instance, capture_lane(completion.tag), capture_lane(completion.data), ~enable: active & flag("vector_memory_completed"))
+  rhodium_vector_store_complete.call(instance, lane("vector_memory_store_completed_tag"), ~enable: active & flag("vector_memory_store_completed"))
   rhodium_vector_fault.call(instance, lane("vector_memory_fault_tag"), lane("vector_memory_fault_address"), ~enable: active & flag("vector_memory_fault"))
   rhodium_vector_decision.call(
     instance, capture_lane(decision.tag), capture_lane(decision.disposition.as_bits()),

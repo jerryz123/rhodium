@@ -80,6 +80,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   execution.issue |> filter_flow(token => token.memory) |> access.issue
   access.feedback |> execution.decision
   access.completion |> execution.completion
+  access.store_completed |> execution.store_completed
   access.pipeline <=> pipeline
   access.memory <=> memory
   access.split <=> split

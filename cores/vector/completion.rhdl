@@ -40,6 +40,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   interface memory_attempt(Valid(Result), ~role: consumer)
   interface decision(Valid(VectorCommit(xlen, vector_completion_slots)), ~role: consumer)
   interface response(Decoupled(VectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface store_completed(Valid(SlotId), ~role: consumer)
   interface packed_accept(Valid(SlotId), ~role: consumer)
   interface packed_release(Pulse(), ~role: consumer)
   interface replay(Pulse(), ~role: consumer)
@@ -171,8 +172,12 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     flags: Bits(5)(0)
     saturated: Bool(#false)
 
-  def slow_write_available = !compute_arrival & !hit_valid
-  def slow_result = response |> gate_flow(slow_write_available) |> to_valid() |> map_valid(result => Writeback()):
+  // Slow store acknowledgements also write no VRF data. Reclaim their metadata
+  // independently, including alongside a scheduled compute or packed return.
+  def Array(data_response, acknowledgement) = response |> demux_flow(2, result => !entries[result.tag].write.mask.any())
+  def acknowledged = acknowledgement |> to_valid()
+  def slow_write_available = !compute_arrival & !hit_valid & !reserved_write
+  def slow_result = data_response |> gate_flow(slow_write_available) |> to_valid() |> map_valid(result => Writeback()):
     tag: result.tag
     beat: entries[result.tag]
     owner: entry_owner[result.tag]
@@ -186,7 +191,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   /* Accepted-load lineage
      Each outstanding slot retains a separate occurrence until its returned result writes. */
 
-  def accepted_memory = accepted_attempt |> filter_valid(_result => memory_accepted & decision.bits.slow)
+  def accepted_memory = accepted_attempt |> filter_valid(result => memory_accepted & decision.bits.slow & result.beat.write.mask.any())
   def accepted_per_slot = accepted_memory |> fork_valid(vector_completion_slots)
   def memory_results = for Array (slot in 0..vector_completion_slots):
     def tag = Bits(tag_width)(slot)
@@ -216,6 +221,9 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   when (response.fire()):
     assert(authorized_slots[response.bits.tag], "vector_response_has_authorized_owner")
     assert(!completed[response.bits.tag], "vector_response_completes_once")
+
+  when (store_completed.valid):
+    assert(authorized_slots[store_completed.bits] & !completed[store_completed.bits], "vector_store_completion_has_unique_authorized_owner")
 
   when (fp_result.fire()):
     assert(authorized_slots[fp_result.bits.tag] & entries[fp_result.bits.tag].floating_point, "vector_fp_result_has_authorized_owner")
@@ -325,7 +333,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     // completed bit behind after releasing its owner on the same edge.
     when (releasing ||| (reserve.valid & (allocate_cursor === tag))):
       completed[slot] <== Bool(#false)
-    elsewhen (finished.valid & (finished.bits.tag === tag)):
+    elsewhen ((finished.valid & (finished.bits.tag === tag)) ||| (store_completed.valid & (store_completed.bits === tag)) ||| (acknowledged.valid & (acknowledged.bits.tag === tag))):
       completed[slot] <== Bool(#true)
 
 

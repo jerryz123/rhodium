@@ -20,6 +20,7 @@ struct Write { Word address, mask, data, local, packed, splat, local_owner, pack
 struct ScalarWrite { Word owner, floating, rd, data; };
 struct Direct { Word tag, data; };
 struct Complete { Word tag, data; };
+struct StoreComplete { Word tag; };
 struct Translation { Word tag, physical; };
 struct FragmentStart { Word physical; };
 struct Fragment { Word tag, address, mask, data, store_data; };
@@ -45,7 +46,7 @@ class VectorAdapter final : public observation::DpiAdapter {
   bool admitted(Word instance) const;
 
  private:
-  using Events = std::tuple<std::optional<Cycle>, std::optional<Allocate>, std::optional<Admission>, std::optional<Service>, std::optional<FpService>, std::optional<Dispatch>, std::optional<Issue>, std::optional<Write>, std::optional<ScalarWrite>, std::optional<Direct>, std::optional<Complete>, std::optional<Translation>, std::optional<FragmentStart>, std::optional<Fragment>, std::optional<Fault>, std::optional<Decision>, std::optional<Drain>>;
+  using Events = std::tuple<std::optional<Cycle>, std::optional<Allocate>, std::optional<Admission>, std::optional<Service>, std::optional<FpService>, std::optional<Dispatch>, std::optional<Issue>, std::optional<Write>, std::optional<ScalarWrite>, std::optional<Direct>, std::optional<Complete>, std::optional<StoreComplete>, std::optional<Translation>, std::optional<FragmentStart>, std::optional<Fragment>, std::optional<Fault>, std::optional<Decision>, std::optional<Drain>>;
   struct Frame { std::optional<Word> sample; Word epoch = 0; Events events; };
   struct Owner { Id id; Word base, eew, fields, destination, group_shift, count = 0; std::optional<Word> flags; bool fp_reduction = false; };
   struct Slot { Issue issue; Id owner_id; Word access, physical; bool translated, accepted = false, done = false; };
@@ -83,6 +84,7 @@ void rhodium_vector_issue(std::int64_t instance, std::int64_t owner, std::int64_
 void rhodium_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept;
 void rhodium_vector_direct(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
 void rhodium_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept;
+void rhodium_vector_store_complete(std::int64_t instance, std::int64_t tag) noexcept;
 void rhodium_vector_translation(std::int64_t instance, std::int64_t tag, std::int64_t physical) noexcept;
 void rhodium_vector_fragment_start(std::int64_t instance, std::int64_t physical) noexcept;
 void rhodium_vector_fragment(std::int64_t instance, std::int64_t tag, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t store_data) noexcept;

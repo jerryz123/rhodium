@@ -86,6 +86,8 @@ sync_circuit VectorOverlap():
   ) |> vector.decision
 
   response |> vector.completion
+  vector.store_completed.valid <== Bool(#false)
+  vector.store_completed.bits <== dont_care(vector.store_completed.bits.type)
   vector.memory_drained <== Bool(#true)
   vector.fp_request |> fp_request
   fp_result |> vector.fp_result

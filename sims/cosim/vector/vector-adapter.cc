@@ -154,6 +154,10 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
   };
   if (const auto& direct = event.template operator()<Direct>(); direct) memory(direct->tag, direct->data, nullptr, true);
   if (const auto& complete = event.template operator()<Complete>(); complete) memory(complete->tag, complete->data, nullptr, false);
+  if (const auto& store = event.template operator()<StoreComplete>(); store) {
+    require(slot(hart, store->tag).issue.store, "store completion has no store owner");
+    memory(store->tag, 0, nullptr, false);
+  }
   if (const auto& fragment = event.template operator()<Fragment>(); fragment) memory(fragment->tag, fragment->data, &*fragment, false);
   if (const auto& direct = event.template operator()<Direct>(); direct) slot(hart, direct->tag).done = true;
   if (const auto& complete = event.template operator()<Complete>(); complete) slot(hart, complete->tag).done = true;
@@ -294,6 +298,12 @@ extern "C" void rhodium_vector_direct(std::int64_t instance, std::int64_t tag, s
 extern "C" void rhodium_vector_complete(std::int64_t instance, std::int64_t tag, std::int64_t data) noexcept {
   observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
     adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Complete{Word(tag), Word(data)});
+  });
+}
+
+extern "C" void rhodium_vector_store_complete(std::int64_t instance, std::int64_t tag) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), StoreComplete{Word(tag)});
   });
 }
 extern "C" void rhodium_vector_translation(std::int64_t instance, std::int64_t tag, std::int64_t physical) noexcept {

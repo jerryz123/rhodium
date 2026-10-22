@@ -35,6 +35,8 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   output(feedback_valid, outcome_valid, completion_valid, idle): Bool
   output feedback: VectorCommit(xlen, slots)
   output completed: VectorCompletion(xlen, slots)
+  output store_completed_valid: Bool
+  output store_completed_tag: Bits(index_width(slots))
   output guest: RiscvGuestFault()
   output word_bytes: Bits(4)
   output capacity: Bits(4)
@@ -117,6 +119,8 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   guest <== dut.outcome_guest
   completion_valid <== dut.completion.valid
   completed <== dut.completion.bits
+  store_completed_valid <== dut.store_completed.valid
+  store_completed_tag <== dut.store_completed.bits
   dut.completion.ready <== completion_ready
   idle <== dut.idle
   word_bytes <== Bits(4)(xlen.width / 8)

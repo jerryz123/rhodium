@@ -78,6 +78,8 @@ sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
     fault_address: Bits(xlen.width)(0)
 
   vector.completion.valid <== Bool(#false)
+  vector.store_completed.valid <== Bool(#false)
+  vector.store_completed.bits <== dont_care(vector.store_completed.bits.type)
   vector.completion.bits <== dont_care(VectorCompletion(xlen, 8))
   vector.memory_drained <== Bool(#true)
   vector.fp_request.ready <== Bool(#false)

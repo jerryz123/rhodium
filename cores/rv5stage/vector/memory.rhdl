@@ -49,6 +49,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
+  interface store_completed(Valid(Bits(index_width(slots))), ~role: producer)
   input store: Bool
   input pointer_masking: PointerMaskControl()
   output(pipeline_physical, request_physical, requests_idle): Bool
@@ -273,8 +274,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   outcome_path |> filter_valid(event => !token.precertified & (event.disposition =/= VectorDisposition.Retry) & (token.last ||| fault)) |> outcome
 
 
-  /* Completion arbitration and store-hit acknowledgements.
-     Hits may retry before acceptance; committed stores retain tags, never completed result data. */
+  /* Load-return arbitration and independent store-hit bookkeeping.
+     A committed store never competes with load data for completion bandwidth. */
 
   def Array(load_hit_path, store_hit_path) = hit_path |> fork_valid(2)
   def hit_completion = load_hit_path |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(result => VectorCompletion(xlen, slots)):
@@ -283,11 +284,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
 
   def offered_hit = hit_completion |> offer_decoupled()
   hit_ready <== offered_hit.ready
-  // Store commit must not depend on result readiness (cache drain itself
-  // depends on commit). Retain only acknowledgement tags, never result data.
-  inst store_ack(VectorStoreAcknowledgements(xlen, slots))
-  store_hit_path |> filter_valid(_operation => resolved & token.store & !accepted) |> map_valid(result => result.request_context.token.completion_tag) |> store_ack.capture
-  def ack = store_ack.completion
+  store_hit_path |> filter_valid(_operation => resolved & token.store & !accepted) |> map_valid(result => result.request_context.token.completion_tag) |> store_completed
   def slow_completion = (
     memory.response |> map_flow(response => VectorCompletion(xlen, slots)):
       tag: response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
@@ -302,7 +299,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
          data: result.response.data
 
   def deferred_split = split_result |> to_decoupled() |> queue(1)
-  Array(offered_hit, ack, slow_completion, deferred_split) |> arbiter() |> completion
+  Array(offered_hit, slow_completion, deferred_split) |> arbiter() |> completion
   when (memory.response.valid):
     assert(!memory.response.bits.access_fault, "vector_memory_faults_are_reported_before_acceptance")
     assert(memory.response.bits.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool), "vector_response_has_vector_owner")
@@ -320,6 +317,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     "direct_data": operation.data,
     "completed": completion.fire(),
     "completion": completion.bits,
+    "store_completed": store_completed.valid,
+    "store_completed_tag": store_completed.bits,
     "fault": fault,
     "fault_tag": token.completion_tag,
     "fault_address": decision.bits.fault_address,

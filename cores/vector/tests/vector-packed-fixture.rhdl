@@ -28,7 +28,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   input mode: VectorMemoryMode
   input(store, masked, request_valid, issue_ready, retry, slow, alignment_available, write_available): Bool
   input hit_data: Bits(64)
-  interface response(Valid(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
   interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
   interface written(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   output(request_ready, active, issued, retired, sequenced): Bool
@@ -59,6 +59,9 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   engine.drain_enable <== Bool(#true)
   engine.alignment_available <== alignment_available & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
   engine.write_available <== write_available
+  engine.direct_write_available <== write_available
+  engine.store_completed.valid <== Bool(#false)
+  engine.store_completed.bits <== dont_care(engine.store_completed.bits.type)
   engine.owner <== Bits(1)(0)
   inst registers(VectorRegisterFile(xlen, vlen))
   inst execute(VectorExecute(xlen, vlen))

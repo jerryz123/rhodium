@@ -86,6 +86,8 @@ sync_circuit VectorMultiplyFixture(xlen :: XLen):
      fault_address: Bits(xlen.width)(0)
   ) |> vector.decision
   response |> vector.completion
+  vector.store_completed.valid <== Bool(#false)
+  vector.store_completed.bits <== dont_care(vector.store_completed.bits.type)
   vector.fp_request.ready <== Bool(#true)
   fp_launch <== vector.fp_request.fire()
   fp_launch_tag <== vector.fp_request.bits.tag

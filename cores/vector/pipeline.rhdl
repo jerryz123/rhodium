@@ -96,6 +96,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   // Only memory attempts require an external retry, fault, or authorization decision.
   interface decision(Valid(VectorCommit(xlen, vector_completion_slots)), ~role: consumer)
   interface completion(Decoupled(VectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface store_completed(Valid(SlotId), ~role: consumer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface truncate(Valid(Bits(xlen.width)), ~role: producer)
   interface retire(Pulse(), ~role: producer)
@@ -161,7 +162,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   instructions.packed_finished.valid <== packed_decision.valid & (packed_decision.bits.disposition === VectorDisposition.Authorized) & packed.resolved.layout.last
   instructions.packed_finished.bits <== packed.resolved.owner
   def Array(local_completion, packed_completion_input) = completion |> demux_flow(2, event => entry_packed[event.tag])
-  packed_completion_input |> to_valid() |> packed.completion
+  packed_completion_input |> packed.completion
+  def Array(local_store_completion, packed_store_completion) = store_completed |> fork_valid(2)
+  local_store_completion |> filter_valid(tag => !entry_packed[tag]) |> completions.store_completed
+  packed_store_completion |> filter_valid(tag => entry_packed[tag]) |> packed.store_completed
 
 
   /* Sequencing, operand capture, and owner-indexed recurrence state */
@@ -239,7 +243,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   packed.head <== drain_slot
   packed.drain_enable <== authorized_slots[drain_slot] & entry_packed[drain_slot]
   packed.alignment_available <== !ex_pipe.egress.valid & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
-  packed.write_available <== !completions.compute_writeback
+  packed.write_available <== !completions.compute_writeback & !writeback_calendar.occupied[0].into(Bool)
 
 
   /* A read commits only after its fixed-latency consumers have been granted. */
@@ -250,6 +254,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_service = s1_control.fp_service ||| s1_control.multiply_divide
   def s1_packed = sequencer.sequence_request.bits.context.packed
   def s1_descriptor = sequencer.sequence_request.bits.context.instruction.descriptor
+  def s1_segmented = s1_control.memory_nf.any() & !s1_control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
+  def s1_direct_packed = s1_packed & !s1_control.store & !s1_segmented & vector_packed_direct_row(xlen, vlen, sequencer.sequence_request.bits.context.packed_layout, sequencer.sequence_request.bits.context.packed_mask)
   def s1_local_result = !s1_service ||| s1_control.memory ||| s1_descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty
   def s1_simd_multiply = vector_packed_multiply(xlen, s1_control, s1_descriptor.state.vtype[3..5], packed_multiply)
   def s1_local_write = !s1_simd_multiply & !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
@@ -275,7 +281,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def returning_width = operand_fetch.issue.bits.beat.element_width.as_bits().into(MemoryWidth)
   def returning_split = returning_memory & operand_fetch.issue.bits.beat.enabled[0] & !returning_width.is_aligned(operand_fetch.issue.bits.beat.address)
   def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
-  def s1_write_available = !(s1_local_write ||| s1_simd_multiply) ||| writeback_calendar.prior_claims_available[0]
+  def s1_write_available = !(s1_local_write ||| s1_simd_multiply ||| s1_direct_packed) ||| writeback_calendar.prior_claims_available[0]
   def s1_memory_available = !s1_checked_memory ||| !(split_memory_pending ||| returning_split)
   def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
@@ -320,7 +326,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   // accepted while the splat claims them. Other intents require an age query.
   splat.blocked_rows <== (instructions.splat_blocked_rows.as_bits() ||| packed.busy_rows.as_bits()).as_vec(Bool)
   splat.mask_read_available <== !operand_fetch.mask_read.valid & !sequencer.prepare_mask_read.valid
-  splat.write_available <== !completions.compute_writeback & !packed.write.valid
+  splat.write_available <== !completions.compute_writeback & !packed.write.valid & !writeback_calendar.occupied[0].into(Bool)
   sequencer.alignment_available <== !ex_pipe.egress.valid & !operand_fetch.alignment.valid
   Array(operand_fetch.alignment, sequencer.prepare_alignment, packed.alignment) |> valid_arbiter() |> execute.alignment
   operand_fetch.aligned <== execute.aligned
@@ -392,8 +398,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
           owner: operation.context.owner
   ) |> packed.reserve
 
-  writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & (s1_local_write ||| s1_simd_multiply)
+  writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & (s1_local_write ||| s1_simd_multiply ||| s1_direct_packed)
   writeback_calendar.reserve[2].bits <== s1_calendar_delay
+  // Only a packed return may consume a promised packed-hit cycle. A miss leaves
+  // it unused; later variable responses can use any otherwise unreserved cycle.
+  def packed_write_cycle = inject_interface(Valid(SlotId), ~valid: operand_fetch.request.fire() & s1_direct_packed, ~bits: s1_next_slot) |> valid_pipe(4)
+  packed.direct_write_available <== !completions.compute_writeback & (!writeback_calendar.occupied[0].into(Bool) ||| packed_write_cycle.valid)
   when (operand_fetch.scheduled_return):
     assert(slot_available, "vector_scheduled_read_has_completion_slot")
     assert(!replay, "vector_replay_kills_scheduled_read")

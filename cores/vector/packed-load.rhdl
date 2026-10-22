@@ -1,6 +1,6 @@
 #lang rhodium
-/* Retains accepted packed responses and partial VRF rows independently of replayable request
-   preparation. */
+/* Writes aligned packed returns directly and retains partial rows independently of replayable
+   request preparation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,9 +16,8 @@ import:
   lib("rhodium/std/reduction.rhdl").tree_reduce
   lib("flow/main.rhdl") open
 
-/* Retains accepted packed words and drains them in request order through shared byte alignment.
-   Partial-row carry survives replay and owner closure; completed prefixes can write
-   while the same transport's suffix is retained for the next row. */
+/* Writes complete aligned rows on arrival and reclaims accepted words in request order.
+   Other layouts use shared byte alignment and persistent partial-row carry. */
 sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owner_count :: Pow2Int):
   def bytes = xlen.width / 8
   def Tag = Bits(index_width(slots))
@@ -26,7 +25,8 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def Entry = VectorPackedEntry(xlen, vlen, owner_count)
   interface reserve(Valid(VectorPackedReservation(xlen, vlen, slots, owner_count)), ~role: consumer)
   interface commit(Valid(VectorCommit(xlen, slots)), ~role: consumer)
-  interface completion(Valid(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface store_completed(Valid(Tag), ~role: consumer)
   interface alignment(Valid(VectorAlignment(xlen)), ~role: producer)
   input aligned: Bits(xlen.width)
   interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
@@ -35,6 +35,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   input owner: Owner
   input(drain_enable, alignment_available): Bool
   input write_available: Bool
+  input direct_write_available: Bool
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
   output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
@@ -51,6 +52,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   inst loads(VectorLoadResponse(xlen, slots))
   reg entries(Vec(slots, Entry))
   reg completed(~init: Bits(slots)(0).as_vec(Bool))
+  reg written(~init: Bits(slots)(0).as_vec(Bool))
   reg data(Vec(slots, Bits(xlen.width)))
   reg drain_remaining(~init: Bits(bytes)(0))
   reg draining(~init: Bool(#false))
@@ -62,7 +64,9 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   // suffix once all accepted words have drained, including a canceled prefix.
   def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().any()
   def carry_pending = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
-  def flush_carry = carry_pending & write_available
+  wire direct_write: Bool
+  def assembly_available = write_available & !direct_write
+  def flush_carry = carry_pending & assembly_available
   resolved <== entries[wb.bits]
   drain_blocked <== carry_pending
 
@@ -73,7 +77,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
   def entry = entries[head]
   def head_ready = drain_enable & !carry_pending & accepted_slots[head] & completed[head]
-  def drainable = head_ready & (entry.store ||| write_available)
+  def drainable = head_ready & (entry.store ||| written[head] ||| assembly_available)
   def remaining = mux(draining, drain_remaining, entry.mask)
   def target_lane = priority_encoder(remaining)
   def target_row = entry.layout.rows[target_lane]
@@ -81,8 +85,8 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def rotation = target_lane - entry.layout.offsets[target_lane]
   // Offer the alignment independently of write-port arbitration; only a free
   // write cycle consumes it. This keeps the shared ALU out of its own grant path.
-  def load_alignment = head_ready & !entry.store & remaining.any() & alignment_available
-  def load_piece = load_alignment & write_available
+  def load_alignment = head_ready & !entry.store & !written[head] & remaining.any() & alignment_available
+  def load_piece = load_alignment & assembly_available
   alignment.valid <== load_alignment
   alignment.bits <== VectorAlignment(xlen):
     data: data[head]
@@ -134,10 +138,29 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     mask: mux(same_row, carry.mask, Bits(xlen.width)(0)) ||| piece_mask
 
   def full_row = load_piece & !entry.segmented & combined.mask.all() & carry_can_merge
-  def word_drained = entry.store ||| !remaining.any() ||| (load_piece & (!suffix.any() ||| split_load))
+  def word_drained = entry.store ||| written[head] ||| !remaining.any() ||| (load_piece & (!suffix.any() ||| split_load))
   def release_slot = drainable & word_drained
   def write_previous_carry = load_piece & carry_valid & !same_row
-  def write_event = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: mux(split_load ||| full_row, combined, carry))
+  def assembly_write = mux(split_load ||| full_row, combined, carry)
+
+  /* Full rows bypass assembly and the ordered metadata head.
+     Immediate hits own a scheduled cycle; variable returns wait at their producer. */
+
+  def direct_rows = vec(
+    for List (slot in 0..slots):
+      !entries[slot].store & !entries[slot].segmented & vector_packed_direct_row(xlen, vlen, entries[slot].layout, entries[slot].mask)
+  )
+  def immediate_direct = loads.completed[0].valid & direct_rows[loads.completed[0].bits.tag]
+  def returned = completion |> gate_flow(!direct_rows[completion.bits.tag] ||| (direct_write_available & !immediate_direct)) |> to_valid()
+  def returned_direct = returned.valid & direct_rows[returned.bits.tag]
+  direct_write <== immediate_direct ||| returned_direct
+  def direct_tag = mux(immediate_direct, loads.completed[0].bits.tag, completion.bits.tag)
+  def direct_value = VectorRegisterWrite(xlen, vlen):
+    address: entries[direct_tag].layout.rows[0]
+    data: mux(immediate_direct, loads.completed[0].bits.data, completion.bits.data)
+    mask: !Bits(xlen.width)(0)
+
+  def write_event = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: direct_write ||| write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: mux(direct_write, direct_value, assembly_write))
   (
     write_event |> trace_valid_event("vector/complete", ~fields: result):
       packed: Bool(#true)
@@ -146,7 +169,9 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
       write_enabled: result.mask.any()
       write_mask: result.mask
   ) |> write
-  describe_cosim_signals({"write_owner": mux(split_load ||| full_row, entry.owner, carry_owner)})
+  describe_cosim_signals({"write_owner": mux(direct_write, entries[direct_tag].owner, mux(split_load ||| full_row, entry.owner, carry_owner))})
+  when immediate_direct:
+    assert(direct_write_available, "packed_hit_has_reserved_write")
 
 
   /* Accepted-beat lineage and response capture.
@@ -172,7 +197,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
       data: event.data
   ) |> loads.accepted
 
-  completion |> loads.response
+  returned |> loads.response
 
 
   /* Carry, per-word drain cursor, and response state.
@@ -205,18 +230,25 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     def reserve_here = reserve.valid & (reserve.bits.tag === tag)
     def delayed_here = loads.completed[1].valid & (loads.completed[1].bits.tag === tag)
     def immediate_here = loads.completed[0].valid & (loads.completed[0].bits.tag === tag)
+    def store_here = store_completed.valid & (store_completed.bits === tag)
     def release_here = release_slot & (head === tag)
     when reserve_here:
       entries[slot] <== reserve.bits.entry
 
-    when delayed_here:
+    when (delayed_here ||| immediate_here ||| store_here):
       completed[slot] <== Bool(#true)
-      data[slot] <== loads.completed[1].bits.data
-    elsewhen immediate_here:
-      completed[slot] <== Bool(#true)
-      data[slot] <== loads.completed[0].bits.data
     elsewhen (reserve_here ||| release_here):
       completed[slot] <== Bool(#false)
+
+    when (direct_write & (direct_tag === tag)):
+      written[slot] <== Bool(#true)
+    elsewhen (reserve_here ||| release_here):
+      written[slot] <== Bool(#false)
+
+    when (delayed_here & !direct_rows[slot]):
+      data[slot] <== loads.completed[1].bits.data
+    elsewhen (immediate_here & !direct_rows[slot]):
+      data[slot] <== loads.completed[0].bits.data
 
 
   /* Exact pending-row claims.
@@ -229,7 +261,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
       mux(entries[slot].mask[lane].into(Bool), Bits(row_count)(1) << entries[slot].layout.rows[lane], Bits(row_count)(0))
 
     def rows = tree_reduce(lane_rows, fun (left, right): left ||| right)
-    mux(accepted_slots[slot] & !entries[slot].store, rows, Bits(row_count)(0))
+    mux(accepted_slots[slot] & !entries[slot].store & !written[slot], rows, Bits(row_count)(0))
 
   def foreign_slot_rows = for List (slot in 0..slots):
     mux(entries[slot].owner =/= owner, slot_rows[slot], Bits(row_count)(0))
@@ -245,5 +277,8 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
   when (completion.valid):
     assert(accepted_slots[completion.bits.tag] & !completed[completion.bits.tag], "packed_response_has_unique_accepted_owner")
+
+  when (store_completed.valid):
+    assert(accepted_slots[store_completed.bits] & entries[store_completed.bits].store & !completed[store_completed.bits], "packed_store_completion_has_unique_accepted_owner")
 
 export VectorPackedLoad

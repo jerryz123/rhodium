@@ -26,6 +26,7 @@ bool exercise_retry = 0, did_retry = 0, exercise_delay = 0, exercise_stalls = 0,
 int tests = 0, max_consecutive = 0, consecutive = 0;
 
 int simultaneous_completions = 0;
+int direct_hits = 0, direct_hits_past_pending = 0, direct_hits_without_alignment = 0;
 
 bool all_masked = 0;
 bool hold_write_port = false;
@@ -52,7 +53,8 @@ void tick() {
   settle();
   if (!reset && attempt_out.pvalid) {
     retry = exercise_retry && !did_retry && accepted == 1;
-    slow = exercise_delay && (accepted % 2 == 0);
+    // Hits require a promised write cycle; delayed returns remain backpressurable.
+    slow = (exercise_delay && (accepted % 2 == 0)) || (!store && !write_available);
     hit_data = memory_word(int(attempt_out.pbits.paddress));
   }
   for (int t = 0; t < 8; t++)
@@ -75,7 +77,7 @@ void tick() {
             token.pmemory_uwidth == ((2) & low_mask(2)));
     } else
       consecutive = 0;
-    if (response_in.pvalid)
+    if (response_in.pvalid && response_out.pready)
       outstanding[int(response_in.pbits.ptag)] = 0;
     if (attempt_out.pvalid) {
       if (retry)
@@ -84,8 +86,20 @@ void tick() {
         int tag;
         tag = int(attempt_out.pbits.pcompletion_utag);
         accepted++;
-        if (!slow && response_in.pvalid)
+        if (!slow && response_in.pvalid && response_out.pready)
           simultaneous_completions++;
+        if (!store && !slow && !masked && nf == 0 && mode == 0 &&
+            (base % 4) == 0 && attempt_out.pbits.pbyte_umask == 15) {
+          CHECK(written_out.pvalid);
+          CHECK(written_out.pbits.paddress ==
+                (8 * 16 + attempt_out.pbits.paddress - base) / 4);
+          CHECK(written_out.pbits.pdata == hit_data &&
+                written_out.pbits.pmask == UINT32_MAX);
+          ++direct_hits;
+          for (int older = 0; older < 8; ++older)
+            if (outstanding[older]) { ++direct_hits_past_pending; break; }
+          direct_hits_without_alignment += !alignment_available;
+        }
         if (store)
           for (int b = 0; b < 4; b++)
             if (bit_slice(attempt_out.pbits.pbyte_umask, b, 1))
@@ -138,7 +152,7 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
   did_retry = 0;
   exercise_delay = delayed;
   exercise_stalls = replaying || delayed;
-  exercise_alignment_stalls = writing && (replaying || delayed);
+  exercise_alignment_stalls = replaying || delayed;
   accepted = 0;
   requests = 0;
   writes = 0;
@@ -260,6 +274,7 @@ void stimulus() {
     run_case(1, 3, 0, 4, 1, 1, 1, 1); // masked segments, retry, and reordered responses
     run_case(1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0); // empty store
     hold_write_port = false;
+    run_case(0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 128);
     for (int size = 0; size <= 2; size++)
       for (int offset = 0; offset < 8; offset += (1 << size))
         for (int writing = 0; writing < 2; writing++) {
@@ -289,6 +304,8 @@ void stimulus() {
     }
     if (8 > 2)
       CHECK(simultaneous_completions > 0);
+    CHECK(direct_hits > 0 && direct_hits_past_pending > 0 &&
+          direct_hits_without_alignment > 0);
 
     throw Finished{};
   }
