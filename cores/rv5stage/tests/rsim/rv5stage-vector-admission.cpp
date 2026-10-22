@@ -11,6 +11,7 @@ using RiscvSplitResult =
 
 int cycle = 0, launches = 0, completions = 0, outcomes = 0, checks = 0,
     releases = 0, accesses = 0, memory_requests = 0;
+int response_stall_cycles = 0;
 
 std::uint64_t addresses[256], data[256], last_outcome;
 
@@ -95,6 +96,7 @@ void clear() {
   releases = 0;
   accesses = 0;
   memory_requests = 0;
+  response_stall_cycles = 0;
   settle();
   CHECK(!active && !loads_pending && !stores_pending && !fp_pending &&
         !certification_pending);
@@ -159,7 +161,17 @@ void return_memory(int index) {
     memory_responses_in.pbits.pdata = pending_memory[index].paddress;
     memory_responses_in.pbits.pcontext = pending_memory[index].pcontext;
   }
-  tick();
+  // Split completion is a pulse; ordinary responses retain their payload until
+  // the production ready/valid interface accepts them.
+  bool returned;
+  do {
+    settle();
+    returned = split_completion_in.pvalid ||
+               (memory_responses_in.pvalid && memory_responses_out.pready);
+    if (!returned)
+      ++response_stall_cycles;
+    tick();
+  } while (!returned);
   memory_responses_in = {};
   split_completion_in = {};
 }
@@ -379,6 +391,7 @@ void stimulus() {
     drain();
     CHECK(checks == 2 && releases == 2 && accesses == 25 && outcomes == 2 &&
           last_outcome == UINT64_C(1792));
+    CHECK(response_stall_cycles > 0);
     for (int n = 8; n < 25; n++)
       CHECK(addresses[n] >= UINT64_C(1792) && addresses[n] <= UINT64_C(1919));
 

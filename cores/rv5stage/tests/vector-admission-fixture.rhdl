@@ -33,7 +33,7 @@ sync_circuit RV5StageVectorAdmission():
   interface precheck(VectorPrecheck(), ~role: requester)
   interface accesses(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface memory_requests(Valid(PhysicalMemoryReq(xlen, RV5StageMemoryContext(8))), ~role: producer)
-  interface memory_responses(Valid(PhysicalMemoryResp(xlen, RV5StageMemoryContext(8))), ~role: consumer)
+  interface memory_responses(Decoupled(PhysicalMemoryResp(xlen, RV5StageMemoryContext(8))), ~role: consumer)
   interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(8))), ~role: consumer)
   output(request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
   output outcome_pc: Bits(64)
@@ -120,8 +120,7 @@ sync_circuit RV5StageVectorAdmission():
   memory_requests.bits <== vector.memory.request.bits
   vector.memory.request_fault <== Bool(#false)
   vector.memory.request_access_fault <== Bool(#false)
-  vector.memory.response.valid <== memory_responses.valid
-  vector.memory.response.bits <== memory_responses.bits
+  memory_responses |> vector.memory.response
   vector.memory.drained <== Bool(#true)
   vector.memory.reservation_valid <== Bool(#false)
   vector.fp_request.ready <== Bool(#false)
