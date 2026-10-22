@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises CHI flits, protocol classifiers, service-size matching, and Home/subordinate address decoding.
+// Exercises CHI flits, receipt values, service-size matching, and Home/subordinate decoding.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -73,6 +73,14 @@ circuit CHIFoundationFixture():
   input dat_opcode: CHIDatOpcode
   input size: CHITransferSize
   input data_id: Bits(2)
+  input receipt: CHIDataReceipt()
+  output receipt_expected: Bool
+  output receipt_duplicate: Bool
+  output receipt_pending: Bool
+  output receipt_complete: Bool
+  output recorded_receipt: CHIDataReceipt()
+  output recorded_complete: Bool
+  output repeated_receipt: CHIDataReceipt()
   output req_out: CHIReqFlit(params)
   output rsp_out: CHIRspFlit(params)
   output snp_out: CHISnpFlit(params)
@@ -116,6 +124,13 @@ circuit CHIFoundationFixture():
   size_valid <== chi_size_valid(size)
   data_beats_minus_one <== chi_data_beats_minus_one(size, params)
   data_id_valid <== chi_data_id_valid(data_id, params)
+  receipt_expected <== receipt.expected(data_id)
+  receipt_duplicate <== receipt.duplicate(data_id)
+  receipt_pending <== receipt.pending(data_id)
+  receipt_complete <== receipt.complete()
+  recorded_receipt <== receipt.record(data_id)
+  recorded_complete <== receipt.record(data_id).complete()
+  repeated_receipt <== receipt.record(data_id).record(data_id)
   match_byte <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 1)).matches(req_opcode, size)
   match_line <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64)).matches(req_opcode, size)
   match_middle <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(4, 16)).matches(req_opcode, size)

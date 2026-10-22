@@ -69,16 +69,15 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def data_slot = incoming_data.txn_id[0..slot_width]
   def data_slot_valid = incoming_data.txn_id < Bits(12)(limit)
   def selected_request = write_requests[data_slot]
-  def incoming_data_id = one_hot(incoming_data.data_id).into(Mask(4))
-  def expected_data_ids = chi_transfer_data_ids(selected_request.address, chi_req_size(p, selected_request), p)
-  def received_data_ids = received_write_data_ids[data_slot]
-  def data_id_expected = or_reduce(expected_data_ids & incoming_data_id)
-  def data_id_new = !or_reduce(received_data_ids & incoming_data_id)
-  def next_received_data_ids = received_data_ids ||| incoming_data_id
-  def final_data = next_received_data_ids === expected_data_ids
+  def receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(selected_request.address, chi_req_size(p, selected_request), p)
+    received_ids: received_write_data_ids[data_slot]
+
+  def next_receipt = receipt.record(incoming_data.data_id)
+  def final_data = next_receipt.complete()
   def data_match = data_slot_valid & occupied[data_slot] & (
     awaiting_write_data_slots[data_slot]
-  ) & (incoming_data.src_id === selected_request.src_id) & data_id_expected & data_id_new
+  ) & (incoming_data.src_id === selected_request.src_id) & receipt.pending(incoming_data.data_id)
 
   (
     write_data
@@ -126,7 +125,7 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
     received_write_data_ids[allocated.bits.slot] <== Mask(4)(0)
 
   when accept_write_data:
-    received_write_data_ids[data_slot] <== next_received_data_ids
+    received_write_data_ids[data_slot] <== next_receipt.received_ids
 
   write_requests.write(allocated.bits.slot,
                        allocated.bits.request,

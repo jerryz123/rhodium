@@ -32,6 +32,9 @@ hierarchy or per-directory facade.
 writes. Allocation selects a free slot in current occupancy; accepted DAT
 selects an occupied slot, so the writes cannot collide. Do not introduce
 same-cycle occupancy bypass without revisiting that invariant.
+Packet matching and final-DAT detection use a `CHIDataReceipt` view over the
+retained received mask and the request-derived expected set. The view owns no
+registers and does not change the allocator's valid-versus-transfer checks.
 
 `memory-controller.rhdl` owns the common `CHIRamConfig`, `CHIRamParams`,
 `CHIRamIdentity`, operation/completion payloads, and `build_chi_ram_controller`.

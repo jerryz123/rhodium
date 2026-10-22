@@ -627,10 +627,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def awaiting_snoop = phase.is_one_of(CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.AwaitSnoop)
   def requester_write_data_fire = requester_data_fire & receiving_requester_data
   def snoop_data_fire = requester_data_fire & awaiting_snoop
-  def requester_data_id_mask = one_hot(requester_data.bits.data_id).into(Mask(4))
-  def expected_requester_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
-  def next_requester_data_ids = received_requester_ids ||| requester_data_id_mask
-  def final_requester_data = next_requester_data_ids === expected_requester_data_ids
+  def requester_receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+    received_ids: received_requester_ids
+
+  def next_requester_receipt = requester_receipt.record(requester_data.bits.data_id)
+  def final_requester_data = next_requester_receipt.complete()
   def requester_write_line_packet = chi_transfer_beat(requester_data.bits.data_id, p)[0..packet_index_width]
   def requester_write_line_data_mask = vec(
     for List (packet in 0..line_packets): requester_write_line_packet === Bits(packet_index_width)(packet)
@@ -641,8 +643,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(requester_data.bits.src_id === request.src_id, "chi_inclusive_hnf_requester_write_source")
     assert(requester_data.bits.tgt_id === home_id, "chi_inclusive_hnf_requester_write_target")
     assert(requester_data.bits.txn_id === slot_txn_id(work_slot), "chi_inclusive_hnf_requester_write_dbid")
-    assert((expected_requester_data_ids & requester_data_id_mask).or_reduce(), "chi_inclusive_hnf_requester_write_data_id_expected")
-    assert(!(received_requester_ids & requester_data_id_mask).or_reduce(), "chi_inclusive_hnf_requester_write_data_id_unique")
+    assert(requester_receipt.expected(requester_data.bits.data_id), "chi_inclusive_hnf_requester_write_data_id_expected")
+    assert(!requester_receipt.duplicate(requester_data.bits.data_id), "chi_inclusive_hnf_requester_write_data_id_unique")
     when copyback:
       monitor_chi_copyback_data(p, requester_data.bits, "chi_inclusive_hnf_copyback")
       assert(!received_requester_ids.or_reduce() ||| (requester_data.bits.resp === copyback_state), "chi_inclusive_hnf_copyback_state_consistent")
@@ -650,10 +652,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   /* Snoop-data collection and copy retention */
 
-  def snoop_data_id_mask = one_hot(requester_data.bits.data_id).into(Mask(4))
-  def next_snoop_data_ids = received_snoop_ids ||| snoop_data_id_mask
-  def expected_snoop_data_ids = chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
-  def final_snoop_data = next_snoop_data_ids === expected_snoop_data_ids
+  def snoop_receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
+    received_ids: received_snoop_ids
+
+  def next_snoop_receipt = snoop_receipt.record(requester_data.bits.data_id)
+  def final_snoop_data = next_snoop_receipt.complete()
   def snoop_opcode = mux(snoop_victim, CHISnpOpcode.SnpCleanInvalid, chi_home_snoop_opcode(request.opcode))
   def advance_snoop_opcode = mux(advance_snoop_victim, CHISnpOpcode.SnpCleanInvalid, chi_home_snoop_opcode(advance_request.opcode))
   def outstanding_targets = outstanding_snoop_targets[work_slot]
@@ -669,12 +673,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(!maintenance_discard, "chi_inclusive_hnf_discard_has_no_data")
     assert(requester_data.bits.txn_id === snoop_txn_id(work_slot, requester_data_snoop_target), "chi_inclusive_hnf_snoop_data_txn")
     assert(snoop_data_target_outstanding, "chi_inclusive_hnf_snoop_data_outstanding")
-    assert((expected_snoop_data_ids & snoop_data_id_mask).or_reduce(), "chi_inclusive_hnf_snoop_data_id_expected")
+    assert(snoop_receipt.expected(requester_data.bits.data_id), "chi_inclusive_hnf_snoop_data_id_expected")
     assert(requester_data.bits.opcode.is_one_of(CHIDatOpcode.SnpRespData, CHIDatOpcode.SnpRespDataPtl), "chi_inclusive_hnf_snoop_data_opcode")
     assert(requester_data.bits.tgt_id === home_id, "chi_inclusive_hnf_snoop_data_target")
     assert(requester_data.bits.resp.into(CHICoherentResponse()).pass_dirty, "chi_inclusive_hnf_snoop_data_dirty")
     assert(!other_snoop_data_received, "chi_inclusive_hnf_snoop_data_single_dirty_responder")
-    assert(!(received_snoop_ids & snoop_data_id_mask).or_reduce(), "chi_inclusive_hnf_snoop_data_id_unique")
+    assert(!snoop_receipt.duplicate(requester_data.bits.data_id), "chi_inclusive_hnf_snoop_data_id_unique")
 
 
   /* Snoop dispatch and response accounting */
@@ -812,16 +816,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   /* Fill-data accounting */
 
-  def fill_data_id_mask = one_hot(fill_response.bits.data_id).into(Mask(4))
-  def next_fill_data_ids = received_fill_ids ||| fill_data_id_mask
-  def expected_fill_data_ids = chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
-  def final_fill_data = next_fill_data_ids === expected_fill_data_ids
+  def fill_receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
+    received_ids: received_fill_ids
+
+  def next_fill_receipt = fill_receipt.record(fill_response.bits.data_id)
+  def final_fill_data = next_fill_receipt.complete()
   when fill_data_fire:
     assert(fill_response.bits.opcode === CHIDatOpcode.CompData, "chi_inclusive_hnf_fill_data_opcode")
     assert(fill_response.bits.src_id === subordinate_id, "chi_inclusive_hnf_fill_data_source")
     assert(fill_response.bits.tgt_id === home_id, "chi_inclusive_hnf_fill_data_target")
     assert(fill_response.bits.txn_id === slot_txn_id(work_slot), "chi_inclusive_hnf_fill_data_txn")
-    assert(!(received_fill_ids & fill_data_id_mask).or_reduce(), "chi_inclusive_hnf_fill_data_id_unique")
+    assert(!fill_receipt.duplicate(fill_response.bits.data_id), "chi_inclusive_hnf_fill_data_id_unique")
 
   def request_response_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
 
@@ -1212,7 +1218,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         copyback_states[index] <== requester_data.bits.resp
         requester_write_data[index] <== requester_write_data[index].updated(requester_write_line_packet, requester_data.bits)
         requester_write_line_valids[index] <== requester_write_line_valids[index] ||| requester_write_line_data_mask
-        received_requester_data_ids[index] <== next_requester_data_ids
+        received_requester_data_ids[index] <== next_requester_receipt.received_ids
         phases[index] <== mux(final_requester_data, CHIInclusiveHNFPhase.IssueLookup, CHIInclusiveHNFPhase.ReceiveRequesterData)
       elsewhen (send_snoop & !snoops_remaining):
         phases[index] <== mux(outstanding_targets.or_reduce(), CHIInclusiveHNFPhase.AwaitSnoop, CHIInclusiveHNFPhase.AfterSnoops)
@@ -1230,7 +1236,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         )
         line_buffers[index] <== selected_line.updated(snoop_line_packet, merged_snoop_packet)
         maintenance_dirty[index] <== Bool(#true)
-        received_snoop_data_ids[index] <== received_snoop_data_ids[index].updated(requester_data_snoop_target, next_snoop_data_ids)
+        received_snoop_data_ids[index] <== received_snoop_data_ids[index].updated(requester_data_snoop_target, next_snoop_receipt.received_ids)
         when final_snoop_data:
           outstanding_snoop_targets[index] <== outstanding_targets_after_data
 
@@ -1279,7 +1285,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         phases[index] <== CHIInclusiveHNFPhase.SendRequesterCompletion
       elsewhen fill_data_fire:
         line_buffers[index] <== final_fill_line
-        received_fill_data_ids[index] <== next_fill_data_ids
+        received_fill_data_ids[index] <== next_fill_receipt.received_ids
         when final_fill_data:
           remaining_response_data_ids[index] <== request_response_data_ids
           phases[index] <== phase_after_fill

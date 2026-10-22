@@ -262,16 +262,15 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def write_data_slot = upstream_write_data.txn_id[0..slot_width]
   def write_data_slot_valid = upstream_write_data.txn_id < Bits(12)(limit)
   def write_data_request = requests[write_data_slot]
-  def write_data_id = one_hot(upstream_write_data.data_id).into(Mask(4))
-  def write_data_expected_ids = chi_transfer_data_ids(write_data_request.address, chi_req_size(p, write_data_request), p)
-  def write_data_received_ids = received_write_data_ids[write_data_slot]
-  def next_write_data_ids = write_data_received_ids ||| write_data_id
-  def final_write_data = next_write_data_ids === write_data_expected_ids
+  def write_receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(write_data_request.address, chi_req_size(p, write_data_request), p)
+    received_ids: received_write_data_ids[write_data_slot]
+
+  def next_write_receipt = write_receipt.record(upstream_write_data.data_id)
+  def final_write_data = next_write_receipt.complete()
   def write_data_identity_match = upstream_write_data.src_id === write_data_request.src_id
-  def write_data_id_expected = or_reduce(write_data_expected_ids & write_data_id)
-  def write_data_id_duplicate = or_reduce(write_data_received_ids & write_data_id)
   def write_data_phase_match = write_data_slot_valid & writes_waiting_data[write_data_slot]
-  def write_data_match = write_data_phase_match & write_data_identity_match & write_data_id_expected & !write_data_id_duplicate
+  def write_data_match = write_data_phase_match & write_data_identity_match & write_receipt.pending(upstream_write_data.data_id)
   (
     requester.dat.request
       |> filter_flow(_data => write_data_ordinary & write_data_match)
@@ -306,19 +305,18 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def read_data_slot = downstream_read_data.txn_id[0..slot_width]
   def read_data_slot_valid = downstream_read_data.txn_id < Bits(12)(limit)
   def read_data_request = requests[read_data_slot]
-  def read_data_id = one_hot(downstream_read_data.data_id).into(Mask(4))
-  def read_data_expected_ids = chi_transfer_data_ids(read_data_request.address, chi_req_size(p, read_data_request), p)
-  def read_data_received_ids = received_read_data_ids[read_data_slot]
-  def next_read_data_ids = read_data_received_ids ||| read_data_id
-  def final_read_data = next_read_data_ids === read_data_expected_ids
+  def read_receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(read_data_request.address, chi_req_size(p, read_data_request), p)
+    received_ids: received_read_data_ids[read_data_slot]
+
+  def next_read_receipt = read_receipt.record(downstream_read_data.data_id)
+  def final_read_data = next_read_receipt.complete()
   def read_data_subordinate_id = subordinate_ids[read_data_slot]
   def read_data_phase_match = reads[read_data_slot]
   def read_data_identity_match = (
     downstream_read_data.src_id === read_data_subordinate_id
   ) & (downstream_read_data.tgt_id === Bits(p.node_id_width)(home.node_id))
-  def read_data_id_expected = or_reduce(read_data_expected_ids & read_data_id)
-  def read_data_id_duplicate = or_reduce(read_data_received_ids & read_data_id)
-  def read_data_match = read_data_slot_valid & read_data_phase_match & read_data_identity_match & read_data_id_expected & !read_data_id_duplicate
+  def read_data_match = read_data_slot_valid & read_data_phase_match & read_data_identity_match & read_receipt.pending(downstream_read_data.data_id)
   (
     subordinate.dat.response
       |> filter_flow(_data => read_data_ordinary & read_data_match)
@@ -363,7 +361,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
         def data_here = write_data_transfer & (write_data_slot === index_bits)
         priority_mux(~default: received_write_data_ids[index]):
           allocate_here: Mask(4)(0)
-          data_here: next_write_data_ids
+          data_here: next_write_receipt.received_ids
   )
 
   when (allocate_write ||| write_data_transfer):
@@ -377,7 +375,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
         def data_here = read_data_transfer & (read_data_slot === index_bits)
         priority_mux(~default: received_read_data_ids[index]):
           allocate_here: Mask(4)(0)
-          data_here: next_read_data_ids
+          data_here: next_read_receipt.received_ids
   )
 
   when (allocate_read ||| read_data_transfer):

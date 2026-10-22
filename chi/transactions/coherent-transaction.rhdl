@@ -23,8 +23,7 @@ bundle CHICoherentReadTransaction(p :: CHIFlitParams):
   txn_id: Bits(12)
   home_id: Bits(p.node_id_width)
   comp_ack_txn_id: Bits(12)
-  expected_data_ids: Mask(4)
-  received_data_ids: Mask(4)
+  receipt: CHIDataReceipt()
   comp_ack_seen: Bool
 
 /* Retain a snoop's ordinary and forwarded response obligations and endpoint identities. */
@@ -88,7 +87,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def initial_reads = vec(for List (_index in 0..limit): empty_read)
   def empty_snoop = literal(CHISnoopTransaction(p), 0)
   def initial_snoops = vec(for List (_index in 0..limit): empty_snoop)
-  reg reads(~init: initial_reads)
+  reg reads(Vec(limit, CHICoherentReadTransaction(p)), ~init: initial_reads)
   reg snoops(~init: initial_snoops)
   reg copybacks(~init: vec(for List (_index in 0..limit): literal(CHICopyBackTransaction(p), 0)))
 
@@ -111,8 +110,11 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       copybacks[index].live & copybacks[index].granted & (copybacks[index].dbid === tx_dat.txn_id) & (copybacks[index].home_id === tx_dat.tgt_id)
   )
 
-  def copyback_data_id = one_hot(tx_dat.data_id).into(Mask(4))
-  def copyback_expected = chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
+  def copyback_data_id = tx_dat.data_id
+  def copyback_receipt = CHIDataReceipt():
+    expected_ids: chi_transfer_data_ids(Bits(p.request_address_width)(0), CHITransferSize.Bytes64, p)
+    received_ids: Mask(4)(0)
+
   def live_reads = vec(for List (index in 0..limit): reads[index].phase =/= CHICoherentReadPhase.Free).as_bits()
   def live_copybacks = vec(for List (index in 0..limit): copybacks[index].live).as_bits()
   def live_requests = live_reads ++ live_copybacks
@@ -145,15 +147,16 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   when copyback_data:
     assert(data_matches.or_reduce(), label_prefix ++ "_copyback_data_has_grant")
     monitor_chi_copyback_data(p, tx_dat, label_prefix ++ "_copyback_data")
-    assert((copyback_expected & copyback_data_id).or_reduce(), label_prefix ++ "_copyback_data_id_expected")
+    assert(copyback_receipt.expected(copyback_data_id), label_prefix ++ "_copyback_data_id_expected")
 
   for (index in 0..limit):
     def entry = copybacks[index]
-    def received = entry.received ||| copyback_data_id
+    def receipt = copyback_receipt.updated(~received_ids: entry.received)
+    def recorded = receipt.record(copyback_data_id)
     when (copyback_data & data_matches[index]):
-      assert(!(entry.received & copyback_data_id).or_reduce(), label_prefix ++ "_copyback_data_id_unique")
+      assert(!receipt.duplicate(copyback_data_id), label_prefix ++ "_copyback_data_id_unique")
       assert(!entry.received.or_reduce() ||| (entry.state === tx_dat.resp), label_prefix ++ "_copyback_state_consistent")
-      copybacks[index] <== entry.updated(~live: received =/= copyback_expected, ~received: received, ~state: tx_dat.resp)
+      copybacks[index] <== entry.updated(~live: !recorded.complete(), ~received: recorded.received_ids, ~state: tx_dat.resp)
     elsewhen (copyback_grant & grant_matches[index]):
       copybacks[index] <== entry.updated(~granted: Bool(#true), ~dbid: rx_rsp.dbid_or_group_id)
     elsewhen (copyback_request & (copyback_slot === Bits(index_width(limit))(index))):
@@ -177,7 +180,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def req_event = coherent_read_request
   def comp_ack_event = tx_rsp_valid & (tx_rsp.opcode === CHIRspOpcode.CompAck)
   def read_data_event = rx_dat_valid & (rx_dat.opcode === CHIDatOpcode.CompData)
-  def read_data_id = one_hot(rx_dat.data_id).into(Mask(4))
+  def read_data_id = rx_dat.data_id
   def snoop_event = rx_snp_valid & (rx_snp.opcode =/= CHISnpOpcode.SnpLCrdReturn)
   def dvm_event = snoop_event & (rx_snp.opcode === CHISnpOpcode.SnpDVMOp)
   def dvm_second_event = dvm_event & coherent_dvm_first_pending
@@ -195,12 +198,12 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def read_allocation_index = priority_encoder(free_reads)
   def duplicate_read_txn = or_reduce(for List (index in 0..limit): (reads[index].phase =/= CHICoherentReadPhase.Free) & (reads[index].txn_id === req.txn_id))
   def read_data_matches = vec(for List (index in 0..limit): (reads[index].phase === CHICoherentReadPhase.AwaitData) & (reads[index].txn_id === rx_dat.txn_id))
-  def read_data_expected = or_reduce(for List (index in 0..limit): read_data_matches[index] & or_reduce(reads[index].expected_data_ids & read_data_id))
-  def read_data_duplicate = or_reduce(for List (index in 0..limit): read_data_matches[index] & or_reduce(reads[index].received_data_ids & read_data_id))
+  def read_data_expected = or_reduce(for List (index in 0..limit): read_data_matches[index] & reads[index].receipt.expected(read_data_id))
+  def read_data_duplicate = or_reduce(for List (index in 0..limit): read_data_matches[index] & reads[index].receipt.duplicate(read_data_id))
   def read_data_metadata_consistent = or_reduce(
     for List (index in 0..limit):
       read_data_matches[index] & (
-        !reads[index].received_data_ids.or_reduce() ||| (
+        !reads[index].receipt.received_ids.or_reduce() ||| (
           reads[index].home_id === rx_dat.home_nid_or_pbha_or_mismatched_mecid
         ) & (
           reads[index].comp_ack_txn_id === rx_dat.dbid_or_mecid[0..12]
@@ -211,7 +214,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def comp_ack_matches = vec(
     for List (index in 0..limit):
       (reads[index].phase =/= CHICoherentReadPhase.Free) & (
-        reads[index].received_data_ids.or_reduce()
+        reads[index].receipt.received_ids.or_reduce()
       ) & (
         reads[index].comp_ack_txn_id === tx_rsp.txn_id
       ) & (reads[index].home_id === tx_rsp.tgt_id)
@@ -249,13 +252,11 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       txn_id: req.txn_id
       home_id: req.tgt_id
       comp_ack_txn_id: Bits(12)(0)
-      expected_data_ids: chi_transfer_data_ids(
-        req.address,
-        chi_req_size(p, req),
-        p
-      )
+      receipt:
+        CHIDataReceipt():
+          expected_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
+          received_ids: Mask(4)(0)
 
-      received_data_ids: Mask(4)(0)
       comp_ack_seen: Bool(#false)
 
   def next_reads = vec(
@@ -264,16 +265,16 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         def entry = reads[index]
         def read_data_here = read_data_event & read_data_matches[index]
         def comp_ack_here = comp_ack_event & comp_ack_matches[index]
-        def next_received_data_ids = mux(read_data_here, entry.received_data_ids ||| read_data_id, entry.received_data_ids)
-        def first_data = !entry.received_data_ids.or_reduce()
+        def next_receipt = mux(read_data_here, entry.receipt.record(read_data_id), entry.receipt)
+        def first_data = !entry.receipt.received_ids.or_reduce()
         def next_comp_ack_seen = entry.comp_ack_seen ||| comp_ack_here
-        def data_complete = next_received_data_ids === entry.expected_data_ids
+        def data_complete = next_receipt.complete()
         def completed = data_complete & next_comp_ack_seen
         def progressed_read = entry.updated(
           ~phase: mux(data_complete, CHICoherentReadPhase.AwaitCompAck, CHICoherentReadPhase.AwaitData),
           ~home_id: mux(read_data_here & first_data, rx_dat.home_nid_or_pbha_or_mismatched_mecid, entry.home_id),
           ~comp_ack_txn_id: mux(read_data_here & first_data, rx_dat.dbid_or_mecid[0..12], entry.comp_ack_txn_id),
-          ~received_data_ids: next_received_data_ids,
+          ~receipt: next_receipt,
           ~comp_ack_seen: next_comp_ack_seen
         )
 

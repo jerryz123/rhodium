@@ -1,10 +1,33 @@
-// Checks CHI flits, service matching, and singleton/multiregion address maps
+// Checks CHI flits, packet receipts, service matching, and address maps
 // including NodeID-zero hits.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 
 int main() {
   return run_test([] {
+    // Exhaust all encoded sets, including unexpected packets and preexisting
+    // malformed receipts. Re-recording is idempotent, not an implicit rejection.
+    for (unsigned expected = 0; expected < 16; ++expected) {
+      for (unsigned received = 0; received < 16; ++received) {
+        for (unsigned id = 0; id < 4; ++id) {
+          receipt.pexpected_uids = expected;
+          receipt.preceived_uids = received;
+          data_id = id;
+          eval();
+          const unsigned recorded = received | (1u << id);
+          CHECK(receipt_expected == bool(expected & (1u << id)));
+          CHECK(receipt_duplicate == bool(received & (1u << id)));
+          CHECK(receipt_pending == bool((expected & ~received) & (1u << id)));
+          CHECK(receipt_complete == (expected == received));
+          CHECK(recorded_receipt.pexpected_uids == expected);
+          CHECK(recorded_receipt.preceived_uids == recorded);
+          CHECK(recorded_complete == (expected == recorded));
+          CHECK(repeated_receipt.pexpected_uids == expected);
+          CHECK(repeated_receipt.preceived_uids == recorded);
+        }
+      }
+    }
+
     for (int addr = 0; addr < UINT64_C(0x3000); addr++) {
       bool hit;
       int target;

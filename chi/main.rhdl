@@ -54,6 +54,7 @@ export:
   chi_size_valid
   chi_data_beats_minus_one
   chi_data_id_valid
+  CHIDataReceipt
   chi_transfer_data_ids
   chi_transfer_data_id
   chi_transfer_beat

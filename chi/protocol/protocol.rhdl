@@ -1,10 +1,35 @@
 #lang rhodium
-/* Defines shared CHI packet positions, transfer packet sets, and physical legality. */
+/* Defines CHI packet positions, transfer packet sets, receipt values, and physical legality. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
+
+/* Describe one transfer's expected and observed encoded DataIDs without owning state. */
+bundle CHIDataReceipt():
+  expected_ids: Mask(4)
+  received_ids: Mask(4)
+
+  /* Test membership in the expected set, independently of earlier receipts. */
+  method expected(receipt, data_id :: Bits(2)) :: Bool:
+    receipt.expected_ids[data_id]
+
+  /* Report an already-recorded DataID, including one outside the expected set. */
+  method duplicate(receipt, data_id :: Bits(2)) :: Bool:
+    receipt.received_ids[data_id]
+
+  /* Identify an expected DataID that has not yet been recorded. */
+  method pending(receipt, data_id :: Bits(2)) :: Bool:
+    receipt.expected(data_id) & !receipt.duplicate(data_id)
+
+  /* Return a new value with this DataID recorded; callers gate acceptance and check legality. */
+  method record(receipt, data_id :: Bits(2)) :: CHIDataReceipt():
+    receipt.updated(~received_ids: receipt.received_ids ||| Mask(4).from_index(data_id))
+
+  /* Require exact set equality; an unexpected recorded DataID cannot complete a transfer. */
+  method complete(receipt) :: Bool:
+    receipt.received_ids === receipt.expected_ids
 
 /*
  * Size and NumReq share REQ storage. These accessors expose both views so a
@@ -104,6 +129,7 @@ fun chi_data_address(address :: Bits, data_id :: Bits(2), p :: CHIFlitParams) :~
   address[6..address.type.packed_width()] ++ packet_id ++ Bits(4)(0)
 
 export:
+  CHIDataReceipt
   chi_req_size
   chi_req_num_req
   chi_size_valid

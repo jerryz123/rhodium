@@ -60,6 +60,9 @@ Do not change activation, credit state, assertion labels, or transaction
 coverage during packet-API cleanup. Internal non-coherent transaction tables
 use typed zero literals for their Free state, matching coherent tables;
 allocation and progression remain explicit record construction/updates.
+Expected/received packet sets in those tables use the protocol-owned
+`CHIDataReceipt` value. Keep identity matching, transfer predicates, and the
+same-cycle DAT/CompAck update independent of its pure set operations.
 
 `data-checks.rhdl` owns shared unelided-DAT and full-copyback mask/state assertions. Callers pass concrete
 flits and retain event gating, assertion prefixes, and profile-specific DataID

@@ -57,6 +57,10 @@ Control and data responses clear only their encoded outstanding target, and a
 slot leaves snoop processing only after both target masks are empty. Keep
 receipt masks and completion decisions in the Home engines. Mask loading and
 dispatch are phase-exclusive in both callers.
+Home engines use protocol-owned `CHIDataReceipt` views for requester, snoop, and
+backing-read packet sets. Retain the masks in their existing slot/phase owners:
+the noncaching Home also drains its requester receive mask for downstream DAT,
+whereas the inclusive Home keeps separate fill and per-responder receipt banks.
 
 ### Inclusive LLC and transaction slots
 

@@ -26,7 +26,7 @@ explains the difference.
 | Need | Defining module |
 |---|---|
 | Physical parameters and packed REQ/RSP/SNP/DAT fields | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl) |
-| Packet positions, transfer Size, DataID, and coherent-state vocabulary | [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) |
+| Packet positions, DataID receipt values, transfer Size, and coherent-state vocabulary | [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) |
 | Credited physical links and ready-valid engine channels | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl) |
 | Capabilities, service descriptions, and Home/subordinate maps | [`fabric.rhdl`](fabric.rhdl) |
 | Immutable semantic message builders | [`messages.rhdl`](messages.rhdl) |
@@ -38,6 +38,35 @@ builders retain caller-selected policy and allocate no transaction state.
 See the package guide for the [wire](../README.md#wire-and-protocol-foundation),
 [endpoint](../README.md#endpoint-links-and-engine-channels), and
 [service-map](../README.md#services-and-system-address-maps) contracts.
+
+## Packet receipt values
+
+`CHIDataReceipt()` from `lib("chi/protocol/protocol.rhdl")` is a combinational
+value containing two `Mask(4)` fields: `expected_ids` and `received_ids`.
+Lanes name encoded DataIDs, not consecutive beat numbers. Derive the expected
+set with `chi_transfer_data_ids` so address offsets and DAT width remain explicit:
+
+```rhombus
+def receipt = CHIDataReceipt():
+  expected_ids: chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+  received_ids: received_data_ids
+
+def next_receipt = receipt.record(data.data_id)
+def final_packet = next_receipt.complete()
+```
+
+All DataID arguments are `Bits(2)`. `.expected(id)` tests expected membership;
+`.duplicate(id)` tests recorded membership, even outside the expected set;
+`.pending(id)` is expected and not duplicate. `.record(id)` returns a new
+receipt with that lane set and leaves the original value unchanged. Recording
+twice is idempotent. It does not suppress unexpected IDs or assert legality.
+
+`.complete()` tests exact equality of the two sets. Empty expected/received
+sets are complete; a recorded unexpected ID prevents completion. Callers own
+registers, allocation/reset, transfer gating, transaction/source matching,
+physical DataID legality, assertions, and retirement. To test the final packet,
+query the returned value; checking the original receipt observes only earlier
+packets. The API adds no storage, payload assembly, retry, or CompAck policy.
 
 ## Message construction and endpoint peers
 

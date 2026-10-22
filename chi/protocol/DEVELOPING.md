@@ -19,7 +19,7 @@ owns package-wide dependency direction.
 | Files | Responsibility |
 |---|---|
 | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl) | Physical choices and packed payloads |
-| [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Packet positions, Size/DataID rules, coherent vocabulary |
+| [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Packet positions, Size/DataID rules, receipt values, coherent vocabulary |
 | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl) | Credited links, endpoint capabilities, ready-valid channels |
 | [`fabric.rhdl`](fabric.rhdl) | Service support, Home/subordinate maps, decode validation |
 | [`messages.rhdl`](messages.rhdl) | Stateless message builders and metadata-preserving transforms |
@@ -107,6 +107,12 @@ Packet position and naturally aligned, unelided transfer packet sets belong in
 for RAM/DPI addressing and requester, subordinate, Home, and refill logic; do
 not introduce node-role-specific DataID renumbering. Each engine and monitor
 keeps its own receipt state and checks duplicate/unexpected packets.
+`CHIDataReceipt` packages only the expected/received set operations. Transaction
+tables may retain it as a nested value; engines with derived expectations or
+repurposed receive/drain masks construct a view over their existing registers.
+Keep acceptance predicates, assertion labels, collision priority, and storage
+width unchanged when adopting it. In particular, `record` must retain an
+unexpected ID rather than mask it away and make a malformed transfer complete.
 
 ## Focused validation
 
@@ -120,6 +126,7 @@ checks for the contract changed:
 | Message builders or transforms | `chi-messages` at all DAT widths and optional-field settings; inclusive-Home, maintenance-Home, cache-maintenance, and `rv5stage-chi-requests` consumers |
 | Home/subordinate maps or support matching | `chi-foundation` boundaries, sparse holes, opcodes, and Size ranges; HN-I constructor negatives |
 | DataID or packet-position rules | `chi-packets` across all bus widths; `rv5stage-uncached`, `rv5stage-dcache`, `fesvr-mmio`, RAM, and fragmenter consumers |
+| Receipt values or their adoption | `chi-foundation` exhausts all expected/received sets and DataIDs; transaction, coherent, RAM, and both Home fixtures cover stateful acceptance and rejection |
 
 Consumer benches must compare complete packets, not just payloads. For source
 moves, update direct consumers, docs, and build/CI paths together, then run
