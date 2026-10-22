@@ -71,18 +71,6 @@ def one_hot_mux = one_hot_module.operations.find(
 )
 
 def validity_module = valid_example_enum_validity_design.modules[0]
-def validity_equalities = validity_module.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.eq"
-)
-
-def validity_ors = validity_module.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.or"
-)
-
-def validity_constants = validity_module.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.constant"
-)
-
 check:
   enum.enum_type(fixture.State) ~is #true
   enum.enum_type(fixture.Opcode) ~is #true
@@ -162,13 +150,8 @@ check:
      type_equal(choice.type, Bits(8))) ~is #true
 
   type_equal(one_hot_mux.results[0].type, Bits(8)) ~is #true
-  validity_equalities.length() ~is 12
-  validity_ors.length() ~is 0
-  validity_constants.map(
-    fun (operation): operation.attribute("value")
-  ) ~is [0, 3, 7, 0, 0, 1, 2, 3, 0, 1, 2, 0]
-
-  bool.bool_type(validity_module.find_output("sparse_valid").type) ~is #true
+  (for all (name in ["sparse_valid", "dense_valid", "one_hot_valid"]):
+     bool.bool_type(validity_module.find_output(name).type)) ~is #true
   verify_design(valid_example_enum_validity_design) ~is #void
   elaborate(valid_fixture.InvalidEnumValidity()) ~throws "enum_valid operand must have a hardware enum type"
   verify_design(design) ~is #void

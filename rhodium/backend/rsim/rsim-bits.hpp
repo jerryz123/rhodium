@@ -122,10 +122,18 @@ template <std::size_t W> bool signed_less(const WideBits<W>& left, const WideBit
 template <std::size_t W>
 using Carrier = std::conditional_t<(W <= 64), std::uint64_t, WideBits<W>>;
 
+// Read the actual limb span without carrying a width-specific array type into
+// shared accessor code. Missing limbs are zero for slices and zero extension.
+inline std::uint32_t limb_word(const std::uint32_t* words, std::size_t size, std::size_t index) {
+  return index < size ? words[index] : 0;
+}
 template <std::size_t W> std::uint32_t word(const Carrier<W>& value, std::size_t index) {
-  if (index >= (W + 31) / 32) return 0;
-  if constexpr (W <= 64) return static_cast<std::uint32_t>(value >> (index * 32));
-  else return value.words[index];
+  if constexpr (W <= 64) {
+    if (index >= (W + 31) / 32) return 0;
+    return static_cast<std::uint32_t>(value >> (index * 32));
+  } else {
+    return limb_word(value.words.data(), value.words.size(), index);
+  }
 }
 template <std::size_t W> void put_word(Carrier<W>& value, std::size_t index, std::uint32_t bits) {
   if constexpr (W <= 64) value |= std::uint64_t(bits) << (index * 32);

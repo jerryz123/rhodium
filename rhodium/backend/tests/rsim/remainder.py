@@ -67,9 +67,11 @@ def driver(width, native):
         port = 'dut.outputs().p' + name.replace('_', '_u') if native else 'dut.' + name
         if bits > 64:
             port += '.words' if native else ''
-            writes.append(f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) std::cout << {port}[i] << " ";')
+            writes.append(f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) {{ std::cout << {port}[i] << " "; }}')
         else:
-            writes.append(f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) std::cout << std::uint32_t(std::uint64_t({port}) >> (32*i)) << " ";')
+            writes.append(f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) {{ std::cout << std::uint32_t(std::uint64_t({port}) >> (32*i)) << " "; }}')
+    read_lines = '\n    '.join(reads)
+    write_lines = '\n    '.join(writes)
     return f'''// SPDX-License-Identifier: Apache-2.0
 #include "{header}"
 #include <cstdint>
@@ -79,10 +81,10 @@ int main() {{
   std::uint32_t word;
   std::cin >> std::hex; std::cout << std::hex;
   while (std::cin.peek() != EOF) {{
-    {' '.join(reads)}
+    {read_lines}
     if (!std::cin) break;
     dut.eval(); dut.eval();
-    {' '.join(writes)}
+    {write_lines}
     std::cout << '\\n';
     std::cin >> std::ws;
   }}

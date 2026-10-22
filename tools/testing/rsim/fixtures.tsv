@@ -156,6 +156,7 @@ adder4	language	examples/rtl/adder4.rhdl	program	rhodium/backend/tests/rsim/adde
 generated-adder	language	examples/rtl/generated-adder.rhdl	program	rhodium/backend/tests/rsim/generated-adder.cpp
 alu	language	examples/rtl/alu.rhdl	program	rhodium/backend/tests/rsim/alu.cpp
 enum-state	language	examples/rtl/enum-state.rhdl	program	rhodium/backend/tests/rsim/enum-state.cpp
+enum-validity	language	examples/rtl/bit-utilities.rhdl	enum_validity_program	rhodium/backend/tests/rsim/enum-validity.cpp
 one-hot	language	examples/rtl/one-hot.rhdl	program	rhodium/backend/tests/rsim/one-hot.cpp
 shifts	language	examples/rtl/shifts.rhdl	program	rhodium/backend/tests/rsim/shifts.cpp
 width-ops	language	examples/rtl/width-ops.rhdl	program	rhodium/backend/tests/rsim/width-ops.cpp

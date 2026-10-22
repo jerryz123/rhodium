@@ -597,7 +597,9 @@ comparison transform unsigned bit patterns, avoiding signed C++ overflow and
 implementation-defined right shifts. Preserve normalization before widening.
 Wide scalar storage uses `WideBits<W>` with low-word-first 32-bit limbs. Keep
 normalization at value boundaries, explicit conversions, and operation-level
-signedness. `check_wide_operation` admits only implemented operand/result
+signedness. Zero-extending limb reads pass the actual storage pointer and length
+to one limb-span accessor, keeping shared GCC accessor code independent of
+width-specific `std::array` object bounds. `check_wide_operation` admits only implemented operand/result
 combinations; inspect nested leaves and operands even when results are narrow.
 Foreign ABI checks retain their separate return-value limits. Scalar reinterpretation
 casts preserve bits; aggregate casts use the canonical packed layout.
