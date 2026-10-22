@@ -34,6 +34,9 @@ std::uint64_t last_cause = 0, last_tval = 0, last_fault_pc = 0;
 std::uint64_t authorization_owner = 0, guarded_store_address = 0;
 unsigned authorization_merges = 0;
 bool interrupt_after_admission = false;
+std::map<std::uint64_t, unsigned> trained_branches;
+struct Redirect { std::uint64_t pc, target; unsigned disposition; };
+std::vector<Redirect> observed_redirects;
 
 namespace vector_trace {
 struct Owner {
@@ -242,8 +245,14 @@ void step() {
       ++deferred_count;
       gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
     }
+    if (branch_update_out.pvalid) {
+      CHECK(retired_pcs.contains(branch_update_out.pbits.ppc));
+      ++trained_branches[branch_update_out.pbits.ppc];
+    }
     if (redirect_out.pvalid) {
       ++redirect_count;
+      observed_redirects.push_back({redirect_out.pbits.ppc,
+          redirect_out.pbits.ptarget, redirect_out.pbits.presolution.pdisposition});
       const bool interrupt = interrupt_after_admission &&
           redirect_out.pbits.presolution.pdisposition == 3 &&
           (redirect_out.pbits.presolution.pcause >> (bytes * 8 - 1));
@@ -983,6 +992,140 @@ void independent_vector_scalar_pairs() {
   CHECK(gprs[3] == 107);
   extract(16, 7, 0);
 }
+void conflict_based_pairing() {
+  run(120);
+  setvl(0, 4);
+  send(addi(1, 0, 0x400));
+  send(addi(2, 0, 7));
+  words[0x400] = words[0x1400] = 0x15151515;
+  fast_enabled = safe = true;
+  const auto vector_move = vi(23, 0, 2, 4, 8);
+  const auto vector_load = 0x02000007u | (1 << 15) | (8 << 7);
+  const auto vector_store = 0x02000027u | (1 << 15) | (8 << 7);
+  const auto configure = vsetivli(10, 4, 0);
+  const auto load = (1 << 15) | (2 << 12) | (12 << 7) | 3u;
+  const auto multiply = (1u << 25) | (2 << 20) | (2 << 15) | (12 << 7) | 0x33;
+  const auto divide = multiply | (4 << 12);
+  const std::array<std::uint32_t, 4> ordinary = {
+    addi(0, 0, 0), addi(12, 0, 31), 0x00001463, 0x0040006f
+  }; // nop, li, not-taken branch, and jal x0 to its sequential successor
+
+  for (auto vector : {vector_move, vector_load, vector_store}) {
+    for (auto scalar : ordinary) {
+      for (bool vector_first : {false, true}) {
+        run(40);
+        const auto admissions = vector_trace::admissions;
+        issue_pair(vector_first ? vector : scalar, vector_first ? scalar : vector);
+        CHECK(vector_trace::admissions == admissions + 1);
+      }
+    }
+  }
+  fast_enabled = false;
+  // Configuration owns the CSR command, not either scalar execution lane.
+  for (auto scalar : {ordinary[0], ordinary[2], ordinary[3], load, multiply, divide}) {
+    for (bool config_first : {false, true}) {
+      run(80);
+      issue_pair(config_first ? configure : scalar, config_first ? scalar : configure);
+      run(40);
+      CHECK(gprs[10] == 4);
+      if (scalar == multiply) CHECK(gprs[12] == 49);
+      if (scalar == divide) CHECK(gprs[12] == 1);
+    }
+  }
+  // A second independently rejecting WB service still needs a separate group.
+  for (auto scalar : {load, multiply, divide}) {
+    for (bool vector_first : {false, true}) {
+      run(80);
+      const auto base = next_pc;
+      stream({vector_first ? vector_move : scalar, vector_first ? scalar : vector_move});
+      CHECK(memory_cycles.at(base) < memory_cycles.at(base + 4));
+    }
+  }
+  for (auto vector : {vector_move, configure}) {
+    const auto base = next_pc;
+    stream({vector, vector});
+    CHECK(memory_cycles.at(base) < memory_cycles.at(base + 4));
+  }
+
+  if constexpr (bytes == 8) {
+    const auto convert = (0x69u << 25) | (2 << 15) | (3 << 7) | 0x53; // fcvt.d.w f3,x2
+    const auto read = (0x61u << 25) | (3 << 15) | (12 << 7) | 0x53; // fcvt.w.d x12,f3
+    for (auto vector : {vector_move, vector_load, configure}) {
+      for (bool vector_first : {false, true}) {
+        run(80);
+        fast_enabled = vector == vector_load;
+        issue_pair(vector_first ? vector : convert, vector_first ? convert : vector);
+        run(40);
+        send(read);
+        CHECK(gprs[12] == 7);
+      }
+    }
+    fast_enabled = false;
+
+    setvl(3, 2);
+    send(convert);
+    send(vi(23, 0, 3, 5, 8)); // vfmv.v.f v8,f3 = 7.0
+    run(40);
+    const auto vector_read = vi(23, 0, 3, 5, 9);
+    const auto vector_write = vi(16, 8, 0, 1, 3); // vfmv.f.s f3,v8
+    // Two FPR read bundles conflict even with different source registers.
+    send((0x69u << 25) | (2 << 15) | (4 << 7) | 0x53);
+    const auto read_other = (0x61u << 25) | (4 << 15) | (12 << 7) | 0x53;
+    const auto reads = next_pc;
+    stream({vector_read, read_other});
+    CHECK(memory_cycles.at(reads) < memory_cycles.at(reads + 4) && gprs[12] == 7);
+    // A vector FPR writer does not use that read bundle, but its RAW/WAW
+    // hazards must still prevent a stale read or an out-of-order overwrite.
+    const auto raw = next_pc;
+    stream({vector_write, read});
+    CHECK(memory_cycles.at(raw) < memory_cycles.at(raw + 4) && gprs[12] == 7);
+    send(addi(2, 0, 3));
+    const auto waw = next_pc;
+    stream({vector_write, convert});
+    CHECK(memory_cycles.at(waw) < memory_cycles.at(waw + 4));
+    send(read);
+    CHECK(gprs[12] == 3);
+    const auto reverse_raw = next_pc;
+    stream({convert, vector_read});
+    CHECK(memory_cycles.at(reverse_raw) < memory_cycles.at(reverse_raw + 4));
+    extract(9, 7, UINT64_C(0x4008000000000000));
+    // Distinct FPR operands are not an instruction-class conflict.
+    issue_pair(vector_write, read_other);
+    run(40);
+    CHECK(gprs[12] == 7);
+    issue_pair(read_other, vector_write);
+    run(40);
+    CHECK(gprs[12] == 7);
+    const auto vector_zero = vi(16, 8, 0, 1, 0); // f0 is writable, unlike x0
+    const auto read_zero = (0x61u << 25) | (12 << 7) | 0x53;
+    const auto convert_zero = (0x69u << 25) | (2 << 15) | 0x53;
+    const auto zero_raw = next_pc;
+    stream({vector_zero, read_zero});
+    CHECK(memory_cycles.at(zero_raw) < memory_cycles.at(zero_raw + 4) && gprs[12] == 7);
+    const auto zero_waw = next_pc;
+    stream({vector_zero, convert_zero});
+    CHECK(memory_cycles.at(zero_waw) < memory_cycles.at(zero_waw + 4));
+    send(read_zero);
+    CHECK(gprs[12] == 3);
+
+    // Fault/replay still qualifies FP authorization, including beside vset.
+    const auto old_fault = next_pc;
+    resolve_pc = old_fault;
+    resolve_disposition = 1;
+    stream({configure, convert}, true);
+    resolve_pc = 0;
+    CHECK(!retired_pcs.contains(old_fault + 4));
+    const auto retry = next_pc;
+    resolve_pc = retry;
+    resolve_disposition = 2;
+    stream({convert, configure}, false, true);
+    CHECK(retired_pcs.contains(retry) && retired_pcs.contains(retry + 4));
+    send(read);
+    CHECK(gprs[12] == 3);
+  }
+  run(80);
+}
+
 void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) {
   send(addi(2, 0, guest_status >> 8));
   send((8 << 20) | (2 << 15) | (1 << 12) | (2 << 7) | 0x13); // slli x2,x2,8
@@ -997,6 +1140,128 @@ void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) 
   send(0x34109073); // mepc
   send(0x30200073); // mret into VS
 }
+void vector_memory_branch_pairs() {
+  run(120);
+  setvl(0, 4);
+  send(addi(1, 0, 0x700));
+  send(addi(2, 0, 0x33));
+  send(vi(23, 0, 2, 4, 8));
+  send(vi(20, 0, 17, 2, 16)); // byte indices for the precise path
+  send(addi(14, 0, 1));
+  run(40);
+  // Mode 0 certifies in MEM; 1 delays precise authorization; 2 rejects the
+  // first WB attempt; 3 faults the second element after accepting the first.
+  for (unsigned mode = 0; mode < 4; ++mode) {
+    for (bool store : {false, true}) {
+      for (bool taken : {false, true}) {
+        for (bool predicted : {false, true}) {
+          setvl(0, 4);
+          send(addi(12, 0, 9));
+          send(addi(13, 0, 10));
+          const auto base = next_pc;
+          next_pc += 16;
+          const auto admissions_before = vector_trace::admissions;
+          const auto stores_before = stores, faults_before = fault_count;
+          const auto redirects_before = observed_redirects.size();
+          fast_enabled = mode == 0;
+          safe = false;
+          slow = true;
+          fast_current = true;
+          fault_at = mode == 3 ? 0x701 : 0;
+          resolve_pc = mode == 2 ? base : 0;
+          resolve_disposition = 2;
+          request_block_until = cycle + (mode == 1 ? 24 : 0);
+          authorization_owner = base;
+          const unsigned indexed = mode == 0 ? 0 : (1u << 26) | (16 << 20);
+          const std::array<std::uint32_t, 4> program = {
+            indexed | (1u << 25) | (1 << 15) | (8 << 7) | (store ? 0x27u : 7u),
+            (14 << 15) | (unsigned(taken) << 12) | 0x463u, // bne/beq x14,x0,+8
+            addi(12, 0, 77), addi(13, 0, 88)
+          };
+          unsigned sent = 0;
+          recovery_pc = replay_pc = 0;
+          for (unsigned wait = 0; ; ++wait) {
+            CHECK(wait < 3000);
+            instructions_in = {};
+            instructions_in.pvalid = sent < program.size();
+            const unsigned count = sent == 1 && predicted ? 1 :
+                std::min<unsigned>(2, program.size() - sent);
+            instructions_in.pbits.pcount = count;
+            for (unsigned lane = 0; lane < count; ++lane) {
+              const auto index = sent + lane;
+              auto &entry = instructions_in.pbits.pentries[lane];
+              entry.ppc = base + 4 * index;
+              entry.psequential_upc = entry.ppc + 4;
+              entry.pinstruction = entry.praw_uinstruction = program[index];
+              if (index == 1) {
+                entry.pprediction.pvalid = predicted;
+                entry.pprediction.ptarget = base + 12;
+                entry.pdirection.pvalid = 1;
+                entry.pdirection.ptaken = predicted;
+                entry.pdirection.phistory = 5;
+              }
+            }
+            settle();
+            const bool accepted = instructions_in.pvalid && instructions_out.pready;
+            const auto redirects = observed_redirects.size();
+            step();
+            if (accepted) {
+              if (sent <= 1 && sent + count > 1 && predicted) sent = 3;
+              else sent += count;
+            }
+            if (observed_redirects.size() != redirects) {
+              const auto &redirect = observed_redirects.back();
+              if (redirect.disposition != 1) {
+                CHECK(redirect.target >= base && redirect.target < next_pc);
+                sent = (redirect.target - base) / 4;
+                if (redirect.disposition == 2) resolve_pc = 0;
+              }
+              recovery_pc = replay_pc = 0;
+            }
+            if (fault_count != faults_before || retired_pcs.contains(base + 12)) break;
+          }
+          instructions_in.pvalid = 0;
+          run(50);
+          CHECK(memory_cycles.at(base) == memory_cycles.at(base + 4));
+          CHECK(vector_trace::admissions == admissions_before + 1);
+          CHECK(fault_count == faults_before + (mode == 3));
+          if (mode == 3) {
+            CHECK(last_fault_pc == base && last_tval == 0x701);
+            CHECK(last_cause == (store ? 15 : 13));
+            CHECK(!retired_pcs.contains(base) && !retired_pcs.contains(base + 4));
+            CHECK(!trained_branches.contains(base + 4));
+            CHECK(gprs[12] == 9 && gprs[13] == 10);
+          } else {
+            CHECK(retired_pcs.contains(base) && retired_pcs.contains(base + 4));
+            CHECK(retirement_cycles.at(base + 4) >= retirement_cycles.at(base));
+            CHECK(trained_branches[base + 4] == 1);
+            if (gprs[12] != (taken ? 9 : 77) || gprs[13] != 88)
+              std::cerr << "vector/branch mode=" << mode << " store=" << store
+                        << " taken=" << taken << " predicted=" << predicted
+                        << " x12=" << gprs[12] << " x13=" << gprs[13] << '\n';
+            CHECK(gprs[12] == (taken ? 9 : 77) && gprs[13] == 88);
+            CHECK(retired_pcs.contains(base + 8) == !taken);
+            if (mode == 0)
+              CHECK(retirement_cycles.at(base) == retirement_cycles.at(base + 4));
+          }
+          CHECK(stores == stores_before + (store ? (mode == 0 || mode == 3 ? 1 : 4) : 0));
+          bool corrected = false, replayed = false;
+          for (auto index = redirects_before; index < observed_redirects.size(); ++index) {
+            const auto &redirect = observed_redirects[index];
+            corrected |= redirect.disposition == 0 && redirect.pc == base + 4;
+            replayed |= redirect.disposition == 2;
+          }
+          CHECK(corrected == (taken != predicted));
+          if (mode == 1 || mode == 2) CHECK(replayed);
+          fault_at = resolve_pc = authorization_owner = request_block_until = 0;
+          fast_enabled = slow = false;
+        }
+      }
+    }
+  }
+  safe = true;
+}
+
 void speculative_scalar_authorization() {
   run(120);
   safe = fast_enabled = false;
@@ -1296,6 +1561,8 @@ int main() {
     paired_vector_arithmetic();
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
+    conflict_based_pairing();
+    vector_memory_branch_pairs();
     speculative_scalar_authorization();
     run(100);
     vector_trace::finish();

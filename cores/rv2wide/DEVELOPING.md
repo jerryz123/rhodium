@@ -301,12 +301,25 @@ EX still calculates the PC-relative or JALR target independently. MEM resolves
 direction, target alignment, effective successor, RAS mismatch, and tournament
 outcome before its existing oldest-stop qualification and WB transfer.
 
-Admission allows one non-memory vector operation with one ordinary integer ALU
-instruction in either order; pairing does not require a bypass route. A younger
-ALU may overwrite the older vector's scalar source because the descriptor
-captures its pre-write value. Canonical scalar-use metadata separates VRF and
-GPR namespaces, while vector GPR-result RAW/WAW hazards still split the pair.
-Keep the single-vector limit and vector-memory pairing rules unchanged.
+Admission is conflict-based, not a list of permitted instruction combinations.
+Keep GPR/FPR dependencies, resource conflicts, scheduled return capacity, and
+serialization distinct. Two WB services (scalar memory, integer M, variable FP,
+or vector descriptors) cannot share a group: their independent rejection or
+retention paths do not provide an age-qualified cross-service acceptance chain.
+This also protects the single descriptor input and scalar deferred-owner port.
+Two configurations contend for the CSR command; two FP operand/control owners
+contend for the selected FPR read bundle; RAS actions and fixed return collisions
+retain their existing capacity checks. Do not recreate permitted-pair predicates
+when adding an instruction; add only the resource or ordering conflict it creates.
+
+Canonical scalar-use metadata separates VRF and GPR namespaces. A younger ALU
+may overwrite a vector's scalar source because the descriptor snapshots the
+pre-write value. Same-pair FPR RAW/WAW checks include vector scalar-FPR results
+and scalar FP operands/destinations, including f0, even when their shared read
+bundle does not conflict. Bypass routes remain explicit physical capabilities;
+a route may waive only the source dependency it actually supplies.
+Each lane uses its existing EX target and MEM comparator. Older WB rejection
+overrides speculative branch correction and prevents younger retirement/training.
 
 For younger non-memory vector arithmetic, the ordinary ALU producer may
 replace a genuine integer rs1 dependency with `VectorScalar`. This route waives
@@ -868,11 +881,12 @@ replay. Forward the adapter's physical-address flags through the selected memory
 owner: MMU lookup and WB demand must not translate these physical retries again
 or depend on the original TLB entry or fallback page window remaining resident.
 
-`vsetvli`, `vsetivli`, and `vsetvl` may pair with one vector operation or an
-ordinary integer ALU instruction in either order, without draining vector
-execution. Classify ALU partners from decoded controls, excluding memory, M, FP,
-system, and control-transfer operations. Keep ordinary scalar RAW/WAW and
-resource gates; there is no same-pair VL-to-GPR or ALU-to-configuration bypass.
+`vsetvli`, `vsetivli`, and `vsetvl` consume the CSR command but not a WB service
+admission. They may pair whenever the common dependency/resource/order checks
+permit, without draining vector execution. Keep the single-configuration limit;
+there is no same-pair VL-to-GPR or ALU-to-configuration bypass. Fixed FP WB
+authorization permits an EX-validated configuration on the same edge, without
+depending on CSR command-success feedback; other system commands serialize.
 The existing two GPR ports and lane-qualified CSR result selection need no
 additional queue or stage. EX computes configuration
 and its GPR result using shared architectural helpers. The newest nonfaulted
@@ -942,6 +956,13 @@ sweep one/two-slot arrival timing across final authorization. They require an
 actual vector/scalar co-retirement, suppress younger GPR/FPR/multiply/store and
 fault effects, preserve the vector fault's `vstart`, and defer interrupts until
 the vector owner and accepted responses have drained.
+Vector-memory/branch pairs additionally require same-cycle MEM arrival for
+loads and stores, both outcomes and prediction directions, certified retirement,
+precise authorization replay, older rejection, and older vector faults.
+Conflict-based pairing checks both age orders of vector/ALU, no-op, branch,
+jump, and fixed-FP partners and configuration/memory/M/FP partners. It retains
+service-admission, descriptor, CSR-command, FPR-read, and FPR RAW/WAW splits,
+and checks configuration/FP authorization across fault/replay.
 Both core-vector fixtures run the event pass and production collector. Public
 MEM observations, accepted descriptor requests, and sequencer dispatch/release
 ports form an independent occurrence FIFO. It checks exact MEM parents for every

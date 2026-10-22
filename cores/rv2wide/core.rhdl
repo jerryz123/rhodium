@@ -534,9 +534,28 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   def rr_branch :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].branch.resolver.enable)
   def rr_training_blocked = [rr_branch[0] & (rr_training_projected >= Bits(4)(3)), rr_branch[1] & (rr_training_projected + rr_branch[0].as_bits().zext(4) >= Bits(4)(3))]
-  def rr_pair_memory = rr_controls[0].memory.enable & rr_controls[1].memory.enable
   def rr_variable_fp = for List (lane in 0..2): rr_controls[lane].fp.valid & (rr_controls[lane].fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
-  def rr_pair_deferred = (rr_variable_fp[0] & (rr_long[1] ||| rr_controls[1].memory.enable)) ||| (rr_variable_fp[1] & (rr_long[0] ||| rr_controls[0].memory.enable)) ||| (rr_long[0] & (rr_long[1] ||| rr_controls[1].memory.enable)) ||| (rr_long[1] & rr_controls[0].memory.enable)
+  // Only one WB service may reject or retain an owner in a group. Cross-service
+  // pairs need age-qualified acceptance before they can share that boundary.
+  def rr_wb_service = for List (lane in 0..2): rr_controls[lane].memory.enable ||| rr_long[lane] ||| rr_variable_fp[lane] ||| rr_vector[lane]
+  def rr_pair_wb_admission = rr_wb_service[0] & rr_wb_service[1]
+  def rr_pair_csr = rr_vector_config[0] & rr_vector_config[1]
+  // Scalar FP control/operands and a vector scalar-FPR snapshot share one
+  // selected read bundle; two independent FP owners cannot use it together.
+  def rr_fpr_reads = for List (lane in 0..2): rr_controls[lane].fp.valid ||| rr_vector_frs1[lane]
+  def rr_pair_fpr_reads = rr_fpr_reads[0] & rr_fpr_reads[1]
+  def rr_fpr_writes = for List (lane in 0..2):
+    def control :: RV2WideControl() = rr_controls[lane]
+    (control.fp.valid & (control.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (rr_vector[lane] & control.vector.floating_point & control.vector.floating_scalar_destination)
+
+  def rr_younger_fpr_sources = vec(
+    (rr_controls[1].fp.valid & rr_controls[1].fp.bits.registers.uses_frs1) ||| rr_vector_frs1[1],
+    rr_controls[1].fp.valid & rr_controls[1].fp.bits.registers.uses_frs2,
+    rr_controls[1].fp.valid & rr_controls[1].fp.bits.registers.uses_frs3
+  )
+  def rr_fpr_source_addresses = vec(rr_rs1[1], rr_rs2[1], rr_head.entries[1].instruction[27..32])
+  def rr_pair_fpr_raw = rr_fpr_writes[0] & any(for List (source in 0..3): rr_younger_fpr_sources[source] & (rr_rd[0] === rr_fpr_source_addresses[source]))
+  def rr_pair_fpr_waw = rr_fpr_writes[0] & rr_fpr_writes[1] & (rr_rd[0] === rr_rd[1])
   def rr_system = for List (lane in 0..2):
     def system :: RV2WideSystemControl() = rr_controls[lane].system
     rr_decodable[lane] & rv2wide_serializing_operation(system)
@@ -590,21 +609,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      without ordinary decode/pair eligibility, but cannot bypass its older peer. */
 
   def rr_first = (rr_head.count =/= Bits(2)(0)) & !rr_blocked[0] & !rr_squash & !rr_pause_blocked & rr_serialization_clear[0] & rr_memory_order_clear[0]
-  def rr_pair_resource_conflict = rr_pair_ras ||| rr_pair_memory ||| rr_pair_deferred ||| rr_pair_fixed_collision ||| (rr_controls[0].fp.valid & rr_controls[1].fp.valid)
-  def rr_pair_conflict = rr_pair_raw ||| rr_pair_waw ||| rr_pair_resource_conflict
+  def rr_pair_resource_conflict = rr_pair_ras ||| rr_pair_wb_admission ||| rr_pair_csr ||| rr_pair_fpr_reads ||| rr_pair_fixed_collision
+  def rr_pair_data_conflict = rr_pair_raw ||| rr_pair_waw ||| rr_pair_fpr_raw ||| rr_pair_fpr_waw
+  def rr_pair_conflict = rr_pair_data_conflict ||| rr_pair_resource_conflict
   def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| !wb_gpr_calendar.registered_free[2]
   def rr_second_decodable = rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_conflict)
   def rr_younger_prefix_allowed = rr_decodable[0] & !rr_controls[0].pause & !rr_system[0] & !rr_system[1]
-  def rr_ordinary_alu = for List (lane in 0..2):
-    def control :: RV2WideControl() = rr_controls[lane]
-    rr_decodable[lane] & control.writeback.enable & !rr_vector[lane] & !control.memory.enable & !rr_long[lane] & !control.fp.valid & !control.system.serializing() & !control.branch.resolver.enable
-
-  // One vector operation or configuration may share ordinary ALU work; hazards still apply.
-  def rr_vector_config_pair = (rr_vector_config[0] & (rr_vector[1] ||| rr_ordinary_alu[1])) ||| ((rr_vector[0] ||| rr_ordinary_alu[0]) & rr_vector_config[1])
-  def rr_vector_arithmetic = for List (lane in 0..2): rr_vector[lane] & !rr_controls[lane].vector.memory
-  def rr_vector_scalar_pair = (rr_vector_arithmetic[0] & rr_ordinary_alu[1]) ||| (rr_ordinary_alu[0] & rr_vector_arithmetic[1])
-  def rr_vector_pair_allowed = rr_vector_config_pair ||| rr_vector_scalar_pair ||| (!rr_vector[0] & !rr_vector[1] & !rr_vector_config[0] & !rr_vector_config[1])
-  def rr_second = rr_first & !rr_vector_writeback_waiting & rr_vector_pair_allowed & (rr_head.count === Bits(2)(2)) & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
+  def rr_second = rr_first & !rr_vector_writeback_waiting & (rr_head.count === Bits(2)(2)) & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   rr_window.consume <== issued
   def rr_fp_admitted = mux(rr_fp_lane === Bits(1)(0), rr_first, rr_second) & rr_decodable[rr_fp_lane] & rr_fp_fixed[rr_fp_lane]
@@ -654,7 +665,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      Each lane reports its actual blockers, but only the shared admitted
      prefix consumes instructions and enters the execution pipes. */
 
-  def rr_younger_prefix_excluded = rr_system[0] ||| rr_system[1] ||| !rr_vector_pair_allowed ||| !rr_decodable[0] ||| (!rr_head.entries[1].fault.valid & !rr_decodable[1])
+  def rr_younger_prefix_excluded = rr_system[0] ||| rr_system[1] ||| !rr_decodable[0] ||| (!rr_head.entries[1].fault.valid & !rr_decodable[1])
   def rr_pair_resources_blocked = rr_decodable[0] & rr_decodable[1] & rr_pair_resource_conflict
   for (lane in 0..2):
     def ex_ingress = ex_pipe[lane].ingress
@@ -662,7 +673,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def rr_auipc_addi = Bool(lane == 1) & (rr_pairing.routes[0] === RV2WidePairRoute.AuipcAddi)
     ex_pipe[lane].flush <== rr_squash
     // Younger offers inherit the older offer's blockers, not a generic age hazard.
-    def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & (rr_pair_raw ||| rr_pair_waw)))
+    def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & rr_pair_data_conflict))
     def older_structural_hazard = if lane == 0
     | Bool(#false)
     | rr_structural_blocked[0] ||| rr_younger_prefix_excluded ||| rr_pair_resources_blocked ||| rr_younger_return_reserved
@@ -1646,9 +1657,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // Authorization must not depend on wb_retire or CSR command_success:
   // those outcomes consume the FP authorization/drain decision themselves.
+  // EX-validated vset may commit beside FP; other system commands serialize.
   def wb_fp_older_allows = (wb_fp_lane === Bits(1)(0)) ||| !wb_stop[0]
   def wb_fp_not_displaced = !wb_retained_capture ||| ((wb_fp_lane === Bits(1)(0)) & (wb_retained_lane === Bits(1)(1)))
-  def wb_fp_success = wb_valid[wb_fp_lane] & wb_retirement_unblocked & !wb_system & (wb_tokens[wb_fp_lane].resolution.disposition === RV2WideDisposition.Continue) & wb_fp_older_allows & wb_fp_not_displaced
+  def wb_fp_success = wb_valid[wb_fp_lane] & wb_retirement_unblocked & (!wb_system ||| wb_vector_config) & (wb_tokens[wb_fp_lane].resolution.disposition === RV2WideDisposition.Continue) & wb_fp_older_allows & wb_fp_not_displaced
   fp.authorize.valid <== wb_fp_success & wb_fp_token.fp.valid & !wb_fp_token.fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot)
   wb_fp_fixed_authorized <== fp.authorize.valid
   fp.authorize.bits <== rv2wide_fp_request(xlen, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)

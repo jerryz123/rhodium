@@ -530,6 +530,13 @@ issue and retire together, including two predicted-not-taken branches. At most
 one instruction with an actual or speculative RAS action may issue per cycle;
 two such instructions split the pair. Ordinary dependency checks still apply,
 and an older misprediction suppresses the younger instruction.
+Pairing otherwise defaults to allowing independent work. A pair splits on an
+unresolved GPR/FPR dependency, a resource conflict, return/training capacity, or
+an ordering barrier—not because its instruction-class combination is absent
+from a permitted list. Shared limits are one independently admitting WB service
+(scalar memory, integer M, variable FP, or a vector descriptor), one CSR command,
+one FP operand/control read bundle, and one RAS action per group. An explicit
+bypass can waive only the dependency its physical path supplies.
 The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
 relations joined to RV2Wide operand/writeback controls.
@@ -967,10 +974,12 @@ usable service. It composes the shared sequencer, VRF, SIMD datapath, and
 completion scoreboard with RV2Wide lookup, ordered-memory, and split-access
 interfaces. `RV2WideCore` supplies the architectural integration:
 
-- At most one vector operation issues per cycle; it may pair with one vector
-  configuration in either order. Non-memory vector operations may also pair
-  with an ordinary integer ALU instruction in either order, subject to scalar
-  dependencies and resource availability.
+- At most one vector operation issues per cycle. Its partner follows the
+  common [dependency and resource checks](#execution-and-ordering), not a vector
+  instruction-class whitelist. Independent ALU, no-op, branch/jump, configuration,
+  and fixed-FP work can share its group when those checks permit. Branch
+  correction remains speculative: older rejection or a fault overrides it at WB,
+  and the branch trains the predictor only after successful retirement.
   Operations snapshot CSR/scalar operands and enter the descriptor queue only
   through successful WB dispatch.
 - The queue stores four descriptors by default, in addition to the active
@@ -1021,9 +1030,9 @@ Only the caller may retire an instruction, publish a fault, or grant a scalar
 register write. A scalar redirect must not cancel an accepted descriptor.
 
 `vsetvli`, `vsetivli`, and `vsetvl` do not wait for older vector execution to
-complete. One configuration may pair with one vector operation in either order,
-or with an independent ordinary integer ALU instruction such as `li` in either
-order, subject to ordinary scalar dependencies and resource availability. Two
+complete. A configuration uses the CSR command but not a WB service-admission
+slot, so independent scalar or vector work may accompany it in either order,
+subject to the common dependency, resource, and ordering checks. Two
 configurations or two vector operations still issue separately. An older vset
 supplies the paired younger vector operation's configuration; an older vector operation
 keeps its pre-vset state. Configurations compute their VL result in EX, forward
