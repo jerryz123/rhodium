@@ -152,7 +152,7 @@ sync_circuit Plic(config :: PlicConfig):
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
-  def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[PlicAddressWidth..p.request_address_width].or_reduce()
+  def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[PlicAddressWidth..p.request_address_width].any()
   def incoming_opcode_supported = incoming_opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
   def incoming_word_access = (incoming.size_or_num_req === Bits(6)(2)) & incoming.address.is_aligned(4)
   def incoming_targets_device = incoming.tgt_id === identity.node_id

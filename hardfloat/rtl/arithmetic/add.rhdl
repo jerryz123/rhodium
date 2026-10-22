@@ -92,7 +92,7 @@ circuit AddRawFN(format :: FloatFormat):
   def close_significand = (
     close_sum.zext(significand_width + 3) << close_normalization_distance
   ) << 1
-  def close_total_cancellation = !close_significand[(significand_width + 1)..=(significand_width + 2)].or_reduce()
+  def close_total_cancellation = !close_significand[(significand_width + 1)..=(significand_width + 2)].any()
   def close_sign = a.sign ^ (signed_close_sum < sint(0, close_width))
 
   /* The far path aligns the smaller magnitude and jams discarded bits into
@@ -111,7 +111,7 @@ circuit AddRawFN(format :: FloatFormat):
     | Bits(far_mask_width)(0)
     | low_mask(alignment_distance[2..align_distance_width], far_mask_width, 0)
 
-  def far_sticky = far_main_aligned[0..=2].or_reduce() ||| or_reduce(far_reduced & far_round_extra_mask)
+  def far_sticky = far_main_aligned[0..=2].any() ||| any(far_reduced & far_round_extra_mask)
   def far_aligned_smaller = (
     far_main_aligned[3..=(significand_width + 4)]
       ++ far_sticky

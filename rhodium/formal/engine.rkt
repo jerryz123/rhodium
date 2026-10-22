@@ -52,6 +52,8 @@
        "rtl.not"
        "rtl.and"
        "rtl.or"
+       "rtl.any"
+       "rtl.all"
        "rtl.xor"
        "rtl.add"
        "rtl.mul"
@@ -276,6 +278,11 @@
                     (= (fourth row) full-output-care)))
        (unsupported module operation
                     "formal milestone 1 supports rtl.decode only when every output bit is cared"))]
+    [(or "rtl.any" "rtl.all")
+     (arity #f 1 0)
+     (unless (and (pair? operands)
+                  (= 1 (value-width (module-value module (first results)))))
+       (error 'rhodium-formal "reduction requires operands and a one-bit result"))]
     [(or "rtl.concat")
      (arity #f 1 0)
      (unless (>= (length operands) 2)
@@ -487,6 +494,12 @@
       ["rtl.not" (bvnot (car operands))]
       ["rtl.and" (bvand (first operands) (second operands))]
       ["rtl.or" (bvor (first operands) (second operands))]
+      ["rtl.any"
+       (bv-boolean (for/or ([operand (in-list operands)])
+                     (! (bveq operand (bv 0 (bitvector-size (type-of operand)))))))]
+      ["rtl.all"
+       (bv-boolean (for/and ([operand (in-list operands)])
+                     (bveq operand (bv -1 (bitvector-size (type-of operand))))))]
       ["rtl.xor" (bvxor (first operands) (second operands))]
       ["rtl.add" (bvadd (first operands) (second operands))]
       ["rtl.mul" (bvmul (first operands) (second operands))]

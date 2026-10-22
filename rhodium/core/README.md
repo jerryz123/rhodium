@@ -290,6 +290,7 @@ Backend lowering choices are not part of core schemas.
 | Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
 | Sources | `rtl.constant`, `rtl.dont_care` |
 | Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.urem`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
+| Reductions | `rtl.any`, `rtl.all` |
 | Comparison and selection | `rtl.eq`, `rtl.ult`, `rtl.slt`, `rtl.mux_lookup`, `rtl.onehot_mux`, `rtl.decode` |
 | Conversion and width | `rtl.cast`, `rtl.concat`, `rtl.extract`, `rtl.zext`, `rtl.sext`, `rtl.trunc` |
 | Aggregates | `rtl.record_create`, `rtl.record_get`, `rtl.vector_create`, `rtl.vector_get`, `rtl.vector_index`, `rtl.vector_inject`, `rtl.vector_write_set` |
@@ -298,12 +299,20 @@ Backend lowering choices are not part of core schemas.
 | Verification | `verif.assert` |
 | Simulation | `sim.dpi_call`, `sim.dpi_register` |
 
+`Builder.any(module, operands, ...)` and `Builder.all(module,
+operands, ...)` preserve a nonempty list of independently sized `Bits` values.
+OR reduction returns one if any operand bit is set; AND reduction returns one
+only if every operand bit is set. Both return `Bits(1)`. The operations are pure
+combinational functions with dependencies on all operands; they prescribe no
+execution order or hardware topology. Frontends own empty-list identities.
+
 Representative type rules are:
 
 ```text
 not(T: BitwiseType)                         -> T
 dont_care(Bits(w))                          -> Bits(w)
 and/or/xor(T: BitwiseType, T)               -> T
+any/all(Bits(w0), ...)        -> Bits(1)
 add/sub/mul(T: ArithmeticType, T)           -> T
 urem(Bits(w), Bits(w))                     -> Bits(w)
 shl(T: ArithmeticType, Bits(a))             -> T

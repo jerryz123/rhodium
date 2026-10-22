@@ -1,0 +1,29 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+sync_circuit RsimReductions():
+  input enable: Bool
+  input data: Bits(129)
+  input other: Bits(65)
+  input flags: Bits(8)
+  output result: Bits(16)
+  output sampled: Bits(16)
+  output shared: Bits(64)
+
+  def words = [data[0], data[0..5], data[0..64], data[0..65], data]
+  def any_words = for List (word in words): word.any()
+  def all_words = for List (word in words): word.all()
+  def exclusive = any([flags[0].into(Bool), (data[0..64] * other[0..64]) === Bits(64)(37), flags[1].into(Bool)])
+  def sum = data[0..64] + other[0..64]
+  def selected = all([flags[2].into(Bool), sum === Bits(64)(19), flags[3].into(Bool)])
+  def predicates = any_words ++ all_words ++ [any([data, other]), all([data, other]), exclusive, selected, any([]), all([])]
+  def bits = vec(predicates).as_bits()
+  reg held(~init: Bits(16)(0))
+  when (enable): held <== bits
+  shared <== sum
+  result <== bits
+  sampled <== held
+
+def program = elaborate(RsimReductions())
+
+export program

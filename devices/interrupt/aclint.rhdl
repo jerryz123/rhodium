@@ -118,7 +118,7 @@ sync_circuit Aclint(config :: AclintConfig):
   def incoming_write = incoming_opcode.is_initial_write()
   def base_address = Bits(p.request_address_width)(AclintBase)
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - base_address
-  def incoming_in_window = (incoming.address >= base_address) & !incoming_relative_full[AclintAddressWidth..p.request_address_width].or_reduce()
+  def incoming_in_window = (incoming.address >= base_address) & !incoming_relative_full[AclintAddressWidth..p.request_address_width].any()
   def incoming_supported = incoming_opcode.supports_initial_transaction() & incoming_in_window & (
     incoming.size_or_num_req[0..3] <= Bits(3)(3)
   ) & (

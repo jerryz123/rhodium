@@ -175,9 +175,10 @@ confirm that the change belongs in the frontend. Then preserve these seams:
    after at least two frontend clients require the same mechanism.
 4. Keep semantic construction in the kernel thin: validate frontend entities,
    materialize them, and call the public core Builder.
-5. Add a core operation only when the behavior cannot be represented faithfully
-   by existing core semantics; update core verification and all consumers in
-   that change.
+5. Add a core operation when a semantic distinction must survive elaboration
+   for consumers to lower it appropriately, as with any/all reductions. Keep
+   backend policy out of the frontend and update core verification and all
+   consumers in that change.
 6. Export a curated feature from `standard.rhm`; do not implement it there.
 7. Document author-visible behavior in `README.md` or
    [`layers/README.md`](layers/README.md), and implementation details here or in

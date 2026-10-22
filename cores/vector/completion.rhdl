@@ -133,7 +133,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     owner: entry_owner[result.tag]
     data: result.value.data
     flags: Bits(5)(0)
-    saturated: (expand_mask(result.value.saturated.as_bits(), 8) & entries[result.tag].write.mask).or_reduce()
+    saturated: (expand_mask(result.value.saturated.as_bits(), 8) & entries[result.tag].write.mask).any()
 
   def multiply_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & (Bool(fixed_multiply) ||| !reserved_write)
   def multiplication = multiply_result |> gate_flow(multiply_write_available) |> to_valid() |> map_valid(result => Writeback()):
@@ -205,7 +205,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def finished = writeback |> trace_valid_event("vector/complete", ~fields: operation):
     packed: Bool(#false)
     destination(~format: "unsigned"): operation.beat.destination
-    write_enabled: operation.beat.write.mask.or_reduce()
+    write_enabled: operation.beat.write.mask.any()
 
   def finishing_head = finished.valid & (finished.bits.tag === drain_cursor)
   def drain = !entry_packed[drain_cursor] & ((authorized_slots[drain_cursor] & completed[drain_cursor]) ||| finishing_head)
@@ -264,7 +264,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
 
   /* Architectural VRF writes, flags, and saturation */
 
-  def element_write = finished |> filter_valid(operation => operation.beat.write.mask.or_reduce()) |> map_valid(operation):
+  def element_write = finished |> filter_valid(operation => operation.beat.write.mask.any()) |> map_valid(operation):
     def beat = operation.beat
     beat.write.updated(~data: mux(beat.memory ||| beat.floating_point ||| beat.multiply_divide, operation.data << beat.shift, beat.write.data))
 
@@ -317,7 +317,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
         entries[slot] <== resolution_beat
 
       entry_write_address[slot] <== resolution_beat.write.address
-      entry_writes[slot] <== resolution_beat.write.mask.or_reduce()
+      entry_writes[slot] <== resolution_beat.write.mask.any()
     elsewhen (reserve.valid & (allocate_cursor === tag)):
       entry_writes[slot] <== Bool(#false)
 

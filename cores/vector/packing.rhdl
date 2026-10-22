@@ -133,9 +133,9 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
 
   /* Local row geometry checks, not architectural register-group legality. */
 
-  def aligned = !(control.first_element & (Bits(count_width)(vector_word_bytes(xlen) - 1) >> control.element_width.as_bits())).or_reduce()
+  def aligned = !(control.first_element & (Bits(count_width)(vector_word_bytes(xlen) - 1) >> control.element_width.as_bits())).any()
   def supported_width = control.element_width.as_bits() <= Bits(2)(vector_format_count(xlen) - 1)
-  def bounded_length = (control.vl <= control.vlmax) & (control.vlmax <= Bits(count_width)(vlen)) & control.vlmax.or_reduce()
+  def bounded_length = (control.vl <= control.vlmax) & (control.vlmax <= Bits(count_width)(vlen)) & control.vlmax.any()
   def valid_cursor = control.first_element < control.vlmax
   def width_change_fits = !(changes_width & (control.element_width.as_bits() >= Bits(2)(vector_format_count(xlen) - 1)))
   legal <== supported_width & aligned & bounded_length & valid_cursor & width_change_fits & (!control.extension ||| extend.legal)
@@ -167,7 +167,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
   def data_chunk = element >> (Bits(2)(vector_byte_offset_width(xlen)) - element_width.as_bits())
   def address = base + mux(mask_destination, element >> vector_bit_offset_width(xlen), data_chunk)
   def mask_write_mask = enabled.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)]
-  def upper_half = (first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2) >> element_width.as_bits())).or_reduce()
+  def upper_half = (first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2) >> element_width.as_bits())).any()
 
 
   /* Per-format narrowing and clipping.
@@ -184,7 +184,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
       def result_negative = source[source_bits - 1].into(Bool)
       def low_negative = low[element_bits - 1].into(Bool)
       def sign_fill = mux(low_negative, !Bits(element_bits)(0), Bits(element_bits)(0))
-      def unsigned_overflow = upper.or_reduce()
+      def unsigned_overflow = upper.any()
       def signed_overflow = upper =/= sign_fill
       def overflow = mux(clip_unsigned, unsigned_overflow, signed_overflow)
       def unsigned_limit = !Bits(element_bits)(0)
@@ -204,7 +204,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
           write_mask: mux(upper_half, low_mask.as_bits() ++ Bits(vector_word_bytes(xlen) / 2)(0), Bits(vector_word_bytes(xlen) / 2)(0) ++ low_mask.as_bits()).into(Mask(vector_word_bytes(xlen)))
           saturated: result.saturated
 
-      saturated: saturation_bits.or_reduce()
+      saturated: saturation_bits.any()
 
   def narrowed :: VectorNarrowedResult(xlen) = mux_lookup(element_width, ~default: narrowed_results[0], for List (format in 1..(vector_format_count(xlen) - 1)): [SimdElementWidth.values()[format], narrowed_results[format]])
 
@@ -218,8 +218,8 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
     data: mux(mask_destination, effective_result.mask_result.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)], effective_result.data)
     mask: mux(mask_destination, mask_write_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
 
-  def aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) - 1) >> element_width.as_bits())).or_reduce()
-  def half_aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2 - 1) >> element_width.as_bits())).or_reduce() & (element_width.as_bits() < Bits(2)(vector_format_count(xlen) - 1))
+  def aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) - 1) >> element_width.as_bits())).any()
+  def half_aligned = !(first_element & (Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2 - 1) >> element_width.as_bits())).any() & (element_width.as_bits() < Bits(2)(vector_format_count(xlen) - 1))
   def supported_width = element_width.as_bits() <= Bits(2)(vector_format_count(xlen) - 1)
   def address_in_bank = address < Bits(calculation_width)(VectorRegisterLayout(vlen, xlen.width).depth)
   def mask_in_register = !mask_destination ||| (first_element < Bits(index_width(vlen + 1))(vlen))

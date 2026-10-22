@@ -42,7 +42,7 @@ a shared semantic responsibility actually belongs in core.
 | `circt.rhm` | CIRCT types, aliases, operation lowering, and textual MLIR |
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Rsim configuration and scheduling over shared RTL preparation, with optional SV binding |
-| `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
+| `rsim/plan.rhm` | Reduction lowering to predicates/Boolean chains before conditional planning, recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
 | `rsim/decode.rhm` | Proven selector-bit specialization and bounded native decode table planning |
 | `rsim/array-updates.rhm` | Exact array-update recovery and read forwarding, using shared liveness pruning |
 | `rsim/cse.rhm` | Scalar cast aliasing, exact expression sharing, and complete schedule-value remapping |

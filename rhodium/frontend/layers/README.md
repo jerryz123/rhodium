@@ -296,8 +296,8 @@ different <== a =/= b
 less <== a < b
 active <== state.is_one_of(State.Refill, State.Respond)
 encoding_valid <== enum_valid(state)
-nonzero <== or_reduce(value)
-all_set <== and_reduce(value)
+nonzero <== any(value)
+all_set <== all(value)
 set_count <== popcount(value)
 first_index <== priority_encoder(value)
 first_mask <== priority_encoder_oh(value)
@@ -317,13 +317,15 @@ hardware enum's declared encodings. This matters at ports and cast boundaries:
 the enum type prevents unrelated typed operations, but its physical wire can
 still carry an unused packed encoding. The predicate works for sequential,
 explicit, and one-hot enums; a non-enum operand is rejected.
-`or_reduce(value)` and `and_reduce(value)` accept any packable hardware
+`any(value)` and `all(value)` accept any packable hardware
 `DataType` or a host list of packable hardware values, reduce the canonical
 packed representation, and return `Bool`. Empty host lists use the Boolean
-identities: `or_reduce([])` is false and `and_reduce([])` is true. Nonempty
-operands lower respectively to inequality with zero and equality with an
-all-ones value, expressed through existing equality and inversion operations
-without adding core reduction operations or zero-width hardware types.
+identities: `any([])` is false and `all([])` is true. Nonempty
+operands remain explicit any/all core reductions, with list elements kept
+separate so each backend can choose its implementation. No zero-width
+hardware type is introduced. Method syntax is also supported: `value.any()`
+and `value.all()`. The host loop reducers `for any` and `for all` retain their
+ordinary Rhombus behavior.
 `popcount(value)` counts asserted bits in the same canonical packed
 representation. For an `n`-bit representation it returns
 `Bits(index_width(n + 1))`; an empty host list returns one-bit zero. Population

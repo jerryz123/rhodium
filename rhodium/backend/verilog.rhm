@@ -28,6 +28,8 @@ def verilog_opcode_policy:
    "rtl.not": "emit",
    "rtl.and": "emit",
    "rtl.or": "emit",
+   "rtl.any": "emit",
+   "rtl.all": "emit",
    "rtl.xor": "emit",
    "rtl.add": "emit",
    "rtl.sub": "emit",
@@ -247,6 +249,9 @@ fun sv_expression(operation :: Operation, refs :: Map, types :: SvTypes):
   | "rtl.shl": args[0] ++ " << " ++ args[1]
   | "rtl.shru": args[0] ++ " >> " ++ args[1]
   | "rtl.shrs": "$signed(" ++ args[0] ++ ") >>> " ++ args[1]
+  | "rtl.any" || "rtl.all":
+      def operand = if args.length() == 1 | args[0] | "{" ++ String.join(args, ", ") ++ "}"
+      (if operation.opcode == "rtl.any" | "|" | "&") ++ "(" ++ operand ++ ")"
   | "rtl.concat": "{" ++ String.join(args, ", ") ++ "}"
   | "rtl.extract": args[0] ++ "[" ++ to_string(operation.attribute("high")) ++ ":" ++ to_string(operation.attribute("low")) ++ "]"
   | "rtl.trunc": args[0] ++ "[" ++ to_string(scalar_width(operation.results[0].type) - 1) ++ ":0]"

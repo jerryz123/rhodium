@@ -258,9 +258,9 @@ fun fesvr_service_support(services :: NonemptyList.of(CHIHomeServiceParams),
     def regions = for List (region in service.address_sets):
       region.matches(address) & region.matches(last_address)
 
-    (home_id === Bits(home_id.type.packed_width())(service.home.node_id)) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
+    (home_id === Bits(home_id.type.packed_width())(service.home.node_id)) & any(vec(regions)) & any(vec(sizes))
 
-  or_reduce(vec(matches))
+  any(vec(matches))
 
 /* Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions. */
 sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
@@ -302,7 +302,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
     def attributes = physical_map.lookup(byte_address)
     (Bits(8)(index) >= incoming.length) ||| ((byte_address >= incoming.address) & attributes.mapped & (attributes.cacheable === first.cacheable) & mux(incoming.write, attributes.writable, attributes.readable))
 
-  def legal_bytes = and_reduce(vec(byte_checks))
+  def legal_bytes = all(vec(byte_checks))
   def exact_size = mux_lookup(incoming.length, ~default: Bits(3)(0), [[2, Bits(3)(1)], [4, Bits(3)(2)], [8, Bits(3)(3)]])
   def aligned = (incoming.address[0..3] & (incoming.length - Bits(8)(1))[0..3]) === Bits(3)(0)
   def exact = incoming.length.is_one_of(Bits(8)(1), Bits(8)(2), Bits(8)(4), Bits(8)(8)) & aligned

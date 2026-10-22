@@ -27,8 +27,8 @@ fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bit
     | region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable))
     | Bool(#false)
 
-  def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
-  vec(permitted_regions).or_reduce() & fits
+  def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].any()
+  vec(permitted_regions).any() & fits
 
 /* Retains up to two endpoint-page mappings for one nonspeculative vector macro.
    A failed check selects exact element execution; it does not raise an architectural fault. */

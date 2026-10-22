@@ -129,8 +129,8 @@ fun simd_fractional_product(width :: PosInt, product :: Bits(width * 2), roundin
   def distance = width - 1
   def shifted = (product.into(SInt(width * 2)) >> distance).as_bits()
   def round_bit = product[distance - 1].into(Bool)
-  def discarded = product[0..distance].or_reduce()
-  def below_round = product[0..distance - 1].or_reduce()
+  def discarded = product[0..distance].any()
+  def below_round = product[0..distance - 1].any()
   def increment = mux_lookup(rounding_mode, ~default: round_bit, [
     [SimdRoundingMode.NearestEven, round_bit & (below_round ||| shifted[0].into(Bool))],
     [SimdRoundingMode.Down, Bool(#false)],

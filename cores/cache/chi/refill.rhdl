@@ -135,8 +135,8 @@ sync_circuit CacheLineRefill(Context :: DataType,
 
   def incoming_data = response_data.bits
   def coherent_response = incoming_data.resp.into(CHICoherentResponse())
-  def all_data_received = received_packets.and_reduce()
-  def first_data_packet = !received_packets.or_reduce()
+  def all_data_received = received_packets.all()
+  def first_data_packet = !received_packets.any()
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))
@@ -195,7 +195,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   describe_interface_retained_storage(command_fire, completion_fire, control.active)
   describe_interface_contract(acquiring, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
   // The packet completing the line owns CompAck until its accepted transfer.
-  describe_interface_retained_storage(data_fire & next_received_packets.and_reduce(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
+  describe_interface_retained_storage(data_fire & next_received_packets.all(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
   describe_interface_contract(response_data, acknowledgements, "line-acknowledgement", ~trace_model: interface_trace_retained(~name: "compack"))
 
 

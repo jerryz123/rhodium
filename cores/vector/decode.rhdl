@@ -1118,8 +1118,8 @@ def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ Vecto
 /* Resolves vset AVL/vtype sources and the x0 maximum/keep-VL conventions. */
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
-  def source_zero = !instruction_field(vs1, instruction).or_reduce()
-  def destination_zero = !instruction_field(vd, instruction).or_reduce()
+  def source_zero = !instruction_field(vs1, instruction).any()
+  def destination_zero = !instruction_field(vd, instruction).any()
   RiscvVectorConfigRequest(xlen):
     vtype: mux(mode === VectorConfigMode.VtypeRegister, scalar2, mux(immediate_avl, instruction_field(vtype10, instruction).zext(xlen.width), instruction_field(vtype11, instruction).zext(xlen.width)))
     avl: mux(immediate_avl, instruction_field(avl5, instruction).zext(xlen.width), scalar1)
@@ -1142,12 +1142,12 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
 
   def config = vector_type(xlen, vlen, vtype, ~elen: vector_profile_elen(profile))
   def requires_zero_start = control.reduction ||| (control.integer & (control.compress ||| (control.scan & !control.scan_control.index)))
-  def start_legal = !requires_zero_start ||| !vstart.or_reduce()
+  def start_legal = !requires_zero_start ||| !vstart.any()
   def elen = Bits(2)(if vector_profile_supports_integer64(profile) | 3 | 2)
   def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
   def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
   def indexed_memory = control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
-  def segmented_memory = control.memory & control.memory_nf.or_reduce()
+  def segmented_memory = control.memory & control.memory_nf.any()
 
 
   /* LMUL is a signed power-of-two exponent; EMUL = LMUL * EEW / SEW.
@@ -1185,9 +1185,9 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def source1 = instruction_field(vs1, instruction)
   def source2 = instruction_field(vs2, instruction)
   def vector_operand = control.operand === VectorOperandMode.Vector
-  def destination_aligned = !(destination & destination_group_mask).or_reduce()
-  def source1_aligned = !(source1 & group_mask).or_reduce()
-  def source2_aligned = !(source2 & group_mask).or_reduce()
+  def destination_aligned = !(destination & destination_group_mask).any()
+  def source1_aligned = !(source1 & group_mask).any()
+  def source2_aligned = !(source2 & group_mask).any()
 
 
   /* Whole-register move bounds and alignment */
@@ -1198,15 +1198,15 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def whole_register_shift = mux_lookup(control.whole_register_count, ~default: Bits(2)(0), [[2, Bits(2)(1)], [4, Bits(2)(2)], [8, Bits(2)(3)]])
   def whole_register_limit = (Bits(index_width(vlen + 1))(vlen / 8) >> config.sew) << whole_register_shift
   def whole_register_move_count_legal = control.whole_register_count.is_one_of(Bits(4)(1), Bits(4)(2), Bits(4)(4), Bits(4)(8))
-  def whole_register_move_aligned = !(destination & whole_register_mask).or_reduce() & !(source2 & whole_register_mask).or_reduce()
+  def whole_register_move_aligned = !(destination & whole_register_mask).any() & !(source2 & whole_register_mask).any()
   def whole_register_move_in_bounds = (whole_register_destination_end <= Bits(7)(32)) & (whole_register_source_end <= Bits(7)(32))
   def whole_register_move_legal = whole_register_move_count_legal & whole_register_move_aligned & whole_register_move_in_bounds & (vstart < whole_register_limit.zext(xlen.width))
 
 
   /* Register-group overlap rules */
 
-  def memory_index_aligned = !(source2 & memory_index_group_mask).or_reduce()
-  def wide_source2_aligned = !(source2 & wide_group_mask).or_reduce()
+  def memory_index_aligned = !(source2 & memory_index_group_mask).any()
+  def wide_source2_aligned = !(source2 & wide_group_mask).any()
 
   /* Allows a mask destination to overlap a source only at that source group's lowest register. */
   fun mask_overlap_legal(source :: Bits(5)) :: Bool:
@@ -1230,21 +1230,21 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
 
   /* Mask-source restrictions, scans, and reductions */
 
-  def masked = !instruction_field(vm, instruction).or_reduce()
+  def masked = !instruction_field(vm, instruction).any()
   // Merge reads v0 at EEW=1; the same register cannot also supply SEW data.
-  def merge_sources_legal = !control.mask_select ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
+  def merge_sources_legal = !control.mask_select ||| (source2.any() & (!vector_operand ||| source1.any()))
   // Carry-in uses v0 as EEW=1 data, so the same register cannot also supply a
   // SEW-wide source operand in that instruction.
-  def carry_sources_legal = !control.carry_input ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
+  def carry_sources_legal = !control.carry_input ||| (source2.any() & (!vector_operand ||| source1.any()))
   def reduction_source2_end = source2.zext(6) + group_mask.zext(6) + Bits(6)(1)
   def reduction_sources_disjoint = (source1.zext(6) < source2.zext(6)) ||| (source1.zext(6) >= reduction_source2_end)
   def widening_reduction_legal = !widening ||| ((config.sew < elen) & reduction_sources_disjoint)
-  def reduction_sources_legal = source2_aligned & widening_reduction_legal & (!masked ||| (source1.or_reduce() & source2.or_reduce()))
+  def reduction_sources_legal = source2_aligned & widening_reduction_legal & (!masked ||| (source1.any() & source2.any()))
   def scan_mask = control.scan_control.result === VectorScanResult.Mask
   def scan_overlap = mux(scan_mask, destination === source2, (source2 & !group_mask) === destination)
-  def scan_legal = control.scalar_destination ||| ((!masked ||| destination.or_reduce()) & mux(scan_mask, destination =/= source2, destination_aligned & (control.scan_control.index ||| !scan_overlap)))
+  def scan_legal = control.scalar_destination ||| ((!masked ||| destination.any()) & mux(scan_mask, destination =/= source2, destination_aligned & (control.scan_control.index ||| !scan_overlap)))
   // Aligned equal-size groups overlap exactly when their base registers match.
-  def slide_overlap_legal = !control.slide ||| ((!control.slide_up ||| (destination =/= source2)) & (!masked ||| source2.or_reduce()))
+  def slide_overlap_legal = !control.slide ||| ((!control.slide_up ||| (destination =/= source2)) & (!masked ||| source2.any()))
 
 
   /* Gather's index group may have a different EEW/EMUL. Compare physical
@@ -1259,8 +1259,8 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def index_disjoint = (destination.zext(6) >= index_end) ||| (source1.zext(6) >= destination_end)
   def sources_disjoint = (source2.zext(6) >= index_end) ||| (source1.zext(6) >= data_end)
   def gather_index_width_legal = !control.gather_index16 ||| ((index_emul >= SInt(5)(-3)) & (index_emul <= SInt(5)(3)) & ((config.sew === Bits(2)(1)) ||| sources_disjoint))
-  def gather_index_legal = !(source1 & index_mask).or_reduce() & index_disjoint & (!masked ||| source1.or_reduce()) & gather_index_width_legal
-  def gather_data_legal = destination_aligned & source2_aligned & (destination =/= source2) & (!masked ||| (destination.or_reduce() & source2.or_reduce()))
+  def gather_index_legal = !(source1 & index_mask).any() & index_disjoint & (!masked ||| source1.any()) & gather_index_width_legal
+  def gather_data_legal = destination_aligned & source2_aligned & (destination =/= source2) & (!masked ||| (destination.any() & source2.any()))
   def gather_legal = gather_data_legal & (!vector_operand ||| gather_index_legal)
   def compress_mask_disjoint = ((source1.zext(6) < destination.zext(6)) ||| (source1.zext(6) >= destination_end)) & ((source1.zext(6) < source2.zext(6)) ||| (source1.zext(6) >= data_end))
   def compress_legal = destination_aligned & source2_aligned & (destination =/= source2) & compress_mask_disjoint
@@ -1276,21 +1276,21 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def narrowing_sources_disjoint = !vector_operand ||| (source1.zext(6) >= wide_source2_end) ||| (source2.zext(6) >= source1_end)
   def narrowing_width_legal = (config.sew < elen) & (widening_emul <= SInt(5)(3))
   def narrowing_alignment_legal = wide_source2_aligned & (!vector_operand ||| source1_aligned)
-  def narrowing_mask_legal = !masked ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
+  def narrowing_mask_legal = !masked ||| (source2.any() & (!vector_operand ||| source1.any()))
   def narrowing_legal = !narrowing ||| (narrowing_width_legal & narrowing_alignment_legal & narrowing_overlap_legal() & narrowing_sources_disjoint & narrowing_mask_legal)
-  def extension_source_aligned = !(source2 & extension_group_mask).or_reduce()
+  def extension_source_aligned = !(source2 & extension_group_mask).any()
   def extension_source_end = source2.zext(6) + extension_group_mask.zext(6) + Bits(6)(1)
   def extension_destination_end = destination.zext(6) + destination_group_mask.zext(6) + Bits(6)(1)
   def extension_disjoint = (destination.zext(6) >= extension_source_end) ||| (source2.zext(6) >= extension_destination_end)
   def extension_overlap_legal = extension_disjoint ||| ((extension_emul >= SInt(5)(0)) & (extension_source_end === extension_destination_end))
   def extension_width_legal = config.sew.zext(5) >= extension_power
-  def extension_legal = extension_width_legal & (extension_emul >= SInt(5)(-3)) & extension_source_aligned & destination_aligned & extension_overlap_legal & (!masked ||| (source2.or_reduce() & destination.or_reduce()))
+  def extension_legal = extension_width_legal & (extension_emul >= SInt(5)(-3)) & extension_source_aligned & destination_aligned & extension_overlap_legal & (!masked ||| (source2.any() & destination.any()))
 
 
   /* Mask logic always names single registers, regardless of the data LMUL. */
 
   def integer_source2_legal = !control.uses_vs2 ||| mux((widening ||| narrowing) & control.wide_vs2, wide_source2_aligned, source2_aligned)
-  def integer_destination_legal = mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+  def integer_destination_legal = mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.any()))
   def ordinary_integer_sources_legal = integer_source2_legal & (!vector_operand ||| source1_aligned)
   def ordinary_integer_overlap_legal = slide_overlap_legal & merge_sources_legal & carry_sources_legal & widening_legal & narrowing_legal
   def ordinary_integer_legal = ordinary_integer_overlap_legal & ordinary_integer_sources_legal & integer_destination_legal
@@ -1320,17 +1320,17 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def indexed_load_overlap_legal = memory_groups_disjoint ||| indexed_load_overlap_allowed
   def indexed_store_overlap_legal = equal_index_width ||| memory_groups_disjoint
   def indexed_overlap_legal = mux(control.store, indexed_store_overlap_legal, indexed_load_overlap_legal)
-  def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.or_reduce()))
+  def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.any()))
   def segment_memory_legal = !segmented_memory ||| ((memory_register_count <= Bits(7)(8)) & (memory_data_end <= Bits(7)(32)))
   def memory_eew_legal = (indexed_memory ||| (control.memory_data_eew <= elen)) & (!indexed_memory ||| (control.memory_index_eew <= elen))
   def memory_emul_legal = (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3))
-  def memory_destination_mask_legal = (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
+  def memory_destination_mask_legal = (control.store ||| !(masked & !destination.any())) & (!control.store ||| !masked ||| destination.any())
   def memory_groups_legal = destination_aligned & indexed_memory_legal & segment_memory_legal & memory_destination_mask_legal
   def ordinary_memory_legal = control.memory & !whole_register_memory & !mask_memory & memory_eew_legal & memory_emul_legal & memory_groups_legal
   def mask_memory_legal = mask_memory
   def whole_register_count = control.memory_nf.zext(7) + Bits(7)(1)
   def whole_register_end = destination.zext(7) + whole_register_count
-  def whole_register_legal = whole_register_memory & (control.memory_data_eew <= elen) & control.memory_nf.is_one_of(Bits(3)(0), Bits(3)(1), Bits(3)(3), Bits(3)(7)) & !(destination & control.memory_nf.zext(5)).or_reduce() & (whole_register_end <= Bits(7)(32))
+  def whole_register_legal = whole_register_memory & (control.memory_data_eew <= elen) & control.memory_nf.is_one_of(Bits(3)(0), Bits(3)(1), Bits(3)(3), Bits(3)(7)) & !(destination & control.memory_nf.zext(5)).any() & (whole_register_end <= Bits(7)(32))
 
 
   /* Floating-point widths, overlap, and profile restrictions */
@@ -1341,7 +1341,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def fp_source2_aligned = mux(fp_wide_source2, wide_source2_aligned, source2_aligned)
   def fp_element_sources_legal = fp_source2_aligned & (!control.fp_uses_vs1 ||| source1_aligned)
   def fp_sources_legal = mux(fp_reduction, reduction_sources_legal, fp_element_sources_legal)
-  def fp_destination_legal = fp_reduction ||| mux(control.mask_destination, mask_overlap_legal(source2) & (!control.fp_uses_vs1 ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+  def fp_destination_legal = fp_reduction ||| mux(control.mask_destination, mask_overlap_legal(source2) & (!control.fp_uses_vs1 ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.any()))
   def fp_widening_overlap_legal = mux(control.wide_vs2, Bool(#true), widening_overlap_legal(source2)) & (!control.fp_uses_vs1 ||| widening_overlap_legal(source1))
   def fp_zvfhmin = Bool(vector_extensions_support_zvfhmin(extensions))
   def fp_zvfh = Bool(vector_extensions_support_zvfh(extensions))
@@ -1351,7 +1351,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def fp_width_change_profile_legal = mux_lookup(config.sew, ~default: Bool(vector_profile_supports_fp64(profile)) ||| fp_narrow_float, [[0, fp_e8_legal], [1, fp_e16_legal]])
   def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew < elen) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
   def fp_move_sources_legal = (control.element_move ||| !control.uses_vs2 ||| source2_aligned) & (!control.slide ||| slide_overlap_legal)
-  def fp_move_destination_legal = control.floating_scalar_destination ||| control.element_move ||| (destination_aligned & !(masked & !destination.or_reduce()))
+  def fp_move_destination_legal = control.floating_scalar_destination ||| control.element_move ||| (destination_aligned & !(masked & !destination.any()))
   def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| fp_width_change_profile_legal) & fp_sources_legal & fp_destination_legal & fp_width_change_legal
   def fp_move_legal = fp_move_sources_legal & fp_move_destination_legal & (!control.mask_select ||| merge_sources_legal)
   def fp_width_legal = Bool(vector_profile_supports_fp32(profile)) & (fp_e8_legal ||| fp_e16_legal ||| mux(Bool(vector_profile_supports_fp64(profile)), config.sew >= Bits(2)(2), config.sew === Bits(2)(2)))
@@ -1363,7 +1363,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
   def restricted_elen64_multiply = !control.divide & !control.multiply_accumulate & control.multiply_result.is_one_of(VectorMultiplyResult.High, VectorMultiplyResult.Fractional)
   def multiply_profile_legal = Bool(vector_profile_is_v(profile)) ||| !((config.sew === Bits(2)(3)) & restricted_elen64_multiply)
-  def multiply_divide_legal = control.multiply_divide & multiply_profile_legal & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
+  def multiply_divide_legal = control.multiply_divide & multiply_profile_legal & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.any())
 
 
   /* Final legality composition

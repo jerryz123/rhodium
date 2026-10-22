@@ -82,7 +82,7 @@ sync_circuit WormholeRouter(T :: DataType,
 
   def target_busy = vec(
     for List (target_index in 0..config.target_count):
-      or_reduce(vec(for List (input_index in 0..config.input_count): packet_active[input_index] & reservations[input_index][target_index]))
+      any(vec(for List (input_index in 0..config.input_count): packet_active[input_index] & reservations[input_index][target_index]))
   )
 
   /* Qualifies new head targets; an active packet keeps its reservation for

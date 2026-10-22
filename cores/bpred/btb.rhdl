@@ -98,11 +98,11 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def mutable earliest = candidates
   // Visit later offsets first so an earlier nonempty offset wins the fold.
   for (offset :: Vec(entry_count, Bool) in offsets.reverse()):
-    earliest := mux(offset.or_reduce(), offset, earliest)
+    earliest := mux(offset.any(), offset, earliest)
 
   def selected = entries[priority_encoder(earliest)]
   prediction <== BranchPrediction(xlen):
-    valid: candidates.or_reduce() & !invalidate_all.valid
+    valid: candidates.any() & !invalidate_all.valid
     pc: pages[selected.pc_page].tag ++ selected.pc_low
     target: pages[selected.target_page].tag ++ selected.target_low
     compressed: selected.compressed
@@ -121,10 +121,10 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def write_target_pages = page_matches(write_target)
   def matches = vec(for List (index in 0..entry_count): entries[index].valid & write_pc_pages[entries[index].pc_page] & (entries[index].pc_low === write_pc[0..match_bits]))
   def empty = vec(for List (index in 0..entry_count): !entries[index].valid)
-  def matched = matches.or_reduce()
+  def matched = matches.any()
   def selected_index = priority_mux(~default: replacement):
     matched: priority_encoder(matches)
-    empty.or_reduce(): priority_encoder(empty)
+    empty.any(): priority_encoder(empty)
 
   def previous = entries[selected_index]
   def incremented = mux(previous.counter === Bits(2)(3), previous.counter, previous.counter + Bits(2)(1))
@@ -139,22 +139,22 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
      the same replacement slot. Existing target pages are protected. */
 
   def allocate_pages = commit_write & write_valid
-  def pc_page_found = write_pc_pages.or_reduce()
-  def target_page_found = write_target_pages.or_reduce()
+  def pc_page_found = write_pc_pages.any()
+  def target_page_found = write_target_pages.any()
   def empty_pages = vec(for List (index in 0..page_count): !pages[index].valid)
   def same_page = page_tag(write_pc) === page_tag(write_target)
   def target_existing_page = priority_encoder(write_target_pages)
   def pc_replacement = mux(!same_page & target_page_found & (page_replacement === target_existing_page), wrap_increment(page_replacement, page_count), page_replacement)
   def pc_page = priority_mux(~default: pc_replacement):
     pc_page_found: priority_encoder(write_pc_pages)
-    empty_pages.or_reduce(): priority_encoder(empty_pages)
+    empty_pages.any(): priority_encoder(empty_pages)
 
   def target_empty_pages = vec(for List (index in 0..page_count): empty_pages[index] & (pc_page =/= Bits(page_index_bits)(index)))
   def target_replacement = mux(page_replacement === pc_page, wrap_increment(page_replacement, page_count), page_replacement)
   def target_page = priority_mux(~default: target_replacement):
     same_page: pc_page
     target_page_found: target_existing_page
-    target_empty_pages.or_reduce(): priority_encoder(target_empty_pages)
+    target_empty_pages.any(): priority_encoder(target_empty_pages)
 
   def replace_pc_page = allocate_pages & !pc_page_found & pages[pc_page].valid
   def replace_target_page = allocate_pages & !same_page & !target_page_found & pages[target_page].valid

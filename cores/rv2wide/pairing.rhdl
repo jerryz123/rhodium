@@ -34,12 +34,12 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
   def older :: RV2WideControl() = controls[0]
   def younger :: RV2WideControl() = controls[1]
   def immediate :: OperandImmediate = younger.operand.immediate
-  def writes = valid[0] & older.writeback.enable & destination.or_reduce()
+  def writes = valid[0] & older.writeback.enable & destination.any()
   def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
   def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
   def producer = writes & !older_deferred & !older.fp.valid & !older.system.serializing() & !older.branch.resolver.enable
   def integer_memory = !younger.fp.valid & younger.memory.enable
-  def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen.width).or_reduce()
+  def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen.width).any()
   def store_data = integer_memory & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
   def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1

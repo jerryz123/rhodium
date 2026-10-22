@@ -67,7 +67,7 @@ fun resolve_riscv_interrupt(xlen :: XLen,
       candidates[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
 
     RiscvInterruptDecision(xlen):
-      valid: candidates.or_reduce() & globally_enabled
+      valid: candidates.any() & globally_enabled
       cause: cause
       target: target
 
@@ -101,7 +101,7 @@ fun resolve_riscv_hypervisor_interrupt(
       software: interrupt_cause_bits(if delegated | InterruptCause.SupervisorSoftware | InterruptCause.VirtualSupervisorSoftware, 64)
 
     RiscvInterruptDecision(XLen.X64):
-      valid: candidates.or_reduce() & (if delegated | vs_enabled | hs_enabled)
+      valid: candidates.any() & (if delegated | vs_enabled | hs_enabled)
       cause: cause
       target: if delegated | RiscvTrapTarget.VirtualSupervisor | RiscvTrapTarget.Supervisor
 

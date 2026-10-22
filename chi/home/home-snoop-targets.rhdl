@@ -24,7 +24,7 @@ sync_circuit CHIHomeSnoopTargets(config :: CHIHNFConfig):
   reg accepted_node(~init: Bits(p.node_id_width)(0))
   def next_index = priority_encoder(pending)
   def next_node = node_ids[next_index]
-  target.valid <== pending.or_reduce()
+  target.valid <== pending.any()
   target.bits <== next_node
   expected_node <== accepted_node
 

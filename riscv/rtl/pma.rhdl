@@ -99,12 +99,12 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
     def fits:
       if raw_width <= address_width
       | Bool(#true)
-      | !raw_address[address_width..raw_width].or_reduce()
+      | !raw_address[address_width..raw_width].any()
 
     def last_fits:
       if raw_last_width <= address_width
       | Bool(#true)
-      | !raw_last_address[address_width..raw_last_width].or_reduce()
+      | !raw_last_address[address_width..raw_last_width].any()
 
     /* Region classification is parallel: construction rejects overlapping maps.
        Share endpoint matches and reject truncated addresses for every attribute. */
@@ -114,10 +114,10 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
 
     /* Reduces the matching region's selected host attribute, or false when unmapped. */
     fun permitted(attribute :: Function) :~ Bool:
-      range_fits & vec(for List (index in 0..regions.length()): region_matches[index] & Bool(attribute(regions[index].attributes))).or_reduce()
+      range_fits & vec(for List (index in 0..regions.length()): region_matches[index] & Bool(attribute(regions[index].attributes))).any()
 
     RiscvPhysicalMemoryLookup():
-      mapped: range_fits & region_matches.or_reduce()
+      mapped: range_fits & region_matches.any()
       readable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.readable)
       writable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.writable)
       executable: permitted(fun (attributes :: RiscvPhysicalMemoryAttributes): attributes.executable)

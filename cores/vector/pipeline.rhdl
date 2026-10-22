@@ -259,7 +259,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
   def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
-  def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().or_reduce() & !operand_fetch.scheduled_return))
+  def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().any() & !operand_fetch.scheduled_return))
   def returning_control = operand_fetch.issue.bits.beat.control
   // Consecutive integer reduction reads are safe: their results mature before
   // the following beat consumes the owner accumulator at EX. FP folds and
@@ -329,7 +329,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   assert(!(execute.alignment.valid & ex_pipe.egress.valid), "vector_simd_owners_exclusive")
   assert(!(operand_fetch.alignment.valid & sequencer.prepare_alignment.valid), "vector_preparation_alignment_exclusive")
   sequencing <== sequencer.active
-  pending <== authorized_slots.as_bits().or_reduce()
+  pending <== authorized_slots.as_bits().any()
   ex_pipe.flush <== replay
   memory_pipe.flush <== replay
 
@@ -341,7 +341,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def issued_lanes :: Mask(vector_word_bytes(xlen)) = operand_fetch.issue.bits.beat.enabled
   def issued_first_lane_enabled = issued_lanes[0]
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
-  def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
+  def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().any())
   writeback_calendar.query_client[0] <== Bits(index_width(3))(2)
   writeback_calendar.query_delay[0] <== s1_calendar_delay
   def Array(pending_issue, skipped_splat) = operand_fetch.issue |> demux_flow(2, operation => !operation.packed & splat.probing & !issued_first_lane_enabled & !operation.beat.last & (operation.context.owner === splat.owner))
@@ -369,10 +369,10 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       byte_mask: mux(operation.packed, operation.byte_mask, memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)))
       context: operation.context.value
       last: operation.beat.last ||| (!operation.packed & splat.probing & issued_first_lane_enabled & (operation.context.owner === splat.owner))
-      truncate_on_fault: !operation.packed & (operation.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & operation.beat.first.or_reduce()
+      truncate_on_fault: !operation.packed & (operation.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & operation.beat.first.any()
       memory: operation.beat.control.memory
       memory_width: mux(operation.packed, Bits(2)(if xlen == XLen.X64 | 3 | 2), operation.beat.element_width.into(Bits(2)))
-      enabled: mux(operation.packed, operation.byte_mask.or_reduce(), issued_first_lane_enabled)
+      enabled: mux(operation.packed, operation.byte_mask.any(), issued_first_lane_enabled)
       address: operation.beat.address
       store_data: operation.beat.left
       completion_tag: allocate_slot
@@ -388,7 +388,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
           layout: operation.packed_layout
           mask: operation.byte_mask
           store: operation.beat.control.store
-          segmented: operation.beat.control.memory_nf.or_reduce() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
+          segmented: operation.beat.control.memory_nf.any() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
           owner: operation.context.owner
   ) |> packed.reserve
 
@@ -424,7 +424,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def ex_beat = ex_pipe.egress.bits.beat
   def ex_owner = ex_pipe.egress.bits.owner
   def ex_reduction = (ex_beat.control.integer ||| ex_beat.control.fp_service) & ex_beat.control.reduction
-  def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.or_reduce(), accumulators[ex_owner], ex_beat.right))
+  def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.any(), accumulators[ex_owner], ex_beat.right))
   execute.beat <== ex_effective_beat
   execute.scan_carry <== scan_carries[ex_owner]
   def Array(ex_operands, ex_progress) = ex_pipe.egress |> fork_valid(2)
@@ -560,7 +560,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   truncate.valid <== truncating
   truncate.bits <== memory_beat.first.zext(xlen.width)
   when truncating:
-    assert(!authorized_slots.as_bits().or_reduce(), "vector_truncate_has_no_older_completion")
+    assert(!authorized_slots.as_bits().any(), "vector_truncate_has_no_older_completion")
 
   // Early memory progress is registered input metadata, not shared ALU data.
   def early_memory_progress = ex_pipe.egress.valid & ex_pipe.egress.bits.precertified
@@ -650,14 +650,14 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def divide_stalled = divide_result.valid & !divide_result.ready
   def multiply_stalled = Bool(multiply_latency == #false) & multiply_result.valid & !multiply_result.ready
   def fp_stalled = !fp_returns[0].into(Bool) & fp_result.valid & !fp_result.ready
-  def variable_waiting = or_reduce([completion_stalled, divide_stalled, multiply_stalled, fp_stalled])
+  def variable_waiting = any([completion_stalled, divide_stalled, multiply_stalled, fp_stalled])
   reg variable_age(~init: Bits(3)(0))
   when (!variable_waiting):
     variable_age <== Bits(3)(0)
-  elsewhen (!variable_age.and_reduce()):
+  elsewhen (!variable_age.all()):
     variable_age <== variable_age + Bits(3)(1)
 
-  writeback_calendar.pause <== variable_age.and_reduce()
+  writeback_calendar.pause <== variable_age.all()
 
 
   /* Completion-slot allocation and VRF write arbitration.
@@ -711,7 +711,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     "packed_write": packed.write.valid,
     "splat_write": splat.write.valid,
     "splat_owner": splat.owner,
-    "service_allocate": compute_maturity.valid & compute_beat.multiply_execute & (!ex_simd_multiply ||| compute_beat.write.mask.or_reduce()),
+    "service_allocate": compute_maturity.valid & compute_beat.multiply_execute & (!ex_simd_multiply ||| compute_beat.write.mask.any()),
     "service_owner": compute_owner,
     "service_tag": compute_result.tag,
     "service_divide": compute_beat.divide,

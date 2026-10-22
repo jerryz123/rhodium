@@ -1,0 +1,66 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import "../main.rhm" open
+
+block:
+  def d = Design()
+  def b = Builder(d)
+  def m = b.module("Reductions")
+  def a = b.input(m, "a", Bits(1))
+  def word = b.input(m, "word", Bits(129))
+  def any = b.any(m, [a, word], "any")
+  def all = b.all(m, [word], "all")
+  b.drive(b.output(m, "result", Bits(1)), any)
+  b.finish(m)
+  check:
+    type_equal(any.type, Bits(1)) ~is #true
+    type_equal(all.type, Bits(1)) ~is #true
+    m.find_operation(any.defining_op_id).operands ~is [a, word]
+    a.users().length() ~is 1
+    word.users().length() ~is 2
+    dump_ir(d).contains("rtl.any %a, %word : bits<1>") ~is #true
+    verify_design(d) ~is #void
+
+block:
+  def d = Design()
+  def b = Builder(d)
+  def m = b.module("BadReduction")
+  def clock = b.input(m, "clock", Clock)
+  def other = b.module("Other")
+  def foreign = b.input(other, "a", Bits(1))
+  check:
+    b.any(m, []) ~throws "at least one operand"
+    b.all(m, [clock]) ~throws "Bits type"
+    b.any(m, [foreign]) ~throws "module"
+
+// Hand-built IR must obey the same result, operand, and arity contract.
+for (kind in ["empty", "clock", "result"]):
+  def d = Design()
+  def b = Builder(d)
+  def m = b.module("Malformed")
+  def input = b.input(m, "input", if kind == "clock" | Clock | Bits(5))
+  def id = d.fresh_id()
+  def result = Value(d.fresh_id(), "result", Bits(if kind == "result" | 2 | 1), m, id)
+  def args = if kind == "empty" | [] | [input]
+  def op = Operation(id, "rtl.all", m, args, [result], [], {"name": "result"})
+  for (arg in args): arg.add_user(id)
+  m.add_value(result)
+  m.add_operation(op)
+  b.finish(m)
+  check:
+    verify_design(d) ~throws (if kind == "empty" | "at least one" | (if kind == "clock" | "Bits types" | "Bits(1)"))
+
+// Every variadic operand remains a combinational dependency, including later ones.
+for (opcode in ["or", "and"], feedback_position in [0, 1]):
+  def d = Design()
+  def b = Builder(d)
+  def m = b.module("ReductionCycle")
+  def input = b.input(m, "input", Bits(1))
+  def wire = b.wire(m, "loop", Bits(1))
+  def feedback = b.read(wire)
+  def args = if feedback_position == 0 | [feedback, input] | [input, feedback]
+  def result = if opcode == "or" | b.any(m, args) | b.all(m, args)
+  b.drive(wire, result)
+  b.drive(b.output(m, "result", Bits(1)), result)
+  b.finish(m)
+  check: verify_design(d) ~throws "combinational cycle"

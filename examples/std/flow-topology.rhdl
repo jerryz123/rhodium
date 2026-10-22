@@ -38,7 +38,7 @@ circuit FilterFlowExample():
   input keep: Bool
   interface egress(Decoupled(Bits(8)), ~role: producer)
 
-  ingress |> filter_flow(payload => keep & or_reduce(payload)) |> egress
+  ingress |> filter_flow(payload => keep & any(payload)) |> egress
 
 /* Demonstrates primitive generators and composable ready-valid handle/sink topologies. */
 circuit GateFlowExample():

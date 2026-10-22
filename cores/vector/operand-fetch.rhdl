@@ -266,7 +266,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def multiply_enables = (packed_enabled.as_bits() >> mux(multiply_upper, lanes[0..vector_byte_offset_width(xlen)], Bits(vector_byte_offset_width(xlen))(0))).into(Mask(vector_word_bytes(xlen)))
   def enabled_lanes = priority_mux(~default: packed_enabled):
     simd_widening: multiply_enables
-    mask_logic: beat_control.mask_enabled.or_reduce().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
+    mask_logic: beat_control.mask_enabled.any().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
     singleton: memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
 
   def element_mask_lanes = element_mask_bits[0..vector_word_bytes(xlen)].into(Mask(vector_word_bytes(xlen)))
@@ -341,13 +341,13 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
 
   def remainder_count = mux(compress_full, total_count - lane_count, total_count)[0..vector_lane_count_width(xlen)]
   def source_final = beat_control.end === limit
-  def needs_flush = source_final & compress_full & remainder_count.or_reduce()
+  def needs_flush = source_final & compress_full & remainder_count.any()
   def emitted_count_wide = priority_mux(~default: Bits(vector_lane_count_width(xlen) + 1)(0)):
     compress_full: lane_count
     source_final: total_count
 
   def emitted_count = emitted_count_wide[0..vector_lane_count_width(xlen)]
-  def emits_write = compress_full ||| (source_final & total_count.or_reduce())
+  def emits_write = compress_full ||| (source_final & total_count.any())
   def compression_finished = source_final & !needs_flush
   def remainder_data = mux(compress_full, combined[xlen.width..2 * xlen.width], combined[0..xlen.width])
   def post_compress_state = VectorCompressState(xlen, vlen):
@@ -500,7 +500,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     compress_data <== authorized_compress_data
     compress_count <== authorized_compress_count
     compress_destination <== authorized_compress_destination
-    compress_flush <== compress_context_valid & compress_context.beat_control.last & (authorized_end === compress_context.beat_control.end) & authorized_compress_count.or_reduce()
+    compress_flush <== compress_context_valid & compress_context.beat_control.last & (authorized_end === compress_context.beat_control.end) & authorized_compress_count.any()
     flush_sequence <== authorized_sequence
   elsewhen (clear ||| begin_macro):
     compress_data <== Bits(xlen.width)(0)

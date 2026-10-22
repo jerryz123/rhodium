@@ -452,6 +452,25 @@ fun emit_not(operation :: Operation):
                 value_ref(operand), ", ", mask_ref,
                 " : ", circt_type(result.type))
 
+/* Lowers any/all semantics using packed equality without changing the public IR.
+   CIRCT owns optimization of the concatenation and comparison network. */
+fun emit_reduction(operation :: Operation):
+  def prefix = "%__rhodium_reduction_" ++ to_string(operation.id)
+  def widths = operation.operands.map(fun (operand): operand.type.width)
+  def mutable width = 0
+  for (w in widths): width := width + w
+  def packed = if widths.length() == 1 | value_ref(operation.operands[0]) | prefix ++ "_packed"
+  def lines = MutableList[]
+  when widths.length() > 1
+  | lines.add("    " ++ packed ++ " = comb.concat " ++ String.join(operation.operands.map(value_ref), ", ")
+                ++ " : " ++ String.join(operation.operands.map(fun (operand): circt_type(operand.type)), ", "))
+
+  def all = operation.opcode == "rtl.all"
+  lines.add("    " ++ prefix ++ "_constant = hw.constant " ++ to_string(if all | (1 << width) - 1 | 0) ++ " : i" ++ to_string(width))
+  lines.add("    " ++ value_ref(operation.results[0]) ++ " = comb.icmp " ++ (if all | "eq" | "ne")
+              ++ " " ++ packed ++ ", " ++ prefix ++ "_constant : i" ++ to_string(width))
+  String.join(lines.snapshot(), "\n")
+
 /* Emits an equality comparison with the operand type and one-bit result. */
 fun emit_eq(operation :: Operation):
   def result = operation.results[0]
@@ -1277,6 +1296,8 @@ fun emit_operation(operation :: Operation):
         emit_decode(operation)
     | "rtl.and":
         emit_binary(operation, "comb.and")
+    | "rtl.any" || "rtl.all":
+        emit_reduction(operation)
     | "rtl.or":
         emit_binary(operation, "comb.or")
     | "rtl.xor":

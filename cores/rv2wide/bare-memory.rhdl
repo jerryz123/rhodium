@@ -202,7 +202,7 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
     access_fault: Bool(#false)
   ) |> misaligned.physical_response
 
-  memory.drained <== physical_memory.drained & !owners.count.or_reduce() & !misaligned.busy
+  memory.drained <== physical_memory.drained & !owners.count.any() & !misaligned.busy
   memory.ordered_busy <== physical_memory.ordered_busy
   memory.reservation_valid <== physical_memory.reservation_valid
 

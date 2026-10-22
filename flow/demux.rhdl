@@ -16,7 +16,7 @@ circuit Demux(T :: DataType, n :: PosInt):
   input select: Bits(index_width(n))
   interface egress[n](Decoupled(T), ~role: producer)
 
-  def selected_ready = or_reduce(vec(
+  def selected_ready = any(vec(
     for List (index in 0..n):
       def selected = select === Bits(index_width(n))(index)
       egress[index].valid <== ingress.valid & selected
@@ -34,7 +34,7 @@ circuit CtrlDemux(n :: PosInt):
   input select: Bits(index_width(n))
   interface egress[n](DecoupledCtrl(), ~role: producer)
 
-  def selected_ready = or_reduce(vec(
+  def selected_ready = any(vec(
     for List (index in 0..n):
       def selected = select === Bits(index_width(n))(index)
       egress[index].valid <== ingress.valid & selected
@@ -54,7 +54,7 @@ fun finish_demux_flow_handle(input_link :: Handle,
   def selector_bits = selector.as_bits()
   def input_endpoint = input_link.right
   def selected_outputs = for List (index in 0..count): selector_bits === Bits(select_width)(index)
-  def selected_ready = or_reduce(vec(
+  def selected_ready = any(vec(
     for List (index in 0..count):
       def output_endpoint = output_links[index].left
       def selected = selected_outputs[index]

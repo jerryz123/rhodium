@@ -107,7 +107,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
       truncate_on_fault: Bool(#false)
       memory: Bool(#true)
       memory_width: Bits(2)(if xlen == XLen.X64 | 3 | 2)
-      enabled: operation.byte_mask.or_reduce()
+      enabled: operation.byte_mask.any()
       address: operation.beat.address
       store_data: operation.beat.left
       completion_tag: tail
@@ -122,7 +122,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
           layout: operation.packed_layout
           mask: operation.byte_mask
           store: operation.beat.control.store
-          segmented: operation.beat.control.memory_nf.or_reduce() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
+          segmented: operation.beat.control.memory_nf.any() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
           owner: Bits(1)(0)
   ) |> engine.reserve
 

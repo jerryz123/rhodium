@@ -157,7 +157,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   when write_data_fire:
     when copyback:
       monitor_chi_copyback_data(p, requester.request_data.bits, "chi_hnf_copyback")
-      assert(!received_data_ids.or_reduce() ||| (requester.request_data.bits.resp === copyback_state), "chi_hnf_copyback_state_consistent")
+      assert(!received_data_ids.any() ||| (requester.request_data.bits.resp === copyback_state), "chi_hnf_copyback_state_consistent")
 
     assert(write_receipt.expected(requester.request_data.bits.data_id),
            "chi_hnf_write_data_id_expected")
@@ -392,7 +392,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
       phase <== CHIHNFPhase.AwaitSnoopWriteCompletion
     otherwise:
       received_data_ids <== remaining_write_data_ids
-      when (!remaining_write_data_ids.or_reduce()):
+      when (!remaining_write_data_ids.any()):
         phase <== CHIHNFPhase.AwaitSubordinateCompletion
   elsewhen (subordinate_response_fire & awaiting_any_subordinate_completion):
     phase <== mux(awaiting_snoop_write_completion, snoop_write_completed_phase, ordinary_write_completed_phase)

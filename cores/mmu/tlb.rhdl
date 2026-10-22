@@ -84,13 +84,13 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     access: RiscvGuestFaultAccess.Explicit
 
   def demand_fault = priority_mux(~default: RiscvTranslationFault.None):
-    bare & lookup.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
+    bare & lookup.virtual_address[56..64].any(): RiscvTranslationFault.AccessFault
     vs_fault: RiscvTranslationFault.PageFault
     g_fault: RiscvTranslationFault.GuestPageFault
 
   // Invalidation wins at the state-update edge. Do not feed a WB-owned fence
   // back through hit/readiness into the retirement decision that creates it.
-  hit <== bare ||| matches.or_reduce()
+  hit <== bare ||| matches.any()
   translation <== RiscvTlbMapping():
     virtual_address: lookup.virtual_address
     access: lookup.access
@@ -122,9 +122,9 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   // The SAME access class must be allowed by both stages, not merely some
   // access in each stage independently (e.g. VS execute-only + G read-only).
   def probe_permissions = vec(for List (kind in [Sv39Access.Fetch, Sv39Access.Load, Sv39Access.Store]): probe_allowed(kind))
-  probe_raw_hit <== probe_bare ||| probe_matches.or_reduce()
+  probe_raw_hit <== probe_bare ||| probe_matches.any()
   probe_hit <== probe_raw_hit & !invalidate_all
-  probe_fault <== probe_hit & !probe_permissions.or_reduce()
+  probe_fault <== probe_hit & !probe_permissions.any()
 
 
   /* Demand-accurate probe metadata
@@ -141,7 +141,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     access: RiscvGuestFaultAccess.Explicit
 
   def probe_mapping_fault = priority_mux(~default: RiscvTranslationFault.None):
-    probe_bare & probe.virtual_address[56..64].or_reduce(): RiscvTranslationFault.AccessFault
+    probe_bare & probe.virtual_address[56..64].any(): RiscvTranslationFault.AccessFault
     probe_vs_demand_fault: RiscvTranslationFault.PageFault
     probe_g_demand_fault: RiscvTranslationFault.GuestPageFault
 
@@ -166,7 +166,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
      Only successful mappings enter the bank; invalidation wins at the state-update edge. */
 
   def fill_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], fill.bits.request))
-  def fill_index = mux(fill_matches.or_reduce(), priority_encoder(fill_matches), replacement)
+  def fill_index = mux(fill_matches.any(), priority_encoder(fill_matches), replacement)
   def next_entry = RiscvTlbEntry():
     valid: Bool(#true)
     virtualized: fill.bits.request.virtualized
@@ -183,7 +183,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     replacement <== Bits(index_bits)(0)
   elsewhen (fill.valid & (fill.bits.result.fault === RiscvTranslationFault.None)):
     entries <== entries.updated(fill_index, next_entry)
-    replacement <== mux(fill_matches.or_reduce(), replacement, wrap_increment(replacement, entry_count))
+    replacement <== mux(fill_matches.any(), replacement, wrap_increment(replacement, entry_count))
 
 /* Projects the shared bank onto host-only ports without introducing a second entry store. */
 sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):

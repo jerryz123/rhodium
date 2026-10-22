@@ -53,7 +53,7 @@ sync_circuit FpScheduledReturns(Request :: DataType, Result :: DataType):
   fixed_admission_available <== variable_age < Bits(3)(6)
   // Stop new launches long enough for an older variable result to drain;
   // fixed work already in flight still writes on its reserved cycle.
-  def fixed_issue = request |> gate_flow(!variable_age.and_reduce()) |> to_valid()
+  def fixed_issue = request |> gate_flow(!variable_age.all()) |> to_valid()
   fixed_issue |> issue
   // Variable work stays in its lane. Never lock the common result mux
   // against an already-reserved fixed return arriving next cycle.
@@ -61,7 +61,7 @@ sync_circuit FpScheduledReturns(Request :: DataType, Result :: DataType):
   assert(!completion.valid ||| result.ready, "scheduled_fp_writes_on_return")
   when (!variable.valid ||| variable.ready):
     variable_age <== Bits(3)(0)
-  elsewhen (!variable_age.and_reduce()):
+  elsewhen (!variable_age.all()):
     variable_age <== variable_age + Bits(3)(1)
 
 /* Reserves fixed completion storage before launch and fairly drains held lane results. */
@@ -127,7 +127,7 @@ sync_circuit FpExecutionService(
   )
   reg pending_returns(~init: Bits(timing.maximum + 1)(0))
   def return_selection = Bits(timing.maximum + 1)(1) << timing.latency(fixed_request.bits.control.execution)
-  def return_available = !(pending_returns & return_selection).or_reduce()
+  def return_available = !(pending_returns & return_selection).any()
   wire fixed_launch: Bool
   pending_returns <== (pending_returns ||| mux(fixed_launch, return_selection, Bits(timing.maximum + 1)(0))) >> 1
   /* Routes one combinational result through its selected nonstallable delay. */

@@ -214,7 +214,7 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
   def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
   def prefetch_translated = normal_data_guest ||| (prefetch_privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode))
-  def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].or_reduce()
+  def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].any()
   def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64).align_down(CacheLineBytes)
   def prefetch_region = config.physical_map.lookup(prefetch_address, prefetch_address +& Bits(64)(CacheLineBytes - 1))
   def prefetch_attributes = resolve_memory_attributes(prefetch_region, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))

@@ -40,6 +40,11 @@ flowchart LR
 The arrow into a layer comes only from profile composition. No layer-to-layer
 arrow is legal.
 
+Boolean any/all reductions preserve each list element as a separately packed
+operand of `rtl.any` or `rtl.all`. The frontend handles empty
+identities and returns `Bool`; backends choose their reduction implementation.
+Other utilities that require a packed word, such as popcount, retain packing.
+
 ## Static information and hardware surfaces
 
 Rhodium uses Rhombus static information to retain an authoring surface while

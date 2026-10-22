@@ -101,7 +101,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   inst data_demux(Demux(CHIDatFlit(p), slots))
   inst completion_arbiter(RRArbiter(ReadResult, slots))
 
-  def issue_available = stream_active & remaining_bytes.or_reduce() & !occupied[issue_slot]
+  def issue_available = stream_active & remaining_bytes.any() & !occupied[issue_slot]
   def final_issue = remaining_bytes <= Bits(p.request_address_width)(64)
   def issued_byte_count = mux(final_issue,
                               remaining_bytes,
@@ -174,7 +174,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
      separate: line retirement, issue progress, and starvation can coincide. */
 
   when command_fire:
-    stream_active <== command.bits.byte_count.or_reduce()
+    stream_active <== command.bits.byte_count.any()
   elsewhen (line_fire & line.bits.last):
     stream_active <== Bool(#false)
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus as host
   rhombus.bits.(<<) as <<
   rhombus.bits.(?) as ?
   "../../core/ir.rhm" open
@@ -19,6 +20,14 @@ import:
   "../support/mask-type.rhm" as mask_support
   "../support/one-hot-selection.rhm" as one_hot_selection
 
+// Preserve the host loop reducers alongside the hardware expression functions.
+alias 'any':
+  ~only_space reducer
+  'host.any'
+alias 'all':
+  ~only_space reducer
+  'host.all'
+
 export:
   Bool
   bool_type
@@ -30,8 +39,8 @@ export:
   maybe_one_hot_width
   bool_eq
   bool_ne
-  or_reduce
-  and_reduce
+  any
+  all
   popcount
   priority_encoder
   priority_encoder_oh
@@ -435,51 +444,36 @@ fun reduction_identity(value :: Nat,
               name,
               location)
 
-/*
- * Reduces the canonical packed representation of hardware data to whether any
- * bit is asserted. Existing equality and inversion IR fully express the
- * operation, so the frontend does not introduce a reduction-specific opcode.
- */
-fun or_reduce(entity :: HardwareEntity || List.of(HardwareEntity),
-              name :: maybe(String) = #false,
-              location :: Location = Location()) :~ HardwareFields:
-  if entity is_a List && entity.length() == 0
-  | reduction_identity(0, name, location)
-  | block:
-      def (packed, width) = packed_reduction_operand(entity, #'or_reduce, "or_reduce", location)
-      def equal_zero = kernel.cast(
-        kernel.hw_eq(packed,
-                     kernel.literal(Bits(width), 0, #false, location),
-                     #false,
-                     location),
-        Bool,
-        #false,
-        location
-      )
-      kernel.bit_not(equal_zero, name, location)
+/* Converts each reduction operand to canonical bits without joining the list.
+   Individual operands retain their widths and dependency boundaries. */
+fun reduction_operands(entity :: HardwareEntity || List.of(HardwareEntity),
+                       who :: Symbol, spelling :: String, location :: Location):
+  def entities = if entity is_a List | entity | [entity]
+  for List (item in entities):
+    def value = kernel.read(item, location)
+    unless data_type(value.type) && value.type.packed_width()
+    | error(~who: who, location.describe() ++ ": " ++ spelling
+                       ++ (if entity is_a List | " list elements must have packable DataTypes" | " operand must have a packable DataType"))
 
-/*
- * Reduces the canonical packed representation of hardware data to whether
- * every bit is asserted. Equality with the packed all-ones value avoids a new
- * core reduction operation.
- */
-fun and_reduce(entity :: HardwareEntity || List.of(HardwareEntity),
-               name :: maybe(String) = #false,
-               location :: Location = Location()) :~ HardwareFields:
-  if entity is_a List && entity.length() == 0
+    hardware_as_bits(value, who, spelling ++ " operand", #false, location)
+
+/* Preserves any-bit semantics for target lowering; an empty host list is false. */
+fun any(entity :: HardwareEntity || List.of(HardwareEntity),
+        name :: maybe(String) = #false,
+        location :: Location = Location()) :~ HardwareFields:
+  def operands = reduction_operands(entity, #'any, "any", location)
+  if operands.length() == 0
+  | reduction_identity(0, name, location)
+  | kernel.cast(kernel.any(operands, #false, location), Bool, name, location)
+
+/* Preserves all-bit semantics for target lowering; an empty host list is true. */
+fun all(entity :: HardwareEntity || List.of(HardwareEntity),
+        name :: maybe(String) = #false,
+        location :: Location = Location()) :~ HardwareFields:
+  def operands = reduction_operands(entity, #'all, "all", location)
+  if operands.length() == 0
   | reduction_identity(1, name, location)
-  | block:
-      def (packed, width) = packed_reduction_operand(entity, #'and_reduce, "and_reduce", location)
-      def all_ones = (1 << width) - 1
-      kernel.cast(
-        kernel.hw_eq(packed,
-                     kernel.literal(Bits(width), all_ones, #false, location),
-                     #false,
-                     location),
-        Bool,
-        name,
-        location
-      )
+  | kernel.cast(kernel.all(operands, #false, location), Bool, name, location)
 
 /* Pairs a partial population-count value with the number of input bits contributing to it. */
 class PopcountNode(value :: Value, capacity :: PosInt)
@@ -775,7 +769,7 @@ fun maybe_one_hot_index_value(selector :: HardwareEntity,
 
 /*
  * Encodes the lowest asserted packed bit. Zero input returns index zero; use
- * or_reduce when the caller must distinguish that case from bit zero winning.
+ * any when the caller must distinguish that case from bit zero winning.
  */
 fun priority_encoder(entity :: HardwareEntity,
                      name :: maybe(String) = #false,
@@ -810,7 +804,7 @@ fun reduce_boolean_comparisons(comparisons :: NonemptyList.of(HardwareEntity),
                                location :: Location):
   if comparisons.length() == 1
   | kernel.cast(comparisons[0], Bool, name, location)
-  | or_reduce(comparisons, name, location)
+  | any(comparisons, name, location)
 
 /*
  * Generates a runtime membership predicate from the enum type's declared

@@ -91,12 +91,12 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
      Allocation wins a collision. Cancellation closes unissued/unauthorized work;
      already accepted slots still drain. */
 
-  def owner_has_slots = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & (slots[slot].owner === drain_owner)).as_bits().or_reduce()
+  def owner_has_slots = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & (slots[slot].owner === drain_owner)).as_bits().any()
   def owner_has_splat = splat_active & (splat_owner === drain_owner)
   def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed_drain_blocked & !owner_has_splat
   for (owner in 0..vector_completion_slots):
     def owner_tag = Bits(tag_width)(owner)
-    def unauthorized = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & !slots[slot].accepted & (slots[slot].owner === owner_tag)).as_bits().or_reduce()
+    def unauthorized = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & !slots[slot].accepted & (slots[slot].owner === owner_tag)).as_bits().any()
     def allocate_owner = request.valid & (next_owner === owner_tag)
     def reclaim_owner = macro_complete & (drain_owner === owner_tag)
     def cancel_owner = cancel.valid & macro_valid[owner] & (!macro_issued[owner] ||| unauthorized)
@@ -142,13 +142,13 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
       def exact_write = slots[slot].allocated & !slots[slot].packed & slots[slot].writes
       exact_write & (slots[slot].write_address === Bits(index_width(row_count))(row))
 
-    def foreign_intents = or_reduce(for List (owner in 0..vector_completion_slots): pending_owners[owner] & owner_is_foreign[owner])
-    def foreign_writes = or_reduce(for List (slot in 0..vector_completion_slots): pending_slots[slot] & slot_is_foreign[slot])
+    def foreign_intents = any(for List (owner in 0..vector_completion_slots): pending_owners[owner] & owner_is_foreign[owner])
+    def foreign_writes = any(for List (slot in 0..vector_completion_slots): pending_slots[slot] & slot_is_foreign[slot])
     def foreign_splat = splat_active & (splat_owner =/= current_owner) & splat_rows[row]
     def foreign = packed_rows[row] ||| foreign_splat ||| foreign_intents ||| foreign_writes
     // A younger dependent writer must not block the splat that supplies it.
-    def older_intents = or_reduce(for List (owner in 0..vector_completion_slots): pending_owners[owner] & owner_precedes_splat[owner])
-    def older_writes = or_reduce(for List (slot in 0..vector_completion_slots): pending_slots[slot] & slot_precedes_splat[slot])
+    def older_intents = any(for List (owner in 0..vector_completion_slots): pending_owners[owner] & owner_precedes_splat[owner])
+    def older_writes = any(for List (slot in 0..vector_completion_slots): pending_slots[slot] & slot_precedes_splat[slot])
     [foreign, older_intents ||| older_writes]
 
   blocked_rows <== vec(for List ([foreign, _older] in row_hazards): foreign)
@@ -162,11 +162,11 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
     current_owner <== next_owner
     next_owner <== wrap_increment(next_owner, vector_completion_slots)
 
-  active <== macro_valid.as_bits().or_reduce()
-  def store_macro_pending = vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_store[owner]).as_bits().or_reduce()
+  active <== macro_valid.as_bits().any()
+  def store_macro_pending = vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_store[owner]).as_bits().any()
   stores_pending <== store_barrier ||| store_macro_pending
-  loads_pending <== vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_load[owner]).as_bits().or_reduce()
-  fp_pending <== vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_fp[owner]).as_bits().or_reduce()
+  loads_pending <== vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_load[owner]).as_bits().any()
+  fp_pending <== vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_fp[owner]).as_bits().any()
   when (request.valid & request.bits.control.memory & request.bits.control.store):
     store_barrier <== Bool(#true)
   elsewhen (store_barrier & !store_macro_pending & memory_drained):

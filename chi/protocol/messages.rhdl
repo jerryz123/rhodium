@@ -124,7 +124,7 @@ fun chi_rn_copyback_data(p :: CHIFlitParams,
                          data_id :: Bits(2),
                          data :: Bits(p.data_width),
                          response :: Bits(3)) :~ CHIDatFlit(p):
-  def valid_copy = response.or_reduce()
+  def valid_copy = response.any()
   chi_rn_write_data(p, node_id, home_node_id, dbid,
                     mux(valid_copy, data, Bits(p.data_width)(0)),
                     mux(valid_copy, !Bits(p.byte_enable_width)(0), Bits(p.byte_enable_width)(0)),

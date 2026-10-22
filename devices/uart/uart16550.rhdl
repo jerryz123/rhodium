@@ -187,7 +187,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def incoming_write = incoming_opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
   def incoming_read = incoming_opcode === CHIReqOpcode.ReadNoSnp
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
-  def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[Uart16550AddressWidth..p.request_address_width].or_reduce()
+  def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[Uart16550AddressWidth..p.request_address_width].any()
   def incoming_byte_access = incoming.size_or_num_req[0..3] === Bits(3)(0)
   def incoming_targets_device = incoming.tgt_id === identity.node_id
   def incoming_supported = (incoming_read ||| incoming_write) & incoming_in_window & incoming_byte_access & incoming_targets_device

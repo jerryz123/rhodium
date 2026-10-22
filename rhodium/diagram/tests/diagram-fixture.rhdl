@@ -13,7 +13,7 @@ sync_circuit DiagramFlow():
 
   def Array(left, right) = source
     |> map_flow(payload => payload + Bits(8)(1))
-    |> filter_flow(payload => or_reduce(payload))
+    |> filter_flow(payload => any(payload))
     |> pipe(1)
     |> atomic_fork(2)
   left |> sinks[0]

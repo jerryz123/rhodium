@@ -3,10 +3,10 @@
 // Rejects packed AND reduction of a non-data hardware clock value.
 // SPDX-License-Identifier: Apache-2.0
 
-circuit BadAndReduceType():
+circuit BadAllType():
   input source: Clock
   output result: Bool
 
-  result <== and_reduce(source)
+  result <== all(source)
 
-elaborate(BadAndReduceType())
+elaborate(BadAllType())

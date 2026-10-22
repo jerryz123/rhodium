@@ -53,7 +53,7 @@ fun user_pointer_mask_control(xlen :: XLen, privilege :: PrivilegeMode, mstatus 
       def effective = effective_data_privilege(xlen, privilege, mstatus)
       PointerMaskControl():
         mode: mux((effective === PrivilegeMode.User) & !csr_flag(mstatus, MstatusMXR), pointer_mask_mode(xlen, senvcfg), PointerMaskMode.Disabled)
-        virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(satp, Satp64Mode).or_reduce()
+        virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(satp, Satp64Mode).any()
 
 /* Shared senvcfg controls U/VU. HUPMM is only the U-mode HLV/HSV override;
  * VS accesses use henvcfg. HLVX and either effective MXR bypass masking. */
@@ -68,7 +68,7 @@ fun hypervisor_pointer_mask_control(context :: RiscvExecutionContext(), mstatus 
   def mxr = csr_flag(mstatus, MstatusMXR) ||| (guest & csr_flag(vsstatus, MstatusMXR))
   PointerMaskControl():
     mode: mux(Bool(enabled) & !mxr & (access =/= RiscvGuestMemoryAccess.GuestExecuteRead), mode, PointerMaskMode.Disabled)
-    virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(mux(guest, vsatp, satp), Satp64Mode).or_reduce()
+    virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(mux(guest, vsatp, satp), Satp64Mode).any()
 
 /* Reconstructs the masked upper RV64 address bits by sign- or zero-extension while preserving low bits; RV32 is unchanged. */
 fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: PointerMaskControl()) :~ Bits(xlen.width):

@@ -364,8 +364,8 @@ sync_circuit L1DCache(xlen :: XLen,
      Queued physical demands precede best-effort prefetches. Retry and
      retained service stages below may stall independently of core cycles. */
 
-  def s2_queued = service_requests.count.or_reduce()
-  def s2_prefetch = prefetch_valid & !virtual_lookup.valid & !s2_queued & !reservation_count.or_reduce() & !pipeline_lookup.valid & !pipeline.request.valid & !s2_store_candidate.egress.valid & stores.empty
+  def s2_queued = service_requests.count.any()
+  def s2_prefetch = prefetch_valid & !virtual_lookup.valid & !s2_queued & !reservation_count.any() & !pipeline_lookup.valid & !pipeline.request.valid & !s2_store_candidate.egress.valid & stores.empty
   // Buffered requests and hints are already physical; their page offsets are
   // the same index as the original VA. A fresh demand indexes directly by VA.
   def s2_index_address = priority_mux(~default: virtual_lookup.bits):
@@ -425,7 +425,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_sc_authorized = s4_reservation_matches & s4_hit & s4_state.is_unique()
   def s4_mutation = s4_store ||| s4_zero ||| s4_atomic ||| (s4_sc & s4_sc_authorized)
   def s4_owned_mutation = s4_mutation & s4_hit & s4_state.is_unique()
-  def s4_prefetch_needs_refill = s4_valid & s4_prefetch & !reservation_count.or_reduce() & (!s4_hit ||| (s4_prefetch_write & !s4_state.is_unique()))
+  def s4_prefetch_needs_refill = s4_valid & s4_prefetch & !reservation_count.any() & (!s4_hit ||| (s4_prefetch_write & !s4_state.is_unique()))
   def s4_prefetch_dirty_victim = s4_prefetch_needs_refill & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
   def s4_needs_refill = s4_load & (!s4_hit ||| (s4_lr & !s4_state.is_unique())) ||| s4_mutation & !s4_owned_mutation ||| (s4_prefetch_needs_refill & !s4_prefetch_dirty_victim)
 
@@ -1013,11 +1013,11 @@ sync_circuit L1DCache(xlen :: XLen,
     reservation_valid <== Bool(#false)
 
   // A repeated LR may replace the reservation, but cannot renew protection.
-  when (completing_lr & !reservation_count.or_reduce()):
+  when (completing_lr & !reservation_count.any()):
     reservation_count <== Bits(reservation_count_width)(reservation_cycles + reservation_backoff)
   elsewhen ((reservation_valid & reservation_clear) ||| (completing_lr & reservation_protected)):
     reservation_count <== Bits(reservation_count_width)(reservation_backoff)
-  elsewhen (reservation_count.or_reduce()):
+  elsewhen (reservation_count.any()):
     reservation_count <== reservation_count - Bits(reservation_count_width)(1)
 
   // A completed probe also gives a waiting local lookup a bounded turn.
@@ -1026,7 +1026,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def waiting_lookup = service_requests.egress.valid ||| s3_lookup.egress.valid ||| virtual_lookup.valid
   when (install_refill ||| (snoop.completed & waiting_lookup)):
     core_service_count <== Bits(4)(8)
-  elsewhen (core_service_count.or_reduce()):
+  elsewhen (core_service_count.any()):
     core_service_count <== core_service_count - Bits(4)(1)
 
 
@@ -1069,7 +1069,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // Stop new probes, not an already accepted snoop. In particular protect the
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = refill.acknowledgements.valid ||| refill.completion.valid
-  def protect_core = reservation_protected ||| core_service_count.or_reduce()
+  def protect_core = reservation_protected ||| core_service_count.any()
   def protect_copyback = writeback.granted & (cache_chi_snoop_address(p, width, chi.snoops.bits.address).align_down(CacheLineBytes) === eviction_line_address)
   chi.snoops |> gate_flow(!(protect_refill ||| protect_core ||| protect_copyback)) |> snoop.snoops
   def writeback_active = !writeback.command.ready

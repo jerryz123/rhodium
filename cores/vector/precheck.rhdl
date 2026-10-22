@@ -66,17 +66,17 @@ fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: 
   def small = magnitude[0..12]
   def exponent = Bits(4)(12) - count_leading_zeros(small - Bits(12)(1))
   def length = state.vl[0..index_width(vlen + 1)]
-  def steps = mux(length.or_reduce(), length - Bits(index_width(vlen + 1))(1), Bits(index_width(vlen + 1))(0))
-  def distance = mux(small.or_reduce(), steps.zext(68) << exponent, Bits(68)(0))
+  def steps = mux(length.any(), length - Bits(index_width(vlen + 1))(1), Bits(index_width(vlen + 1))(0))
+  def distance = mux(small.any(), steps.zext(68) << exponent, Bits(68)(0))
   def eew = control.memory_data_eew
   def alignment_mask = (Bits(xlen.width)(1) << eew) - Bits(xlen.width)(1)
-  def supported_mode = control.memory & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
-  def starts_at_zero = !state.vstart.or_reduce()
-  def stride_fits = !magnitude[12..xlen.width].or_reduce() ||| !steps.or_reduce()
-  def stride_aligned = !(stride & alignment_mask).or_reduce()
+  def supported_mode = control.memory & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.any() & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
+  def starts_at_zero = !state.vstart.any()
+  def stride_fits = !magnitude[12..xlen.width].any() ||| !steps.any()
+  def stride_aligned = !(stride & alignment_mask).any()
   VectorFootprintGeometry():
     eligible: supported_mode & starts_at_zero & stride_fits & stride_aligned
-    empty: !length.or_reduce()
+    empty: !length.any()
     start_offset: mux(stride[xlen.width - 1].into(Bool), distance, Bits(68)(0))
     span_bytes: distance + (Bits(68)(1) << eew)
     eew: eew
@@ -99,7 +99,7 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDes
   def last_address = apply_pointer_mask(xlen, last_raw[0..xlen.width], masking)
   def first = if xlen == XLen.X32 | first_address.zext(64) | first_address
   def last = if xlen == XLen.X32 | last_address.zext(64) | last_address
-  def endpoints_fit = !first_raw[xlen.width..68].or_reduce() & !last_raw[xlen.width..68].or_reduce()
+  def endpoints_fit = !first_raw[xlen.width..68].any() & !last_raw[xlen.width..68].any()
   def normalized_span_unchanged = (last - first).zext(68) === (last_raw - first_raw)
   def no_wrap = endpoints_fit & (first <= last) & normalized_span_unchanged
   def aligned = (first & ((Bits(64)(1) << geometry.eew) - Bits(64)(1))) === Bits(64)(0)

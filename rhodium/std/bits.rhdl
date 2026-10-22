@@ -118,7 +118,7 @@ fun is_aligned(value :: Bits, alignment :: Pow2Int) :~ Bool:
   )
   if low_width == 0
   | Bool(#true)
-  | !or_reduce(value[0..low_width])
+  | !any(value[0..low_width])
 
 /* Checks runtime power-of-two alignment within a caller-selected bound.
  * Encodings above max_log2 are unsupported, including for the zero address. */

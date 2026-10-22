@@ -37,10 +37,10 @@ sync_circuit Scoreboard(entries :: PosInt):
   def clear_bit = Mask(entries).from_index(clear.bits)
   def set_mask = mux(set.valid, set_bit, Mask(entries)(0))
   def clear_mask = mux(clear.valid, clear_bit, Mask(entries)(0))
-  def set_was_free = !or_reduce(state & set_bit) ||| (
+  def set_was_free = !any(state & set_bit) ||| (
     clear.valid & (clear.bits === set.bits)
   )
-  def clear_was_busy = or_reduce(state & clear_bit) ||| (
+  def clear_was_busy = any(state & clear_bit) ||| (
     set.valid & (set.bits === clear.bits)
   )
 

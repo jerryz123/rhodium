@@ -112,13 +112,13 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
           c_extra_mask_top,
           c_extra_mask_bottom
         )
-        or_reduce(reduced_c_extra & fma_extend(mask, reduced_c_extra.type.packed_width()))
+        any(reduced_c_extra & fma_extend(mask, reduced_c_extra.type.packed_width()))
 
   def aligned_c_tail = main_aligned_c.as_bits()[0..=2]
   def aligned_c_sticky = mux(
     subtract_magnitudes,
-    aligned_c_tail.and_reduce() & !reduced_c_extra_bit,
-    aligned_c_tail.or_reduce() ||| reduced_c_extra_bit
+    aligned_c_tail.all() & !reduced_c_extra_bit,
+    aligned_c_tail.any() ||| reduced_c_extra_bit
   )
   def aligned_c = (
     main_aligned_c.as_bits()[3..=(significand_sum_width + 2)]
@@ -193,8 +193,8 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   )
   def c_dominant_extra = mux(
     intermediate.subtract_magnitudes,
-    or_reduce(!significand_sum[1..=significand_width]),
-    significand_sum[1..=(significand_width + 1)].or_reduce()
+    any(!significand_sum[1..=significand_width]),
+    significand_sum[1..=(significand_width + 1)].any()
   )
   def c_dominant_main:
     (c_dominant_absolute_sum << intermediate.c_alignment_distance)[
@@ -218,11 +218,11 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
         def alignment_width = intermediate.c_alignment_distance.type.packed_width()
         def alignment_quarters = intermediate.c_alignment_distance[2..alignment_width]
         def mask = low_mask(alignment_quarters, 0, c_dominant_mask_width)
-        or_reduce(c_dominant_reduced & fma_extend(mask, c_dominant_reduced.type.packed_width()))
+        any(c_dominant_reduced & fma_extend(mask, c_dominant_reduced.type.packed_width()))
 
   def c_dominant_significand = (
     c_dominant_main[3..=(significand_width + 4)]
-      ++ (c_dominant_main[0..=2].or_reduce() ||| c_dominant_reduced_extra ||| c_dominant_extra)
+      ++ (c_dominant_main[0..=2].any() ||| c_dominant_reduced_extra ||| c_dominant_extra)
   )
 
   /* When c does not dominate, resolve the sum's sign and normalize possible
@@ -262,12 +262,12 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def normalization_halves = non_dominant_normalization_reduced[1..normalization_width]
   def non_dominant_mask_width = (significand_width + 2) div 4
   def non_dominant_mask = low_mask(normalization_halves, 0, non_dominant_mask_width)
-  def non_dominant_reduced_extra = or_reduce(
+  def non_dominant_reduced_extra = any(
     non_dominant_reduced_again & fma_extend(non_dominant_mask, non_dominant_reduced_again.type.packed_width())
   )
   def non_dominant_significand = (
     non_dominant_main[3..=(significand_width + 4)]
-      ++ (non_dominant_main[0..=2].or_reduce() ||| non_dominant_reduced_extra)
+      ++ (non_dominant_main[0..=2].any() ||| non_dominant_reduced_extra)
   )
   def non_dominant_cancellation:
     non_dominant_significand[(significand_width + 1)..=(significand_width + 2)] === Bits(2)(0)

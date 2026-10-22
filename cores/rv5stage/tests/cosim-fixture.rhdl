@@ -94,7 +94,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       access_fault: Bool(#false)
       prediction: literal(BranchPrediction(xlen), 0)
 
-    core.pipeline_access.response.valid <== lookup_valid & lookup_mode.or_reduce()
+    core.pipeline_access.response.valid <== lookup_valid & lookup_mode.any()
     core.pipeline_access.response.bits <== CachePipelineResult(xlen):
       outcome: mux(lookup_mode === Bits(2)(1), CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
       reason: CachePipelineReason.None

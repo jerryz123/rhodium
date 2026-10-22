@@ -193,7 +193,7 @@ circuit SimdALU(xlen :: XLen):
   def mutable count_nodes = for List (byte in 0..(width / 8)):
     def source = left[byte * 8..(byte + 1) * 8]
     def reversed :: Bits(8) = reversed_bytes[byte]
-    [!source.or_reduce(), count_leading_zeros(mux(trailing, reversed, source)), popcount(source)]
+    [!source.any(), count_leading_zeros(mux(trailing, reversed, source)), popcount(source)]
 
   def count_levels = for List (format in 0..format_count):
     def previous = count_nodes
@@ -372,8 +372,8 @@ circuit SimdALU(xlen :: XLen):
       def shifted :: Bits(width) = shifts[lane]
       def cases = for List (distance in 1..element_bits):
         def round_bit = source[distance - 1].into(Bool)
-        def lower_nonzero = if distance == 1 | Bool(#false) | source[0..distance - 1].or_reduce()
-        def discarded_nonzero = source[0..distance].or_reduce()
+        def lower_nonzero = if distance == 1 | Bool(#false) | source[0..distance - 1].any()
+        def discarded_nonzero = source[0..distance].any()
         def increment = mux_lookup(rounding_mode, ~default: round_bit, [
           [SimdRoundingMode.NearestEven, round_bit & (lower_nonzero ||| shifted[0].into(Bool))],
           [SimdRoundingMode.Down, Bool(#false)],
@@ -486,7 +486,7 @@ circuit SimdALU(xlen :: XLen):
       average: average_data
       increment: increments
       saturated: saturated_data
-      saturation: saturation_bits.or_reduce()
+      saturation: saturation_bits.any()
       carry_borrow: carry_borrow_bits.into(Mask(width / 8))
 
   def fixed :: SimdFixedArithmetic(xlen) = mux_lookup(element_width, ~default: fixed_alternatives[0], for List (format in 1..format_count): [widths[format], fixed_alternatives[format]])

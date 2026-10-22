@@ -100,7 +100,7 @@ class Occurrence(module_def :: Module, path :: List.of(String), bindings :: Map,
 // choose whether conditional planning may move it beneath a consumer guard.
 def pure_operations = [
   "rtl.constant", "rtl.dont_care", "rtl.onehot_mux", "rtl.decode",
-  "rtl.not", "rtl.and", "rtl.or", "rtl.xor",
+  "rtl.not", "rtl.and", "rtl.or", "rtl.xor", "rtl.any", "rtl.all",
   "rtl.add", "rtl.sub", "rtl.mul", "rtl.urem", "rtl.eq", "rtl.ult", "rtl.mux_lookup",
   "rtl.slt", "rtl.shl", "rtl.shru", "rtl.shrs", "rtl.concat", "rtl.extract",
   "rtl.zext", "rtl.sext", "rtl.trunc",
@@ -156,7 +156,7 @@ fun check_wide_operation(operation :: Operation, path :: List.of(String)):
   | unless operation.opcode in ["rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive", "rtl.instance",
                                 "rtl.constant", "rtl.dont_care", "rtl.not", "rtl.and", "rtl.or", "rtl.xor", "rtl.eq",
                                 "rtl.add", "rtl.sub", "rtl.mul", "rtl.urem", "rtl.ult", "rtl.slt",
-                                "rtl.concat", "rtl.shl", "rtl.shru", "rtl.shrs",
+                                "rtl.any", "rtl.all", "rtl.concat", "rtl.shl", "rtl.shru", "rtl.shrs",
                                 "rtl.extract", "rtl.trunc", "rtl.zext", "rtl.sext", "rtl.cast",
                                 "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",
                                 "rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set",
@@ -326,6 +326,32 @@ fun build_schedule(rtl :: DesignElaboration) :: RsimSchedule:
             if part is_a String
             | RsimStep("rtl.record_get", type, [parent], {"field": part})
             | RsimStep("rtl.vector_get", type, [parent], {"index": part})
+        | op.opcode in ["rtl.any", "rtl.all"]:
+            def all = op.opcode == "rtl.all"
+            /* Append dependency-ordered private steps with this occurrence's locality. */
+            fun append(opcode :: String, type :: HardwareType, operands :: List.of(Nat), attributes :: Map = {}) :: Nat:
+              def ref = steps.length()
+              steps.add(RsimStep(opcode, type, operands, attributes, owner))
+              ref
+
+            def predicates = for List (operand in op.operands):
+              def ref = schedule(owner, operand)
+              if operand.type.width == 1
+              | ref
+              | block:
+                  def constant = append("rtl.constant", operand.type, [], {"value": if all | 2 ** operand.type.width - 1 | 0})
+                  def equal = append("rtl.eq", Bits(1), [ref, constant])
+                  if all | equal | append("rtl.not", Bits(1), [equal])
+
+            // Each later predicate is an RHS cone guarded by the accumulated
+            // result. Nested selectors stay eager in the existing planner, so
+            // left association keeps expensive predicates out of that position.
+            // Shared producers still obey the ordinary all-use ownership proof.
+            def mutable tail = predicates[0]
+            for (predicate in predicates.drop(1)):
+              tail := append(if all | "rtl.and" | "rtl.or", Bits(1), [tail, predicate])
+
+            RsimStep("rtl.cast", type, [tail], op.attributes)
         | op.opcode == "rtl.input_port":
             RsimStep("input", type, [], {"name": op.attribute("name")})
         | state_slots.has_key(state_key):

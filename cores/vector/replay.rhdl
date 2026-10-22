@@ -28,7 +28,7 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   reg tail(~init: Bits(Cursor.width)(0))
   reg next_request(~init: Bits(Cursor.width)(0))
   def count = tail - head
-  occupied <== count.or_reduce()
+  occupied <== count.any()
   oldest <== requests[request_index(head)]
   def capture = request |> gate_flow(count < Bits(Cursor.width)(slots)) |> to_valid()
   def Array(retention, live, feedback) = capture |> fork_valid(3)
@@ -68,7 +68,7 @@ sync_circuit VectorStoreAcknowledgements(xlen :: XLen, slots :: Pow2Int):
   interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
   output pending: Bool
   reg acknowledgements(~init: Bits(slots)(0).as_vec(Bool))
-  pending <== acknowledgements.as_bits().or_reduce()
+  pending <== acknowledgements.as_bits().any()
   wire ready: Vec(slots, Bool)
   def captures = capture |> fork_valid(slots)
   def entries = for Array (slot in 0..slots):

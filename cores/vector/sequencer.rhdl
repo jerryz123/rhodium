@@ -91,7 +91,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
   def element_move = descriptor.control.element_move
   def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
-  def segmented_memory = descriptor.control.memory & !whole_register_memory & descriptor.control.memory_nf.or_reduce()
+  def segmented_memory = descriptor.control.memory & !whole_register_memory & descriptor.control.memory_nf.any()
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def scan = descriptor.control.integer & descriptor.control.scan
   def extension_power = descriptor.control.extension_ratio.as_bits() + Bits(2)(1)
@@ -176,7 +176,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def ordinary_first_address = first_source_base + first_source_chunk[0..row_base_width]
   def first_address = priority_mux(~default: ordinary_first_address):
     gather: mux(!gather_vector & scalar_in_range, scalar_address, slide_base)
-    slide: mux(slide_valid[0..vector_word_bytes(xlen)].or_reduce(), slide_address, slide_base)
+    slide: mux(slide_valid[0..vector_word_bytes(xlen)].any(), slide_address, slide_base)
 
   /* Second read uses VS2 for memory indices and VS1 otherwise. Reduction
      pins its row offset to zero; compression and slide retain higher priority. */
@@ -191,7 +191,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def compress_address = compress_base + compress_offset
   def second_address = priority_mux(~default: ordinary_second_address):
     compress: compress_address
-    slide: mux(slide_valid[vector_word_bytes(xlen)..vector_slide_bytes(xlen)].or_reduce(), slide_address + Bits(row_base_width)(1), slide_base)
+    slide: mux(slide_valid[vector_word_bytes(xlen)..vector_slide_bytes(xlen)].any(), slide_address + Bits(row_base_width)(1), slide_base)
 
   def destination_base = vd.zext(row_base_width) << register_row_shift
   def destination_address = destination_base + destination_chunk[0..row_base_width]
@@ -210,7 +210,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def write_base = write_register.zext(row_base_width) << register_row_shift
   def write_address = write_base + write_chunk[0..row_base_width]
   def destination_group = vector_destination_registers(xlen, vlen, descriptor)
-  def compressed_write_wait = vec(for List (row in 0..VectorRegisterLayout(vlen, xlen.width).depth): blocked_rows[row] & destination_group[row div VectorRegisterLayout(vlen, xlen.width).rows_per_register].into(Bool)).as_bits().or_reduce()
+  def compressed_write_wait = vec(for List (row in 0..VectorRegisterLayout(vlen, xlen.width).depth): blocked_rows[row] & destination_group[row div VectorRegisterLayout(vlen, xlen.width).rows_per_register].into(Bool)).as_bits().any()
   def write_wait = writing & mux(compress, compressed_write_wait, blocked_rows[write_address])
 
 
@@ -226,12 +226,12 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     !empty & second_source & blocked_rows[second_address],
     (!empty & destination_source & blocked_rows[destination_address]) ||| write_wait,
     !empty & uses_mask & blocked_rows[mask_address],
-    !empty & gather_vector & blocked_rows.as_bits().or_reduce()
+    !empty & gather_vector & blocked_rows.as_bits().any()
   ]).as_bits()
   def read_source_blocked = mux(suffix.valid, vec([Bool(#false), Bool(#false), compressed_write_wait, Bool(#false), Bool(#false)]).as_bits(), ordinary_source_blocked)
-  def read_sources_ready = mux(packed_mode, preparation.sources_ready, !read_source_blocked.or_reduce())
+  def read_sources_ready = mux(packed_mode, preparation.sources_ready, !read_source_blocked.any())
   def gather_ready = gather_index_valid ||| (gather_pending & prepare_results[1].valid)
-  def read_setup_ready = suffix.valid ||| mux(packed_mode, preparation.ready, !memory_setup_remaining.or_reduce() & (!gather_vector ||| gather_ready))
+  def read_setup_ready = suffix.valid ||| mux(packed_mode, preparation.ready, !memory_setup_remaining.any() & (!gather_vector ||| gather_ready))
 
 
   /* Dependent gather read and packed preparation */
@@ -242,7 +242,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def gather_index = mux_lookup(index_sew, ~default: gather_element, for List (format in 0..(vector_format_count(xlen) - 1)): [format, gather_element[0..(8 << format)].zext(xlen.width)])
   def gather_in_range = gather_index < geometry.vlmax.zext(xlen.width)
   def gather_address = slide_base + mux(gather_in_range, (gather_index >> (Bits(2)(vector_byte_offset_width(xlen)) - sew))[0..row_base_width], Bits(row_base_width)(0))
-  def gather_read = occupied & gather_vector & !packed_mode & !all_issued & !clear & !gather_index_valid & !gather_pending & !ordinary_source_blocked.or_reduce()
+  def gather_read = occupied & gather_vector & !packed_mode & !all_issued & !clear & !gather_index_valid & !gather_pending & !ordinary_source_blocked.any()
   gather_pending <== gather_read
   preparation.instruction <== instruction
   preparation.cursor <== packed_cursor
@@ -284,7 +284,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     first: mux(packed_mode, preparation.candidate.before.element, cursor)
     end: mux(packed_mode, preparation.candidate.after.element, end)
     last: mux(packed_mode, preparation.candidate.last, beat_last)
-    empty: mux(packed_mode, !preparation.candidate.live.or_reduce(), empty)
+    empty: mux(packed_mode, !preparation.candidate.live.any(), empty)
     address: mux(packed_mode, preparation.candidate.before.address, memory_effective_address)
     mask_enabled: vec(for List (bit_index in 0..xlen.width):
                         def element = cursor.zext(index_width(vlen + 1) + 1) + Bits(index_width(vlen + 1) + 1)(bit_index)
@@ -384,7 +384,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     def segmented_step = fields << request.bits.descriptor.control.memory_data_eew
     def unit_stride_step = priority_mux(~default: field_bytes):
       request_whole_register_memory: field_bytes
-      request.bits.descriptor.control.memory_nf.or_reduce(): segmented_step
+      request.bits.descriptor.control.memory_nf.any(): segmented_step
 
     def element_step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, unit_stride_step)
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
@@ -437,13 +437,13 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     memory_setup_remaining <== Bits(index_width(vlen + 1))(0)
     all_issued <== compress & (authorized === limit)
   elsewhen occupied:
-    when (memory_setup_remaining.or_reduce()):
+    when (memory_setup_remaining.any()):
       memory_element_address <== memory_element_address + memory_element_step
       memory_setup_remaining <== memory_setup_remaining - Bits(index_width(vlen + 1))(1)
     elsewhen (launch & descriptor.control.memory & !indexed_memory & last_field):
       memory_element_address <== memory_element_address + memory_element_step
 
-    when (memory_setup_remaining.or_reduce()):
+    when (memory_setup_remaining.any()):
       authorized_memory_element_address <== authorized_memory_element_address + memory_element_step
     elsewhen (authorized_event & descriptor.control.memory & !indexed_memory & authorized_last_field):
       authorized_memory_element_address <== authorized_memory_element_address + memory_element_step

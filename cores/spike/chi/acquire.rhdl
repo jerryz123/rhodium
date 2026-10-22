@@ -66,8 +66,8 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
   // DataID selects a physical packet, not its arrival order. The first accepted packet retains grant metadata.
   def incoming_data = response_data.bits
   def coherent_response = incoming_data.resp.into(CHICoherentResponse())
-  def all_data_received = received_packets.and_reduce()
-  def first_data_packet = !received_packets.or_reduce()
+  def all_data_received = received_packets.all()
+  def first_data_packet = !received_packets.any()
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))
   def next_line = line.as_vec(Bits(p.data_width)).updated(packet_index, incoming_data.data)

@@ -119,7 +119,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
 
   sequencer.feedback.valid <== operand_fetch.feedback.valid
   sequencer.feedback.bits <== operand_fetch.feedback.bits
-  bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())
+  bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.any())
   bank.write.bits <== mux(initialize.valid, initialize.bits, pipeline.egress.bits.write)
   assert(!(initialize.valid & sequencer.active), "vector_fixture_initialization_is_exclusive")
   request_ready <== sequencer.request.ready

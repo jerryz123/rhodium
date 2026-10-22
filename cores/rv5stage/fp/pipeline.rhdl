@@ -295,7 +295,7 @@ sync_circuit RV5StageFpScalar(
 
   load_reserve.ready <== !vector_pending & !register_busy(load_reserve.bits.rd)
   def load_reserve_fire = load_reserve.fire()
-  vector_reserve.ready <== !vector_pending & !outstanding.or_reduce() & !busy_state.or_reduce()
+  vector_reserve.ready <== !vector_pending & !outstanding.any() & !busy_state.any()
   def vector_reserve_fire = vector_reserve.fire()
   def execution_set = issue_fire & (admitted.control.registers.destination === FloatDestination.FloatingPoint) & !immediate_authorization
   def execution_set_bit = Mask(register_count).from_index(admitted.frd)
@@ -346,7 +346,7 @@ sync_circuit RV5StageFpScalar(
   // A same-cycle completion may feed and release a replacement for the same
   // register. Apply clears to the old state before reserving the new writer.
   def next_busy = (busy_state & !clear_mask) ||| set_mask
-  when (set_mask.or_reduce() ||| clear_mask.or_reduce()):
+  when (set_mask.any() ||| clear_mask.any()):
     busy_state <== next_busy
 
   busy <== busy_state
@@ -365,13 +365,13 @@ sync_circuit RV5StageFpScalar(
     outstanding <== next_outstanding
 
   when completion_fire:
-    assert(outstanding.or_reduce() ||| issue_fire,
+    assert(outstanding.any() ||| issue_fire,
            "rv5stage_fp_completion_has_issue")
 
   assert(outstanding <= Bits(outstanding_width)(outstanding_limit), "rv5stage_fp_outstanding_in_range")
   // Speculative store-operand probes are not authorized work and must not
   // prevent a trap or interrupt from draining accepted FP operations.
-  drained <== !outstanding.or_reduce() & !busy_state.or_reduce()
+  drained <== !outstanding.any() & !busy_state.any()
   // Observe the actual architectural write port after load NaN boxing.
   describe_cosim_signals({"load_valid": load_write.valid, "load_rd": load_write.bits.address, "load_data": load_write.bits.data})
 

@@ -267,7 +267,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     )
 
     SnoopOwner():
-      valid: matches.or_reduce()
+      valid: matches.any()
       resident: resident
       slot: local_slots[resident]
 
@@ -365,12 +365,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(incoming_requester_data_phase_valid, "chi_inclusive_hnf_requester_data_phase")
 
   def free_slots = vec(for List (index in 0..slots): !occupied[index])
-  def allocation_available = free_slots.or_reduce()
+  def allocation_available = free_slots.any()
   def allocation_slot = priority_encoder(free_slots)
-  def set_conflict = or_reduce(
+  def set_conflict = any(
     for List (index in 0..slots):
       occupied[index] & (cache_set(requests[index].address) === incoming_set)
-  ) ||| or_reduce(
+  ) ||| any(
     for List (index in 0..comp_ack_entries):
       pending_grants[index] & (pending_grant_sets[index] === incoming_set)
   )
@@ -509,7 +509,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def locked_request_prefers_writeback = mux(subordinate_request_locked, subordinate_request_writeback_owner, victim_writebacks.request.valid & subordinate_request_prefers_writeback)
   def locked_data_prefers_writeback = mux(subordinate_data_locked, subordinate_data_writeback_owner, victim_writebacks.data.valid & subordinate_data_prefers_writeback)
   def advance_response_blocked = advance_phase.is_one_of(CHIInclusiveHNFPhase.SendRequesterDBID, CHIInclusiveHNFPhase.SendRequesterCompletion) & !requester.responses.ready
-  def advance_snoop_blocked = (advance_phase === CHIInclusiveHNFPhase.SendSnoop) & advance_pending_targets.or_reduce() & !requester.snoops.ready
+  def advance_snoop_blocked = (advance_phase === CHIInclusiveHNFPhase.SendSnoop) & advance_pending_targets.any() & !requester.snoops.ready
   def advance_writeback_blocked = (advance_phase === CHIInclusiveHNFPhase.EnqueueVictimWriteback) & !victim_writebacks.enqueue.ready
   def advance_request_blocked = advance_request_candidate & (!subordinate.req.ready ||| locked_request_prefers_writeback)
   def advance_data_blocked = advance_data_candidate & (!subordinate.dat.request.ready ||| locked_data_prefers_writeback)
@@ -643,7 +643,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(!requester_receipt.duplicate(requester_data.bits.data_id), "chi_inclusive_hnf_requester_write_data_id_unique")
     when copyback:
       monitor_chi_copyback_data(p, requester_data.bits, "chi_inclusive_hnf_copyback")
-      assert(!received_requester_ids.or_reduce() ||| (requester_data.bits.resp === copyback_state), "chi_inclusive_hnf_copyback_state_consistent")
+      assert(!received_requester_ids.any() ||| (requester_data.bits.resp === copyback_state), "chi_inclusive_hnf_copyback_state_consistent")
 
 
   /* Snoop-data collection and copy retention */
@@ -659,9 +659,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def outstanding_targets = outstanding_snoop_targets[work_slot]
   def snoop_data_target_outstanding = outstanding_targets[requester_data_snoop_target]
   def requester_response_target_outstanding = outstanding_targets[requester_response_target]
-  def other_snoop_data_received = or_reduce(
+  def other_snoop_data_received = any(
     for List (index in 0..resident_count):
-      (requester_data_snoop_target =/= Bits(resident_width)(index)) & (received_snoop_data_ids[work_slot][index].or_reduce())
+      (requester_data_snoop_target =/= Bits(resident_width)(index)) & (received_snoop_data_ids[work_slot][index].any())
   )
 
   when snoop_data_fire:
@@ -680,7 +680,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   /* Snoop dispatch and response accounting */
 
   def pending_targets = pending_snoop_targets[work_slot]
-  def snoops_remaining = advance_pending_targets.or_reduce()
+  def snoops_remaining = advance_pending_targets.any()
   def next_snoop_index = priority_encoder(advance_pending_targets)
   def next_snoop_node = vec(
     for List (endpoint in residents): Bits(p.node_id_width)(endpoint.node_id)
@@ -703,8 +703,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
      when neither pending nor outstanding targets remain. */
   fun snoop_phase(pending :: Vec(resident_count, Bool), outstanding :: Vec(resident_count, Bool)) :: CHIInclusiveHNFPhase:
     priority_mux(~default: CHIInclusiveHNFPhase.AfterSnoops):
-      pending.or_reduce(): CHIInclusiveHNFPhase.SendSnoop
-      outstanding.or_reduce(): CHIInclusiveHNFPhase.AwaitSnoop
+      pending.any(): CHIInclusiveHNFPhase.SendSnoop
+      outstanding.any(): CHIInclusiveHNFPhase.AwaitSnoop
 
   def phase_after_response = snoop_phase(pending_targets, outstanding_targets_after_response)
   def phase_after_data = snoop_phase(pending_targets, outstanding_targets_after_data)
@@ -715,7 +715,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(requester_response_flit.txn_id === snoop_txn_id(work_slot, requester_response_target), "chi_inclusive_hnf_snoop_response_txn")
     assert(requester_response_flit.opcode === CHIRspOpcode.SnpResp, "chi_inclusive_hnf_snoop_response_opcode")
     assert(requester_response_target_outstanding, "chi_inclusive_hnf_snoop_response_outstanding")
-    assert(!received_snoop_data_ids[work_slot][requester_response_target].or_reduce(), "chi_inclusive_hnf_snoop_response_without_data")
+    assert(!received_snoop_data_ids[work_slot][requester_response_target].any(), "chi_inclusive_hnf_snoop_response_without_data")
     assert(!requester_response_flit.resp.into(CHICoherentResponse()).pass_dirty, "chi_inclusive_hnf_snoop_response_clean")
 
 
@@ -1002,7 +1002,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         resident & target
   )
 
-  def lookup_has_snoop_targets = lookup_snoop_targets.or_reduce()
+  def lookup_has_snoop_targets = lookup_snoop_targets.any()
   def zero_snoop_lookup = lookup_response_valid & !lookup_copyback & lookup_enters_snoop_path & !lookup_has_snoop_targets
   def zero_snoop_clean_victim = zero_snoop_lookup & lookup_snoop_victim & !lookup_entry.dirty
   for (left in 0..ways):
@@ -1128,13 +1128,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   when grant_copy:
     assert(response_entry.valid, "chi_inclusive_hnf_grant_has_directory_entry")
-    assert(!(entry_after_grant.may_write & !entry_after_grant.residents).or_reduce(), "chi_inclusive_hnf_granted_writer_is_resident")
+    assert(!(entry_after_grant.may_write & !entry_after_grant.residents).any(), "chi_inclusive_hnf_granted_writer_is_resident")
 
   when (grant_copy & directory_work_update):
     assert(response_selected_set =/= selected_set, "chi_inclusive_hnf_parallel_directory_sets_distinct")
 
   when directory_work_update:
-    assert(!(entry_after_work.may_write & !entry_after_work.residents).or_reduce(), "chi_inclusive_hnf_writer_is_resident")
+    assert(!(entry_after_work.may_write & !entry_after_work.residents).any(), "chi_inclusive_hnf_writer_is_resident")
 
 
   /* Per-slot transaction state machine
@@ -1217,11 +1217,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         received_requester_data_ids[index] <== next_requester_receipt.received_ids
         phases[index] <== mux(final_requester_data, CHIInclusiveHNFPhase.IssueLookup, CHIInclusiveHNFPhase.ReceiveRequesterData)
       elsewhen (send_snoop & !snoops_remaining):
-        phases[index] <== mux(outstanding_targets.or_reduce(), CHIInclusiveHNFPhase.AwaitSnoop, CHIInclusiveHNFPhase.AfterSnoops)
+        phases[index] <== mux(outstanding_targets.any(), CHIInclusiveHNFPhase.AwaitSnoop, CHIInclusiveHNFPhase.AfterSnoops)
       elsewhen snoop_fire:
         pending_snoop_targets[index] <== pending_targets_after_issue
         outstanding_snoop_targets[index] <== outstanding_targets_after_issue
-        phases[index] <== mux(pending_targets_after_issue.or_reduce(), CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.AwaitSnoop)
+        phases[index] <== mux(pending_targets_after_issue.any(), CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.AwaitSnoop)
       elsewhen requester_response_fire:
         outstanding_snoop_targets[index] <== outstanding_targets_after_response
         phases[index] <== phase_after_response

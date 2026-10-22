@@ -55,7 +55,7 @@ sync_circuit IterativeDivider(width :: PosInt):
   def divisor_magnitude = mux(divisor_negative, -request.bits.divisor, request.bits.divisor)
   def request_negate_quotient = dividend_negative ^ divisor_negative
   def request_negate_remainder = dividend_negative
-  def divisor_zero = !divisor_magnitude.or_reduce()
+  def divisor_zero = !divisor_magnitude.any()
   def divisor_one = divisor_magnitude === Bits(width)(1)
   def dividend_smaller = dividend_magnitude < divisor_magnitude
   def dividend_equal = dividend_magnitude === divisor_magnitude

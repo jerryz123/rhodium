@@ -185,9 +185,9 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   when (upstream.dat.request.valid & receive_write_data):
     assert(upstream.dat.request.bits.txn_id === parent_dbid,
            "chi_transfer_fragmenter_write_data_dbid")
-    assert(or_reduce(expected_write_data_ids & incoming_write_data_id),
+    assert(any(expected_write_data_ids & incoming_write_data_id),
            "chi_transfer_fragmenter_write_data_id_expected")
-    assert(!or_reduce(received_write_data_ids & incoming_write_data_id),
+    assert(!any(received_write_data_ids & incoming_write_data_id),
            "chi_transfer_fragmenter_write_data_id_unique")
 
   def send_write_data = phase === CHITransferFragmenterPhase.SendWriteData

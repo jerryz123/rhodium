@@ -136,7 +136,7 @@ fun spike_chi_address_fits(address :: Bits, p :: CHIFlitParams) :~ Bool:
   def width = hardware_value_type(address).packed_width()
   if width <= p.request_address_width
   | Bool(#true)
-  | !address[p.request_address_width..width].or_reduce()
+  | !address[p.request_address_width..width].any()
 
 /*
  * Restore the three implicit low snoop-address bits and widen to the native 64-bit address

@@ -115,9 +115,9 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
            "line_read_retry_txn_id")
 
   def incoming_data = response_data.bits
-  def poisoned = if p.poison_width > 0 | incoming_data.poison.or_reduce() | Bool(#false)
-  def all_data_received = received_packets.and_reduce()
-  def first_data_packet = !received_packets.or_reduce()
+  def poisoned = if p.poison_width > 0 | incoming_data.poison.any() | Bool(#false)
+  def all_data_received = received_packets.all()
+  def first_data_packet = !received_packets.any()
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))
@@ -176,7 +176,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
   describe_interface_retained_storage(command_fire, completion_fire, control.active)
   describe_interface_contract(acquiring, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
   // ROM reads have no acknowledgement; only coherent line completion owns CompAck.
-  describe_interface_retained_storage(coherent & data_fire & next_received_packets.and_reduce(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
+  describe_interface_retained_storage(coherent & data_fire & next_received_packets.all(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
   describe_interface_contract(response_data, acknowledgements, "line-acknowledgement", ~trace_model: interface_trace_retained(~name: "compack"))
 
   when command_fire:

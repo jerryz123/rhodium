@@ -22,7 +22,7 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
   /* Output selection and occupancy accounting.
      A queued head wins; when empty the oldest incoming offer bypasses storage. */
 
-  def queued = count.or_reduce()
+  def queued = count.any()
   def offered = incoming[0].valid ||| incoming[1].valid
   def first = mux(incoming[0].valid, incoming[0].bits, incoming[1].bits)
   def added = incoming[0].valid.as_bits().zext(3) + incoming[1].valid.as_bits().zext(3)
@@ -38,7 +38,7 @@ sync_circuit RV2WideBranchTrainingBuffer(xlen :: XLen = XLen.X64):
   /* Ordered compaction after the one emitted update.
      A retained tail stays ahead of incoming updates. Clear discards all owners. */
 
-  def retained_tail = remaining.or_reduce()
+  def retained_tail = remaining.any()
   def next_head = priority_mux(~default: first):
     retained_tail: entries[1]
     bypass: incoming[1].bits

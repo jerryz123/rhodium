@@ -52,7 +52,7 @@ circuit MulRawFN(format :: FloatFormat):
   def full_significand = full.raw_out.significand
   def compressed_significand = (
     full_significand[(format.significand_width - 2)..(format.significand_width * 2)]
-      ++ full_significand[0..=(format.significand_width - 3)].or_reduce()
+      ++ full_significand[0..=(format.significand_width - 3)].any()
   )
 
   invalid_exception <== full.invalid_exception

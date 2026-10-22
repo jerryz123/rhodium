@@ -16,6 +16,7 @@ import memory
 import sync_memory
 import selection
 import membership
+import reductions
 import decode
 import mask_index
 import remainder
@@ -301,6 +302,8 @@ def main():
         decode_count = decode.run_suite(work, run)
         print(f"rsim: {decode_count} specialized decode observations passed")
         print(f"rsim: {membership_count} authored membership observations passed" + (" with SV comparison" if args.differential else ""))
+        reduction_count = reductions.run_suite(work, run, compare, args.differential)
+        print(f"rsim: {reduction_count} explicit reduction observations and execution probes passed")
         mask_count = mask_index.run_suite(work, run, compare, args.differential)
         print(f"rsim: {mask_count} authored mask indexing observations passed" + (" with SV comparison" if args.differential else ""))
         remainder_count = remainder.run_suite(work, run, compare, args.differential)

@@ -44,8 +44,8 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   reg retained(Vec(3, RV2WideFetchBlock(xlen)))
   // Input admission is independent of current instruction readiness: every S2 result is reserved.
   blocks.ready <== count < Bits(2)(3)
-  def first_present = count.or_reduce() ||| blocks.valid
-  def first_block = mux(count.or_reduce(), retained[0], blocks.bits)
+  def first_present = count.any() ||| blocks.valid
+  def first_block = mux(count.any(), retained[0], blocks.bits)
   def second_block = mux(count > Bits(2)(1), retained[1], blocks.bits)
   def second_present = ((count > Bits(2)(1)) ||| ((count === Bits(2)(1)) & blocks.valid)) & (second_block.pc === (first_block.pc.align_down(8) + Bits(xlen.width)(8)))
   reg repairing(~init: Bool(#false))
@@ -195,7 +195,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   def enqueue = blocks.fire() & (released <= count)
   available <== Bits(2)(3) - count + resident_release
   // A packet selects both parents only when its bytes or continuation fault use both blocks.
-  describe_interface_window_storage(3, enqueue, resident_release, count, discard, [count.or_reduce(), (count > Bits(2)(1)) & uses_second], ~live: (count === Bits(2)(0)) ||| ((count === Bits(2)(1)) & uses_second))
+  describe_interface_window_storage(3, enqueue, resident_release, count, discard, [count.any(), (count > Bits(2)(1)) & uses_second], ~live: (count === Bits(2)(0)) ||| ((count === Bits(2)(1)) & uses_second))
   describe_interface_contract(blocks, instructions, "instruction-assembly", ~trace_model: interface_trace_window())
 
 
@@ -217,7 +217,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     when (advance & !repair.valid):
       def next_consumed :: Bits(3) = priority_mux(~default: consumed + used[0..3]):
         cut ||| packet_fault: Bits(3)(0)
-        released.or_reduce(): (end - (released.zext(4) << 2))[0..3]
+        released.any(): (end - (released.zext(4) << 2))[0..3]
 
       consumed <== next_consumed
     elsewhen (repair.valid):

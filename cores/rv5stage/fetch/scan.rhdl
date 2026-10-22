@@ -59,7 +59,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     Bool(xlen == XLen.X32) & (predicted_half[13..16] === Bits(3)(1))
   )
   def compressed_jump = (predicted_half[0..2] === Bits(2)(1)) & compressed_jump_function
-  def compressed_indirect = (predicted_half[0..2] === Bits(2)(2)) & (predicted_half[13..16] === Bits(3)(4)) & (predicted_half[2..7] === Bits(5)(0)) & predicted_half[7..12].or_reduce()
+  def compressed_indirect = (predicted_half[0..2] === Bits(2)(2)) & (predicted_half[13..16] === Bits(3)(4)) & (predicted_half[2..7] === Bits(5)(0)) & predicted_half[7..12].any()
   def control_flow = mux(predicted_compressed, compressed_jump ||| compressed_indirect, predicted_half[0..7].is_one_of(Bits(7)(0x63), Bits(7)(0x6f), Bits(7)(0x67)))
   def boundary = mux(predicted_upper, upper_start, lower_start)
   def prediction_shape_mismatch = !boundary ||| (packet.prediction.compressed ^ predicted_compressed) ||| !control_flow
@@ -84,7 +84,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def first_return = first_valid & first_complete & first_action.is_one_of(RasAction.Pop, RasAction.PopPush)
   def first_compressed_direct = (first_halfword[0..2] === Bits(2)(1)) & ((first_halfword[13..16] === Bits(3)(5)) ||| (Bool(xlen == XLen.X32) & (first_halfword[13..16] === Bits(3)(1))))
   def first_compressed_conditional = (first_halfword[0..2] === Bits(2)(1)) & first_halfword[13..16].is_one_of(Bits(3)(6), Bits(3)(7))
-  def first_compressed_indirect = (first_halfword[0..2] === Bits(2)(2)) & (first_halfword[13..16] === Bits(3)(4)) & (first_halfword[2..7] === Bits(5)(0)) & first_halfword[7..12].or_reduce()
+  def first_compressed_indirect = (first_halfword[0..2] === Bits(2)(2)) & (first_halfword[13..16] === Bits(3)(4)) & (first_halfword[2..7] === Bits(5)(0)) & first_halfword[7..12].any()
   def first_compressed_control_flow = first_compressed & (first_compressed_direct ||| first_compressed_conditional ||| first_compressed_indirect)
   def first_full_control_flow = !first_compressed & first_instruction[0..7].is_one_of(Bits(7)(0x63), Bits(7)(0x6f), Bits(7)(0x67))
   def first_full_jump = !first_compressed & (first_instruction[0..7] === Bits(7)(0x6f))

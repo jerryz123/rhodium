@@ -3,12 +3,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus as host
   "../../support/annotations.rhm" open
   "types.rhm" open
   "ir.rhm" open
 
 export:
   Builder
+
+/* Builds a nonempty reduction without packing its independently typed operands.
+   All operand bits participate; the result is always Bits(1). */
+fun build_reduction(design :: Design, module_def :: Module, opcode :: String,
+                    operands :: List.of(Value), name :: maybe(AsciiIdentifier),
+                    location :: Location, origin :: Origin, who :: Symbol):
+  ensure_module_in_design(design, module_def, who)
+  ensure_open(module_def, who)
+  unless operands.length() > 0 | fail(who, "reduction requires at least one operand")
+  for (value in operands):
+    ensure_value_in(module_def, value, who)
+    ensure_bits(value.type, who)
+
+  build_value_operation(design, module_def, opcode, operands, Bits(1), name, location, origin, who)
 
 /* Raises a local construction error using the public operation's diagnostic name. */
 fun fail(who :: Symbol, message :: String):
@@ -136,7 +151,7 @@ fun ensure_place_in(module_def :: Module, place :: Place, who :: Symbol):
 
 /* Detects a whole-place driver or any recursively staged child driver. */
 fun place_has_staged_driver(place :: Place):
-  place.driver || (for any (projected in place.projected_places): place_has_staged_driver(projected))
+  place.driver || (for host.any (projected in place.projected_places): place_has_staged_driver(projected))
 
 /* Checks for a driven ancestor that would conflict with an element-wise connection. */
 fun ancestor_has_driver(place :: Place):
@@ -149,11 +164,11 @@ fun aggregate_place_complete(place :: Place):
   if place.driver
   | #true
   | if record_type(place.type)
-    | for all (field in place.type.fields):
+    | for host.all (field in place.type.fields):
         def projected = place.projected_place(field.name)
         projected && aggregate_place_complete(projected)
     | if vector_type(place.type)
-      | for all (index in 0..place.type.length):
+      | for host.all (index in 0..place.type.length):
           def projected = place.projected_place(index)
           projected && aggregate_place_complete(projected)
       | #false
@@ -541,9 +556,9 @@ class Builder(design :: Design):
     if existing
     | block:
         def same_results:
-          existing.results.length() == results.length() && (for all (existing_result in existing.results, result in results): existing_result.name == result.name && existing_result.direction == result.direction && type_equal(existing_result.type, result.type))
+          existing.results.length() == results.length() && (for host.all (existing_result in existing.results, result in results): existing_result.name == result.name && existing_result.direction == result.direction && type_equal(existing_result.type, result.type))
 
-        def same_signature = existing.input_names == input_names && existing.input_types.length() == input_types.length() && (for all (existing_type in existing.input_types, input_type in input_types): type_equal(existing_type, input_type)) && same_results
+        def same_signature = existing.input_names == input_names && existing.input_types.length() == input_types.length() && (for host.all (existing_type in existing.input_types, input_type in input_types): type_equal(existing_type, input_type)) && same_results
         unless same_signature
         | fail(#'dpi_import, "DPI import " ++ name ++ " has conflicting signatures")
 
@@ -1068,6 +1083,18 @@ class Builder(design :: Design):
                 origin :: Origin = Origin("or")):
     build_bitwise_same_type_binary(design, module_def, "rtl.or", left, right,
                                    name, location, origin, #'bit_or)
+
+  /* Returns one when any bit of any independently sized Bits operand is set. */
+  method any(module_def :: Module, operands :: List.of(Value),
+             name :: maybe(AsciiIdentifier) = #false,
+             location :: Location = Location(), origin :: Origin = Origin("any")):
+    build_reduction(design, module_def, "rtl.any", operands, name, location, origin, #'any)
+
+  /* Returns one only when every bit of every Bits operand is set. */
+  method all(module_def :: Module, operands :: List.of(Value),
+             name :: maybe(AsciiIdentifier) = #false,
+             location :: Location = Location(), origin :: Origin = Origin("all")):
+    build_reduction(design, module_def, "rtl.all", operands, name, location, origin, #'all)
 
   /* Builds a bitwise exclusive-or of exactly matching bitwise operand types. */
   method bit_xor(module_def :: Module,

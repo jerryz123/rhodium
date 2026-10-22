@@ -200,7 +200,7 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   def accepted = authorize.valid.as_bits().zext(count_width) + variable_issue.fire().as_bits().zext(count_width) + load_reserve.valid.as_bits().zext(count_width) + vector_reserve.valid.as_bits().zext(count_width)
   def finished = completion.valid.as_bits().zext(count_width) + delayed_load.valid.as_bits().zext(count_width) + vector_written.valid.as_bits().zext(count_width)
   outstanding <== outstanding + accepted - finished
-  drained <== !outstanding.or_reduce()
+  drained <== !outstanding.any()
   def flags_update = completion.valid & completion.bits.exception_flags_valid
   state_update.valid <== arithmetic_write.valid ||| load_write.valid ||| flags_update
   state_update.bits <== mux(flags_update, completion.bits.exception_flags, Bits(5)(0))

@@ -96,7 +96,7 @@ class AddressSet(base :: Nat, mask :: Nat):
 /* Matches a hardware address against any set, with false for an empty list. */
 fun address_sets_match(address :: Bits,
                        address_sets :: List.of(AddressSet)):
-  or_reduce(
+  any(
     for List (address_set in address_sets):
       address_set.matches(address)
   )

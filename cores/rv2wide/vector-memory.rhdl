@@ -296,7 +296,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
      A drained attempt pipeline alone does not release outstanding responses. */
 
   requests_idle <== !queued & !ex.valid & !mem.valid & !wb.valid & !split_pending
-  idle <== requests_idle & !owners.count.or_reduce() & !split_returns.count.or_reduce() & !store_ack.pending
+  idle <== requests_idle & !owners.count.any() & !split_returns.count.any() & !store_ack.pending
   assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")
 
   /* Observe actual completion and retained split ownership without changing LSU timing. */

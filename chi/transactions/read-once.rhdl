@@ -128,13 +128,13 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
       assert(incoming_response.txn_id === saved_txn_id,
              "chi_read_once_retry_txn")
 
-  def all_data_received = received_packets.and_reduce()
+  def all_data_received = received_packets.all()
   def incoming_data = response_data.bits
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))
   def next_line = line.as_vec(Bits(p.data_width)).updated(packet_index, incoming_data.data)
-  def incoming_poison = if p.poison_width > 0 | incoming_data.poison.or_reduce() | Bool(#false)
+  def incoming_poison = if p.poison_width > 0 | incoming_data.poison.any() | Bool(#false)
   response_data.ready <== control.active & control.attempt_outstanding & !all_data_received
   def data_fire = response_data.fire()
   when data_fire:
@@ -159,7 +159,7 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
     assert(incoming_data.resp === Bits(3)(0),
            "chi_read_once_no_ownership")
 
-  when (data_fire & received_packets.or_reduce()):
+  when (data_fire & received_packets.any()):
     assert(incoming_data.dbid_or_mecid[0..12] === dbid,
            "chi_read_once_dbid_consistent")
 
@@ -205,7 +205,7 @@ sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
   elsewhen data_fire:
     received_packets <== next_received_packets
     line <== next_line.as_bits()
-    dbid <== mux(received_packets.or_reduce(), dbid, incoming_data.dbid_or_mecid[0..12])
+    dbid <== mux(received_packets.any(), dbid, incoming_data.dbid_or_mecid[0..12])
     response_error <== mux(response_error === CHIRespErr.OK, incoming_data.resp_err, response_error)
     poisoned <== poisoned ||| incoming_poison
   elsewhen acknowledgement_fire:

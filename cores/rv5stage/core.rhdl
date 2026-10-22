@@ -473,7 +473,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_reservation_wait_instruction = wb_reservation_wait.egress.bits
   reg wb_reservation_wait_count(~init: Bits(12)(0))
   def wb_reservation_wait_wake = !scalar_data.reservation_valid ||| wb_csrs.wfi_wake
-  def wb_reservation_wait_expired = and_reduce(wb_reservation_wait_count)
+  def wb_reservation_wait_expired = all(wb_reservation_wait_count)
   def wb_reservation_wait_short = wb_reservation_wait_instruction.system.action === RV5StageSystemOperation.WrsSto
   def wb_reservation_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   def wb_reservation_wait_vtw = if hypervisor | wb_csrs.guest_translation.virtualized & csr_flag(wb_csrs.guest_translation.hstatus, HstatusVTW) | Bool(#false)
@@ -627,7 +627,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def if_pause_cycle_limit = 16
   reg if_pause_cycles(~init: Bits(index_width(if_pause_cycle_limit + 1))(0))
-  def if_pause_active = or_reduce(if_pause_cycles)
+  def if_pause_active = any(if_pause_cycles)
   def if_pause_commit = wb_commit_valid & !wb_commit_bits.exception_valid & (wb_commit_bits.hint === RV5StageHintOperation.Pause)
   when (wb_csrs.redirect.valid ||| wb_csrs.interrupt_request):
     if_pause_cycles <== Bits(index_width(if_pause_cycle_limit + 1))(0)
@@ -717,8 +717,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   /* Captures the registered bypass source expected in EX, giving the nearer older producer
      priority. */
   fun id_operand(index :: Bits(5), register_value :: Bits(width)):
-    def id_from_memory = index.or_reduce() & id_ex_bypass_available & (ex_input.bits.rd === index)
-    def id_from_writeback = index.or_reduce() & id_mem_bypass_available & (mem_input.bits.rd === index)
+    def id_from_memory = index.any() & id_ex_bypass_available & (ex_input.bits.rd === index)
+    def id_from_writeback = index.any() & id_mem_bypass_available & (mem_input.bits.rd === index)
     def id_bypass_winner = priority_encoder_oh(id_from_writeback ++ id_from_memory)
     RV5StageOperand(xlen):
       stage_sel: id_bypass_winner.mux([RV5StageBypassStage.Memory, RV5StageBypassStage.Writeback], ~default: RV5StageBypassStage.RegisterFile)
@@ -754,12 +754,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     def reads_rs2 = id_control.operand.uses_rs2 & (deferred_destination === id_rs2)
     def writes_integer = id_control.writeback.enable ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
     def overwrites = writes_integer & (deferred_destination === id_rd)
-    deferred_valid & deferred_destination.or_reduce() & (reads_rs1 ||| reads_rs2 ||| overwrites)
+    deferred_valid & deferred_destination.any() & (reads_rs1 ||| reads_rs2 ||| overwrites)
 
   def id_deferred_dependency_hazard = id_decode_valid & (id_conflicts_with_deferred(id_ex_deferred, ex_input.bits.rd) ||| id_conflicts_with_deferred(id_mem_deferred, mem_input.bits.rd))
-  def id_scoreboard_raw_hazard = (id_control.operand.uses_rs1 & id_rs1.or_reduce() & id_integer_register_busy(id_rs1)) ||| (id_control.operand.uses_rs2 & id_rs2.or_reduce() & id_integer_register_busy(id_rs2))
+  def id_scoreboard_raw_hazard = (id_control.operand.uses_rs1 & id_rs1.any() & id_integer_register_busy(id_rs1)) ||| (id_control.operand.uses_rs2 & id_rs2.any() & id_integer_register_busy(id_rs2))
   def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & id_control.vector.integer & id_control.vector.scalar_destination) ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
-  def id_scoreboard_waw_hazard = id_integer_write & id_rd.or_reduce() & id_integer_register_busy(id_rd)
+  def id_scoreboard_waw_hazard = id_integer_write & id_rd.any() & id_integer_register_busy(id_rd)
 
   /* Combines the FPR scoreboard with older scalar/vector writers not yet reserved at WB. */
   fun id_fp_register_busy(index :: Bits(5)):
@@ -792,29 +792,29 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === RV5StageHintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === RV5StageHintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === RV5StageHintOperation.Pause))
   def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_memory_pending ||| wb_reservation_wait_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(wb_commit_bits.writeback_source) & wb_commit_bits.write_enable
-  def wb_deferred_results_pending = wb_scoreboard.busy.or_reduce() ||| wb_fp_integer_scoreboard.busy.or_reduce() ||| !wb_fp.drained
+  def wb_deferred_results_pending = wb_scoreboard.busy.any() ||| wb_fp_integer_scoreboard.busy.any() ||| !wb_fp.drained
   def id_deferred_state_pending = id_ex_deferred ||| id_mem_deferred ||| id_wb_commit_deferred ||| wb_deferred_results_pending ||| wb_to_id_scoreboard_set_link.right.valid ||| (ex_input.valid & ex_input.bits.floating_point_valid) ||| (mem_input.valid & mem_input.bits.fp_compute) ||| (wb.valid & wb_offer_bits.fp_compute)
   // Include older accesses not yet accepted by the LSU: drained alone can
   // still be true while a block zero (or scalar store) is in Execute/Memory.
   def id_older_memory_in_flight = (ex_input.valid & ex_input.bits.memory_operation.into(CacheOperation).is_memory()) ||| (mem_input.valid & mem_input.bits.data_request_valid) ||| (wb.valid & wb_offer_bits.data_request_valid)
   def id_serializing_waits_for_older = (core_serializing_operation(id_control.system, id_control.fence) ||| id_management) & (id_deferred_state_pending ||| id_older_memory_in_flight ||| !scalar_data.drained)
-  def id_needs_multiplier = (id_control.writeback.source === RV5StageWritebackSelect.Multiply) & id_control.writeback.enable & id_rd.or_reduce()
-  def id_ex_has_multiply = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
-  def id_mem_has_multiply = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
-  def wb_commit_has_multiply = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Multiply) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
+  def id_needs_multiplier = (id_control.writeback.source === RV5StageWritebackSelect.Multiply) & id_control.writeback.enable & id_rd.any()
+  def id_ex_has_multiply = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & ex_input.bits.writeback_enable & ex_input.bits.rd.any()
+  def id_mem_has_multiply = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.any()
+  def wb_commit_has_multiply = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Multiply) & wb_commit_bits.write_enable & wb_commit_bits.rd.any()
   def id_multiply_resource_hazard = id_needs_multiplier & !id_fault & (
     if wb_pipelined_multiplier | !id_multiply_available | !wb_multiplier.available ||| id_ex_has_multiply ||| id_mem_has_multiply ||| wb_commit_has_multiply
   )
 
-  def id_needs_divider = (id_control.writeback.source === RV5StageWritebackSelect.Divide) & id_control.writeback.enable & id_rd.or_reduce()
-  def id_ex_has_divide = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
-  def id_mem_has_divide = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
-  def wb_commit_has_divide = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Divide) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
+  def id_needs_divider = (id_control.writeback.source === RV5StageWritebackSelect.Divide) & id_control.writeback.enable & id_rd.any()
+  def id_ex_has_divide = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & ex_input.bits.writeback_enable & ex_input.bits.rd.any()
+  def id_mem_has_divide = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & mem_input.bits.writeback_enable & mem_input.bits.rd.any()
+  def wb_commit_has_divide = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Divide) & wb_commit_bits.write_enable & wb_commit_bits.rd.any()
   def id_divide_resource_hazard = id_needs_divider & !id_fault & (!wb_divider.available ||| id_ex_has_divide ||| id_mem_has_divide ||| wb_commit_has_divide)
   def id_fp_execution_control = id_control.floating_point.execution
   id_fp_execution <== id_fp_execution_control
   def id_fp_fixed = id_control.floating_point_valid & !id_fp_execution_control.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot)
-  id_fp_gpr_reservation <== id_fp_fixed & (id_control.floating_point.registers.destination === FloatDestination.Integer) & id_rd.or_reduce() & (fp_timing.latency(id_fp_execution_control) > Bits(fp_timing.width)(2))
+  id_fp_gpr_reservation <== id_fp_fixed & (id_control.floating_point.registers.destination === FloatDestination.Integer) & id_rd.any() & (fp_timing.latency(id_fp_execution_control) > Bits(fp_timing.width)(2))
   id_execution_return_delay <== mux(id_fp_fixed, fp_timing.latency(id_fp_execution_control, ~width: wb_calendar_width) + Bits(wb_calendar_width)(1), Bits(wb_calendar_width)(PipelinedMultiplierStages + 1))
   def id_fp_memory = id_control.floating_point_valid & (id_fp_execution_control.unit === FloatUnit.Memory)
   def id_fp_store = id_fp_memory & id_fp_execution_control.memory_write
@@ -839,7 +839,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_scalar_needs_unique = !id_control.vector.memory & id_memory_operation.needs_unique()
   def id_vector_memory_order_pending = (id_vector_load_launch_pending & id_scalar_needs_unique) ||| (id_vector_store_launch_pending & id_scalar_memory)
   // A nonzero vstart still waits for the older WB reset.
-  def id_vector_start_pending = id_vector_instruction & wb_csrs.vector_state.vstart.or_reduce() & id_vector_launch_pending
+  def id_vector_start_pending = id_vector_instruction & wb_csrs.vector_state.vstart.any() & id_vector_launch_pending
   def id_vector_fp_pending = wb_vector_fp_pending ||| id_vector_launch_matches(fun (control :: VectorControl(), _rd): control.floating_point)
   def id_vector_state_wait = (wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)
   def id_vector_memory_wait = (wb_vector_loads_pending & id_scalar_needs_unique) ||| (wb_vector_stores_pending & id_scalar_memory)
@@ -1034,7 +1034,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   vector_fast.pipeline_physical <== wb_vector.pipeline_physical
   vector_fast.request_physical <== wb_vector.request_physical
   wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
-  wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.or_reduce()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
+  wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.any()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
   wb_vector.floating_result |> wb_fp.vector_write
   assert(!wb_vector_accepted ||| wb_input.valid, "vector_admission_has_live_wb_instruction")
   wb_vector_retention_path |> filter_valid(operation => wb_vector_accepted & operation.vector_context.control.memory & !wb_vector_fast) |> wb_vector_retirement.update
@@ -1275,7 +1275,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_payload.vector_launch <== ex_input.bits.vector_launch
   ex_payload.vector_context <== ex_vector_context
   ex_payload.vector_fast_first <== ex_vector_first
-  ex_payload.vector_fast_no_wrap <== !ex_vector_geometry.start_offset[width..68].or_reduce() & mux(ex_vector_geometry.reverse, ex_forwarded_rs1 >= ex_vector_offset, ex_vector_first_raw >= ex_forwarded_rs1) & (!ex_vector_geometry.strided ||| (ex_input.bits.pointer_masking.mode === PointerMaskMode.Disabled))
+  ex_payload.vector_fast_no_wrap <== !ex_vector_geometry.start_offset[width..68].any() & mux(ex_vector_geometry.reverse, ex_forwarded_rs1 >= ex_vector_offset, ex_vector_first_raw >= ex_forwarded_rs1) & (!ex_vector_geometry.strided ||| (ex_input.bits.pointer_masking.mode === PointerMaskMode.Disabled))
   ex_payload.vector_fast_geometry <== ex_vector_geometry
   ex_payload.pc <== ex_input.bits.pc
   ex_payload.resume_pc <== ex_resume_pc
@@ -1344,7 +1344,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def Array(ex_context_path, ex_lookup_path, ex_multiply_path) = ex_traced |> fork_valid(3)
   if wb_pipelined_multiplier
   | block:
-      ex_multiply_path |> filter_valid(operation => !ex_exception.valid & !ex_replay & (operation.writeback_source === RV5StageWritebackSelect.Multiply) & operation.writeback_enable & operation.rd.or_reduce()) |> map_valid(_operation => ex_multiply_issue) |> wb_multiplier.issue
+      ex_multiply_path |> filter_valid(operation => !ex_exception.valid & !ex_replay & (operation.writeback_source === RV5StageWritebackSelect.Multiply) & operation.writeback_enable & operation.rd.any()) |> map_valid(_operation => ex_multiply_issue) |> wb_multiplier.issue
   | #void
 
   ex_context_path |> map_valid(_operation => ex_payload) |> ex_mem_pipe.ingress
@@ -1635,7 +1635,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   (
     wb_scoreboard_path
-      |> filter_valid(committed => !committed.replay & core_deferred_writeback(committed.writeback_source) & committed.write_enable & committed.rd.or_reduce())
+      |> filter_valid(committed => !committed.replay & core_deferred_writeback(committed.writeback_source) & committed.write_enable & committed.rd.any())
       |> map_valid(committed => committed.rd)
   ) |> wb_to_id_scoreboard_set_link.left
 
@@ -1651,7 +1651,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           data: mux(committed.writeback_source === RV5StageWritebackSelect.Csr, wb_csrs.writeback_value, committed.value)
   )
 
-  def wb_fp_integer_write = wb_fp_direct_completion |> filter_flow(result => result.rd.or_reduce()) |> map_flow(result => RegisterFileWrite(xlen)):
+  def wb_fp_integer_write = wb_fp_direct_completion |> filter_flow(result => result.rd.any()) |> map_flow(result => RegisterFileWrite(xlen)):
     address: result.rd
     data: result.integer_value
 
@@ -1669,7 +1669,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   | block:
       (
         wb_multiply_path
-          |> filter_valid(committed => !committed.replay & (committed.writeback_source === RV5StageWritebackSelect.Multiply) & committed.write_enable & committed.rd.or_reduce())
+          |> filter_valid(committed => !committed.replay & (committed.writeback_source === RV5StageWritebackSelect.Multiply) & committed.write_enable & committed.rd.any())
           |> map_valid(_committed => wb_input.bits.multiply_issue)
       ) |> wb_multiplier.issue
       wb_multiplier.authorize.valid <== Bool(#false)
@@ -1679,13 +1679,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   (
     wb_divide_path
-      |> filter_valid(committed => !committed.replay & (committed.writeback_source === RV5StageWritebackSelect.Divide) & committed.write_enable & committed.rd.or_reduce())
+      |> filter_valid(committed => !committed.replay & (committed.writeback_source === RV5StageWritebackSelect.Divide) & committed.write_enable & committed.rd.any())
       |> map_valid(_committed => wb_input.bits.divide_issue)
   ) |> wb_divider.issue
   when wb_commit_has_divide:
     assert(wb_divider.available, "rv5stage_divider_commit_reserved")
 
-  wb_fp_integer_scoreboard.set.valid <== wb_fp_admitted & !wb_fp_direct_integer & (wb_fp_admission.control.registers.destination === FloatDestination.Integer) & wb_fp_admission.frd.or_reduce()
+  wb_fp_integer_scoreboard.set.valid <== wb_fp_admitted & !wb_fp_direct_integer & (wb_fp_admission.control.registers.destination === FloatDestination.Integer) & wb_fp_admission.frd.any()
   wb_fp_integer_scoreboard.set.bits <== wb_fp_admission.frd
 
 
@@ -1705,7 +1705,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_integer_load_completion = (
     wb_integer_responses
-      |> filter_flow(response => response.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload.or_reduce())
+      |> filter_flow(response => response.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload.any())
       |> map_flow(response => RegisterFileWrite(xlen)):
           address: response.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload
           data: response.data
@@ -1730,14 +1730,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   (
     wb_fp_deferred_completion
-      |> filter_flow(completion => (completion.destination === FloatDestination.Integer) & completion.rd.or_reduce())
+      |> filter_flow(completion => (completion.destination === FloatDestination.Integer) & completion.rd.any())
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.integer_value
   ) |> gate_flow(wb_fp_fixed_integer_return ||| wb_gpr_calendar.registered_free[1]) |> wb_tag_completion(RV5StageCompletionSource.FpInteger) |> wb_completion_arbiter.ingress[2]
 
   // Vector scalar results reserve their one-cycle write before private issue.
-  def wb_vector_integer_completion = wb_vector_scalar_result_link.right |> filter_valid(write => write.address.or_reduce()) |> to_decoupled()
+  def wb_vector_integer_completion = wb_vector_scalar_result_link.right |> filter_valid(write => write.address.any()) |> to_decoupled()
   wb_vector_integer_write_pending <== wb_vector_integer_completion.valid
   wb_vector_integer_completion |> wb_tag_completion(RV5StageCompletionSource.VectorInteger) |> wb_completion_arbiter.ingress[3]
   def Array(
@@ -1756,14 +1756,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_divide_stalled = wb_divider.completion.valid & !wb_divider.completion.ready
   def wb_multiply_stalled = Bool(!wb_pipelined_multiplier) & wb_multiplier.completion.valid & !wb_multiplier.completion.ready
   def wb_fp_stalled = !wb_fp_fixed_integer_return & wb_fp.completion.valid & !wb_fp.completion.ready
-  def wb_variable_waiting = or_reduce([wb_load_stalled, wb_divide_stalled, wb_multiply_stalled, wb_fp_stalled])
+  def wb_variable_waiting = any([wb_load_stalled, wb_divide_stalled, wb_multiply_stalled, wb_fp_stalled])
   reg wb_variable_age(~init: Bits(3)(0))
   when (!wb_variable_waiting):
     wb_variable_age <== Bits(3)(0)
-  elsewhen (!wb_variable_age.and_reduce()):
+  elsewhen (!wb_variable_age.all()):
     wb_variable_age <== wb_variable_age + Bits(3)(1)
 
-  wb_gpr_calendar.pause <== wb_variable_age.and_reduce()
+  wb_gpr_calendar.pause <== wb_variable_age.all()
 
   (
     wb_completed_integer_scoreboard_clear

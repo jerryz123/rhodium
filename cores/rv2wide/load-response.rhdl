@@ -25,7 +25,7 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
   allocate |> to_decoupled() |> owners.ingress
   available <== owners.ingress.ready
   // Admission queries retained owners; drain also covers this cycle's allocation.
-  pending <== owners.count.or_reduce()
+  pending <== owners.count.any()
   drained <== !pending & !allocate.valid
   def joined = Array(response, owners.egress) |> zip_flow(data, owner):
     owner.updated(~data: data)

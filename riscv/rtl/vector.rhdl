@@ -44,7 +44,7 @@ fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width), ~
     [encoding, Bits(count_width)(if config | config.vlmax | 0)]
 
   def maximum = mux_lookup(value[0..6], ~default: Bits(count_width)(0), cases)
-  def illegal = value[8..xlen.width].or_reduce() ||| !maximum.or_reduce()
+  def illegal = value[8..xlen.width].any() ||| !maximum.any()
   RiscvVectorType(xlen, vlen):
     value: mux(illegal, Bits(xlen.width)(1 << (xlen.width - 1)), value)
     vill: illegal

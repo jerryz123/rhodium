@@ -57,10 +57,10 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   reg carry_valid(~init: Bool(#false))
   reg carry(VectorRegisterWrite(xlen, vlen))
   reg carry_owner(Owner)
-  active <== accepted_slots.as_bits().or_reduce() ||| carry_valid
+  active <== accepted_slots.as_bits().any() ||| carry_valid
   // A closed issue owner cannot add another fragment. Flush its retained
   // suffix once all accepted words have drained, including a canceled prefix.
-  def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().or_reduce()
+  def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().any()
   def carry_pending = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
   def flush_carry = carry_pending & write_available
   resolved <== entries[wb.bits]
@@ -81,7 +81,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def rotation = target_lane - entry.layout.offsets[target_lane]
   // Offer the alignment independently of write-port arbitration; only a free
   // write cycle consumes it. This keeps the shared ALU out of its own grant path.
-  def load_alignment = head_ready & !entry.store & remaining.or_reduce() & alignment_available
+  def load_alignment = head_ready & !entry.store & remaining.any() & alignment_available
   def load_piece = load_alignment & write_available
   alignment.valid <== load_alignment
   alignment.bits <== VectorAlignment(xlen):
@@ -99,7 +99,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
         def selected = vec(
           for List (lane in 0..bytes):
             lanes[lane].into(Bool) & (entry.layout.offsets[lane] === Bits(vector_byte_offset_width(xlen))(offset))
-        ).as_bits().or_reduce()
+        ).as_bits().any()
 
         mux(selected, !Bits(8)(0), Bits(8)(0))
     ).as_bits()
@@ -126,15 +126,15 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def carry_can_merge = !carry_valid ||| same_row
   // One rotated word supplies both sides of a row boundary. Emit the completed
   // prefix and retain its suffix on the same edge, sustaining one beat/cycle.
-  def split_load = load_piece & !entry.segmented & suffix.or_reduce() & carry_can_merge
+  def split_load = load_piece & !entry.segmented & suffix.any() & carry_can_merge
   def carry_data = mux(same_row, carry.data, Bits(xlen.width)(0))
   def combined = VectorRegisterWrite(xlen, vlen):
     address: target_row
     data: carry_data.masked_merge(piece_data, piece_mask)
     mask: mux(same_row, carry.mask, Bits(xlen.width)(0)) ||| piece_mask
 
-  def full_row = load_piece & !entry.segmented & combined.mask.and_reduce() & carry_can_merge
-  def word_drained = entry.store ||| !remaining.or_reduce() ||| (load_piece & (!suffix.or_reduce() ||| split_load))
+  def full_row = load_piece & !entry.segmented & combined.mask.all() & carry_can_merge
+  def word_drained = entry.store ||| !remaining.any() ||| (load_piece & (!suffix.any() ||| split_load))
   def release_slot = drainable & word_drained
   def write_previous_carry = load_piece & carry_valid & !same_row
   def write_event = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: mux(split_load ||| full_row, combined, carry))
@@ -143,7 +143,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
       packed: Bool(#true)
       destination(~format: "unsigned"): (result.address >> bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1))[0..5]
       row(~format: "unsigned"): result.address
-      write_enabled: result.mask.or_reduce()
+      write_enabled: result.mask.any()
       write_mask: result.mask
   ) |> write
   describe_cosim_signals({"write_owner": mux(split_load ||| full_row, entry.owner, carry_owner)})

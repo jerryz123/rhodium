@@ -53,7 +53,7 @@ fun cache_chi_address_fits(address :: Bits,
   def width = hardware_value_type(address).packed_width()
   if width <= p.request_address_width
   | Bool(#true)
-  | !address[p.request_address_width..width].or_reduce()
+  | !address[p.request_address_width..width].any()
 
 /* Restores the snoop's omitted three low bits and adapts the resulting physical address width. */
 fun cache_chi_snoop_address(p :: CHIFlitParams,

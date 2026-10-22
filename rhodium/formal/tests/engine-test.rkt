@@ -785,3 +785,25 @@
            (lambda ()
              (preflight_snapshot
               (operation-design "rtl.extract" (list (flat-type 2)) (flat-type 1)))))
+
+;; Reductions preserve all bits of differently sized operands, including wide ones.
+(for* ([a (in-range 2)] [b (in-range 8)] [c (in-range 4)])
+  (check-equal? (run-operation "rtl.any" '(1 3 2) (list a b c) #:result-width 1)
+                (if (zero? (bitwise-ior a b c)) 0 1))
+  (check-equal? (run-operation "rtl.all" '(1 3 2) (list a b c) #:result-width 1)
+                (if (and (= a 1) (= b 7) (= c 3)) 1 0)))
+(for* ([width '(1 5 64 65 129)] [value (list 0 1 (mask width) (sub1 (mask width)))])
+  (check-equal? (run-operation "rtl.any" (list width) (list value) #:result-width 1)
+                (if (zero? value) 0 1))
+  (check-equal? (run-operation "rtl.all" (list width) (list value) #:result-width 1)
+                (if (= value (mask width)) 1 0)))
+
+;; Symbolic reductions agree with existing one-bit bitwise operations.
+(for ([op '("or" "and")] [reduction '("any" "all")])
+  (define input-types (list (flat-type 1) (flat-type 1)))
+  (check-equal?
+   (engine_result_status
+    (check_equivalent_snapshots
+     (operation-design (string-append "rtl." reduction) input-types (flat-type 1))
+     (operation-design (string-append "rtl." op) input-types (flat-type 1))))
+   "equivalent"))

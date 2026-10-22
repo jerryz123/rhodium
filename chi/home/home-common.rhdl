@@ -219,7 +219,7 @@ fun chi_hnf_source_is_rnf(p :: CHIFlitParams,
 fun chi_hnf_request_supported(p :: CHIFlitParams,
                               params :: CHIHNFConfig,
                               request :: CHIReqFlit(p)) :~ Bool:
-  or_reduce(
+  any(
     for List (endpoint in params.requester_endpoints):
       (request.src_id === Bits(p.node_id_width)(endpoint.node_id)) & request.opcode.is_one_of(endpoint.supports.req)
   )
@@ -235,7 +235,7 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
   def opcode = chi_hnf_subordinate_opcode(request.opcode)
   def size = chi_req_size(p, request)
   def address_supported = (request.address & !Bits(p.request_address_width)(config.service_mask)) === service_base
-  def ordinary_supported = or_reduce(
+  def ordinary_supported = any(
     for List (support in config.service_requests):
       support.matches(opcode, size)
   )

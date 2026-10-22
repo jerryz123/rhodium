@@ -17,7 +17,7 @@ circuit GrantDemux(T :: DataType, output_count :: PosInt):
   input grants: MaybeOneHot(output_count)
   interface egress[output_count](Decoupled(T), ~role: producer)
 
-  ingress.ready <== or_reduce(vec(
+  ingress.ready <== any(vec(
     for List (output_index in 0..output_count):
       grants[output_index] & egress[output_index].ready
   ))

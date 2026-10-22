@@ -46,14 +46,14 @@ circuit Reductions():
   output any_empty: Bool
   output all_empty: Bool
 
-  any_bits <== or_reduce(bits_value)
-  any_flags <== or_reduce(flags)
-  all_bits <== and_reduce(bits_value)
-  all_flags <== and_reduce(flags)
-  any_list <== or_reduce([flags[0], flags[1], flags[2], flags[3]])
-  all_list <== and_reduce([flags[0], flags[1], flags[2], flags[3]])
-  any_empty <== or_reduce([])
-  all_empty <== and_reduce([])
+  any_bits <== any(bits_value)
+  any_flags <== any(flags)
+  all_bits <== all(bits_value)
+  all_flags <== all(flags)
+  any_list <== any([flags[0], flags[1], flags[2], flags[3]])
+  all_list <== all([flags[0], flags[1], flags[2], flags[3]])
+  any_empty <== any([])
+  all_empty <== all([])
 
 /* Tests constant alternatives through variadic, singleton, list, and empty membership. */
 circuit Membership():

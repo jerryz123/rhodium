@@ -20,7 +20,7 @@ fun vector_indexed_memory(control :: VectorControl()) :~ Bool:
 
 /* Recognizes an encoded rs2=x0 nonsegmented strided load eligible for single-read splatting. */
 fun vector_zero_stride_load_parts(control :: VectorControl(), instruction :: Bits(32)) :~ Bool:
-  control.memory & !control.store & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & !instruction_field(riscv_fields.rs2, instruction).or_reduce()
+  control.memory & !control.store & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.any() & !instruction_field(riscv_fields.rs2, instruction).any()
 
 /* Tests a captured descriptor for encoded-zero-stride load execution. */
 fun vector_zero_stride_load(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bool:

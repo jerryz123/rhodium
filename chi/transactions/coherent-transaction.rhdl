@@ -124,7 +124,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     assert(popcount(live_requests) < Bits(index_width(2 * limit + 1))(limit), label_prefix ++ "_requests_within_outstanding_limit")
 
   when copyback_request:
-    assert(free_copybacks.or_reduce(), label_prefix ++ "_copyback_capacity")
+    assert(free_copybacks.any(), label_prefix ++ "_copyback_capacity")
     def full_line = req.address.is_aligned(64) & (chi_req_size(p, req) === CHITransferSize.Bytes64)
     def copyback_framing = !req.multi_req & !req.exp_comp_ack
     assert(full_line & copyback_framing, label_prefix ++ "_copyback_request")
@@ -136,7 +136,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         assert((reads[index].phase === CHICoherentReadPhase.Free) ||| (reads[index].txn_id =/= req.txn_id), label_prefix ++ "_copyback_read_txn_unique")
 
   when copyback_grant:
-    assert(grant_matches.or_reduce(), label_prefix ++ "_copyback_grant_has_request")
+    assert(grant_matches.any(), label_prefix ++ "_copyback_grant_has_request")
     assert((rx_rsp.resp_err === CHIRespErr.OK) & (rx_rsp.resp === Bits(3)(0)), label_prefix ++ "_copyback_grant_ok")
     for (index in 0..limit):
       def same_granted_dbid = copybacks[index].live & copybacks[index].granted & (
@@ -145,7 +145,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       assert(!same_granted_dbid, label_prefix ++ "_copyback_dbid_unique")
 
   when copyback_data:
-    assert(data_matches.or_reduce(), label_prefix ++ "_copyback_data_has_grant")
+    assert(data_matches.any(), label_prefix ++ "_copyback_data_has_grant")
     monitor_chi_copyback_data(p, tx_dat, label_prefix ++ "_copyback_data")
     assert(copyback_receipt.expected(copyback_data_id), label_prefix ++ "_copyback_data_id_expected")
 
@@ -155,7 +155,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     def recorded = receipt.record(copyback_data_id)
     when (copyback_data & data_matches[index]):
       assert(!receipt.duplicate(copyback_data_id), label_prefix ++ "_copyback_data_id_unique")
-      assert(!entry.received.or_reduce() ||| (entry.state === tx_dat.resp), label_prefix ++ "_copyback_state_consistent")
+      assert(!entry.received.any() ||| (entry.state === tx_dat.resp), label_prefix ++ "_copyback_state_consistent")
       copybacks[index] <== entry.updated(~live: !recorded.complete(), ~received: recorded.received_ids, ~state: tx_dat.resp)
     elsewhen (copyback_grant & grant_matches[index]):
       copybacks[index] <== entry.updated(~granted: Bool(#true), ~dbid: rx_rsp.dbid_or_group_id)
@@ -194,16 +194,16 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
      Keep packet receipt and acknowledgement independent, including a shared-cycle update. */
 
   def free_reads = vec(for List (index in 0..limit): reads[index].phase === CHICoherentReadPhase.Free)
-  def read_allocation_available = free_reads.or_reduce()
+  def read_allocation_available = free_reads.any()
   def read_allocation_index = priority_encoder(free_reads)
-  def duplicate_read_txn = or_reduce(for List (index in 0..limit): (reads[index].phase =/= CHICoherentReadPhase.Free) & (reads[index].txn_id === req.txn_id))
+  def duplicate_read_txn = any(for List (index in 0..limit): (reads[index].phase =/= CHICoherentReadPhase.Free) & (reads[index].txn_id === req.txn_id))
   def read_data_matches = vec(for List (index in 0..limit): (reads[index].phase === CHICoherentReadPhase.AwaitData) & (reads[index].txn_id === rx_dat.txn_id))
-  def read_data_expected = or_reduce(for List (index in 0..limit): read_data_matches[index] & reads[index].receipt.expected(read_data_id))
-  def read_data_duplicate = or_reduce(for List (index in 0..limit): read_data_matches[index] & reads[index].receipt.duplicate(read_data_id))
-  def read_data_metadata_consistent = or_reduce(
+  def read_data_expected = any(for List (index in 0..limit): read_data_matches[index] & reads[index].receipt.expected(read_data_id))
+  def read_data_duplicate = any(for List (index in 0..limit): read_data_matches[index] & reads[index].receipt.duplicate(read_data_id))
+  def read_data_metadata_consistent = any(
     for List (index in 0..limit):
       read_data_matches[index] & (
-        !reads[index].receipt.received_ids.or_reduce() ||| (
+        !reads[index].receipt.received_ids.any() ||| (
           reads[index].home_id === rx_dat.home_nid_or_pbha_or_mismatched_mecid
         ) & (
           reads[index].comp_ack_txn_id === rx_dat.dbid_or_mecid[0..12]
@@ -214,7 +214,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def comp_ack_matches = vec(
     for List (index in 0..limit):
       (reads[index].phase =/= CHICoherentReadPhase.Free) & (
-        reads[index].receipt.received_ids.or_reduce()
+        reads[index].receipt.received_ids.any()
       ) & (
         reads[index].comp_ack_txn_id === tx_rsp.txn_id
       ) & (reads[index].home_id === tx_rsp.tgt_id)
@@ -233,7 +233,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
            label_prefix ++ "_read_within_outstanding_limit")
 
   when read_data_event:
-    assert(read_data_matches.or_reduce(), label_prefix ++ "_read_data_has_request")
+    assert(read_data_matches.any(), label_prefix ++ "_read_data_has_request")
     assert(read_data_expected, label_prefix ++ "_read_data_id_expected")
     assert(!read_data_duplicate, label_prefix ++ "_read_data_id_unique")
     assert(read_data_metadata_consistent,
@@ -243,7 +243,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     monitor_chi_unelided_data(p, rx_dat, label_prefix ++ "_read_data")
 
   when comp_ack_event:
-    assert(comp_ack_matches.or_reduce(), label_prefix ++ "_comp_ack_has_read_data")
+    assert(comp_ack_matches.any(), label_prefix ++ "_comp_ack_has_read_data")
 
   def allocate_read = req_event & !duplicate_read_txn & read_allocation_available
   def allocated_read:
@@ -266,7 +266,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         def read_data_here = read_data_event & read_data_matches[index]
         def comp_ack_here = comp_ack_event & comp_ack_matches[index]
         def next_receipt = mux(read_data_here, entry.receipt.record(read_data_id), entry.receipt)
-        def first_data = !entry.receipt.received_ids.or_reduce()
+        def first_data = !entry.receipt.received_ids.any()
         def next_comp_ack_seen = entry.comp_ack_seen ||| comp_ack_here
         def data_complete = next_receipt.complete()
         def completed = data_complete & next_comp_ack_seen
@@ -295,9 +295,9 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
      Ordinary responses finish directly; forwarding waits for both response and forwarded data. */
 
   def free_snoops = vec(for List (index in 0..limit): !snoops[index].live)
-  def snoop_allocation_available = free_snoops.or_reduce()
+  def snoop_allocation_available = free_snoops.any()
   def snoop_allocation_index = priority_encoder(free_snoops)
-  def duplicate_snoop = or_reduce(
+  def duplicate_snoop = any(
     for List (index in 0..limit):
       snoops[index].live & (snoops[index].txn_id === rx_snp.txn_id) & (
         snoops[index].home_id === rx_snp.src_id
@@ -319,17 +319,17 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
            label_prefix ++ "_snoop_within_outstanding_limit")
 
   when snoop_rsp_event:
-    assert(or_reduce(for List (index in 0..limit): snoops[index].live & rsp_snoop_matches[index]),
+    assert(any(for List (index in 0..limit): snoops[index].live & rsp_snoop_matches[index]),
            label_prefix ++ "_snoop_rsp_has_request")
 
   when snoop_dat_event:
-    assert(or_reduce(for List (index in 0..limit): snoops[index].live & dat_snoop_matches[index]),
+    assert(any(for List (index in 0..limit): snoops[index].live & dat_snoop_matches[index]),
            label_prefix ++ "_snoop_data_has_request")
 
     coherent_single_data_fields(p, tx_dat, label_prefix ++ "_snoop_data")
 
   when forward_data_event:
-    assert(or_reduce(for List (index in 0..limit): snoops[index].live & forward_data_matches[index]),
+    assert(any(for List (index in 0..limit): snoops[index].live & forward_data_matches[index]),
            label_prefix ++ "_forward_data_has_snoop")
 
     coherent_single_data_fields(p, tx_dat, label_prefix ++ "_forward_data")

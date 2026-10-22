@@ -18,7 +18,7 @@ hardware_enum RiscvCsrOperation:
 fun riscv_csr_write_requested(operation :: RiscvCsrOperation,
                               source_specifier :: Bits(5)) :~ Bool:
   (operation === RiscvCsrOperation.Write) ||| (
-    operation.is_one_of(RiscvCsrOperation.Set, RiscvCsrOperation.Clear) & source_specifier.or_reduce()
+    operation.is_one_of(RiscvCsrOperation.Set, RiscvCsrOperation.Clear) & source_specifier.any()
   )
 
 /* Pairs recognized/read hardware with a selector-bound writer callback; architectural access and WARL policy remain caller-owned. */

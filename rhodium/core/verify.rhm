@@ -323,6 +323,16 @@ fun check_operation_types(module_def :: Module,
           operation,
           "cast requires source and result types with the same canonical packed width"
         )
+  | "bits_reduction":
+      unless operation.operands.length() > 0
+      | fail_operation(operation, "reduction requires at least one operand")
+      for (operand in operation.operands):
+        unless bits_type(operand.type)
+        | fail_operation(operation, "reduction operands must have Bits types")
+
+      def result = operation.results[0]
+      unless bits_type(result.type) && result.type.width == 1
+      | fail_operation(operation, "reduction result must be Bits(1)")
   | "bits_concat":
       unless operation.operands.length() >= 2
       | fail_operation(operation, "concat requires at least two operands")

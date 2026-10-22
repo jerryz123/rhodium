@@ -108,7 +108,7 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
       mux(enabled, !Bits(8)(0), Bits(8)(0))
   ).as_bits()
 
-  def has_enabled_bytes = byte_mask.or_reduce()
+  def has_enabled_bytes = byte_mask.any()
   def row_write_ready = !has_enabled_bytes ||| write_available
   def can_advance = value_valid & unfinished_row & mask_ready & !mask_waiting & !blocked_rows[address] & row_write_ready
   def next_row = row + Bits(Row.width)(1)

@@ -69,7 +69,7 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
       | raw.significand
       | (
           raw.significand[((in_significand_width - out_significand_width) - 1)..=in_significand_width]
-            ++ raw.significand[0..=((in_significand_width - out_significand_width) - 2)].or_reduce()
+            ++ raw.significand[0..=((in_significand_width - out_significand_width) - 2)].any()
         )
 
   def shift_significand_down:
@@ -93,8 +93,8 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
 
   def shifted_round_mask = (Bits(1)(0) ++ round_mask[1..=(out_significand_width + 2)])
   def round_position_mask = !shifted_round_mask & round_mask
-  def round_position_bit = or_reduce(adjusted_significand & round_position_mask)
-  def any_round_extra = or_reduce(adjusted_significand & shifted_round_mask)
+  def round_position_bit = any(adjusted_significand & round_position_mask)
+  def any_round_extra = any(adjusted_significand & shifted_round_mask)
   def any_round = round_position_bit ||| any_round_extra
   def round_increment = ((near_even ||| near_maximum_magnitude) & round_position_bit) ||| (round_magnitude_up & any_round)
   def incremented_significand = (
@@ -138,7 +138,7 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
     adjusted_significand[2].into(Bool),
     adjusted_significand[1].into(Bool)
   )
-  def unbounded_any_round = (shift_significand_down & adjusted_significand[2].into(Bool)) ||| adjusted_significand[0..=1].or_reduce()
+  def unbounded_any_round = (shift_significand_down & adjusted_significand[2].into(Bool)) ||| adjusted_significand[0..=1].any()
   def unbounded_round_increment = ((near_even ||| near_maximum_magnitude) & unbounded_round_position_bit) ||| (
     round_magnitude_up & unbounded_any_round
   )

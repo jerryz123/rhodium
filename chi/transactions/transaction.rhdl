@@ -104,9 +104,9 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       entries[index].phase === CHIInitialTransactionPhase.Free
   )
 
-  def allocation_available = free_entries.or_reduce()
+  def allocation_available = free_entries.any()
   def allocation_index = priority_encoder(free_entries)
-  def duplicate_txn = or_reduce(
+  def duplicate_txn = any(
     for List (index in 0..limit):
       (entries[index].phase =/= CHIInitialTransactionPhase.Free) & (entries[index].txn_id === req.txn_id)
   )
@@ -122,7 +122,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitData) & (entries[index].dbid === tx_dat.txn_id) & (entries[index].completer_id === tx_dat.tgt_id)
   )
 
-  def dbid_match = or_reduce(
+  def dbid_match = any(
     for List (index in 0..limit):
       def entry :: CHIRequesterTransaction(p) = entries[index]
       write_data_matches[index] & entry.receipt.pending(outgoing_data_id)
@@ -158,10 +158,10 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
   when rsp_event:
     assert(rsp.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp), label_prefix ++ "_response_opcode_supported")
     when (rsp.opcode === CHIRspOpcode.DBIDResp):
-      assert(dbid_response_matches.or_reduce(), label_prefix ++ "_dbid_response_has_write")
+      assert(dbid_response_matches.any(), label_prefix ++ "_dbid_response_has_write")
       assert(rsp.resp === Bits(3)(0), label_prefix ++ "_dbid_response_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK, label_prefix ++ "_dbid_response_ok")
-      def duplicate_dbid = or_reduce(
+      def duplicate_dbid = any(
         for List (index in 0..limit):
           entries[index].phase.is_one_of(CHIInitialTransactionPhase.WriteAwaitData, CHIInitialTransactionPhase.WriteAwaitComp) & (entries[index].completer_id === rsp.src_id) & (entries[index].dbid === rsp.dbid_or_group_id)
       )
@@ -169,7 +169,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       assert(!duplicate_dbid, label_prefix ++ "_dbid_unique")
 
     when (rsp.opcode === CHIRspOpcode.Comp):
-      assert(write_completion_matches.or_reduce(), label_prefix ++ "_completion_has_write_data")
+      assert(write_completion_matches.any(), label_prefix ++ "_completion_has_write_data")
       assert(rsp.resp === Bits(3)(0), label_prefix ++ "_completion_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK, label_prefix ++ "_completion_ok")
 
@@ -180,7 +180,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
 
   when rx_dat_event:
     assert(rx_dat.opcode === CHIDatOpcode.CompData, label_prefix ++ "_read_data_opcode_supported")
-    assert(read_completion_matches.or_reduce(), label_prefix ++ "_read_data_has_request")
+    assert(read_completion_matches.any(), label_prefix ++ "_read_data_has_request")
     assert(rx_dat.resp === Bits(3)(0), label_prefix ++ "_read_data_resp_zero")
     assert(rx_dat.resp_err === CHIRespErr.OK, label_prefix ++ "_read_data_ok")
     chi_initial_data_fields(p, rx_dat, label_prefix ++ "_read_data")
@@ -254,9 +254,9 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
       entries[index].phase === CHIInitialTransactionPhase.Free
   )
 
-  def allocation_available = free_entries.or_reduce()
+  def allocation_available = free_entries.any()
   def allocation_index = priority_encoder(free_entries)
-  def duplicate_txn = or_reduce(
+  def duplicate_txn = any(
     for List (index in 0..limit):
       (entries[index].phase =/= CHIInitialTransactionPhase.Free) & (entries[index].requester_id === req.src_id) & (entries[index].txn_id === req.txn_id)
   )
@@ -307,10 +307,10 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
   when rsp_event:
     assert(rsp.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp), label_prefix ++ "_response_opcode_supported")
     when (rsp.opcode === CHIRspOpcode.DBIDResp):
-      assert(dbid_response_matches.or_reduce(), label_prefix ++ "_dbid_response_has_write")
+      assert(dbid_response_matches.any(), label_prefix ++ "_dbid_response_has_write")
       assert(rsp.resp === Bits(3)(0), label_prefix ++ "_dbid_response_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK, label_prefix ++ "_dbid_response_ok")
-      def duplicate_dbid = or_reduce(
+      def duplicate_dbid = any(
         for List (index in 0..limit):
           entries[index].phase.is_one_of(CHIInitialTransactionPhase.WriteAwaitData, CHIInitialTransactionPhase.WriteAwaitComp) & (entries[index].requester_id === rsp.tgt_id) & (entries[index].dbid === rsp.dbid_or_group_id)
       )
@@ -318,18 +318,18 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
       assert(!duplicate_dbid, label_prefix ++ "_dbid_unique")
 
     when (rsp.opcode === CHIRspOpcode.Comp):
-      assert(write_completion_matches.or_reduce(), label_prefix ++ "_completion_has_write_data")
+      assert(write_completion_matches.any(), label_prefix ++ "_completion_has_write_data")
       assert(rsp.resp === Bits(3)(0), label_prefix ++ "_completion_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK, label_prefix ++ "_completion_ok")
 
   when rx_dat_event:
     assert(rx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData, label_prefix ++ "_write_data_opcode_supported")
-    assert(write_data_matches.or_reduce(), label_prefix ++ "_write_data_has_dbid")
+    assert(write_data_matches.any(), label_prefix ++ "_write_data_has_dbid")
     chi_initial_data_fields(p, rx_dat, label_prefix ++ "_write_data")
 
   when tx_dat_event:
     assert(tx_dat.opcode === CHIDatOpcode.CompData, label_prefix ++ "_read_data_opcode_supported")
-    assert(read_completion_matches.or_reduce(), label_prefix ++ "_read_data_has_request")
+    assert(read_completion_matches.any(), label_prefix ++ "_read_data_has_request")
     assert(tx_dat.resp === Bits(3)(0), label_prefix ++ "_read_data_resp_zero")
     assert(tx_dat.resp_err === CHIRespErr.OK, label_prefix ++ "_read_data_ok")
     chi_initial_data_fields(p, tx_dat, label_prefix ++ "_read_data")
@@ -418,7 +418,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
   def read_data_entry = entries[read_data_slot]
   def write_data_id = upstream_write_data.data_id
   def read_data_id = downstream_read_data.data_id
-  def duplicate_request = or_reduce(
+  def duplicate_request = any(
     for List (index in 0..limit):
       (entries[index].phase =/= CHIInitialTransactionPhase.Free) & (entries[index].requester_id === upstream_request.src_id) & (entries[index].requester_txn_id === upstream_request.txn_id)
   )

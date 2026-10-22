@@ -157,7 +157,7 @@ The implemented deterministic operation contract is:
 | Category | Supported operations |
 | --- | --- |
 | Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
-| Constants and bitwise | `rtl.constant`, `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor` |
+| Constants and bitwise | `rtl.constant`, `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.any`, `rtl.all` |
 | Modular arithmetic | `rtl.add`, `rtl.mul`, `rtl.sub` |
 | Unsigned remainder | `rtl.urem` when query assumptions prove the divisor nonzero |
 | Shifts | `rtl.shl`, `rtl.shru`, `rtl.shrs`, including unequal operand widths and overshifts |

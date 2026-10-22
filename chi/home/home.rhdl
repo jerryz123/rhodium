@@ -105,9 +105,9 @@ fun chi_hni_subordinate_supported(p :: CHIFlitParams,
                                   request :: CHIReqFlit(p),
                                   services :: NonemptyList.of(CHISubordinateServiceParams)):
   def size = chi_req_size(p, request)
-  or_reduce(vec(
+  any(vec(
     for List (service in services):
-      address_sets_match(request.address, service.address_sets) & or_reduce(vec(
+      address_sets_match(request.address, service.address_sets) & any(vec(
         for List (support in service.requests):
           support.matches(request.opcode, size)
       ))
@@ -153,7 +153,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
      A slot is allocated only when the mapped subordinate accepts its forwarded request. */
 
   def free_slots = vec(for List (index in 0..limit): !occupied[index])
-  def allocation_available = free_slots.or_reduce()
+  def allocation_available = free_slots.any()
   def allocation_slot = priority_encoder(free_slots)
   def upstream_request = requester.req.bits
   def upstream_request_opcode :: CHIReqOpcode = upstream_request.opcode

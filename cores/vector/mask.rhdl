@@ -47,10 +47,10 @@ circuit VectorMaskScan(xlen :: XLen):
   def total :: Bits(vector_bit_offset_width(xlen) + 1) = sums[xlen.width - 1]
   def count = carry + total.zext(xlen.width)
   def first_set = count_leading_zeros(reverse_bits(selected)).zext(xlen.width)
-  def first_result = mux((carry === !Bits(xlen.width)(0)) & selected.or_reduce(), first + first_set, carry)
+  def first_result = mux((carry === !Bits(xlen.width)(0)) & selected.any(), first + first_set, carry)
   def mask = vec(for List (index in 0..xlen.width):
                    def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[index]
-                   !carry.or_reduce() & !preceding.or_reduce() & mux(control.only_first, selected[index].into(Bool), control.include_first ||| !selected[index].into(Bool))).as_bits()
+                   !carry.any() & !preceding.any() & mux(control.only_first, selected[index].into(Bool), control.include_first ||| !selected[index].into(Bool))).as_bits()
 
   def elements = for List (format in 0..vector_format_count(xlen)):
     def width = 8 * (2 ** format)

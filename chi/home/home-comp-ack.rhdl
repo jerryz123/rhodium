@@ -33,7 +33,7 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
     for List (_index in 0..entries): Bits(p.node_id_width)(0)
   ))
 
-  available <== free_entries.or_reduce()
+  available <== free_entries.any()
   allocation_slot <== next_slot
   occupancy.set.valid <== reserve.valid
   occupancy.set.bits <== next_slot
@@ -41,7 +41,7 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
   published.set.bits <== publish.bits
 
   when (reserve.valid):
-    assert(free_entries.or_reduce(), "chi_home_comp_ack_table_available")
+    assert(free_entries.any(), "chi_home_comp_ack_table_available")
     requester_ids <== requester_ids.updated(next_slot, reserve.bits)
 
   when (publish.valid):

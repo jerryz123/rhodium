@@ -76,7 +76,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def mask_transfer = descriptor.control.memory_mode === VectorMemoryMode.Mask
   def eew = mux(mask_transfer, Bits(2)(0), descriptor.control.memory_data_eew)
   def nf = mux(whole ||| mask_transfer, Bits(3)(0), descriptor.control.memory_nf)
-  def segmented = nf.or_reduce()
+  def segmented = nf.any()
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def emul = geometry.lmul.into(SInt(3)).sext(5) + eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
   def group_shift = mux(emul < SInt(5)(0), Bits(3)(0), emul.as_bits()[0..3])
@@ -151,7 +151,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   candidate_data <== store_data
   fast_store <== direct_store
   ready <== fast_load ||| direct_store ||| (prepare === VectorPreparePhase.Issue)
-  sources_ready <== !vec(for List (lane in 0..bytes): offered_layout.live[lane].into(Bool) & blocked_rows[offered_layout.rows[lane]]).as_bits().or_reduce()
+  sources_ready <== !vec(for List (lane in 0..bytes): offered_layout.live[lane].into(Bool) & blocked_rows[offered_layout.rows[lane]]).as_bits().any()
 
 
   /* The mask shadow remains independent of the three general VRF read ports. */
@@ -179,8 +179,8 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
 
   read_enables <== vec([direct_store, direct_store, Bool(#false)]).as_bits()
   read_addresses <== vec([mapped.rows[first_store_lane], last_store_row, source_row])
-  def store_read_pending = store & store_remaining.or_reduce()
-  def read_step_ready = !store ||| !store_remaining.or_reduce() ||| !blocked_rows[source_row]
+  def store_read_pending = store & store_remaining.any()
+  def read_step_ready = !store ||| !store_remaining.any() ||| !blocked_rows[source_row]
   for (port in 0..3):
     reads[port].valid <== Bool(port == 0) & !direct_store & enable & (prepare === VectorPreparePhase.Read) & store_read_pending & !blocked_rows[source_row]
     reads[port].bits <== source_row
@@ -208,7 +208,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
     store: VectorPreparePhase.Read
 
   def phase_after_read = mux(store_read_pending, VectorPreparePhase.ReadDone, VectorPreparePhase.Issue)
-  def phase_after_alignment = mux((store_remaining & !store_group).or_reduce(), VectorPreparePhase.Read, VectorPreparePhase.Issue)
+  def phase_after_alignment = mux((store_remaining & !store_group).any(), VectorPreparePhase.Read, VectorPreparePhase.Issue)
   def prepared_next_phase = mux_lookup(prepare, ~default: prepare):
     VectorPreparePhase.Map: first_phase
     VectorPreparePhase.MaskLow: mux(masks_ready, VectorPreparePhase.MaskHigh, prepare)

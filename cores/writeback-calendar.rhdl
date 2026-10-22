@@ -18,7 +18,7 @@ sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt, ~queries: q
   reg pending(~init: Bits(latency)(0))
   def selections = vec(for List (query in 0..queries): Bits(latency + 1)(1) << query_delay[query])
   def in_range = vec(for List (query in 0..queries): query_delay[query] <= Bits(index_width(latency + 1))(latency))
-  registered_free <== vec(for List (query in 0..queries): in_range[query] & !(pending.zext(latency + 1) & selections[query]).or_reduce())
+  registered_free <== vec(for List (query in 0..queries): in_range[query] & !(pending.zext(latency + 1) & selections[query]).any())
 
   def mutable claimed :: Bits(latency + 1) = pending.zext(latency + 1)
   def mutable available :: Vec(queries, Bool) = vec(for List (_query in 0..queries): Bool(#false))
@@ -27,13 +27,13 @@ sync_circuit WritebackCalendar(clients :: PosInt, latency :: PosInt, ~queries: q
   for (client in 0..clients):
     def delay = reserve[client].bits
     def selection = Bits(latency + 1)(1) << delay
-    def free = !pause & !(claimed & selection).or_reduce()
+    def free = !pause & !(claimed & selection).any()
     reserve[client].ready <== free
     // Snapshot before this client claims: its own and later handshakes are invisible.
     available := vec(
       for List (query in 0..queries):
         def selected_client = query_client[query] === Bits(index_width(clients))(client)
-        def cycle_free = !(claimed & selections[query]).or_reduce()
+        def cycle_free = !(claimed & selections[query]).any()
         available[query] ||| (selected_client & in_range[query] & !pause & cycle_free)
     )
 

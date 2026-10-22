@@ -423,6 +423,7 @@ occurrence paths continue to identify the original source instances.
 | `rtl.urem` | Unsigned remainder; a zero divisor has an unspecified result |
 | `rtl.eq`, `rtl.ult`, `rtl.slt` | Equality, unsigned less-than, explicitly signed less-than |
 | `rtl.shl`, `rtl.shru`, `rtl.shrs` | Fixed-width left, logical right, and arithmetic right shifts with the complete unsigned count |
+| `rtl.any`, `rtl.all` | Any/all bits across independently sized operands; rsim lowers to Boolean predicates before conditional scheduling |
 | `rtl.concat`, `rtl.extract`, `rtl.trunc` | MSB-first concatenation, inclusive static bit ranges, and low-bit truncation |
 | `rtl.zext`, `rtl.sext` | Explicit zero or sign extension to the result width |
 | `rtl.mux_lookup` | Sized key comparison with explicit default for scalar or aggregate results |
@@ -638,6 +639,7 @@ the consuming SSA reference.
 | `rtl.urem` | `comb.modu` |
 | `rtl.shl`, `rtl.shru`, `rtl.shrs` | Matching `comb` shift after operand-width normalization |
 | `rtl.eq`, `rtl.ult`, `rtl.slt` | `comb.icmp` with `eq`, `ult`, or `slt` predicate |
+| `rtl.any`, `rtl.all` | Packed zero/all-ones comparisons using `comb.icmp`, with `comb.concat` for lists |
 | `rtl.concat` | `comb.concat` |
 | `rtl.extract`, `rtl.trunc` | `comb.extract` |
 | `rtl.zext`, `rtl.sext` | Zero/sign materialization plus `comb.concat` |

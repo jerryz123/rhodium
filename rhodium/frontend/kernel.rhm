@@ -3,11 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus as host
+  rhombus/meta.reducer
   "../../support/annotations.rhm" open
   "../core/ir.rhm" open
   "../core/signature.rhm" open
   "../core/builder.rhm" open
   "../lowering/program.rhm".MaterializationCheck
+
+// Preserve the host loop reducers alongside the hardware expression functions.
+alias 'any':
+  ~only_space reducer
+  'host.any'
+alias 'all':
+  ~only_space reducer
+  'host.all'
 
 export:
   StableCircuitParam
@@ -54,6 +64,8 @@ export:
   bit_not
   bit_and
   bit_or
+  any
+  all
   bit_xor
   hw_add
   hw_mul
@@ -897,6 +909,20 @@ fun bit_or(left :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("or", left, right, name, location)
+
+/* Preserves independent packed operands for backend-owned any-bit lowering. */
+fun any(entities :: List.of(HardwareEntity),
+        name :: maybe(AsciiIdentifier) = #false, location :: Location = Location()):
+  def context = require_context(location)
+  context.builder.any(require_module(location), entities.map(fun (entity): read(entity, location)),
+                      name, location, Origin("embedded any", name || ""))
+
+/* Preserves independent packed operands for backend-owned all-bit lowering. */
+fun all(entities :: List.of(HardwareEntity),
+        name :: maybe(AsciiIdentifier) = #false, location :: Location = Location()):
+  def context = require_context(location)
+  context.builder.all(require_module(location), entities.map(fun (entity): read(entity, location)),
+                      name, location, Origin("embedded all", name || ""))
 
 /* Constructs bitwise exclusive-or from materialized hardware operands. */
 fun bit_xor(left :: HardwareEntity,

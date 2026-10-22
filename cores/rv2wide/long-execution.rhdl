@@ -89,7 +89,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   reg outstanding(~init: Bits(count_width)(0))
   def rejected = wb_owner.valid & !authorize
   outstanding <== outstanding + issue.valid.as_bits().zext(count_width) - rejected.as_bits().zext(count_width) - completed.valid.as_bits().zext(count_width)
-  drained <== !outstanding.or_reduce()
+  drained <== !outstanding.any()
   assert(outstanding <= Bits(count_width)(PipelinedMultiplierStages), "rv2wide_multiply_inflight_capacity")
   when (completed.valid):
     assert(execution.result.valid, "rv2wide_multiply_scheduled_result")

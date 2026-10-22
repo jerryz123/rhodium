@@ -18,7 +18,7 @@ circuit LaneSets(n :: PosInt):
   eligible <== requested & available
   exact_set <== exact.into(Mask(n))
   optional_set <== optional.into(Mask(n))
-  any_eligible <== or_reduce(eligible)
+  any_eligible <== any(eligible)
   first_eligible <== priority_encoder_oh(eligible)
 
 def program = elaborate(LaneSets(4))

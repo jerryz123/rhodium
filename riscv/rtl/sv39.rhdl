@@ -64,13 +64,13 @@ fun sv39_leaf(pte :: Sv39Pte()) :~ Bool:
 fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~level: level :: Bits(2) = Bits(2)(0), ~svnapot: svnapot :: Boolean = #false, ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
   def pbmt_valid = (pte.pbmt === PageMemoryType.PMA) ||| (pbmte & sv39_leaf(pte) & (pte.pbmt =/= PageMemoryType.Reserved))
   def napot_valid = !pte.napot ||| (Bool(svnapot) & sv39_leaf(pte) & (level === Bits(2)(0)) & (pte.ppn[0..4] === Bits(4)(8)))
-  pte.valid & !(pte.write & !pte.read) & napot_valid & !pte.reserved.or_reduce() & pbmt_valid
+  pte.valid & !(pte.write & !pte.read) & napot_valid & !pte.reserved.any() & pbmt_valid
 
 /* Requires lower PPN components to be zero for the selected superpage level. */
 fun sv39_superpage_aligned(pte :: Sv39Pte(), level :: Bits(2)) :~ Bool:
-  mux_lookup(level, ~default: !pte.ppn[0..18].or_reduce()):
+  mux_lookup(level, ~default: !pte.ppn[0..18].any()):
     0: Bool(#true)
-    1: !pte.ppn[0..9].or_reduce()
+    1: !pte.ppn[0..9].any()
 
 /* Derives mapping size from the level and supported NAPOT bit.
  * The caller admits only structurally valid, aligned leaves to mapping construction.

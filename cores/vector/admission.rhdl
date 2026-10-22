@@ -171,9 +171,9 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
 
   active <== waiting_retirement ||| head.valid
   certification_pending <== uncertified_memory
-  loads_pending <== queued_loads.or_reduce()
-  stores_pending <== queued_stores.or_reduce()
-  fp_pending <== queued_fp.or_reduce()
+  loads_pending <== queued_loads.any()
+  stores_pending <== queued_stores.any()
+  fp_pending <== queued_fp.any()
   execution_certified <== captured_certificate
   pointer_masking <== captured_pointer_masking
   store <== captured_store

@@ -30,7 +30,7 @@ fun riscv_ras_action(instruction :: Bits(32)) :~ RasAction:
 /* Classifies raw C.JAL, C.JR, and C.JALR hints, including RV32-only direct calls. */
 fun riscv_compressed_ras_action(xlen :: XLen, instruction :: Bits(16)) :~ RasAction:
   def direct_call = Bool(xlen == XLen.X32) & (instruction[0..2] === Bits(2)(1)) & (instruction[13..16] === Bits(3)(1))
-  def indirect = (instruction[0..2] === Bits(2)(2)) & (instruction[13..16] === Bits(3)(4)) & (instruction[2..7] === Bits(5)(0)) & instruction[7..12].or_reduce()
+  def indirect = (instruction[0..2] === Bits(2)(2)) & (instruction[13..16] === Bits(3)(4)) & (instruction[2..7] === Bits(5)(0)) & instruction[7..12].any()
   def rs1 = instruction[7..12]
   def rs1_link = rs1.is_one_of(Bits(5)(1), Bits(5)(5))
   def link = instruction[12].into(Bool)

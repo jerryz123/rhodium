@@ -95,7 +95,7 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
   inst occupancy(Scoreboard(entries))
   def occupied = occupancy.busy.into(Vec(entries, Bool))
   def free_entries = vec(for List (index in 0..entries): !occupied[index])
-  def allocation_available = free_entries.or_reduce()
+  def allocation_available = free_entries.any()
   def allocation_entry = priority_encoder(free_entries)
 
   reg phases(~init: vec(
