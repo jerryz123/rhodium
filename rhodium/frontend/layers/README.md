@@ -373,6 +373,26 @@ The result retains the `Mask` indexing and set-operation surface; it does not
 refine to `OneHot` or `MaybeOneHot`. This construction uses ordinary numeric
 operations internally and does not enable shifting a mask.
 
+`Mask(n).prefix(count)` selects exactly the lanes `i < count`.
+`Mask(n).range(first, end)` selects the half-open interval `first <= i < end`.
+Each bound may independently be a host natural number or an unsigned hardware
+`Bits(k)` value; hardware bounds need not have the same width. The full bounds
+are used without truncation or wrapping. Membership clips to the physical
+lanes: a prefix at or above `n` is full, a zero prefix is empty, and reversed,
+equal, or wholly out-of-range intervals are empty. Negative host bounds, signed
+hardware, Bool, and Mask bounds are rejected.
+
+```rhombus
+def active = Mask(8).prefix(count)
+def window = Mask(8).range(first, end)
+def at_or_above = Mask(8).range(start, 8)
+def lane_active = active[index]
+```
+
+Both constructors return ordinary Mask values with Bool-valued indexing and
+set operations. They add no state, assertions, or permission to shift a Mask;
+callers retain any policy requiring bounds to be in range.
+
 Equal-width representation changes remain explicit. `Bits`, `OneHot`, and
 `MaybeOneHot` values widen to an unrestricted lane set with `.into(Mask(n))`.
 A `Mask` does not safely refine to an exactly-one or optional-one selector;

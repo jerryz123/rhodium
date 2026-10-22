@@ -366,7 +366,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     ~empty: !emits_write,
     ~left: combined[0..xlen.width],
     ~right: Bits(xlen.width)(0),
-    ~enabled: vec(for List (lane in 0..vector_word_bytes(xlen)): (Bits(vector_lane_count_width(xlen))(lane) < emitted_count).as_bits()).into(Mask(vector_word_bytes(xlen))),
+    ~enabled: Mask(vector_word_bytes(xlen)).prefix(emitted_count),
     ~select_right: Mask(vector_word_bytes(xlen))(0),
     ~compress_state: post_compress_state
   )
@@ -384,7 +384,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
       left: state.data
       right: Bits(xlen.width)(0)
       destination_data: Bits(xlen.width)(0)
-      enabled: vec(for List (lane in 0..vector_word_bytes(xlen)): (Bits(vector_lane_count_width(xlen))(lane) < state.count).as_bits()).into(Mask(vector_word_bytes(xlen)))
+      enabled: Mask(vector_word_bytes(xlen)).prefix(state.count)
       carry_in: Mask(vector_word_bytes(xlen))(0)
       select_right: Mask(vector_word_bytes(xlen))(0)
       mask_enabled: Bits(xlen.width)(0)

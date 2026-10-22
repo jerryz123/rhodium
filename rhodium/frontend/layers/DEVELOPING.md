@@ -91,6 +91,17 @@ descriptor's class surface, and the method returns `MaskValue` so aliases and
 chained Bool-valued indexing work. The mask oracle covers native and direct-SV
 results, disabled construction, narrow/wide indices, and lane boundaries.
 
+`Mask.prefix` and `Mask.range` share `mask_prefix_bits` in the same layer.
+Hardware prefixes compare each lane against the entire unsigned bound;
+lanes at or above a narrow bound's maximum value specialize to false.
+Host bounds clip before constructing a literal. Intersect the upper prefix
+with the complement of the lower prefix for ranges, retaining both bounds'
+independent widths. This uses existing comparisons and bitwise IR without
+introducing arithmetic or shift support on Mask. Keep `MaskValue` results for
+descriptor aliases and chained indexing. The mask oracle also checks prefixes
+and intervals across 1–129 lanes, mixed host/hardware and 2/64/128-bit bounds,
+full masks, empty/reversed ranges, and wide out-of-range endpoints.
+
 Dot providers must decline syntax they do not own so the shared resolution
 chain can continue. Preserve the documented precedence: receiver-owned methods,
 then universal built-ins, then a visible receiver-first function. Field

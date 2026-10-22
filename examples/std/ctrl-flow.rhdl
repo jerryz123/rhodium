@@ -161,35 +161,31 @@ module CtrlRRArbiter(
 );
 
   reg  [1:0] next_priority;
-  wire       _GEN = next_priority != 2'h3;
   `ifndef SYNTHESIS
     ctrl_rr_priority_in_range:
-      assert property (@(posedge clock) disable iff (reset) _GEN);
+      assert property (@(posedge clock) disable iff (reset) next_priority != 2'h3);
   `endif // not def SYNTHESIS
-  wire [2:0] _GEN_0 =
-    {{ingress_2_in.valid & _GEN},
-     {ingress_1_in.valid & ~(next_priority[1])},
-     {ingress_0_in.valid & next_priority == 2'h0}};
-  wire [2:0] _GEN_1 = {{ingress_2_in.valid}, {ingress_1_in.valid}, {ingress_0_in.valid}};
-  wire [2:0] _GEN_2 =
+  wire [2:0] _GEN = {{ingress_2_in.valid}, {ingress_1_in.valid}, {ingress_0_in.valid}};
+  wire [2:0] _GEN_0 = _GEN & ~{&next_priority, next_priority[1], |next_priority};
+  wire [2:0] _GEN_1 =
     (|_GEN_0)
       ? _GEN_0 & {~(_GEN_0[1:0] | {_GEN_0[0], 1'h0}), 1'h1}
-      : _GEN_1 & {~(_GEN_1[1:0] | {_GEN_1[0], 1'h0}), 1'h1};
-  wire       _GEN_3 = |_GEN_2;
+      : _GEN & {~(_GEN[1:0] | {_GEN[0], 1'h0}), 1'h1};
+  wire       _GEN_2 = |_GEN_1;
   always @(posedge clock) begin
     if (reset)
       next_priority <= 2'h0;
     else
       next_priority <=
-        _GEN_3 & egress_in.ready
-          ? (_GEN_2[2:1] == 2'h2 ? 2'h0 : _GEN_2[2:1] + 2'h1)
+        _GEN_2 & egress_in.ready
+          ? (_GEN_1[2:1] == 2'h2 ? 2'h0 : _GEN_1[2:1] + 2'h1)
           : next_priority;
   end // always @(posedge)
-  assign ingress_0_out = '{ready: (egress_in.ready & _GEN_2[0])};
-  assign ingress_1_out = '{ready: (egress_in.ready & _GEN_2[1])};
-  assign ingress_2_out = '{ready: (egress_in.ready & _GEN_2[2])};
-  assign egress_out = '{valid: _GEN_3};
-  assign chosen = _GEN_2[2:1];
+  assign ingress_0_out = '{ready: (egress_in.ready & _GEN_1[0])};
+  assign ingress_1_out = '{ready: (egress_in.ready & _GEN_1[1])};
+  assign ingress_2_out = '{ready: (egress_in.ready & _GEN_1[2])};
+  assign egress_out = '{valid: _GEN_2};
+  assign chosen = _GEN_1[2:1];
 endmodule
 }>>|
 

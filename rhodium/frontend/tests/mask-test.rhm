@@ -28,12 +28,15 @@ check:
   fixture.Mask4(0b0101).packed_value() ~is 5
   (for all (name in ["literal", "from_bits", "from_exact", "from_optional",
                      "union", "intersection", "difference", "complement",
-                     "shifted", "decoded", "enabled_decoded"]):
+                     "shifted", "decoded", "enabled_decoded", "prefix", "interval",
+                     "host_prefix", "mixed_interval"]):
      type_equal(module_def.find_output(name).type, fixture.Mask4)) ~is #true
 
   bool.bool_type(module_def.find_output("lane_two").type) ~is #true
   bool.bool_type(module_def.find_output("dynamic_lane").type) ~is #true
   bool.bool_type(module_def.find_output("decoded_lane").type) ~is #true
+  bool.bool_type(module_def.find_output("prefix_lane").type) ~is #true
+  bool.bool_type(module_def.find_output("interval_lane").type) ~is #true
   type_equal(module_def.find_output("packed").type, Bits(4)) ~is #true
   bool.maybe_one_hot_type(module_def.find_output("selected").type) ~is #true
   operation_count("rtl.or") >= 1 ~is #true
@@ -59,3 +62,14 @@ check:
   elaborate(fixture.BadMaskDecode(fixture.Mask4, bool.Bool)) ~throws "index must be Bits"
   elaborate(fixture.BadMaskDecode(bool.Bool, bool.Bool)) ~throws "index must be Bits"
   elaborate(fixture.BadMaskDecode(Bits(6), Bits(1))) ~throws "valid must be Bool"
+
+for (T in [SInt(6), fixture.Mask4, bool.Bool]):
+  check:
+    elaborate(fixture.BadMaskPrefix(T)) ~throws "bound must be unsigned Bits"
+    elaborate(fixture.BadMaskRange(T, ~first: #true)) ~throws "bound must be unsigned Bits"
+    elaborate(fixture.BadMaskRange(T, ~first: #false)) ~throws "bound must be unsigned Bits"
+
+check:
+  elaborate(fixture.BadHostMaskBounds(-1, ~range: #false)) ~throws "Nat"
+  elaborate(fixture.BadHostMaskBounds(-1, ~range: #true)) ~throws "Nat"
+  elaborate(fixture.BadHostMaskBounds(-1, ~range: #true, ~first: #true)) ~throws "Nat"

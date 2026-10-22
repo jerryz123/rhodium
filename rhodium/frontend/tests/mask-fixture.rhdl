@@ -27,6 +27,8 @@ circuit MaskFixture():
   output decoded: Mask4
   output enabled_decoded: Mask4
   output decoded_lane: Bool
+  output(prefix, interval, host_prefix, mixed_interval): Mask4
+  output(prefix_lane, interval_lane): Bool
 
   literal <== Mask4(0b0101)
   from_bits <== raw.into(Mask4)
@@ -45,6 +47,28 @@ circuit MaskFixture():
   decoded <== Mask4.from_index(index)
   enabled_decoded <== Mask4.from_index(index, ~valid: enable)
   decoded_lane <== Mask4.from_index(index)[index]
+  prefix <== Mask4.prefix(index)
+  interval <== Mask4.range(index, raw)
+  host_prefix <== Mask4.prefix(100)
+  mixed_interval <== Mask4.range(1, index)
+  block:
+    use_static
+    prefix_lane <== Mask4.prefix(index)[0]
+    interval_lane <== Mask4.range(index, 4)[0]
+
+circuit BadMaskPrefix(T :: DataType):
+  input bound: T
+  output result: Mask4
+  result <== Mask4.prefix(bound)
+
+circuit BadMaskRange(T :: DataType, ~first: first :: Boolean):
+  input bound: T
+  output result: Mask4
+  result <== if first | Mask4.range(bound, 4) | Mask4.range(0, bound)
+
+circuit BadHostMaskBounds(bound :: Int, ~range: range :: Boolean, ~first: first :: Boolean = #false):
+  output result: Mask4
+  result <== if range | (if first | Mask4.range(bound, 4) | Mask4.range(0, bound)) | Mask4.prefix(bound)
 
 circuit BadMaskDecode(Index :: DataType, Enable :: DataType):
   input index: Index
@@ -99,3 +123,6 @@ export:
   BadMaskIndex
   OutOfRangeMaskIndex
   BadMaskDecode
+  BadMaskPrefix
+  BadMaskRange
+  BadHostMaskBounds

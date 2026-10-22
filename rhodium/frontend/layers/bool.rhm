@@ -118,6 +118,35 @@ class _MaskType(width :: PosInt):
     def seed = build_mux(valid, kernel.literal(Bits(width), 1), kernel.literal(Bits(width), 0))
     kernel.cast(kernel.hw_shl(seed, selected), this)
 
+  /* Select lanes below the full unsigned bound, clipping naturally to this mask's width. */
+  method prefix(count :: Nat || HardwareEntity) :~ MaskValue:
+    kernel.cast(mask_prefix_bits(width, count, #'Mask), this)
+
+  /* Select the half-open lane interval; independently sized bounds are never
+     narrowed, and reversed or wholly out-of-range intervals are empty. */
+  method range(first :: Nat || HardwareEntity, end :: Nat || HardwareEntity) :~ MaskValue:
+    def lower = mask_prefix_bits(width, first, #'Mask)
+    def upper = mask_prefix_bits(width, end, #'Mask)
+    kernel.cast(kernel.bit_and(upper, kernel.bit_not(lower)), this)
+
+/* Construct i < bound for every physical lane, retaining the entire Bits bound.
+   Host bounds specialize to literals; lanes at or above a narrow bound's maximum
+   value are constant false rather than truncated lane-number comparisons. */
+fun mask_prefix_bits(width :: PosInt, bound :: Nat || HardwareEntity, who :: Symbol):
+  if bound is_a Nat
+  | kernel.literal(Bits(width), (1 << math.min(width, bound)) - 1)
+  | def value = kernel.read(bound)
+    unless bits_type(value.type)
+    | error(~who: who, "bound must be unsigned Bits or a host natural number")
+
+    def capacity = 1 << value.type.packed_width()
+    def lanes = for List (lane in 0..width):
+      if lane >= capacity - 1
+      | kernel.literal(Bits(1), 0)
+      | kernel.hw_ult(kernel.literal(value.type, lane), value)
+
+    if width == 1 | lanes[0] | kernel.concat(lanes.reverse())
+
 /* Constructs a fixed-width mask descriptor whose every packed lane-set encoding is legal. */
 fun build_mask_type(width :: PosInt):
   _MaskType(width)

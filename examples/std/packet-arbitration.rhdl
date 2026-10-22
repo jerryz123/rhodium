@@ -70,41 +70,37 @@ module PacketRRArbiter(
   reg  [1:0]        next_priority;
   reg               locked;
   reg  [1:0]        owner;
-  wire              _GEN = next_priority != 2'h3;
   `ifndef SYNTHESIS
     packet_rr_priority_in_range:
-      assert property (@(posedge clock) disable iff (reset) _GEN);
+      assert property (@(posedge clock) disable iff (reset) next_priority != 2'h3);
   `endif // not def SYNTHESIS
   `ifndef SYNTHESIS
     packet_rr_owner_in_range:
       assert property (@(posedge clock) disable iff (reset) ~locked | owner != 2'h3);
   `endif // not def SYNTHESIS
-  wire [2:0]        _GEN_0 =
-    {{ingress_2_in.valid & _GEN},
-     {ingress_1_in.valid & ~(next_priority[1])},
-     {ingress_0_in.valid & next_priority == 2'h0}};
-  wire [2:0]        _GEN_1 =
+  wire [2:0]        _GEN =
     {{ingress_2_in.valid}, {ingress_1_in.valid}, {ingress_0_in.valid}};
-  wire [2:0]        _GEN_2 =
+  wire [2:0]        _GEN_0 = _GEN & ~{&next_priority, next_priority[1], |next_priority};
+  wire [2:0]        _GEN_1 =
     (|_GEN_0)
       ? _GEN_0 & {~(_GEN_0[1:0] | {_GEN_0[0], 1'h0}), 1'h1}
-      : _GEN_1 & {~(_GEN_1[1:0] | {_GEN_1[0], 1'h0}), 1'h1};
-  wire [3:0]        _GEN_3 = 4'h1 << owner;
-  wire [2:0]        _GEN_4 = locked ? _GEN_3[2:0] : _GEN_2;
-  wire [1:0]        _GEN_5 = locked ? owner : _GEN_2[2:1];
-  wire              _GEN_6 = |(_GEN_4 & _GEN_1);
-  wire [9:0]        _GEN_7 = /*cast(bit[9:0])*/ingress_0_in.bits;
-  wire [9:0]        _GEN_8 = /*cast(bit[9:0])*/ingress_1_in.bits;
-  wire [9:0]        _GEN_9 = /*cast(bit[9:0])*/ingress_2_in.bits;
-  wire VariableFlit _GEN_10 =
-    /*cast(bit)*/_GEN_7 & {10{_GEN_4[0]}} | _GEN_8 & {10{_GEN_4[1]}} | _GEN_9
-    & {10{_GEN_4[2]}} | _GEN_7 & {10{_GEN_4 == 3'h0}};
-  wire              _GEN_11 = _GEN_6 & egress_in.ready;
-  wire              _GEN_12 =
-    _GEN_11
-    & (ends_packet[2'h0] & _GEN_4[0] | ends_packet[2'h1] & _GEN_4[1] | ends_packet[2'h2]
-       & _GEN_4[2]);
-  wire              _GEN_13 = _GEN_11 & ~locked;
+      : _GEN & {~(_GEN[1:0] | {_GEN[0], 1'h0}), 1'h1};
+  wire [3:0]        _GEN_2 = 4'h1 << owner;
+  wire [2:0]        _GEN_3 = locked ? _GEN_2[2:0] : _GEN_1;
+  wire [1:0]        _GEN_4 = locked ? owner : _GEN_1[2:1];
+  wire              _GEN_5 = |(_GEN_3 & _GEN);
+  wire [9:0]        _GEN_6 = /*cast(bit[9:0])*/ingress_0_in.bits;
+  wire [9:0]        _GEN_7 = /*cast(bit[9:0])*/ingress_1_in.bits;
+  wire [9:0]        _GEN_8 = /*cast(bit[9:0])*/ingress_2_in.bits;
+  wire VariableFlit _GEN_9 =
+    /*cast(bit)*/_GEN_6 & {10{_GEN_3[0]}} | _GEN_7 & {10{_GEN_3[1]}} | _GEN_8
+    & {10{_GEN_3[2]}} | _GEN_6 & {10{_GEN_3 == 3'h0}};
+  wire              _GEN_10 = _GEN_5 & egress_in.ready;
+  wire              _GEN_11 =
+    _GEN_10
+    & (ends_packet[2'h0] & _GEN_3[0] | ends_packet[2'h1] & _GEN_3[1] | ends_packet[2'h2]
+       & _GEN_3[2]);
+  wire              _GEN_12 = _GEN_10 & ~locked;
   always @(posedge clock) begin
     if (reset) begin
       next_priority <= 2'h0;
@@ -112,16 +108,16 @@ module PacketRRArbiter(
       owner <= 2'h0;
     end
     else begin
-      next_priority <= _GEN_12 ? (_GEN_5 == 2'h2 ? 2'h0 : _GEN_5 + 2'h1) : next_priority;
-      locked <= ~_GEN_12 & (_GEN_13 | locked);
-      owner <= _GEN_12 | ~_GEN_13 | locked ? owner : _GEN_2[2:1];
+      next_priority <= _GEN_11 ? (_GEN_4 == 2'h2 ? 2'h0 : _GEN_4 + 2'h1) : next_priority;
+      locked <= ~_GEN_11 & (_GEN_12 | locked);
+      owner <= _GEN_11 | ~_GEN_12 | locked ? owner : _GEN_1[2:1];
     end
   end // always @(posedge)
-  assign ingress_0_out = '{ready: (egress_in.ready & _GEN_4[0])};
-  assign ingress_1_out = '{ready: (egress_in.ready & _GEN_4[1])};
-  assign ingress_2_out = '{ready: (egress_in.ready & _GEN_4[2])};
-  assign egress_out = '{valid: _GEN_6, bits: _GEN_10};
-  assign chosen = _GEN_5;
+  assign ingress_0_out = '{ready: (egress_in.ready & _GEN_3[0])};
+  assign ingress_1_out = '{ready: (egress_in.ready & _GEN_3[1])};
+  assign ingress_2_out = '{ready: (egress_in.ready & _GEN_3[2])};
+  assign egress_out = '{valid: _GEN_5, bits: _GEN_9};
+  assign chosen = _GEN_4;
 endmodule
 }>>|
 
