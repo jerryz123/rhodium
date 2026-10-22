@@ -200,8 +200,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def request_relative :: Bits(Uart16550AddressWidth) = request_relative_full[0..Uart16550AddressWidth]
   def active_offset :: Bits(Uart16550AddressWidth) = mux(accepted_read, incoming_relative, request_relative)
   def active_address :: Bits(p.request_address_width) = mux(accepted_read, incoming.address, request.address)
-  def register_lane = active_address[0..lane_width]
-  def register_shift = concat(register_lane, Bits(3)(0))
+  def register_beat = RegisterBeatView(p.data_bytes, active_address[0..lane_width])
   def dlab = line_control[7].into(Bool)
 
 
@@ -245,7 +244,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
      [Uart16550ScrOffset, scratch]]
   )
 
-  def register_read_data = selected_read_byte.zext(p.data_width) << register_shift
+  def register_read_data = register_beat.place(selected_read_byte)
   // Snapshot and read effects share REQ acceptance, not response transfer.
   def read_rbr = accepted_read & !dlab & (
     incoming_relative === Bits(Uart16550AddressWidth)(Uart16550RbrThrDllOffset)
@@ -261,10 +260,8 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def incoming_data = port.dat.request.bits
   def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def write_data_expected = transaction.write_data_expected
-  def register_data :: Bits(p.data_width) = incoming_data.data >> register_shift
-  def register_mask :: Bits(p.data_bytes) = incoming_data.byte_enable >> register_lane
-  def write_byte = register_data[0..8]
-  def write_enabled = register_mask[0].into(Bool)
+  def write_byte = register_beat.extract_data(incoming_data.data, 8)
+  def write_enabled = register_beat.extract_enables(incoming_data.byte_enable, 1).into(Bool)
   def write_thr_target = write_data_expected & !dlab & (
     request_relative === Bits(Uart16550AddressWidth)(Uart16550RbrThrDllOffset)
   ) & write_enabled

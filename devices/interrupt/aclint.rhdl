@@ -154,20 +154,16 @@ sync_circuit Aclint(config :: AclintConfig):
                             active_address[0..2].zext(lane_width),
                             timer_register_offset)
   def register_lane = bus_lane - register_offset
-  def register_shift = (register_lane ++ Bits(3)(0))
-  def register_data :: Bits(p.data_width) = port.dat.request.bits.data >> register_shift
-  def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
-  def write_value = register_data[0..64]
+  def register_beat = RegisterBeatView(data_bytes, register_lane)
+  def register_mask = register_beat.extract_enables(port.dat.request.bits.byte_enable)
+  def write_value = register_beat.extract_data(port.dat.request.bits.data, 64)
   def write_mask = register_mask[0..8].expand_mask(8)
   def selected_value = priority_mux(~default: Bits(64)(0)):
     mswi_access: msip[mswi_index].as_bits().zext(64)
     mtimecmp_access: mtimecmp[mtimecmp_index]
     mtime_access: mtime
 
-  def widened_selected_value:
-    if data_bytes == 8 | selected_value | selected_value.zext(p.data_width)
-
-  def register_read_data = widened_selected_value << register_shift
+  def register_read_data = register_beat.place(selected_value)
 
   transaction.write_supported <== Bool(#true)
   transaction.write_ready <== Bool(#true)
@@ -189,7 +185,7 @@ sync_circuit Aclint(config :: AclintConfig):
     mtimecmp[mtimecmp_index] <== mtimecmp[mtimecmp_index].masked_merge(write_value, write_mask)
 
   when (write_data_fire & mswi_access & register_mask[0].into(Bool)):
-    msip[mswi_index] <== register_data[0].into(Bool)
+    msip[mswi_index] <== write_value[0].into(Bool)
 
   time_counter <== mtime
   time_update.valid <== mtime_write ||| tick

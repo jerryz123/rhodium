@@ -22,7 +22,7 @@ the facade modules only when a circuit composes several members of that family.
 | Ready-valid protocol declarations | [`ready-valid.rhdl`](ready-valid.rhdl) | `Pulse`, `Valid`, `Decoupled`, `Irrevocable`, and transfer detection |
 | Credit-based transport | [`credited.rhdl`](credited.rhdl) | Credited endpoints and monitoring |
 | Packet/flit representation | [`flit.rhdl`](flit.rhdl) | Packet payload types independent of transport |
-| Endpoint address and ID sets | [`interconnect.rhdl`](interconnect.rhdl) | Host-side interconnect parameters and validation |
+| Interconnect parameters and register beats | [`interconnect.rhdl`](interconnect.rhdl) | Address/ID sets, validation, and protocol-neutral register projection |
 | Bit operations and bounded counting | [`bits.rhdl`](bits.rhdl), [`counter.rhdl`](counter.rhdl) | Layout helpers and a synchronous counter |
 | Occupancy and fixed-latency storage | [`scoreboard.rhdl`](scoreboard.rhdl), [`sync-ram.rhdl`](sync-ram.rhdl) | Scoreboarding and a shared 1RW RAM wrapper |
 | Streaming composition | [Flow library](../../flow/README.md) | Pipes, queues, routing, arbitration, transforms, and boundaries |
@@ -412,6 +412,41 @@ from a hardware `Bits` offset, retaining its width; it checks the layout fits
 that width but does not check runtime membership. Callers own base translation
 and address acceptance. A single bank is an identity projection. None of these
 operations adds storage, a handshake, or protocol policy.
+
+### Register-beat projection
+
+`RegisterBeatView(bus_bytes, register_lane)` from
+[`interconnect.rhdl`](interconnect.rhdl) positions registers within a
+little-endian bus beat. `bus_bytes` is any positive host integer;
+`register_lane` is an unsigned hardware `Bits` value of any width, naming the
+register's starting byte lane, not the accessed byte within that register.
+
+```rhombus
+def beat = RegisterBeatView(16, register_lane)
+def write_value = beat.extract_data(write_data, 32)
+def write_enables = beat.extract_enables(byte_enables, 4)
+def read_data = beat.place(selected_register)
+```
+
+`extract_data` takes `Bits(bus_bytes * 8)`, shifts right by eight times the
+lane, and returns the requested positive bit width, defaulting to the full bus
+width. `extract_enables` takes `Bits(bus_bytes)`, shifts right by the lane, and
+returns the requested positive enable count, defaulting to all `bus_bytes`.
+Requested widths/counts may not exceed the corresponding bus width/count.
+Keep the full-width enable result when checking for stray enabled lanes;
+explicit narrowing discards them.
+
+`place` accepts a `Bits` register value no wider than the bus. It zero-extends
+and shifts left to the starting lane, returning `Bits(bus_bytes * 8)`; bits
+beyond the beat are discarded. Out-of-range starting lanes yield zero in all
+three operations, without truncating the lane index or wrapping around.
+
+The view holds combinational expressions and adds no state or assertions.
+Callers own address decoding, access legality, byte-enable policy, acceptance,
+and side effects. For an upper-half access to a 64-bit register, use the
+64-bit register's origin so its upper byte enables remain at positions 4–7;
+do not rebase the access onto bit zero. This helper does not split accesses
+across beats or convert byte order.
 
 ## Data paths and storage
 

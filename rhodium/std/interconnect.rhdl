@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines protocol-neutral sets, stripe geometry, and overflow-safe hardware transfer matching. */
+/* Defines protocol-neutral sets, register-beat projection, stripe geometry, and transfer matching. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -101,6 +101,33 @@ fun address_sets_match(address :: Bits,
       address_set.matches(address)
   )
 
+/* Project a register starting at a caller-selected byte lane within a little-endian beat.
+ * This elaboration-time view holds expressions, not storage or transaction state. */
+class RegisterBeatView(bus_bytes :: PosInt, register_lane :: Bits):
+  /* Extract low register bits after shifting the complete bus word to the register origin. */
+  method extract_data(data :: Bits(bus_bytes * 8), width :: PosInt = bus_bytes * 8) :~ Bits(width):
+    unless width <= bus_bytes * 8
+    | error(~who: #'RegisterBeatView, "data extraction width must fit the bus beat")
+
+    def shifted = data >> (register_lane ++ Bits(3)(0))
+    shifted[0..width]
+
+  /* Shift enables by bytes; retain the entire word unless the caller explicitly narrows it. */
+  method extract_enables(enables :: Bits(bus_bytes), count :: PosInt = bus_bytes) :~ Bits(count):
+    unless count <= bus_bytes
+    | error(~who: #'RegisterBeatView, "enable extraction count must fit the bus beat")
+
+    def shifted = enables >> register_lane
+    shifted[0..count]
+
+  /* Zero-extend a register value and place it at its origin, dropping bits beyond the beat. */
+  method place(value :: Bits) :~ Bits(bus_bytes * 8):
+    unless value.type.packed_width() <= bus_bytes * 8
+    | error(~who: #'RegisterBeatView, "register value must fit the bus beat")
+
+    def widened = if value.type.packed_width() == bus_bytes * 8 | value | value.zext(bus_bytes * 8)
+    widened << (register_lane ++ Bits(3)(0))
+
 /* Interleaves power-of-two banks at stripe granularity, independently of any protocol. */
 class StripedAddressLayout(local_bytes :: Pow2Int,
                            stripe_bytes :: Pow2Int,
@@ -186,6 +213,7 @@ class TransferSizes(min_bytes :: Pow2Int, max_bytes :: Pow2Int):
     min_bytes <= other.min_bytes && other.max_bytes <= max_bytes
 
 export:
+  RegisterBeatView
   StripedAddressLayout
   IdRange
   IdRangeMap

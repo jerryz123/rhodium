@@ -183,6 +183,15 @@ bases, and window sizes against integer arithmetic; host tests reject invalid
 widths and window sizes. RAM and BootROM retain their independent alignment,
 size, and address-acceptance policies.
 
+`RegisterBeatView` in that same module is an elaboration-time view over a
+hardware lane expression, not a circuit or stable circuit parameter. Its three
+methods construct ordinary shifts, slices, and zero extension. Retain the full
+lane width when converting bytes to bits; overshifts must produce zero, not a
+wrapped lane. Do not add CHI fields, register decoding, alignment checks, or
+state. `std-interconnect-test.rhm` checks invalid sizes and operand types;
+`register-beat` compares projection with independent bit-position arithmetic
+for byte and sub-byte values, 1–64-byte beats, and out-of-range lanes.
+
 ## Focused validation
 
 Run Racket and Rhombus through the repository wrapper, which manages the

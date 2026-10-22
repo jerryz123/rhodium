@@ -1,5 +1,5 @@
 // Verifies PLIC priorities, contexts, gateways, claim/completion, and CHI
-// backpressure.
+// backpressure, including full-register write-mask rejection.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 #include "wide.hpp"
@@ -260,5 +260,23 @@ int main() {
       port_in.preq.pvalid = 1;
       tick_model();
     });
+
+    // PRIORITY1 starts at lane four. A missing lane or an extra enable above
+    // its four-byte word must fail; narrowing before validation hides the latter.
+    for (const std::uint16_t mask : {std::uint16_t(0x70), std::uint16_t(0x1f0)}) {
+      dut = Model{};
+      expect_failure("plic_write_mask_supported", [mask] {
+        reset = 1;
+        sources = {};
+        port_in = {};
+        identity = {.pnode_uid = PLIC_ID, .pbase_uaddress = PLIC_BASE};
+        cycle();
+        cycle();
+        reset = 0;
+        issue_request(WRITE_NO_SNP_PTL, 0x300, PRIORITY1, 0);
+        accept_dbid(0x300);
+        issue_write_data(mask, uint128(3) << 32);
+      });
+    }
   });
 }

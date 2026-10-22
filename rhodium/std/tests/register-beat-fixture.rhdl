@@ -1,0 +1,67 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/interconnect.rhdl").RegisterBeatView
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+
+def cases = [[1, 1, 1], [1, 8, 1], [3, 16, 2], [3, 24, 3],
+             [8, 32, 4], [8, 64, 8], [16, 8, 1], [16, 32, 4],
+             [16, 64, 8], [16, 128, 16], [32, 256, 32], [64, 512, 64]]
+
+fun padded(value :: Bits, width :: PosInt) :~ Bits(width):
+  if value.type.packed_width() == width | value | value.zext(width)
+
+circuit RegisterBeatFixture():
+  input register_lane: Bits(8)
+  input write_bus: Bits(512)
+  input read_register: Bits(512)
+  input byte_enables: Bits(64)
+  output write_values: Vec(cases.length(), Bits(512))
+  output full_write_values: Vec(cases.length(), Bits(512))
+  output read_beats: Vec(cases.length(), Bits(512))
+  output register_enables: Vec(cases.length(), Bits(64))
+  output full_enables: Vec(cases.length(), Bits(64))
+
+  for (index in 0..cases.length()):
+    def bus_bytes = cases[index][0]
+    def register_bits = cases[index][1]
+    def enable_count = cases[index][2]
+    def beat = RegisterBeatView(bus_bytes, register_lane)
+    def bus_data = write_bus[0..(bus_bytes * 8)]
+    def enables = byte_enables[0..bus_bytes]
+    write_values[index] <== padded(beat.extract_data(bus_data, register_bits), 512)
+    full_write_values[index] <== padded(beat.extract_data(bus_data), 512)
+    read_beats[index] <== padded(beat.place(read_register[0..register_bits]), 512)
+    register_enables[index] <== padded(beat.extract_enables(enables, enable_count), 64)
+    full_enables[index] <== padded(beat.extract_enables(enables), 64)
+
+circuit RegisterBeatTypeFixture(bus_bytes :: PosInt, width :: PosInt, count :: PosInt,
+                                Lane :: DataType, Data :: DataType, Enables :: DataType, Value :: DataType):
+  input lane: Lane
+  input data: Data
+  input enables: Enables
+  input value: Value
+  output extracted: Bits(width)
+  output extracted_enables: Bits(count)
+  output placed: Bits(bus_bytes * 8)
+  def beat = RegisterBeatView(bus_bytes, lane)
+  extracted <== beat.extract_data(data, width)
+  extracted_enables <== beat.extract_enables(enables, count)
+  placed <== beat.place(value)
+
+fun register_beat_design(bus_bytes :: PosInt,
+                         ~width: width :: PosInt = bus_bytes * 8,
+                         ~count: count :: PosInt = bus_bytes,
+                         ~lane_type: Lane :: DataType = Bits(8),
+                         ~data_type: Data :: DataType = Bits(bus_bytes * 8),
+                         ~enable_type: Enables :: DataType = Bits(bus_bytes),
+                         ~value_type: Value :: DataType = Bits(8)):
+  compile_program(elaborate(RegisterBeatTypeFixture(bus_bytes, width, count, Lane, Data, Enables, Value)), rtl_target).report.design
+
+def program = elaborate(RegisterBeatFixture())
+
+export:
+  program
+  register_beat_design

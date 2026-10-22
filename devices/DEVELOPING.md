@@ -31,10 +31,16 @@ mask policies retain their original gating versus assertion-only behavior.
 BootROM remains a separate read-only multibeat endpoint. See the
 [CHI subordinate developer guide](../chi/subordinate/DEVELOPING.md) for the engine boundary and tests.
 
+UART, PLIC, and ACLINT use `RegisterBeatView` from
+[`rhodium/std/interconnect.rhdl`](../rhodium/std/interconnect.rhdl) for register
+data extraction, byte-enable projection, and read placement. Devices still
+select the register origin: ACLINT subtracts the byte offset within its 32/64-bit
+register before constructing the view, preserving partial timer accesses.
+Keep PLIC's full-width shifted enable check and UART's assertion-only mask
+validation; narrowing a mask is not permission to weaken either policy.
 Use `expand_mask` from [`rhodium/std/bits.rhdl`](../rhodium/std/bits.rhdl) for
-lane-enable expansion instead of device-specific byte-mask builders. ACLINT
-owns its physical-lane shift and boot-address owns its low-eight-lane slice;
-the generic helper only expands the resulting enables for `masked_merge`.
+lane-enable expansion before `masked_merge`. Boot-address retains its fixed
+low-eight-lane slice.
 
 Keep synthesizable devices independent of a particular core or SoC. Keep a
 host model behind a narrow DPI boundary and pair it with synthesizable-facing

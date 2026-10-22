@@ -1,11 +1,14 @@
 #lang rhombus
-// Checks generic host sets, stripe geometry, and transfer-containment argument contracts.
+// Checks host sets, stripe geometry, and transfer/register-beat argument contracts.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/layers/signed.rhm".SInt
   "../../../rhodium/std/interconnect.rhdl" as interconnect
   "std-interconnect-fixture.rhdl" as fixture
+  "register-beat-fixture.rhdl" as register_beat
 
 def ids = interconnect.IdRange(2, 6)
 def touching_ids = interconnect.IdRange(6, 8)
@@ -21,6 +24,17 @@ def allocated = interconnect.allocate_id_ranges([
 def match_module = fixture.design.modules[0]
 
 check:
+  register_beat.register_beat_design(0) ~throws "PosInt"
+  register_beat.register_beat_design(8, ~width: 0) ~throws "PosInt"
+  register_beat.register_beat_design(8, ~count: 0) ~throws "PosInt"
+  register_beat.register_beat_design(8, ~width: 65) ~throws "data extraction width must fit"
+  register_beat.register_beat_design(8, ~count: 9) ~throws "enable extraction count must fit"
+  register_beat.register_beat_design(8, ~value_type: Bits(65)) ~throws "register value must fit"
+  register_beat.register_beat_design(8, ~lane_type: bool.Bool) ~throws "Bits"
+  register_beat.register_beat_design(8, ~lane_type: SInt(4)) ~throws "Bits"
+  register_beat.register_beat_design(8, ~data_type: Bits(63)) ~throws "Bits"
+  register_beat.register_beat_design(8, ~enable_type: Bits(7)) ~throws "Bits"
+  register_beat.register_beat_design(8, ~value_type: bool.Mask(8)) ~throws "Bits"
   fixture.transfer_range_design(Bits(3), 8) ~throws "Bits"
   fixture.transfer_range_design(VectorType(4, Bits(1)), 8) ~throws "Bits"
   fixture.transfer_range_design(Bits(4), 17) ~throws "window must fit"

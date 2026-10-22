@@ -248,12 +248,10 @@ sync_circuit Plic(config :: PlicConfig):
     threshold_access: threshold_value
     claim_access: claim_value
 
-  def register_lane = active_address[0..lane_width]
-  def register_shift = register_lane ++ Bits(3)(0)
-  def register_data :: Bits(p.data_width) = port.dat.request.bits.data >> register_shift
-  def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
-  def write_value = register_data[0..32]
-  def register_read_data = selected_value.zext(p.data_width) << register_shift
+  def register_beat = RegisterBeatView(data_bytes, active_address[0..lane_width])
+  def register_mask = register_beat.extract_enables(port.dat.request.bits.byte_enable)
+  def write_value = register_beat.extract_data(port.dat.request.bits.data, 32)
+  def register_read_data = register_beat.place(selected_value)
 
   def incoming_data = port.dat.request.bits
   def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
