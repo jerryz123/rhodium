@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks packet-locked arbitration structure, composition, and invalid uses.
+// Checks packet-arbitration public ports, composition, and invalid uses.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,16 +17,6 @@ def chain_design = compile_program(elaborate(fixture.PacketRRArbiterChain()), rt
 def disconnected_design = compile_program(elaborate(fixture.DisconnectedPacketRRArbiterChain()), rtl_target).report.design
 def packet_module = facade_design.modules[0]
 
-fun operations(module_def, opcode):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == opcode
-  )
-
-fun assertion_labels(module_def):
-  operations(module_def, "verif.assert").map(
-    fun (operation): operation.attribute("label")
-  )
-
 check:
   direct_compiled.has_errors ~is #false
   verify_design(facade_design) ~is #void
@@ -43,20 +33,6 @@ check:
   ]
 
   packet_module.find_output("chosen").type.width ~is 2
-  assertion_labels(packet_module) ~is [
-    "packet_rr_priority_in_range",
-    "packet_rr_owner_in_range"
-  ]
-  operations(packet_module, "rtl.register_reset").length() ~is 3
-  operations(packet_module, "rtl.onehot_mux").length() ~is 2
-  chain_design.modules.map(fun (module_def): module_def.name) ~is [
-    "PacketRRArbiterChain", "PacketRRArbiter"
-  ]
-
-  disconnected_design.modules.map(fun (module_def): module_def.name) ~is [
-    "DisconnectedPacketRRArbiterChain", "PacketRRArbiter", "Pipe"
-  ]
-
   elaborate(fixture.EmptyPacketRRArbiterChain()) ~throws "requires at least one input endpoint"
   elaborate(fixture.MismatchedPacketRRArbiterCount()) ~throws "configured input count does not match"
   elaborate(fixture.PacketRRArbiterWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"

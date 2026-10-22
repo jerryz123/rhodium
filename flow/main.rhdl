@@ -15,6 +15,7 @@ import:
   lib("flow/credit.rhdl") open
   lib("flow/arbiter.rhdl") open
   lib("flow/circular-priority.rhdl") open
+  lib("flow/retained-selection.rhdl") open
   lib("flow/rr-arbiter.rhdl") open
   lib("flow/packet-rr-arbiter.rhdl") open
   lib("flow/vc.rhdl") open
@@ -90,6 +91,7 @@ export:
   CtrlArbiter
   CircularPriorityChoice
   circular_priority_onehot
+  RetainedSelection
   RRArbiter
   rr_arbiter
   CtrlRRArbiter

@@ -21,6 +21,19 @@ int main() {
     tick_model();
     reset = UINT64_C(0);
 
+    // A stalled first beat has not acquired packet ownership: a new higher
+    // priority offer may win until a non-final beat actually transfers.
+    ingress_0_in.pvalid = 0;
+    egress_in.pready = 0;
+    eval();
+    CHECK(egress_out.pvalid && egress_out.pbits.ppayload == 176);
+    tick_model();
+    ingress_0_in.pvalid = 1;
+    eval();
+    CHECK(egress_out.pvalid && egress_out.pbits.ppayload == 160);
+    tick_model();
+    egress_in.pready = 1;
+
     eval();
     CHECK(egress_out.pvalid && egress_out.pbits.ppayload == UINT64_C(160) &&
           ingress_0_out.pready && !ingress_1_out.pready &&

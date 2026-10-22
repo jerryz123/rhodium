@@ -1,0 +1,23 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import lib("flow/main.rhdl").RetainedSelection
+
+sync_circuit RetainedSelectionFixture():
+  input candidates: Vec(3, Bits(5))
+  input captures: Vec(3, Bool)
+  input releases: Vec(3, Bool)
+  output selections: Vec(3, Bits(5))
+  output retained: Vec(3, Bits(5))
+  output held: Vec(3, Bool)
+
+  for (n in [1, 3, 5], index in 0..3):
+    inst selection(RetainedSelection(n))
+    selection.candidate <== candidates[index][0..n].into(MaybeOneHot(n))
+    selection.capture <== captures[index]
+    selection.release <== releases[index]
+    selections[index] <== if n == 5 | selection.selected.as_bits() | selection.selected.as_bits().zext(5)
+    retained[index] <== if n == 5 | selection.retained.as_bits() | selection.retained.as_bits().zext(5)
+    held[index] <== selection.held
+
+def program = elaborate(RetainedSelectionFixture())
+export program

@@ -10,6 +10,7 @@ arbiter	std	examples/std/flow-control.rhdl	arbiter_program	flow/tests/rsim/arbit
 flow-chain	std	examples/std/flow-control.rhdl	chain_program	flow/tests/rsim/flow-chain.cpp
 rr-arbiter	std	examples/std/flow-topology.rhdl	rr_arbiter_program	flow/tests/rsim/rr-arbiter.cpp
 packet-rr-arbiter	std	examples/std/packet-arbitration.rhdl	program	flow/tests/rsim/packet-rr-arbiter.cpp
+retained-selection	std	flow/tests/retained-selection-fixture.rhdl	program	flow/tests/rsim/retained-selection.cpp
 demux	std	examples/std/flow-topology.rhdl	demux_program	flow/tests/rsim/demux.cpp
 join	std	examples/std/flow-topology.rhdl	join_program	flow/tests/rsim/join.cpp
 selective-join	std	examples/std/selective-join.rhdl	program	flow/tests/rsim/selective-join.cpp

@@ -10,6 +10,7 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
   lib("flow/circular-priority.rhdl") open
+  lib("flow/retained-selection.rhdl").RetainedSelection
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -74,7 +75,6 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
   | error(~who: #'CHIInclusiveVictimWritebackBuffer,
           "Home slots and victim writebacks exceed 1024 outstanding subordinate transactions")
 
-  def Entry = Bits(index_width(entries))
   def Payload = CHIInclusiveVictimWriteback(p, index_width(parent_slots))
   def Completion = CHIInclusiveVictimWritebackCompletion(index_width(parent_slots))
   def line_packets = 64 / p.data_bytes
@@ -126,12 +126,12 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
      A stalled offer locks its entry; accepted requests advance circular priority. */
 
   def request_entries = vec(for List (index in 0..entries): occupied[index] & (phases[index] === CHIInclusiveVictimWritebackPhase.SendRequest))
-  reg request_locked(~init: Bool(#false))
-  reg request_owner(Entry)
+  inst request_selection(RetainedSelection(entries))
   reg request_next_priority(~init: Bits(index_width(entries))(0))
   def request_choice :: CircularPriorityChoice(entries, index_width(entries)) = circular_priority_onehot(request_entries, request_next_priority)
-  def request_entry = mux(request_locked, request_owner, request_choice.index)
-  def request_valid = mux(request_locked, request_entries[request_owner], request_choice.valid)
+  request_selection.candidate <== request_choice.grant
+  def request_entry = request_selection.selected.index
+  def request_valid = request_selection.selected.mask(request_entries.into(Mask(entries))).valid
   def request_payload = payloads[request_entry]
   request.valid <== request_valid
   request.bits <== chi_hnf_downstream_request(
@@ -146,11 +146,9 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
   )
 
   def request_fire = request.fire()
-  when (request.valid & !request.ready):
-    request_locked <== Bool(#true)
-    request_owner <== request_entry
-  elsewhen request_fire:
-    request_locked <== Bool(#false)
+  request_selection.capture <== request.valid & !request.ready
+  request_selection.release <== request_fire
+  when request_fire:
     request_next_priority <== wrap_increment(request_entry, entries)
 
 
@@ -158,12 +156,12 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
      Keep one owner across every packet and any intervening backpressure. */
 
   def data_entries = vec(for List (index in 0..entries): occupied[index] & (phases[index] === CHIInclusiveVictimWritebackPhase.SendData))
-  reg data_locked(~init: Bool(#false))
-  reg data_owner(Entry)
+  inst data_selection(RetainedSelection(entries))
   reg data_next_priority(~init: Bits(index_width(entries))(0))
   def data_choice :: CircularPriorityChoice(entries, index_width(entries)) = circular_priority_onehot(data_entries, data_next_priority)
-  def data_entry = mux(data_locked, data_owner, data_choice.index)
-  def data_valid = mux(data_locked, data_entries[data_owner], data_choice.valid)
+  data_selection.candidate <== data_choice.grant
+  def data_entry = data_selection.selected.index
+  def data_valid = data_selection.selected.mask(data_entries.into(Mask(entries))).valid
   def data_payload = payloads[data_entry]
   def data_beat = data_beats[data_entry]
   def data_id = chi_transfer_data_id(data_beat, p)
@@ -180,15 +178,10 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
     data_line[data_beat[0..packet_index_width]]
   )
   def data_fire = data.fire()
-  when (data.valid & !data.ready):
-    data_locked <== Bool(#true)
-    data_owner <== data_entry
-  elsewhen (data_fire & final_data):
-    data_locked <== Bool(#false)
+  data_selection.capture <== (data.valid & !data.ready) ||| (data_fire & !final_data)
+  data_selection.release <== data_fire & final_data
+  when (data_fire & final_data):
     data_next_priority <== wrap_increment(data_entry, entries)
-  elsewhen data_fire:
-    data_locked <== Bool(#true)
-    data_owner <== data_entry
 
 
   /* Response routing and validation.
@@ -247,12 +240,12 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
      Return the retained rollback line and error; only accepted completion frees the entry. */
 
   def complete_entries = vec(for List (index in 0..entries): occupied[index] & (phases[index] === CHIInclusiveVictimWritebackPhase.Complete))
-  reg completion_locked(~init: Bool(#false))
-  reg completion_owner(Entry)
+  inst completion_selection(RetainedSelection(entries))
   reg completion_next_priority(~init: Bits(index_width(entries))(0))
   def completion_choice :: CircularPriorityChoice(entries, index_width(entries)) = circular_priority_onehot(complete_entries, completion_next_priority)
-  def completion_entry = mux(completion_locked, completion_owner, completion_choice.index)
-  def completion_valid = mux(completion_locked, complete_entries[completion_owner], completion_choice.valid)
+  completion_selection.candidate <== completion_choice.grant
+  def completion_entry = completion_selection.selected.index
+  def completion_valid = completion_selection.selected.mask(complete_entries.into(Mask(entries))).valid
   def completion_payload = payloads[completion_entry]
   completion.valid <== completion_valid
   completion.bits <== CHIInclusiveVictimWritebackCompletion(index_width(parent_slots)):
@@ -261,11 +254,9 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
     error: errors[completion_entry]
 
   def completion_fire = completion.fire()
-  when (completion.valid & !completion.ready):
-    completion_locked <== Bool(#true)
-    completion_owner <== completion_entry
-  elsewhen completion_fire:
-    completion_locked <== Bool(#false)
+  completion_selection.capture <== completion.valid & !completion.ready
+  completion_selection.release <== completion_fire
+  when completion_fire:
     completion_next_priority <== wrap_increment(completion_entry, entries)
 
   occupancy.clear.valid <== completion_fire

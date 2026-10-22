@@ -192,6 +192,14 @@ between direct slot and buffered-victim ancestry using the functional locked
 selection controls. `inject_interface` exposes the direct slot REQ/DAT wires;
 it adds no queue, scheduling, or pipeline stage. Do not summarize across the
 writeback child or infer parents from rewritten CHI transaction IDs.
+These muxes and the victim buffer's REQ/DAT/completion arbiters use Flow's
+`RetainedSelection`; CHI still owns their capture events, fairness, and payload
+stability. REQ/completion capture stalled offers, while DAT also captures a
+transferred non-final beat and releases only on the final transfer. The Home's
+blocked-work scheduler reads the subordinate selectors' registered-only
+`retained` outputs, never their candidate-dependent `selected` outputs. Keep the
+autonomous scheduler and per-beat requester DAT locks separate: their lifetimes
+are not the subordinate packet lifetime.
 Both requester output channels read the selected retained owner; Flow infers
 network transit. `home/transaction[slot]` is the only Home-owned checkpoint in
 this slice, with one residency lane per slot. Do not add hit/miss at admission:

@@ -545,6 +545,61 @@ priority selection and one wraparound selection instead of replicating a full
 arbiter for every possible start. `RRArbiter` and `CtrlRRArbiter` own their
 priority registers directly and advance them only after successful transfers.
 
+### Retained arbitration selection
+
+`RetainedSelection(n)` accepts a `MaybeOneHot(n)` `candidate` plus Bool
+`capture` and `release` events. It retains ownership, not payload or arbitration
+policy. Import it from `flow/retained-selection.rhdl` or `flow/main.rhdl`.
+
+```rhombus
+inst selection(RetainedSelection(n))
+selection.candidate <== choice.grant
+selection.capture <== egress.fire() & !final_beat
+selection.release <== egress.fire() & final_beat
+def grant = selection.selected
+def available = grant.mask(requests.into(Mask(n))).valid
+```
+
+The following state machine is the public timing contract:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Free
+  Free --> Held: capture and not release
+  Held --> Free: release
+  Held --> Held: otherwise
+```
+
+While free, `selected` follows `candidate` without an added cycle. Capture
+saves that selection at the clock edge; subsequent candidate changes or absence
+cannot replace it. While held, capture is idempotent. Release wins over capture
+and takes effect only at the edge, so the releasing cycle still selects the old
+owner. Release while free is harmless. Synchronous reset clears ownership,
+not the combinational candidate. Capture requires a present selection, including
+when release is also asserted; violating that contract asserts.
+
+The Bool `held` reports registered ownership. The `retained` optional-one-hot
+output is absent while free and otherwise selects the saved owner; unlike
+`selected`, it never depends on the candidate. Use `retained` when scheduling a
+new candidate depends on the previous owner, avoiding combinational feedback.
+
+Selection presence is not source validity: a packet bubble leaves the owner
+selected but may make `available` false. A held owner does not freeze its live
+payload or establish an `Irrevocable` contract. The caller must preserve any
+required stalled payload, control readiness, and advance fairness state.
+
+| Policy | Capture | Release |
+|---|---|---|
+| Stalled single-beat offer | `valid & !ready` | `.fire()` |
+| Stalled offer plus whole packet | Stall or transferred non-final beat | Transferred final beat |
+| PacketRRArbiter | Transferred non-final beat only | Transferred final beat |
+
+The first stalled packet beat does not lock `PacketRRArbiter`; after acquisition,
+ownership survives bubbles until the final beat transfers. CHI applies the
+stricter stalled-offer capture policy outside this generic component.
+
+### Shared selection and routing helpers
+
 `and_exclusion_reduce(values)` uses a shared balanced reduction tree to return
 the full conjunction plus each conjunction with one corresponding input
 omitted. `Join`, `SelectiveJoin`, `CtrlJoin`, `AtomicFork`,

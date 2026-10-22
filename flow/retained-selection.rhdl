@@ -1,0 +1,37 @@
+#lang rhodium
+/* Retains arbitration ownership under caller-defined capture and release events. */
+// SPDX-License-Identifier: Apache-2.0
+
+/* Bypass the candidate until capture, then retain its encoded owner through
+   candidate changes and bubbles. Release wins over capture; neither affects
+   the current combinational selection. Retained exposes only registered
+   ownership for schedulers whose candidate depends on the previous owner.
+   This component stores no payload and makes no offer-stability promise. */
+sync_circuit RetainedSelection(n :: PosInt):
+  input candidate: MaybeOneHot(n)
+  input capture: Bool
+  input release: Bool
+  output selected: MaybeOneHot(n)
+  output retained: MaybeOneHot(n)
+  output held: Bool
+
+  reg occupied(~init: Bool(#false))
+  reg owner(Bits(index_width(n)))
+
+  // Decoding one index produces at most one lane, even for non-power-of-two n.
+  def owner_grant = Mask(n).from_index(owner, ~valid: occupied).into(MaybeOneHot(n))
+  def selection = mux(occupied, owner_grant, candidate)
+  selected <== selection
+  retained <== owner_grant
+  held <== occupied
+
+  when capture:
+    assert(selection.valid, "retained_selection_capture_present")
+
+  when release:
+    occupied <== Bool(#false)
+  elsewhen (capture & !occupied):
+    occupied <== Bool(#true)
+    owner <== selection.index
+
+export RetainedSelection

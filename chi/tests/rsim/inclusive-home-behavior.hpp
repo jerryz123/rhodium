@@ -161,6 +161,16 @@ void send_request(std::uint64_t address, std::uint8_t opcode,
   }
 }
 
+void stall_memory_request() {
+  CHECK(!subordinate_requests_ready_in.pready);
+  const auto offered = port_out.psubordinate.preq.pbits;
+  for (unsigned cycle = 0; cycle < 3; ++cycle) {
+    home_tick();
+    CHECK(port_out.psubordinate.preq.pvalid);
+    CHECK(same_request(port_out.psubordinate.preq.pbits, offered));
+  }
+}
+
 void accept_memory_request(std::uint64_t address, std::uint8_t opcode,
                            std::uint32_t owner_age = 0) {
   {
@@ -172,6 +182,7 @@ void accept_memory_request(std::uint64_t address, std::uint8_t opcode,
           port_out.psubordinate.preq.pbits.psize_uor_unum_ureq == UINT64_C(6) &&
           port_out.psubordinate.preq.pbits.popcode == opcode);
 
+    stall_memory_request();
     home_expect_backing(owner_age);
     subordinate_requests_ready_in.pready = UINT64_C(1);
     home_tick();
@@ -192,6 +203,7 @@ void accept_memory_request_transaction(std::uint64_t address,
           port_out.psubordinate.preq.pbits.popcode == opcode);
 
     transaction = port_out.psubordinate.preq.pbits.ptxn_uid;
+    stall_memory_request();
     home_expect_backing(owner_age);
     subordinate_requests_ready_in.pready = UINT64_C(1);
     home_tick();
@@ -213,6 +225,7 @@ void accept_memory_request_slot(std::uint64_t address,
             port_out.psubordinate.preq.pbits.preturn_utxn_uid_uor_ustash_ulpid);
 
     transaction = port_out.psubordinate.preq.pbits.ptxn_uid;
+    stall_memory_request();
     home_expect_backing(owner_age);
     subordinate_requests_ready_in.pready = UINT64_C(1);
     home_tick();
@@ -522,6 +535,12 @@ void accept_victim_packet(std::uint8_t packet_id, unsigned __int128 payload) {
     expected_packet.psrc_uid = HOME_ID;
     expected_packet.ptgt_uid = MEMORY_ID;
     expected_packet.ptxn_uid = MEMORY_DBID;
+    CHECK(!subordinate_data_ready_in.pready);
+    for (unsigned cycle = 0; cycle < 3; ++cycle) {
+      home_tick();
+      CHECK(port_out.psubordinate.pdat.prequest.pvalid);
+      CHECK(same_data(port_out.psubordinate.pdat.prequest.pbits, expected_packet));
+    }
     subordinate_data_ready_in.pready = UINT64_C(1);
     eval();
     CHECK(

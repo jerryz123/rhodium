@@ -116,6 +116,20 @@ taking priority. Do not require acceptance before replacing a stalled offer.
 delivery/update, drain, and reset. RV5Stage's core CMO/WRS fixtures check reuse
 under completion gating and ownership-selected arbitration.
 
+`retained-selection.rhdl` owns only an occupied bit and an encoded owner.
+Its `selected` bypass and registered-only `retained` output must remain distinct:
+the latter lets CHI inspect ownership before constructing candidate eligibility
+without adding a combinational cycle. Capture does not replace an occupied
+owner, and release wins. Keep source validity, payload muxing, priority rotation,
+and capture/release policy with the consumer. Do not declare payload-storage
+lineage on this control-only component; the caller's existing selection and
+transaction-lifetime contracts still own causal attribution.
+`retained-selection` checks 1/3/5-way operation, reset, empty candidates,
+idempotent capture, event collisions, and invalid capture. `packet-rr-arbiter`
+checks that the first stalled offer remains unlocked and that acquired ownership
+survives packet bubbles. CHI Home and `event-home` cover its stronger stall policy
+and unchanged transaction lineage.
+
 `GrantDemux` and `GrantMerge` own routing and selection contracts sampled from
 their functional grants. `GrantCrossbar` and its configured adapter delegate
 through these children; do not add a competing whole-crossbar model.

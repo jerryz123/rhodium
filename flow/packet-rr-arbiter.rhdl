@@ -8,6 +8,7 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/circular-priority.rhdl") open
+  lib("flow/retained-selection.rhdl").RetainedSelection
 
 /* The primitive receives packet boundaries as an explicit sideband so packet
    representation remains a frontend-layer choice. An unlocked arbiter selects
@@ -22,21 +23,15 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
 
   def width = index_width(n)
   reg next_priority(~init: Bits(width)(0))
-  reg locked(~init: Bool(#false))
-  reg owner(~init: Bits(width)(0))
+  inst selection(RetainedSelection(n))
 
   assert(next_priority <= Bits(width)(n - 1), "packet_rr_priority_in_range")
-  assert(!locked ||| (owner <= Bits(width)(n - 1)), "packet_rr_owner_in_range")
 
   def requests = vec(for List (index in 0..n): ingress[index].valid)
   def choice :: CircularPriorityChoice(n, width) = circular_priority_onehot(requests, next_priority)
-  def owner_capacity = 1 << width
-  def owner_grant :: MaybeOneHot(n) = if owner_capacity == n
-  | one_hot(owner).into(MaybeOneHot(n))
-  | trunc(one_hot(owner).into(Bits(owner_capacity)), n).into(MaybeOneHot(n))
-
-  def grant :: MaybeOneHot(n) = mux(locked, owner_grant, choice.grant)
-  def selected_index = mux(locked, owner, choice.index)
+  selection.candidate <== choice.grant
+  def grant = selection.selected
+  def selected_index = grant.index
   def selected_valid = grant.mask(requests.into(Mask(n))).valid
   def selected_last = grant.mux(
     for List (index in 0..n): ends_packet[index],
@@ -55,12 +50,10 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   chosen <== selected_index
 
   def transfer = egress.fire()
+  selection.capture <== transfer & !selected_last
+  selection.release <== transfer & selected_last
   when (transfer & selected_last):
-    locked <== Bool(#false)
     next_priority <== wrap_increment(selected_index, n)
-  elsewhen (transfer & !locked):
-    locked <== Bool(#true)
-    owner <== selected_index
 
 /* Configures packet arbitration with an inline final-beat predicate. Connected
    endpoint arrays infer their input count; disconnected paths state it once. */
