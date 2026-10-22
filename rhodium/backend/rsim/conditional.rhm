@@ -1,12 +1,19 @@
 #lang rhombus
-/* Plans bounded exclusive computations beneath lookup/one-hot selections and explicit consumer guards in each evaluation phase. */
+/* Plans bounded exclusive computations beneath selections, Boolean gates, and explicit consumer guards in each evaluation phase. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "plan.rhm" open
   "evaluation.rhm" open
   "regions.rhm".step_cost
 
-export plan_conditionals
+export plan_conditionals conditional_selection
+
+/* One-bit AND/OR are selections with an absorbing left operand. Wider bitwise
+   operations require both operands. Keep this classification shared with emission
+   so ownership paths and generated lexical scopes agree. */
+fun conditional_selection(step :: RsimStep) :: Boolean:
+  step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
+    || (step.opcode in ["rtl.and", "rtl.or"] && step.type.packed_width() == 1)
 
 /* Describe exact authored guard identities, including polarity. Only adjacent
    consumers with equal lists can share a lexical scope; array assignments and
@@ -70,7 +77,7 @@ fun shared_candidates(members :: List.of(RsimSink), schedule :: RsimSchedule) ::
 
 /* Plan one invocation independently: a value used by another phase need not
    stay eager here. A shared producer moves only when every use requests the
-   same lexical path. Each original value has one owner; processing outer muxes
+   same lexical path. Each original value has one owner; processing outer selections
    first prevents nested conditional plans from claiming the same producers. */
 fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
                      body :: RsimEvaluation, budget :: PosInt) :: RsimEvaluation:
@@ -94,8 +101,9 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
     def requests = MutableMap{}
     def mutable cost = 0
     def mutable next_path = 0
-    /* Count operand occurrences, including repeated operands/arguments. A mux
-       arm starts a distinct lexical path; selectors are never requested here.
+    /* Count operand occurrences, including repeated operands/arguments. A selected
+       operand starts a distinct lexical path; mux selectors and the left Boolean
+       operand stay unconditional.
        Rejected nodes remain ordinary scheduled dependencies. Descendants are
        requested only after admission, so budgets cannot strand private values. */
     fun request(value :: Nat, path :: Nat):
@@ -111,7 +119,7 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
           when cost + amount <= budget
           | absorbed.add(value)
             cost := cost + amount
-            if step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
+            if conditional_selection(step)
             | for (operand in step.operands.drop(1)):
                 next_path := next_path + 1
                 request(operand, next_path)
@@ -172,13 +180,13 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
   def conditionals = MutableMap{}
   for (offset in 0..body.steps.length()):
     def value = body.steps[body.steps.length() - 1 - offset]
-    when !(value in removed) && schedule.steps[value].opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
+    when !(value in removed) && conditional_selection(schedule.steps[value])
     | def selected = plan([value], evaluation.dependencies[value], value)
       when selected | conditionals[value] := selected
 
   RsimEvaluation(body.steps.filter(~keep: fun (value): !(value in removed)), sinks.snapshot(), conditionals.snapshot())
 
-/* Use the same bounded ownership rule for muxes, registers, and guarded effect
+/* Use the same bounded ownership rule for selections, registers, and guarded effect
    operands. Only pure computations move; effect ordering and output publication
    remain in their coordinators. No values are cached between invocations. */
 fun plan_conditionals(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,

@@ -708,7 +708,7 @@ for (indirect in [#false, #true]):
 // Conditional consumers retain complete external dependencies even when helper
 // splitting separates every producer. Shared output/control values stay live;
 // the native companion observes actual skipped multiply executions and retries.
-for (program in [make_branches(), make_conditionals(), make_conditionals(~onehot_width: 3), make_conditionals(~onehot_width: 65)]):
+for (program in [make_boolean_gates(), make_branches(), make_conditionals(), make_conditionals(~onehot_width: 3), make_conditionals(~onehot_width: 65)]):
   def planned = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(program).rtl)))
   def base = build_evaluation_plan(planned)
   for (limit in [24, 4096]):

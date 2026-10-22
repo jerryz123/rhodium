@@ -265,3 +265,100 @@ def run_conditional_suite(work, run, compare, differential, onehot_width=None):
              '--Mdir', str(work / f'{label}-obj'), str(work / f'{fixture}.sv'), str(reference)], work, f'{label}-verilator')
         compare(run([str(work / f'{label}-obj/V{fixture}')], work, f'{label}-reference', stimulus), expected, 'SV conditionals')
     return len(expected)
+
+
+BOOLEAN_INPUTS = ('and_data', 'or_data', 'nested_data', 'mux_data', 'shared_data',
+                  'wide_data', 'repeat_data', 'reg_data')
+BOOLEAN_OUTPUTS = ('both', 'either', 'nested', 'selected', 'gated', 'shared',
+                   'wide', 'repeated', 'captured')
+
+
+def boolean_driver(native):
+    def inp(name):
+        return 'dut.inputs.p' + name.replace('_', '_u') if native else 'dut.' + name
+    def out(name):
+        return 'dut.outputs().p' + name if native else 'dut.' + name
+    inputs = ('reset', 'a', 'b') + BOOLEAN_INPUTS
+    assignments = ' '.join(f'{inp(name)} = {name};' for name in inputs)
+    checks = '''
+    // Two explicit evals, plus pre-edge and output refresh on each tick.
+    // The shared predicate is unconditional only in the output phase.
+    const unsigned observations = 2 + 2 * tick;
+    const std::array<unsigned, 8> expected = {
+      observations * unsigned(a), observations * !b, observations * (a && !b),
+      observations * (a && b), 2 + unsigned(tick) + unsigned(tick && a), observations, observations,
+      unsigned(tick && !reset && a)};
+    if (rsim_boolean_evaluations != expected)
+      throw std::logic_error("Boolean producer execution count");
+''' if native else ''
+    return f'''// SPDX-License-Identifier: Apache-2.0
+#include "{'RsimBooleanGates.hpp' if native else 'VRsimBooleanGates.h'}"
+#include <array>
+#include <iostream>
+#include <stdexcept>
+#include <cstdint>
+{'std::array<unsigned, 8> rsim_boolean_evaluations{};' if native else ''}
+int main() {{
+  {'rsim_pRsimBooleanGates::Model' if native else 'VRsimBooleanGates'} dut;
+  std::uint64_t tick, {', '.join(inputs)};
+  std::cin >> std::hex; std::cout << std::hex;
+  while (std::cin >> tick >> {' >> '.join(inputs)}) {{
+    {'rsim_boolean_evaluations.fill(0);' if native else 'dut.clock = 0; dut.eval();'}
+    {assignments}
+    dut.eval(); dut.eval();
+    if (tick) {{ {'dut.tick();' if native else 'dut.clock = 1; dut.eval();'} }}
+    {checks}
+    std::cout << {" << ' ' << ".join("std::uint64_t(" + out(name) + ")" for name in BOOLEAN_OUTPUTS)} << '\\n';
+  }}
+}}
+'''
+
+
+def run_boolean_suite(work, run, compare, differential):
+    original = (work / 'RsimBooleanGates.cpp').read_text()
+    for index, name in enumerate(BOOLEAN_INPUTS):
+        port = re.escape('inputs.p' + name.replace('_', '_u'))
+        ids = set(re.findall(r'v(\d+) = \(' + port + r'\)', original))
+        crossing = (r'(scratch\.g\d+\[\d+\]) = \(' + port +
+                    r'\)[^\n]*;\n\s*\[\[maybe_unused\]\] const std::uint64_t v(\d+) = \1;')
+        ids.update(value for _, value in re.findall(crossing, original))
+        if len(ids) != 1:
+            raise AssertionError(f'cannot identify Boolean probe input {name}: {ids}')
+        pattern = r'(?m)^([^\n]*\(v' + next(iter(ids)) + r' \* v\d+\)[^\n]*;)$'
+        original, count = re.subn(pattern, rf'  ++rsim_boolean_evaluations[{index}];\n\1', original)
+        if count != (1 if name == "reg_data" else 2):
+            raise AssertionError(f'unexpected Boolean computation probe count for {name}: {count}')
+    source = work / 'boolean-instrumented.cpp'
+    source.write_text('#include <array>\nextern std::array<unsigned, 8> rsim_boolean_evaluations;\n' + original)
+    main = work / 'boolean-main.cpp'
+    main.write_text(boolean_driver(True))
+    run(shlex.split(os.environ.get('CXX', 'c++')) +
+        ['-std=c++17', '-O0', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
+         '-fno-sanitize-recover=all', str(source), str(main), '-o', str(work / 'boolean-native')], work, 'boolean-build')
+    rng = random.Random(82471)
+    rows, expected = [], []
+    captured = 0
+    for _ in range(24):
+        for tick in (0, 1):
+            for reset in (0, 1):
+                for a in (0, 1):
+                    for b in (0, 1):
+                        data = [rng.randrange(256) for _ in BOOLEAN_INPUTS]
+                        product = [(value * 3) & 255 for value in data]
+                        predicates = [int(value < 73) for value in product]
+                        if tick:
+                            captured = 0 if reset else a & predicates[7]
+                        rows.append([tick, reset, a, b] + data)
+                        expected.append([a & predicates[0], b | predicates[1],
+                                         a & (b | predicates[2]), a & b & predicates[3],
+                                         a & predicates[4], predicates[4], a & product[5],
+                                         predicates[6], captured])
+    stimulus = '\n'.join(' '.join(f'{v:x}' for v in row) for row in rows) + '\n'
+    compare(run([str(work / 'boolean-native')], work, 'boolean-native', stimulus), expected, 'rsim Boolean gates')
+    if differential:
+        reference = work / 'boolean-reference.cpp'
+        reference.write_text(boolean_driver(False))
+        run(['verilator', '--cc', '--exe', '--build', '--assert', '-j', '2', '--top-module', 'RsimBooleanGates',
+             '--Mdir', str(work / 'boolean-obj'), str(work / 'RsimBooleanGates.sv'), str(reference)], work, 'boolean-verilator')
+        compare(run([str(work / 'boolean-obj/VRsimBooleanGates')], work, 'boolean-reference', stimulus), expected, 'SV Boolean gates')
+    return len(expected)

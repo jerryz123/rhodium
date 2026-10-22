@@ -305,6 +305,7 @@ def main():
         foreign_count = foreign.run_suite(work, run, compare, args.differential)
         assertion_count = assertions.run_suite(work, run, args.differential)
         branch_count = branches.run_suite(work, run, compare, args.differential)
+        branch_count += branches.run_boolean_suite(work, run, compare, args.differential)
         print(f"rsim: {branch_count} conditional register observations and execution counts passed" + (" with SV comparison" if args.differential else ""))
         conditional_count = sum(branches.run_conditional_suite(work, run, compare, args.differential, width)
                                 for width in (None, 3, 65))

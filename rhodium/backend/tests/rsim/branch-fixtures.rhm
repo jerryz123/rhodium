@@ -3,7 +3,7 @@
 import:
   "../../../core/main.rhm" open
 
-export make_branches make_conditionals
+export make_branches make_conditionals make_boolean_gates
 
 fun make_branches():
   def design = Design()
@@ -131,5 +131,34 @@ fun make_conditionals(~onehot_width: onehot_width :: maybe(PosInt) = #false):
   b.drive(b.output(top, "call_peer", Bits(32)), peer_result)
   b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_check")
   b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_peer")
+  b.finish(top)
+  DesignElaboration(design, top)
+
+fun make_boolean_gates():
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("RsimBooleanGates")
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def a = b.input(top, "a", Bits(1))
+  def z = b.input(top, "b", Bits(1))
+  def zero = b.constant(top, Bits(1), 0)
+  def products = for List (name in ["and_data", "or_data", "nested_data", "mux_data", "shared_data", "wide_data", "repeat_data", "reg_data"]):
+    b.mul(top, b.input(top, name, Bits(8)), b.constant(top, Bits(8), 3))
+
+  def predicates = products.map(fun (value): b.ult(top, value, b.constant(top, Bits(8), 73)))
+  def results = [b.bit_and(top, a, predicates[0]),
+                 b.bit_or(top, z, predicates[1]),
+                 b.bit_and(top, a, b.bit_or(top, z, predicates[2])),
+                 b.bit_and(top, a, b.mux_lookup(top, z, zero, [[1, predicates[3]]])),
+                 b.bit_and(top, a, predicates[4]), predicates[4],
+                 b.bit_and(top, b.zext(top, a, 8), products[5]),
+                 b.bit_and(top, predicates[6], predicates[6])]
+  for (name in ["both", "either", "nested", "selected", "gated", "shared", "wide", "repeated"], value in results):
+    b.drive(b.output(top, name, value.type), value)
+
+  def captured = b.register(top, "capture", Bits(1), clock, reset, zero)
+  b.drive(captured.next, b.bit_and(top, a, predicates[7]))
+  b.drive(b.output(top, "captured", Bits(1)), captured.current)
   b.finish(top)
   DesignElaboration(design, top)

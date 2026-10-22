@@ -47,7 +47,7 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/array-updates.rhm` | Exact array-update recovery and read forwarding, using shared liveness pruning |
 | `rsim/cse.rhm` | Scalar cast aliasing, exact expression sharing, and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, shared schedule pruning, and ordered final consumers |
-| `rsim/conditional.rhm` | Bounded exclusive pure producers placed beneath mux selections and explicit consumer guards in each evaluation phase |
+| `rsim/conditional.rhm` | Bounded exclusive pure producers placed beneath mux selections, one-bit AND/OR gates, and explicit consumer guards in each evaluation phase |
 | `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/cache.rhm` | Experimental cache eligibility by backing lifetime and logical-resource invalidation masks |
@@ -259,8 +259,13 @@ When adding a storage-reading step or a pre-edge consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
 After evaluation planning, `plan_conditionals` applies one ownership rule to
-both pre-edge and output bodies. Lookup and one-hot muxes own pure producers whose
-uses all belong to one branch path; their results remain available to every consumer.
+both pre-edge and output bodies. Lookup and one-hot muxes, and one-bit AND/OR
+gates, own pure producers whose uses all belong to one branch path; their
+results remain available to every consumer.
+Boolean gates keep the authored left operand eager and move only exclusive
+right-hand producers: AND false and OR true assign their absorbing value without
+running that cone. Wider bitwise operations remain eager. This first rule does
+not commute operands or combine separately authored Boolean guards.
 Explicit register reset, memory-port, foreign-call, and assertion guards can also
 own exclusive
 data operands. Uses are counted independently in each body, including repeated
@@ -276,8 +281,9 @@ pure steps per member. This does not reorder consumers or infer Boolean equivale
 region item. Its disabled path initializes frame fields and completes every
 inactive-bank destination, including reset values and held foreign results.
 Separate mux arms still have distinct scopes; grouping does not speculate
-across their selections. Selectors, constants, input/storage roots, and existing
-fused array assignments retain their ordinary scheduling. This is conditional
+across their selections. Selectors, Boolean left operands, constants,
+input/storage roots, and existing fused array assignments retain their ordinary
+scheduling. This is conditional
 evaluation within one invocation. Cross-cycle reuse belongs to the separate
 experimental region cache.
 
@@ -1030,6 +1036,9 @@ one-hot selections, with the default choice on the highest bit.
 Paired consumers check shared-guard computation counts for registers, calls,
 assertions, reads, and writes. A 256-entry peer memory checks byte-sized frame
 addresses at the carrier limit.
+One-bit AND/OR cases count exclusive arithmetic in both evaluation phases,
+including nested Boolean/mux selections, reset-gated captures, shared outputs,
+and repeated operands. Wider bitwise AND retains eager operand computation.
 The ordinary and forced-region native runners both include these fixtures.
 
 `tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,

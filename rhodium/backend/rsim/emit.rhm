@@ -7,7 +7,7 @@ import:
   "evaluation.rhm" open
   "regions.rhm" open
   "cache.rhm" open
-  "conditional.rhm".plan_conditionals
+  "conditional.rhm" open
   "layout.rhm" open
   "arrays.rhm" open
   "types.rhm" open
@@ -289,7 +289,7 @@ fun emit_branch_producer(value :: Nat, absorbed :: Set, steps :~ List.of(RsimSte
                          constants :: Map, source :: MutableList, indent :: String, emitted :: MutableSet):
   when value in absorbed && !(value in emitted)
   | def step = steps[value]
-    if step.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]
+    if conditional_selection(step)
     | source.add(indent ++ types.name(step.type) ++ " " ++ ref(value) ++ ";")
       emit_branch_assignment(value, absorbed, ref(value), steps, types, constants, source, indent, emitted)
     | for (operand in step.operands): emit_branch_producer(operand, absorbed, steps, types, constants, source, indent, emitted)
@@ -304,6 +304,11 @@ fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, step
                            types :: CppTypes, constants :: Map, source :: MutableList, indent :: String, emitted :: MutableSet):
   def step = steps[value]
   cond
+  | value in absorbed && conditional_selection(step) && step.opcode in ["rtl.and", "rtl.or"]:
+      def is_and = step.opcode == "rtl.and"
+      source.add(indent ++ "if (" ++ (if is_and | "" | "!") ++ ref(step.operands[0]) ++ ") {")
+      emit_branch_assignment(step.operands[1], absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
+      source.add(indent ++ "} else {\n" ++ indent ++ "  " ++ target ++ " = " ++ (if is_and | "0" | "1") ++ ";\n" ++ indent ++ "}")
   | value in absorbed && step.opcode == "rtl.mux_lookup":
       def selector = step.operands[0]
       for (key in step.attributes["keys"], branch in 0..step.attributes["keys"].length()):
