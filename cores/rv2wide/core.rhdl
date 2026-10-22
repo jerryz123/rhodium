@@ -205,7 +205,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
     observed |> fork_valid(4)
 
-  def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(3)
+  def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(4)
   def ex_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(RV2WideResult(xlen)))
   def mem_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(RV2WideResult(xlen)))
   def ex_results :: List.of(Endpoint) = for List (link in ex_links): link.right
@@ -561,7 +561,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
     def floating_result_pending = wb_vector_fpr_pending & control.fp.valid
     def memory_order_blocked = control.memory.enable & (vector.stores_pending ||| (control.memory.access.store_fault_class() & vector.loads_pending))
-    vector.certification_pending ||| vector_execution_blocked ||| integer_destination_pending ||| floating_result_pending ||| memory_order_blocked
+    (vector.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| floating_result_pending ||| memory_order_blocked
 
   def rr_capacity_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| rr_training_blocked[lane]
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_capacity_blocked[lane] ||| rr_vector_blocked[lane]
@@ -1135,8 +1135,21 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   inst wb_fault_retention(OfferRegister(RV2WideResult(xlen)))
   reg wb_pending_interrupt(~init: Bool(#false))
   def wb_fault_pending = wb_fault_retention.egress.valid
-  def wb_valid :: Vec(2, Bool) = vec(mux(wb_retained_pending, wb_retained_complete, wb_older.egress.valid), !wb_retained_pending & wb_younger.egress.valid)
-  def wb_group :: Vec(2, RV2WideResult(xlen)) = vec(mux(wb_retained_pending, wb_retained_result, wb_older.egress.bits), wb_younger.egress.bits)
+  // Vector authorization retains the older instruction, not the scalar pipes.
+  // On success its retirement may share the second slot with a simple scalar
+  // result; service/CSR work instead replays to its original physical WB lane.
+  def wb_vector_pending = wb_retained_pending & wb_retained_vector
+  def wb_blocking_retained = wb_retained_pending & !wb_retained_vector
+  def wb_vector_success = wb_vector_pending & wb_retained_complete & (wb_retained_result.resolution.disposition === RV2WideDisposition.Continue)
+  def wb_scalar_lane = mux(wb_older.egress.valid, Bits(1)(0), Bits(1)(1))
+  def wb_scalar :: RV2WideResult(xlen) = mux(wb_scalar_lane === Bits(1)(0), wb_older.egress.bits, wb_younger.egress.bits)
+  def wb_scalar_vector = wb_scalar.vector.control.integer ||| wb_scalar.vector.control.memory ||| wb_scalar.vector.control.floating_point ||| wb_scalar.vector.control.multiply_divide
+  def wb_scalar_simple = !wb_scalar_vector & !wb_scalar.memory.enable & !wb_scalar.fp.valid & (wb_scalar.muldiv.service === RV2WideLongOperation.None) & !wb_scalar.system.serializing() & !wb_scalar.pause
+  // Return eligibility must not depend on the FP completion it authorizes.
+  def wb_scalar_port_available = !wb_gpr_calendar.occupied[0].into(Bool)
+  def wb_vector_merge = wb_vector_success & (wb_older.egress.valid ||| wb_younger.egress.valid) & wb_scalar_simple & wb_scalar_port_available & (wb_scalar.resolution.disposition === RV2WideDisposition.Continue)
+  def wb_valid :: Vec(2, Bool) = vec(mux(wb_retained_pending, wb_retained_complete, wb_older.egress.valid), wb_vector_merge ||| (!wb_retained_pending & wb_younger.egress.valid))
+  def wb_group :: Vec(2, RV2WideResult(xlen)) = vec(mux(wb_retained_pending, wb_retained_result, wb_older.egress.bits), mux(wb_vector_merge, wb_scalar, wb_younger.egress.bits))
   // New dispatch observes the live WB pipes, never the returned retained owner.
   // In particular, admission faults cannot feed back into their own request.
   def wb_live_valid :: Vec(2, Bool) = vec(wb_older.egress.valid, wb_younger.egress.valid)
@@ -1185,6 +1198,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vector_accepted = vector.request.fire()
   def wb_vector_capture = wb_vector_accepted & wb_vector.vector.control.memory & !wb_vector_certified
   def wb_vector_replay = wb_vector_offer & !wb_vector_accepted
+  // Replay the oldest live scalar suffix, never the accepted vector owner.
+  // A merged scalar consumes the remaining retirement slot; any second live
+  // instruction must replay. The capture edge applies the same age rule.
+  def wb_vector_scalar_lane = mux(wb_vector_pending & !wb_vector_merge, wb_scalar_lane, Bits(1)(1))
+  def wb_vector_replay_owner = wb_live_group[wb_vector_scalar_lane]
+  def wb_vector_live_suffix = mux(wb_vector_merge, !wb_scalar_lane.into(Bool) & wb_live_valid[1], wb_live_valid.as_bits().or_reduce())
+  def wb_vector_scalar_replay = (wb_vector_pending & !(wb_retained_complete & !wb_vector_success) & wb_vector_live_suffix) ||| (wb_vector_capture & (wb_vector_lane === Bits(1)(0)) & wb_live_valid[1])
   wb_vector_scoreboard.set.valid <== wb_vector_accepted & wb_vector.write
   wb_vector_scoreboard.set.bits <== wb_vector.rd
   fp.vector_reserve.valid <== wb_vector_accepted & wb_vector.vector.control.floating_point & wb_vector.vector.control.floating_scalar_destination
@@ -1239,6 +1259,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_owners.left.bits <== wb_group[0]
   describe_interface_selection([!wb_retained_pending, wb_retained_pending], ~name: "wb-owner")
   describe_interface_contract(Array(wb_paths[0][0], wb_retained_output.right), wb_owners.left, "wb-owner", ~trace_model: interface_trace_selection(~name: "wb-owner"))
+  def wb_second_owner = interface_link(Valid(RV2WideResult(xlen)))
+  wb_second_owner.left.valid <== wb_valid[1]
+  wb_second_owner.left.bits <== wb_group[1]
+  def wb_second_from_older = wb_vector_merge & (wb_scalar_lane === Bits(1)(0))
+  describe_interface_selection([wb_second_from_older, !wb_second_from_older], ~name: "wb-second-owner")
+  describe_interface_contract(Array(wb_paths[0][3], wb_paths[1][3]), wb_second_owner.left, "wb-second-owner", ~trace_model: interface_trace_selection(~name: "wb-second-owner"))
 
   /* Drain older services before launching retained split work.
      Capture, completion, acceptance, then drain define state-update priority. */
@@ -1449,10 +1475,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_interrupt_boundary = wb_drained & (wb_interrupt_stop ||| (wb_fault_pending & wb_pending_interrupt))
   wb_csrs.interrupt_boundary <== wb_interrupt_boundary
   wb_csrs.interrupt_pc <== mux(wb_fault_pending, wb_fault.fetched.pc, wb_interrupt_pc)
-  def wb_replay = wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Replay)
+  def wb_replay = (wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Replay)) ||| wb_vector_scalar_replay
+  def wb_replay_owner = mux(wb_vector_scalar_replay, wb_vector_replay_owner, wb_selected)
   def wb_wake = wb_sleeping & wb_csrs.wfi_wake
   def wb_system_resume = wb_system & !wb_vector_config & wb_csrs.command_success & !wb_csrs.wfi
-  def wb_retained_resume = wb_retained_pending & wb_retained_complete & (wb_retained_result.resolution.disposition === RV2WideDisposition.Continue)
+  def wb_retained_resume = wb_blocking_retained & wb_retained_complete & (wb_retained_result.resolution.disposition === RV2WideDisposition.Continue)
   instruction_invalidate.valid <== wb_system_resume & (wb_system_control.fence === RV2WideFence.Instruction)
   predictor_clear.valid <== translation_flush ||| wb_csrs.trap_event.valid ||| (wb_system & wb_csrs.command_success & wb_system_control.action.is_one_of(RiscvCsrAction.Mret, RiscvCsrAction.Sret))
   def wb_redirect_valid = wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_interrupt_boundary ||| wb_wake ||| wb_retained_resume
@@ -1465,14 +1492,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       priority_mux(~default: wb_command.fetched.pc):
         wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
-        wb_replay: wb_selected.fetched.pc
+        wb_replay: wb_replay_owner.fetched.pc
 
     target:
       priority_mux(~default: wb_command.fetched.sequential_pc):
         wb_csrs.redirect.valid: wb_csrs.redirect.bits
         wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
-        wb_replay: wb_selected.fetched.pc
+        wb_replay: wb_replay_owner.fetched.pc
 
     resolution:
       RV2WideResolution(xlen):
@@ -1482,7 +1509,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
         value: wb_csrs.trap_event.value
 
   def wb_redirect = inject_interface(Valid(RV2WideRedirect(xlen)), ~valid: wb_redirect_valid, ~bits: wb_redirect_bits)
-  wb_squash <== wb_stop_valid ||| wb_fault_pending ||| wb_interrupt_stop ||| (wb_system & (!wb_vector_config ||| !wb_csrs.command_success)) ||| wb_sleeping ||| wb_retained_capture ||| wb_retained_pending
+  wb_squash <== wb_stop_valid ||| wb_fault_pending ||| wb_interrupt_stop ||| (wb_system & (!wb_vector_config ||| !wb_csrs.command_success)) ||| wb_sleeping ||| (wb_retained_capture & !wb_vector_capture) ||| wb_blocking_retained ||| wb_vector_scalar_replay
   rr_squash <== wb_squash ||| mem_branch_redirect
   fetch_flush.valid <== rr_squash
   redirect.valid <== wb_redirect.valid ||| mem_branch_redirect
@@ -1544,7 +1571,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       data: wb_data
       deferred: wb_deferred
 
-    describe_interface_contract(if lane == 0 | wb_owners.right | wb_paths[1][0], retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
+    describe_interface_contract(if lane == 0 | wb_owners.right | wb_second_owner.right, retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     wb_retirement_paths[lane][0] |> retired[lane]
     wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_lane_system ||| wb_csrs.writeback_valid)
     wb_train[lane] <== wb_eligible & wb.branch.update.branch
@@ -1603,10 +1630,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   // A MEM correction keeps its branch. WB rejection is older and instead
   // restores the checkpoint before the oldest instruction being discarded.
-  history_restore.valid <== mem_branch_redirect ||| wb_stop_valid ||| wb_retained_capture ||| wb_system
+  history_restore.valid <== mem_branch_redirect ||| wb_stop_valid ||| wb_vector_scalar_replay ||| (wb_retained_capture & !wb_vector_capture) ||| wb_system
   history_restore.bits <== priority_mux(~default: rv2wide_history_after(mem_branch.fetched.direction, mem_branch.branch.taken)):
     wb_stop_valid: wb_selected.fetched.direction.history
-    wb_retained_capture: wb_memory.fetched.direction.history
+    wb_vector_scalar_replay: wb_vector_replay_owner.fetched.direction.history
+    wb_retained_capture & !wb_vector_capture: wb_memory.fetched.direction.history
     wb_system: wb_system_token.fetched.direction.history
 
   predictor_restore.valid <== wb_squash ||| wb_recover_ras.or_reduce()
@@ -1633,6 +1661,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     owner: rv2wide_fp_owner(xlen, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
     precision: wb_fp_token.fp.bits.execution.destination_precision
     data: if xlen == XLen.X64 | wb_fp_token.data | wb_fp_token.data.zext(64)
+
+  when wb_vector_pending:
+    assert(!scalar_memory.request.valid & !scalar_pipeline.commit & !fp.variable_issue.valid & !fp.authorize.valid & !wb_multiply_accepted & !wb_divide_accepted & !vector.request.valid & !wb_csrs.commit.valid, "rv2wide_vector_authorization_blocks_younger_effects")
+    when (!wb_retained_complete):
+      assert(!retired[0].valid & !retired[1].valid, "rv2wide_vector_authorization_orders_retirement")
 
   // Accepted services inherit successful WB, never a live lane's later payload.
   def wb_service = interface_link(Valid(RV2WideRetirement(xlen)))

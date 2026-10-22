@@ -16,6 +16,7 @@ bool fast_enabled = false, fast_current = true;
 unsigned fast_checks = 0;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 unsigned redirect_count = 0, response_delay = 12;
+unsigned request_block_until = 0;
 std::uint64_t next_pc = 0x8000, replay_pc = 0, recovery_pc = 0, fault_at = 0;
 std::uint64_t resolve_pc = 0;
 unsigned resolve_disposition = 0;
@@ -30,6 +31,9 @@ struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
 std::uint64_t last_cause = 0, last_tval = 0, last_fault_pc = 0;
+std::uint64_t authorization_owner = 0, guarded_store_address = 0;
+unsigned authorization_merges = 0;
+bool interrupt_after_admission = false;
 
 namespace vector_trace {
 struct Owner {
@@ -177,7 +181,7 @@ void settle() {
   memory_in.preservation_uvalid = 0;
   memory_in.presponse.pvalid = !responses.empty() && responses.front().due <= cycle;
   memory_in.presponse.pbits = responses.empty() ? 0 : responses.front().data;
-  memory_in.prequest.pready = responses.size() < 8;
+  memory_in.prequest.pready = responses.size() < 8 && cycle >= request_block_until;
   memory_in.pfault = {};
   vector_precheck_in.prequest.pready = !proof_pending;
   vector_precheck_in.presponse.pvalid = proof_pending;
@@ -220,6 +224,9 @@ void settle() {
 void step() {
   settle();
   if (!reset) {
+    if (authorization_owner && retired_0_out.pvalid && retired_1_out.pvalid &&
+        retired_0_out.pbits.pfetched.ppc == authorization_owner)
+      ++authorization_merges;
     for (const auto *port : {&retired_0_out, &retired_1_out}) {
       if (!port->pvalid) continue;
       const auto &result = port->pbits;
@@ -237,23 +244,35 @@ void step() {
     }
     if (redirect_out.pvalid) {
       ++redirect_count;
+      const bool interrupt = interrupt_after_admission &&
+          redirect_out.pbits.presolution.pdisposition == 3 &&
+          (redirect_out.pbits.presolution.pcause >> (bytes * 8 - 1));
       if (redirect_out.pbits.presolution.pdisposition == 2)
         replay_pc = redirect_out.pbits.ptarget;
       if (redirect_out.pbits.presolution.pdisposition == 2 ||
-          redirect_out.pbits.presolution.pdisposition == 3)
+          (redirect_out.pbits.presolution.pdisposition == 3 && !interrupt))
         recovery_pc = redirect_out.pbits.ptarget;
-      if (redirect_out.pbits.presolution.pdisposition == 1) {
+      if (redirect_out.pbits.presolution.pdisposition == 1 || interrupt) {
+        if (interrupt_after_admission) {
+          CHECK(retired_pcs.contains(authorization_owner) && responses.empty());
+        }
         ++fault_count;
         last_cause = redirect_out.pbits.presolution.pcause;
         last_tval = redirect_out.pbits.presolution.pvalue;
         last_fault_pc = redirect_out.pbits.ppc;
       }
     }
-    if (pipeline_out.pcommit) write(commit_owner);
+    if (pipeline_out.pcommit) {
+      if (authorization_owner && commit_owner.paddress == guarded_store_address)
+        CHECK(retired_pcs.contains(authorization_owner));
+      write(commit_owner);
+    }
     if (memory_in.presponse.pvalid && memory_out.presponse.pready)
       responses.pop_front();
     if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
       const auto request = memory_out.prequest.pbits;
+      if (authorization_owner && request.paddress == guarded_store_address)
+        CHECK(retired_pcs.contains(authorization_owner));
       if (request.paccess == 2) write(request);
       responses.push_back({words[request.paddress & ~(std::uint64_t(bytes) - 1)], cycle + response_delay});
     }
@@ -269,6 +288,9 @@ void step() {
   vector_trace::sample();
   tick_model();
   vector_trace::check();
+  if (interrupt_after_admission && vector_trace::admission.accepted &&
+      vector_trace::admission.pc == authorization_owner)
+    interrupts.pmachine_utimer = 1;
   commit_owner = lookup;
   lookup = next_lookup;
   lookup_live = next_live;
@@ -319,7 +341,7 @@ std::uint32_t vsetvli(unsigned rd, unsigned rs1, unsigned type) {
   return 0x7057 | type << 20 | rs1 << 15 | rd << 7;
 }
 void stream(std::initializer_list<std::uint32_t> words, bool fault = false,
-            bool recover = false) {
+            bool recover = false, bool require_recovery = true) {
   const std::vector<std::uint32_t> program(words);
   const auto base = next_pc;
   next_pc += 4 * program.size();
@@ -354,7 +376,8 @@ void stream(std::initializer_list<std::uint32_t> words, bool fault = false,
   instructions_in.pvalid = 0;
   CHECK(fault == (fault_count != faults_before));
   if (!fault) {
-    CHECK(recover ? redirect_count > redirects_before : redirect_count == redirects_before);
+    if (!recover) CHECK(redirect_count == redirects_before);
+    else if (require_recovery) CHECK(redirect_count > redirects_before);
     for (unsigned index = 0; index < program.size(); ++index)
       CHECK(retired_pcs.contains(base + 4 * index));
   }
@@ -503,12 +526,15 @@ void vector_memory_fast_path() {
   run(20);
   CHECK(stores == stores_before && proof_count == proofs_before);
 
-  // A stale MEM certificate must take the precise path, including its WB recovery.
+  // A stale certificate takes precise authorization without an unconditional
+  // frontend restart when no younger instruction reaches the WB barrier.
   fast_current = false;
   const auto redirects_before = redirect_count;
+  const auto fallback_pc = next_pc;
   send(store);
   run(60);
-  CHECK(proof_count == proofs_before + 1 && redirect_count > redirects_before);
+  CHECK(proof_count == proofs_before + 1 && redirect_count == redirects_before);
+  CHECK(retirement_cycles.at(fallback_pc) > memory_cycles.at(fallback_pc) + 1);
   CHECK(words[0x400] == (bytes == 8 ? UINT64_C(0x0123012301230123) : UINT64_C(0x01230123)));
   fast_current = true;
 
@@ -971,6 +997,143 @@ void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) 
   send(0x34109073); // mepc
   send(0x30200073); // mret into VS
 }
+void speculative_scalar_authorization() {
+  run(120);
+  safe = fast_enabled = false;
+  slow = false;
+  setvl(0, 4);
+  send(addi(1, 0, 0x500));
+  send(addi(2, 0, 0x33));
+  send(vi(23, 0, 2, 4, 8)); // vmv.v.x v8,x2
+  send(vi(20, 0, 17, 2, 16)); // vid.v v16: four byte indices
+  run(40);
+  const auto indexed_store = (1u << 26) | (1u << 25) | (16 << 20) |
+                             (1 << 15) | (8 << 7) | 0x27;
+  const auto scalar_store = (2 << 20) | (1 << 15) | (2 << 12) | (8 << 7) | 0x23;
+
+  // Repeated WB rejection preserves one vector admission and every accepted
+  // store, while allowing scalar execution before the authorization frontier.
+  for (unsigned delay : {0u, 30u}) {
+    const auto base = next_pc;
+    const auto stores_before = stores, admitted_before = vector_trace::admissions;
+    const auto redirects_before = redirect_count;
+    authorization_owner = base;
+    guarded_store_address = 0x508;
+    slow = true;
+    request_block_until = cycle + delay;
+    stream({indexed_store, addi(12, 0, 91), addi(13, 12, 1),
+            0x00001463, // bne zero,zero,+8: independent, correctly not taken
+            scalar_store, addi(14, 13, 1)}, false, true);
+    run(100);
+    CHECK(memory_cycles.at(base + 4) < retirement_cycles.at(base));
+    for (unsigned i = 1; i < 6; ++i)
+      CHECK(retirement_cycles.at(base + 4 * i) >= retirement_cycles.at(base));
+    CHECK(vector_trace::admissions == admitted_before + 1);
+    if (delay) CHECK(redirect_count > redirects_before + 1);
+    CHECK(stores == stores_before + 5 && gprs[12] == 91 && gprs[13] == 92 && gprs[14] == 93);
+    CHECK((words[0x500] & UINT64_C(0xffffffff)) == UINT64_C(0x33333333));
+    CHECK((words[0x508] & UINT64_C(0xffffffff)) == 0x33);
+    authorization_owner = guarded_store_address = request_block_until = 0;
+    slow = false;
+  }
+
+  // Sweep scalar arrival across vector authorization, including an empty WB,
+  // a same-cycle merge, and two live scalar slots competing for retirement.
+  const auto merges_before = authorization_merges;
+  for (unsigned delay = 0; delay <= 16; ++delay) {
+    for (bool pair : {false, true}) {
+      const auto base = next_pc;
+      next_pc += 4;
+      authorization_owner = base;
+      instructions_in = {};
+      instructions_in.pvalid = 1;
+      instructions_in.pbits.pcount = 1;
+      auto &entry = instructions_in.pbits.pentries[0];
+      entry.ppc = base;
+      entry.psequential_upc = base + 4;
+      entry.pinstruction = entry.praw_uinstruction = indexed_store;
+      for (;;) {
+        settle();
+        const bool accepted = instructions_out.pready;
+        step();
+        if (accepted) break;
+      }
+      instructions_in.pvalid = 0;
+      run(delay);
+      if (pair)
+        stream({addi(15, 0, 35), addi(16, 0, 36)}, false, true, false);
+      else
+        stream({addi(15, 0, 35)}, false, true, false);
+      CHECK(retired_pcs.contains(base) && gprs[15] == 35);
+      if (pair) CHECK(gprs[16] == 36);
+      run(30);
+      authorization_owner = 0;
+    }
+  }
+  CHECK(authorization_merges > merges_before);
+
+  // The vector's second element faults after an irrevocable first store.
+  // Younger scalar stores, arithmetic, multiply, and exceptions cannot escape.
+  send(addi(1, 0, 0x600));
+  send(addi(12, 0, 17));
+  send(addi(13, 0, 18));
+  if constexpr (bytes == 8) {
+    send(addi(2, 0, 3));
+    send((0x69u << 25) | (2 << 15) | (1 << 7) | 0x53); // fcvt.d.w f1,x2
+    send((1u << 25) | (1 << 20) | (1 << 15) | (2 << 7) | 0x53); // f2 = 6
+  }
+  const auto base = next_pc;
+  const auto stores_before = stores, admissions_before = vector_trace::admissions;
+  authorization_owner = base;
+  guarded_store_address = 0x608;
+  words[0x600] = words[0x608] = 0;
+  fault_at = 0x601;
+  slow = true;
+  stream({indexed_store, addi(12, 0, 99),
+          (1u << 25) | (2 << 20) | (2 << 15) | (13 << 7) | 0x33,
+          scalar_store, bytes == 8 ? (1u << 25) | (2 << 20) | (2 << 15) | (2 << 7) | 0x53 : addi(14, 0, 99),
+          0}, true, true);
+  fault_at = 0;
+  authorization_owner = guarded_store_address = 0;
+  run(100);
+  CHECK(last_fault_pc == base && last_cause == 15 && last_tval == 0x601);
+  CHECK(gprs[12] == 17 && gprs[13] == 18 && words[0x608] == 0);
+  CHECK(stores == stores_before + 1 && (words[0x600] & 255) == 0x33);
+  CHECK(vector_trace::admissions == admissions_before + 1);
+  for (unsigned i = 0; i < 6; ++i)
+    CHECK(!retired_pcs.contains(base + 4 * i));
+  slow = false;
+  send(0x008023f3); // csrr x7,vstart: preserve the failed element, not scalar fault
+  CHECK(gprs[7] == 1);
+  if constexpr (bytes == 8) {
+    send((0x61u << 25) | (2 << 15) | (15 << 7) | 0x53); // fcvt.w.d x15,f2
+    CHECK(gprs[15] == 6);
+  }
+
+  // Interrupts wait behind authorization and drain accepted responses before
+  // taking the oldest remaining scalar boundary, not the vector's original PC.
+  safe = true;
+  setvl(0, 4);
+  send(addi(1, 0, 0x700));
+  send(addi(2, 0, 128));
+  send(0x30411073); // csrw mie,x2: MTIE
+  send(addi(2, 0, 8));
+  send(0x30012073); // csrs mstatus,x2: MIE
+  authorization_owner = next_pc;
+  interrupt_after_admission = true;
+  slow = true;
+  request_block_until = cycle + 20;
+  stream({indexed_store, addi(12, 0, 37), addi(13, 0, 38)}, true, true);
+  CHECK(last_cause == ((UINT64_C(1) << (bytes * 8 - 1)) | 7));
+  CHECK(last_fault_pc == authorization_owner + (retired_pcs.contains(authorization_owner + 4) ? 8 : 4));
+  interrupt_after_admission = false;
+  interrupts.pmachine_utimer = 0;
+  authorization_owner = request_block_until = 0;
+  slow = false;
+  run(30);
+  safe = true;
+}
+
 void scalar_burst() {
   constexpr unsigned packets = 128;
   const auto pc = next_pc;
@@ -1133,6 +1296,7 @@ int main() {
     paired_vector_arithmetic();
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
+    speculative_scalar_authorization();
     run(100);
     vector_trace::finish();
   });

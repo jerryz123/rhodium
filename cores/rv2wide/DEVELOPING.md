@@ -67,6 +67,8 @@ service acceptance/faults, and the successful retirement prefix (`wb_retire`).
 Dispatch must not consume final retirement validity: admission readiness/faults
 would then feed back into the request that produced them. Retained split/CMO/WRS
 state remains local to WB and accepted work survives speculative flush.
+Retained vector authorization uses the same owner storage without continuously
+squashing the scalar pipes; only blocking retained operations retain that policy.
 The retained lifecycle is `Idle -> Draining -> Ready -> Accepted -> Idle`;
 completion can exit an earlier phase for a reservation wake or admission fault.
 Keep capture/completion priority and the registered drain edge unchanged.
@@ -819,7 +821,25 @@ independently of completion slots and the single active sequencer. Keep the
 shared admission queue's `~pipe: #false` setting when varying capacity; at full
 occupancy its credit returns on the cycle after a dequeue.
 Faultable descriptors retain their WB owner until certification or precise
-execution produces an outcome. Traps and direct CSR accesses drain accepted work.
+execution produces an outcome. Eligible younger scalar instructions may execute
+but a live WB offer behind unresolved authorization replays its oldest PC. Keep
+the accepted vector owner, element checkpoints, and responses across that replay.
+Gate services and architectural effects through the existing retained-owner
+dispatch/retirement authority, before request formation. A younger fault is
+replayed rather than retained ahead of the older unresolved vector operation.
+The acceptance edge applies the same rule to a younger peer in the WB group.
+
+Successful vector resolution does not redirect fetch. Its retirement may share
+the second retirement slot with one ordinary scalar ALU/branch result, using
+the registered GPR calendar to prove that port free. Do not query a live FP
+completion to make this selection: completion depends on WB authorization.
+Service/CSR work and excess live suffixes replay into their original WB lanes;
+no completed-result storage or third retirement slot is introduced. The second
+retirement owner's explicit Flow selection preserves original MEM ancestry.
+Restore predictor state at the rejected scalar PC, not on vector capture, and
+give an older vector fault priority over scalar replay and MEM branch repair.
+Traps and direct CSR accesses still drain accepted work; vector configuration
+and vector admission retain their uncertified-memory interlocks.
 
 The shared engine pipelines aligned faultable elements behind its ordered
 authorization frontier. `vector-memory.rhdl` resolves one attempt per cycle;
@@ -839,9 +859,10 @@ Bare memory supplies the same contract using identity mappings and page PMAs.
 
 WB revalidates context, invalidation epoch, and pointer masking, then retires an
 accepted certified memory descriptor normally. Only uncertified memory enters
-the retained WB owner and its younger-work flush/restart. Keep the shared
-admission controller's existing precertified bypass of page proof and execution
-quiescence; do not relax the precise fallback or scalar-memory ordering gates.
+the retained WB owner and its younger scalar WB authorization barrier. Keep
+the shared admission controller's existing precertified bypass of page proof
+and execution quiescence; do not relax the precise fallback or scalar-memory
+ordering gates.
 The accepted descriptor carries the PPN/range into vector execution and local
 replay. Forward the adapter's physical-address flags through the selected memory
 owner: MMU lookup and WB demand must not translate these physical retries again
@@ -915,6 +936,12 @@ Paired streams check both lane orders, slot-one MEM/WB state forwarding,
 same-pair legality and memory geometry, scalar RAW/WAW splits, precise younger
 traps, replayed suffixes under injected rejection and full descriptor credit,
 and retained older vector memory.
+Authorization regressions let younger scalar work reach MEM before the vector
+owner retires, force repeated WB replay without duplicate accepted stores, and
+sweep one/two-slot arrival timing across final authorization. They require an
+actual vector/scalar co-retirement, suppress younger GPR/FPR/multiply/store and
+fault effects, preserve the vector fault's `vstart`, and defer interrupts until
+the vector owner and accepted responses have drained.
 Both core-vector fixtures run the event pass and production collector. Public
 MEM observations, accepted descriptor requests, and sequencer dispatch/release
 ports form an independent occurrence FIFO. It checks exact MEM parents for every

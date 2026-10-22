@@ -979,8 +979,12 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   `RV2WideVectorPipeline` exposes the same selection as `~dispatch_depth`.
   A full queue replays the WB instruction; it never drops accepted work.
 - Faultable memory instructions retain their architectural owner until page
-  certification or precise execution determines the outcome. Successful page
-  certification permits younger independent scalar work while execution drains.
+  certification or precise execution determines the outcome. Younger eligible
+  scalar instructions may execute meanwhile, but replay from their own oldest
+  blocked WB PC if authorization is still pending. They cannot commit stores,
+  registers, CSR state, or service requests ahead of that owner. Accepted vector
+  elements survive scalar replay. Successful authorization removes this barrier
+  without an unconditional frontend restart; no scalar result queue is added.
 - Aligned, nonempty, single-page vector memory footprints can be certified in
   scalar MEM using a current DTLB hit (or Bare identity translation) and normal
   cacheable-memory permissions. WB validates the captured translation context;
