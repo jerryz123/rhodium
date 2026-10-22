@@ -71,6 +71,12 @@ destination-width old-vd row. Do not widen inputs through the ALU packing path.
 Normalize uncared MAC product-select fields at the numeric boundary, not in
 instruction decode. Scalar returns use the same numeric formatter's lane zero.
 
+`mask.rhdl` uses the standard `prefix_scan` for selected-bit ranks and the
+word total. Widen leaves to include the all-selected count before scanning;
+the caller still owns cross-word carry and its maturity-qualified update.
+The `rv5stage-vector-reduction` fixture checks scan masks, iota/count results,
+and compression through the production pipeline and LSU readback.
+
 Packed multiplication reserves calendar client 2 before its synchronous reads,
 with a six-cycle delay through operand capture, EX, and the four-stage numeric
 pipeline. Ordinary local writes continue using that client's shorter delay;

@@ -5,6 +5,7 @@
 import:
   "../riscv/isa/xlen.rhm" open
   "../rhodium/std/bits.rhdl" open
+  lib("rhodium/std/reduction.rhdl").prefix_scan
 
 /* Select the runtime element width within a 32- or 64-bit packed physical word. */
 hardware_enum SimdElementWidth:
@@ -657,10 +658,11 @@ circuit SimdCompress(xlen :: XLen):
   def alternatives = for List (format in 0..format_count):
     def element_bits = 8 * (2 ** format)
     def lanes = (width / 8) div (2 ** format)
-    def mutable prefix = Bits(bits.length(width / 8))(0)
+    // Exclusive ranks share a parallel scan; the last prefix is the total count.
+    def counts = for List (source in 0..lanes): selected[source].as_bits().zext(simd_count_width(xlen))
+    def prefixes = [Bits(simd_count_width(xlen))(0)] ++ prefix_scan(counts, fun (left, right): left + right)
     def ranked = for List (source in 0..lanes):
-      def rank :: Bits(bits.length(width / 8)) = prefix
-      prefix := prefix + selected[source].as_bits().zext(bits.length(width / 8))
+      def rank :: Bits(simd_count_width(xlen)) = prefixes[source]
       [rank, data[source * element_bits..(source + 1) * element_bits], selected[source]]
 
     def packed = for List (destination in 0..lanes):
@@ -672,7 +674,7 @@ circuit SimdCompress(xlen :: XLen):
 
     SimdCompressed(xlen):
       data: if lanes == 1 | packed[0] | concat(packed.reverse())
-      count: prefix
+      count: prefixes[lanes]
 
   compressed <== mux_lookup(element_width, ~default: alternatives[0], for List (format in 1..format_count): [widths[format], alternatives[format]])
 

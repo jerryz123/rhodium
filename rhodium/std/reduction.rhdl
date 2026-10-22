@@ -1,5 +1,5 @@
 #lang rhodium
-/* Builds an ordered balanced reduction tree with a caller-supplied binary function. */
+/* Builds ordered balanced reductions and parallel prefix scans with caller-supplied combiners. */
 // SPDX-License-Identifier: Apache-2.0
 
 /* Reduces a nonempty host list with a balanced binary tree while preserving operand order; combine owns result types and associativity. */
@@ -26,5 +26,27 @@ fun tree_reduce(input_values :: List, combine :: Function.of_arity(2)):
 
   reduce_level(input_values)
 
+/* Returns every inclusive prefix in source order using parallel doubling stages.
+   Combine must be associative, but need not commute; the caller owns node types
+   and arithmetic widths. Empty and singleton lists require no combinations. */
+fun prefix_scan(input_values :: List, combine :: Function.of_arity(2)):
+  def count = input_values.length()
+
+  /* Each stage joins the preceding block before the current block, reading only
+     the previous stage so no lane creates a same-stage serial dependency. */
+  fun scan_level(nodes :: List, distance :: PosInt):
+    if distance >= count
+    | nodes
+    | block:
+        def next = for List (index in 0..count):
+          if index < distance
+          | nodes[index]
+          | combine(nodes[index - distance], nodes[index])
+
+        scan_level(next, distance * 2)
+
+  scan_level(input_values, 1)
+
 export:
   tree_reduce
+  prefix_scan

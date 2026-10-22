@@ -92,6 +92,35 @@ use an associative combiner when the result must agree with a sequential fold.
 An empty list is rejected; callers that define an identity should supply it as
 an explicit leaf.
 
+### Parallel prefix scans
+
+The same module exports `prefix_scan(values, combine)`. It returns a host
+`List` of inclusive prefixes: `[a, combine(a, b), combine(combine(a, b), c), ...]`,
+with parallel grouping. The combiner must be associative and preserve the node
+type; it need not be commutative. Operand order always remains left to right.
+An empty list returns `[]`; a singleton returns its sole input unchanged.
+Neither case calls the combiner.
+
+```rhombus
+import:
+  lib("rhodium/std/reduction.rhdl").prefix_scan
+
+def counts = for List (lane in 0..lanes): selected[lane].as_bits().zext(index_width(lanes + 1))
+def inclusive = prefix_scan(counts, fun (left, right): left + right)
+def boundaries = [Bits(index_width(lanes + 1))(0)] ++ inclusive
+// boundaries[i] is the exclusive rank of lane i; boundaries[lanes] is the total.
+```
+
+This is a combinational generator: it adds no registers or cycle latency.
+The current implementation combines blocks at distances 1, 2, 4, and so on,
+giving at most `ceil(log2(n))` combiner levels and `O(n log n)` combiner calls.
+This favors shallow depth at the cost of more logic than a serial scan; it
+does not promise optimal synthesized area or timing. Each stage reads only
+the preceding stage. Callers choose arithmetic widths before scanning:
+fixed-width addition wraps at that width, and full population counts need
+enough bits to represent `n`. Floating-point addition and other nonassociative
+operations cannot generally substitute for an ordered recurrence.
+
 ### Clock-domain crossings
 
 [`cdc.rhdl`](cdc.rhdl) exports the first standard crossing circuit,

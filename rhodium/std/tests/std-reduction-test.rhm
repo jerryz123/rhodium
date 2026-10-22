@@ -1,10 +1,11 @@
 #lang rhombus
-// Checks generic balanced reduction structure, aggregate combiners, and empty rejection.
+// Checks reduction contracts and ordered prefix scans, including logarithmic combine depth.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/std/reduction.rhdl").prefix_scan
   "std-reduction.rhdl" as fixture
 
 def tree_module = fixture.tree_design.modules[0]
@@ -36,3 +37,25 @@ check:
   verify_design(fixture.tree_design) ~is #void
   verify_design(fixture.singleton_design) ~is #void
   elaborate(fixture.EmptyReduction()) ~throws "expected at least one value"
+
+// Host strings test associativity without commutativity. Each node also tracks
+// combine depth, independently of the implementation's exact stage topology.
+for (count in 0..66):
+  def leaves = for List (index in 0..count): [to_string(index) ++ ":", 0]
+  def scanned = prefix_scan(leaves, fun (left, right): [left[0] ++ right[0], 1 + math.max(left[1], right[1])])
+  def mutable expected = ""
+  for (index in 0..count):
+    expected := expected ++ to_string(index) ++ ":"
+    check:
+      scanned[index][0] ~is expected
+      scanned[index][1] <= bits.length(index) ~is #true
+
+  check: scanned.length() ~is count
+
+fun unexpected_combine(left, right):
+  error("empty and singleton scans must not invoke combine")
+
+check:
+  prefix_scan([], unexpected_combine) ~is []
+  prefix_scan(["only"], unexpected_combine) ~is ["only"]
+  prefix_scan([1, 2], fun (value): value) ~throws "Function"

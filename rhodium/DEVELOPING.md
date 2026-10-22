@@ -211,7 +211,8 @@ its review surface: keep them exact when modules or layer imports change. They l
 direct Rhodium dependencies, not the full transitive closure.
 
 The reusable packed execution module `cores/simd-alu.rhdl` directly imports
-`std/bits.rhdl` for bit reversal and leading-zero count, and `riscv/isa/xlen.rhm`
+`std/bits.rhdl` for bit reversal and leading-zero count, `std/reduction.rhdl`
+for parallel compression ranks, and `riscv/isa/xlen.rhm`
 for the closed RV32/RV64 host configuration. Its remaining hardware operations
 use the public language; it imports no instruction catalog or named core.
 Its explicit `XLen` specialization prunes datapath width and element cases.
@@ -579,7 +580,8 @@ and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 `std/decode.rhdl`, pure ISA descriptors, RISC-V adapters, the shared SIMD ALU,
 and shared vector mask-scan controls. Paths beginning with `vector/` in this
 inventory refer to `cores/vector/`. `vector/mask.rhdl` imports public
-`std/bits.rhdl` for bit reversal and first-set counting; it has no decode dependency.
+`std/bits.rhdl` for bit reversal and first-set counting and `std/reduction.rhdl`
+for parallel prefix counts; it has no decode dependency.
 The named vector wrappers import `vector/admission.rhdl` for descriptor credit,
 certification, and registered macro outcomes. That shared component imports
 vector bundles/precheck/decode, shared MMU protocols, architectural XLEN/vector
@@ -729,7 +731,7 @@ other standard modules. Paths beginning with `std/` are relative to `rhodium/`.
 |---|---|---|
 | `std/counter.rhdl` | Enabled bounded `Counter` | `std/bits.rhdl` |
 | `std/shift-register.rhdl` | Generic named ambient-clock delay line with optional initialization and enable | None |
-| `std/reduction.rhdl` | Generic ordered balanced reduction with a caller-supplied binary function | None |
+| `std/reduction.rhdl` | Generic ordered balanced reduction and parallel prefix scan with caller-supplied binary functions | None |
 | `std/cdc/level.rhdl` | Resetless two-stage stable one-bit `SyncLevel` synchronizer | None |
 | `std/cdc.rhdl` | Public CDC circuit facade | `std/cdc/level.rhdl` |
 | `std/bits.rhdl` | Host `Pow2Int` refinement plus bit reversal, leading-zero count, circular index stepping, alignment, transfer-byte-mask, lane-mask expansion, and masked merge for `Bits` | None |

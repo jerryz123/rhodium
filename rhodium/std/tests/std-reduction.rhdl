@@ -1,11 +1,11 @@
 #lang rhodium
-// Provides arithmetic, aggregate, singleton, and invalid generic reduction fixtures.
+// Provides arithmetic, aggregate, singleton, and invalid reduction/scan fixtures.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
-  lib("rhodium/std/reduction.rhdl").tree_reduce
+  lib("rhodium/std/reduction.rhdl") open
 
 bundle Candidate():
   valid: Bool
@@ -38,6 +38,20 @@ circuit EmptyReduction():
 
   result <== tree_reduce([], fun (left, right): left + right)
 
+circuit PrefixScanFixture():
+  input operands: Vec(9, Bits(8))
+  input candidates: Vec(9, Candidate())
+  output sums: Vec(9, Bits(8))
+  output selected: Vec(9, Candidate())
+  output(total, singleton): Bits(8)
+
+  def prefixes = prefix_scan(for List (index in 0..9): operands[index],
+                             fun (left, right): left + right)
+  sums <== vec(prefixes)
+  selected <== vec(prefix_scan(for List (index in 0..9): candidates[index], prefer_left))
+  total <== prefixes[8]
+  singleton <== prefix_scan([operands[0]], fun (left, right): left + right)[0]
+
 def tree_design = compile_program(elaborate(TreeReduction()), rtl_target).report.design
 def singleton_design = compile_program(elaborate(SingletonReduction()), rtl_target).report.design
 
@@ -46,5 +60,6 @@ export:
   TreeReduction
   SingletonReduction
   EmptyReduction
+  PrefixScanFixture
   tree_design
   singleton_design

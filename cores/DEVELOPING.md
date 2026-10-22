@@ -196,7 +196,10 @@ passes an already destination-width left source alongside one extended source,
 without adding another ALU or coupling widening to instruction decode.
 `SimdCompress` performs only stable word-local element compaction and returns
 its selected-element count; cross-word suffixes and architectural progress
-belong to the caller. Keep RVV register layout and architectural policy outside
+belong to the caller. Its exclusive lane ranks and total share the standard
+`prefix_scan` network with a count width that includes a fully selected word.
+Keep the destination-routing priority and unused-lane zeroing separate from
+rank computation. Keep RVV register layout and architectural policy outside
 these reusable components.
 
 `simd-multiplier.rhdl` shares the existing three-stage `PipelinedMultiplier`

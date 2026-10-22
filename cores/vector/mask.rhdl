@@ -7,6 +7,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "../simd-alu.rhdl" open
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/reduction.rhdl").prefix_scan
 
 /* Selects a total count, first index, prefix mask, or packed per-element scan result. */
 hardware_enum VectorScanResult:
@@ -32,16 +33,8 @@ circuit VectorMaskScan(xlen :: XLen):
   def selected = source & enabled
   // A shared parallel prefix network supplies the total and every lane prefix.
   // One extra count bit represents a fully selected physical word.
-  def mutable sums = for List (index in 0..xlen.width): selected[index].zext(vector_bit_offset_width(xlen) + 1)
-  for (level in 0..vector_bit_offset_width(xlen)):
-    def previous = sums
-    def distance = 2 ** level
-    sums := for List (index in 0..xlen.width):
-      def current :: Bits(vector_bit_offset_width(xlen) + 1) = previous[index]
-      if index < distance
-      | current
-      | def lower :: Bits(vector_bit_offset_width(xlen) + 1) = previous[index - distance]
-        current + lower
+  def counts = for List (index in 0..xlen.width): selected[index].zext(vector_bit_offset_width(xlen) + 1)
+  def sums = prefix_scan(counts, fun (left, right): left + right)
 
   def prefixes = [Bits(vector_bit_offset_width(xlen) + 1)(0)] ++ sums
   def total :: Bits(vector_bit_offset_width(xlen) + 1) = sums[xlen.width - 1]

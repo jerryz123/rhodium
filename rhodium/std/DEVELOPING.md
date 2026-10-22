@@ -206,6 +206,28 @@ state. `std-interconnect-test.rhm` checks invalid sizes and operand types;
 `register-beat` compares projection with independent bit-position arithmetic
 for byte and sub-byte values, 1–64-byte beats, and out-of-range lanes.
 
+### Prefix-scan maintenance
+
+`reduction.rhdl` owns both the reduction tree and the inclusive prefix network.
+Keep each prefix's source order and separate stage snapshots; in-place lane
+updates accidentally create serial dependencies. The doubling network trades
+additional combiners for logarithmic depth. Do not change grouping for a caller
+whose combiner is not associative, or infer arithmetic widths inside the helper.
+Exclusive ranks are an identity followed by the inclusive results; callers
+retain the final inclusive value when they also need a total.
+
+`std-reduction-test.rhm` checks host order, empty/singleton behavior, invalid
+combiner arity, and the logarithmic combine-depth contract. The `prefix-scan`
+rsim fixture checks every output against serial arithmetic and aggregate
+first-valid selection, including overflow and all candidate-validity patterns.
+After changing the scan, also run `simd-alu`, `simd-alu32`, and
+`rv5stage-vector-reduction` for compaction and architectural mask-scan consumers:
+
+```sh
+tools/run-racket-tests.sh rhodium/std/tests/std-reduction-test.rhm
+FIXTURES='prefix-scan simd-alu simd-alu32 rv5stage-vector-reduction' python3 tools/testing/rsim/run.py
+```
+
 ## Focused validation
 
 Run Racket and Rhombus through the repository wrapper, which manages the
