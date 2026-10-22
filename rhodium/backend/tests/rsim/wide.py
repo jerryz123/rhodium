@@ -30,7 +30,9 @@ def output_widths(width):
         ('lookup_narrow', 5), ('lookup_wide', width), ('packet_tag', 5), ('packet_data', 64),
         ('decoded', width), ('decode_reordered', width), ('decode_small', 5),
         ('decode_from_small', width), ('decode_empty', width), ('decode_catchall', width),
-        ('onehot_wide', width), ('onehot_narrow', 8), ('guarded_onehot', width)] + [
+        ('onehot_wide', width), ('onehot_narrow', 8), ('guarded_onehot', width),
+        ('seed_constant', width), ('seed_enable', width), ('seed_lookup', width),
+        ('seed_general', width), ('bounded_left', 64), ('bounded_right', 64)] + [
         (name, width) for name in ('first_q', 'first_delayed', 'second_q', 'second_delayed')]
 
 
@@ -125,7 +127,8 @@ def stimuli(width):
     # values are unspecified in portable RTL, so omit only those expectations.
     lines = [' '.join('0' for _ in range(11 + 2 * ((width + 31) // 32)))]
     initial = [0, 0, 0, mask, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, seed, *([0] * 24)]
-    expected = [expected_words(initial + selection_results(width, 0, 0, 0, 0, 0, 0) + [None] * 4, width)]
+    expected = [expected_words(initial + selection_results(width, 0, 0, 0, 0, 0, 0)
+                               + [1, 0, 1, 1, 0, 0] + [None] * 4, width)]
     for index, (a, b, amount) in enumerate(samples):
         tick = int(index % 5 != 2)
         reset = int(index == 0 or index % 41 == 0)
@@ -160,7 +163,10 @@ def stimuli(width):
                    *shifted(narrow, amount, 64), *shifted(small, amount, 5),
                    (small << (2 * width + 64)) | (a << (width + 64)) | (b << 64) | narrow,
                    (small << 69) | (narrow << 5) | small, a, narrow,
-                   *selection_results(width, a, b, amount, small, narrow, select), *state]
+                   *selection_results(width, a, b, amount, small, narrow, select),
+                   *[shifted(seed_value, amount, width)[0] for seed_value in
+                     (1, enable, [1, 0, enable, 1][select], sign + 1 if select == 1 else 1)],
+                   (narrow << small) & ((1 << 64) - 1), narrow >> small, *state]
         expected.append(expected_words(results, width))
     return '\n'.join(lines) + '\n', expected
 

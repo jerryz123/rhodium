@@ -221,11 +221,26 @@ Carrier<To> sign_extend(const Carrier<From>& value) {
 // nonzero word above bit 63 already exceeds a 32- or 64-bit host's width bound.
 // Saturating to the operand width also makes the following limb shifts bounded.
 template <std::size_t Count> std::size_t shift_count(const Carrier<Count>& amount, std::size_t width) {
+  // The declared count width remains known even across generated helper calls.
+  if constexpr (Count < 64) {
+    if ((UINT64_C(1) << Count) <= width) return static_cast<std::size_t>(amount);
+  }
   for (std::size_t i = 2; i < (Count + 31) / 32; ++i) {
     if (word<Count>(amount, i) != 0) return width;
   }
   const auto low = std::uint64_t(word<Count>(amount, 0)) | (std::uint64_t(word<Count>(amount, 1)) << 32);
   return low < width ? static_cast<std::size_t>(low) : width;
+}
+
+// The emitter proves seed is zero or one. Place its sole possible bit directly
+// instead of moving every limb of a wide zero-extended seed. Check the complete
+// unsigned count before indexing, including high words of a wide count.
+template <std::size_t W, std::size_t Count>
+Carrier<W> shift_single_bit(std::uint32_t seed, const Carrier<Count>& amount) {
+  const auto count = shift_count<Count>(amount, W);
+  Carrier<W> result{};
+  if (count < W) put_word<W>(result, count / 32, seed << (count % 32));
+  return result;
 }
 
 // Shift normalized values using bounded limb indices and intra-limb shifts.

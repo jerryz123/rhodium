@@ -114,6 +114,11 @@ fun make_wide(width :: PosInt):
     b.record_create(top, packet_type, [["tag", b.constant(top, Bits(5), tag)], ["data", data]])
 
   def packet = b.mux_lookup(top, amount, packets[0], [[1, packets[1]], [2 ** 64 + 1, packets[2]]])
+  def bit_seed = b.zext(top, te, width)
+  def one = b.constant(top, Bits(width), 1)
+  def mixed_seed = b.mux_lookup(top, select, one, [[1, b.constant(top, Bits(width), 0)], [2, bit_seed]])
+  // A single non-binary arm must retain the general wide shift.
+  def general_seed = b.mux_lookup(top, select, one, [[1, b.constant(top, Bits(width), sign + 1)]])
   def outputs:
     [["both", b.bit_and(top, a, z)], ["either", b.bit_or(top, a, z)],
      ["parity", b.bit_xor(top, a, z)], ["inverted", b.bit_not(top, a)],
@@ -155,7 +160,13 @@ fun make_wide(width :: PosInt):
      ["decode_catchall", b.decode(top, amount, Bits(129), Bits(width), [[0, 0, full, full]], 0, 0)],
      ["onehot_wide", picked],
      ["onehot_narrow", b.onehot_mux(top, amount, for List (index in 0..129): b.constant(top, Bits(8), index + 1))],
-     ["guarded_onehot", b.mux_lookup(top, select, b.constant(top, Bits(width), 0), [[1, picked]])]]
+     ["guarded_onehot", b.mux_lookup(top, select, b.constant(top, Bits(width), 0), [[1, picked]])],
+     ["seed_constant", b.shl(top, one, amount)],
+     ["seed_enable", b.shl(top, bit_seed, amount)],
+     ["seed_lookup", b.shl(top, mixed_seed, amount)],
+     ["seed_general", b.shl(top, general_seed, amount)],
+     ["bounded_left", b.shl(top, narrow, small)],
+     ["bounded_right", b.shru(top, narrow, small)]]
 
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   for (name in ["first", "second"]):

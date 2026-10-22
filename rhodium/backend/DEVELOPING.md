@@ -576,7 +576,8 @@ is unchanged. Never introduce scope emulation or a callback registry in this ABI
 For widths up to 64, unsigned 64-bit carriers plus an
 explicit mask at every scalar value boundary preserve modular arithmetic, including
 width 64. Width conversions and concatenation use scheduled operand widths.
-Variable shifts check the full unsigned count before executing a C++ shift;
+Variable shifts check the full unsigned count before executing a C++ shift,
+unless its declared width proves the count is below the result width;
 arithmetic right shifts construct sign fill explicitly. Sign extension and signed
 comparison transform unsigned bit patterns, avoiding signed C++ overflow and
 implementation-defined right shifts. Preserve normalization before widening.
@@ -601,6 +602,15 @@ Saturate shift counts to the value width only after inspecting all count limbs;
 never discard high count bits during host-index conversion. Mixed narrow/wide
 data and counts use the support helpers. Preserve local uint64 helpers when
 both widths are at most 64, emitting those helpers only when actually called.
+For wide left shifts, a bounded producer walk recognizes zero/one constants,
+one-bit values, scalar casts/zero extensions, and muxes whose every arm satisfies
+that proof. Emit `shift_single_bit` to zero the destination and place its only
+possible bit in one limb. The proof has a 64-visit budget; unsupported producers
+or exhausted queries retain general shifting. Keep the original operand and
+dependencies, so shared values and region imports follow ordinary storage rules.
+This consumes scalar RTL semantics without identifying frontend mask calls.
+The wide oracle covers constant, Boolean, and mux seeds, non-binary fallback,
+wide overshifts, and bounded logical shifts across forced region boundaries.
 `CppTypes` selects carriers and splits host constants; the support header owns
 portable limb operations. The emitter reads that header relative to its installed
 module at emission time, preventing cached bytecode from embedding stale support.

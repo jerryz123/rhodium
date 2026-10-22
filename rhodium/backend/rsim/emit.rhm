@@ -64,6 +64,32 @@ fun membership_decode(step :: RsimStep, input_type :: HardwareType) :: Boolean:
     && step.attributes["cases"].length() > 0
     && (for all (row in step.attributes["cases"]): row[1] == 2 ** width - 1 && row[2] == 1 && row[3] == 1)
 
+/* Prove that only bit zero can be set without depending on authored names.
+   Bound the walk through shared mux/cast graphs; an exhausted proof simply uses
+   the ordinary shift. State and unsupported producers remain opaque. */
+fun single_bit_seed(value :: Nat, steps :~ List.of(RsimStep)) :: Boolean:
+  def mutable remaining = 64
+  /* Follow representation-preserving producers and every possible mux arm. */
+  fun visit(index :: Nat) :: Boolean:
+    remaining := remaining - 1
+    def step = steps[index]
+    cond
+    | remaining < 0: #false
+    | scalar_width(step.type) == 1: #true
+    | step.opcode == "rtl.constant": step.attributes["value"] <= 1
+    | step.opcode in ["rtl.cast", "rtl.zext"] && scalar_width(steps[step.operands[0]].type) != #false:
+        visit(step.operands[0])
+    | step.opcode == "rtl.mux_lookup":
+        for all (operand in step.operands.drop(1)): visit(operand)
+    | ~else: #false
+
+  visit(value)
+
+/* Normalized operands retain their declared count range across region imports.
+   A strict upper bound below the result width makes a logical shift total. */
+fun bounded_shift_count(step :: RsimStep, steps :~ List.of(RsimStep)) :: Boolean:
+  2 ** scalar_carrier_width(steps[step.operands[1]].type) <= scalar_carrier_width(step.type)
+
 /* Emit one operation; normalization at the caller preserves each intermediate
    hardware width before any later comparison or conversion. */
 fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) :: String:
@@ -153,9 +179,14 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def name = {"rtl.shl": "shift_left", "rtl.shru": "shift_right", "rtl.shrs": "shift_signed"}[step.opcode]
       def width = scalar_carrier_width(step.type)
       def count_width = scalar_carrier_width(steps[step.operands[1]].type)
-      if width > 64 || count_width > 64
-      | "rhodium_rsim::" ++ name ++ "<" ++ to_string(width) ++ ", " ++ to_string(count_width) ++ ">(" ++ String.join(args, ", ") ++ ")"
-      | name ++ "(" ++ args[0] ++ ", " ++ args[1] ++ ", " ++ to_string(width) ++ ")"
+      cond
+      | step.opcode == "rtl.shl" && width > 64 && single_bit_seed(step.operands[0], steps):
+          "rhodium_rsim::shift_single_bit<" ++ to_string(width) ++ ", " ++ to_string(count_width) ++ ">(rhodium_rsim::word<" ++ to_string(width) ++ ">(" ++ args[0] ++ ", 0), " ++ args[1] ++ ")"
+      | width <= 64 && step.opcode != "rtl.shrs" && bounded_shift_count(step, steps):
+          args[0] ++ (if step.opcode == "rtl.shl" | " << " | " >> ") ++ args[1]
+      | width > 64 || count_width > 64:
+          "rhodium_rsim::" ++ name ++ "<" ++ to_string(width) ++ ", " ++ to_string(count_width) ++ ">(" ++ String.join(args, ", ") ++ ")"
+      | ~else: name ++ "(" ++ args[0] ++ ", " ++ args[1] ++ ", " ++ to_string(width) ++ ")"
   | binary.has_key(step.opcode): args[0] ++ " " ++ binary[step.opcode] ++ " " ++ args[1]
   | step.opcode == "rtl.mux_lookup":
       def selector_type = steps[step.operands[0]].type
@@ -739,9 +770,9 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
 
     source.add("}\ntemplate <typename T>\nstatic T foreign_arg(std::uint64_t value) {\n  const auto bits = static_cast<typename std::make_unsigned<T>::type>(value);\n  T result;\n  std::memcpy(&result, &bits, sizeof(result));\n  return result;\n}")
 
-  // Runtime guards precede every variable shift. Keeping them in ordinary
-  // functions also avoids invalid constant-shift diagnostics in unreachable
-  // expression branches. Counts remain unsigned 64-bit values until checked.
+  // Logical shifts with statically bounded counts need no guard. Other variable
+  // shifts use helpers that check the full count before C++ shifting; keeping
+  // those checks in functions avoids invalid constant-shift diagnostics too.
   def opcodes = plan.steps.map(fun (step): step.opcode)
   // Partial RTL results may be computed behind an unselected mux. Guard every
   // array access instead of throwing or invoking C++ undefined behavior. Zero
@@ -756,7 +787,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
 
   // Emit narrow helpers only when called; models with exclusively wide shift
   // operations use the shared support header and need no unused local functions.
-  def narrow_shifts = plan.steps.filter(~keep: fun (step): step.opcode in ["rtl.shl", "rtl.shru", "rtl.shrs"] && scalar_carrier_width(step.type) <= 64 && scalar_carrier_width(plan.steps[step.operands[1]].type) <= 64).map(fun (step): step.opcode)
+  def narrow_shifts = plan.steps.filter(~keep: fun (step): step.opcode in ["rtl.shl", "rtl.shru", "rtl.shrs"] && scalar_carrier_width(step.type) <= 64 && scalar_carrier_width(plan.steps[step.operands[1]].type) <= 64 && (step.opcode == "rtl.shrs" || !bounded_shift_count(step, plan.steps))).map(fun (step): step.opcode)
   for (entry in [["rtl.shl", "shift_left", "<<"], ["rtl.shru", "shift_right", ">>"]]):
     when entry[0] in narrow_shifts
     | source.add("static inline std::uint64_t " ++ entry[1] ++ "(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  return amount >= width ? UINT64_C(0) : value " ++ entry[2] ++ " amount;\n}")

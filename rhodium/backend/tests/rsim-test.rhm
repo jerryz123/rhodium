@@ -99,6 +99,14 @@ check:
 // The shared support source is packaged deterministically with every wide model.
 // Compilation preserves both the authored graph and the prepared graph.
 def mutable support_header = #false
+// Single-bit shifts should bypass the general limb mover, but the same model
+// retains arbitrary shifts and a mux with a non-binary arm. The wide oracle
+// checks all these values, including complete wide counts and forced regions.
+def shift_source = compile_program(make_wide(129), rsim_target).artifacts[1].content
+check:
+  shift_source.contains("rhodium_rsim::shift_single_bit<129, 129>") ~is #true
+  shift_source.contains("rhodium_rsim::shift_left<129, 129>") ~is #true
+
 for (program in [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512].map(make_wide_aggregate) ++ [make_relayout()] ++ make_wide_memories() ++ [make_wide_foreign(), make_unused_wide_foreign()]):
   def before = dump_ir(program.design)
   def prepared = prepare_rtl(program)
