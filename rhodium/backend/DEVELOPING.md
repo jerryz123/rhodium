@@ -489,14 +489,19 @@ contain registers, synchronous-read results, and held foreign results; memories
 remain separate. The pre-edge evaluator receives explicit `const State& current`
 and `State& next` references to distinct banks. It reads only current state and
 writes every next-state field before returning a frame of pending memory writes,
-assertion flags, and foreign-call arguments/enables. Both inline bodies and
-bounded helpers follow this protocol; helpers receive the bank references rather
-than resolving the index at each state access. Logical dependency and backing
-plans remain independent of physical bank identity.
+the first failing assertion index, and foreign-call arguments/enables. Both inline
+bodies and bounded helpers follow this protocol; helpers receive the bank
+references rather than resolving the index at each state access. Logical
+dependency and backing plans remain independent of physical bank identity.
 
 Every next-state and frame field is assigned on every attempt, including
 register holds, disabled-call holds, and inactive read/write/check controls.
 `Frame frame;` omits redundant clearing; persistent banks are zeroed once.
+When checks exist, evaluation initializes one failure index to the assertion
+count. Enabled failing checks reduce it to the lowest original assertion index;
+disabled checks leave it alone. All predicates retain their ordinary evaluation
+and guards. After evaluation, `tick()` checks this index once and selects the
+original diagnostic only on failure, before any foreign calls or commits.
 Never use the inactive bank's old contents as a hold value. A failed assertion
 can dirty that bank and scratch, but changes neither active storage nor cached
 outputs. Retry recomputes all pending fields. After assertions and foreign calls,
@@ -509,7 +514,7 @@ An index rather than persistent self-pointers preserves model copy/move ownershi
 Borrowed state references belong to one evaluation phase; output evaluation binds
 the newly active bank. Scratch pointers are refreshed before use after bank
 switches, failed attempts, and model copy/move construction or assignment.
-Adding a next-state or frame field requires an unconditional sink assignment;
+Adding a next-state or frame field requires assignment on every evaluation path;
 never rely on initial zeros or a preceding successful evaluation.
 `eval()` instead emits only the planner's output dependency closure: seed output
 step indices, mark operands in one reverse schedule scan, and render marked indices

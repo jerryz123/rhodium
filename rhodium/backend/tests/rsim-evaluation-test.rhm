@@ -133,11 +133,14 @@ for (budget in [1, 1000000]):
     frame_fields.contains("std::uint8_t call0_arg0;") ~is #true
     frame_fields.contains("std::uint8_t write0_data;") ~is #true
     frame_fields.contains("std::uint8_t write0_address;") ~is #true
+    frame_fields.contains("std::size_t failed_assertion;") ~is #true
+    sampling.contains("Frame frame;\n  frame.failed_assertion = 1;") ~is #true
+    emitted[1].contains("if (before.failed_assertion != 1)") ~is #true
 
-  for (field in ["call0_enable", "call0_arg0", "assertion0_failed",
+  for (field in ["call0_enable", "call0_arg0",
                  "write0_address", "write0_data", "write0_enable",
                  "write1_address", "write1_enable"]):
-    check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is (if field == "assertion0_failed" | 2 | 1)
+    check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is 1
 
   // Masked writes initialize disabled data and guard both the old-word load
   // and merge with the effective enable, including shared-port write mode.

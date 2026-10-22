@@ -23,6 +23,15 @@ SCENARIOS = {
 }
 
 
+# Simultaneous failures have a defined schedule priority in rsim; HDL process
+# order is deliberately not used as an oracle for that native API guarantee.
+PRIORITY_SCENARIOS = {
+    11: ('first', 'named_check', 'assert-fixture.rhdl:30:2'),
+    12: ('first', None, 'dir/"quoted"\\checks\nline.rhdl:41:7'),
+    13: ('second', 'named_check', 'assert-fixture.rhdl:30:2'),
+}
+
+
 def driver(native):
     header = 'RsimAssertions.hpp' if native else 'VRsimAssertions.h'
     model = 'rsim_pRsimAssertions::Model' if native else 'VRsimAssertions'
@@ -88,6 +97,18 @@ def driver(native):
     case 7: I(first_condition) = 0; I(first_late_mode) = 2; break;
     case 8: I(monitor_guard) = 1; break;
     case 9: I(top_guard) = 1; break;
+    case 11:
+      I(first_condition) = I(second_condition) = 0;
+      I(first_unnamed_condition) = I(second_unnamed_condition) = 0;
+      I(first_sample_guard) = I(second_sample_guard) = 0;
+      I(monitor_guard) = I(top_guard) = 1; break;
+    case 12:
+      I(first_unnamed_condition) = 0; I(first_expected_state) = 99;
+      I(second_condition) = 0; I(top_guard) = 1; break;
+    case 13:
+      I(first_condition) = 0; I(first_guard) = 0;
+      I(first_sample_guard) = 0; I(second_condition) = 0;
+      I(second_unnamed_condition) = 0; I(top_guard) = 1; break;
   }
   dut.eval();
   std::cout << "ARM " << scenario << std::endl;
@@ -95,8 +116,10 @@ def driver(native):
     if native:
         body += r'''
   const auto before = snapshot();
+  const auto calls_before = observed_calls;
   try { step(); }
   catch (const std::runtime_error& error) {
+    require(observed_calls == calls_before, "failed tick invoked DPI");
     require(snapshot() == before, "failed tick changed cached outputs");
     dut.eval();
     require(snapshot() == before, "failed tick changed state or asynchronous memory");
@@ -105,6 +128,7 @@ def driver(native):
     I(first_write_data) = 95; I(second_write_data) = 97;
     bool rejected_again = false;
     try { step(); } catch (const std::runtime_error&) { rejected_again = true; }
+    require(observed_calls == calls_before, "repeated failed tick invoked DPI");
     require(rejected_again && snapshot() == before, "repeated failure published staged state");
     dut.eval();
     require(snapshot() == before, "eval observed a rejected bank");
@@ -128,8 +152,10 @@ def driver(native):
     I(first_write_enable) = I(second_write_enable) = 1;
     I(first_write_data) = 107; I(second_write_data) = 109;
     const auto odd_before = snapshot();
+    const auto odd_calls_before = observed_calls;
     bool odd_rejected = false;
     try { step(); } catch (const std::runtime_error&) { odd_rejected = true; }
+    require(observed_calls == odd_calls_before, "odd-parity failure invoked DPI");
     require(odd_rejected && snapshot() == odd_before, "odd-parity failure changed outputs");
     dut.eval();
     require(snapshot() == odd_before, "odd-parity failure changed storage");
@@ -138,6 +164,7 @@ def driver(native):
     I(first_write_data) = 41; I(second_write_data) = 43;
     I(first_read_address) = I(second_read_address) = 1;
     step();
+    require(observed_calls == odd_calls_before + 2, "recovery did not invoke both DPI calls");
     require(O(first_state) == 5 && O(second_state) == 6, "recovery registers");
     require(O(first_array0) == 5 && O(first_array1) == 3 && O(second_array0) == 6 && O(second_array1) == 4, "array recovery");
     require(O(first_async_data) == 41 && O(second_async_data) == 43, "recovery writes");
@@ -174,6 +201,8 @@ def driver(native):
 #include <iostream>
 #include <stdexcept>
 #include <string>
+static std::uint64_t observed_calls = 0;
+extern "C" void assertion_observe(char) {{ ++observed_calls; }}
 static void require(bool condition, const char* message) {{
   if (!condition) throw std::logic_error(message);
 }}
@@ -190,7 +219,8 @@ int main(int argc, char** argv) {{
 
 def check_scenarios(executable, work, native):
     label = 'rsim' if native else 'verilator'
-    for scenario, failure in SCENARIOS.items():
+    scenarios = SCENARIOS | PRIORITY_SCENARIOS if native else SCENARIOS
+    for scenario, failure in scenarios.items():
         result = subprocess.run([str(executable), str(scenario)], cwd=work,
                                 capture_output=True, text=True, timeout=30)
         output = result.stdout + result.stderr
@@ -209,7 +239,8 @@ def check_scenarios(executable, work, native):
             if native:
                 path = 'RsimAssertions' + ('/' + side if side else '')
                 valid = valid and result.returncode == 65 and 'ROLLBACK_AND_RECOVERY_OK' in output
-                valid = valid and f'[{path}]' in output and location in output
+                diagnostic = f'assertion failed: {name or "<unlabeled>"} [{path}] {location}'
+                valid = valid and diagnostic in output
             elif side:
                 valid = valid and f'.{side}' in output
         if not valid:
@@ -232,4 +263,4 @@ def run_suite(work, run, differential):
              '--top-module', 'RsimAssertions', '--Mdir', str(work / 'assert-obj'),
              str(work / 'RsimAssertions.sv'), str(reference)], work, 'assert-verilator')
         check_scenarios(work / 'assert-obj/VRsimAssertions', work, False)
-    return len(SCENARIOS)
+    return len(SCENARIOS) + len(PRIORITY_SCENARIOS)

@@ -49,7 +49,13 @@ fun make_assertions():
   def expected_next = b.mux_lookup(leaf, condition, b.bit_xor(leaf, next_state, b.constant(leaf, Bits(8), 1)), [[1, next_state]])
   b.assert(leaf, b.eq(leaf, checked_next, expected_next), b.read(alias), assertion_reset, guard, "named_check", Location("assert-fixture.rhdl", 30, 2))
   b.assert(leaf, unnamed_condition, b.read(alias), reset, unnamed_guard, #false, Location("dir/\"quoted\"\\checks\nline.rhdl", 41, 7))
-  b.assert(leaf, b.eq(leaf, state.current, expected), b.read(alias), reset, sample_guard, "sample_check", Location("assert-fixture.rhdl", 42, 0))
+  def sampled = b.eq(leaf, state.current, expected)
+  b.assert(leaf, sampled, b.read(alias), reset, sample_guard, "sample_check", Location("assert-fixture.rhdl", 42, 0))
+  // Shared guarded checks form a consumer group. Its disabled path must retain
+  // failures recorded by other checks, and simultaneous failures keep priority.
+  b.assert(leaf, sampled, b.read(alias), reset, sample_guard, "sample_check_later", Location("assert-fixture.rhdl", 43, 0))
+  def observe = b.dpi_import("assertion_observe", ["data"], [Bits(8)])
+  b.dpi_call(leaf, observe, [next_state], b.read(alias), write_enable)
   def address = b.constant(leaf, Bits(1), 0)
   def async_memory = b.memory(leaf, "async_storage", 1, Bits(8))
   b.memory_write(leaf, async_memory, address, write_data, b.read(alias), write_enable)
