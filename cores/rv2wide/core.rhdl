@@ -426,19 +426,38 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def registered_pending = scoreboard_busy(32, fp.busy, address)
     def producer_matches = for List (producer in rr_producers):
       def token :: RV2WideResult(xlen) = producer.bits
-      producer.valid & ((token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (token.vector.control.floating_point & token.vector.control.floating_scalar_destination)) & (token.rd === address)
+      def scalar_writes_fpr = token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)
+      def vector_writes_fpr = token.vector.control.floating_point & token.vector.control.floating_scalar_destination
+      producer.valid & (scalar_writes_fpr ||| vector_writes_fpr) & (token.rd === address)
 
     def pending = registered_pending ||| or_reduce(producer_matches)
-    def returned = (fp.completion.valid & (fp.completion.bits.tag.destination === FloatDestination.FloatingPoint) & (fp.completion.bits.tag.rd === address)) ||| (fp.load_write.valid & (fp.load_write.bits.owner.rd === address))
-    pending & !returned
+    def execution_returned = fp.completion.valid & (fp.completion.bits.tag.destination === FloatDestination.FloatingPoint) & (fp.completion.bits.tag.rd === address)
+    def load_returned = fp.load_write.valid & (fp.load_write.bits.owner.rd === address)
+    pending & !(execution_returned ||| load_returned)
 
   def rr_fp_fixed :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_controls[lane].fp.valid & !rr_controls[lane].fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot))
-  def rr_fp_late_gpr :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_fp_fixed[lane] & (rr_controls[lane].fp.bits.registers.destination === FloatDestination.Integer) & rr_rd[lane].or_reduce() & (fp_timing.latency(rr_controls[lane].fp.bits.execution) > Bits(fp_timing.width)(2)))
+  def rr_fp_late_gpr :: Vec(2, Bool) = vec(
+    for List (lane in 0..2):
+      def control :: FloatingPointControl() = rr_controls[lane].fp.bits
+      def integer_destination = (control.registers.destination === FloatDestination.Integer) & rr_rd[lane].or_reduce()
+      def late_return = fp_timing.latency(control.execution) > Bits(fp_timing.width)(2)
+      rr_fp_fixed[lane] & integer_destination & late_return
+  )
+
   // An older MEM divide owns next cycle's shared request input at WB.
-  def rr_fp_wb_reserved = (mem_older.egress.valid & mem_older.egress.bits.fp.valid & (mem_older.egress.bits.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)) ||| (mem_younger.egress.valid & mem_younger.egress.bits.fp.valid & (mem_younger.egress.bits.fp.bits.execution.unit === FloatUnit.DivideSquareRoot))
+  def rr_fp_wb_reserved = or_reduce(
+    for List (producer in [mem_older.egress, mem_younger.egress]):
+      def token :: RV2WideResult(xlen) = producer.bits
+      producer.valid & token.fp.valid & (token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
+  )
+
   def rr_fp_data_blocked = for List (lane in 0..2):
     def control :: FloatingPointControl() = rr_controls[lane].fp.bits
-    rr_controls[lane].fp.valid & ((control.registers.uses_frs1 & rr_fp_busy(rr_rs1[lane])) ||| (control.registers.uses_frs2 & rr_fp_busy(rr_rs2[lane])) ||| (control.registers.uses_frs3 & rr_fp_busy(rr_head.entries[lane].instruction[27..32])) ||| ((control.registers.destination === FloatDestination.FloatingPoint) & rr_fp_busy(rr_rd[lane])))
+    def source1_pending = control.registers.uses_frs1 & rr_fp_busy(rr_rs1[lane])
+    def source2_pending = control.registers.uses_frs2 & rr_fp_busy(rr_rs2[lane])
+    def source3_pending = control.registers.uses_frs3 & rr_fp_busy(rr_head.entries[lane].instruction[27..32])
+    def destination_pending = (control.registers.destination === FloatDestination.FloatingPoint) & rr_fp_busy(rr_rd[lane])
+    rr_controls[lane].fp.valid & (source1_pending ||| source2_pending ||| source3_pending ||| destination_pending)
 
   def rr_fp_structural_blocked = for List (lane in 0..2): rr_decodable[lane] & rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !rr_fp_gpr_available))
 

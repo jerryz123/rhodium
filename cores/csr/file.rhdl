@@ -889,25 +889,42 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
 
   vector_csrs.status_write.valid <== csr_write & bank_address.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   vector_csrs.status_write.bits <== csr_field(csr_replacement, MstatusVS)
+
+
+  /* Live pointer-masking controls
+     Hypervisor specialization adds explicit guest controls; these outputs do not depend on a CSR write. */
+
+  if hypervisor
+  | block:
+
+      /* Derive masking for normal or explicit guest access from the live execution context. */
+      fun masking(access :: RiscvGuestMemoryAccess) :~ PointerMaskControl():
+        hypervisor_pointer_mask_control(context, mstatus_value, state.satp, state.senvcfg, state.hstatus, state.vsstatus, state.vsatp, state.henvcfg, access, ~enabled: config.ssnpm)
+
+      pointer_masking <== masking(RiscvGuestMemoryAccess.Normal)
+      output guest_pointer_masking: PointerMaskControl()
+      guest_pointer_masking <== masking(RiscvGuestMemoryAccess.Guest)
+  | pointer_masking <== user_pointer_mask_control(xlen, privilege_state, mstatus_value, state.satp, state.senvcfg, ~enabled: config.ssnpm)
+
+
+  /* Pointer-mask change notification
+     Only a successful CSR write publishes changes to user or guest masking policy. */
+
   def user_mask_changed = (csr === csr_bits(CsrId.Senvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.senvcfg))
   def guest_mask_changed:
     if hypervisor
     | block:
-
-        /* Derives pointer masking for normal or explicit guest data access from the live
-           execution context. */
-        fun masking(access :: RiscvGuestMemoryAccess) :~ PointerMaskControl():
-          hypervisor_pointer_mask_control(context, mstatus_value, state.satp, state.senvcfg, state.hstatus, state.vsstatus, state.vsatp, state.henvcfg, access, ~enabled: config.ssnpm)
-
-        pointer_masking <== masking(RiscvGuestMemoryAccess.Normal)
-        output guest_pointer_masking: PointerMaskControl()
-        guest_pointer_masking <== masking(RiscvGuestMemoryAccess.Guest)
-        ((csr === csr_bits(CsrId.Henvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.henvcfg))) ||| ((csr === csr_bits(CsrId.Hstatus)) & (pointer_mask_hstatus_fields(csr_replacement, ~enabled: #true) =/= pointer_mask_hstatus_fields(state.hstatus, ~enabled: #true)))
-    | block:
-        pointer_masking <== user_pointer_mask_control(xlen, privilege_state, mstatus_value, state.satp, state.senvcfg, ~enabled: config.ssnpm)
-        Bool(#false)
+        def environment_changed = (csr === csr_bits(CsrId.Henvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.henvcfg))
+        def status_changed = (csr === csr_bits(CsrId.Hstatus)) & (pointer_mask_hstatus_fields(csr_replacement, ~enabled: #true) =/= pointer_mask_hstatus_fields(state.hstatus, ~enabled: #true))
+        environment_changed ||| status_changed
+    | Bool(#false)
 
   pointer_masking_changed <== Bool(config.ssnpm) & csr_write & (user_mask_changed ||| guest_mask_changed)
+
+
+  /* Floating-point CSR writes
+     Architectural CSR writes and status writes retain their existing commit qualification. */
+
   def fp_csr_write = csr_write & fp_csr
   fp_csrs.write.valid <== fp_csr_write
   fp_csrs.write.bits <== RiscvFpCsrWrite():
@@ -917,12 +934,16 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   fp_csrs.status_write.valid <== csr_write & bank_address.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   fp_csrs.status_write.bits <== csr_field(csr_replacement, MstatusFS)
 
-  /* Translation-context changes */
+
+  /* Translation-context changes
+     Environment policy, explicit fences, and root writes independently invalidate translation. */
 
   def sfence_vma_commit = commit.valid & commit.bits.action.is_one_of(RiscvCsrAction.SfenceVma, RiscvCsrAction.HfenceVvma, RiscvCsrAction.HfenceGvma)
   def pbmte_changed = Bool(config.svpbmt) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Menvcfg)) & (svpbmt_enabled(xlen, csr_replacement) =/= pbmte)
   def guest_pbmte_changed = if hypervisor | Bool(config.svpbmt) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Henvcfg)) & pbmte & (svpbmt_enabled(xlen, csr_replacement) =/= svpbmt_enabled(xlen, state.henvcfg)) | Bool(#false)
-  translation_flush <== pbmte_changed ||| guest_pbmte_changed ||| (sfence_vma_commit & !synchronous_trap.valid) ||| (csr_write & bank_address.is_one_of(csr_bits(CsrId.Satp), csr_bits(CsrId.Vsatp), csr_bits(CsrId.Hgatp)))
+  def fence_flush = sfence_vma_commit & !synchronous_trap.valid
+  def root_write = csr_write & bank_address.is_one_of(csr_bits(CsrId.Satp), csr_bits(CsrId.Vsatp), csr_bits(CsrId.Hgatp))
+  translation_flush <== pbmte_changed ||| guest_pbmte_changed ||| fence_flush ||| root_write
 
 
   /* Counter and HPM updates

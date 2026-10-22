@@ -306,23 +306,39 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
         destination: beat_control.first
 
 
-  /* Compression accumulation and suffix formation
-     Speculative packed data and authorized checkpoints have separate lifetimes. */
+  /* Compression lane selection
+     Only nonempty, in-range elements selected by the architectural compression mask participate. */
 
   inst compactor(SimdCompress(xlen))
   def compress_mask = results[1].bits >> beat_control.first[0..vector_bit_offset_width(xlen)]
-  def compress_selected = vec(for List (lane in 0..vector_word_bytes(xlen)):
-                                def position = beat_control.first.zext(index_width(vlen + 1) + 1) + Bits(index_width(vlen + 1) + 1)(lane)
-                                (!beat_control.empty & (Bits(index_width(vlen + 1))(lane) < lanes) & (position < beat_control.end.zext(index_width(vlen + 1) + 1)) & compress_mask[lane].into(Bool)).as_bits()).into(Mask(vector_word_bytes(xlen)))
+  def compress_selected = vec(
+    for List (lane in 0..vector_word_bytes(xlen)):
+      def position = beat_control.first.zext(index_width(vlen + 1) + 1) + Bits(index_width(vlen + 1) + 1)(lane)
+      def lane_exists = Bits(index_width(vlen + 1))(lane) < lanes
+      def before_end = position < beat_control.end.zext(index_width(vlen + 1) + 1)
+      def selected = compress_mask[lane].into(Bool)
+      !beat_control.empty & lane_exists & before_end & selected
+  ).into(Mask(vector_word_bytes(xlen)))
 
   compactor.data <== results[0].bits
   compactor.element_width <== format
   compactor.selected <== compress_selected
+
+
+  /* Compression accumulation
+     Append this beat's selected elements after the speculative prefix, retaining a full-word overflow. */
+
   def append_shift = compress_count.zext(vector_bit_offset_width(xlen) + 1) << (format.as_bits().zext(3) + Bits(3)(3))
   def combined = compress_data.zext(2 * xlen.width) ||| (compactor.compressed.data.zext(2 * xlen.width) << append_shift)
   def total_count = compress_count.zext(vector_lane_count_width(xlen) + 1) + compactor.compressed.count.zext(vector_lane_count_width(xlen) + 1)
   def lane_count = lanes[0..vector_lane_count_width(xlen) + 1]
   def compress_full = total_count >= lane_count
+
+
+  /* Compression write and suffix formation
+     Emit a full word or the final partial word; excess elements form a separate suffix beat.
+     Speculative packed data and authorized checkpoints keep their existing independent lifetimes. */
+
   def remainder_count = mux(compress_full, total_count - lane_count, total_count)[0..vector_lane_count_width(xlen)]
   def source_final = beat_control.end === limit
   def needs_flush = source_final & compress_full & remainder_count.or_reduce()

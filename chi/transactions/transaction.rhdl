@@ -55,6 +55,10 @@ bundle CHIHomeTransaction(p :: CHIFlitParams):
   expected_data_ids: Mask(4)
   received_data_ids: Mask(4)
 
+/* Test whether a decoded packet is expected and has not already been recorded. */
+fun chi_initial_data_id_pending(expected :: Mask(4), received :: Mask(4), packet :: Mask(4)) :~ Bool:
+  (expected & packet).or_reduce() & !(received & packet).or_reduce()
+
 /* Test whether the encoded transfer fits within one physical DAT packet. */
 fun chi_initial_single_flit_size(size :: CHITransferSize,
                                  p :: CHIFlitParams):
@@ -127,7 +131,8 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
 
   def dbid_match = or_reduce(
     for List (index in 0..limit):
-      write_data_matches[index] & or_reduce(entries[index].expected_data_ids & outgoing_data_id) & !or_reduce(entries[index].received_data_ids & outgoing_data_id)
+      def entry :: CHIRequesterTransaction(p) = entries[index]
+      write_data_matches[index] & chi_initial_data_id_pending(entry.expected_data_ids, entry.received_data_ids, outgoing_data_id)
   )
 
   def dbid_response_matches = vec(
@@ -142,7 +147,9 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
 
   def read_completion_matches = vec(
     for List (index in 0..limit):
-      (entries[index].phase === CHIInitialTransactionPhase.ReadPending) & (entries[index].txn_id === rx_dat.txn_id) & or_reduce(entries[index].expected_data_ids & incoming_data_id) & (!or_reduce(entries[index].received_data_ids & incoming_data_id))
+      def entry :: CHIRequesterTransaction(p) = entries[index]
+      def owns_packet = (entry.phase === CHIInitialTransactionPhase.ReadPending) & (entry.txn_id === rx_dat.txn_id)
+      owns_packet & chi_initial_data_id_pending(entry.expected_data_ids, entry.received_data_ids, incoming_data_id)
   )
 
 
@@ -272,7 +279,9 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
 
   def write_data_matches = vec(
     for List (index in 0..limit):
-      (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitData) & (entries[index].dbid === rx_dat.txn_id) & (entries[index].requester_id === rx_dat.src_id) & or_reduce(entries[index].expected_data_ids & incoming_write_data_id) & !or_reduce(entries[index].received_data_ids & incoming_write_data_id)
+      def entry :: CHISubordinateTransaction(p) = entries[index]
+      def owns_packet = (entry.phase === CHIInitialTransactionPhase.WriteAwaitData) & (entry.dbid === rx_dat.txn_id) & (entry.requester_id === rx_dat.src_id)
+      owns_packet & chi_initial_data_id_pending(entry.expected_data_ids, entry.received_data_ids, incoming_write_data_id)
   )
 
   def write_completion_matches = vec(
@@ -282,7 +291,9 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
 
   def read_completion_matches = vec(
     for List (index in 0..limit):
-      (entries[index].phase === CHIInitialTransactionPhase.ReadPending) & (entries[index].return_txn_id === tx_dat.txn_id) & (entries[index].return_node_id === tx_dat.tgt_id) & or_reduce(entries[index].expected_data_ids & outgoing_read_data_id) & !or_reduce(entries[index].received_data_ids & outgoing_read_data_id)
+      def entry :: CHISubordinateTransaction(p) = entries[index]
+      def owns_packet = (entry.phase === CHIInitialTransactionPhase.ReadPending) & (entry.return_txn_id === tx_dat.txn_id) & (entry.return_node_id === tx_dat.tgt_id)
+      owns_packet & chi_initial_data_id_pending(entry.expected_data_ids, entry.received_data_ids, outgoing_read_data_id)
   )
 
 
@@ -474,7 +485,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
   when (upstream_write_data_event & downstream_write_data_event):
     assert(write_data_slot_valid, label_prefix ++ "_write_data_slot_in_range")
     assert(write_data_entry.phase === CHIInitialTransactionPhase.WriteAwaitData, label_prefix ++ "_write_data_has_dbid")
-    assert(or_reduce(write_data_entry.expected_data_ids & write_data_id) & (!or_reduce(write_data_entry.received_data_ids & write_data_id)), label_prefix ++ "_write_data_id_expected")
+    assert(chi_initial_data_id_pending(write_data_entry.expected_data_ids, write_data_entry.received_data_ids, write_data_id), label_prefix ++ "_write_data_id_expected")
     chi_initial_data_fields(p, upstream_write_data, label_prefix ++ "_write_data")
     assert(downstream_write_data.opcode === upstream_write_data.opcode, label_prefix ++ "_write_data_opcode_preserved")
     assert(downstream_write_data.data === upstream_write_data.data, label_prefix ++ "_write_data_payload_preserved")
@@ -496,7 +507,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
 
   when (downstream_read_data_event & upstream_read_data_event):
     assert(read_data_entry.phase === CHIInitialTransactionPhase.ReadPending, label_prefix ++ "_read_data_has_request")
-    assert(or_reduce(read_data_entry.expected_data_ids & read_data_id) & (!or_reduce(read_data_entry.received_data_ids & read_data_id)), label_prefix ++ "_read_data_id_expected")
+    assert(chi_initial_data_id_pending(read_data_entry.expected_data_ids, read_data_entry.received_data_ids, read_data_id), label_prefix ++ "_read_data_id_expected")
     assert(downstream_read_data.resp === Bits(3)(0), label_prefix ++ "_read_data_resp_zero")
     assert(downstream_read_data.resp_err === CHIRespErr.OK, label_prefix ++ "_read_data_ok")
     chi_initial_data_fields(p, downstream_read_data, label_prefix ++ "_read_data")
