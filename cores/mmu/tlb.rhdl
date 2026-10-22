@@ -183,7 +183,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     replacement <== Bits(index_bits)(0)
   elsewhen (fill.valid & (fill.bits.result.fault === RiscvTranslationFault.None)):
     entries <== entries.updated(fill_index, next_entry)
-    replacement <== mux(fill_matches.or_reduce(), replacement, (replacement + Bits(index_bits)(1)) & Bits(index_bits)(entry_count - 1))
+    replacement <== mux(fill_matches.or_reduce(), replacement, wrap_increment(replacement, entry_count))
 
 /* Projects the shared bank onto host-only ports without introducing a second entry store. */
 sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):

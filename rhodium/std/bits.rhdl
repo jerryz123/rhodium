@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines bit ordering, layout, alignment, lane-mask expansion, and masked-merge utilities for Bits. */
+/* Defines bit layout, circular stepping, alignment, lane-mask expansion, and masked merge for Bits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,18 @@ annot.macro 'Pow2Int':
 /* Returns the host cardinality of an unsigned bit-vector with the supplied width. */
 fun unsigned_value_count(width :: Nat):
   1 << width
+
+/* Advance a valid circular index without owning its storage or enable.
+ * The caller maintains index < capacity; unused encodings have no promised result. */
+fun wrap_increment(index :: Bits, capacity :: PosInt) :~ Bits(index.type.packed_width()):
+  def width = index.type.packed_width()
+  unless capacity <= (1 << width)
+  | error(~who: #'wrap_increment, "capacity must fit the index width")
+
+  cond
+  | capacity == 1: Bits(width)(0)
+  | capacity == (1 << width): index + Bits(width)(1)
+  | ~else: mux(index === Bits(width)(capacity - 1), Bits(width)(0), index + Bits(width)(1))
 
 /* Reverses the packed bit order, retaining a one-bit operand unchanged. */
 fun reverse_bits(value :: Bits) :~ Bits(value.type.packed_width()):
@@ -176,6 +188,7 @@ fun transfer_byte_mask(address :: Bits,
   (base_mask << lane_offset).into(Mask(beat_bytes))
 
 export:
+  wrap_increment
   Pow2Int
   power_of_two
   unsigned_value_count

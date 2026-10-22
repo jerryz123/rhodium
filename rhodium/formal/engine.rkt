@@ -55,6 +55,7 @@
        "rtl.xor"
        "rtl.add"
        "rtl.mul"
+       "rtl.urem"
        "rtl.sub"
        "rtl.shl"
        "rtl.shru"
@@ -208,7 +209,7 @@
     ["rtl.vector_get"
      (arity 1 1 0)
      (required attributes "index" "vector projection attributes")]
-    [(or "rtl.and" "rtl.or" "rtl.xor" "rtl.add" "rtl.mul" "rtl.sub"
+    [(or "rtl.and" "rtl.or" "rtl.xor" "rtl.add" "rtl.mul" "rtl.sub" "rtl.urem"
          "rtl.shl" "rtl.shru" "rtl.shrs" "rtl.eq" "rtl.ult" "rtl.slt")
      (arity 2 1 0)]
     [(or "rtl.mux_lookup")
@@ -489,6 +490,17 @@
       ["rtl.xor" (bvxor (first operands) (second operands))]
       ["rtl.add" (bvadd (first operands) (second operands))]
       ["rtl.mul" (bvmul (first operands) (second operands))]
+      ["rtl.urem"
+       (define divisor (second operands))
+       (define validity (! (bveq divisor (bv 0 result-width))))
+       (when obligations
+         (set-box! obligations
+                   (cons (validity-obligation validity module operation path)
+                         (unbox obligations))))
+       (when (concrete? divisor)
+         (unless validity
+           (error 'rhodium-formal "concrete unsigned remainder divisor is zero")))
+       (bvurem (first operands) divisor)]
       ["rtl.sub" (bvsub (first operands) (second operands))]
       [(or "rtl.shl" "rtl.shru" "rtl.shrs")
        (define operand-ids (required operation "operands" "shift"))
@@ -574,8 +586,8 @@
   (when obligations
     (for ([operation (in-list operations)])
       (match (required operation "opcode" "operation")
-        ["rtl.onehot_mux"
-         (eval-value (first (required operation "results" "one-hot mux")))]
+        [(or "rtl.onehot_mux" "rtl.urem")
+         (eval-value (first (required operation "results" "partial operation")))]
         ["rtl.instance" (ensure-instance operation)]
         [_ (void)])))
 
@@ -742,7 +754,9 @@
          [(unsat? proof) (check-validity (rest remaining))]
          [(sat? proof)
           (define message
-            "formal assumptions do not prove rtl.onehot_mux selector is exactly one-hot")
+            (if (equal? (required (validity-obligation-operation obligation) "opcode") "rtl.urem")
+                "formal assumptions do not prove rtl.urem divisor is nonzero"
+                "formal assumptions do not prove rtl.onehot_mux selector is exactly one-hot"))
           (make-result
            "unsupported" message '() #f
            (diagnostic (validity-obligation-module obligation)
@@ -751,7 +765,7 @@
                        (validity-obligation-path obligation)))]
          [else
           (unknown-result
-           "Rosette solver returned an unknown result while proving one-hot validity"
+           "Rosette solver returned an unknown result while proving operation validity"
            obligation)])]))
   (if (null? assumptions)
       (check-validity obligations)

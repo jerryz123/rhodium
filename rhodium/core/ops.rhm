@@ -46,6 +46,8 @@ def schemas:
                    ["name"], "arithmetic_same_type_binary", "value"),
    OperationSchema("rtl.sub", "combinational", 2, 1, 0,
                    ["name"], "arithmetic_same_type_binary", "value"),
+   OperationSchema("rtl.urem", "combinational", 2, 1, 0,
+                   ["name"], "bits_same_type_binary", "value"),
    OperationSchema("rtl.shl", "combinational", 2, 1, 0,
                    ["name"], "arithmetic_shift", "value"),
    OperationSchema("rtl.shru", "combinational", 2, 1, 0,

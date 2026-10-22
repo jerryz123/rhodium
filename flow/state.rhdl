@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").wrap_increment
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/circular-priority.rhdl") open
 
@@ -64,11 +65,7 @@ sync_circuit StateChangeSource(T :: DataType,
   def choice :: CircularPriorityChoice(count, state_index_width) = circular_priority_onehot(dirty, next_priority)
   def capture = choice.valid & (!held_valid ||| transfer)
   def selected_value = current[choice.index]
-  def following_priority = mux(
-    choice.index === Bits(state_index_width)(count - 1),
-    Bits(state_index_width)(0),
-    choice.index + Bits(state_index_width)(1)
-  )
+  def following_priority = wrap_increment(choice.index, count)
 
   assert(next_priority <= Bits(state_index_width)(count - 1),
          "state_change_priority_in_range")

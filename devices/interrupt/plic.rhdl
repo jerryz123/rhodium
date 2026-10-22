@@ -305,7 +305,7 @@ sync_circuit Plic(config :: PlicConfig):
     for List (source in 0..source_count):
       def source_id = source + 1
       mux(enable_word === Bits(5)(source_id div 32),
-          write_value[source_id mod 32].into(Bool),
+          write_value[source_id % 32].into(Bool),
           selected_enable_bits[source].into(Bool))
   ).into(Mask(source_count))
 

@@ -81,12 +81,6 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   reg errors(Vec(slots, CHIRespErr))
   reg poison(Vec(slots, Bool))
 
-  /* Advance the circular issue/output slot index, wrapping at the configured slot count. */
-  fun following_slot(slot :: Bits(index_width(slots))):
-    mux(slot === Bits(index_width(slots))(slots - 1),
-        Bits(index_width(slots))(0),
-        slot + Bits(index_width(slots))(1))
-
   command.ready <== Bool(#true)
   def command_fire = command.fire()
   when command_fire:
@@ -202,12 +196,12 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
     starvation_seen <== Bool(#true)
 
   when request_fire:
-    issue_slot <== following_slot(issue_slot)
+    issue_slot <== wrap_increment(issue_slot, slots)
 
   when command_fire:
     output_slot <== issue_slot
   elsewhen line_fire:
-    output_slot <== following_slot(output_slot)
+    output_slot <== wrap_increment(output_slot, slots)
 
 
   /* Per-slot lifetime: restart, output, completion, then issue.

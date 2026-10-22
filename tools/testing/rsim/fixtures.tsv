@@ -35,6 +35,7 @@ valid-pipe	std	examples/std/valid-pipe.rhdl	program	flow/tests/rsim/valid-pipe.c
 valid-pipe-capture-always	std	examples/std/valid-pipe.rhdl	capture_always_program	flow/tests/rsim/valid-pipe-capture-always.cpp
 expand-mask	std	rhodium/std/tests/rsim/emit-expand-mask.rhm	program	rhodium/std/tests/rsim/expand-mask.cpp
 runtime-alignment	std	rhodium/std/tests/rsim/emit-runtime-alignment.rhm	program	rhodium/std/tests/rsim/runtime-alignment.cpp
+wrap-increment	std	rhodium/std/tests/rsim/emit-wrap-increment.rhm	program	rhodium/std/tests/rsim/wrap-increment.cpp
 transfer-range	std	rhodium/std/tests/rsim/emit-transfer-range.rhm	program	rhodium/std/tests/rsim/transfer-range.cpp
 register-beat	std	rhodium/std/tests/register-beat-fixture.rhdl	program	rhodium/std/tests/rsim/register-beat.cpp
 rv32i-alu	cores-components	cores/tests/rsim/emit-rv32i-alu.rhm	program	cores/tests/rsim/rv32i-alu.cpp

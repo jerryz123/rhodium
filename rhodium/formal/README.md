@@ -110,6 +110,11 @@ the requested query. A missing or insufficient proof returns `unsupported`
 with the operation path. Contradictory assumptions return `vacuous` before any
 one-hot validity claim.
 
+Every reachable `rtl.urem` likewise requires a proof that its divisor is nonzero,
+including unused operations and operations beneath instances. The engine returns
+`unsupported` if the query does not establish that precondition; it does not use
+SMT's chosen zero-divisor value as an RTL guarantee.
+
 ### Result statuses
 
 | Status | Query | Meaning |
@@ -121,7 +126,7 @@ one-hot validity claim.
 | `counterexample` | Equivalence or output property | A replayed assignment demonstrates a difference or property violation |
 | `vacuous` | All | The explicit assumptions are mutually unsatisfiable; no success claim is made |
 | `unsupported` | All | An equivalence interface mismatch, or a reachable type, operation, or semantic case, is outside the implemented contract |
-| `unknown` | All | Rosette could not decide assumption feasibility, a one-hot obligation, or the requested query |
+| `unknown` | All | Rosette could not decide assumption feasibility, an operation-validity obligation, or the requested query |
 
 Equivalence counterexamples contain every top input assignment and every
 differing output. Reachability witnesses and property counterexamples contain
@@ -154,6 +159,7 @@ The implemented deterministic operation contract is:
 | Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
 | Constants and bitwise | `rtl.constant`, `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor` |
 | Modular arithmetic | `rtl.add`, `rtl.mul`, `rtl.sub` |
+| Unsigned remainder | `rtl.urem` when query assumptions prove the divisor nonzero |
 | Shifts | `rtl.shl`, `rtl.shru`, `rtl.shrs`, including unequal operand widths and overshifts |
 | Comparisons | `rtl.eq`, `rtl.ult`, `rtl.slt` |
 | Selection | total `rtl.mux_lookup`; non-overlapping `rtl.decode` with every output bit cared in every case and the default; `rtl.onehot_mux` when query assumptions prove its selector exactly one-hot |
@@ -168,13 +174,14 @@ instance ports. Equal-width casts preserve the packed representation.
 
 The engine never invents values or assumptions for unspecified behavior.
 Structural exclusions are rejected during preflight. When assumptions are
-present, their feasibility is checked first; one-hot validity is then proved
+present, their feasibility is checked first; operation validity is then proved
 before the requested query.
 
 | Unsupported category | Current stop condition |
 |---|---|
 | Free or partial values | `rtl.dont_care`; any `rtl.decode` row or default with an uncared output bit |
 | Unproved partial selection | Any `rtl.onehot_mux` whose exactly-one selector condition is not implied by the query |
+| Unproved remainder domain | Any `rtl.urem` whose nonzero-divisor condition is not implied by the query |
 | Sequential behavior | Registers, reset behavior, every memory form, and memory writes |
 | Verification effects | Assertions, including `verif.assert` |
 | External behavior | DPI calls and DPI result registers |

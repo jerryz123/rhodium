@@ -1010,6 +1010,23 @@ class Builder(design :: Design):
                                       origin,
                                       #'mul)
 
+  /* Builds unsigned remainder for equal-width Bits; a zero divisor has an unspecified result. */
+  method urem(module_def :: Module,
+              left :: Value,
+              right :: Value,
+              name :: maybe(AsciiIdentifier) = #false,
+              location :: Location = Location(),
+              origin :: Origin = Origin("urem")):
+    ensure_module_in_design(design, module_def, #'urem)
+    ensure_open(module_def, #'urem)
+    ensure_value_in(module_def, left, #'urem)
+    ensure_value_in(module_def, right, #'urem)
+    unless bits_type(left.type) && bits_type(right.type) && type_equal(left.type, right.type)
+    | fail(#'urem, "rtl.urem operands must have the same Bits width")
+
+    build_value_operation(design, module_def, "rtl.urem", [left, right], left.type,
+                          name, location, origin, #'urem)
+
   /* Builds bitwise inversion while retaining the operand's exact bitwise type. */
   method bit_not(module_def :: Module,
                  operand :: Value,

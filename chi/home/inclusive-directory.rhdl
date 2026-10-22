@@ -95,7 +95,7 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
     sweep_set <== mux(sweep_set === Bits(set_width)(sets - 1), sweep_set, sweep_set + Bits(set_width)(1))
 
   when write:
-    commit_priority <== mux(choice.index === Bits(slot_width)(slots - 1), Bits(slot_width)(0), choice.index + Bits(slot_width)(1))
+    commit_priority <== wrap_increment(choice.index, slots)
     prefer_commit <== Bool(#false)
     assert(selected.way.zext(index_width(ways) + 1) < Bits(index_width(ways) + 1)(ways), "chi_directory_commit_way_in_range")
   elsewhen read:

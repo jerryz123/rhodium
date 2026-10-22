@@ -1,0 +1,28 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../standard.rhm" as frontend
+  "../../core/main.rhm" open
+  "../../compile/program.rhm".compile_program
+  "../../compile/rtl.rhm".rtl_target
+  "remainder-fixture.rhdl" as fixture
+
+check:
+  17 frontend.(%) 5 ~is 2
+  -17 frontend.(%) 5 ~is -2
+  frontend.elaborate(fixture.RemainderConstant(Bits(8), 0)) ~throws "divisor must be positive"
+  frontend.elaborate(fixture.RemainderConstant(Bits(8), -1)) ~throws "divisor must be positive"
+  frontend.elaborate(fixture.RemainderConstant(frontend.Bool, 3)) ~throws "dividend must be Bits"
+  frontend.elaborate(fixture.RemainderTypes(Bits(8), Bits(4))) ~throws "same Bits width"
+  frontend.elaborate(fixture.RemainderTypes(Bits(8), frontend.Bool)) ~throws "same Bits width"
+  frontend.elaborate(fixture.RemainderTypes(frontend.Mask(8), frontend.Mask(8))) ~throws "dividend must be Bits"
+  frontend.elaborate(fixture.RemainderTypes(frontend.SInt(8), frontend.SInt(8))) ~throws "dividend must be Bits"
+
+for (width in [1, 5, 64, 65, 129, 512]):
+  def result = compile_program(fixture.program(width), rtl_target)
+  def top = result.report.top
+  check:
+    type_equal(top.find_output("dynamic_result").place.type, Bits(width)) ~is #true
+    type_equal(top.find_output("widened").place.type, Bits(width + 1)) ~is #true
+    top.find_output("by_limit").place.driver === top.find_input("a").value ~is #true
+    top.find_output("by_large").place.driver === top.find_input("a").value ~is #true

@@ -69,7 +69,6 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
   def active_pixel = (x < Bits(x_width)(t.horizontal_active)) & (y < Bits(y_width)(t.vertical_active))
   def row_last = x === Bits(x_width)(t.horizontal_active - 1)
   def line_last = x === Bits(x_width)(t.horizontal_total - 1)
-  def frame_last = y === Bits(y_width)(t.vertical_total - 1)
   restart <== enable & pixel_enable & (x === Bits(x_width)(0)) & (y === Bits(y_width)(t.vertical_active))
   def missing = enable & armed & !dropped & pixel_enable & active_pixel & !full[read_bank]
   line.ready <== enable & armed & !restart & (dropped ||| (!frame_filled & !full[fill_bank]))
@@ -116,9 +115,9 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
      Pixel-enable gaps hold both coordinates, independently of CHI filling. */
 
   when pixel_enable:
-    x <== mux(line_last, Bits(x_width)(0), x + Bits(x_width)(1))
+    x <== wrap_increment(x, t.horizontal_total)
     when line_last:
-      y <== mux(frame_last, Bits(y_width)(0), y + Bits(y_width)(1))
+      y <== wrap_increment(y, t.vertical_total)
 
 
   /* Frame recovery and sticky status
@@ -151,14 +150,14 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     frame_filled <== Bool(#false)
   otherwise:
     when writes:
-      fill_word <== mux(last_word, Bits(word_width)(0), fill_word + Bits(word_width)(1))
+      fill_word <== wrap_increment(fill_word, mode.fetch_lines_per_row)
       when last_word:
-        fill_bank <== mux(fill_bank === Bits(bank_width)(rows - 1), Bits(bank_width)(0), fill_bank + Bits(bank_width)(1))
+        fill_bank <== wrap_increment(fill_bank, rows)
         fill_row <== fill_row + Bits(index_width(t.vertical_active))(1)
         frame_filled <== last_row
 
     when releases:
-      read_bank <== mux(read_bank === Bits(bank_width)(rows - 1), Bits(bank_width)(0), read_bank + Bits(bank_width)(1))
+      read_bank <== wrap_increment(read_bank, rows)
 
 
   /* Pixel return alignment

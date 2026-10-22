@@ -464,6 +464,7 @@ def transfer_aligned = is_aligned_log2(address, size_bits, ~max_log2: 6)
 def base = align_down(address, 8)
 def reversed = reverse_bits(address)
 def leading_zeros = count_leading_zeros(address)
+def following_slot = wrap_increment(slot, slots)
 
 fun bank_index_width(bank_count :: Pow2Int):
   alignment_bits(bank_count)
@@ -478,6 +479,14 @@ it returns false for non-integers, zero, negative integers, and other
 non-power-of-two values.
 `unsigned_value_count(width)` returns the number of distinct values represented
 by a nonnegative unsigned width, including one value for width zero.
+`wrap_increment(index, capacity)` advances an unsigned `Bits` index by one,
+returning zero at `capacity - 1`. It preserves the index's width and accepts
+any positive host capacity up to `2 ** width`, including non-power-of-two rings
+and a singleton ring (whose valid index remains zero). Callers must maintain
+`index < capacity`; unused encodings have no promised result, so this is not a
+general modulo operation. It adds no storage, enable, reset, or assertion. Keep update
+timing and range assertions with the owner; use `Counter` when the component
+should own its counter state and enabled wrap event.
 `reverse_bits(value)` reverses the positions of a nonempty `Bits` value while
 preserving its width. `count_leading_zeros(value)` returns
 `Bits(index_width(width + 1))`; its result ranges from zero through the operand

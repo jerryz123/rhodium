@@ -50,6 +50,13 @@ remain unsupported until each receives an explicit semantic model. Do not
 silently ignore a reachable operation or restrict the query to one convenient
 backward slice.
 
+Unsigned `rtl.urem` uses `bvurem` only after proving its divisor nonzero under
+the complete query. Collect this obligation even for an unused result or a child
+instance, as for one-hot selection; SMT's total zero-divisor interpretation is
+not a definition of unspecified RTL behavior. Concrete replay rejects zero.
+`tests/remainder-test.rhm` covers equivalence against a lookup oracle,
+counterexample replay, unproved and unused-operation domains, and vacuity.
+
 ## Change queries or results
 
 Keep assumptions as explicit packed constraints over named top inputs. Validate

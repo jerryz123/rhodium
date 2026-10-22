@@ -168,6 +168,20 @@ checks zero, narrow/non-power-of-two operand widths, bounded/oversized exponents
 and unit/full-width alignment. Host `std-bits` tests reject invalid bounds and
 operand types. CHI consumers retain their size-validity and range checks.
 
+`wrap_increment` in `bits.rhdl` supplies only the combinational successor of
+an in-range circular index. Preserve the input width and reject capacities
+whose final index does not fit; do not add implicit storage, range assertions,
+or modulo normalization. `std-bits` host checks cover rejected capacities and
+non-Bits operands. The `wrap-increment` rsim fixture checks valid indices at
+singleton, power-of-two, and non-power-of-two capacities, including 65/129-bit
+carry and terminal boundaries. CHI streaming and Home arbitration retain their
+existing acceptance, stalled-owner, reset, and fairness rules.
+For singleton capacity the successor is a constant zero. When capacity fills
+the input representation, fixed-width addition already wraps: keep both
+specializations free of an unnecessary terminal mux. `Counter`
+uses this successor but retains its own enable, reset, range assertion, and
+pre-edge `wrap` event.
+
 Striped bank geometry belongs in `interconnect.rhdl`, independently of CHI
 flit parameters. Host projection validates membership; hardware projection
 only removes bank-select bits from a caller-provided relative offset. Host

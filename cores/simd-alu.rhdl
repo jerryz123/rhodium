@@ -174,8 +174,8 @@ circuit SimdALU(xlen :: XLen):
   def boundaries = for List (index in 0..(width / 8)):
     def boundary = cond
     | index == 0: Bool(#true)
-    | index mod 4 == 0: element_width =/= SimdElementWidth.E64
-    | index mod 2 == 0: element_width.is_one_of(SimdElementWidth.E8, SimdElementWidth.E16)
+    | index % 4 == 0: element_width =/= SimdElementWidth.E64
+    | index % 2 == 0: element_width.is_one_of(SimdElementWidth.E8, SimdElementWidth.E16)
     | ~else: element_width === SimdElementWidth.E8
 
     boundary
@@ -329,8 +329,8 @@ circuit SimdALU(xlen :: XLen):
       def less = selected.less
       def predicate = selected.comparison
       def shifted :: Bits(width) = shifts[lane]
-      def shift_low = (byte mod element_bytes) * 8
-      def reverse_byte = lane * element_bytes + element_bytes - 1 - (byte mod element_bytes)
+      def shift_low = (byte % element_bytes) * 8
+      def reverse_byte = lane * element_bytes + element_bytes - 1 - (byte % element_bytes)
       def reversed_byte :: Bits(8) = reversed_bytes[reverse_byte]
       def local_reversed_byte :: Bits(8) = reversed_bytes[byte]
       def permutation = mux_lookup(control.permutation_select, ~default: reversed_byte, [[SimdPermutationSelect.ReverseBitsInBytes, local_reversed_byte], [SimdPermutationSelect.ReverseBytes, left[reverse_byte * 8..(reverse_byte + 1) * 8]]])
@@ -341,10 +341,10 @@ circuit SimdALU(xlen :: XLen):
         enabled: enabled[lane]
         select_right: select_right[lane]
         select_left: less ^ control.maximum
-        compare_data: if byte mod element_bytes == 0 | predicate.as_bits().zext(8) | Bits(8)(0)
+        compare_data: if byte % element_bytes == 0 | predicate.as_bits().zext(8) | Bits(8)(0)
         shift_data: shifted[shift_low..shift_low + 8]
         permutation_data: permutation
-        count_data: if byte mod element_bytes == 0 | count.zext(8) | Bits(8)(0)
+        count_data: if byte % element_bytes == 0 | count.zext(8) | Bits(8)(0)
 
     SimdRouting(xlen):
       comparison: concat(lane_comparisons.reverse()).into(Mask(width / 8))

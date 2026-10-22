@@ -10,6 +10,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("rhodium/std/bits.rhdl").wrap_increment
   lib("flow/main.rhdl") open
 
 /* Closes one instruction owner's issue lifetime while retaining its outstanding slots. */
@@ -120,7 +121,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
       macro_fault[owner] <== finished.bits.fault ||| cancel.valid
 
   when macro_complete:
-    drain_owner <== if vector_completion_slots == 1 | Bits(tag_width)(0) | drain_owner + Bits(tag_width)(1)
+    drain_owner <== wrap_increment(drain_owner, vector_completion_slots)
 
 
   /* Conservative destination intents and exact pending rows.
@@ -159,7 +160,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
 
   when (request.valid):
     current_owner <== next_owner
-    next_owner <== if vector_completion_slots == 1 | Bits(tag_width)(0) | next_owner + Bits(tag_width)(1)
+    next_owner <== wrap_increment(next_owner, vector_completion_slots)
 
   active <== macro_valid.as_bits().or_reduce()
   def store_macro_pending = vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_store[owner]).as_bits().or_reduce()

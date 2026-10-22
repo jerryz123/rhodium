@@ -22,7 +22,7 @@ fun cache_lane_mask(config :: CacheConfig,
   vec(
     for List (index in 0..(config.ways * lanes)):
       def selected_way = way === Bits(config.way_width)(index div lanes)
-      selected_way & lane_mask[index mod lanes]
+      selected_way & lane_mask[index % lanes]
   ).into(Mask(config.ways * lanes))
 
 export:

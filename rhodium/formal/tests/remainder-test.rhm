@@ -1,0 +1,45 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../main.rhm" open
+  "../../core/main.rhm" open
+
+fun subject(name, implementation):
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module(name)
+  def a = b.input(top, "a", Bits(5))
+  def divisor = b.input(top, "divisor", Bits(5))
+  def result = b.output(top, "result", Bits(5))
+  def value:
+    match implementation
+    | "remainder": b.urem(top, a, divisor)
+    | "lookup":
+        b.mux_lookup(top, a, b.constant(top, Bits(5), 0),
+                     for List (index in 0..32): [index, b.constant(top, Bits(5), index mod 3)])
+    | "unused":
+        b.urem(top, a, divisor)
+        a
+
+  b.drive(result, value)
+  b.finish(top)
+
+def candidate = subject("Remainder", "remainder")
+def reference = subject("Lookup", "lookup")
+def nonzero_query = FormalQuery([FormalInputAssumption("divisor", 3)])
+def equivalent = check_equivalent(candidate, reference, nonzero_query)
+def counterexample = check_equivalent(candidate, reference, FormalQuery([FormalInputAssumption("divisor", 5)]))
+def unsupported = check_equivalent(candidate, candidate)
+def unused = subject("UnusedRemainder", "unused")
+def unused_result = check_equivalent(unused, unused)
+def vacuous = check_equivalent(candidate, candidate, FormalQuery([FormalInputAssumption("divisor", 3), FormalInputAssumption("divisor", 0)]))
+
+check:
+  equivalent.equivalent() ~is #true
+  counterexample.counterexample() ~is #true
+  counterexample.differences[0].left_value != counterexample.differences[0].right_value ~is #true
+  unsupported.unsupported() ~is #true
+  unsupported.diagnostic.opcode ~is "rtl.urem"
+  unsupported.diagnostic.message.contains("divisor is nonzero") ~is #true
+  unused_result.unsupported() ~is #true
+  vacuous.vacuous() ~is #true

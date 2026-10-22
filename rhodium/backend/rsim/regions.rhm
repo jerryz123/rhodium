@@ -47,6 +47,7 @@ fun step_cost(index :: Nat, schedule :: RsimSchedule, constants :: Map) :: PosIn
 
     match step.opcode
     | "rtl.mul": cost + result * result
+    | "rtl.urem": cost + result * result
     | "rtl.mux_lookup": cost + step.attributes["keys"].length() * (1 + type_cost(schedule.steps[step.operands[0]].type))
     | "rtl.onehot_mux": cost + step.operands.length()
     | "rtl.decode": (if step.attributes.has_key("rsim_table") | cost + 2 | cost + step.attributes["cases"].length() * (1 + result + type_cost(schedule.steps[step.operands[0]].type)))

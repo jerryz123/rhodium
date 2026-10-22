@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").wrap_increment
   lib("flow/circular-priority.rhdl") open
 
 export:
@@ -89,11 +90,7 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
   next_priorities <== vec(
     for List (output_index in 0..output_count):
       def choice :: Hardware.packable = output_choices[output_index]
-      def following_index = mux(
-        choice.index === Bits(priority_width)(input_count - 1),
-        Bits(priority_width)(0),
-        choice.index + Bits(priority_width)(1)
-      )
+      def following_index = wrap_increment(choice.index, input_count)
       mux(choice.valid & accepts[output_index],
           following_index,
           next_priorities[output_index])

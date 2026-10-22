@@ -80,10 +80,10 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
       occupied[index] <== Bool(#false)
 
   when (enqueue.fire()):
-    tail <== if depth == 1 | Bits(pointer_width)(0) | tail + Bits(pointer_width)(1)
+    tail <== wrap_increment(tail, depth)
 
   when (drain.fire()):
-    head <== if depth == 1 | Bits(pointer_width)(0) | head + Bits(pointer_width)(1)
+    head <== wrap_increment(head, depth)
 
 export:
   CacheStoreBufferEntry

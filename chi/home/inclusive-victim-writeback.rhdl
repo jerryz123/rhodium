@@ -115,15 +115,6 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
   occupancy.set.bits <== allocation_entry
 
   /*
-   * Advance the circular writeback-entry arbitration priority, wrapping at the configured
-   * capacity.
-   */
-  fun next_entry_priority(entry :: Bits(index_width(entries))):
-    mux(entry === Bits(index_width(entries))(entries - 1),
-        Bits(index_width(entries))(0),
-        entry + Bits(index_width(entries))(1))
-
-  /*
    * Place writeback entry IDs immediately after the parent demand-slot subordinate transaction
    * range.
    */
@@ -160,7 +151,7 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
     request_owner <== request_entry
   elsewhen request_fire:
     request_locked <== Bool(#false)
-    request_next_priority <== next_entry_priority(request_entry)
+    request_next_priority <== wrap_increment(request_entry, entries)
 
 
   /* DAT arbitration and packet progress.
@@ -194,7 +185,7 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
     data_owner <== data_entry
   elsewhen (data_fire & final_data):
     data_locked <== Bool(#false)
-    data_next_priority <== next_entry_priority(data_entry)
+    data_next_priority <== wrap_increment(data_entry, entries)
   elsewhen data_fire:
     data_locked <== Bool(#true)
     data_owner <== data_entry
@@ -275,7 +266,7 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
     completion_owner <== completion_entry
   elsewhen completion_fire:
     completion_locked <== Bool(#false)
-    completion_next_priority <== next_entry_priority(completion_entry)
+    completion_next_priority <== wrap_increment(completion_entry, entries)
 
   occupancy.clear.valid <== completion_fire
   occupancy.clear.bits <== completion_entry

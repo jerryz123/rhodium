@@ -200,7 +200,7 @@ Its cases use packed integer value/care images. Ordinary designs should prefer
 the typed `DecodeGen` standard-library wrapper, which constructs those images
 from `Pattern` values.
 
-The standard combinational surface includes modular `+`, `-`, `*`, shifts,
+The standard combinational surface includes modular `+`, `-`, `*`, unsigned `%`, shifts,
 and the hardware-only bitwise operators `&`, `|||`, and `^`. Prefix `-`
 performs fixed-width two's-complement arithmetic negation on `Bits` and `SInt`
 and ordinary numeric negation on host values. Prefix `!` is a width-preserving
@@ -219,6 +219,26 @@ constant during elaboration. Negative host amounts are rejected.
 Bitwise and shift expressions retain the left operand's authoring surface, so
 type-owned indexing and methods remain available on their results. `mux` and
 `mux_lookup` likewise retain the selected value surface.
+
+Unsigned remainder accepts equal-width hardware `Bits` operands, or a hardware
+`Bits` dividend and a positive host-integer divisor:
+
+```rhombus
+def residue = value % divisor
+def constant_residue = value % 3
+def unchanged = value % (1 << width)
+```
+
+The result preserves the dividend width and `%` has multiplication precedence.
+A host divisor at or above `2^width` leaves the dividend unchanged; it is never
+silently truncated to fit the hardware width. Nonpositive host divisors are
+elaboration errors. A hardware zero divisor has an unspecified result: callers
+must exclude it or select a defined fallback. Signed, mask, mixed-width, and
+host-dividend/hardware-divisor combinations are rejected. With two host integers,
+`%` uses Rhombus `rem` semantics, including the dividend's sign for negative values.
+Addition still wraps at its declared width *before* a following remainder;
+use explicit widening when that carry is required. General `%` does not carry
+the range invariant of a bounded circular index or guarantee compare/add hardware.
 
 Expanding arithmetic is explicit:
 

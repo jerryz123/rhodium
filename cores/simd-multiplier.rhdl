@@ -78,7 +78,7 @@ sync_circuit SimdMultiplier(width :: Pow2Int, max_element_width :: Pow2Int):
   def formats = simd_multiply_formats(width, max_element_width)
   def widths = SimdElementWidth.values().take(formats.length())
   def capacities = for List (index in 0..slots):
-    def aligned = formats.filter(~keep: fun (element): (index * 8) mod element == 0)
+    def aligned = formats.filter(~keep: fun (element): (index * 8) % element == 0)
     aligned[aligned.length() - 1]
 
   when (request.valid):
@@ -149,9 +149,9 @@ fun simd_multiply_add(width :: Pow2Int, element_width :: SimdElementWidth, left 
   def inverted = mux(subtract, !right, right)
   def boundaries = for List (byte in 0..width / 8):
     mux_lookup(element_width, ~default: Bool(#true), [
-      [SimdElementWidth.E16, Bool(byte mod 2 == 0)],
-      [SimdElementWidth.E32, Bool(byte mod 4 == 0)],
-      [SimdElementWidth.E64, Bool(byte mod 8 == 0)]
+      [SimdElementWidth.E16, Bool(byte % 2 == 0)],
+      [SimdElementWidth.E32, Bool(byte % 4 == 0)],
+      [SimdElementWidth.E64, Bool(byte % 8 == 0)]
     ])
   def a = for List (byte in 0..width / 8):
     left[byte * 8..byte * 8 + 8] ++ mux(boundaries[byte], subtract, Bool(#true)).as_bits()

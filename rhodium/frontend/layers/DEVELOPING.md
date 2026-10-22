@@ -127,6 +127,15 @@ boundary with `std-flow-static-test.rhm` and `generator-parameters-test.rhm`.
 7. Update the public contract and layer map in [`README.md`](README.md), plus the
    authoritative dependency row in [`../../DEVELOPING.md`](../../DEVELOPING.md).
 
+### Unsigned remainder
+
+`comb.rhm` owns unsigned `%` and the `hw_urem` construction function. It handles
+positive host divisors before calling the kernel: divisors too large to fit the
+dividend width are identity operations, not truncated literals. Hardware operands
+lower to core `rtl.urem`; do not infer a circular-index range from an addition.
+The remainder host tests cover types, constant boundaries, and result surfaces;
+the backend remainder oracle covers actual arithmetic and guarded zero divisors.
+
 ### Adding a hardware type
 
 Use `hardware_type` for an extension-defined scalar family and implement only

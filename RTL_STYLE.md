@@ -247,6 +247,12 @@ for cosmetic consistency. Conversely, do not mark an observable result as
 - Use ordinary operators directly, not qualified forms such as `bits.(>>)`. Use
   prefix `-` for fixed-width arithmetic negation, not a typed zero minus the
   operand. Preserve intentional arithmetic widths and signedness.
+- Use `wrap_increment(index, capacity)` from `rhodium/std/bits.rhdl` for a
+  bounded circular successor, keeping the range invariant and update event
+  with the caller. Use `%` for general unsigned remainder, not as a substitute
+  for that invariant or an iterative divider's cycle-level implementation.
+  Keep meaningful bit-field extraction, saturation, and backward stepping
+  explicit rather than forcing them through either operation.
 - `Mask` is a lane set, not an integer: it supports neither arithmetic nor
   shifting. Perform a genuine numeric shift on an appropriate numeric value
   and convert at the boundary; do not use casts to disguise mask arithmetic.

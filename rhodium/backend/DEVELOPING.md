@@ -598,7 +598,12 @@ schoolbook multiplication accumulates each limb product, stored limb, and carry
 in `uint64_t`; their sum is at most `2^64 - 1`. Discard overflow above the declared
 hardware width before subsequent operations, including widening. Unsigned ordering
 visits limbs from high to low. Signed ordering first compares declared sign bits,
-then uses unsigned ordering for equal signs. Keep signedness in the operation and
+then uses unsigned ordering for equal signs. Wide unsigned remainder uses binary
+long division with a separate trial-overflow bit, preserving all declared bits
+without a signed carrier. Narrow remainder guards C++ `%` against zero; both
+native paths choose zero for the unspecified zero-divisor result, including
+eager evaluation behind an unselected mux. This is not a portable value guarantee.
+Keep signedness in the operation and
 preserve the existing machine-word emission for widths through 64.
 Wide concatenation places normalized operand limbs at canonical bit offsets into
 one zeroed result; unaligned fields split across adjacent limbs. Left shifts use
@@ -892,6 +897,14 @@ eval under ASan/UBSan. Native and direct-SV coverage runs in the ordinary and
 forced-region suites. Run `python3 rhodium/backend/tests/rsim/mask_index.py
 --differential --circt` for a focused three-backend check; `--circt` additionally
 requires the pinned `circt-opt`, overridable with `CIRCT_OPT`.
+
+`tests/rsim/remainder.py` checks authored `%` at 1/5/32/64/65/129/512 bits against
+Python integer remainder, including dirty padding, carry boundaries, host
+divisors at and above the type's capacity, width-preserving addition before
+remainder, and guarded hardware zero divisors. Native runs use ASan/UBSan and
+exclude raw zero-divisor results from comparison. Both ordinary and forced-region
+rsim suites include it. Run `python3 rhodium/backend/tests/rsim/remainder.py
+--differential --circt` for native, direct-SV, and CIRCT coverage.
 
 `tests/rsim/selection.py` covers scalar widths 1/5/63/64, one-hot selectors of
 1/3/64 bits, unknown choices hidden by selection, and nested aggregate decode

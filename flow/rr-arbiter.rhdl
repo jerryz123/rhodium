@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").wrap_increment
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/circular-priority.rhdl") open
@@ -37,11 +38,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
   describe_interface_contract(ingress, egress, "data", ~kind: "rr-arbiter", ~trace_model: interface_trace_selection())
 
   when (egress.fire()):
-    next_priority <== mux(
-      choice.index === Bits(width)(n - 1),
-      Bits(width)(0),
-      choice.index + Bits(width)(1)
-    )
+    next_priority <== wrap_increment(choice.index, n)
 
 /* The payloadless specialization owns the same direct rotating state. */
 sync_circuit CtrlRRArbiter(n :: PosInt):
@@ -64,11 +61,7 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
   chosen <== choice.index
 
   when (egress.fire()):
-    next_priority <== mux(
-      choice.index === Bits(width)(n - 1),
-      Bits(width)(0),
-      choice.index + Bits(width)(1)
-    )
+    next_priority <== wrap_increment(choice.index, n)
 
 /* A connected endpoint array supplies its own input count. A disconnected
    topology starts from a payload type and states the count once in rr_arbiter. */

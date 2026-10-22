@@ -220,7 +220,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
       def destination_element = beat_control.first + (destination_byte >> sew).zext(index_width(vlen + 1))
       def insert = descriptor.control.slide_one & (destination_element === slide_insert_index)
       def scalar_bytes = for List (format_index in 1..vector_format_count(xlen)):
-        def offset = (byte mod (2 ** format_index)) * 8
+        def offset = (byte % (2 ** format_index)) * 8
         [format_index, packing.scalar[offset..offset + 8]]
 
       def scalar_byte = mux_lookup(sew, ~default: packing.scalar[0..8], scalar_bytes)

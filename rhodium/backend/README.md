@@ -164,7 +164,7 @@ behavior across backends.
 
 Widths 1–64 support the operations below. Wider scalars currently support ports,
 structural connections, constants, `dont_care`, bitwise `not`/`and`/`or`/`xor`,
-modular `add`/`sub`/`mul`, `eq`/`ult`/`slt`, `mux_lookup`, `onehot_mux`, `decode`,
+modular `add`/`sub`/`mul`, unsigned `urem`, `eq`/`ult`/`slt`, `mux_lookup`, `onehot_mux`, `decode`,
 scalar and aggregate packing casts, `concat`/`extract`/`trunc`/`zext`/`sext`,
 `shl`/`shru`/`shrs`, and registers with or without synchronous reset.
 Arithmetic discards bits above the declared result width before any subsequent
@@ -178,6 +178,8 @@ One-hot selection can address choices above bit 63. Wide selectors also work
 with scalar and aggregate results; decode can produce wide scalars from
 narrow inputs. Uncared decode bits and invalid one-hot encodings retain their
 existing partial-value semantics.
+Unsigned remainder with a zero divisor is likewise unspecified; native simulation
+chooses zero without trapping, including in eagerly evaluated unselected branches.
 Records and vectors support wide leaves through ports, construction, projection,
 selection, dynamic vector operations, registers, and memories. Packing casts support
 equal total widths above 64 bits as well. Functional DPI supports wide scalar
@@ -189,7 +191,7 @@ The supported operation set is deliberately bounded:
 |---|---|
 | Data | Protocol-defined fixed-width scalar leaves, nested records and fixed-size vectors; active-high `Reset` controls |
 | Structure | Ports, wires, forward connections, nested and repeated instances |
-| Combinational | Constants; `not`, `and`, `or`, `xor`; modular `add`, `sub`, `mul`; `eq`, `ult`, `slt`; scalar/aggregate `mux_lookup`; equal-width packing casts except clocks |
+| Combinational | Constants; `not`, `and`, `or`, `xor`; modular `add`, `sub`, `mul`; unsigned `urem`; `eq`, `ult`, `slt`; scalar/aggregate `mux_lookup`; equal-width packing casts except clocks |
 | Partial values and selection | `dont_care`, typed `onehot_mux`, and `decode` relations with input/output care masks, including wide aggregate inputs and outputs |
 | Bit manipulation | `concat`, inclusive `extract`; `zext`, `sext`, `trunc`; `shl`, `shru`, `shrs` |
 | Aggregates | `record_create`, `record_get`, `vector_create`, `vector_get`; dynamic `vector_index`, `vector_inject`, and `vector_write_set` |
@@ -418,6 +420,7 @@ occurrence paths continue to identify the original source instances.
 | `rtl.vector_write_set` | Unordered enabled replacements at distinct, in-range indices; disabled ports have no effect |
 | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor` | Fixed-width bitwise operations |
 | `rtl.add`, `rtl.sub`, `rtl.mul` | Modular arithmetic at each result's declared width |
+| `rtl.urem` | Unsigned remainder; a zero divisor has an unspecified result |
 | `rtl.eq`, `rtl.ult`, `rtl.slt` | Equality, unsigned less-than, explicitly signed less-than |
 | `rtl.shl`, `rtl.shru`, `rtl.shrs` | Fixed-width left, logical right, and arithmetic right shifts with the complete unsigned count |
 | `rtl.concat`, `rtl.extract`, `rtl.trunc` | MSB-first concatenation, inclusive static bit ranges, and low-bit truncation |
@@ -632,6 +635,7 @@ the consuming SSA reference.
 | `rtl.not` | `comb.xor` with an all-ones constant |
 | `rtl.and`, `rtl.or`, `rtl.xor` | Matching `comb` operation |
 | `rtl.add`, `rtl.sub`, `rtl.mul` | Matching `comb` operation |
+| `rtl.urem` | `comb.modu` |
 | `rtl.shl`, `rtl.shru`, `rtl.shrs` | Matching `comb` shift after operand-width normalization |
 | `rtl.eq`, `rtl.ult`, `rtl.slt` | `comb.icmp` with `eq`, `ult`, or `slt` predicate |
 | `rtl.concat` | `comb.concat` |

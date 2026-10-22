@@ -1,9 +1,32 @@
 #lang rhodium
-// Exercises generic bit ordering, layout, alignment, and lane-mask operations and invalid parameters.
+// Exercises bit ordering, circular stepping, layout, alignment, and lane-mask parameter contracts.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
+
+def wrap_cases = [[1, 1], [1, 2], [2, 3], [2, 4], [3, 5], [3, 8],
+                  [4, 9], [4, 16], [8, 17], [8, 255], [8, 256], [16, 257], [16, 65536]]
+
+circuit WrapIncrementFixture():
+  input index: Bits(129)
+  output small_next: Vec(wrap_cases.length(), Bits(16))
+  output next_65: Bits(65)
+  output next_129: Bits(129)
+
+  for (position in 0..wrap_cases.length()):
+    def width = wrap_cases[position][0]
+    def capacity = wrap_cases[position][1]
+    def stepped = wrap_increment(index[0..width], capacity)
+    small_next[position] <== if width == 16 | stepped | stepped.zext(16)
+
+  next_65 <== wrap_increment(index[0..65], (1 << 64) + 1)
+  next_129 <== wrap_increment(index, (1 << 128) + 1)
+
+circuit WrapIncrementTypeFixture(T :: DataType, capacity :: Int):
+  input index: T
+  output stepped: T
+  stepped <== wrap_increment(index, capacity)
 
 circuit BitOrderFixture():
   input value: Bits(8)
@@ -172,6 +195,8 @@ circuit TransferBeatTooWideFixture():
   mask <== transfer_byte_mask(address, size, 16)
 
 export:
+  WrapIncrementFixture
+  WrapIncrementTypeFixture
   BitOrderFixture
   BitsAlignmentFixture
   RuntimeAlignmentFixture

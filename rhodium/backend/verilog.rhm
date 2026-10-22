@@ -32,6 +32,7 @@ def verilog_opcode_policy:
    "rtl.add": "emit",
    "rtl.sub": "emit",
    "rtl.mul": "emit",
+   "rtl.urem": "emit",
    "rtl.shl": "emit",
    "rtl.shru": "emit",
    "rtl.shrs": "emit",
@@ -267,7 +268,7 @@ fun sv_expression(operation :: Operation, refs :: Map, types :: SvTypes):
 
       expression
   | ~else:
-      def operator = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+", "rtl.sub": "-", "rtl.mul": "*", "rtl.eq": "==", "rtl.ult": "<"}[operation.opcode]
+      def operator = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+", "rtl.sub": "-", "rtl.mul": "*", "rtl.urem": "%", "rtl.eq": "==", "rtl.ult": "<"}[operation.opcode]
       args[0] ++ " " ++ operator ++ " " ++ args[1]
 
 /* Render one child occurrence using its verified signature order. Separate input

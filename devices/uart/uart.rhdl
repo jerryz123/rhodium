@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").wrap_increment
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/cdc.rhdl").SyncLevel
 
@@ -57,7 +58,7 @@ sync_circuit Uart8N1Transmitter():
       phase <== phase + Bits(4)(1)
 
     when (active & oversample_tick):
-      subtick <== mux(phase_boundary, Bits(4)(0), subtick + Bits(4)(1))
+      subtick <== wrap_increment(subtick, UartOversampleCount)
 
 /* Separates idle/start validation, bit capture, stop checking, and recovery from a low stop. */
 hardware_enum UartReceiverState:

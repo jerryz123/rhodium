@@ -76,10 +76,6 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   fun page_matches(address :: Bits(xlen.width)) :~ Vec(page_count, Bool):
     vec(for List (index in 0..page_count): pages[index].valid & (pages[index].tag === page_tag(address)))
 
-  /* Advances the shared-page replacement cursor with wrap at the configured page count. */
-  fun next_page(index :: Bits(page_index_bits)) :~ Bits(page_index_bits):
-    mux(index === Bits(page_index_bits)(page_count - 1), Bits(page_index_bits)(0), index + Bits(page_index_bits)(1))
-
 
   /* Combinational prediction lookup.
      Choose the earliest halfword at or after the cursor, independently of
@@ -148,13 +144,13 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def empty_pages = vec(for List (index in 0..page_count): !pages[index].valid)
   def same_page = page_tag(write_pc) === page_tag(write_target)
   def target_existing_page = priority_encoder(write_target_pages)
-  def pc_replacement = mux(!same_page & target_page_found & (page_replacement === target_existing_page), next_page(page_replacement), page_replacement)
+  def pc_replacement = mux(!same_page & target_page_found & (page_replacement === target_existing_page), wrap_increment(page_replacement, page_count), page_replacement)
   def pc_page = priority_mux(~default: pc_replacement):
     pc_page_found: priority_encoder(write_pc_pages)
     empty_pages.or_reduce(): priority_encoder(empty_pages)
 
   def target_empty_pages = vec(for List (index in 0..page_count): empty_pages[index] & (pc_page =/= Bits(page_index_bits)(index)))
-  def target_replacement = mux(page_replacement === pc_page, next_page(page_replacement), page_replacement)
+  def target_replacement = mux(page_replacement === pc_page, wrap_increment(page_replacement, page_count), page_replacement)
   def target_page = priority_mux(~default: target_replacement):
     same_page: pc_page
     target_page_found: target_existing_page
@@ -186,12 +182,12 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   when (invalidate_all.valid):
     replacement <== Bits(index_bits)(0)
   elsewhen (commit_write & !matched):
-    replacement <== mux(selected_index === Bits(index_bits)(entry_count - 1), Bits(index_bits)(0), selected_index + Bits(index_bits)(1))
+    replacement <== wrap_increment(selected_index, entry_count)
 
   when (invalidate_all.valid):
     page_replacement <== Bits(page_index_bits)(0)
   elsewhen (allocate_pages & (!pc_page_found ||| (!same_page & !target_page_found))):
-    page_replacement <== next_page(mux(!same_page & !target_page_found, target_page, pc_page))
+    page_replacement <== wrap_increment(mux(!same_page & !target_page_found, target_page, pc_page), page_count)
 
   for (index in 0..page_count):
     when (invalidate_all.valid):

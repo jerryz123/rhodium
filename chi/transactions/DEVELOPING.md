@@ -38,6 +38,9 @@ combined outstanding/reorder slot lifetime, restart handling for late CHI
 completions, consumer-deadline underflow, fixed TxnID-to-engine mapping, channel
 arbitration, and RSP/DAT routing. It composes `CHIReadOnce` rather than exposing
 an intermediate memory protocol.
+Its issue/output indices use `wrap_increment` from `rhodium/std/bits.rhdl`;
+the stream still owns range invariants and advances only on the existing
+issue/output transfer events.
 
 ### Monitor attachments and transaction checks
 

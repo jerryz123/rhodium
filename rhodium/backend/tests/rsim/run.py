@@ -18,6 +18,7 @@ import selection
 import membership
 import decode
 import mask_index
+import remainder
 import assertions
 import branches
 import cache
@@ -302,6 +303,8 @@ def main():
         print(f"rsim: {membership_count} authored membership observations passed" + (" with SV comparison" if args.differential else ""))
         mask_count = mask_index.run_suite(work, run, compare, args.differential)
         print(f"rsim: {mask_count} authored mask indexing observations passed" + (" with SV comparison" if args.differential else ""))
+        remainder_count = remainder.run_suite(work, run, compare, args.differential)
+        print(f"rsim: {remainder_count} authored remainder observations passed" + (" with SV comparison" if args.differential else ""))
         foreign_count = foreign.run_suite(work, run, compare, args.differential)
         assertion_count = assertions.run_suite(work, run, args.differential)
         branch_count = branches.run_suite(work, run, compare, args.differential)

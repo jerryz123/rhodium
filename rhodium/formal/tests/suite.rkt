@@ -11,4 +11,5 @@
          "onehot-assumption-test.rhm"
          "property-test.rhm"
          "reachability-test.rhm"
+         "remainder-test.rhm"
          "snapshot-test.rhm")

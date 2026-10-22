@@ -802,7 +802,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   def store_way_mask = cache_way_mask(cache, stores.drain.bits.way)
   def store_lane_mask = cache_lane_mask(cache, stores.drain.bits.way, word_bytes, stores.drain.bits.mask.into(Mask(word_bytes)))
-  def repeated_line_write_bytes = for List (lane in 0..data_lanes): line_write_bytes[lane mod word_bytes]
+  def repeated_line_write_bytes = for List (lane in 0..data_lanes): line_write_bytes[lane % word_bytes]
 
   def tag_port_owner = priority_mux(~default: L1DArrayOwner.Pipeline):
     install_refill: L1DArrayOwner.Refill

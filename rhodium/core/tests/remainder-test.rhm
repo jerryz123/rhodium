@@ -1,0 +1,40 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import "../main.rhm" open
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("Remainder")
+  def a = b.input(top, "a", Bits(65))
+  def divisor = b.input(top, "divisor", Bits(65))
+  def small = b.input(top, "small", Bits(4))
+  def clock = b.input(top, "clock", Clock)
+  def result = b.urem(top, a, divisor, "result")
+  check:
+    b.urem(top, a, small) ~throws "same Bits width"
+    b.urem(top, clock, a) ~throws "same Bits width"
+    type_equal(result.type, Bits(65)) ~is #true
+    a.users().length() ~is 1
+    divisor.users().length() ~is 1
+    combinational_opcode("rtl.urem") ~is #true
+
+  b.finish(top)
+  check:
+    dump_ir(design).contains("%result = rtl.urem %a, %divisor : bits<65>") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("MalformedRemainder")
+  def a = b.input(top, "a", Bits(8))
+  def divisor = b.input(top, "divisor", Bits(8))
+  def id = design.fresh_id()
+  def result = Value(design.fresh_id(), "bad", Bits(4), top, id)
+  a.add_user(id)
+  divisor.add_user(id)
+  top.add_value(result)
+  top.add_operation(Operation(id, "rtl.urem", top, [a, divisor], [result], [], {"name": "bad"}))
+  b.finish(top)
+  check: verify_design(design) ~throws "operands and result must have the same Bits width"

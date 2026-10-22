@@ -107,6 +107,12 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
   // Deterministic choices for partial values do not introduce four-state logic
   // or promise values for uncared bits or invalid one-hot selectors.
   | step.opcode == "rtl.dont_care": types.constant(step.type, 0)
+  // Eager evaluation of an unselected remainder must never execute C++ % 0.
+  // Zero is this backend's choice for the unspecified zero-divisor result.
+  | step.opcode == "rtl.urem":
+      if scalar_carrier_width(step.type) > 64
+      | "rhodium_rsim::unsigned_remainder(" ++ args[0] ++ ", " ++ args[1] ++ ")"
+      | "(" ++ args[1] ++ " == 0 ? UINT64_C(0) : " ++ args[0] ++ " % " ++ args[1] ++ ")"
   | step.opcode == "rtl.onehot_mux":
       def selector_type = steps[step.operands[0]].type
       def cases = for List (value in args.drop(1), index in 0..(args.length() - 1)):

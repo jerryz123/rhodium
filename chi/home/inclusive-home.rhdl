@@ -271,10 +271,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       resident: resident
       slot: local_slots[resident]
 
-  /* Advance circular demand-slot arbitration, wrapping at the configured slot count. */
-  fun next_slot_priority(slot :: Bits(slot_width)):
-    mux(slot === Bits(slot_width)(slots - 1), Bits(slot_width)(0), slot + Bits(slot_width)(1))
-
 
   /* Demand-slot state
      A slot retains its set, selected line, and protocol progress until directory commit. */
@@ -923,7 +919,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     advance_locked <== Bool(#false)
 
   when (work_from_advance & (!slot_shared_output_valid ||| slot_shared_output_fire)):
-    advance_next_priority <== next_slot_priority(work_slot)
+    advance_next_priority <== wrap_increment(work_slot, slots)
 
   def response_data_stalled = requester.response_data.valid & !requester.response_data.ready
   when response_data_stalled:
@@ -933,7 +929,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     response_data_locked <== Bool(#false)
 
   when cached_data_fire:
-    response_data_next_priority <== next_slot_priority(response_data_slot)
+    response_data_next_priority <== wrap_increment(response_data_slot, slots)
 
 
   /* Directory and line-SRAM requests
@@ -958,7 +954,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   when issue_lookup:
     lookup_owner <== lookup_issue_slot
-    lookup_next_priority <== next_slot_priority(lookup_issue_slot)
+    lookup_next_priority <== wrap_increment(lookup_issue_slot, slots)
 
 
   /* Lookup response, victim choice, and snoop targets */

@@ -414,8 +414,7 @@ module RRArbiter(
     if (reset)
       next_priority <= 1'h0;
     else
-      next_priority <=
-        _GEN_2 & egress_in.ready ? ~(_GEN_1[1]) & _GEN_1[1] - 1'h1 : next_priority;
+      next_priority <= _GEN_2 & egress_in.ready ? _GEN_1[1] - 1'h1 : next_priority;
   end // always @(posedge)
   assign ingress_0_out = '{ready: (egress_in.ready & _GEN_1[0])};
   assign ingress_1_out = '{ready: (egress_in.ready & _GEN_1[1])};
@@ -586,8 +585,7 @@ module RRArbiter(
     if (reset)
       next_priority <= 1'h0;
     else
-      next_priority <=
-        _GEN_2 & egress_in.ready ? ~(_GEN_1[1]) & _GEN_1[1] - 1'h1 : next_priority;
+      next_priority <= _GEN_2 & egress_in.ready ? _GEN_1[1] - 1'h1 : next_priority;
   end // always @(posedge)
   assign ingress_0_out = '{ready: (egress_in.ready & _GEN_1[0])};
   assign ingress_1_out = '{ready: (egress_in.ready & _GEN_1[1])};
@@ -764,7 +762,7 @@ module Counter(
     if (reset)
       state <= 1'h0;
     else
-      state <= enable ? ~state & state - 1'h1 : state;
+      state <= enable ? state - 1'h1 : state;
   end // always @(posedge)
   assign value = state;
   assign wrap = enable & state;

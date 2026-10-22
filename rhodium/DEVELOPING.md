@@ -727,12 +727,12 @@ other standard modules. Paths beginning with `std/` are relative to `rhodium/`.
 
 | Module | Provides | Direct Rhodium dependencies |
 |---|---|---|
-| `std/counter.rhdl` | Enabled bounded `Counter` | None |
+| `std/counter.rhdl` | Enabled bounded `Counter` | `std/bits.rhdl` |
 | `std/shift-register.rhdl` | Generic named ambient-clock delay line with optional initialization and enable | None |
 | `std/reduction.rhdl` | Generic ordered balanced reduction with a caller-supplied binary function | None |
 | `std/cdc/level.rhdl` | Resetless two-stage stable one-bit `SyncLevel` synchronizer | None |
 | `std/cdc.rhdl` | Public CDC circuit facade | `std/cdc/level.rhdl` |
-| `std/bits.rhdl` | Host `Pow2Int` refinement plus bit reversal, leading-zero count, alignment, transfer-byte-mask, lane-mask expansion, and masked-merge operations for `Bits` | None |
+| `std/bits.rhdl` | Host `Pow2Int` refinement plus bit reversal, leading-zero count, circular index stepping, alignment, transfer-byte-mask, lane-mask expansion, and masked merge for `Bits` | None |
 | `std/plru.rhdl` | Invalid-first padded tree-PLRU selection and state update for arbitrary positive associativity | `std/bits.rhdl` |
 | `std/scoreboard.rhdl` | Positive-sized single-set, single-clear registered occupancy `Scoreboard` plus total indexed lookup | `std/bits.rhdl`, `std/ready-valid.rhdl` |
 | `std/interconnect.rhdl` | Protocol-neutral ID/address/transfer sets, register-beat projection, overflow-safe containment, and striped host/hardware address projection | `std/bits.rhdl` |
@@ -768,12 +768,12 @@ relative to `rhodium/`. The public facade only aggregates existing bindings.
 | `flow/credit.rhdl` | Credited sender and receiver adapters, bounded accounting, and configured unary stages | `std/ready-valid.rhdl`, `std/credited.rhdl`, `flow/ready-valid-support.rhdl`, `flow/queue.rhdl` |
 | `flow/arbiter.rhdl` | Fixed-priority `Arbiter`/`CtrlArbiter` | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/circular-priority.rhdl` | Combinational circular-priority optional-one-hot selection with a shared valid, grant, and index result | None |
-| `flow/rr-arbiter.rhdl` | Direct-state round-robin `RRArbiter`/`CtrlRRArbiter` plus configured Array-to-endpoint arbitration | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/circular-priority.rhdl` |
-| `flow/packet-rr-arbiter.rhdl` | Packet-locked round-robin arbitration and inline final-flit predicate syntax | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/circular-priority.rhdl` |
+| `flow/rr-arbiter.rhdl` | Direct-state round-robin `RRArbiter`/`CtrlRRArbiter` plus configured Array-to-endpoint arbitration | `std/bits.rhdl`, `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/circular-priority.rhdl` |
+| `flow/packet-rr-arbiter.rhdl` | Packet-locked round-robin arbitration and inline final-flit predicate syntax | `std/bits.rhdl`, `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/circular-priority.rhdl` |
 | `flow/vc.rhdl` | Typed physical VC links plus tagged multiplexing of independently backpressured virtual-channel flows | `std/ready-valid.rhdl`, `flow/demux.rhdl`, `flow/gate.rhdl`, `flow/map.rhdl`, `flow/rr-arbiter.rhdl` |
-| `flow/state.rhdl` | Fair irrevocable changed-state emission and always-ready local state replication | `std/ready-valid.rhdl`, `flow/circular-priority.rhdl` |
+| `flow/state.rhdl` | Fair irrevocable changed-state emission and always-ready local state replication | `std/bits.rhdl`, `std/ready-valid.rhdl`, `flow/circular-priority.rhdl` |
 | `flow/demux.rhdl` | Selected one-to-many `Demux`/`CtrlDemux` plus configured payload-selected routing | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
-| `flow/matcher.rhdl` | Fixed-priority and explicitly output-greedy transfer-rotating one-to-one request-matrix matchers | `flow/circular-priority.rhdl` |
+| `flow/matcher.rhdl` | Fixed-priority and explicitly output-greedy transfer-rotating one-to-one request-matrix matchers | `std/bits.rhdl`, `flow/circular-priority.rhdl` |
 | `flow/grant.rhdl` | Optional-one-hot ready-valid grant routing and merging primitives | `std/ready-valid.rhdl` |
 | `flow/crossbar.rhdl` | Configured grant-controlled one-to-one ready-valid crossbar stage | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/grant.rhdl` |
 | `flow/join.rhdl` | Full and selection-token atomic joins plus meaningful-lane result types and control-only rendezvous | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/reduction.rhdl` |
@@ -807,7 +807,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 
 | Layer | Provides | Direct Rhodium dependencies |
 |---|---|---|
-| `comb.rhm` | Generic packed literals, typed synthesis don't-cares, decode relations, modular arithmetic, bitwise operations, muxes, extraction, and bit-vector truncation | core types and IR, kernel, field support, bit-descriptor support, hardware-literal support, mux-lookup support |
+| `comb.rhm` | Generic packed literals, typed synthesis don't-cares, decode relations, modular arithmetic, unsigned remainder with checked host divisors, bitwise operations, muxes, extraction, and bit-vector truncation | core types and IR, kernel, field support, bit-descriptor support, hardware-literal support, mux-lookup support |
 | `signed.rhm` | Explicit-width `SInt`, two's-complement literals, signed truncation, and signed operator participation | core types and IR, kernel, field support, hardware-literal support |
 | `expanding-arithmetic.rhm` | Lossless unsigned addition plus signed and unsigned multiplication with `+&` and `*&` sugar | core types, kernel, field support |
 | `bool.rhm` | Non-numeric lane `Mask` with total index decoding, compact `MaybeOneHot`, packed reductions, lower-index-first priority encoders, total optional-one-hot selection, equality, enum validity, signed and unsigned ordering, binary `mux`, and ordered `priority_mux` | core types and IR, kernel, finite-enum support, field support, hardware-literal support, mask-type support, one-hot-selection support |

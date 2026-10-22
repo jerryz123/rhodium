@@ -10,6 +10,7 @@ import:
   lib("cores/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/bits.rhdl").expand_mask
+  lib("rhodium/std/bits.rhdl").wrap_increment
   "bundles.rhdl" open
   "slots.rhdl" open
   "muldiv.rhdl" open
@@ -288,16 +289,16 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   slots.release.valid <== drain ||| packed_release.valid
   slots.release.bits <== drain_cursor
   when (slots.release.valid):
-    drain_cursor <== if vector_completion_slots == 1 | Bits(tag_width)(0) | drain_cursor + Bits(tag_width)(1)
+    drain_cursor <== wrap_increment(drain_cursor, vector_completion_slots)
 
   when durable:
     assert(durable_tag === accept_cursor, "vector_resolution_follows_acceptance_frontier")
-    accept_cursor <== if vector_completion_slots == 1 | Bits(tag_width)(0) | durable_tag + Bits(tag_width)(1)
+    accept_cursor <== wrap_increment(durable_tag, vector_completion_slots)
 
   when (replay.valid):
-    allocate_cursor <== mux(durable, if vector_completion_slots == 1 | Bits(tag_width)(0) | durable_tag + Bits(tag_width)(1), accept_cursor)
+    allocate_cursor <== mux(durable, wrap_increment(durable_tag, vector_completion_slots), accept_cursor)
   elsewhen (reserve.valid):
-    allocate_cursor <== if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_cursor + Bits(tag_width)(1)
+    allocate_cursor <== wrap_increment(allocate_cursor, vector_completion_slots)
 
 
   /* Writes release hazards immediately; metadata reclamation remains ordered. */

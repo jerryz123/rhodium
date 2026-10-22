@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").wrap_increment
   "protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/model/formats.rhm" as riscv_fields
@@ -72,10 +73,6 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
   reg committed_top(~init: Bits(index_bits)(0))
   reg committed_count(~init: Bits(count_bits)(0))
 
-  /* Advances a circular stack index with wrap at the configured depth. */
-  fun increment(index :: Bits(index_bits)) :~ Bits(index_bits):
-    mux(index === Bits(index_bits)(entry_count - 1), Bits(index_bits)(0), index + Bits(index_bits)(1))
-
   /* Moves a circular stack index backwards with wrap from zero. */
   fun decrement(index :: Bits(index_bits)) :~ Bits(index_bits):
     mux(index === Bits(index_bits)(0), Bits(index_bits)(entry_count - 1), index - Bits(index_bits)(1))
@@ -83,7 +80,7 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
   /* Computes the top after push/pop; pop-then-push replaces the current top. */
   fun updated_top(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
     mux_lookup(action, ~default: top):
-      RasAction.Push: mux(count === Bits(count_bits)(0), top, increment(top))
+      RasAction.Push: mux(count === Bits(count_bits)(0), top, wrap_increment(top, entry_count))
       RasAction.Pop: mux(count === Bits(count_bits)(0), top, decrement(top))
 
   /* Saturates depth on push/pop and makes pop-then-push nonempty without increasing
@@ -96,7 +93,7 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
 
   /* Selects the next top for push, or the current top for pop-then-push replacement. */
   fun write_index(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
-    mux(action === RasAction.Push, mux(count === Bits(count_bits)(0), top, increment(top)), top)
+    mux(action === RasAction.Push, mux(count === Bits(count_bits)(0), top, wrap_increment(top, entry_count)), top)
 
   /* Resolved and speculative update candidates.
      Computes both stacks' next payloads before choosing recovery priority;

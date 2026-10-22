@@ -1285,6 +1285,8 @@ fun emit_operation(operation :: Operation):
         emit_binary(operation, "comb.add")
     | "rtl.mul":
         emit_binary(operation, "comb.mul")
+    | "rtl.urem":
+        emit_binary(operation, "comb.modu")
     | "rtl.sub":
         emit_binary(operation, "comb.sub")
     | "rtl.shl":

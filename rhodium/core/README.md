@@ -289,7 +289,7 @@ Backend lowering choices are not part of core schemas.
 |---|---|
 | Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
 | Sources | `rtl.constant`, `rtl.dont_care` |
-| Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
+| Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.urem`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
 | Comparison and selection | `rtl.eq`, `rtl.ult`, `rtl.slt`, `rtl.mux_lookup`, `rtl.onehot_mux`, `rtl.decode` |
 | Conversion and width | `rtl.cast`, `rtl.concat`, `rtl.extract`, `rtl.zext`, `rtl.sext`, `rtl.trunc` |
 | Aggregates | `rtl.record_create`, `rtl.record_get`, `rtl.vector_create`, `rtl.vector_get`, `rtl.vector_index`, `rtl.vector_inject`, `rtl.vector_write_set` |
@@ -305,6 +305,7 @@ not(T: BitwiseType)                         -> T
 dont_care(Bits(w))                          -> Bits(w)
 and/or/xor(T: BitwiseType, T)               -> T
 add/sub/mul(T: ArithmeticType, T)           -> T
+urem(Bits(w), Bits(w))                     -> Bits(w)
 shl(T: ArithmeticType, Bits(a))             -> T
 shru(Bits(w), Bits(a))                      -> Bits(w)
 shrs(S: SignedArithmeticType, Bits(a))      -> S
@@ -343,6 +344,11 @@ dpi_register(function, Clock, enable,
 ```
 
 ### Selection and partial values
+
+`rtl.urem` computes unsigned remainder with equal-width `Bits` operands and
+result. A zero divisor produces an unspecified value; it does not trap or
+implicitly insert an assertion. This is general remainder, with no bounded-index
+assumption or promise of a particular divider implementation.
 
 Mux keys are unique nonnegative host integers that fit the selector width and
 are normalized into increasing order. Every lookup has a default and at least

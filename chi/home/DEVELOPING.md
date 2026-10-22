@@ -90,6 +90,9 @@ across slots, wraps explicitly at the configured count, and advances only on a
 write. A second alternating selector arbitrates lookup versus commit, independently
 of the Home work scheduler and external backpressure. Lookup eligibility still
 requires the data port to be free. Commits do not launch a data read.
+Demand-slot, directory-commit, and victim-writeback priorities use the standard
+`wrap_increment` helper only at their existing accepted-event updates. Reset
+sweeping saturates at the last set and is deliberately not a circular step.
 
 Resident and possible-writer masks follow configured RN-F order. Possible writers
 are a subset of possible residents; a clean `Unique` snoop response still permits a silent later write.

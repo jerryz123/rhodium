@@ -1,0 +1,31 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+circuit Remainder(width :: PosInt):
+  input(a, b): Bits(width)
+  output(dynamic_result, by_three, by_one, by_power, by_limit, by_large, guarded): Bits(width)
+  output widened: Bits(width + 1)
+
+  dynamic_result <== a % b
+  by_three <== a % 3
+  by_one <== a % 1
+  by_power <== a % (1 << (width - 1))
+  by_limit <== a % (1 << width)
+  by_large <== a % ((1 << width) + 7)
+  guarded <== mux(b === Bits(width)(0), a, a % b)
+  widened <== ((a + b) % 3).zext(width + 1)
+
+circuit RemainderTypes(T :: DataType, U :: DataType):
+  input a: T
+  input b: U
+  output result: T
+  result <== a % b
+
+circuit RemainderConstant(T :: DataType, divisor :: Int):
+  input a: T
+  output result: T
+  result <== a % divisor
+
+fun program(width :: PosInt): elaborate(Remainder(width))
+
+export program RemainderTypes RemainderConstant

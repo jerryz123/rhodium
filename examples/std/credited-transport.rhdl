@@ -301,7 +301,7 @@ module Counter(
     if (reset)
       state <= 1'h0;
     else
-      state <= enable ? ~state & state - 1'h1 : state;
+      state <= enable ? state - 1'h1 : state;
   end // always @(posedge)
   assign value = state;
   assign wrap = enable & state;
@@ -555,7 +555,7 @@ module Counter(
     if (reset)
       state <= 1'h0;
     else
-      state <= enable ? ~state & state - 1'h1 : state;
+      state <= enable ? state - 1'h1 : state;
   end // always @(posedge)
   assign value = state;
   assign wrap = enable & state;

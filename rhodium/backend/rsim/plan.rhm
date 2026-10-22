@@ -101,7 +101,7 @@ class Occurrence(module_def :: Module, path :: List.of(String), bindings :: Map,
 def pure_operations = [
   "rtl.constant", "rtl.dont_care", "rtl.onehot_mux", "rtl.decode",
   "rtl.not", "rtl.and", "rtl.or", "rtl.xor",
-  "rtl.add", "rtl.sub", "rtl.mul", "rtl.eq", "rtl.ult", "rtl.mux_lookup",
+  "rtl.add", "rtl.sub", "rtl.mul", "rtl.urem", "rtl.eq", "rtl.ult", "rtl.mux_lookup",
   "rtl.slt", "rtl.shl", "rtl.shru", "rtl.shrs", "rtl.concat", "rtl.extract",
   "rtl.zext", "rtl.sext", "rtl.trunc",
   "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",
@@ -155,7 +155,7 @@ fun check_wide_operation(operation :: Operation, path :: List.of(String)):
   when has_wide
   | unless operation.opcode in ["rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive", "rtl.instance",
                                 "rtl.constant", "rtl.dont_care", "rtl.not", "rtl.and", "rtl.or", "rtl.xor", "rtl.eq",
-                                "rtl.add", "rtl.sub", "rtl.mul", "rtl.ult", "rtl.slt",
+                                "rtl.add", "rtl.sub", "rtl.mul", "rtl.urem", "rtl.ult", "rtl.slt",
                                 "rtl.concat", "rtl.shl", "rtl.shru", "rtl.shrs",
                                 "rtl.extract", "rtl.trunc", "rtl.zext", "rtl.sext", "rtl.cast",
                                 "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",

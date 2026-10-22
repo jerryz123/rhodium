@@ -88,6 +88,27 @@ template <std::size_t W> bool operator<(const WideBits<W>& left, const WideBits<
   }
   return false;
 }
+// Binary long division retains W remainder bits and a separate carry bit.
+// Each trial is below twice the divisor, so at most one subtraction is needed.
+// The zero-divisor result is unspecified in RTL; native execution chooses zero.
+template <std::size_t W>
+WideBits<W> unsigned_remainder(const WideBits<W>& dividend, const WideBits<W>& divisor) {
+  if (divisor == WideBits<W>{}) return {};
+  WideBits<W> remainder{};
+  for (std::size_t bit = W; bit > 0; --bit) {
+    std::uint32_t carry = (dividend.words[(bit - 1) / 32] >> ((bit - 1) % 32)) & 1u;
+    const bool overflow = ((remainder.words[(W - 1) / 32] >> ((W - 1) % 32)) & 1u) != 0;
+    for (auto& limb : remainder.words) {
+      const auto next = limb >> 31;
+      limb = (limb << 1) | carry;
+      carry = next;
+    }
+    remainder.normalize();
+    if (overflow || !(remainder < divisor)) remainder = remainder - divisor;
+  }
+  return remainder;
+}
+
 // Only the operation interprets the declared sign bit. Equal-sign two's-complement
 // values retain unsigned ordering, without signed host conversion or overflow.
 template <std::size_t W> bool signed_less(const WideBits<W>& left, const WideBits<W>& right) {

@@ -181,6 +181,13 @@ fun check_operation_types(module_def :: Module,
       unless arithmetic_operands && type_equal(left.type, right.type) && type_equal(left.type, result.type)
       | fail_operation(operation,
                        operation.opcode ++ " operands and result must have exactly the same ArithmeticType")
+  | "bits_same_type_binary":
+      def left = operation.operands[0]
+      def right = operation.operands[1]
+      def result = operation.results[0]
+      unless bits_type(left.type) && bits_type(right.type) && bits_type(result.type) && type_equal(left.type, right.type) && type_equal(left.type, result.type)
+      | fail_operation(operation,
+                       operation.opcode ++ " operands and result must have the same Bits width")
   | "arithmetic_shift":
       def value = operation.operands[0]
       def amount = operation.operands[1]

@@ -57,6 +57,7 @@ export:
   bit_xor
   hw_add
   hw_mul
+  hw_urem
   hw_sub
   hw_shl
   hw_shru
@@ -854,6 +855,9 @@ fun binary(opcode :: String,
   | "sub":
       context.builder.sub(module_def, left, right, name, location,
                           Origin("embedded sub", name || ""))
+  | "urem":
+      context.builder.urem(module_def, left, right, name, location,
+                           Origin("embedded urem", name || ""))
   | "shl":
       context.builder.shl(module_def, left, right, name, location,
                           Origin("embedded shl", name || ""))
@@ -914,6 +918,13 @@ fun hw_mul(left :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("mul", left, right, name, location)
+
+/* Constructs unsigned remainder from equal-width materialized Bits operands. */
+fun hw_urem(left :: HardwareEntity,
+            right :: HardwareEntity,
+            name :: maybe(AsciiIdentifier) = #false,
+            location :: Location = Location()):
+  binary("urem", left, right, name, location)
 
 /* Constructs fixed-width subtraction from materialized hardware operands. */
 fun hw_sub(left :: HardwareEntity,

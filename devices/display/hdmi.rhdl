@@ -190,7 +190,7 @@ sync_circuit HDMIFrameReader(config :: HDMIFrameReaderConfig):
   when command_fire:
     row_fetch_index <== Bits(row_index_width)(0)
   elsewhen line_fire:
-    row_fetch_index <== mux(row_end, Bits(row_index_width)(0), row_fetch_index + Bits(row_index_width)(1))
+    row_fetch_index <== wrap_increment(row_fetch_index, mode.fetch_lines_per_row)
 
   when command_fire:
     failure_seen <== Bool(#false)

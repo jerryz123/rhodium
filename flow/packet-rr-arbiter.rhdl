@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").wrap_increment
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
@@ -56,11 +57,7 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   def transfer = egress.fire()
   when (transfer & selected_last):
     locked <== Bool(#false)
-    next_priority <== mux(
-      selected_index === Bits(width)(n - 1),
-      Bits(width)(0),
-      selected_index + Bits(width)(1)
-    )
+    next_priority <== wrap_increment(selected_index, n)
   elsewhen (transfer & !locked):
     locked <== Bool(#true)
     owner <== selected_index
