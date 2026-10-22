@@ -8,25 +8,41 @@ import:
 
 export compact_array_updates
 
-/* Match a lane selector and return its old value, index, and replacement.
-   The exact constant value prevents narrow-index wrapping from merging lanes.
-   Native dynamic indexing accepts only indices of at most 64 bits. */
+/* Recognize an exact lane equality, optionally conjoined with one shared
+   one-bit enable. Compare full constants so narrow-index wrapping cannot merge
+   lanes. The returned guard is an original value identity, never an inferred
+   equivalence; native dynamic indexing accepts only indices up to 64 bits. */
 fun update_lane(value :: Nat, lane :: Nat, steps :~ List.of(RsimStep)) :: maybe(List):
   def mux = steps[value]
+  /* Return the unsigned index tested against this exact lane. */
+  fun index_test(value :: Nat) :: maybe(Nat):
+    def test = steps[value]
+    cond
+    | test.opcode != "rtl.eq" || scalar_width(test.type) != 1: #false
+    | ~else:
+        def a = steps[test.operands[0]]
+        def index = if a.opcode == "rtl.constant" | test.operands[1] | test.operands[0]
+        def constant = if a.opcode == "rtl.constant" | a | steps[test.operands[1]]
+        def width = scalar_width(steps[index].type)
+        if constant.opcode == "rtl.constant" && constant.attributes["value"] == lane && width && width <= 64
+        | index
+        | #false
+
   cond
   | mux.opcode != "rtl.mux_lookup" || mux.attributes["keys"] != [1]: #false
   | ~else:
       def test = steps[mux.operands[0]]
+      def direct = index_test(mux.operands[0])
       cond
-      | test.opcode != "rtl.eq" || scalar_width(test.type) != 1: #false
-      | ~else:
-          def a = steps[test.operands[0]]
-          def index = if a.opcode == "rtl.constant" | test.operands[1] | test.operands[0]
-          def constant = if a.opcode == "rtl.constant" | a | steps[test.operands[1]]
-          def width = scalar_width(steps[index].type)
-          if constant.opcode == "rtl.constant" && constant.attributes["value"] == lane && width && width <= 64
-          | [mux.operands[1], index, mux.operands[2]]
-          | #false
+      | direct != #false: [mux.operands[1], direct, mux.operands[2], #false]
+      | test.opcode == "rtl.and" && scalar_width(test.type) == 1:
+          def left = index_test(test.operands[0])
+          def right = index_test(test.operands[1])
+          cond
+          | left != #false: [mux.operands[1], left, mux.operands[2], test.operands[1]]
+          | right != #false: [mux.operands[1], right, mux.operands[2], test.operands[0]]
+          | ~else: #false
+      | ~else: #false
 
 /* Forward bounded projection trees through immutable update versions. Recipes
    refer to original values until accepted, so declining a large query emits no
@@ -168,6 +184,7 @@ fun forward_array_reads(schedule :: RsimSchedule) :: RsimSchedule:
    Replacement operands are earlier steps and retain their hardware identities. */
 fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
   def rewritten = MutableList[]
+  def refs = MutableMap{}
   def signatures = MutableMap{}
   def interned = MutableMap{}
   def candidates = MutableMap{}
@@ -210,22 +227,24 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
 
     signatures[key]
 
-  def mutable changed = #false
-  for (step in schedule.steps, position in 0..schedule.steps.length()):
-    def lanes = if step.opcode == "rtl.vector_create" && step.operands.length() > 0
-    | for List (operand in step.operands, lane in 0..step.operands.length()): update_lane(operand, lane, schedule.steps)
-    | []
-
+  /* Recover one indexed replacement, keeping the existing projection proof
+     for its base. Every lane must agree on the enable as well as the update. */
+  fun indexed(lane_values :: List.of(Nat), type :: HardwareType) :: maybe(List):
+    def lanes = for List (operand in lane_values, lane in 0..lane_values.length()): update_lane(operand, lane, schedule.steps)
     def update = lanes.length() > 0 && lanes[0]
-    def consistent = update && type_equal(step.type.element_type, schedule.steps[update[2]].type)
-      && (for all (lane in lanes): lane && lane[1] == update[1] && lane[2] == update[2])
-
+    // Scalar CSE removes representation-preserving casts (for example Bits(1)
+    // to Bool). Accept those carriers without conflating nominal aggregates.
+    def replacement_type = if update | schedule.steps[update[2]].type | type.element_type
+    def width = scalar_width(type.element_type)
+    def compatible = type_equal(type.element_type, replacement_type) || (width != #false && width == scalar_width(replacement_type))
+    def consistent = update && compatible
+      && (for all (lane in lanes): lane && lane[1] == update[1] && lane[2] == update[2] && lane[3] == update[3])
     def mutable base = #false
     when consistent
     | def old = schedule.steps[update[0]]
-      // Keep the direct match cheap and independent of signature search limits.
+      // Direct projections need no structural signature search.
       when old.opcode == "rtl.vector_get" && old.attributes["index"] == 0
-        && type_equal(step.type, schedule.steps[old.operands[0]].type)
+        && type_equal(type, schedule.steps[old.operands[0]].type)
         && (for all (lane in lanes, index in 0..lanes.length()):
               def source = schedule.steps[lane[0]]
               source.opcode == "rtl.vector_get" && source.operands[0] == old.operands[0]
@@ -237,16 +256,82 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
         when first != #false
         | base := candidates.get(first, []).find(
             fun (candidate):
-              type_equal(step.type, schedule.steps[candidate].type)
+              type_equal(type, schedule.steps[candidate].type)
                 && (for all (lane in lanes, index in 0..lanes.length()):
                       def actual = signature(lane[0], [])
                       actual != #false && actual == signature(candidate, [index]))
           )
 
-    if base != #false
+    if base != #false | ["update", base, update[1], update[2], update[3]] | #false
+
+  /* Resolve original values only when emitting an accepted recipe. Rejected
+     candidates add no computations or changed dependencies to the schedule. */
+  fun remap(value :: Nat) :: Nat: refs[value]
+
+  def mutable changed = #false
+  for (step in schedule.steps, position in 0..schedule.steps.length()):
+    def mutable remaining = 64
+    /* Transpose shared lookup choices only around a proven indexed update.
+       Selector identities, ordered keys, and defaults must match every lane.
+       Unrecognized sibling branches retain their original lane computations;
+       the total query budget bounds nested choices without partial rewrites. */
+    fun recover(lanes :: List.of(Nat)) :: maybe(List):
+      remaining := remaining - 1
+      cond
+      | remaining < 0: #false
+      | ~else:
+          def update = indexed(lanes, step.type)
+          def first = schedule.steps[lanes[0]]
+          cond
+          | update: update
+          | first.opcode == "rtl.mux_lookup"
+              && (for all (lane in lanes):
+                    def other = schedule.steps[lane]
+                    other.opcode == first.opcode && other.operands[0] == first.operands[0]
+                      && other.attributes["keys"] == first.attributes["keys"]):
+              if first.operands.length() - 1 > remaining
+              | remaining := -1
+                #false
+              | block:
+                  def alternatives = for List (arm in 1..first.operands.length()):
+                    for List (lane in lanes): schedule.steps[lane].operands[arm]
+
+                  def branches = alternatives.map(recover)
+                  if remaining >= 0 && (for any (branch in branches): branch != #false)
+                  | ["mux", first.operands[0], first.attributes["keys"],
+                     for List (branch in branches, arm_lanes in alternatives): branch || ["lanes", arm_lanes]]
+                  | #false
+          | ~else: #false
+
+    def recipe = if step.opcode == "rtl.vector_create" && step.operands.length() > 0
+    | recover(step.operands)
+    | #false
+
+    /* Emit ordinary schedule operations in dependency order. Existing array
+       fusion and liveness pruning own destinations and shared consumers. */
+    fun emit(recipe :: List) :: Nat:
+      /* Append one generated aggregate operation with the source occurrence. */
+      fun add(opcode :: String, operands :: List.of(Nat), attributes :: Map = {}) :: Nat:
+        def id = rewritten.length()
+        rewritten.add(RsimStep(opcode, step.type, operands, attributes, step.occurrence))
+        id
+
+      match recipe[0]
+      | "update":
+          def base = remap(recipe[1])
+          def updated = add("rtl.vector_inject", [base, remap(recipe[2]), remap(recipe[3])], step.attributes)
+          if recipe[4] == #false
+          | updated
+          | add("rtl.mux_lookup", [remap(recipe[4]), base, updated], {"keys": [1]})
+      | "mux": add("rtl.mux_lookup", [remap(recipe[1])] ++ recipe[3].map(emit), {"keys": recipe[2]})
+      | "lanes": add("rtl.vector_create", recipe[1].map(remap))
+      | ~else: error(~who: #'rsim, "unknown array update recipe")
+
+    if recipe
     | changed := #true
-      rewritten.add(RsimStep("rtl.vector_inject", step.type, [base, update[1], update[2]], step.attributes, step.occurrence))
-    | rewritten.add(step)
+      refs[position] := emit(recipe)
+    | refs[position] := rewritten.length()
+      rewritten.add(RsimStep(step.opcode, step.type, step.operands.map(remap), step.attributes, step.occurrence))
 
     // Only earlier whole aggregates can become bases. Bound each bucket and
     // prefer recent candidates; type equality and every lane still require proof.
@@ -256,7 +341,7 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
       | def earlier = candidates.get(first, [])
         candidates[first] := [position] ++ earlier.take(if earlier.length() < 15 | earlier.length() | 15)
 
-  def recovered = if changed | remap_schedule(schedule, rewritten.snapshot(), fun (value): value) | schedule
+  def recovered = if changed | remap_schedule(schedule, rewritten.snapshot(), remap) | schedule
   def interim = forward_array_reads(recovered)
   if interim === schedule
   | schedule

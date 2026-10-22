@@ -146,7 +146,9 @@ distinct. This pass performs no algebraic rewriting or cross-evaluation caching.
 
 After scalar CSE, `compact_array_updates` recognizes a complete vector whose
 lanes are `index == lane ? replacement : base[lane]`. All lanes must use the
-same base, index, and replacement, with exact lane constants and original types.
+same base, index, and replacement, with exact lane constants and array types.
+Equal-width scalar carriers remain compatible after CSE removes bit-preserving
+casts; nominal aggregate elements still require exact type equality.
 Wrapped constants or mismatched lanes remain ordinary computations. Equality may
 place the constant on either side; indices remain at most 64 bits. A lane's old
 value may instead be a static projection distributed through constructors and
@@ -157,6 +159,17 @@ diagnostic names are ignored. Keep original constructor provenance during this
 comparison, including constructors already recognized as updates. Candidate
 buckets and recursion depth are bounded; an unproven match retains its ordinary
 computation. This does not create new whole-value dependencies during scheduling.
+
+Lane comparisons may be conjoined with the same one-bit enable, in either
+operand order. A bounded query also transposes common lookup selectors around
+recognized updates, preserving ordered keys, defaults, and clear/write priority.
+Every lane must agree on the selector and enable identities; unmatched sibling
+branches retain their original elements. Accept a transposition only when it
+contains a proven indexed update, and decline the whole query if its budget of
+64 lane-group visits is exhausted. Emit ordinary aggregate muxes and vector injections in
+dependency order, then let existing pruning and destination fusion remove
+unshared lane computations. Shared element observers and old-state reads retain
+their original semantics.
 
 After recovery, forward static and dynamic reads through updates and bounded
 lookup-mux trees, carrying nested field/lane paths into the selected element.
@@ -1033,9 +1046,9 @@ consumer remapping (including optional value zero), and preserved effect/resourc
 identity. Native and direct-SV scoreboards exercise the optimized target with
 independently authored duplicate arithmetic and existing state, memory, assertion,
 and DPI fixtures at ordinary and forced-small region budgets.
-`tests/rsim-array-updates-test.rhm` checks exact lane matching, wrapped-index
-non-matches, retained shared consumers, deterministic pruning, and effect/resource
-remapping. An independent schedule interpreter compares original and forwarded
+`tests/rsim-array-updates-test.rhm` checks exact lane matching, common clear/enable
+wrappers, wrapped-index non-matches, retained shared consumers, deterministic
+pruning, and effect/resource remapping. An independent schedule interpreter compares original and forwarded
 reads with mixed 1/2/64-bit indices, 129-bit nested leaves, equal invalid indices,
 update priority, and ordered lookup arms. Bounded-query and shared-DAG cases
 check deterministic/idempotent rewriting and dependency order. Projected nested
@@ -1043,7 +1056,9 @@ muxes must match every lane, selector, and ordered key
 before reusing an earlier aggregate. Dynamic native/direct-SV scoreboards observe
 expanded updates, a prioritized work/grant chain with shared whole-array and row
 consumers, and old-state capture across reset, eval-only calls, and out-of-range
-indices. Constant-ROM fixtures cover aggregate updates containing wide leaves.
+indices. Guarded updates additionally check clear-over-write priority, shared
+lane observations, and old-state capture for scalar and record elements.
+Constant-ROM fixtures cover aggregate updates containing wide leaves.
 `tests/rsim-register-arrays-test.rhm` checks exclusive destination assignments,
 retained shared versions, reset at step zero, unchanged schedule identities, and
 leaf availability across region boundaries. A row-only observer must stop holding

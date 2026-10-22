@@ -177,10 +177,11 @@ fun observe(schedule, inputs):
     def result = match step.opcode
     | "input": inputs[step.attributes["name"]]
     | "rtl.constant": step.attributes["value"]
+    | "rtl.vector_create": args
     | "rtl.eq": (if args[0] == args[1] | 1 | 0)
     | "rtl.ult": (if args[0] < args[1] | 1 | 0)
     | "rtl.and": (if args[0] != 0 && args[1] != 0 | 1 | 0)
-    | "rtl.zext": args[0]
+    | "rtl.zext" || "rtl.cast": args[0]
     | "rtl.vector_inject":
         for List (old in args[0], lane in 0..args[0].length()): if lane == args[1] | args[2] | old
     | "rtl.vector_get": args[0][step.attributes["index"]]
@@ -295,3 +296,93 @@ for (source in [fixture(3, 2), read_fixture(3, 2, 2)]):
     result ~is compact_array_updates(result)
 
   for (step in result.steps): check: step.occurrence > 0 ~is #true
+
+// Shared clears and enables surround an indexed update. Keep an independently
+// observed lane and compare every selector encoding with the original graph.
+class Flag():
+  implements BitwiseType
+  override method packed_width(): 1
+  override method describe(): "flag"
+  override method type_equal(other): other is_a Flag
+
+fun guarded_fixture(width = 2, kind = "matching", scalar = #false):
+  def element = if scalar | Flag() | RecordType([RecordField("wide", Bits(129)), RecordField("tag", Bits(3))])
+  def vector = VectorType(3, element)
+  def types = [vector, Bits(width), (if scalar | Bits(1) | element), Bits(1), Bits(2), element, Bits(1), Bits(2)]
+  def names = ["base", "index", "replacement", "enable", "choice", "cleared", "other_enable", "other_choice"]
+  def steps = MutableList[]
+  for (type in types, name in names): steps.add(RsimStep("input", type, [], {"name": name}))
+  fun add(opcode, type, operands, attributes = {}):
+    def id = steps.length()
+    steps.add(RsimStep(opcode, type, operands, attributes, 7))
+    id
+
+  def replacement = if scalar | add("rtl.cast", element, [2]) | 2
+  def lanes = for List (lane in 0..3):
+    def old = add("rtl.vector_get", element, [0], {"index": lane})
+    def constant = add("rtl.constant", Bits(width), [], {"value": lane mod (2 ** width)})
+    def equal = add("rtl.eq", Bits(1), [1, constant])
+    def enable = if kind == "enable" && lane == 1 | 6 | 3
+    def guard = add("rtl.and", Bits(1), if lane mod 2 == 0 | [enable, equal] | [equal, enable])
+    def updated = add("rtl.mux_lookup", element, [guard, old, replacement], {"keys": [1]})
+    def choice = if kind == "choice" && lane == 1 | 7 | 4
+    def keys = if kind == "keys" && lane == 1 | [1, 3] | [3, 1]
+    def selected = add("rtl.mux_lookup", element, [choice, updated, 5, old], {"keys": keys})
+    // Repeated common guards retain their order, even when they disagree.
+    if kind == "nested"
+    | add("rtl.mux_lookup", element, [7, selected, 2], {"keys": [2]})
+    | if kind == "budget"
+      | def mutable nested = selected
+        for (_ in 0..65): nested := add("rtl.mux_lookup", element, [7, nested, 5], {"keys": [2]})
+        nested
+      | selected
+
+  def result = add("rtl.vector_create", vector, lanes)
+  RsimSchedule("GuardedUpdates", for List (type in types, name in names, index in 0..8): RsimPort(name, type, index),
+               [RsimPort("result", vector, result), RsimPort("shared", element, lanes[1])],
+               steps.snapshot(), [], [], [], [], [], [])
+
+for (kind in ["matching", "nested", "enable", "choice", "keys"]):
+  for (width in [1, 2, 64]):
+    def original = guarded_fixture(width, kind)
+    def optimized = compact_array_updates(original)
+    def recognized = width != 1 && kind in ["matching", "nested"]
+    check:
+      (for any (step in optimized.steps): step.opcode == "rtl.vector_inject") ~is recognized
+      optimized ~is compact_array_updates(optimized)
+      optimized ~is compact_array_updates(original)
+      original.steps[original.outputs[0].value].opcode ~is "rtl.vector_create"
+
+    for (step in optimized.steps, index in 0..optimized.steps.length()):
+      check: (for all (operand in step.operands): operand < index) ~is #true
+
+    def indices = if width == 64 | [0, 1, 2, 3, 2 ** 63, (2 ** 64) - 1] | for List (i in 0..(2 ** width)): i
+    for (index in indices):
+      for (choice in 0..4):
+        for (enable in 0..2):
+          def inputs = {"base": for List (i in 0..3): {"wide": (2 ** 128) + i, "tag": i},
+                        "index": index, "replacement": {"wide": (2 ** 127) + 17, "tag": 7},
+                        "enable": enable, "choice": choice, "cleared": {"wide": 99, "tag": 4},
+                        "other_enable": 1 - enable, "other_choice": 3 - choice}
+          check: observe(optimized, inputs) ~is observe(original, inputs)
+
+// Scalar casts are deliberately aliased by the preceding CSE pass. Nominal
+// vector elements still retain their hardware type while using that carrier.
+def nominal_source = guarded_fixture(2, "matching", #true)
+def nominal = share_scalar_expressions(nominal_source)
+def compact_nominal = compact_array_updates(nominal)
+check:
+  (for any (step in compact_nominal.steps): step.opcode == "rtl.vector_inject") ~is #true
+  compact_nominal ~is compact_array_updates(compact_nominal)
+
+for (index in 0..4):
+  for (enable in 0..2):
+    for (choice in 0..4):
+      def inputs = {"base": [0, 1, 0], "index": index, "replacement": 1,
+                    "enable": enable, "choice": choice, "cleared": 0,
+                    "other_enable": 1 - enable, "other_choice": 3 - choice}
+      check: observe(compact_nominal, inputs) ~is observe(nominal_source, inputs)
+
+// Bounded recognition declines a legal, deeply nested selection as a whole.
+def deep = guarded_fixture(2, "budget")
+check: compact_array_updates(deep) === deep ~is #true

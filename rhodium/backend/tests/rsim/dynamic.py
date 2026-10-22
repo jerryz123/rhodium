@@ -33,7 +33,9 @@ def ports(length, record):
             ('nestednext', length*bits, vector), ('nestedstate', length*bits, vector),
             ('nestedold', bits, element), ('nestedrow', bits, element),
             ('forwardread', bits, element), ('forwardwide', bits, element),
-            ('forwardleaf', 64, [('', 64, 0)])]
+            ('forwardleaf', 64, [('', 64, 0)]),
+            ('guarded', length*bits, vector), ('guardedold', bits, element),
+            ('guardedlane', bits, element)]
 
 
 OUTPUT_COUNT = sum(len(fields) for _, _, fields in ports(4, True))
@@ -78,6 +80,7 @@ def stimuli(differential=False):
         zero = (0, 0, 0) if record else (0,)
         state, captured, updated_state = [zero] * length, zero, [zero] * length
         fused, fused_old = [zero] * length, zero
+        guarded, guarded_old = [zero] * length, zero
         nested, nested_old = [zero] * length, zero
         shared_copy, shared_update, unreset = [zero] * length, [zero] * length, [zero] * length
         for tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, a, b in commands:
@@ -90,6 +93,11 @@ def stimuli(differential=False):
             writes = {index: replacements[port] for port, index in enumerate((i0, i1))
                       if enables & (1 << port)} if valid else {}
             if tick:
+                guarded_old = zero if reset else guarded[0]
+                if reset or enables & 2:
+                    guarded = [zero] * length
+                elif enables & 1 and selector < length:
+                    guarded[selector] = element(a, b, 79, record)
                 _, next_nested = nested_versions(nested, a, b, record, enables, i0, i1, selector, valid)
                 nested_old = zero if reset else nested[0]
                 nested = [zero] * length if reset else next_nested
@@ -140,6 +148,9 @@ def stimuli(differential=False):
                 if i0 >= length or i1 >= length:
                     forward_leaf = (None,)
             results += [forward_read, forward_wide, forward_leaf]
+            guarded_lane = (zero if enables & 2 else element(a, b, 79, record)
+                            if enables & 1 and selector == 0 else guarded[0])
+            results += guarded + [guarded_old, guarded_lane]
             flat = [value for result in results for value in result]
             expected.append(flat + [0] * (OUTPUT_COUNT - len(flat)))
             rows.append([config, tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, int(valid), a, b])

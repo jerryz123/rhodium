@@ -120,6 +120,22 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   b.drive(b.output(top, "nestedstate", vector), nested.current)
   b.drive(b.output(top, "nestedold", element_type), nested_old.current)
   b.drive(b.output(top, "nestedrow", element_type), b.mux_lookup(top, read_ok, zero_element, [[1, b.vector_index(top, work, selector)]]))
+  // A shared clear overrides enabled lane writes. The same source shape feeds
+  // predictor validity arrays; observe one lane separately and sample old state.
+  def guarded = b.register(top, "qguarded", vector, clock, reset, zero_vector)
+  def guarded_old = b.register(top, "guarded_old", element_type, clock, reset, zero_element)
+  def guarded_replacement = element(79)
+  def guarded_lanes = for List (lane in 0..length):
+    def equals = b.eq(top, selector, b.constant(top, Bits(index_width), lane))
+    def enabled = b.bit_and(top, enable_values[0], equals)
+    def written = b.mux_lookup(top, enabled, b.vector_get(top, guarded.current, lane), [[1, guarded_replacement]])
+    b.mux_lookup(top, enable_values[1], written, [[1, zero_element]])
+
+  b.drive(guarded.next, b.vector_create(top, vector, guarded_lanes))
+  b.drive(guarded_old.next, b.vector_get(top, guarded.current, 0))
+  b.drive(b.output(top, "guarded", vector), guarded.current)
+  b.drive(b.output(top, "guardedold", element_type), guarded_old.current)
+  b.drive(b.output(top, "guardedlane", element_type), guarded_lanes[0])
   // Raw reads qualify native zero-on-miss choices; the SV oracle ignores only
   // out-of-range partial results. Mixed widths must compare full indices.
   b.drive(b.output(top, "forwardread", element_type), b.vector_index(top, chained, selector))
