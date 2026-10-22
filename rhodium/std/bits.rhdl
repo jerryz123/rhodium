@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines bit layout, circular stepping, alignment, lane-mask expansion, and masked merge for Bits. */
+/* Defines bit layout, bounded stepping, alignment, lane-mask expansion, and masked merge for Bits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,6 +27,22 @@ fun wrap_increment(index :: Bits, capacity :: PosInt) :~ Bits(index.type.packed_
   | capacity == 1: Bits(width)(0)
   | capacity == (1 << width): index + Bits(width)(1)
   | ~else: mux(index === Bits(width)(capacity - 1), Bits(width)(0), index + Bits(width)(1))
+
+/* Advances an unsigned value up to an inclusive host limit, preserving its width.
+ * The caller maintains value <= limit; unused encodings have no promised result. */
+fun saturating_increment(value :: Bits, limit :: Nat) :~ Bits(value.type.packed_width()):
+  def width = value.type.packed_width()
+  unless limit < (1 << width)
+  | error(~who: #'saturating_increment, "limit must fit the value width")
+
+  if limit == 0
+  | Bits(width)(0)
+  | mux(value === Bits(width)(limit), value, value + Bits(width)(1))
+
+/* Decrements an unsigned value, holding at zero without owning storage or enable. */
+fun saturating_decrement(value :: Bits) :~ Bits(value.type.packed_width()):
+  def width = value.type.packed_width()
+  mux(value === Bits(width)(0), value, value - Bits(width)(1))
 
 /* Reverses the packed bit order, retaining a one-bit operand unchanged. */
 fun reverse_bits(value :: Bits) :~ Bits(value.type.packed_width()):
@@ -189,6 +205,8 @@ fun transfer_byte_mask(address :: Bits,
 
 export:
   wrap_increment
+  saturating_increment
+  saturating_decrement
   Pow2Int
   power_of_two
   unsigned_value_count

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/std/bits.rhdl").wrap_increment
   "protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/model/formats.rhm" as riscv_fields
@@ -87,8 +86,8 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6):
      existing depth. */
   fun updated_count(count :: Bits(count_bits), action :: RasAction) :~ Bits(count_bits):
     mux_lookup(action, ~default: count):
-      RasAction.Push: mux(count === Bits(count_bits)(entry_count), count, count + Bits(count_bits)(1))
-      RasAction.Pop: mux(count === Bits(count_bits)(0), count, count - Bits(count_bits)(1))
+      RasAction.Push: saturating_increment(count, entry_count)
+      RasAction.Pop: saturating_decrement(count)
       RasAction.PopPush: mux(count === Bits(count_bits)(0), Bits(count_bits)(1), count)
 
   /* Selects the next top for push, or the current top for pop-then-push replacement. */

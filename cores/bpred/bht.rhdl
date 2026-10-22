@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl") open
   "protocol.rhdl" open
   lib("flow/main.rhdl") open
 
@@ -23,8 +24,8 @@ sync_circuit Bht(row_bits :: PosInt = 10):
   def bank = update.bits.index[0..2]
   def previous = mux(valid_rows[write_row], storage[write_row], cold)
   def counter = previous[bank]
-  def incremented = mux(counter === Bits(2)(3), counter, counter + Bits(2)(1))
-  def decremented = mux(counter === Bits(2)(0), counter, counter - Bits(2)(1))
+  def incremented = saturating_increment(counter, 3)
+  def decremented = saturating_decrement(counter)
   def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), mux(update.bits.taken, incremented, decremented), previous[lane]))
   when (!clear.valid & update.valid):
     storage.write(write_row, written)

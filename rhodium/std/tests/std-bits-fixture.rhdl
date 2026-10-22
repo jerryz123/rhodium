@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises bit ordering, circular stepping, layout, alignment, and lane-mask parameter contracts.
+// Exercises bit ordering, bounded stepping, layout, alignment, and lane-mask parameter contracts.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,6 +27,40 @@ circuit WrapIncrementTypeFixture(T :: DataType, capacity :: Int):
   input index: T
   output stepped: T
   stepped <== wrap_increment(index, capacity)
+
+def saturation_cases = [[1, 0], [1, 1], [2, 2], [2, 3], [3, 6], [3, 7],
+                        [4, 8], [4, 15], [8, 17], [8, 254], [8, 255], [16, 257], [16, 65535]]
+
+circuit SaturatingStepFixture():
+  input value: Bits(129)
+  output increased: Vec(saturation_cases.length(), Bits(16))
+  output decreased: Vec(saturation_cases.length(), Bits(16))
+  output(inc_65, dec_65): Bits(65)
+  output(inc_129, dec_129, inc_full_129): Bits(129)
+
+  for (position in 0..saturation_cases.length()):
+    def width = saturation_cases[position][0]
+    def limit = saturation_cases[position][1]
+    def inc = saturating_increment(value[0..width], limit)
+    def dec = saturating_decrement(value[0..width])
+    increased[position] <== if width == 16 | inc | inc.zext(16)
+    decreased[position] <== if width == 16 | dec | dec.zext(16)
+
+  inc_65 <== saturating_increment(value[0..65], 1 << 64)
+  dec_65 <== saturating_decrement(value[0..65])
+  inc_129 <== saturating_increment(value, 1 << 128)
+  dec_129 <== saturating_decrement(value)
+  inc_full_129 <== saturating_increment(value, (1 << 129) - 1)
+
+circuit SaturatingIncrementTypeFixture(T :: DataType, limit :: Int):
+  input value: T
+  output stepped: T
+  stepped <== saturating_increment(value, limit)
+
+circuit SaturatingDecrementTypeFixture(T :: DataType):
+  input value: T
+  output stepped: T
+  stepped <== saturating_decrement(value)
 
 circuit BitOrderFixture():
   input value: Bits(8)
@@ -195,6 +229,9 @@ circuit TransferBeatTooWideFixture():
   mask <== transfer_byte_mask(address, size, 16)
 
 export:
+  SaturatingStepFixture
+  SaturatingIncrementTypeFixture
+  SaturatingDecrementTypeFixture
   WrapIncrementFixture
   WrapIncrementTypeFixture
   BitOrderFixture

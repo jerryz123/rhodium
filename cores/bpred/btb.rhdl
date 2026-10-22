@@ -127,8 +127,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
     empty.any(): priority_encoder(empty)
 
   def previous = entries[selected_index]
-  def incremented = mux(previous.counter === Bits(2)(3), previous.counter, previous.counter + Bits(2)(1))
-  def decremented = mux(previous.counter === Bits(2)(0), previous.counter, previous.counter - Bits(2)(1))
+  def incremented = saturating_increment(previous.counter, 3)
+  def decremented = saturating_decrement(previous.counter)
   def write = (update.valid & (matched ||| (update.bits.branch & update.bits.taken))) ||| discovering
   def commit_write = write & !invalidate.valid
   def write_valid = mux(update.valid, update.bits.branch, Bool(#true))

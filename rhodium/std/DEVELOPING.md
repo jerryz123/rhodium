@@ -182,6 +182,16 @@ specializations free of an unnecessary terminal mux. `Counter`
 uses this successor but retains its own enable, reset, range assertion, and
 pre-edge `wrap` event.
 
+`saturating_increment` and `saturating_decrement` in `bits.rhdl` similarly own
+only combinational unsigned stepping. Increment takes an inclusive host limit
+that must fit the operand, with a caller-owned in-range invariant; decrement
+holds at zero. Keep predictor training, stack state, and update priority in
+their callers. Host `std-bits` tests reject invalid limits and operand types;
+the `saturating-step` rsim fixture checks small-width values, zero/full/custom
+limits, and 65/129-bit carry, borrow, and terminal boundaries. Run the
+`bpred-bht`, `bpred-tournament`, `bpred-btb`, and `bpred-ras` fixtures after
+changing the helpers or their predictor consumers.
+
 Striped bank geometry belongs in `interconnect.rhdl`, independently of CHI
 flit parameters. Host projection validates membership; hardware projection
 only removes bank-select bits from a caller-provided relative offset. Host

@@ -701,10 +701,11 @@ service, scalar FP wrapper, core, and vector composition/pipeline import it to
 share fixed return delays without introducing a named-core dependency into FP.
 
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN only.
-`bht.rhdl` consumes that protocol and `flow/main.rhdl` for banked counter
-training and clear inputs; PC/history hashing stays with its caller.
+`bht.rhdl` consumes that protocol, `std/bits.rhdl` for saturating counter
+steps, and `flow/main.rhdl` for training and clear inputs; PC/history hashing
+stays with its caller.
 `tournament.rhdl` layers two `Bht` instances with chooser state and consumes
-the shared protocol plus `flow/main.rhdl`; it does not own pipeline history.
+the shared protocol plus `std/bits.rhdl` and `flow/main.rhdl`; it does not own pipeline history.
 `btb.rhdl` and `ras.rhdl` consume that protocol, XLEN, `std/bits.rhdl`, and
 `flow/main.rhdl`; RAS hint classification also imports pure RISC-V formats and
 the public instruction-field adapter. RV5Stage's fetch and execution consume
@@ -734,7 +735,7 @@ other standard modules. Paths beginning with `std/` are relative to `rhodium/`.
 | `std/reduction.rhdl` | Generic ordered balanced reduction and parallel prefix scan with caller-supplied binary functions | None |
 | `std/cdc/level.rhdl` | Resetless two-stage stable one-bit `SyncLevel` synchronizer | None |
 | `std/cdc.rhdl` | Public CDC circuit facade | `std/cdc/level.rhdl` |
-| `std/bits.rhdl` | Host `Pow2Int` refinement plus bit reversal, leading-zero count, circular index stepping, alignment, transfer-byte-mask, lane-mask expansion, and masked merge for `Bits` | None |
+| `std/bits.rhdl` | Host `Pow2Int` refinement plus bit reversal, leading-zero count, circular/saturating steps, alignment, transfer-byte-mask, lane-mask expansion, and masked merge for `Bits` | None |
 | `std/plru.rhdl` | Invalid-first padded tree-PLRU selection and state update for arbitrary positive associativity | `std/bits.rhdl` |
 | `std/scoreboard.rhdl` | Positive-sized single-set, single-clear registered occupancy `Scoreboard` plus total indexed lookup | `std/bits.rhdl`, `std/ready-valid.rhdl` |
 | `std/interconnect.rhdl` | Protocol-neutral ID/address/transfer sets, register-beat projection, overflow-safe containment, and striped host/hardware address projection | `std/bits.rhdl` |

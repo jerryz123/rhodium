@@ -37,6 +37,7 @@ valid-pipe-capture-always	std	examples/std/valid-pipe.rhdl	capture_always_progra
 expand-mask	std	rhodium/std/tests/rsim/emit-expand-mask.rhm	program	rhodium/std/tests/rsim/expand-mask.cpp
 runtime-alignment	std	rhodium/std/tests/rsim/emit-runtime-alignment.rhm	program	rhodium/std/tests/rsim/runtime-alignment.cpp
 wrap-increment	std	rhodium/std/tests/rsim/emit-wrap-increment.rhm	program	rhodium/std/tests/rsim/wrap-increment.cpp
+saturating-step	std	rhodium/std/tests/rsim/emit-saturating-step.rhm	program	rhodium/std/tests/rsim/saturating-step.cpp
 prefix-scan	std	rhodium/std/tests/rsim/emit-prefix-scan.rhm	program	rhodium/std/tests/rsim/prefix-scan.cpp
 transfer-range	std	rhodium/std/tests/rsim/emit-transfer-range.rhm	program	rhodium/std/tests/rsim/transfer-range.cpp
 register-beat	std	rhodium/std/tests/register-beat-fixture.rhdl	program	rhodium/std/tests/rsim/register-beat.cpp
