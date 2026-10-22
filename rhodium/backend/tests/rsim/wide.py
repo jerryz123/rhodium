@@ -393,6 +393,56 @@ def run_aggregates(work, run, compare, differential):
     return total_count
 
 
+def run_packed_projections(work, run, compare, differential):
+    name = 'PackedProjections'
+    _, _, _, packet = aggregate_layout(65)
+    # Fixture tags precede data, just like the existing mark/data layout.
+    packet = [(path.replace('.pmark', '.ptag'), bits, low) for path, bits, low in packet]
+    outputs = [(f'{instance}_{port}', bits, fields)
+               for instance in ('first', 'second', 'held', 'constant')
+               for port, bits, fields in [('head', 7, [('', 7, 0)]), ('tag', 5, [('', 5, 0)]),
+                                         ('middle', 65, [('', 65, 0)]), ('last', 65, [('', 65, 0)]),
+                                         ('again', 65, [('', 65, 0)]), ('whole', 217, packet)]]
+    outputs += [(f'bit{i}', 1, [('', 1, 0)]) for i in (0, 31, 63)]
+    inputs = [('bits', 217, [('', 217, 0)]), ('mask', 64, [('', 64, 0)])]
+    rng = random.Random(20261022)
+    patterns = [0, (1 << 217)-1, *(1 << i for i in range(217))]
+    patterns += [rng.getrandbits(217) for _ in range(300)]
+    rows, expected, held = [], [], 0
+    for i, bits in enumerate(patterns):
+        mask = [0, (1 << 64)-1, 1 << (i % 64), rng.getrandbits(64)][i % 4]
+        tick, reset = int(i % 4 != 1), int(i == 0 or i % 31 == 0)
+        if tick:
+            held = (1 << 216) + 37 if reset else bits
+        # Dirty unused source-carrier bits must not leak into selected leaves.
+        raw = bits | (((1 << 224)-(1 << 217)) if i % 2 else 0)
+        rows.append([tick, reset, *words(raw, 224), *words(mask, 64)])
+        values = []
+        for value in (bits, bits ^ ((1 << 217)-1), held, (1 << 216)+(1 << 130)+37):
+            middle, last = (value >> 70) & ((1 << 65)-1), (value >> 140) & ((1 << 65)-1)
+            values += [value >> 210, (value >> 65) & 31, middle, last, middle, value]
+        values += [(mask >> j) & 1 for j in (0, 31, 63)]
+        expected.append([word for value, (_, _, fields) in zip(values, outputs)
+                         for _, width, low in fields
+                         for word in words((value >> low) & ((1 << width)-1), width)])
+    vectors = '\n'.join(' '.join(f'{v:x}' for v in row) for row in rows) + '\n'
+    bench = work / f'{name}-bench.cpp'
+    for reference in ([False, True] if differential else [False]):
+        bench.write_text(typed_driver(name, inputs, outputs, reference=reference, clocked=True, controls={'reset': 1}))
+        if reference:
+            obj = work / f'obj{name}'
+            run(['verilator', '--cc', '--exe', '--build', '-j', '2', '--top-module', name,
+                 '--Mdir', str(obj), str(work / f'{name}.sv'), str(bench)], work, 'build-projections-sv')
+            binary = obj / f'V{name}'
+        else:
+            binary = work / name
+            run([*shlex.split(os.environ.get('CXX', 'c++')), '-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror',
+                 '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+                 str(work / f'{name}.cpp'), str(bench), '-o', str(binary)], work, 'build-projections-rsim')
+        compare(run([str(binary)], work, f'projections-{reference}', vectors), expected, f'packed projections {reference}')
+    return len(expected)
+
+
 def run_constant_roms(work, run, compare, differential):
     """Check constant cast layouts, independent addresses and immutable ROMs."""
     total_count = 0
@@ -528,6 +578,7 @@ def run_suite(work, run, differential):
                     expected, f'wide direct SV {width}')
         total += len(expected)
     return (total + run_aggregates(work, run, compare, differential)
+            + run_packed_projections(work, run, compare, differential)
             + run_constant_roms(work, run, compare, differential)
             + run_memories(work, run, compare, differential))
 

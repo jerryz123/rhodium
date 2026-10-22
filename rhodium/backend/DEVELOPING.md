@@ -79,11 +79,14 @@ fields; otherwise legal field-wise feedback appears as a whole-bundle cycle.
 Carry the requested field/index path through lookup and one-hot muxes: schedule
 the whole selector and the same projection from every branch, following core's
 direct dependency semantics. Memoize by occurrence, source value, and projection;
-whole-value requests remain distinct. Other computed aggregates retain whole
-execution followed by typed projection, so packed casts/extracts do not yet gain
-bit-range dependency precision. Register reads terminate dependency walks;
-next-state expressions are separate sinks. Allocate
-register slots per occurrence, even when preparation reuses a module definition.
+whole-value requests remain distinct. Static scalar leaves of a cast from a
+packed scalar become canonical bit slices before region formation, without
+materializing the aggregate. These slices still depend on the whole packed
+producer. Whole-aggregate users and aggregate-valued projections retain their
+materialization; dynamic indexing is unchanged. Other computed aggregates keep
+whole execution followed by typed projection. Register reads terminate dependency
+walks; next-state expressions are separate sinks. Allocate register slots per
+occurrence, even when preparation reuses a module definition.
 Retain occurrence paths for diagnostics and emitted state comments. Scheduling
 maps and storage descriptors belong to one compilation, never an elaboration cache.
 Verified `cdc.sync_level` metadata has no separate simulation action: keep its

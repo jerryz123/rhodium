@@ -260,6 +260,23 @@ fun build_schedule(rtl :: DesignElaboration) :: RsimSchedule:
     | type
     | projection_type(if record_type(type) | type.field(path[0]).type | type.element_type, path.drop(1))
 
+  /* Locate a static leaf in canonical packed bits: record fields run from
+     high to low, while vector element zero occupies the low bits. The path
+     is already verified; this changes representation, not source dependencies. */
+  fun projection_offset(type :: HardwareType, path :: List.of(String || Nat)) :: Nat:
+    cond
+    | path.length() == 0: 0
+    | record_type(type):
+        def field = type.field(path[0])
+        def mutable offset = 0
+        def index = type.fields.map(fun (member): member.name).index(field.name)
+        for (member in type.fields.drop(index + 1)):
+          offset := offset + member.type.packed_width()
+
+        offset + projection_offset(field.type, path.drop(1))
+    | ~else:
+        path[0] * type.element_type.packed_width() + projection_offset(type.element_type, path.drop(1))
+
   /* Carry a requested projection through hierarchy, aliases, and constructors.
      Like core's direct dependency walk, record/vector gets prepend their path
      and constructors consume it without depending on unrelated siblings. */
@@ -299,7 +316,8 @@ fun build_schedule(rtl :: DesignElaboration) :: RsimSchedule:
   def active = MutableSet{}
   /* Memoize typed computations by occurrence, value, and requested projection.
      Muxes schedule the selector and only that projection of every data branch,
-     matching core dependency semantics. Other operations keep whole evaluation
+     matching core dependency semantics. Scalar leaves of packed casts become
+     slices of the whole packed producer. Other operations keep whole evaluation
      followed by typed projection. State roots never visit next-state sinks. */
   fun schedule(index :: Nat, value :: Value, path :: List.of(String || Nat) = []) :: Nat:
     def resolved = resolve(index, value, path)
@@ -320,6 +338,20 @@ fun build_schedule(rtl :: DesignElaboration) :: RsimSchedule:
         | projection.length() > 0 && op.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]:
             RsimStep(op.opcode, type,
                      [schedule(owner, op.operands[0])] ++ op.operands.drop(1).map(fun (operand): schedule(owner, operand, projection)), op.attributes)
+        | projection.length() > 0 && op.opcode == "rtl.cast"
+            && scalar_width(op.operands[0].type) != #false && scalar_width(type) != #false:
+            def packed = schedule(owner, op.operands[0])
+            def low = projection_offset(source.type, projection)
+            def width = type.packed_width()
+            def slice = RsimStep("rtl.extract", Bits(width), [packed], {"low": low, "high": low + width - 1}, owner)
+            if bits_type(type)
+            | slice
+            | block:
+                // Keep nominal leaf types in the schedule; ordinary scalar CSE
+                // can later erase the representation-only cast.
+                def ref = steps.length()
+                steps.add(slice)
+                RsimStep("rtl.cast", type, [ref], {})
         | projection.length() > 0:
             def part = projection[projection.length() - 1]
             def parent = schedule(owner, source, projection.take(projection.length() - 1))

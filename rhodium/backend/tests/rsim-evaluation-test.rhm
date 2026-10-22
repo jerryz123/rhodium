@@ -19,6 +19,7 @@ import:
   "rsim/fixtures.rhm".make_scalar
   "rsim/aggregate-fixtures.rhm".make_aggregate
   "rsim/wide-fixtures.rhm".make_constant_rom
+  "rsim/wide-fixtures.rhm".make_packed_projections
   "rsim/wide-foreign-fixtures.rhm".make_unused_wide_foreign
   "rsim/memory-fixtures.rhm".make_memory
   "rsim/sync-memory-fixtures.rhm".make_sync_memory
@@ -587,7 +588,49 @@ check:
   root_emission[1].contains("next.s0 = v0;") ~is #true
   root_emission[1].contains("next_outputs.presult = v0;") ~is #true
 
-// Casts retain a whole computed parent, unlike constructor projection forwarding.
+// Scalar cast projections become slices before partitioning. Whole aggregate
+// consumers remain independently scheduled; repeated occurrences never alias
+// their differently bound packed inputs, and repeated paths reuse one value.
+for (whole in [#false, #true]):
+  def source = prepare_rtl(make_packed_projections(whole)).rtl
+  def planned = build_schedule(source)
+  fun output(name :: String): planned.outputs.find(fun (port): port.name == name).value
+  fun extract(value :: Nat):
+    def step = planned.steps[value]
+    if step.opcode == "rtl.cast" | planned.steps[step.operands[0]] | step
+
+  for (instance in ["first", "second", "held", "constant"]):
+    for (entry in [["head", 210, 7], ["tag", 65, 5], ["middle", 70, 65], ["last", 140, 65]]):
+      def step = extract(output(instance ++ "_" ++ entry[0]))
+      check:
+        step.opcode ~is "rtl.extract"
+        step.type ~is Bits(entry[2])
+        step.attributes ~is {"low": entry[1], "high": entry[1] + entry[2] - 1}
+        scalar_width(planned.steps[step.operands[0]].type) ~is 217
+
+    check: output(instance ++ "_middle") ~is output(instance ++ "_again")
+    check: planned.steps[output(instance ++ "_tag")].type.describe() ~is "ProjectionToken5"
+
+  check:
+    extract(output("first_middle")).operands != extract(output("second_middle")).operands ~is #true
+    extract(output("first_middle")).occurrence != extract(output("second_middle")).occurrence ~is #true
+    planned.steps.filter(~keep: fun (step): (record_type(step.type) || vector_type(step.type))).length() ~is (if whole | 4 | 0)
+    build_schedule(source) ~is planned
+
+  for (index in [0, 31, 63]):
+    def step = extract(output("bit" ++ to_string(index)))
+    check:
+      step.attributes ~is {"low": index, "high": index}
+      step.operands ~is [planned.inputs.find(fun (port): port.name == "mask").value]
+
+  unless whole
+  | def evaluation = build_evaluation_plan(planned)
+    for (budget in [1, 4096]):
+      def regions = build_regions(planned, evaluation, evaluation.outputs, ~budget: budget)
+      def layout = boundary_layout(regions, planned, CppTypes(), evaluation.constants)
+      check: (for all (group in layout.groups): !group.indirect) ~is #true
+
+// Aggregate-valued cast projections retain a whole computed parent.
 // Exercise nested aggregate fields/indices with wide leaves, shared constants,
 // current state, decoded rows, crossing scratch parents, and a local fallback.
 fun projection_program(mode :: String):

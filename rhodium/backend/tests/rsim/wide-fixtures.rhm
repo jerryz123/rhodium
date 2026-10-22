@@ -5,7 +5,7 @@ import:
   "memory-fixtures.rhm".make_memory
   "sync-memory-fixtures.rhm".make_sync_memory
 
-export make_wide make_wide_aggregate make_relayout make_wide_memories make_constant_rom
+export make_wide make_wide_aggregate make_relayout make_wide_memories make_constant_rom make_packed_projections
 
 // Equal constant casts in separate occurrences must share immutable storage,
 // while dynamic injection produces a fresh value without changing later reads.
@@ -264,5 +264,52 @@ fun make_relayout():
   def target = RecordType([RecordField("high", Bits(32)), RecordField("low", VectorType(2, Bits(32)))])
   def value = b.input(top, "value", source)
   b.drive(b.output(top, "result", target), b.cast(top, value, target))
+  b.finish(top)
+  DesignElaboration(design, top)
+
+// Exercise canonical offsets independently of C++ aggregate layout, including
+// nominal scalar leaves and shared definitions bound to distinct occurrences.
+class ProjectionToken(width :: PosInt):
+  implements ScalarDataType
+  override method describe(): "ProjectionToken" ++ to_string(width)
+  override method type_equal(other): other is_a ProjectionToken && width == other.width
+  override method packed_width(): width
+
+fun make_packed_projections(whole :: Boolean = #true):
+  def design = Design()
+  def b = Builder(design)
+  def token = ProjectionToken(5)
+  def element = RecordType([RecordField("tag", token), RecordField("data", Bits(65))])
+  def packet = RecordType([RecordField("head", Bits(7)), RecordField("items", VectorType(3, element))])
+  def leaf = b.module("PackedProjectionLeaf")
+  def data = b.input(leaf, "data", ProjectionToken(217))
+  def unpacked = b.cast(leaf, data, packet)
+  def items = b.record_get(leaf, unpacked, "items")
+  def selected = [["head", b.record_get(leaf, unpacked, "head")],
+                  ["tag", b.record_get(leaf, b.vector_get(leaf, items, 0), "tag")],
+                  ["middle", b.record_get(leaf, b.vector_get(leaf, items, 1), "data")],
+                  ["last", b.record_get(leaf, b.vector_get(leaf, items, 2), "data")]]
+  for (entry in selected): b.drive(b.output(leaf, entry[0], entry[1].type), entry[1])
+  b.drive(b.output(leaf, "again", Bits(65)), selected[2][1])
+  when whole | b.drive(b.output(leaf, "whole", packet), unpacked)
+  b.finish(leaf)
+  def top = b.module("PackedProjections")
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def bits = b.input(top, "bits", Bits(217))
+  def mask = b.input(top, "mask", Bits(64))
+  def held = b.register(top, "held", Bits(217), clock, reset, b.constant(top, Bits(217), 2 ** 216 + 37))
+  b.drive(held.next, bits)
+  for (entry in [["first", bits], ["second", b.bit_not(top, bits)], ["held", held.current],
+                 ["constant", b.constant(top, Bits(217), 2 ** 216 + 2 ** 130 + 37)]]):
+    def instance = b.instance(top, leaf, entry[0])
+    b.drive(instance.input("data"), b.cast(top, entry[1], ProjectionToken(217)))
+    for (port in leaf.outputs):
+      b.drive(b.output(top, entry[0] ++ "_" ++ port.name, port.type), instance.output(port.name))
+
+  def lanes = b.cast(top, mask, VectorType(64, Bits(1)))
+  for (index in [0, 31, 63]):
+    b.drive(b.output(top, "bit" ++ to_string(index), Bits(1)), b.vector_get(top, lanes, index))
+
   b.finish(top)
   DesignElaboration(design, top)
