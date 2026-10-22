@@ -299,9 +299,16 @@ EX still calculates the PC-relative or JALR target independently. MEM resolves
 direction, target alignment, effective successor, RAS mismatch, and tournament
 outcome before its existing oldest-stop qualification and WB transfer.
 
-For younger non-memory vector arithmetic, the same ordinary ALU producer may
-replace a genuine integer rs1 dependency with `VectorScalar`. This route permits
-the scalar/vector issue pair and waives only that rs1 RAW/read interlock.
+Admission allows one non-memory vector operation with one ordinary integer ALU
+instruction in either order; pairing does not require a bypass route. A younger
+ALU may overwrite the older vector's scalar source because the descriptor
+captures its pre-write value. Canonical scalar-use metadata separates VRF and
+GPR namespaces, while vector GPR-result RAW/WAW hazards still split the pair.
+Keep the single-vector limit and vector-memory pairing rules unchanged.
+
+For younger non-memory vector arithmetic, the ordinary ALU producer may
+replace a genuine integer rs1 dependency with `VectorScalar`. This route waives
+only that rs1 RAW/read interlock.
 EX captures slot zero's ALU result into the younger descriptor's existing
 `scalar` field at the EX/MEM edge. Leave the younger scalar ALU operands and
 vector memory base/stride and footprint logic unchanged; there is no dependent
@@ -831,9 +838,13 @@ replay. Forward the adapter's physical-address flags through the selected memory
 owner: MMU lookup and WB demand must not translate these physical retries again
 or depend on the original TLB entry or fallback page window remaining resident.
 
-`vsetvli`, `vsetivli`, and `vsetvl` may pair with one vector operation in either
-order, without draining vector execution. Keep ordinary scalar RAW/WAW and
-resource gates; there is no same-pair VL-to-GPR bypass. EX computes configuration
+`vsetvli`, `vsetivli`, and `vsetvl` may pair with one vector operation or an
+ordinary integer ALU instruction in either order, without draining vector
+execution. Classify ALU partners from decoded controls, excluding memory, M, FP,
+system, and control-transfer operations. Keep ordinary scalar RAW/WAW and
+resource gates; there is no same-pair VL-to-GPR or ALU-to-configuration bypass.
+The existing two GPR ports and lane-qualified CSR result selection need no
+additional queue or stage. EX computes configuration
 and its GPR result using shared architectural helpers. The newest nonfaulted
 configuration in MEM, then WB, precedes committed CSR state; slot one is newer
 than slot zero. Within EX only an older configuration forwards to its younger
@@ -848,8 +859,8 @@ fault-retention register for one extra cycle when an older configuration needs
 the single CSR command port first. A trap behind an accepted older vector must
 also observe that cycle's admission, then drain it before entering the handler.
 Replays and retained vector memory discard
-only the unsuccessful suffix: an older configuration commits once, while an
-older rejected/retained vector suppresses its younger configuration. Successful
+only the unsuccessful suffix: an older configuration commits once, while a
+rejected older instruction or retained vector suppresses its younger configuration. Successful
 configuration does not squash or refetch successors. Faults, interrupts, and
 branch recovery still suppress wrong-path configuration and descriptor admission.
 Direct CSR writes, traps, and translation/context changes retain full drain.
@@ -900,9 +911,15 @@ MEM observations, accepted descriptor requests, and sequencer dispatch/release
 ports form an independent occurrence FIFO. It checks exact MEM parents for every
 sequence transfer and stall across both lanes, queued dispatch, and replacement;
 the existing replay/fault streams retain their architectural checks.
+Scalar/configuration streams additionally check all configuration forms, normal
+two-port writes, same-destination coalescing with distinct retirement values,
+dependent AVL/VL splits, single-configuration bandwidth, and precise scalar faults/replays.
 Scalar/vector arithmetic streams check same-cycle MEM/retirement, add/sub and
 vector multiply/divide consumers, LUI/AUIPC and XLEN-width values, x0, a producer
 waiting on a delayed load, late multiply interlocks, and either lane's fault/replay.
+Independent pairs cover both orders, scalar-source WAR snapshots, VRF/immediate
+versus GPR fields, late GPR-result RAW/WAW splits, accepted-vector drain before
+a younger trap, and actual full-descriptor-queue replay without memory traffic.
 They also check certified loads/stores retiring at ordinary WB without recovery,
 younger scalar progress, physical remapping, stale-certificate fallback, and
 cross-page fallback. MMU checks cover nonallocating cold certification, warm

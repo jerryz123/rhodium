@@ -25,6 +25,7 @@ std::set<std::uint64_t> retired_pcs;
 std::map<std::uint64_t, unsigned> memory_cycles;
 std::map<std::uint64_t, unsigned> retirement_cycles;
 std::map<std::uint64_t, unsigned> retirement_lanes;
+std::map<std::uint64_t, std::uint64_t> retirement_values;
 struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
@@ -225,7 +226,10 @@ void step() {
       CHECK(retired_pcs.insert(result.pfetched.ppc).second);
       retirement_cycles.emplace(result.pfetched.ppc, cycle);
       retirement_lanes.emplace(result.pfetched.ppc, port == &retired_1_out);
-      if (result.pwrite && !result.pdeferred) gprs[result.prd] = result.pdata;
+      if (result.pwrite && !result.pdeferred) {
+        retirement_values.emplace(result.pfetched.ppc, result.pdata);
+        gprs[result.prd] = result.pdata;
+      }
     }
     if (completed_out.pvalid && completed_out.pbits.pwrite) {
       ++deferred_count;
@@ -388,9 +392,10 @@ void vector_configuration_overlap() {
   stream({vsetivli(5, 4, 0), vsetvli(6, 5, 8), addi(7, 6, 3),
           vsetvli(0, 0, 7), vi(23, 0, 7, 4, 18)});
   CHECK(gprs[5] == 4 && gprs[6] == 4 && gprs[7] == 7);
-  for (unsigned index = 1; index < 4; ++index)
+  for (unsigned index = 1; index < 3; ++index)
     CHECK(memory_cycles.at(first + 4 * index) == memory_cycles.at(first) + index);
-  CHECK(memory_cycles.at(first + 16) == memory_cycles.at(first + 12));
+  CHECK(memory_cycles.at(first + 12) == memory_cycles.at(first + 8));
+  CHECK(memory_cycles.at(first + 16) == memory_cycles.at(first + 12) + 1);
   extract(18, 7, 7);
 
   // vsetvl consumes ordinary forwarded scalar sources; keep-VL uses its new state.
@@ -654,11 +659,11 @@ void paired_vector_configurations() {
   fast_enabled = slow = false;
   response_delay = 12;
 }
-void arithmetic_pair(std::uint32_t producer, std::uint32_t consumer) {
+void issue_pair(std::uint32_t older, std::uint32_t younger) {
   const auto pc = next_pc;
-  stream({producer, consumer});
+  stream({older, younger});
   if (memory_cycles.at(pc) != memory_cycles.at(pc + 4))
-    std::cerr << "split pair at " << std::hex << pc << ": " << producer << ", " << consumer
+    std::cerr << "split pair at " << std::hex << pc << ": " << older << ", " << younger
               << std::dec << "; MEM cycles " << memory_cycles.at(pc) << ", " << memory_cycles.at(pc + 4) << '\n';
   CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
   CHECK(retirement_cycles.at(pc) == retirement_cycles.at(pc + 4));
@@ -669,30 +674,30 @@ void paired_vector_arithmetic() {
   setvl(0, 4);
   send(addi(2, 0, 7));
   send(vi(23, 0, 2, 4, 8)); // v8 = 7
-  arithmetic_pair(addi(2, 0, 5), vi(0, 8, 2, 4, 9)); // vadd.vx
+  issue_pair(addi(2, 0, 5), vi(0, 8, 2, 4, 9)); // vadd.vx
   CHECK(gprs[2] == 5);
   extract(9, 7, 12);
-  arithmetic_pair((2 << 20) | (2 << 15) | (3 << 7) | 0x33,
+  issue_pair((2 << 20) | (2 << 15) | (3 << 7) | 0x33,
                   vi(2, 8, 3, 4, 10)); // add x3,x2,x2; vsub.vx
   CHECK(gprs[3] == 10);
   extract(10, 7, (UINT64_MAX - 2) & low_mask(bytes * 8));
-  arithmetic_pair(addi(4, 0, 3), vi(37, 8, 4, 6, 11)); // vmul.vx
+  issue_pair(addi(4, 0, 3), vi(37, 8, 4, 6, 11)); // vmul.vx
   extract(11, 7, 21);
-  arithmetic_pair(addi(4, 0, 7), vi(32, 11, 4, 6, 12)); // vdivu.vx
+  issue_pair(addi(4, 0, 7), vi(32, 11, 4, 6, 12)); // vdivu.vx
   extract(12, 7, 3);
 
   // Capture XLEN values unchanged; element truncation/sign interpretation stays in execution.
   setvl(bytes == 8 ? 3 : 2, 2);
   const auto high = (UINT64_C(0xffffffff80000000) & low_mask(bytes * 8));
-  arithmetic_pair(0x80000337, vi(23, 0, 6, 4, 13)); // lui x6,0x80000; vmv.v.x
+  issue_pair(0x80000337, vi(23, 0, 6, 4, 13)); // lui x6,0x80000; vmv.v.x
   CHECK(gprs[6] == high);
   extract(13, 7, high);
   const auto auipc = next_pc;
-  arithmetic_pair(0x00001317, vi(23, 0, 6, 4, 14)); // auipc x6,1
+  issue_pair(0x00001317, vi(23, 0, 6, 4, 14)); // auipc x6,1
   CHECK(gprs[6] == auipc + 0x1000);
   extract(14, 7, auipc + 0x1000);
   const auto negative = bytes == 8 ? 0xfff0031bu : addi(6, 0, -1); // addiw on RV64
-  arithmetic_pair(negative, vi(23, 0, 6, 4, 15));
+  issue_pair(negative, vi(23, 0, 6, 4, 15));
   extract(15, 7, low_mask(bytes * 8));
   stream({addi(0, 0, 73), vi(0, 14, 0, 4, 16)}); // x0 is not an ALU producer
   extract(16, 7, auipc + 0x1000);
@@ -751,6 +756,206 @@ void paired_vector_arithmetic() {
   stream({addi(6, 0, 57), vi(23, 0, 6, 4, 20)}, false, true);
   CHECK(gprs[6] == 57);
   extract(20, 7, 57);
+}
+void paired_scalar_configurations() {
+  run(120);
+  issue_pair(vsetivli(10, 3, 0), addi(11, 0, 77));
+  CHECK(gprs[10] == 3 && gprs[11] == 77);
+  issue_pair(addi(12, 0, 88), vsetivli(13, 2, 8));
+  CHECK(gprs[12] == 88 && gprs[13] == 2);
+  send(0xc21023f3); // csrr x7,vtype
+  CHECK(gprs[7] == 8);
+
+  // Register AVL and register vtype retain their ordinary scalar source rules.
+  issue_pair(vsetvli(10, 11, 0), addi(12, 0, 99));
+  CHECK(gprs[10] == bytes * 2 && gprs[12] == 99);
+  send(addi(14, 0, 2));
+  send(addi(15, 0, 8));
+  const auto configure = 0x80007057 | (15 << 20) | (14 << 15) | (13 << 7);
+  issue_pair(addi(12, 0, 100), configure);
+  CHECK(gprs[12] == 100 && gprs[13] == 2);
+
+  // Coalescing RF writes must not merge or substitute the two retirement values.
+  const auto config_first = next_pc;
+  issue_pair(vsetivli(10, 3, 0), addi(10, 0, 91));
+  CHECK(retirement_values.at(config_first) == 3 && retirement_values.at(config_first + 4) == 91);
+  CHECK(gprs[10] == 91);
+  send(addi(11, 10, 1));
+  CHECK(gprs[11] == 92); // read the actual RF, not just the retirement oracle
+  const auto config_second = next_pc;
+  issue_pair(addi(10, 0, 92), vsetivli(10, 2, 8));
+  CHECK(retirement_values.at(config_second) == 92 && retirement_values.at(config_second + 4) == 2);
+  CHECK(gprs[10] == 2);
+  send(addi(11, 10, 1));
+  CHECK(gprs[11] == 3);
+  issue_pair(vsetivli(0, 3, 0), addi(11, 0, 78));
+  send(0xc20023f3); // csrr x7,vl
+  CHECK(gprs[0] == 0 && gprs[7] == 3 && gprs[11] == 78);
+
+  // Neither direction gains a dependent EX ALU/configuration bypass.
+  const auto vl_dependency = next_pc;
+  stream({vsetivli(10, 3, 0), addi(11, 10, 1)});
+  CHECK(memory_cycles.at(vl_dependency + 4) > memory_cycles.at(vl_dependency));
+  CHECK(gprs[10] == 3 && gprs[11] == 4);
+  const auto avl_dependency = next_pc;
+  stream({addi(14, 0, 2), vsetvli(10, 14, 8)});
+  CHECK(memory_cycles.at(avl_dependency + 4) > memory_cycles.at(avl_dependency));
+  CHECK(gprs[14] == 2 && gprs[10] == 2);
+  const auto configs = next_pc;
+  stream({vsetivli(10, 3, 0), vsetivli(13, 2, 8)});
+  CHECK(memory_cycles.at(configs + 4) > memory_cycles.at(configs));
+  CHECK(gprs[10] == 3 && gprs[13] == 2);
+
+  // An older illegal keep-VL suppresses the li; a younger illegal keep-VL preserves it.
+  setvl(0, 3);
+  const auto old_scalar = gprs[12];
+  const auto older_fault = next_pc;
+  stream({vsetvli(0, 0, 8), addi(12, 0, 111)}, true);
+  CHECK(last_fault_pc == older_fault && gprs[12] == old_scalar);
+  CHECK(!retired_pcs.contains(older_fault) && !retired_pcs.contains(older_fault + 4));
+  const auto younger_fault = next_pc;
+  stream({addi(12, 0, 112), vsetvli(0, 0, 8)}, true);
+  CHECK(last_fault_pc == younger_fault + 4 && gprs[12] == 112);
+  CHECK(retired_pcs.contains(younger_fault) && !retired_pcs.contains(younger_fault + 4));
+  send(0xc21023f3);
+  CHECK(gprs[7] == 0);
+
+  // The single CSR port commits an older vset before retaining a younger scalar trap.
+  const auto scalar_fault = next_pc;
+  resolve_pc = scalar_fault + 4;
+  resolve_disposition = 1;
+  stream({vsetivli(10, 2, 8), addi(12, 0, 113)}, true);
+  resolve_pc = 0;
+  CHECK(last_fault_pc == scalar_fault + 4 && gprs[10] == 2 && gprs[12] == 112);
+  CHECK(retired_pcs.contains(scalar_fault) && !retired_pcs.contains(scalar_fault + 4));
+  send(0xc21023f3);
+  CHECK(gprs[7] == 8);
+  const auto scalar_older_fault = next_pc;
+  resolve_pc = scalar_older_fault;
+  stream({addi(12, 0, 114), vsetivli(10, 3, 0)}, true);
+  resolve_pc = 0;
+  CHECK(last_fault_pc == scalar_older_fault && gprs[10] == 2 && gprs[12] == 112);
+  CHECK(!retired_pcs.contains(scalar_older_fault) && !retired_pcs.contains(scalar_older_fault + 4));
+  send(0xc21023f3);
+  CHECK(gprs[7] == 8);
+
+  // Replaying either younger kind preserves exactly the successful older prefix.
+  const auto scalar_replay = next_pc;
+  resolve_pc = scalar_replay + 4;
+  resolve_disposition = 2;
+  stream({vsetivli(10, 3, 0), addi(12, 0, 115)}, false, true);
+  CHECK(retirement_cycles.at(scalar_replay) < retirement_cycles.at(scalar_replay + 4));
+  CHECK(gprs[10] == 3 && gprs[12] == 115);
+  const auto config_replay = next_pc;
+  resolve_pc = config_replay + 4;
+  stream({addi(12, 0, 116), vsetivli(10, 2, 8)}, false, true);
+  CHECK(retirement_cycles.at(config_replay) < retirement_cycles.at(config_replay + 4));
+  CHECK(gprs[10] == 2 && gprs[12] == 116);
+  const auto older_replay = next_pc;
+  resolve_pc = older_replay;
+  stream({vsetivli(10, 3, 0), addi(12, 0, 117)}, false, true);
+  CHECK(retirement_cycles.at(older_replay) == retirement_cycles.at(older_replay + 4));
+  CHECK(gprs[10] == 3 && gprs[12] == 117);
+}
+void independent_vector_scalar_pairs() {
+  run(120);
+  setvl(0, 4);
+  send(addi(2, 0, 7));
+  issue_pair(vi(23, 0, 2, 4, 8), addi(3, 0, 31)); // vmv.v.x; unrelated li
+  CHECK(gprs[3] == 31);
+  extract(8, 7, 7);
+  issue_pair(vi(23, 0, 2, 4, 9), addi(2, 0, 9)); // WAR: snapshot old x2
+  CHECK(gprs[2] == 9);
+  extract(9, 7, 7);
+  issue_pair(addi(3, 0, 32), vi(23, 0, 2, 4, 10)); // unrelated li; vmv.v.x
+  CHECK(gprs[3] == 32);
+  extract(10, 7, 9);
+
+  // VRF and immediate fields must not become accidental GPR dependencies.
+  issue_pair(vi(0, 8, 10, 0, 11), addi(11, 0, 33)); // vadd.vv v11,v8,v10; li x11
+  CHECK(gprs[11] == 33);
+  extract(11, 7, 16);
+  issue_pair(addi(8, 0, 34), vi(0, 8, 2, 3, 12)); // li x8; vadd.vi v12,v8,2
+  extract(12, 7, 9);
+  issue_pair(vi(37, 8, 2, 6, 13), addi(2, 0, 5)); // vmul.vx snapshots x2=9
+  CHECK(gprs[2] == 5);
+  extract(13, 7, 63);
+
+  // A vector GPR result can accompany an unrelated write, but its RAW/WAW hazards remain.
+  issue_pair(vi(16, 13, 0, 2, 6), addi(4, 0, 35)); // vmv.x.s x6,v13; li x4
+  run(120);
+  CHECK(gprs[6] == 63 && gprs[4] == 35);
+  const auto raw = next_pc;
+  stream({vi(16, 13, 0, 2, 6), addi(4, 6, 1)});
+  CHECK(memory_cycles.at(raw + 4) > memory_cycles.at(raw));
+  CHECK(gprs[4] == 64);
+  const auto waw = next_pc;
+  stream({vi(16, 13, 0, 2, 6), addi(6, 0, 36)});
+  CHECK(memory_cycles.at(waw + 4) > memory_cycles.at(waw));
+  run(60);
+  CHECK(gprs[6] == 36);
+  send(addi(4, 6, 1));
+  CHECK(gprs[4] == 37);
+
+  // Rejecting the older vector suppresses the scalar and all VRF effects.
+  send(addi(2, 0, 4));
+  send(vi(23, 0, 2, 4, 14));
+  run(20);
+  send(addi(2, 0, 5));
+  const auto scalar_before = gprs[3];
+  const auto older_fault = next_pc;
+  resolve_pc = older_fault;
+  resolve_disposition = 1;
+  stream({vi(23, 0, 2, 4, 14), addi(3, 0, 41)}, true);
+  resolve_pc = 0;
+  CHECK(last_fault_pc == older_fault && gprs[3] == scalar_before);
+  CHECK(!retired_pcs.contains(older_fault) && !retired_pcs.contains(older_fault + 4));
+  extract(14, 7, 4);
+
+  // A younger scalar trap drains the already accepted older vector GPR result.
+  const auto younger_fault = next_pc;
+  resolve_pc = younger_fault + 4;
+  stream({vi(16, 13, 0, 2, 6), addi(3, 0, 42)}, true);
+  resolve_pc = 0;
+  CHECK(last_fault_pc == younger_fault + 4 && gprs[6] == 63 && gprs[3] == scalar_before);
+  CHECK(retired_pcs.contains(younger_fault) && !retired_pcs.contains(younger_fault + 4));
+
+  // Younger scalar replay preserves the vector's old-source snapshot and accepted ownership.
+  const auto scalar_replay = next_pc;
+  resolve_pc = scalar_replay + 4;
+  resolve_disposition = 2;
+  stream({vi(23, 0, 2, 4, 14), addi(2, 0, 6)}, false, true);
+  CHECK(retirement_cycles.at(scalar_replay) < retirement_cycles.at(scalar_replay + 4));
+  CHECK(gprs[2] == 6);
+  extract(14, 7, 5);
+  resolve_pc = next_pc;
+  stream({vi(23, 0, 2, 4, 14), addi(2, 0, 7)}, false, true);
+  CHECK(gprs[2] == 7);
+  extract(14, 7, 6);
+  const auto vector_replay = next_pc;
+  resolve_pc = vector_replay + 4;
+  stream({addi(3, 0, 44), vi(23, 0, 2, 4, 15)}, false, true);
+  CHECK(retirement_cycles.at(vector_replay) < retirement_cycles.at(vector_replay + 4));
+  CHECK(gprs[3] == 44);
+  extract(15, 7, 7);
+
+  // Dependent divides fill descriptor credit without any vector memory traffic.
+  // A full-queue replay must not retire the younger li or duplicate an accepted vector.
+  setvl(bytes == 8 ? 3 : 2, 2);
+  send(addi(2, 0, 2));
+  send(addi(4, 0, 128));
+  send(vi(23, 0, 4, 4, 8));
+  run(20);
+  stream({vi(32, 8, 2, 6, 9), addi(3, 0, 100),
+          vi(32, 9, 2, 6, 10), addi(3, 0, 101),
+          vi(32, 10, 2, 6, 11), addi(3, 0, 102),
+          vi(32, 11, 2, 6, 12), addi(3, 0, 103),
+          vi(32, 12, 2, 6, 13), addi(3, 0, 104),
+          vi(32, 13, 2, 6, 14), addi(3, 0, 105),
+          vi(32, 14, 2, 6, 15), addi(3, 0, 106),
+          vi(32, 15, 2, 6, 16), addi(3, 0, 107)}, false, true);
+  CHECK(gprs[3] == 107);
+  extract(16, 7, 0);
 }
 void enter_guest(unsigned host_status = 0x6600, unsigned guest_status = 0x6600) {
   send(addi(2, 0, guest_status >> 8));
@@ -926,6 +1131,8 @@ int main() {
     vector_memory_fast_path();
     paired_vector_configurations();
     paired_vector_arithmetic();
+    paired_scalar_configurations();
+    independent_vector_scalar_pairs();
     run(100);
     vector_trace::finish();
   });

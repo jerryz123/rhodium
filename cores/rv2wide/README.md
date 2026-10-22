@@ -968,8 +968,9 @@ completion scoreboard with RV2Wide lookup, ordered-memory, and split-access
 interfaces. `RV2WideCore` supplies the architectural integration:
 
 - At most one vector operation issues per cycle; it may pair with one vector
-  configuration in either order. Vector arithmetic may also pair with an older
-  ordinary integer ALU instruction producing its integer scalar operand.
+  configuration in either order. Non-memory vector operations may also pair
+  with an ordinary integer ALU instruction in either order, subject to scalar
+  dependencies and resource availability.
   Operations snapshot CSR/scalar operands and enter the descriptor queue only
   through successful WB dispatch.
 - The queue stores four descriptors by default, in addition to the active
@@ -994,7 +995,13 @@ interfaces. `RV2WideCore` supplies the architectural integration:
 - Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
   retain their destination until the shared load-write port accepts the result.
 
-For example, `addi a0, a1, 7` followed by `vadd.vx v8, v9, a0` can issue and
+For example, `vmv.v.x v8, a0` followed by `li a0, 7` can issue and retire
+together: the vector descriptor captures the old value of `a0` before the
+younger write. Independent pairs work in either order; same-numbered VRF and
+GPR operands are separate registers. Vector operations that produce a GPR
+result retain their true RAW/WAW interlocks with younger scalar work.
+
+`addi a0, a1, 7` followed by `vadd.vx v8, v9, a0` can also issue and
 retire together when otherwise unblocked. The older ALU result is captured in
 the vector descriptor; it is not fed through a second dependent scalar ALU.
 This includes integer-scalar arithmetic using the shared vector multiply/divide
@@ -1011,14 +1018,15 @@ register write. A scalar redirect must not cancel an accepted descriptor.
 
 `vsetvli`, `vsetivli`, and `vsetvl` do not wait for older vector execution to
 complete. One configuration may pair with one vector operation in either order,
-subject to ordinary scalar dependencies and resource availability. Two
+or with an independent ordinary integer ALU instruction such as `li` in either
+order, subject to ordinary scalar dependencies and resource availability. Two
 configurations or two vector operations still issue separately. An older vset
-supplies the paired younger operation's configuration; an older vector operation
+supplies the paired younger vector operation's configuration; an older vector operation
 keeps its pre-vset state. Configurations compute their VL result in EX, forward
 the newest state to younger instructions, and commit the architectural CSRs at
 WB. Successful configuration does not flush or refetch successors. Retirement
-remains an oldest-first prefix: a younger vector fault/replay preserves the older
-configuration, while a rejected older vector prevents the younger configuration
+remains an oldest-first prefix: a younger fault/replay preserves the older
+configuration, while a rejected older instruction prevents the younger configuration
 from committing. Ordinary CSR accesses and precise recovery retain their existing
 serialization rules.
 

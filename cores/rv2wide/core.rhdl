@@ -574,9 +574,14 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| wb_gpr_calendar.occupied[3].into(Bool)
   def rr_second_decodable = rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_conflict)
   def rr_younger_prefix_allowed = rr_decodable[0] & !rr_controls[0].pause & !rr_system[0] & !rr_system[1]
-  // One descriptor may accompany its older scalar ALU producer or a CSR configuration.
-  def rr_vector_config_pair = (rr_vector_config[0] & rr_vector[1]) ||| (rr_vector[0] & rr_vector_config[1])
-  def rr_vector_scalar_pair = rr_pairing.routes[0] === RV2WidePairRoute.VectorScalar
+  def rr_ordinary_alu = for List (lane in 0..2):
+    def control :: RV2WideControl() = rr_controls[lane]
+    rr_decodable[lane] & control.writeback.enable & !rr_vector[lane] & !control.memory.enable & !rr_long[lane] & !control.fp.valid & !control.system.serializing() & !control.branch.resolver.enable
+
+  // One vector operation or configuration may share ordinary ALU work; hazards still apply.
+  def rr_vector_config_pair = (rr_vector_config[0] & (rr_vector[1] ||| rr_ordinary_alu[1])) ||| ((rr_vector[0] ||| rr_ordinary_alu[0]) & rr_vector_config[1])
+  def rr_vector_arithmetic = for List (lane in 0..2): rr_vector[lane] & !rr_controls[lane].vector.memory
+  def rr_vector_scalar_pair = (rr_vector_arithmetic[0] & rr_ordinary_alu[1]) ||| (rr_ordinary_alu[0] & rr_vector_arithmetic[1])
   def rr_vector_pair_allowed = rr_vector_config_pair ||| rr_vector_scalar_pair ||| (!rr_vector[0] & !rr_vector[1] & !rr_vector_config[0] & !rr_vector_config[1])
   def rr_second = rr_first & !rr_vector_writeback_waiting & rr_vector_pair_allowed & (rr_head.count === Bits(2)(2)) & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
