@@ -274,6 +274,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   interface fp_update(Valid(Bits(5)), ~role: consumer)
   interface redirect(Valid(Bits(width)), ~role: producer)
   output trap_event: RiscvTrapDecision(xlen)
+  output command_fault: RiscvTrapDecision(xlen)
   output interrupt_request: Bool
   output command_success: Bool
   output wfi: Bool
@@ -829,20 +830,25 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
 
   def csr_commit = commit.valid & (commit.bits.csr_operation =/= RiscvCsrOperation.None)
   def vector_config_commit = commit.valid & (commit.bits.action === RiscvCsrAction.VectorConfig)
-  def illegal_vector_config = vector_config_commit & (!vector_access_enabled ||| vector_csrs.configuration_illegal)
+  def illegal_vector_config = (commit.bits.action === RiscvCsrAction.VectorConfig) & (!vector_access_enabled ||| vector_csrs.configuration_illegal)
   def checked_commit = commit.bits.updated(
     ~exception_valid: commit.bits.exception_valid ||| illegal_vector_config,
     ~exception_cause: mux(commit.bits.exception_valid, commit.bits.exception_cause, exception_cause_bits(ExceptionCause.IllegalInstruction, width)),
     ~exception_value: mux(commit.bits.exception_valid, commit.bits.exception_value, if width == 32 | commit.bits.instruction | commit.bits.instruction.zext(width))
   )
 
-  def synchronous_trap = resolve_csr_trap(
-    xlen, commit.valid, checked_commit, privilege_state, state.mstatus, csr_access_legal, state.medeleg,
+  // Evaluate the candidate independently of authorization. Callers may retain
+  // a fault until older work drains without entering a trap or writing state.
+  def candidate_trap = resolve_csr_trap(
+    xlen, Bool(#true), checked_commit, privilege_state, state.mstatus, csr_access_legal, state.medeleg,
     ~virtualized: virtualized, ~virtual_csr: virtual_csr,
     ~vtsr: (if hypervisor | csr_flag(state.hstatus, HstatusVTSR) | Bool(#false)),
     ~vtw: (if hypervisor | csr_flag(state.hstatus, HstatusVTW) | Bool(#false)),
     ~vtvm: (if hypervisor | csr_flag(state.hstatus, HstatusVTVM) | Bool(#false))
   )
+
+  command_fault <== candidate_trap
+  def synchronous_trap = candidate_trap.updated(~valid: commit.valid & candidate_trap.valid)
 
   def interrupt :: RiscvInterruptDecision(xlen):
     if hypervisor

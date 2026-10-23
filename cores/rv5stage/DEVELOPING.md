@@ -67,6 +67,15 @@ pause so a starving variable return can still drain.
 FP calendar/arbitration policy belongs in `fp/service.rhdl`, not in
 the reusable numeric service.
 
+CSR read intent and implicit-writer dependencies come from `cores/csr/protocol.rhdl`.
+Pure reads bypass global serialization, but Decode includes older pre-admission
+FP/vector writers when applying that dependency policy. Their GPR consumers
+wait through EX/MEM for WB's register-file forwarding; never route a placeholder
+ALU result through the registered bypass. The shared bank's side-effect-free
+`command_fault` feeds precise exception retention before authorizing trap entry.
+Suppress younger Memory progress on that detection edge, not only after the
+pending-exception register becomes valid. No CSR result queue or WB stall is added.
+
 Follow the [source documentation requirements](../../AGENTS.md#source-documentation),
 including the exemption for files under `tests/`.
 

@@ -953,10 +953,15 @@ semantic memory machinery in [`memory.rhdl`](../cache/operation.rhdl) and return
 same deferred path as loads.
 
 CSR instructions return the old value and update state atomically at WB. System
-instructions other than `vset*` serialize in Decode and wait for older deferred
+instructions other than pure CSR reads and `vset*` serialize in Decode and wait for older deferred
 work before entering the pipeline. Vector configuration instead commits in
 order at WB after EX computes and bypasses its resulting state to following
 vector instructions or configurations, without draining older vector execution.
+Pure reads use the [shared CSR ordering policy](../csr/README.md#pure-reads-and-ordering):
+they sample at WB without draining unrelated memory or restarting Fetch.
+Consumers wait for WB register-file forwarding, while status reads wait only
+for relevant older implicit FP/vector updates. Denied reads, even with `rd=x0`,
+retain their exception until older authorized work drains before trap entry.
 Execute-detected exceptions cross EX/MEM before Memory
 squashes younger work. Data page and access faults are instead classified from
 the registered virtual request at WB. CSR state records EPC, cause, and trap

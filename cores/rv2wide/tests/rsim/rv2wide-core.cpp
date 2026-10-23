@@ -1116,7 +1116,8 @@ void csr_access(std::uint64_t pc, int f3, int rd, int rs1, int address,
                 std::uint64_t old_value) {
   std::uint32_t word = csr(f3, rd, rs1, address);
   expect_system(pc, word, old_value);
-  stop_at(pc, pc + 4, 3);
+  if (f3 == 1 || f3 == 5 || rs1 != 0)
+    stop_at(pc, pc + 4, 3);
   send(pc, word, 0, 1, 0, 0);
   drain();
 }
@@ -2050,8 +2051,8 @@ int main() {
     inject_enable = 0;
     CHECK(prefetch_count >= 26 && prefetch_pairs > 0);
 
-    // Real CSR commands return the old value, preserve source-index write intent,
-    // and serialize even without a GPR destination. Younger work is refetched.
+    // CSR writes serialize even without a destination; encoded-zero-source
+    // reads return the old value without recovery or a deferred-memory drain.
     reset_core();
     send(UINT64_C(0x6000), imm(1, 0, UINT64_C(0x55)), imm(2, 0, 0));
     drain();
@@ -2090,6 +2091,45 @@ int main() {
       CHECK(wb_overrides > before_override);
       csr_access(UINT64_C(0x6048), 2, 14, 0, UINT64_C(0x340), 19);
     }
+
+    // Independent reads and their GPR consumers retire while an older load
+    // response is held. All three pure-read forms use normal WB forwarding.
+    reset_core();
+    hold_responses = 1;
+    send(0x6080, imm(1, 0, 0, 3, 3), imm(2, 0, 2));
+    for (int index = 0; index < 3; ++index) {
+      auto word = csr(index == 0 ? 2 : index == 1 ? 6 : 7,
+                      3 + index, 0, 0xf14);
+      expect_system(0x6088 + 4 * index, word, 7);
+      send(0x6088 + 4 * index, word, 0, 1, 0, 0);
+    }
+    send(0x6094, imm(6, 3, 1), imm(7, 5, 1));
+    for (int index = 0; index < 16; ++index)
+      tick();
+    CHECK(response_count == 1 && expected.size() == 0 &&
+          expected_redirects.size() == 0 && model[6] == 8 && model[7] == 8);
+    hold_responses = 0;
+    drain();
+
+    // A denied read with rd=x0 may reach WB before that response, but must
+    // retain its fault, squash the younger store, and delay trap entry.
+    reset_core();
+    hold_responses = 1;
+    const int stores_before_denied_read = stores;
+    send(0x60b0, imm(1, 0, 0, 3, 3), imm(2, 0, 2));
+    auto denied_read = csr(2, 0, 0, 0x7ff);
+    stop_at(0x60b8, 0, 1, 2, denied_read);
+    send(0x60b8, denied_read, 0, 1, 0, 0);
+    send(0x60bc, store(2, 0, 32, 3), 0, 1, 0, 0);
+    for (int index = 0; index < 16; ++index)
+      tick();
+    CHECK(response_count == 1 && expected_redirects.size() == 1 &&
+          stores == stores_before_denied_read);
+    hold_responses = 0;
+    drain();
+    csr_access(0x60c0, 2, 3, 0, 0x341, 0x60b8);
+    csr_access(0x60c4, 2, 4, 0, 0x342, 2);
+    csr_access(0x60c8, 2, 5, 0, 0x343, denied_read);
 
     // Count the successful prefix: two ordinary instructions_in add two, a
     // younger fault adds only its older peer, and an older fault adds zero.

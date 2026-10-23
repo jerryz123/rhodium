@@ -26,6 +26,11 @@ def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
     ["execution_result_in", "bits", "tag", "context"],
     ["authorize_in", "valid"],
     ["authorize_in", "bits", "context"]
+  ]],
+  ["RiscvCsrFile", "test_csr_observe", [
+    ["commit_in", "valid"], ["commit_in", "bits", "pc"],
+    ["commit_in", "bits", "csr_operation"], ["command_success"],
+    ["command_fault", "valid"], ["redirect_out", "valid"]
   ]]
 ])])
 export program target

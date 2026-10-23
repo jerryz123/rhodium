@@ -17,7 +17,8 @@ owns reusable state implementation, not a core's pipeline policy.
   and WARL facts from `RiscvCsrConfig`, including guest-state and counter enables.
   Both cores' host profiles expose that same configuration used to instantiate RTL.
   Pipeline precision and trap-value provenance remain explicit caller claims.
-- `protocol.rhdl` defines the neutral command and architectural action enum.
+- `protocol.rhdl` defines the neutral command, architectural action enum, and
+  shared pure-read intent/implicit-writer dependency policy.
 - `file.rhdl` owns state, CSR dispatch, trap/return transitions, interrupt
   selection, FP state, counters, and passive cosim observations.
 - `vector.rhdl` owns retained vector configuration, sticky saturation, and VS.
@@ -34,6 +35,12 @@ Preserve CSR write priority over counting and synchronous-trap priority over
 interrupts. Keep passive observation names/timing stable; RV5Stage exposes the
 bank directly as its CSR observation component without a hierarchy wrapper.
 Retirement counts come from the caller's successful prefix, not command success.
+Evaluate candidate faults independently of command authorization, using the
+same legality path as committed commands. Never gate candidate evaluation with
+`commit.valid` or feed its result into its own candidate payload selection.
+Callers retain generated read faults until older authorized work drains. Read
+dependency summaries belong at issue because neither scalar pipeline adds WB
+backpressure for CSR reads; include older pre-admission FP/vector producers.
 Both base and retirement-event HPM counters consume the full count; detect HPM
 overflow with an addition carry, including an increment of two from -2.
 The legacy passive `retired` observation remains a Boolean nonzero-count event.
@@ -59,3 +66,6 @@ Run cosim pass tests if observation metadata changes, and
 `make check-boundaries` after moving modules or changing imports.
 `rv2wide-core` covers dual-retire accounting and the precise shared-bank WB cut;
 `rv2wide-fetch` executes a trap handler through the production fetching top.
+The two `rv5stage-core-rv32f`/`rv5stage-core-rv64d` fixtures check pure reads
+and their consumers during a delayed load, implicit FP flag ordering, and
+side-effect-free denied reads followed by retained precise trap entry.

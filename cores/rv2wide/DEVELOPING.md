@@ -719,14 +719,23 @@ start a cooldown. The core fixture checks both slots, consecutive hints, prior
 loads, killed hints, interrupt entry, and reset; the fetch fixture covers real
 instruction delivery and traced retirement. Keep neighboring FENCE decode intact.
 
-RR serializes system instructions after older pipeline and accepted memory work
+RR serializes state-changing system instructions after older pipeline and accepted memory work
 drain and never admits a system instruction as the younger slot, except for
-vector configuration's non-draining path described below. Ordinary CSR results
-are unavailable to speculative forwarding; WB writes the shared bank's result.
+vector configuration's non-draining path described below. Pure CSR reads also
+issue alone, without the global drain. Use the shared `csr_pure_read` and
+`csr_read_wait` policy, with older scalar/vector FP and vector progress summaries
+including EX/MEM/WB producers. CSR results are unavailable until WB, where the
+normal forwarding path selects the shared bank's legal result.
 Younger ordinary instructions may issue, but a serializing WB system command
 flushes their effects and refetches from the architectural successor or trap/return PC.
 This cut gives WB CSR recovery priority over a younger MEM branch without
 making feed-forward stage registers elastic.
+
+Command selection precedes side-effect-free `command_fault` evaluation. Fold
+denied reads into the existing fault-retention path without selecting their own
+candidate through the resulting fault. Successful reads do not squash, resume,
+or restore prediction history. Preserve the older Vset/younger-fault command
+priority and keep pure reads out of two-instruction groups.
 
 FENCE and FENCE.I share this drain/serialization path, with no CSR action or
 writeback. Successful WB FENCE.I drives a separate `instruction_invalidate`

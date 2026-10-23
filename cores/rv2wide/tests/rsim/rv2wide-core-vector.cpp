@@ -1560,20 +1560,27 @@ int main() {
       send(0x00101073); // clear fflags
       send(vi(23, 0, 0, 4, 13)); // half zero
       send(vi(32, 8, 13, 1, 14)); // vfdiv.vv v14,v8,v13 = +infinity
-      extract(14, 7, 0x7c00, true);
-      send(0x001023f3); // csrr x7,fflags waits for vector flags
+      send(0x001023f3); // read before the result-dependent extract: wait for vector flags
       CHECK(gprs[7] == 8); // DZ
+      extract(14, 7, 0x7c00, true);
       // Guest vector loads use ordinary VS translation state; accepted work
       // must finish before an ECALL changes privilege or a CSR can expose it.
       enter_guest();
       setvl(1, 8);
       send(addi(1, 0, 0x100));
       slow = true;
+      const auto saved_response_delay = response_delay;
+      response_delay = 80;
       send(0x02005007 | (1 << 15) | (16 << 7)); // vle16.v v16,(x1)
       for (unsigned wait = 0; responses.empty() && wait < 100; ++wait) step();
       CHECK(!responses.empty()); // delayed accepted work really is outstanding
+      const auto redirects_before_read = redirect_count;
+      send(0xc22023f3); // csrr x7,vlenb must not drain that older vector load
+      CHECK(gprs[7] == 16 && !responses.empty() &&
+            redirect_count == redirects_before_read);
       send(0x00000073, true); // VS ecall drains the vector load, then enters M
       CHECK(last_cause == 10 && responses.empty());
+      response_delay = saved_response_delay;
       slow = false;
       extract(16, 7, 0x1515);
 

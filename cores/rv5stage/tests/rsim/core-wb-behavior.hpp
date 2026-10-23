@@ -15,6 +15,7 @@ int scenario, attempts, accepted, stores, response_delay, prefetches,
     restart_accepts;
 
 int killed_fixed_launches, killed_fixed_returns;
+int independent_csr_reads, deferred_csr_faults;
 
 bool done;
 
@@ -60,6 +61,36 @@ std::uint32_t atomic_word(int operation, int rd, int rs) {
           ((uint128(UINT64_C(47)) & mask128(7)) << 0));
 }
 std::uint32_t instruction_at(std::remove_cvref_t<decltype(hart_id)> address) {
+  if (scenario >= 3) {
+    if (scenario == 3) {
+      switch (address) {
+      case 0x100: return 0x48002283; // lw x5,0x480(x0), delayed
+      case 0x104: return csr(6, 0, 0xf14, 2);
+      case 0x108: return addi(7, 6, 1); // genuine late CSR dependency
+      case 0x10c: return csr(8, 0, 0xf14, 6);
+      case 0x110: return csr(9, 0, 0xf14, 7);
+      case 0x114: return csr(0, 0, 0xf14, 2); // permissions still checked
+      case 0x118: return store_word(7, 0x440);
+      case 0x11c: return store_word(8, 0x444);
+      case 0x120: return store_word(9, 0x448);
+      case 0x124: return store_word(5, 0x44c);
+      default: return 0x6f;
+      }
+    }
+    switch (address) {
+    case 0x100: return addi(1, 0, 0x200);
+    case 0x104: return csr(0, 1, 0x305, 1);
+    case 0x108: return 0x48002283;
+    case 0x10c: return csr(0, 0, 0x7ff, 2); // denied read, rd=x0
+    case 0x110: return store_word(0, 0x450); // must be squashed
+    case 0x200: return csr(6, 0, 0x342, 2);
+    case 0x204: return store_word(6, 0x440);
+    case 0x208: return csr(7, 0, 0x343, 2);
+    case 0x20c: return store_word(7, 0x444);
+    case 0x210: return store_word(5, 0x448);
+    default: return 0x6f;
+    }
+  }
   if (scenario == 2)
     switch (address) {
     case UINT64_C(280): {
@@ -126,16 +157,16 @@ std::uint32_t instruction_at(std::remove_cvref_t<decltype(hart_id)> address) {
     return fp(UINT64_C(12), 2, 1, 0); // fdiv.s f2, f1, f0: DZ
   } break;
   case UINT64_C(304): {
-    return fp(UINT64_C(112), 6, 1, 0); // fmv.x.w x6, f1
+    return csr(7, 0, UINT64_C(1), 2); // fflags must observe the older live divide
   } break;
   case UINT64_C(308): {
-    return store_word(6, UINT64_C(1088));
+    return fp(UINT64_C(112), 6, 1, 0); // fmv.x.w x6, f1
   } break;
   case UINT64_C(312): {
-    return store_word(2, UINT64_C(1092), UINT64_C(39)); // fsw f2
+    return store_word(6, UINT64_C(1088));
   } break;
   case UINT64_C(316): {
-    return csr(7, 0, UINT64_C(1), 2); // fflags
+    return store_word(2, UINT64_C(1092), UINT64_C(39)); // fsw f2
   } break;
   case UINT64_C(320): {
     return store_word(7, UINT64_C(1096));
@@ -241,6 +272,8 @@ void observe() {
       defer(restart_accepts, 0);
       defer(killed_fixed_launches, 0);
       defer(killed_fixed_returns, 0);
+      defer(independent_csr_reads, 0);
+      defer(deferred_csr_faults, 0);
       defer(response_delay, 0);
       defer(pending_response,
             std::remove_cvref_t<decltype(pending_response)>{});
@@ -277,7 +310,20 @@ void observe() {
         CHECK(!data_access_in.prequest_uaccess_ufault);
         if (data_access_out.prequest.pbits.paccess == 2) {
           defer(stores, stores + 1);
-          if (scenario == 0) {
+          if (scenario >= 3) {
+            CHECK(response_delay == 0);
+            const unsigned count = scenario == 3 ? 4 : 3;
+            const std::uint64_t values[] = {
+                scenario == 3 ? 1u : 2u,
+                scenario == 3 ? 0u : 0x7ff02073u,
+                scenario == 3 ? 0u : 42u,
+                42u};
+            CHECK(unsigned(stores) < count &&
+                  data_access_out.prequest.pbits.paddress == 0x440 + 4 * stores &&
+                  data_access_out.prequest.pbits.pdata == values[stores]);
+            if (unsigned(stores + 1) == count)
+              defer(done, 1);
+          } else if (scenario == 0) {
             switch (stores) {
             case 0: {
               CHECK(data_access_out.prequest.pbits.paddress == UINT64_C(1088) &&
@@ -358,20 +404,19 @@ void observe() {
             defer(accepted, accepted + 1);
           else
             CHECK(
-                scenario == 0 &&
-                ((data_access_out.prequest.pbits.paddress == UINT64_C(1104) &&
+                (scenario >= 3 && data_access_out.prequest.pbits.paddress == 0x480 && data_access_out.prequest.pbits.paccess == 1) ||
+                (scenario == 0 && ((data_access_out.prequest.pbits.paddress == UINT64_C(1104) &&
                   (data_access_out.prequest.pbits.paccess == 3 ||
                    data_access_out.prequest.pbits.paccess == 4 ||
                    data_access_out.prequest.pbits.paccess == 5)) ||
                  (data_access_out.prequest.pbits.paddress == UINT64_C(1152) &&
                   data_access_out.prequest.pbits.paccess == 1 &&
                   bit_slice(data_access_out.prequest.pbits.pcontext.pwriteback,
-                            7, (8) - (7) + 1) == 2)));
-          defer(response_delay,
-                data_access_out.prequest.pbits.paddress == UINT64_C(1024) ? 20
-                                                                          : 4);
+                            7, (8) - (7) + 1) == 2))));
+          defer(response_delay, scenario >= 3 ? 100 :
+                data_access_out.prequest.pbits.paddress == UINT64_C(1024) ? 20 : 4);
           defer(pending_response.pdata,
-                data_access_out.prequest.pbits.paddress == UINT64_C(1152)
+                scenario < 3 && data_access_out.prequest.pbits.paddress == UINT64_C(1152)
                     ? UINT64_C(1077936128)
                     : 42);
           defer(pending_response.pcontext.pwriteback,
@@ -390,7 +435,7 @@ void stimulus() {
   hart_id = 0;
   interrupts = {};
   {
-    for (scenario = 0; scenario < 3; scenario++) {
+    for (scenario = 0; scenario < 5; scenario++) {
       reset = 1;
       for (int repeat_index = 0; repeat_index < (3); ++repeat_index)
         falling();
@@ -399,12 +444,33 @@ void stimulus() {
       for (int cycles = 0; cycles < 2500 && !done; cycles++)
         falling();
       CHECK(done);
-      CHECK(restart_accepts > 0);
+      if (scenario != 3)
+        CHECK(restart_accepts > 0);
+      if (scenario == 3)
+        CHECK(independent_csr_reads == 4);
+      if (scenario == 4)
+        CHECK(deferred_csr_faults > 0);
       CHECK(prefetches == (scenario == 0 ? 1 : 0));
       if (scenario == 2)
         CHECK(killed_fixed_launches == 1 && killed_fixed_returns == 1);
     };
     throw Finished{};
+  }
+}
+
+extern "C" void test_csr_observe(std::uint64_t rst, std::uint64_t valid,
+                                 std::uint64_t pc, std::uint64_t csr_operation,
+                                 std::uint64_t success, std::uint64_t fault,
+                                 std::uint64_t redirect_valid) {
+  if (rst || scenario < 3)
+    return;
+  if (scenario == 3 && valid && success && csr_operation != 0) {
+    CHECK(response_delay > 0 && !redirect_valid);
+    ++independent_csr_reads;
+  }
+  if (scenario == 4 && pc == 0x10c && fault && response_delay > 0) {
+    CHECK(!valid && !redirect_valid);
+    ++deferred_csr_faults;
   }
 }
 

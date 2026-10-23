@@ -1,10 +1,11 @@
 #lang rhodium
-/* Defines authorized CSR/trap commands without instruction-pipeline payloads or scheduling controls. */
+/* Defines CSR commands and shared read-ordering policy without pipeline-specific scheduling. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
+  lib("riscv/rtl/csr.rhdl") open
+  lib("riscv/isa/csr.rhm") open
   lib("riscv/rtl/vector.rhdl").RiscvVectorConfigRequest
 
 /* Selects architectural effects or permission checks; cache/TLB execution and waits remain caller-owned. */
@@ -21,6 +22,19 @@ hardware_enum RiscvCsrAction:
   HfenceGvma
   TranslationOrder
 
+/* Recognizes read-only instruction intent from the encoded register or immediate source,
+   never from the runtime operand value. */
+fun csr_pure_read(operation :: RiscvCsrOperation, source_specifier :: Bits(5)) :~ Bool:
+  (operation =/= RiscvCsrOperation.None) & !riscv_csr_write_requested(operation, source_specifier)
+
+/* Orders reads against older implicit writers, including FS/VS dirty-state aliases.
+   Explicit CSR writers remain caller-serialized; counters are sampled at retirement. */
+fun csr_read_wait(address :: Bits(12), fp_pending :: Bool, vector_pending :: Bool) :~ Bool:
+  def status = address.is_one_of([CsrId.Mstatus, CsrId.Sstatus, CsrId.Vsstatus].map(csr_bits))
+  def fp_flags = address.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Fcsr))
+  def vector_progress = address.is_one_of([CsrId.Vstart, CsrId.Vxsat, CsrId.Vcsr, CsrId.Vl].map(csr_bits))
+  ((status ||| fp_flags) & fp_pending) ||| ((status ||| vector_progress) & vector_pending)
+
 /* Carries one irrevocably authorized operation, raw instruction, destination, and precise fault context. */
 bundle RiscvCsrCommand(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -36,5 +50,7 @@ bundle RiscvCsrCommand(xlen :: XLen):
   exception_value: Bits(xlen.width)
 
 export:
+  csr_pure_read
+  csr_read_wait
   RiscvCsrAction
   RiscvCsrCommand

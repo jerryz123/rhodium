@@ -39,8 +39,8 @@ bundle RV2WideSystemControl():
   fence: RV2WideFence
   wait: RV2WideWait
 
-  /* Requires single-slot issue after older instructions and accepted memory have drained. */
-  method serializing(control) :: Bool:
+  /* Identifies operations using the single WB command path, independently of read ordering. */
+  method uses_command(control) :: Bool:
     (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None) ||| (control.fence =/= RV2WideFence.None) ||| (control.wait =/= RV2WideWait.None)
 
 def RV2WidePrivilegedInstructions = [MRET, SRET, WFI, SFENCE_VMA]

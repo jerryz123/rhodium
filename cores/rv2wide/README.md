@@ -779,15 +779,22 @@ transactions block younger memory operations only.
 ## CSR, traps, and interrupts
 
 The shared `cores/csr` bank owns architectural state and permission checks;
-RV2Wide owns precise ordering. Except for the non-draining vector configuration
+RV2Wide owns precise ordering. Except for pure CSR reads and the non-draining vector configuration
 path described under [vector execution](#vector-execution), system instructions issue alone only after older
 pipeline work and accepted deferred operations (including GPR completion writes)
 drain. They execute once at WB. Younger instructions may execute speculatively,
 but WB system recovery squashes them and overrides same-cycle MEM branch recovery.
-A successful CSR instruction refetches its successor; returns select mepc/sepc.
+A successful state-changing CSR instruction refetches its successor; returns select mepc/sepc.
 CSR register-source and immediate-source forms retain the architectural source
 index, so CSRRS/CSRRC with a nonzero source register containing zero still attempt
 a write, while a zero source index suppresses it.
+
+Pure reads issue alone within a pair but overlap surrounding pipeline work.
+They sample permissions and values at WB, forward their GPR result there, and
+do not restart fetching or drain unrelated deferred memory. Reads of implicit
+FP/vector status wait for the relevant older writers, using the
+[shared CSR policy](../csr/README.md#pure-reads-and-ordering). A denied read,
+including one with `rd=x0`, retains its precise fault until older work drains.
 
 WB retires only the successful prefix: an older instruction still retires if its
 younger peer faults. `minstret` receives an explicit count of zero, one, or two;
@@ -1006,7 +1013,8 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   through later TLB replacement. Cross-page, uncertain, or rejected checks keep
   the retained precise path; a speculative check never starts a page walk.
 - Younger scalar memory waits for older vector stores; younger scalar stores
-  also wait for older vector loads. Direct CSR accesses and traps drain accepted work.
+  also wait for older vector loads. CSR writes and traps drain accepted work;
+  pure reads wait only for relevant implicit state updates.
 - Scalar EX multiply and fixed-FP reservations remain feed-forward. Vector
   operations share the same arithmetic units with retained completion tags.
 - Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
@@ -1044,8 +1052,8 @@ the newest state to younger instructions, and commit the architectural CSRs at
 WB. Successful configuration does not flush or refetch successors. Retirement
 remains an oldest-first prefix: a younger fault/replay preserves the older
 configuration, while a rejected older instruction prevents the younger configuration
-from committing. Ordinary CSR accesses and precise recovery retain their existing
-serialization rules.
+from committing. CSR writes and precise recovery retain their serialization
+rules; pure CSR reads use the normal late-result pipeline.
 
 ```text
 WB-authorized descriptors -> queue -> shared vector execution

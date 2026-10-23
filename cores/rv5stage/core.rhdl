@@ -203,10 +203,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   fun core_deferred_writeback(source :: RV5StageWritebackSelect):
     source.is_one_of(RV5StageWritebackSelect.Memory, RV5StageWritebackSelect.Multiply, RV5StageWritebackSelect.Divide)
 
-  /* Identifies system and fence operations that require ordered state, excluding bypassed
-     vector configuration. */
-  fun core_serializing_operation(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl()) :~ Bool:
-    (system.is_system_operation() & (system.action =/= RiscvCsrAction.VectorConfig)) ||| fence.is_fence_operation()
+  /* Keeps writes, privileged actions, and fences ordered while pure CSR reads and
+     bypassed vector configuration use the normal pipeline. */
+  fun core_serializing_operation(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl(), instruction :: Bits(32)) :~ Bool:
+    (system.is_system_operation() & (system.action =/= RiscvCsrAction.VectorConfig) & !csr_pure_read(system.csr, instruction[15..20])) ||| fence.is_fence_operation()
 
   /* Selects load or store exception class from the memory operation while retaining the fault
      address. */
@@ -571,7 +571,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // without conflating pointer policy with translation invalidation.
   def wb_serializing_resume = fence_i_commit ||| wb_csrs.translation_flush ||| wb_csrs.pointer_masking_changed ||| (wb_split_done & !wb_split_fault)
   def wb_commit_redirect = wb_split_accepted ||| wb_csrs.redirect.valid ||| wb_serializing_resume ||| wb_commit_replay ||| wb_vector_replay ||| wb_vector_truncate ||| wb_vector_slow_restart
-  def mem_stage_valid = mem_input.valid & !wb_commit_redirect & !wb_pending_exception_valid & !(wb_commit_valid & wb_commit_bits.exception_valid)
+  def mem_stage_valid = mem_input.valid & !wb_commit_redirect & !wb_pending_exception_valid & !(wb_commit_valid & wb_csrs.command_fault.valid)
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
   def mem_redirect = mem_to_if_redirect_link.right.valid
@@ -615,7 +615,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      Seeds fetch once after reset and gates it during recovery, PAUSE, and
      interrupt/reservation waits. The IBuf owns instruction assembly. */
 
-  def if_exception_in_flight = wb_pending_exception_valid ||| mem_exception_event ||| (wb_commit_valid & wb_commit_bits.exception_valid)
+  def if_exception_in_flight = wb_pending_exception_valid ||| mem_exception_event ||| (wb_commit_valid & wb_csrs.command_fault.valid)
   def if_squash = wb_split_accepted ||| if_exception_in_flight ||| mem_replay_event ||| if_redirect_link.right.valid
   reg if_started(~init: Bool(#false))
   reg if_waiting_for_interrupt(~init: Bool(#false))
@@ -755,7 +755,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     def overwrites = writes_integer & (deferred_destination === id_rd)
     deferred_valid & deferred_destination.any() & (reads_rs1 ||| reads_rs2 ||| overwrites)
 
-  def id_deferred_dependency_hazard = id_decode_valid & (id_conflicts_with_deferred(id_ex_deferred, ex_input.bits.rd) ||| id_conflicts_with_deferred(id_mem_deferred, mem_input.bits.rd))
+  // Ordinary CSR values are unavailable to the registered EX/MEM bypass.
+  // Their consumers wait for WB's same-cycle register-file forwarding.
+  def id_ex_csr_pending = ex_input.valid & ex_input.bits.writeback_enable & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Csr) & (ex_input.bits.system.action =/= RiscvCsrAction.VectorConfig)
+  def id_mem_csr_pending = mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Csr) & (mem_input.bits.system.action =/= RiscvCsrAction.VectorConfig)
+  def id_deferred_dependency_hazard = id_decode_valid & (id_conflicts_with_deferred(id_ex_deferred ||| id_ex_csr_pending, ex_input.bits.rd) ||| id_conflicts_with_deferred(id_mem_deferred ||| id_mem_csr_pending, mem_input.bits.rd))
   def id_scoreboard_raw_hazard = (id_control.operand.uses_rs1 & id_rs1.any() & id_integer_register_busy(id_rs1)) ||| (id_control.operand.uses_rs2 & id_rs2.any() & id_integer_register_busy(id_rs2))
   def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & id_control.vector.integer & id_control.vector.scalar_destination) ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
   def id_scoreboard_waw_hazard = id_integer_write & id_rd.any() & id_integer_register_busy(id_rd)
@@ -785,9 +789,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_wb_fp_reservation_pending = wb.valid & (wb_offer_bits.fp_compute ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
   def id_older_fp_reservation_pending = id_ex_fp_reservation_pending ||| id_mem_fp_reservation_pending ||| id_wb_fp_reservation_pending
   def id_vector_fp_destination_hazard = id_control.vector.floating_point & id_control.vector.floating_scalar_destination & (id_fp_register_busy(id_rd) ||| !wb_fp.drained ||| id_older_fp_reservation_pending)
-  def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence) ||| ex_input.bits.memory_operation.into(CacheOperation).is_cache_management())
-  def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence) ||| mem_input.bits.data_request.access.into(CacheOperation).is_cache_management())
-  def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence)
+  def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence, ex_input.bits.instruction) ||| ex_input.bits.memory_operation.into(CacheOperation).is_cache_management())
+  def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence, mem_input.bits.raw_instruction) ||| mem_input.bits.data_request.access.into(CacheOperation).is_cache_management())
+  def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence, wb_offer_bits.raw_instruction)
   def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === RV5StageHintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === RV5StageHintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === RV5StageHintOperation.Pause))
   def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_memory_pending ||| wb_reservation_wait_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(wb_commit_bits.writeback_source) & wb_commit_bits.write_enable
@@ -796,7 +800,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // Include older accesses not yet accepted by the LSU: drained alone can
   // still be true while a block zero (or scalar store) is in Execute/Memory.
   def id_older_memory_in_flight = (ex_input.valid & ex_input.bits.memory_operation.into(CacheOperation).is_memory()) ||| (mem_input.valid & mem_input.bits.data_request_valid) ||| (wb.valid & wb_offer_bits.data_request_valid)
-  def id_serializing_waits_for_older = (core_serializing_operation(id_control.system, id_control.fence) ||| id_management) & (id_deferred_state_pending ||| id_older_memory_in_flight ||| !scalar_data.drained)
+  def id_csr_read = csr_pure_read(id_control.system.csr, id_rs1)
+  wire id_csr_read_wait: Bool
+  def id_serializing_waits_for_older = id_csr_read_wait ||| ((core_serializing_operation(id_control.system, id_control.fence, id_instruction) ||| id_management) & (id_deferred_state_pending ||| id_older_memory_in_flight ||| !scalar_data.drained))
   def id_needs_multiplier = (id_control.writeback.source === RV5StageWritebackSelect.Multiply) & id_control.writeback.enable & id_rd.any()
   def id_ex_has_multiply = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & ex_input.bits.writeback_enable & ex_input.bits.rd.any()
   def id_mem_has_multiply = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.any()
@@ -840,7 +846,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // A nonzero vstart still waits for the older WB reset.
   def id_vector_start_pending = id_vector_instruction & wb_csrs.vector_state.vstart.any() & id_vector_launch_pending
   def id_vector_fp_pending = wb_vector_fp_pending ||| id_vector_launch_matches(fun (control :: VectorControl(), _rd): control.floating_point)
-  def id_vector_state_wait = (wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)
+  id_csr_read_wait <== id_csr_read & csr_read_wait(id_instruction[20..32], !wb_fp.drained ||| id_older_fp_reservation_pending ||| id_vector_fp_pending, wb_vector_active ||| id_vector_launch_pending)
+  def id_vector_state_wait = (wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence, id_instruction) ||| id_management)
   def id_vector_memory_wait = (wb_vector_loads_pending & id_scalar_needs_unique) ||| (wb_vector_stores_pending & id_scalar_memory)
   def id_vector_scalar_wait = (id_vector_instruction & wb_vector_integer_write_pending) ||| ((wb_vector_fp_write_pending ||| id_vector_fp_pending) & id_control.floating_point_valid)
   def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| id_vector_scalar_wait ||| id_vector_state_wait ||| id_vector_memory_wait
@@ -1591,7 +1598,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      Older authorized work drains before trap entry. Younger speculative
      pipeline occupancy is not outstanding architectural work. */
 
-  def wb_current_exception_wait = wb_commit_valid & wb_commit_bits.exception_valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
+  def wb_current_exception_wait = wb_commit_valid & wb_csrs.command_fault.valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
   def wb_architectural_commit = mux(wb_pending_exception_valid, wb_pending_exception, wb_commit_bits)
   def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_active & scalar_data.drained
   wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_memory_pending & !wb_reservation_wait_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
@@ -1628,7 +1635,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   when wb_current_exception_wait:
     wb_pending_exception_valid <== Bool(#true)
-    wb_pending_exception <== wb_commit_bits
+    wb_pending_exception <== wb_commit_bits.updated(
+      ~exception_valid: Bool(#true),
+      ~exception_cause: wb_csrs.command_fault.cause,
+      ~exception_value: wb_csrs.command_fault.value
+    )
   elsewhen (wb_pending_exception_valid & wb_csrs.redirect.valid):
     wb_pending_exception_valid <== Bool(#false)
 

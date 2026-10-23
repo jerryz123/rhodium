@@ -627,5 +627,24 @@ int main() {
     eval_csr();
     independent_retire = 0;
     csr_access(CSR_SET, CSR_MINSTRET, 0, 9);
+
+    // Candidate evaluation checks even rd=x0, without authorization, trap
+    // entry, counter retirement, or any other architectural mutation.
+    reset_dut();
+    clear_commit();
+    commit_in.pbits.pcsr_uoperation = CSR_SET;
+    commit_in.pbits.pcsr_uaddress = 0x7ff;
+    commit_in.pbits.pinstruction = 0x7ff02073;
+    commit_in.pbits.ppc = 0x180;
+    for (unsigned cycle = 0; cycle < 3; ++cycle) {
+      eval_csr();
+      CHECK(command_fault.pvalid && command_fault.pcause == 2 &&
+            command_fault.pvalue == 0x7ff02073 && !trap_event.pvalid &&
+            !redirect_out.pvalid && !command_success && !writeback_valid);
+      tick_csr();
+    }
+    csr_access(CSR_SET, CSR_MEPC, 0, 0);
+    csr_access(CSR_SET, CSR_MCAUSE, 0, 0);
+    csr_access(CSR_SET, CSR_MTVAL, 0, 0);
   });
 }

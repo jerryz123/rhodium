@@ -32,6 +32,10 @@ core's interrupt boundary + next PC ------------> interrupt entry
   `writeback_valid/value` report legal CSR/configuration results for nonzero
   `rd`. `wfi` reports an authorized, legal WFI; sleeping remains caller policy.
   `wfi_wake` exposes locally enabled pending interrupts.
+- `command_fault` evaluates `commit.bits` combinationally, independently of
+  `commit.valid`. It reports a candidate synchronous fault without changing
+  state. A caller may inspect it, retain a denied read while older work drains,
+  and authorize trap entry later using the retained exception context.
 - `retire_count: Bits(2)` independently counts zero, one, or two architectural
   retirements in `minstret` and the optional retirement HPM event. Ordinary instructions need not send
   commands. Command success does not itself increment counters. Counter CSR
@@ -47,6 +51,21 @@ core's interrupt boundary + next PC ------------> interrupt entry
   cause, value, and destination privilege on the trap-entry edge.
 - FP/vector completion inputs update flags/status and vector progress. Drain
   outstanding updates before changing the host/guest context owning them.
+
+## Pure reads and ordering
+
+`protocol.rhdl` supplies `csr_pure_read(operation, source_specifier)` and
+`csr_read_wait(address, fp_pending, vector_pending)`. The former recognizes
+CSRRS/CSRRC and immediate variants with an encoded zero source. A nonzero
+register containing zero still requests a write; CSRRW always requests one.
+The latter identifies observers of older implicit FP/vector updates, including
+FS/VS status aliases. Pending summaries must include pre-admission producers.
+
+Both cores sample pure reads and permissions at WB, use normal late GPR
+writeback, and do not drain unrelated memory work or restart after a successful
+read. `vlenb` needs no execution-unit drain. Status observers wait for relevant
+older updates; counters observe the pre-retirement value, excluding the read
+itself. Explicit writes and privileged transitions retain serialization.
 
 ## Decode and configuration projection
 
