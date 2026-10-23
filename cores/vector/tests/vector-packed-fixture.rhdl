@@ -31,6 +31,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
   interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
   interface written(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  interface released(Valid(Bits(index_width(slots))), ~role: producer)
   output(request_ready, active, issued, retired, sequenced): Bool
   output sequence_address: Bits(xlen.width)
   output token: VectorToken(xlen, Bits(64), slots)
@@ -102,6 +103,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   (
     scheduled |> map_flow(operation => VectorToken(xlen, Bits(64), slots)):
       precertified: Bool(#false)
+      packed: operation.packed
       physical_address: Bits(xlen.width)(0)
       store: store
       byte_mask: operation.byte_mask
@@ -144,7 +146,9 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   slots_owner.reserve.bits <== tail
   slots_owner.accept.valid <== attempts.egress.valid & !retry
   slots_owner.accept.bits <== attempts.egress.bits.completion_tag
-  engine.released |> slots_owner.release
+  def Array(reclaim_slot, observed_release) = engine.released |> fork_valid(2)
+  reclaim_slot |> slots_owner.release
+  observed_release |> released
   slots_owner.replay.valid <== attempts.egress.valid & retry
   (
     attempts.egress |> map_valid(token => VectorCommit(xlen, slots)):

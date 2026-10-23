@@ -87,14 +87,18 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def Array(certified_input, faultable_input) = issue |> demux_flow(2, token => !token.precertified)
   certified_input |> replay.request
   def capture_feedback = replay.captured
-  def direct = faultable_input |> gate_flow(!queued & !recover & !split_pending) |> to_valid()
-  def ex = Array(replay.attempt, direct) |> valid_arbiter() |> valid_pipe(1, ~flush: recover)
-  requests_idle <== !queued & !split_pending
+  def direct = faultable_input |> gate_flow(!queued & !recover & !split_pending)
+  def Array(registered_input, packed_load) = Array(replay.attempt, direct) |> arbiter() |> demux_flow(2, token => token.packed & !token.store)
+  def registered_lookup = registered_input |> to_valid() |> valid_pipe(1, ~flush: recover)
+  def immediate_lookup = packed_load |> gate_flow(!registered_lookup.valid) |> to_valid()
+  def lookup = Array(registered_lookup, immediate_lookup) |> valid_arbiter()
+  requests_idle <== !queued & !lookup.valid & !split_pending
 
 
 
-  /* Capture feedback and EX lookup formation.
-     Durable ownership is reported independently of later cache acceptance or retries. */
+  /* Capture feedback and lookup formation.
+     Prepared packed loads bypass ordinary EX storage, but never an older lookup.
+     Durable ownership is reported independently of cache acceptance or retries. */
 
   def durable = capture_feedback |> valid_pipe(1) |> map_valid(operation => VectorCommit(xlen, slots)):
     tag: operation.completion_tag
@@ -105,24 +109,24 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     cause: Bits(xlen.width)(0)
     fault_address: operation.address
 
-  def Array(lookup_path, context_path) = ex |> fork_valid(2)
-  def access = ex.bits.memory & ex.bits.enabled
-  def address = mux(ex.bits.precertified, ex.bits.physical_address, apply_pointer_mask(xlen, ex.bits.address[0..xlen.width], pointer_masking))
-  def ex_store = mux(ex.bits.precertified, ex.bits.store, store)
-  pipeline_physical <== ex.bits.precertified
-  def width = ex.bits.memory_width.into(MemoryWidth)
+  def Array(lookup_path, context_path) = lookup |> fork_valid(2)
+  def access = lookup.bits.memory & lookup.bits.enabled
+  def address = mux(lookup.bits.precertified, lookup.bits.physical_address, apply_pointer_mask(xlen, lookup.bits.address[0..xlen.width], pointer_masking))
+  def lookup_store = mux(lookup.bits.precertified, lookup.bits.store, store)
+  pipeline_physical <== lookup.bits.precertified
+  def width = lookup.bits.memory_width.into(MemoryWidth)
   def misaligned = access & !width.is_aligned(address)
   def request = PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)):
-    byte_mask: ex.bits.byte_mask[0..xlen.width / 8]
+    byte_mask: lookup.bits.byte_mask[0..xlen.width / 8]
     address: address
-    access: mux(ex_store, CacheOperation.Store, CacheOperation.Load)
+    access: mux(lookup_store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     unsigned: Bool(#true)
-    data: ex.bits.store_data[0..xlen.width]
+    data: lookup.bits.store_data[0..xlen.width]
     context:
       RV5StageMemoryContext(slots):
-        writeback: RV5StageMemoryWriteback(slots).Vector(ex.bits.completion_tag)
+        writeback: RV5StageMemoryWriteback(slots).Vector(lookup.bits.completion_tag)
         origin: RV5StageDataOrigin.Core
 
     locality: RiscvMemoryLocality.Default

@@ -51,6 +51,7 @@ bundle VectorCompressState(xlen :: XLen, vlen :: VectorLength):
 /* Carries memory-attempt context and completion identity without retaining SIMD operands. */
 bundle VectorToken(xlen :: XLen, Context :: DataType, vector_completion_slots :: Pow2Int):
   precertified: Bool
+  packed: Bool
   physical_address: Bits(xlen.width)
   store: Bool
   byte_mask: Bits(vector_word_bytes(xlen))

@@ -95,7 +95,11 @@ Completion, sequencing release, and architectural retirement are separate events
 Packed completion slots are reclaimed in order. A completed store does not need
 a VRF write-port grant to release its slot. Complete, lane-aligned packed load
 rows reserve their hit write cycle at sequencing and write directly on return,
-without waiting for the ordered head or shared byte aligner. Delayed full-row
+without waiting for the ordered head or shared byte aligner. Packed loads launch
+their cache lookup at issue, without the ordinary LSU's extra EX register. An
+uncontended full-row hit writes three cycles after sequencing and reclaims its
+slot on that same edge when it is the ordered head and no carry barrier remains.
+Writes ahead of the head retain their metadata until ordered reclamation. Delayed full-row
 returns remain backpressurable until a write cycle is available. Partial,
 rotated, and segmented rows retain ordered assembly and carry arbitration.
 Tracing distinguishes `vector/complete` (execution results and actual packed-load

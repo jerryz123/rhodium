@@ -233,8 +233,15 @@ two contributing VRF reads only when the next completion slot and shared SIMD
 alignment slice are available. The fixed response aligns and issues without a
 store-word queue. Masked and segmented stores retain the row data needed for
 their explicit multi-read assembly sequence.
-Loads capture raw hit/delayed data in reserved slots and align only at ordered
-drain. A completed prefix and carry suffix can update on the same edge.
+Packed loads bypass the ordinary LSU EX register and launch lookup at issue;
+stores and elementwise accesses retain that register. An older registered lookup
+wins a collision, and the replay attempt's Decoupled cursor waits for transfer.
+The shared sequence scheduler excludes that collision for a fixed-latency launch
+and reserves a full-row hit write three cycles after sequencing. Full identity-
+mapped rows write directly from the LSU return; their slots retain only written
+metadata until ordered release. Partial, rotated, and segmented rows retain raw
+data and align at ordered drain. A completed prefix and carry suffix can update
+on the same edge.
 Segment mapping remains explicit byte routing, separate from the rotator.
 The existing `../../vector/execute.rhdl` instance shares its SIMD full-word rotate slice between
 ordinary execution and packed alignment. Fixed-cycle ordinary execution has

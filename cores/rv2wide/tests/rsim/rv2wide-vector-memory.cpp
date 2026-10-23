@@ -11,7 +11,7 @@ void step(unsigned cycles = 1) {
 void initialize() {
   reset = 1;
   issue_valid = response_valid = split_valid = request_fault = 0;
-  certified = is_store = truncate = ordered_busy = 0;
+  certified = packed = is_store = truncate = ordered_busy = 0;
   split_page_fault = split_access_fault = split_guest_fault = 0;
   enabled = last = lookup_valid = commit_ready = completion_ready = 1;
   request_ready = split_ready = 1;
@@ -86,6 +86,80 @@ int main() {
 
     initialize();
     const auto raw = std::uint64_t(lookup_data);
+    const auto full_word = raw & low_mask(word_bytes * 8);
+
+    // Prepared packed loads launch in their issue cycle and return two cycles
+    // later. Precise fallback and certified capture keep distinct feedback.
+    for (unsigned certificate = 0; certificate < 2; ++certificate) {
+      initialize();
+      certified = certificate;
+      packed = 1;
+      address = physical_address = 0x8000;
+      width = word_bytes == 8 ? 3 : 2;
+      byte_mask = low_mask(word_bytes);
+      issue_valid = 1;
+      eval();
+      CHECK(issue_ready && lookup && lookup_address == 0x8000);
+      step();
+      issue_valid = 0;
+      eval();
+      CHECK(!lookup && !completion_valid);
+      CHECK(bool(feedback_valid) == bool(certificate));
+      step();
+      if (certificate)
+        CHECK(completion_valid && completed.ptag == 0 && completed.pdata == full_word);
+      else
+        CHECK(feedback_valid && !feedback.pslow && feedback.pdata == full_word);
+      drain();
+    }
+
+    if (capacity > 1) {
+      // Older ordinary EX ownership wins over a younger packed bypass.
+      // A rejected store rewinds both retained attempts, not just its own tag.
+      for (unsigned rejection = 0; rejection < 2; ++rejection) {
+        initialize();
+        certified = packed = is_store = 1;
+        address = physical_address = 0x8000;
+        width = word_bytes == 8 ? 3 : 2;
+        byte_mask = low_mask(word_bytes);
+        lookup_outcome = 2;
+        launch();
+        CHECK(lookup && lookup_address == 0x8000);
+        is_store = 0;
+        tag = 1;
+        address = physical_address = 0x9000;
+        issue_valid = 1;
+        eval();
+        CHECK(issue_ready && lookup && lookup_address == 0x8000);
+        step();
+        issue_valid = 0;
+        eval();
+        CHECK(lookup && lookup_address == 0x9000);
+        commit_ready = !rejection;
+        step();
+        CHECK(committed && !completion_valid);
+        if (rejection) {
+          CHECK(!store_completed_valid);
+          step();
+          CHECK(!completion_valid);
+          commit_ready = 1;
+          step();
+          CHECK(lookup && lookup_address == 0x8000);
+          step();
+          CHECK(lookup && lookup_address == 0x9000 && !completion_valid);
+          step();
+          CHECK(committed && store_completed_valid && store_completed_tag == 0);
+        } else {
+          CHECK(store_completed_valid && store_completed_tag == 0);
+        }
+        lookup_outcome = 1;
+        step();
+        CHECK(completion_valid && completed.ptag == 1 && completed.pdata == full_word);
+        drain();
+      }
+    }
+
+    initialize();
     // Subword lookup and delayed responses both extract the retained byte offset.
     precise_wb();
     CHECK(outcome_valid && feedback.pdisposition == 0 && !feedback.pslow);

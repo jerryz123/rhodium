@@ -869,6 +869,12 @@ retry/fault flushes younger unaccepted stages without erasing accepted response
 owners. Misaligned elements stop younger sequencing before split takeover and
 retain that barrier through their own feedback. Older aligned decisions do not
 release it. Keep store mutation at WB resolution, never speculative lookup.
+Packed loads launch lookup directly from their prepared issue token; stores and
+elementwise accesses retain the ordinary EX register. An older registered lookup
+has priority, with a blocked certified attempt retained by `VectorReplay` until
+transfer. Packed hit data returns two cycles after issue, one cycle earlier than
+ordinary memory; the shared engine reserves the corresponding VRF write edge
+before sequencing.
 
 EX forms a conservative single-page range from the forwarded vector state,
 scalar base/stride, and vstart using shared vector footprint geometry. Its

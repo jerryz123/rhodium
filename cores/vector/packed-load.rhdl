@@ -16,8 +16,9 @@ import:
   lib("rhodium/std/reduction.rhdl").tree_reduce
   lib("flow/main.rhdl") open
 
-/* Writes complete aligned rows on arrival and reclaims accepted words in request order.
-   Other layouts use shared byte alignment and persistent partial-row carry. */
+/* Writes complete aligned rows on arrival, releasing a head slot on the same edge.
+   Other layouts use shared byte alignment and persistent partial-row carry;
+   out-of-order writes retain their metadata until ordered reclamation. */
 sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owner_count :: Pow2Int):
   def bytes = xlen.width / 8
   def Tag = Bits(index_width(slots))
@@ -65,6 +66,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().any()
   def carry_pending = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
   wire direct_write: Bool
+  wire release_slot: Bool
   def assembly_available = write_available & !direct_write
   def flush_carry = carry_pending & assembly_available
   resolved <== entries[wb.bits]
@@ -139,7 +141,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
   def full_row = load_piece & !entry.segmented & combined.mask.all() & carry_can_merge
   def word_drained = entry.store ||| written[head] ||| !remaining.any() ||| (load_piece & (!suffix.any() ||| split_load))
-  def release_slot = drainable & word_drained
+  def stored_release = drainable & word_drained
   def write_previous_carry = load_piece & carry_valid & !same_row
   def assembly_write = mux(split_load ||| full_row, combined, carry)
 
@@ -155,6 +157,9 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def returned_direct = returned.valid & direct_rows[returned.bits.tag]
   direct_write <== immediate_direct ||| returned_direct
   def direct_tag = mux(immediate_direct, loads.completed[0].bits.tag, completion.bits.tag)
+  def accepting_head = successful & (wb.bits === head)
+  def direct_head_release = drain_enable & !carry_pending & (accepted_slots[head] ||| accepting_head) & direct_write & (direct_tag === head)
+  release_slot <== stored_release ||| direct_head_release
   def direct_value = VectorRegisterWrite(xlen, vlen):
     address: entries[direct_tag].layout.rows[0]
     data: mux(immediate_direct, loads.completed[0].bits.data, completion.bits.data)
@@ -175,11 +180,12 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
 
   /* Accepted-beat lineage and response capture.
-     Slot release follows ordered assembly, not raw response arrival. */
+     A direct head write can bypass registered acceptance; other releases use stored owners. */
 
   def accepted = wb |> filter_valid(_tag => successful)
   def release_event = inject_interface(Valid(Tag), ~valid: release_slot, ~bits: head)
-  describe_interface_queue_storage(slots, successful, release_slot, head, wb.bits, accepted_slots[head], Bool(#false), ~name: "accepted-beats")
+  def bypass_release = direct_head_release & !accepted_slots[head]
+  describe_interface_queue_storage(slots, successful & !bypass_release, release_slot & !bypass_release, head, wb.bits, accepted_slots[head], bypass_release, ~name: "accepted-beats")
   describe_interface_contract(accepted, release_event, "accepted-beats", ~trace_model: interface_trace_queue(~name: "accepted-beats"))
   (
     release_event |> trace_valid_event("vector/slot.release", ~fields: tag):
@@ -235,15 +241,17 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     when reserve_here:
       entries[slot] <== reserve.bits.entry
 
-    when (delayed_here ||| immediate_here ||| store_here):
-      completed[slot] <== Bool(#true)
-    elsewhen (reserve_here ||| release_here):
+    // A same-edge head write consumes its completion instead of leaving stale
+    // completed/written bits behind for the next owner of this physical slot.
+    when (reserve_here ||| release_here):
       completed[slot] <== Bool(#false)
-
-    when (direct_write & (direct_tag === tag)):
-      written[slot] <== Bool(#true)
-    elsewhen (reserve_here ||| release_here):
       written[slot] <== Bool(#false)
+    otherwise:
+      when (delayed_here ||| immediate_here ||| store_here):
+        completed[slot] <== Bool(#true)
+
+      when (direct_write & (direct_tag === tag)):
+        written[slot] <== Bool(#true)
 
     when (delayed_here & !direct_rows[slot]):
       data[slot] <== loads.completed[1].bits.data

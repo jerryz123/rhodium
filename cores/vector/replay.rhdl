@@ -10,11 +10,12 @@ import:
 
 /* Captures durable requests without buffering their results. Attempts run ahead of ordered
    release; retry rewinds to the oldest owner. Skip resumes after that owner when a split
-   transaction owns it outside the attempt pipeline. Recovery suppresses same-cycle issue. */
+   transaction owns it outside the attempt pipeline. A blocked lookup retains its request
+   cursor; recovery suppresses same-cycle issue without discarding durable captures. */
 sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   interface request(Decoupled(Token), ~role: consumer)
   interface captured(Valid(Token), ~role: producer)
-  interface attempt(Valid(Token), ~role: producer)
+  interface attempt(Decoupled(Token), ~role: producer)
   input(blocked, recover, retry, skip, release): Bool
   output occupied: Bool
   output oldest: Token
@@ -46,7 +47,7 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
     offered
 
   def bypassed = live |> filter_valid(_token => !pending & !recover & !blocked)
-  Array(retained |> valid_arbiter(), bypassed) |> valid_arbiter() |> attempt
+  Array(retained |> valid_arbiter(), bypassed) |> valid_arbiter() |> offer_decoupled() |> attempt
   when (capture.valid):
     requests[request_index(tail)] <== capture.bits
     tail <== tail + Bits(Cursor.width)(1)
@@ -55,7 +56,7 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
     next_request <== head + Bits(Cursor.width)(1)
   elsewhen (retry & occupied):
     next_request <== head
-  elsewhen (attempt.valid):
+  elsewhen (attempt.fire()):
     next_request <== next_request + Bits(Cursor.width)(1)
 
   when release:

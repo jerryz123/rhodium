@@ -15,7 +15,7 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
-  input(issue_valid, certified, is_store, enabled, last, truncate): Bool
+  input(issue_valid, certified, packed, is_store, enabled, last, truncate): Bool
   input tag: Bits(index_width(slots))
   input(address, physical_address, store_data, pc): Bits(xlen.width)
   input byte_mask: Bits(xlen.width / 8)
@@ -45,6 +45,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   dut.issue.valid <== issue_valid
   dut.issue.bits <== VectorToken(xlen, Bits(xlen.width), slots):
     precertified: certified
+    packed: packed
     physical_address: physical_address
     store: is_store
     byte_mask: byte_mask

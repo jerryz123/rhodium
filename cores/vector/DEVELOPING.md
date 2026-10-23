@@ -41,8 +41,18 @@ never arbitrates against load data. Route it by retained slot metadata, not the
 live descriptor. Nonwriting slow returns bypass VRF arbitration as well; they
 complete only slot metadata, independently of a simultaneous compute result.
 Complete identity-mapped packed rows book the sequence-to-hit
-write edge in the existing calendar. Their payload goes directly from the LSU
-return to the VRF; only a written bit survives until ordered metadata reclamation.
+write edge three cycles ahead in the existing calendar, rather than the ordinary
+memory path's four. `VectorToken.packed` preserves this timing selection through
+LSU retries. Packed loads bypass the LSU's ordinary EX register; sequencing
+defers a packed load if an ordinary beat issuing now will occupy its lookup
+cycle. Their payload goes directly from the LSU
+return to the VRF. A direct write at the ordered head releases its slot on that
+same edge, including simultaneous acceptance, when no carry barrier remains.
+Other writes retain a written bit until ordered metadata reclamation. Release
+and reservation clear completion/written bits ahead of same-edge arrival updates,
+so a reclaimed physical slot cannot leak stale state into its next owner. The
+accepted-beat trace storage describes same-edge acceptance/release as a bypass,
+not as a stored enqueue/dequeue.
 Clear the exact row claim at that write, not at slot release. Partial, rotated,
 and segmented words and carry flushing retain their assembly grants. Neither
 assembly, splat writes, nor variable element returns may consume another
@@ -106,6 +116,8 @@ policy, fault-provenance types, drain qualification, and descriptor queue timing
 The memory adapters retain fixed lookup stages, fault interpretation, split
 ownership, and cache response shaping; `VectorReplay` owns only durable request
 storage and its ordered attempt/release cursors.
+Its Decoupled attempt advances only on transfer, so an older registered lookup
+can defer a captured packed load without another payload buffer or a lost request.
 
 ## Change workflow
 
@@ -158,9 +170,14 @@ write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.
 They verify memory contents, unchanged VRF state, and complete response drain.
 Full-row hit checks require same-edge writes past older pending responses and
-while alignment is unavailable. Delayed full-row producers honor backpressure;
+while alignment is unavailable. Head hits and delayed head returns must release
+on their write edge, including simultaneous acceptance and repeated ring wrap;
+younger direct writes retain ordered metadata. Check the release-tag sequence
+independently of VRF writes. Delayed full-row producers honor backpressure;
 immediate hits require the promised write grant. LSU tests cover concurrent
-store-hit bookkeeping and a backpressured load return. Passive cosim capture
+store-hit bookkeeping and a backpressured load return, same-cycle packed-load
+lookup and two-cycle hit return, registered-access priority, and retained mixed
+timing retries in both XLENs. Passive cosim capture
 must retain both events independently in the same settled sample.
 The `event-vector` rsim fixture checks result-completion versus slot-release
 site ownership and capture schemas alongside its dynamic sequencing oracle.

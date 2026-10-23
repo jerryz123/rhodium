@@ -241,7 +241,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   packed.closed_owners <== instructions.closed
   packed.accepted_slots <== vec(for List (slot in 0..vector_completion_slots): authorized_slots[slot] & entry_packed[slot])
   packed.head <== drain_slot
-  packed.drain_enable <== authorized_slots[drain_slot] & entry_packed[drain_slot]
+  // The packed drain checks retained or same-edge authorization itself.
+  packed.drain_enable <== entry_packed[drain_slot]
   packed.alignment_available <== !ex_pipe.egress.valid & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
   packed.write_available <== !completions.compute_writeback & !writeback_calendar.occupied[0].into(Bool)
 
@@ -253,6 +254,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_owner = sequencer.sequence_request.bits.context.instruction.context.owner
   def s1_service = s1_control.fp_service ||| s1_control.multiply_divide
   def s1_packed = sequencer.sequence_request.bits.context.packed
+  def s1_packed_load = s1_packed & !s1_control.store
   def s1_descriptor = sequencer.sequence_request.bits.context.instruction.descriptor
   def s1_segmented = s1_control.memory_nf.any() & !s1_control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
   def s1_direct_packed = s1_packed & !s1_control.store & !s1_segmented & vector_packed_direct_row(xlen, vlen, sequencer.sequence_request.bits.context.packed_layout, sequencer.sequence_request.bits.context.packed_mask)
@@ -261,6 +263,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_local_write = !s1_simd_multiply & !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
   def s1_write_delay = priority_mux(~default: Bits(4)(2)):
     s1_simd_multiply: Bits(4)(2 + SimdMultiplyAccumulateStages)
+    s1_packed_load: Bits(4)(3)
     s1_control.memory: Bits(4)(4)
   def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
   def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
@@ -283,7 +286,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
   def s1_write_available = !(s1_local_write ||| s1_simd_multiply ||| s1_direct_packed) ||| writeback_calendar.prior_claims_available[0]
   def s1_memory_available = !s1_checked_memory ||| !(split_memory_pending ||| returning_split)
-  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available
+  // An ordinary beat issuing now owns next cycle's registered LSU lookup.
+  // Do not schedule a packed load for that same edge; it bypasses that register.
+  def returning_packed_load = operand_fetch.issue.bits.packed & !returning_control.store
+  def returning_registered_lookup = operand_fetch.scheduled_return & returning_control.memory & !returning_packed_load
+  def s1_lookup_available = !s1_packed_load ||| !returning_registered_lookup
+  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available & s1_lookup_available
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
   splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
   s1_read |> operand_fetch.request
@@ -370,6 +378,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def scheduled_issue = (
     token |> map_flow(operation => VectorToken(xlen, Context, vector_completion_slots)):
       precertified: operation.context.precertified
+      packed: operation.packed
       physical_address: ((operation.context.ppn ++ apply_pointer_mask(xlen, operation.beat.address, operation.context.pointer_masking)[0..12]).zext(64))[0..xlen.width]
       store: operation.beat.control.store
       byte_mask: mux(operation.packed, operation.byte_mask, memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)))
@@ -402,7 +411,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   writeback_calendar.reserve[2].bits <== s1_calendar_delay
   // Only a packed return may consume a promised packed-hit cycle. A miss leaves
   // it unused; later variable responses can use any otherwise unreserved cycle.
-  def packed_write_cycle = inject_interface(Valid(SlotId), ~valid: operand_fetch.request.fire() & s1_direct_packed, ~bits: s1_next_slot) |> valid_pipe(4)
+  def packed_write_cycle = inject_interface(Valid(SlotId), ~valid: operand_fetch.request.fire() & s1_direct_packed, ~bits: s1_next_slot) |> valid_pipe(3)
   packed.direct_write_available <== !completions.compute_writeback & (!writeback_calendar.occupied[0].into(Bool) ||| packed_write_cycle.valid)
   when (operand_fetch.scheduled_return):
     assert(slot_available, "vector_scheduled_read_has_completion_slot")

@@ -12,6 +12,7 @@ std::uint8_t memory[8192], expected_memory[8192];
 std::uint64_t bank[64], expected_bank[64];
 
 bool outstanding[8];
+bool direct_rows[8];
 
 std::uint64_t returns[8];
 
@@ -26,6 +27,8 @@ int tests = 0, max_consecutive = 0, consecutive = 0;
 
 int simultaneous_completions = 0;
 int direct_hits = 0, direct_hits_past_pending = 0, direct_hits_without_alignment = 0;
+int release_cursor = 0, direct_head_hits = 0, direct_head_returns = 0,
+    direct_younger_hits = 0;
 
 bool all_masked = 0;
 bool hold_write_port = false;
@@ -77,14 +80,24 @@ void tick() {
             token.pmemory_uwidth == ((3) & low_mask(2)));
     } else
       consecutive = 0;
-    if (response_in.pvalid && response_out.pready)
+    if (response_in.pvalid && response_out.pready) {
+      const int tag = int(response_in.pbits.ptag);
+      if (direct_rows[tag] && tag == release_cursor) {
+        CHECK(written_out.pvalid && released_out.pvalid &&
+              released_out.pbits == tag);
+        ++direct_head_returns;
+      }
       outstanding[int(response_in.pbits.ptag)] = 0;
+    }
     if (attempt_out.pvalid) {
       if (retry)
         did_retry = 1;
       else {
         int tag;
         tag = int(attempt_out.pbits.pcompletion_utag);
+        direct_rows[tag] = !store && !masked && nf == 0 && mode == 0 &&
+                           vstart == 0 && (base % 8) == 0 &&
+                           attempt_out.pbits.pbyte_umask == 255;
         accepted++;
         if (!slow && response_in.pvalid && response_out.pready)
           simultaneous_completions++;
@@ -101,6 +114,13 @@ void tick() {
           for (int older = 0; older < 8; ++older)
             if (outstanding[older]) { ++direct_hits_past_pending; break; }
           direct_hits_without_alignment += !alignment_available;
+          if (direct_rows[tag] && tag == release_cursor) {
+            CHECK(released_out.pvalid && released_out.pbits == tag);
+            ++direct_head_hits;
+          } else if (tag != release_cursor) {
+            CHECK(!released_out.pvalid || released_out.pbits != tag);
+            ++direct_younger_hits;
+          }
         }
         if (store)
           for (int b = 0; b < 8; b++)
@@ -125,6 +145,10 @@ void tick() {
     }
     if (retired)
       retired_count++;
+    if (released_out.pvalid) {
+      CHECK(released_out.pbits == release_cursor);
+      release_cursor = (release_cursor + 1) % 8;
+    }
   }
   prior_sequence = !reset && sequenced;
   prior_sequence_address = sequence_address;
@@ -161,8 +185,10 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
   retired_count = 0;
   consecutive = 0;
   max_consecutive = 0;
-  for (int t = 0; t < 8; t++)
+  for (int t = 0; t < 8; t++) {
     outstanding[t] = 0;
+    direct_rows[t] = 0;
+  }
   for (int b = 0; b < 8192; b++) {
     memory[b] = ((b * 37 + tests * 11) & low_mask(8));
     expected_memory[b] = memory[b];
@@ -276,6 +302,7 @@ void stimulus() {
     run_case(1, 3, 0, 4, 1, 1, 1, 1); // masked segments, retry, and reordered responses
     run_case(1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0); // empty store
     hold_write_port = false;
+    run_case(0, 0, 0, 1, 0, 0, 0, 0, 0, 3, 128); // same-edge writes/releases across ring wrap
     run_case(0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 128);
     for (int size = 0; size <= 3; size++)
       for (int offset = 0; offset < 8; offset += (1 << size))
@@ -308,6 +335,7 @@ void stimulus() {
       CHECK(simultaneous_completions > 0);
     CHECK(direct_hits > 0 && direct_hits_past_pending > 0 &&
           direct_hits_without_alignment > 0);
+    CHECK(direct_head_hits > 8 && direct_head_returns > 0 && direct_younger_hits > 0);
 
     throw Finished{};
   }
