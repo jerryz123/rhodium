@@ -48,7 +48,8 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
      Completion slots and carry remain live independently of replayable preparation. */
 
   def row_count = VectorRegisterLayout(vlen, xlen.width).depth
-  def wb = commit |> map_valid(event => event.tag)
+  def Array(retirement_commit, result_commit, owner_commit) = commit |> fork_valid(3)
+  def wb = retirement_commit |> map_valid(event => event.tag)
   def successful = commit.valid & (commit.bits.disposition === VectorDisposition.Authorized)
   inst loads(VectorLoadResponse(xlen, slots))
   reg entries(Vec(slots, Entry))
@@ -165,7 +166,11 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     data: mux(immediate_direct, loads.completed[0].bits.data, completion.bits.data)
     mask: !Bits(xlen.width)(0)
 
-  def write_event = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: direct_write ||| write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: mux(direct_write, direct_value, assembly_write))
+  def immediate_write = loads.completed[0] |> filter_valid(result => direct_rows[result.tag]) |> map_valid(_result => direct_value)
+  def delayed_write = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: returned_direct, ~bits: direct_value)
+  def assembly_piece = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: load_piece, ~bits: combined)
+  def assembled_write = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: assembly_write)
+  def write_event = Array(immediate_write, delayed_write, assembled_write) |> valid_arbiter()
   (
     write_event |> trace_valid_event("vector/complete", ~fields: result):
       packed: Bool(#true)
@@ -196,8 +201,43 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
       slot(~format: "unsigned"): tag
   ) |> released
 
+
+  /* Slot and row-carry provenance follow the same owners as the data.
+     Hits bypass retained acceptance; delayed/direct and assembly reads select
+     an accepted slot. Carry retains one reference per occupied byte, allowing
+     a row write to join every contributing beat without a functional queue. */
+
+  def retained = owner_commit |> filter_valid(_event => successful & !bypass_release)
+  describe_interface_retained_bank(
+    for List (slot in 0..slots): retained.valid & (wb.bits === Tag(slot)),
+    for List (slot in 0..slots): release_slot & (head === Tag(slot)) & accepted_slots[slot],
+    for List (slot in 0..slots): accepted_slots[slot],
+    ~grants: [
+      for List (slot in 0..slots): returned_direct & (direct_tag === Tag(slot)),
+      for List (slot in 0..slots): load_piece & (head === Tag(slot))
+    ],
+    ~name: "accepted-owners"
+  )
+  describe_interface_contract(retained, Array(delayed_write, assembly_piece), "accepted-owners", ~trace_model: interface_trace_retained_bank(~name: "accepted-owners"))
+
+  def carry_count_width = index_width(bytes + 1)
+  def carry_bytes = vec(for List (lane in 0..bytes): carry.mask[lane * 8].into(Bool)).as_bits()
+  def carry_count = mux(carry_valid, popcount(carry_bytes), Bits(carry_count_width)(0))
+  def replace_carry = split_load ||| full_row ||| flush_carry ||| (load_piece & !same_row)
+  def write_carry = write_previous_carry ||| flush_carry ||| ((split_load ||| full_row) & same_row)
+  describe_interface_window_storage(
+    bytes, load_piece & (split_load ||| !full_row),
+    mux(replace_carry, carry_count, Bits(carry_count_width)(0)),
+    carry_count, Bool(#false),
+    for List (index in 0..bytes): write_carry & (Bits(carry_count_width)(index) < carry_count),
+    ~append_count: popcount(mux(split_load, suffix, group)),
+    ~live: split_load ||| full_row,
+    ~name: "row-carry"
+  )
+  describe_interface_contract(assembly_piece, assembled_write, "row-carry", ~trace_model: interface_trace_window(~name: "row-carry"))
+
   (
-    commit |> filter_valid(_event => successful) |> map_valid(event => VectorMemoryAcceptance(xlen, slots)):
+    result_commit |> filter_valid(_event => successful) |> map_valid(event => VectorMemoryAcceptance(xlen, slots)):
       tag: wb.bits
       pending: event.slow
       data: event.data

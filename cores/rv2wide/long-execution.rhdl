@@ -53,7 +53,8 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   when (issue.valid):
     assert(reserved, "rv2wide_multiply_ex_launch_reserved")
 
-  def scalar = issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
+  def Array(operand_issue, owner_issue) = issue |> fork_valid(2)
+  def scalar = operand_issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
     tag:
       MultiplyOwner():
         vector: Bool(#false)
@@ -76,7 +77,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   ) |> vector_returns.completion
 
   vector_returns.response |> vector_result
-  def wb_owner = issue |> valid_pipe(2)
+  def wb_owner = owner_issue |> valid_pipe(2)
   def returned = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(operation):
     def product = execution.result.bits.value

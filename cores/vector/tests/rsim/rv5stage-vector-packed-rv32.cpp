@@ -1,6 +1,7 @@
 // Preserves the rv5stage-vector-packed-rv32 cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../tests/rsim/driver.hpp"
+#include "packed-lineage.hpp"
 // Checks four-byte packed transport into native four-byte VRF rows.
 // Checks unified packed sequencing, geometry, replay, reordered completions, and write-port contention.
 
@@ -67,6 +68,10 @@ void tick() {
       response_in.pbits.pdata = ((returns[t]) & low_mask(32));
     }
   settle();
+  packed_lineage::sample(reset, 4, attempt_out.pvalid,
+      attempt_out.pbits.pcompletion_utag, attempt_out.pbits.paddress,
+      attempt_out.pbits.pbyte_umask, retry, store, written_out.pvalid,
+      written_out.pbits.paddress, written_out.pbits.pmask);
   if (!reset) {
     CHECK(issued == (prior_sequence && !retry));
     if (issued)
@@ -152,6 +157,7 @@ void tick() {
   prior_sequence_address = sequence_address;
   rising();
   falling();
+  packed_lineage::check();
   cycle++;
 }
 
@@ -219,6 +225,7 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
     fields = 1;
     element_bytes = 1;
   }
+  packed_lineage::begin_case();
   for (int element = start; element < count; element++)
     for (int field = 0; field < fields; field++)
       if (!masking || transfer_mode != 0 ||
@@ -232,8 +239,10 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
           lane = position % 4;
           if (writing)
             expected_memory[address] = bit_slice(bank[row], lane * 8, 8);
-          else
+          else {
             bit_slice(expected_bank[row], lane * 8, 8) = memory[address];
+            CHECK(packed_lineage::layout.emplace(address, position).second);
+          }
         }
   first = int(base) + start * fields * element_bytes;
   last = int(base) + count * fields * element_bytes;
@@ -247,6 +256,7 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
     tick();
   CHECK(retired_count == 1 && !active);
   CHECK(accepted == expected_beats);
+  CHECK(packed_lineage::owners.empty());
   for (bool pending : outstanding)
     CHECK(!pending);
   if (writing)
@@ -341,6 +351,7 @@ void stimulus() {
 
 int main() {
   return run_test([] {
+    rheg::graph().bind_manifest(rheg_generated::manifest());
     cycle_limit = 1000000;
     try {
       stimulus();
@@ -348,5 +359,6 @@ int main() {
         rising();
     } catch (const Finished &) {
     }
+    packed_lineage::finish();
   });
 }

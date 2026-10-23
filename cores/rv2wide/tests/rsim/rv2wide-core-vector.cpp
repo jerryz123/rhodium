@@ -55,7 +55,7 @@ std::deque<Owner> admitted;
 std::optional<Owner> active;
 Offer admission, dispatch;
 bool released = false;
-std::uint64_t trace_cycle = 0, sequence = 0, stall = 0;
+std::uint64_t trace_cycle = 0, sequence = 0, stall = 0, complete = 0;
 unsigned admissions = 0, dispatches = 0, queued = 0, replacements = 0;
 unsigned rejections = 0;
 std::map<std::uint64_t, unsigned> admission_counts;
@@ -100,7 +100,7 @@ void check() {
   if (reset) {
     wb = {}; next_wb = {}; mem_sequences = {};
     admitted.clear(); active.reset();
-    trace_cycle = sequence = stall = 0;
+    trace_cycle = sequence = stall = complete = 0;
     return;
   }
   const auto &graph = rheg::graph();
@@ -120,6 +120,20 @@ void check() {
   // A replacement edge still sequences/stalls the old registered descriptor.
   check_occurrence(rv2wide_vector_sites::sequence, sequence);
   check_occurrence(rv2wide_vector_sites::stall, stall);
+  // Local, shared multiply/FP, and tagged load results all keep their actual
+  // issued beat as the nearest checkpoint, even across response buffering.
+  const rheg::Ref completion{rv2wide_vector_sites::complete, complete};
+  if (auto found = graph.nodes.find(completion); found != graph.nodes.end()) {
+    CHECK(found->second.cycle == trace_cycle && !found->second.ancestry_unknown);
+    unsigned parents = 0;
+    for (const auto &edge : graph.edges) if (equal(edge.second, completion)) {
+      CHECK(edge.first.site == rv2wide_vector_sites::issue);
+      CHECK(graph.nodes.at(edge.first).cycle < trace_cycle);
+      ++parents;
+    }
+    CHECK(parents == 1);
+    ++complete;
+  }
   if (released) { CHECK(active); active.reset(); }
   if (dispatch.accepted) {
     CHECK(!active && !admitted.empty());
@@ -146,6 +160,7 @@ void finish() {
   rheg::graph().validate();
   CHECK(admissions == dispatches && admitted.empty() && !active);
   CHECK(lanes[0] && lanes[1] && queued && replacements && stall);
+  CHECK(complete);
   CHECK(std::any_of(beats.begin(), beats.end(), [](const auto &item) { return item.second > 1; }));
   std::cout << "RV2Wide vector lineage: " << admissions << " admissions, "
             << sequence << " beats, " << stall << " stalls, " << queued

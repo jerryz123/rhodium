@@ -216,7 +216,7 @@ rv5stage-vector-fp	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5s
 rv5stage-vector-muldiv	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-muldiv.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-muldiv.cpp
 rv5stage-vector-reduction	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-reduction.rhm	program	cores/vector/tests/rsim/rv5stage-vector-reduction.cpp
 rv5stage-vector-mask-512	cores-vector-configurations	cores/vector/tests/rsim/emit-rv5stage-vector-mask-512.rhm	program	cores/vector/tests/rsim/rv5stage-vector-mask-512.cpp
-rv5stage-vector-packed	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-packed.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed.cpp
+rv5stage-vector-packed	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-packed.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed.cpp	target	rheg/runtime/rheg.cc
 rv5stage-vector-overlap	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	program	cores/vector/tests/rsim/rv5stage-vector-overlap.cpp
 rv5stage-vector-admission	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-admission.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-admission.cpp	target
 vector-admission-one	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_one	cores/vector/tests/rsim/vector-admission.cpp
@@ -224,7 +224,7 @@ vector-admission-two	cores-vector-functional-2	cores/vector/tests/rsim/emit-vect
 vector-admission-three	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_three	cores/vector/tests/rsim/vector-admission.cpp
 vector-admission-four	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_four	cores/vector/tests/rsim/vector-admission.cpp
 vector-admission-eight	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_eight	cores/vector/tests/rsim/vector-admission.cpp
-rv5stage-vector-packed-rv32	cores-vector-configurations	cores/vector/tests/rsim/emit-rv5stage-vector-packed-rv32.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed-rv32.cpp
+rv5stage-vector-packed-rv32	cores-vector-configurations	cores/vector/tests/rsim/emit-rv5stage-vector-packed-rv32.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed-rv32.cpp	target	rheg/runtime/rheg.cc
 rv5stage-zvkt	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-zvkt.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zvkt.cpp
 rv5stage-hypervisor-core	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-hypervisor-core.rhm	program	cores/rv5stage/tests/rsim/rv5stage-hypervisor-core.cpp
 rv5stage-pointer-masking	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-pointer-masking.rhm	program	cores/rv5stage/tests/rsim/rv5stage-pointer-masking.cpp
@@ -262,6 +262,7 @@ rv5stage-lrsc-core-progress-predicted	cores-cache	cores/rv5stage/tests/rsim/emit
 rv5stage-lrsc-core-progress-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-rv32.cpp
 event-queue	language	rhodium/event/tests/rsim/emit-event-queue.rhm	program	rhodium/event/tests/rsim/event-queue.cpp	target	rhodium/event/tests/rsim/event-queue-oracle.cpp rheg/runtime/rheg.cc
 event-pipeline	language	rhodium/event/tests/rsim/emit-event-pipeline.rhm	program	rhodium/event/tests/rsim/event-pipeline.cpp	target	rhodium/event/tests/rsim/event-pipeline-oracle.cpp rheg/runtime/rheg.cc
+completion-queue-trace	std	flow/tests/rsim/emit-completion-queue-trace.rhm	program	flow/tests/rsim/completion-queue-trace.cpp	target	rheg/runtime/rheg.cc
 event-arbiter	language	rhodium/event/tests/rsim/emit-event-arbiter.rhm	program	rhodium/event/tests/rsim/event-arbiter.cpp	target	rhodium/event/tests/rsim/event-arbiter-oracle.cpp rheg/runtime/rheg.cc
 event-demux	language	rhodium/event/tests/rsim/emit-event-demux.rhm	program	rhodium/event/tests/rsim/event-demux.cpp	target	rhodium/event/tests/rsim/event-demux-oracle.cpp rheg/runtime/rheg.cc
 event-atomic-fork	language	rhodium/event/tests/rsim/emit-event-atomic-fork.rhm	program	rhodium/event/tests/rsim/event-atomic-fork.cpp	target	rhodium/event/tests/rsim/event-atomic-fork-oracle.cpp rheg/runtime/rheg.cc

@@ -94,6 +94,13 @@ declarations when a module contains multiple independent regions. Do not
 summarize composite modules across internal checkpoints or contracted children.
 See the [interface API](../rhodium/frontend/layers/README.md) for validation rules.
 
+`CompletionQueue` composes gate/conversion contracts for request-to-issue and
+completion-to-response traversal; its child queue owns response storage lineage.
+Reservation accounting does not associate requests with completions: the
+external execution path must carry that ancestry, including when results return
+out of request order. `completion-queue-trace` checks both admission policies,
+reordered returns, backpressure, replacement, and reset against public transfers.
+
 The event pipeline, elastic, queue, arbiter, and broadcast fixtures exercise
 direct instances against configured reference lanes, actual control sampling,
 and traversal through presentation wrappers. Keep those behavioral checks when

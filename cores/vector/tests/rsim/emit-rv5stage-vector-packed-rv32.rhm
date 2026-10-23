@@ -5,6 +5,10 @@ import:
   "../vector-packed-fixture.rhdl" open
   "../../../../riscv/isa/xlen.rhm".XLen
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/event/main.rhm").EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  "emit-rv5stage-vector-packed.rhm".site_header
 
 def program = elaborate(VectorPackedFixture(8, ~xlen: XLen.X32))
-export program
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

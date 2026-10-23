@@ -127,7 +127,7 @@ check:
 
   operations(completion_top, "rtl.instance").length() ~is 1
   operations(completion_top, "rtl.register_reset").length() ~is 1
-  assertions.map(fun (operation): operation.attribute("label")) ~is [
+  assertions.map(fun (operation): operation.attribute("label")).filter(~keep: fun (label): label != #false) ~is [
     "completion_queue_completion_has_request",
     "completion_queue_slot_reserved",
     "completion_queue_reservations_in_range"

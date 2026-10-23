@@ -28,8 +28,8 @@ fun site_header(manifest):
     | error("vector sequencing has incomplete admission ancestry")
 
   "\nnamespace rv2wide_vector_sites {\n" ++ String.join(
-    for List (label in ["core/s3.mem.slot0", "core/s3.mem.slot1", "vector/s1.sequence", "vector/s1.sequence.stall"], name in ["mem0", "mem1", "sequence", "stall"]):
-      def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label)
+    for List (label in ["core/s3.mem.slot0", "core/s3.mem.slot1", "vector/s1.sequence", "vector/s1.sequence.stall", "vector/s2.issue", "vector/complete"], name in ["mem0", "mem1", "sequence", "stall", "issue", "complete"]):
+      def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == label && (label != "vector/complete" || manifest.sites[index].instance_path[manifest.sites[index].instance_path.length() - 1] == "completions"))
       unless matches.length() == 1 | error("expected one vector admission trace site: " ++ label)
       "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
     ""

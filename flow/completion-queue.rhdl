@@ -4,6 +4,9 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/gate.rhdl").gate_flow
+  lib("flow/to-valid.rhdl").to_valid
+  lib("flow/to-decoupled.rhdl").to_decoupled
   lib("flow/queue.rhdl").Queue
 
 /* Each accepted request reserves one response slot and emits one immediate
@@ -29,14 +32,11 @@ sync_circuit CompletionQueue(Request :: DataType,
   reg outstanding(~init: Bits(count_width)(0))
 
   def response_fire = response.fire()
-  def capacity_available = outstanding < Bits(count_width)(depth)
-  request.ready <== if pipe | capacity_available ||| response_fire | capacity_available
+  def has_capacity = outstanding < Bits(count_width)(depth)
+  def capacity_available = if pipe | has_capacity ||| response_fire | has_capacity
+  request |> gate_flow(capacity_available) |> to_valid() |> issue
+  completion |> to_decoupled() |> completed.ingress
   def request_fire = request.fire()
-
-  issue.valid <== request_fire
-  issue.bits <== request.bits
-  completed.ingress.valid <== completion.valid
-  completed.ingress.bits <== completion.bits
 
   def queued_count = completed.count.zext(accounting_width)
   def completion_count = completion.valid.as_bits().zext(accounting_width)

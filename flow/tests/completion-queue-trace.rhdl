@@ -1,0 +1,18 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit CompletionQueueTrace():
+  interface requests[2](Decoupled(Bits(8)), ~role: consumer)
+  interface issues[2](Valid(Bits(8)), ~role: producer)
+  interface completions[2](Valid(Bits(16)), ~role: consumer)
+  interface responses[2](Irrevocable(Bits(16)), ~role: producer)
+  for (lane in 0..2):
+    inst bridge(CompletionQueue(Bits(8), Bits(16), 3, ~pipe: lane == 1))
+    requests[lane] |> trace_event("request-" ++ to_string(lane), ~payload: #true) |> bridge.request
+    bridge.issue |> trace_valid_event("issue-" ++ to_string(lane), ~payload: #true) |> issues[lane]
+    completions[lane] |> trace_valid_event("completion-" ++ to_string(lane), ~payload: #true) |> bridge.completion
+    bridge.response |> trace_event("response-" ++ to_string(lane), ~payload: #true) |> responses[lane]
+
+export CompletionQueueTrace

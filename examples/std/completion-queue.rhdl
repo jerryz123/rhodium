@@ -65,6 +65,10 @@ module CompletionQueue(
   wire                               _GEN_0 = ~(outstanding[1]) | _GEN;
   wire                               _GEN_1 = request_in.valid & _GEN_0;
   `ifndef SYNTHESIS
+    assert property (@(posedge clock) disable iff (reset)
+                       ~completion_in.valid | _completed_ingress_out.ready);
+  `endif // not def SYNTHESIS
+  `ifndef SYNTHESIS
     completion_queue_completion_has_request:
       assert property (@(posedge clock) disable iff (reset)
                          {1'h0, outstanding} + {2'h0, _GEN_1} >= {1'h0, _completed_count}
@@ -201,6 +205,10 @@ module CompletionQueue(
     _completed_egress_out.valid & response_in.ready;
   wire                               _GEN_0 = ~outstanding | _GEN;
   wire                               _GEN_1 = request_in.valid & _GEN_0;
+  `ifndef SYNTHESIS
+    assert property (@(posedge clock) disable iff (reset)
+                       ~completion_in.valid | _completed_ingress_out.ready);
+  `endif // not def SYNTHESIS
   `ifndef SYNTHESIS
     completion_queue_completion_has_request:
       assert property (@(posedge clock) disable iff (reset)

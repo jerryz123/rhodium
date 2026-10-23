@@ -1,0 +1,23 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  "../completion-queue-trace.rhdl".CompletionQueueTrace
+
+def program = elaborate(CompletionQueueTrace())
+fun site_header(manifest):
+  "namespace completion_sites {\n" ++ String.join(
+    for List (kind in ["request", "issue", "completion", "response"]):
+      "constexpr unsigned " ++ kind ++ "[] = {" ++ String.join(
+        for List (lane in 0..2):
+          def matches = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].label == (kind ++ "-" ++ to_string(lane)))
+          unless matches.length() == 1 | error("expected unique completion adapter checkpoint")
+          to_string(matches[0]),
+        ","
+      ) ++ "};\n",
+    ""
+  ) ++ "}\n"
+
+def target = traced_target(site_header)
+export program target

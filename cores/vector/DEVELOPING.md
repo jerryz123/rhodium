@@ -61,6 +61,15 @@ Trace packed VRF writes on `vector/complete` and packed metadata reclamation on
 `vector/slot.release`. Never use slot release as a result-completion proxy: it
 may follow assembly, include a store, or coincide with another VRF result.
 
+Immediate packed writes follow the live accepted-hit Flow. Delayed direct writes
+and assembly pieces select the accepted slot's retained owner. The row-carry
+window follows actual byte occupancy, retaining a reference per byte and joining
+resident contributors with the current piece only when both supply the write.
+Split writes replace the old carry with the current beat's suffix on the same
+edge; flushing or writing an older row must not attribute its data to the live
+piece. Keep these intrinsic contracts beside the functional controls, without
+new payload buffers or instruction-ID reconstruction.
+
 ## Implementation map
 
 | Files | Responsibility |
@@ -190,6 +199,12 @@ store-hit bookkeeping and a backpressured load return, same-cycle packed-load
 lookup and two-cycle hit return, registered-access priority, and retained mixed
 timing retries in both XLENs. Passive cosim capture
 must retain both events independently in the same settled sample.
+
+The RV32/RV64 packed fixtures also run production event instrumentation. Their
+byte-level oracle derives VRF contributors from accepted public transport
+addresses and masks, checking exact write-parent sets through reordered returns,
+ring reuse, masked/segmented assembly, split rows, carry flush, and replay.
+
 The `event-vector` rsim fixture checks result-completion versus slot-release
 site ownership and capture schemas alongside its dynamic sequencing oracle.
 The sequencer fixtures force selected uncared decode modifiers high to exercise
