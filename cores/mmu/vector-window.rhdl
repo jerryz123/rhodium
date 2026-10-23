@@ -1,5 +1,5 @@
 #lang rhodium
-/* Probes vector pages on admission and retains certified cacheable translations. */
+/* Captures vector ranges before probing pages and retains certified cacheable translations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -52,22 +52,20 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
 
 
   /* Probe admission and owned-address lookup.
-     The first translation can issue in the same cycle as range admission;
-     subsequent probes use the captured span and endpoint selector. */
+     Both probe validity and payload come from registered ownership, never
+     a live check offer whose admission may depend on MMU readiness. */
 
   def admitting = state === VectorWindowState.Idle
-  def lookup_span = mux(admitting, check.request.bits, span)
-  def lookup_second = !admitting & second
   def first_page = span.first[12..64]
   def last_page = span.last[12..64]
-  def split = lookup_span.first[12..64] =/= lookup_span.last[12..64]
+  def split = span.first[12..64] =/= span.last[12..64]
   check.request.ready <== admitting
   check.response.valid <== state === VectorWindowState.Complete
   check.response.bits <== safe
-  translation.request.valid <== (state === VectorWindowState.Request) ||| (admitting & check.request.valid)
+  translation.request.valid <== state === VectorWindowState.Request
   translation.request.bits <== RiscvPageProbeRequest():
-    address: mux(lookup_second, lookup_span.last, lookup_span.first)
-    store: lookup_span.store
+    address: mux(second, span.last, span.first)
+    store: span.store
 
   owned <== (state === VectorWindowState.Owned) & safe
   for (index in 0..2):
@@ -82,42 +80,39 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
      translation, but both physical pages still require permitted PMAs. */
 
   def result = translation.response.bits
-  def same_leaf = sv39_same_page(lookup_span.first, lookup_span.last, result.page_size)
+  def same_leaf = sv39_same_page(span.first, span.last, result.page_size)
   def result_page = (result.physical_address[12..56] ++ Bits(12)(0)).zext(64)
   def next_page = result_page + Bits(64)(4096)
   def translation_permitted = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA)
-  def first_page_permitted = vector_page_permitted(physical_map, result_page, lookup_span.store)
+  def first_page_permitted = vector_page_permitted(physical_map, result_page, span.store)
   def success = translation_permitted & first_page_permitted
-  def needs_second = success & !lookup_second & split & !same_leaf
-  def shared_leaf_permitted = same_leaf & vector_page_permitted(physical_map, next_page, lookup_span.store)
+  def needs_second = success & !second & split & !same_leaf
+  def shared_leaf_permitted = same_leaf & vector_page_permitted(physical_map, next_page, span.store)
 
 
   /* Range lifetime: release, response, admission, probe transfer, decision.
-     Release wins. A zero-latency response may coincide with admission, so
-     response handling must capture the span before ordinary admission logic. */
+     Release wins. Translation may respond on its own request-transfer edge;
+     the range was already captured on an earlier check-admission edge. */
 
   when (check.release.valid):
     state <== VectorWindowState.Idle
     safe <== Bool(#false)
   elsewhen (translation.response.valid):
     assert((state === VectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
-    when (check.request.fire()):
-      span <== check.request.bits
-
-    when (!lookup_second):
+    when (!second):
       first_ppn <== result.physical_address[12..56]
 
-    safe <== success & (lookup_second ||| !split ||| shared_leaf_permitted)
+    safe <== success & (second ||| !split ||| shared_leaf_permitted)
     state <== mux(needs_second, VectorWindowState.Request, VectorWindowState.Complete)
-    when (lookup_second ||| (success & split & same_leaf)):
-      last_ppn <== mux(lookup_second, result.physical_address[12..56], next_page[12..56])
+    when (second ||| (success & split & same_leaf)):
+      last_ppn <== mux(second, result.physical_address[12..56], next_page[12..56])
 
     second <== needs_second
   elsewhen (check.request.fire()):
     span <== check.request.bits
     second <== Bool(#false)
     safe <== Bool(#false)
-    state <== mux(translation.request.fire(), VectorWindowState.Response, VectorWindowState.Request)
+    state <== VectorWindowState.Request
   elsewhen (translation.request.fire()):
     state <== VectorWindowState.Response
   elsewhen (check.response.fire()):

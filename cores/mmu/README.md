@@ -83,7 +83,12 @@ the caller must revalidate it before nonspeculative use.
 
 `VectorWindow` in `vector-window.rhdl` checks a caller-provided range spanning
 at most two adjacent 4 KiB pages and retains its mappings until release. Its
-page-probe service may use TLB hits or walks. Certification requires ordinary
+first page probe is offered in the cycle after accepting the range, using only
+captured state; service backpressure may delay transfer, and later changes to
+the request cannot affect it. The page-probe service
+may use TLB hits or walks, including a response on a probe's transfer cycle.
+This fallback boundary does not add latency to the independent MEM fast check.
+Certification requires ordinary
 cacheable, idempotent memory, the requested access permission, and PMA rather
 than an overriding page memory type. A covering superpage can satisfy both
 endpoints with one probe. A false response selects precise per-access execution;

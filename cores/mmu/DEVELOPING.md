@@ -47,6 +47,10 @@ Preserve these invariants when extending the components:
   Drain separate from Idle; zero-latency responses are valid on acceptance.
 - Invalidation wins over refill at the edge. Core-owned flush/retirement
   controls must not feed back through combinational demand-hit qualification.
+- Vector fallback probes use only the window's registered state and captured
+  range. Do not restore admission-to-probe bypass: a live descriptor offer may
+  itself depend on scalar WB/MMU acceptance. Preserve the independent MEM
+  certificate path and allow an immediate response to a registered probe.
 - Keep the `mmu/walk` trace label and retained ownership contract stable.
   Residency excludes Idle and Drain; cancellation ends the architectural walk
   occurrence but does not erase physical response ownership.
@@ -80,3 +84,9 @@ core/PTE response routing, useful work across fetch recovery, prefetch, and
 vector certificates. Use RV5Stage's [MMU guide](../rv5stage/mmu/DEVELOPING.md)
 for broader pipeline/guest-fault changes. Test migration does not expand CI's
 software matrix or publish another core's ISA profile.
+
+For window timing changes, also run `rv2wide-mmu`. Its real-MMU fixture qualifies
+page-check admission with older scalar request readiness, preserving the feedback
+topology used by ordered WB admission. It checks rejection before capture,
+registered warm-hit probing, demand contention, immutable ranges, and held
+responses. Independent mock-memory responders cannot detect that feedback loop.

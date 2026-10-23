@@ -27,6 +27,7 @@ sync_circuit RV2WideMmuFixture():
   input guest_state: RiscvHypervisorTranslation()
   input guest_access: RiscvGuestMemoryAccess
   input vector_access: Bool
+  input ordered_precheck: Bool
   interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface vector_fast(VectorFastCheck(XLen.X64), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
@@ -69,7 +70,9 @@ sync_circuit RV2WideMmuFixture():
   inst mmu(RV2WideMmu(test_fetch_chi, ~svnapot: #true))
   mmu.pipeline_vector <== vector_access
   mmu.request_vector <== vector_access
-  vector_precheck <=> mmu.vector_precheck
+  vector_precheck.request |> gate_flow(!ordered_precheck ||| mmu.memory.request.ready) |> mmu.vector_precheck.request
+  mmu.vector_precheck.response |> vector_precheck.response
+  vector_precheck.release |> mmu.vector_precheck.release
   vector_fast |> mmu.vector_fast
   mmu.split_guest_access <== guest_access
   mmu.state <== RV2WideTranslationState(XLen.X64):

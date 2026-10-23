@@ -846,6 +846,7 @@ int main() {
     CHECK(vector_precheck_out.prequest.pready);
     tick_model();
     vector_precheck_in.prequest.pvalid = 0;
+    vector_precheck_in.prequest.pbits = {UINT64_C(0x600000), UINT64_C(0x600007), 1};
     for (unsigned wait = 0; !vector_precheck_out.presponse.pvalid && wait < 40; ++wait)
       tick_model();
     CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
@@ -996,6 +997,73 @@ int main() {
     eval();
     CHECK(vector_fast_out.presponse.pvalid);
     vector_fast_in.prequest.pvalid = 0;
+
+    // Reproduce ordered WB's feedback topology against the real MMU: a blocked
+    // older scalar request must not admit its younger page check. Both may
+    // transfer once scalar service is ready, without probing on that same edge.
+    ordered_precheck = 1;
+    address = 0x600008;
+    wb_valid = 1;
+    physical_ready = 0;
+    vector_precheck_in.prequest = {1, {0x500008, 0x50000f, 0}};
+    for (unsigned wait = 0; wait < 3; ++wait) {
+      eval();
+      CHECK(physical_valid && !wb_ready && !vector_precheck_out.prequest.pready &&
+            !vector_precheck_out.presponse.pvalid);
+      tick_model();
+    }
+    physical_ready = 1;
+    eval();
+    CHECK(wb_ready && vector_precheck_out.prequest.pready);
+    tick_model();
+    eval();
+    CHECK(!vector_precheck_out.presponse.pvalid);
+    ordered_precheck = wb_valid = physical_ready = 0;
+    vector_precheck_in.prequest = {};
+    return_data(0x1234, true);
+    eval();
+    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
+
+    // Fallback admission captures a warm range before probing. An older WB
+    // demand can hold the probe off without changing its captured address/access.
+    vector_precheck_in.prequest = {1, {0x500008, 0x50000f, 0}};
+    eval();
+    CHECK(vector_precheck_out.prequest.pready && !vector_precheck_out.presponse.pvalid);
+    tick_model();
+    eval();
+    CHECK(!vector_precheck_out.presponse.pvalid);
+    vector_precheck_in.prequest = {0, {0x600000, 0x600007, 1}};
+    address = 0x600008;
+    wb_valid = 1;
+    for (unsigned wait = 0; wait < 3; ++wait) {
+      eval();
+      CHECK(physical_valid && physical_address == 0x17008 &&
+            !vector_precheck_out.presponse.pvalid);
+      tick_model();
+    }
+    wb_valid = 0;
+    tick_model();
+    eval();
+    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+    for (unsigned wait = 0; wait < 3; ++wait) {
+      tick_model();
+      CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+    }
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_access = 1;
+    data_hit(0x500008, 0x16008);
+    vector_access = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
 
     // A certificate is self-contained: physical retries do not need its old TLB entry.
     fence();

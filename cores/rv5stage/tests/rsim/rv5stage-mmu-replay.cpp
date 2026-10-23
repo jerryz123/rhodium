@@ -182,13 +182,13 @@ void certify_range(std::uint64_t first_address, std::uint64_t last_address,
                                            .plast = last_address,
                                            .pstore = store}};
   tick();
-  if (expect_fast_hit)
-    CHECK(vector_precheck_out.presponse.pvalid);
-  while (!vector_precheck_out.presponse.pvalid &&
-         !vector_precheck_out.prequest.pready)
-    tick();
+  CHECK(!vector_precheck_out.presponse.pvalid);
   falling();
-  vector_precheck_in.prequest.pvalid = 0;
+  vector_precheck_in.prequest = {};
+  if (expect_fast_hit) {
+    tick();
+    CHECK(vector_precheck_out.presponse.pvalid);
+  }
   until([&] { return vector_precheck_out.presponse.pvalid; });
   for (int repeat_index = 0; repeat_index < (3); ++repeat_index) {
     tick();
