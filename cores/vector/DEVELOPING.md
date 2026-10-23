@@ -118,6 +118,12 @@ ownership, and cache response shaping; `VectorReplay` owns only durable request
 storage and its ordered attempt/release cursors.
 Its Decoupled attempt advances only on transfer, so an older registered lookup
 can defer a captured packed load without another payload buffer or a lost request.
+For uncertified dispatch, combine adapter idle with `!execution.memory_preparing`.
+That summary includes the active memory sequencer and its final registered
+operand return, closing the gap before LSU capture. It excludes arithmetic:
+the ordinary sequencer handshake permits compute-tail replacement, and the
+per-row hazards govern the new memory reads. Do not restore whole-execution
+sequencing/issue quiescence or wait for already accepted slow responses.
 
 ## Change workflow
 
@@ -187,6 +193,9 @@ Care-mask regressions remain in `../rv5stage/tests/vector-ctrl-test.rhm`.
 The RV5Stage admission fixture checks the caller boundary. Add its vector-memory
 and MMU replay fixtures for translation/LSU behavior changes, FP/muldiv fixtures
 for shared arithmetic changes, and cosim/event fixtures for observation changes.
+Its public-port observations require indexed-store dispatch on the older compute
+tail edge and first sequencing before the last arithmetic write. Its certified-
+load/faultable-store case preserves isolation through final memory preparation.
 Use the managed Racket wrappers and keep generated HDL/native builds untracked.
 
 For packed multiply integration, run `vector-multiply` and

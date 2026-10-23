@@ -25,7 +25,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   input precise_fault: Fault
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   output outcome_fault: Fault
-  input(requests_idle, sequencing, issue_valid): Bool
+  input requests_idle: Bool
   output(available, active, certification_pending, loads_pending, stores_pending, fp_pending): Bool
   output(packed_memory, execution_certified, store): Bool
   output pointer_masking: PointerMaskControl()
@@ -52,15 +52,14 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
 
   /* Head certification and dispatch.
      Eligible memory waits for its footprint check. Memory without an input
-     certificate also waits for older LSU attempts and sequencing to become quiescent. */
+     certificate waits for older memory preparation and LSU attempts, not arithmetic. */
 
   def head = descriptors.egress
   def footprint = vector_footprint(xlen, vlen, head.bits, head.bits.pointer_masking)
   def needs_check = head.bits.control.memory & !footprint.empty & footprint.eligible & !head.bits.precertified
   def head_certified = !head.bits.control.memory ||| footprint.empty ||| head.bits.precertified ||| (check_complete & certified)
   def certification_ready = !needs_check ||| check_complete
-  def execution_quiescent = requests_idle & !sequencing & !issue_valid
-  def memory_dispatch_ready = !head.bits.control.memory ||| head.bits.precertified ||| execution_quiescent
+  def memory_dispatch_ready = !head.bits.control.memory ||| head.bits.precertified ||| requests_idle
   (
     head |> map_flow(descriptor => VectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc

@@ -4,6 +4,21 @@
 import:
   "../vector-admission-fixture.rhdl" open
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("cores/tests/rsim/port-observers.rhm").port_observer_pass
 
 def program = elaborate(RV5StageVectorAdmission())
-export program
+def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["VectorSequencer", "test_admission_sequence", [
+    ["request_in", "valid"], ["request_out", "ready"],
+    ["request_in", "bits", "descriptor", "pc"],
+    ["sequence_request_out", "valid"], ["sequence_request_in", "ready"],
+    ["sequence_request_out", "bits", "context", "instruction", "descriptor", "pc"],
+    ["sequence_request_out", "bits", "context", "beat_control", "last"]
+  ]],
+  ["VectorRegisterFile", "test_admission_write", [
+    ["write_in", "valid"], ["write_in", "bits", "address"], ["write_in", "bits", "data"]
+  ]]
+])])
+export program target

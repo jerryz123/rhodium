@@ -87,7 +87,6 @@ void initialize() {
   precheck_in = {};
   sequencing_done_in = {};
   requests_idle = 1;
-  sequencing = issue_valid = 0;
   tick_model();
   reset = 0;
   pending.clear();
@@ -144,6 +143,7 @@ int main() {
     memory.pstate.pvtype = memory.pstate.pvstart = 0;
     memory.pstate.pvl = 1;
     memory.pmasked = 0;
+    requests_idle = 0;
     request_in = {1, memory};
     precheck_in.prequest.pready = 1;
     eval();
@@ -164,6 +164,14 @@ int main() {
     tick_model();
     eval();
     CHECK(request_out.pready == (capacity > 1));
+    CHECK(!dispatch_out.pvalid);
+    for (unsigned cycle = 0; cycle < 3; ++cycle) {
+      tick_model();
+      eval();
+      CHECK(!dispatch_out.pvalid);
+    }
+    requests_idle = 1;
+    eval();
     CHECK(dispatch_out.pvalid);
     check_descriptor(dispatch_out.pbits.pdescriptor, memory);
     dispatch_in.pready = 1;

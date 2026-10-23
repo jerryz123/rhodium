@@ -16,7 +16,7 @@ sync_circuit VectorAdmissionFixture(depth :: PosInt):
   interface sequencing_done(Pulse(), ~role: consumer)
   interface precise(Valid(VectorCommit(xlen, 4)), ~role: consumer)
   interface outcome(Valid(VectorCommit(xlen, 4)), ~role: producer)
-  input(requests_idle, sequencing, issue_valid): Bool
+  input requests_idle: Bool
   output(available, active, certification_pending, loads_pending, stores_pending, fp_pending): Bool
   output capacity: Bits(8)
   inst admission(VectorAdmission(xlen, 128, 4, Bool, ~pipe: #false, ~dispatch_depth: depth))
@@ -28,8 +28,6 @@ sync_circuit VectorAdmissionFixture(depth :: PosInt):
   admission.outcome |> outcome
   admission.precise_fault <== Bool(#false)
   admission.requests_idle <== requests_idle
-  admission.sequencing <== sequencing
-  admission.issue_valid <== issue_valid
   available <== admission.available
   active <== admission.active
   certification_pending <== admission.certification_pending

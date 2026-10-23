@@ -86,9 +86,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   admission.dispatch |> execution.request
   admission.precheck <=> precheck
   execution.sequencing_done |> admission.sequencing_done
-  admission.requests_idle <== access.requests_idle
-  admission.sequencing <== execution.sequencing
-  admission.issue_valid <== execution.issue.valid
+  admission.requests_idle <== access.requests_idle & !execution.memory_preparing
   execution.packed_memory <== admission.packed_memory
   access.outcome |> admission.precise
   admission.outcome |> outcome

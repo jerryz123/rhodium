@@ -108,6 +108,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   input packed_memory: Bool
   input memory_drained: Bool
+  output memory_preparing: Bool
   input schedule_enable: Bool
   output active: Bool
   output sequencing: Bool
@@ -343,6 +344,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   assert(!(execute.alignment.valid & ex_pipe.egress.valid), "vector_simd_owners_exclusive")
   assert(!(operand_fetch.alignment.valid & sequencer.prepare_alignment.valid), "vector_preparation_alignment_exclusive")
   sequencing <== sequencer.active
+  // Cover older memory before LSU capture, including its final registered read.
+  // Arithmetic in these stages must not hold a younger memory descriptor back.
+  memory_preparing <== (sequencer.active & sequencer.retained.descriptor.control.memory) ||| (operand_fetch.scheduled_return & operand_fetch.issue.bits.beat.control.memory)
   pending <== authorized_slots.as_bits().any()
   ex_pipe.flush <== replay
   memory_pipe.flush <== replay

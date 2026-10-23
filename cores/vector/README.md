@@ -80,6 +80,11 @@ certification, pinned-window release, and registered early/precise outcomes.
 in addition to the active sequencer. RV2Wide selects four; RV5Stage retains two.
 Its explicit `~pipe` option selects whether admission credit can depend on
 same-cycle dequeue. Fault provenance is an opaque caller-supplied type.
+Uncertified memory waits for older memory preparation and LSU attempts, but can
+replace arithmetic on its final sequencing edge. Per-row data, index, and mask
+hazards still apply; arithmetic results need not drain first. The caller combines
+`VectorExecution.memory_preparing` with its adapter's idle indication to cover
+older memory before LSU capture, without waiting for accepted slow responses.
 [`VectorReplay`](replay.rhdl) retains certified requests through local retries;
 attempts may run ahead, but release remains ordered. A split takeover can move
 the attempt cursor past the oldest retained request without releasing its owner.

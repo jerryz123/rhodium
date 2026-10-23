@@ -12,6 +12,32 @@ using RiscvSplitResult =
 int cycle = 0, launches = 0, completions = 0, outcomes = 0, checks = 0,
     releases = 0, accesses = 0, memory_requests = 0;
 int response_stall_cycles = 0;
+bool watch_handoff = false;
+int older_tail_cycle = -1, memory_dispatch_cycle = -1, memory_first_cycle = -1,
+    older_last_write_cycle = -1, older_writes = 0;
+constexpr std::uint64_t older_pc = 128, indexed_store_pc = 1024;
+
+extern "C" void test_admission_sequence(std::uint64_t resetting,
+    std::uint64_t request_valid, std::uint64_t request_ready, std::uint64_t pc,
+    std::uint64_t sequence_valid, std::uint64_t sequence_ready,
+    std::uint64_t sequence_pc, std::uint64_t last) {
+  if (resetting || !watch_handoff) return;
+  if (request_valid && request_ready && pc == indexed_store_pc)
+    memory_dispatch_cycle = cycle;
+  if (sequence_valid && sequence_ready) {
+    if (sequence_pc == older_pc && last) older_tail_cycle = cycle;
+    if (sequence_pc == indexed_store_pc && memory_first_cycle < 0)
+      memory_first_cycle = cycle;
+  }
+}
+
+extern "C" void test_admission_write(std::uint64_t resetting,
+    std::uint64_t valid, std::uint64_t row, std::uint64_t value) {
+  if (resetting || !watch_handoff || !valid || row < 4 || row >= 8) return;
+  CHECK(value == 8);
+  ++older_writes;
+  older_last_write_cycle = cycle;
+}
 
 std::uint64_t addresses[256], data[256], last_outcome;
 
@@ -32,6 +58,9 @@ std::uint32_t move_insn(int rd, int value) {
 std::uint32_t memory_insn(int rd, std::uint8_t store) {
   return (store ? UINT64_C(0x2007027) : UINT64_C(0x2007007)) |
          (((rd)&low_mask(32)) << 7);
+}
+std::uint32_t indexed_store_insn(int data, int indices) {
+  return memory_insn(data, 1) | (UINT32_C(1) << 26) | (std::uint32_t(indices) << 20);
 }
 std::uint32_t load16_insn(int rd) {
   return UINT64_C(0x2005007) | (((rd)&low_mask(32)) << 7);
@@ -84,6 +113,10 @@ void clear() {
   retry_address = 0;
   slow_access = 0;
   watch_window = 0;
+  watch_handoff = false;
+  older_tail_cycle = memory_dispatch_cycle = memory_first_cycle = -1;
+  older_last_write_cycle = -1;
+  older_writes = 0;
   precheck_in = {};
   memory_responses_in = {};
   split_completion_in = {};
@@ -213,6 +246,34 @@ void stimulus() {
     }
     request_valid = 0;
     drain();
+
+    // An uncertified indexed store replaces the older compute on its tail read,
+    // then sequences before the final arithmetic write, not after whole drain.
+    clear();
+    launch(move_insn(8, 7), UINT64_C(16), 4, 25);
+    drain();
+    watch_handoff = true;
+    launch(move_insn(2, 8), older_pc, 4, 25);
+    launch(indexed_store_insn(8, 2), indexed_store_pc, 4, 25);
+    drain();
+    CHECK(older_tail_cycle >= 0 && memory_dispatch_cycle == older_tail_cycle);
+    CHECK(memory_first_cycle == older_tail_cycle + 1 && older_writes == 4 &&
+          memory_first_cycle < older_last_write_cycle);
+    CHECK(checks == 0 && accesses == 4);
+    for (unsigned index = 0; index < 4; ++index)
+      CHECK(addresses[index] == indexed_store_pc + 8 && data[index] == 7);
+    watch_handoff = false;
+
+    // The memory-only guard also covers an older certified load's final read
+    // before it has entered LSU retention. Its younger faultable store must not
+    // issue a nonstallable read into that still-occupied adapter.
+    fast_valid = 1;
+    launch(memory_insn(16, 0), UINT64_C(8192), 1, 24);
+    fast_valid = 0;
+    launch(indexed_store_insn(8, 2), UINT64_C(1536), 1, 24);
+    drain();
+    CHECK(accesses == 6 && addresses[4] == UINT64_C(0x12000) &&
+          addresses[5] == UINT64_C(1544) && data[5] == 7);
 
     // Distinct captured mappings need no shared-window installation, and
     // independent loads start on consecutive cycles before either hit returns.
