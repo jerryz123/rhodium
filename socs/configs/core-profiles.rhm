@@ -40,7 +40,7 @@ fun rv5stage_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConf
       ~zawrs: has("zawrs"), ~zihintpause: has("zihintpause"), ~zihintntl: has("zihintntl"),
       ~compressed: compressed
     ),
-    ~mmu_mode: if architecture.mmu == RiscvMmuType.Bare | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39,
+    ~mmu_mode: architecture.mmu,
     ~cache_geometry: cache,
     ~data_cache_service_queue_depth: if shape == SoCShape.Mini | 1 | 4,
     ~multiplier: if shape == SoCShape.Mini | RV5StageMultiplierKind.Iterative | RV5StageMultiplierKind.Pipelined,

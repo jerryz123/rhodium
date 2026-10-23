@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../csr/decode.rhdl".csr_access_cases
+  "../../csr/decode.rhdl" open
+  "../../csr/protocol.rhdl".RiscvCsrAction
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
@@ -22,59 +23,39 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
-/* Selects WB-owned traps, returns, waits, or vector configuration independently of CSR access. */
-hardware_enum RV5StageSystemOperation:
+/* Selects reservation waiting independently of the architectural CSR action. */
+hardware_enum RV5StageWait:
   None
-  Ecall
-  Ebreak
-  Mret
-  Sret
-  Wfi
-  WrsNto
-  WrsSto
-  VectorConfig
+  NoTimeout
+  ShortTimeout
 
 /* Carries CSR operation/source mode and the separate system action. */
 bundle RV5StageSystemControl():
   csr: RiscvCsrOperation
   immediate: Bool
-  action: RV5StageSystemOperation
+  action: RiscvCsrAction
+  wait: RV5StageWait
 
   /* Identifies either CSR access or a system action requiring core serialization policy. */
   method is_system_operation(control) :: Bool:
     (control.csr =/= RiscvCsrOperation.None) ||| (
-      control.action =/= RV5StageSystemOperation.None
-    )
+      control.action =/= RiscvCsrAction.None
+    ) ||| (control.wait =/= RV5StageWait.None)
 
 def no_system = partial_pattern(RV5StageSystemControl()):
   csr: RiscvCsrOperation.None
-  action: RV5StageSystemOperation.None
+  action: RiscvCsrAction.None
+  wait: RV5StageWait.None
 
-/* Builds a non-CSR system-action row with inactive source mode left unconstrained. */
-fun system_control(operation :: RV5StageSystemOperation):
-  partial_pattern(RV5StageSystemControl()):
-    csr: RiscvCsrOperation.None
-    action: operation
+def no_wait = partial_pattern(RV5StageSystemControl()): wait: RV5StageWait.None
+def csr_inactive = partial_pattern(RV5StageSystemControl()):
+  action: RiscvCsrAction.None
+  wait: RV5StageWait.None
+def ZicsrSystemCases = csr_access_cases(RV5StageSystemControl(), csr_inactive)
+def PrivilegedSystemCases = csr_system_cases(RV5StageSystemControl(), no_wait, [MRET, SRET, WFI, SFENCE_VMA])
 
-def ZicsrSystemCases = csr_access_cases(RV5StageSystemControl(), partial_pattern(RV5StageSystemControl()): action: RV5StageSystemOperation.None)
-
-def PrivilegedSystemCases = combine_case_groups([
-  instruction_cases([MRET], system_control(RV5StageSystemOperation.Mret)),
-  instruction_cases([SRET], system_control(RV5StageSystemOperation.Sret)),
-  instruction_cases([WFI], system_control(RV5StageSystemOperation.Wfi)),
-  instruction_cases([SFENCE_VMA], no_system)
-])
-
-/* Assigns ECALL/EBREAK actions and disables system effects for other base instructions. */
-fun base_system_cases(instructions :: List.of(InstructionSpec)):
-  combine_case_groups([
-    instruction_cases([ECALL], system_control(RV5StageSystemOperation.Ecall)),
-    instruction_cases([EBREAK], system_control(RV5StageSystemOperation.Ebreak)),
-    instruction_cases(excluding_instructions(instructions, [ECALL, EBREAK]), no_system)
-  ])
-
-def RV32ISystemCases = base_system_cases(rv32.RV32IInstructions)
-def RV64ISystemCases = base_system_cases(RV64IInstructions)
+def RV32ISystemCases = csr_system_cases(RV5StageSystemControl(), no_wait, rv32.RV32IInstructions)
+def RV64ISystemCases = csr_system_cases(RV5StageSystemControl(), no_wait, RV64IInstructions)
 def RV32RV5StageSystemCases = RV32ISystemCases ++ instruction_cases(
   RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZimopInstructions,
   no_system
@@ -87,16 +68,21 @@ def RV64RV5StageSystemCases = RV64ISystemCases ++ instruction_cases(
 def ZicbozSystemCases = instruction_cases(ZicbozInstructions, no_system)
 def ZicbomSystemCases = instruction_cases(ZicbomInstructions, no_system)
 
-def ZawrsSystemCases = combine_case_groups([
-  instruction_cases([WRS_NTO], system_control(RV5StageSystemOperation.WrsNto)),
-  instruction_cases([WRS_STO], system_control(RV5StageSystemOperation.WrsSto))
-])
+def ZawrsSystemCases = decode_groups(RV5StageSystemControl(), ~input: instruction_pattern):
+  [WRS_NTO]:
+    csr: RiscvCsrOperation.None
+    action: RiscvCsrAction.None
+    wait: RV5StageWait.NoTimeout
+  [WRS_STO]:
+    csr: RiscvCsrOperation.None
+    action: RiscvCsrAction.None
+    wait: RV5StageWait.ShortTimeout
 
 export:
   ZawrsSystemCases
   ZicbomSystemCases
   ZicbozSystemCases
-  RV5StageSystemOperation
+  RV5StageWait
   RV5StageSystemControl
   RV32ISystemCases
   RV64ISystemCases

@@ -465,7 +465,7 @@ privilege, timer, vector, and feature descriptors, plus `std/bits.rhdl`,
 `std/ready-valid.rhdl`, the stable generator-parameter contract, and the passive
 `cores/cosim-source.rhm` metadata bridge. It imports no named core.
 `cores/rv5stage/profile.rhm` projects named configuration into `RiscvCsrConfig`;
-`cores/rv5stage/csr.rhdl` projects decode controls into its neutral command; `core.rhdl` owns retirement authorization.
+both named decoders emit the shared CSR action directly; each `core.rhdl` owns retirement authorization.
 `socs/configs/metadata.rhm` consumes that static specialization and Spike's
 implementation-owned WARL projection for reference configuration. No live CSR
 state or simulator dependency crosses back into the core packages.
@@ -510,7 +510,8 @@ The CSR specialization reads MISA from the existing RV5Stage profile projection,
 which owns the pure `riscv/isa/profile.rhm` catalog dependency.
 `cores/memory-decode.rhdl` imports shared LSU/atomic controls, canonical scalar,
 A/H/CMO catalogs, and `std/decode.rhdl`. `cores/csr/decode.rhdl` imports the
-Zicsr catalog, CSR RTL controls, and `std/decode.rhdl`. Both generate partial
+Zicsr, base, privileged, H, and Svinval catalogs, shared CSR actions, CSR RTL
+controls, and `std/decode.rhdl`. Both generate partial
 relations into caller-shaped bundles without a named-core dependency.
 `cores/csr/file.rhdl` additionally imports `std/reduction.rhdl` to balance the
 state-enable banks' read-value union, retaining zero when no banks are present.
@@ -522,7 +523,14 @@ architectural versions or CSR-bank facts. Precise faults remain core-owned claim
 policy;
 `cores/mmu/udb.rhm` additionally imports the architectural MMU selection.
 `cores/udb.rhm` declares the precise-execution/split-access contract each named
-core explicitly opts into, without importing any named-core configuration.
+core explicitly opts into and composes shared CSR/cache/MMU/vector UDB projections
+using architectural hart descriptions and shared CSR config. It imports those
+owners, the pure UDB extension catalog, and compressed-profile MISA policy,
+never a named-core configuration. `cores/profile.rhm` consumes pure MISA,
+FP, and vector descriptors for common capability projection.
+`cores/cache/access.rhdl` consumes cache operation/geometry, load/store widths,
+architectural PMA/CMO/XLEN, and public bit helpers. Both cores consume its
+combinational classification while retaining their access-intent and service policies.
 `cores/operand.rhdl` consumes architectural immediate formats and extraction;
 `cores/operand-decode.rhdl` adds canonical I/B instruction catalogs, the public
 RISC-V decode adapter, and `std/decode.rhdl`. Named decoders consume these
@@ -582,7 +590,10 @@ and shared vector mask-scan controls. Paths beginning with `vector/` in this
 inventory refer to `cores/vector/`. `vector/mask.rhdl` imports public
 `std/bits.rhdl` for bit reversal and first-set counting and `std/reduction.rhdl`
 for parallel prefix counts; it has no decode dependency.
-The named vector wrappers import `vector/admission.rhdl` for descriptor credit,
+The named vector wrappers import `vector/backend.rhdl`, which composes admission
+and execution using their bundles, shared FP/integer/register-write contracts,
+MMU vector precheck, pointer masking, Flow, and passive cosim metadata. It adds
+no LSU or named-core dependency. `vector/admission.rhdl` owns descriptor credit,
 certification, and registered macro outcomes. That shared component imports
 vector bundles/precheck/decode, shared MMU protocols, architectural XLEN/vector
 and pointer-masking types, public bit helpers, and Flow.

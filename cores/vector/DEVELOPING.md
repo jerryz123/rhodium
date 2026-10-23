@@ -74,6 +74,7 @@ may follow assembly, include a store, or coincide with another VRF result.
 | `register-file.rhdl`, `packing.rhdl`, `mask.rhdl`, `execute.rhdl` | VRF/mask shadow and packed SIMD operand/result shaping |
 | `packed-prepare.rhdl`, `packed-load.rhdl`, `splat-load.rhdl`, `load-response.rhdl` | Packed and splat transport preparation, response assembly, and retained carry |
 | `geometry.rhdl`, `precheck.rhdl` | Beat geometry and conservative certification footprints |
+| `backend.rhdl` | Common admission/execution composition, service forwarding, and precise fault transport; no named LSU protocol |
 | `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
 | `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
 | `instruction-metadata.rhm` | Canonical base decode domains and scalar operand/destination metadata |
@@ -110,9 +111,13 @@ accepted scalar multiply/FP claims before promising the local return edge.
 
 `../mmu/vector.rhdl` owns certification/probe contracts and
 `../mmu/vector-window.rhdl` owns the pinned two-page window. The named MMU owns
-lookups, walks, permissions context, and invalidation. Named vector wrappers
-compose `VectorAdmission` with execution and their LSU adapter. They retain WB
-policy, fault-provenance types, drain qualification, and descriptor queue timing.
+lookups, walks, permissions context, and invalidation. `VectorBackend` composes
+`VectorAdmission` and execution, including the
+certified-outcome assertion and queued-kind summaries. Named wrappers connect
+its memory streams to their LSU adapter and select WB policy, fault-provenance
+types, drain qualification, arithmetic resources, and descriptor queue timing.
+Passive execution taps are nested under the backend component; memory taps stay
+on the named LSU. Keep their capture bindings aligned when changing hierarchy.
 The memory adapters retain fixed lookup stages, fault interpretation, split
 ownership, and cache response shaping; `VectorReplay` owns only durable request
 storage and its ordered attempt/release cursors.

@@ -4,11 +4,10 @@
 
 import:
   lib("cores/cosim-source.rhm").describe_cosim_signals
-  lib("cores/vector/admission.rhdl") open
+  lib("cores/vector/backend.rhdl") open
   "bundles.rhdl" open
   "vector-memory.rhdl" open
   lib("cores/vector/bundles.rhdl") open
-  lib("cores/vector/pipeline.rhdl") open
   lib("cores/vector/muldiv.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/misaligned-access.rhdl") open
@@ -58,59 +57,50 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output(active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available): Bool
 
-  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   inst access(RV2WideVectorMemory(xlen, slots))
-  inst admission(VectorAdmission(xlen, vlen, slots, RiscvGuestFault(), ~pipe: #false, ~dispatch_depth: dispatch_depth))
-  request |> admission.request
-  admission.dispatch |> execution.request
-  admission.precheck <=> precheck
-  execution.sequencing_done |> admission.sequencing_done
-  admission.requests_idle <== access.requests_idle & !execution.memory_preparing
-  execution.packed_memory <== admission.packed_memory
-  access.outcome |> admission.precise
-  admission.outcome |> outcome
-  available <== admission.available
-  admission.precise_fault <== access.outcome_guest
-  outcome_guest <== admission.outcome_fault
-  when (admission.execution_certified & access.feedback.valid):
-    assert(access.feedback.bits.disposition.is_one_of(VectorDisposition.Authorized, VectorDisposition.Retry), "certified_vector_cannot_fault")
-
-  execution.issue |> filter_flow(token => token.memory) |> access.issue
-  access.feedback |> execution.decision
-  access.completion |> execution.completion
-  access.store_completed |> execution.store_completed
+  inst backend(VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~dispatch_depth: dispatch_depth, ~pipe: #false, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
+  backend.precise_fault <== access.outcome_guest
+  outcome_guest <== backend.outcome_fault
+  access.split <=> split
+  backend.memory_drained <== memory.drained & access.idle
+  active <== backend.active ||| !access.idle
+  request |> backend.request
+  backend.precheck <=> precheck
+  backend.outcome |> outcome
+  backend.issue |> access.issue
+  access.feedback |> backend.decision
+  access.completion |> backend.completion
+  access.store_completed |> backend.store_completed
+  access.outcome |> backend.precise
+  backend.requests_idle <== access.requests_idle
+  access.pointer_masking <== backend.pointer_masking
   access.pipeline <=> pipeline
   access.memory <=> memory
-  access.split <=> split
   pipeline_physical <== access.pipeline_physical
   request_physical <== access.request_physical
-  access.pointer_masking <== admission.pointer_masking
-  execution.cancel.valid <== Bool(#false)
-  execution.memory_drained <== memory.drained & access.idle
-  execution.schedule_enable <== Bool(#true)
-  execution.fp_request |> fp_request
-  fp_result |> execution.fp_result
-  execution.multiply_request |> multiply_request
-  multiply_result |> execution.multiply_result
-  execution.divide_request |> divide_request
-  divide_result |> execution.divide_result
-  execution.fp_update |> fp_update
-  execution.fault_start |> fault_start
-  execution.truncate |> truncate
-  retire.valid <== outcome.valid & (outcome.bits.disposition =/= VectorDisposition.Fault)
-  execution.retire |> execution_done
-  execution.saturate |> saturate
-  execution.scalar_result |> scalar_result
-  execution.scalar_writeback |> scalar_writeback
-  execution.floating_result |> floating_result
-  active <== execution.active ||| admission.active ||| !access.idle
-  sequencing <== execution.sequencing
-  pending <== execution.pending
-  stores_pending <== execution.stores_pending ||| admission.stores_pending
-  loads_pending <== execution.loads_pending ||| admission.loads_pending
-  fp_pending <== execution.fp_pending ||| admission.fp_pending
-  certification_pending <== admission.certification_pending
-  describe_cosim_signals({"admitted": request.fire()}, ~components: {"execution": execution, "memory": access})
+  backend.fp_request |> fp_request
+  fp_result |> backend.fp_result
+  backend.multiply_request |> multiply_request
+  multiply_result |> backend.multiply_result
+  backend.divide_request |> divide_request
+  divide_result |> backend.divide_result
+  backend.fp_update |> fp_update
+  backend.fault_start |> fault_start
+  backend.truncate |> truncate
+  backend.retire |> retire
+  backend.execution_done |> execution_done
+  backend.saturate |> saturate
+  backend.scalar_result |> scalar_result
+  backend.scalar_writeback |> scalar_writeback
+  backend.floating_result |> floating_result
+  sequencing <== backend.sequencing
+  pending <== backend.pending
+  stores_pending <== backend.stores_pending
+  loads_pending <== backend.loads_pending
+  fp_pending <== backend.fp_pending
+  certification_pending <== backend.certification_pending
+  available <== backend.available
+  describe_cosim_signals({"admitted": request.fire()}, ~components: {"backend": backend, "memory": access})
 
 /* Terminates the optional vector client without allocating a sequencer, VRF, or execution state. */
 sync_circuit RV2WideVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8):

@@ -828,7 +828,8 @@ multiply/divide scheduling and scalar pipeline policy. Do not route packed
 VRF results through the scalar GPR completion calendar.
 
 Keep architectural admission, retirement, and scalar hazards in `core.rhdl`;
-`vector.rhdl` adapts the reusable engine rather than importing RV5Stage policy.
+`vector.rhdl` connects `cores/vector/backend.rhdl` to the local LSU rather
+than reauthoring admission/execution composition or importing RV5Stage policy.
 WB admission consumes registered descriptor credit, never downstream LSU
 readiness. Memory admission checks retained scalar load owners and a sampled
 quiet memory boundary: live drain signals can depend on current admission.

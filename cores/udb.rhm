@@ -3,6 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "cache/udb.rhm".cache_udb_parameters
+  "csr/config.rhm".RiscvCsrConfig
+  "csr/udb.rhm".riscv_csr_udb_parameters
+  "mmu/udb.rhm".mmu_udb_parameters
+  "vector/udb.rhm".vector_udb_parameters
+  lib("riscv/isa/hart.rhm") open
+  lib("riscv/isa/c.rhm").compressed_extensions_report_misa_c
+  lib("riscv/udb-profile.rhm").riscv_udb_extensions
   lib("riscv/udb.rhm") open
 
 /* Claims precise faults, split-access behavior, trap provenance, and nonfinite WFI; callers establish these guarantees. */
@@ -62,4 +70,28 @@ fun precise_core_udb_parameters(hypervisor :: Boolean) :: NonemptyList.of(UdbPar
 
   result
 
-export precise_core_udb_parameters
+/* Projects the selected hart and software-managed access/dirty policy, without guessing a named core. */
+fun core_udb_extensions(hart :: RiscvHartDescription) :: NonemptyList.of(UdbExtension):
+  riscv_udb_extensions(hart, ~additional: if hart.mmu_type == RiscvMmuType.Sv39 | [UdbExtension("Svade", "1.0.0")] | [])
+
+/* Composes implementation-owned CSR/cache/MMU/vector facts for a core opting into precise execution.
+   Integration-specific physical bounds and PMA granularity validation stay with the caller. */
+fun core_udb_parameters(hart :: RiscvHartDescription, csr :: RiscvCsrConfig, physical_address_width :: PosInt, pma_granularity_log2 :: PosInt) :: NonemptyList.of(UdbParameter):
+  [
+    natural_parameter("MXLEN", hart.xlen.width),
+    natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
+    natural_parameter("PMA_GRANULARITY", pma_granularity_log2),
+    natural_parameter("CACHE_BLOCK_SIZE", hart.cbo_block_bytes),
+    boolean_parameter("NON_STANDARD_EXTENSION_IMPLEMENTED", #false)
+  ] ++ riscv_csr_udb_parameters(csr)
+    ++ cache_udb_parameters(csr.zicbom)
+    ++ mmu_udb_parameters(csr.mmu_type, csr.hypervisor)
+    ++ precise_core_udb_parameters(csr.hypervisor)
+    ++ vector_udb_parameters(csr.vector, csr.vector_length, csr.hypervisor)
+    ++ (if hart.isa_profile.isa_extensions.contains("zawrs") | [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)] | [])
+    ++ (if compressed_extensions_report_misa_c(csr.xlen, csr.floating_point, csr.compressed) | [boolean_parameter("MUTABLE_MISA_C", #false)] | [])
+
+export:
+  precise_core_udb_parameters
+  core_udb_extensions
+  core_udb_parameters

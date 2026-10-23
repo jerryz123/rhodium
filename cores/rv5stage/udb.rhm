@@ -4,12 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache/udb.rhm".cache_udb_parameters
-  "../mmu/udb.rhm".mmu_udb_parameters
-  "../udb.rhm".precise_core_udb_parameters
-  "../vector/udb.rhm".vector_udb_parameters
-  "../csr/udb.rhm".riscv_csr_udb_parameters
-  lib("riscv/udb-profile.rhm").riscv_udb_extensions
+  "../udb.rhm" open
   "../../support/annotations.rhm".NonemptyString
   "../../riscv/udb.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
@@ -17,7 +12,7 @@ import:
 
 /* Projects the core's declared architecture through the shared version/implication catalog. */
 fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExtension):
-  riscv_udb_extensions(profile.hart_description, ~additional: if profile.mmu_mode == RV5StageMmuMode.Sv39 | [UdbExtension("Svade", "1.0.0")] | [])
+  core_udb_extensions(profile.hart_description)
 
 /* Validates integration address bounds and emits fixed and profile-dependent behavioral claims. */
 fun rv5stage_udb_parameters(profile :: RV5StageConfig,
@@ -32,22 +27,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   unless pma_granularity_log2 >= 2 && pma_granularity_log2 <= 66
   | error(~who: #'rv5stage_udb_parameters, "PMA granularity log2 must be between 2 and 66")
 
-  def selected = profile.extensions
-  def xlen = profile.xlen.width
-  def parameters = [
-    natural_parameter("MXLEN", xlen),
-    natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
-    natural_parameter("PMA_GRANULARITY", pma_granularity_log2),
-    natural_parameter("CACHE_BLOCK_SIZE", CacheLineBytes),
-    boolean_parameter("NON_STANDARD_EXTENSION_IMPLEMENTED", #false)
-  ]
-  parameters ++ riscv_csr_udb_parameters(profile.csr_config)
-    ++ cache_udb_parameters(selected.zicbom)
-    ++ mmu_udb_parameters(profile.csr_config.mmu_type, selected.hypervisor)
-    ++ precise_core_udb_parameters(selected.hypervisor)
-    ++ vector_udb_parameters(profile.vector, profile.vector_length, selected.hypervisor)
-    ++ (if selected.zawrs | [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)] | [])
-    ++ (if selected.compressed_misa_c(profile.xlen) | [boolean_parameter("MUTABLE_MISA_C", #false)] | [])
+  core_udb_parameters(profile.hart_description, profile.csr_config, physical_address_width, pma_granularity_log2)
 
 /* Combines extension closure and behavioral parameters into one named UDB configuration. */
 fun rv5stage_udb_configuration(profile :: RV5StageConfig,

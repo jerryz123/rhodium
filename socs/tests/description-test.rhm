@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../platform/description.rhm" open
   "../../cores/rv5stage/profile.rhm" open
   "../../devicetree/main.rhm".DeviceTreeLabel
@@ -13,7 +14,7 @@ import:
 def profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicboz: #true, ~zawrs: #true, ~zihintpause: #true),
-  ~mmu_mode: RV5StageMmuMode.Sv39
+  ~mmu_mode: RiscvMmuType.Sv39
 )
 
 def clocks = SoCClockConfig(

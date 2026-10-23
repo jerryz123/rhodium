@@ -140,8 +140,8 @@ instantiate that circuit beside the core decoder.
 `RV5StageInstructionDecoder(..., ~zawrs: #true)` and the matching
 `rv5stage_instructions(..., ~zawrs: #true)` selection append the two exact
 `WRS.NTO`/`WRS.STO` rows. `ZawrsCoreControlCases` composes the ordinary
-component-owned columns; `ZawrsSystemCases` selects `RV5StageSystemOperation.WrsNto`
-or `RV5StageSystemOperation.WrsSto`. Both classify as serializing system operations,
+component-owned columns; `ZawrsSystemCases` selects `RV5StageWait.NoTimeout`
+or `RV5StageWait.ShortTimeout` in the separate `system.wait` field. Both classify as serializing system operations,
 use no explicit integer operands, and disable register writes,
 memory requests, branches, prefetch, FP execution, and fence actions. Inactive
 datapath controls remain don't-cares. The rows join the same single decoder,

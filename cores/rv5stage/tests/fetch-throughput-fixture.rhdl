@@ -2,6 +2,7 @@
 // Exercises cold-refill recovery and steady-state frontend/MMU/L1I throughput.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
   "../memory-context.rhdl" open
   "../../cache/protocol.rhdl" open
@@ -34,7 +35,7 @@ sync_circuit RV5StageFetchThroughput():
   output trace_address: Bits(64)
   interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
   inst fetch(RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
-  inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
+  inst mmu(RV5StageMmu(XLen.X64, RiscvMmuType.Sv39, test_rv5stage_chi_config.physical_map))
   mmu.pipeline_vector <== Bool(#false)
   mmu.vector_precheck.request.valid <== Bool(#false)
   mmu.vector_precheck.request.bits <== dont_care(mmu.vector_precheck.request.bits.type)

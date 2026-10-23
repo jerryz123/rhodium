@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../csr/decode.rhdl".csr_instruction_action
+  lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand-decode.rhdl") open
   lib("cores/operand.rhdl") open
   lib("cores/vector/instruction-metadata.rhm") open
@@ -99,7 +101,8 @@ def inactive_writeback_control = partial_pattern(RV5StageWritebackControl()):
 
 def inactive_system_control = partial_pattern(RV5StageSystemControl()):
   csr: RiscvCsrOperation.None
-  action: RV5StageSystemOperation.None
+  action: RiscvCsrAction.None
+  wait: RV5StageWait.None
 
 def inactive_fence_control = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.None
@@ -263,7 +266,11 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperat
       memory: inactive_memory_control
       prefetch: CachePrefetchOperation.None
       writeback: inactive_writeback_control
-      system: inactive_system_control
+      system:
+        partial_pattern(RV5StageSystemControl()):
+          csr: RiscvCsrOperation.None
+          action: csr_instruction_action(instruction)
+          wait: RV5StageWait.None
       fence:
         pattern(RV5StageFenceControl()):
           action: fence
@@ -368,7 +375,8 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
       if configuration
       | partial_pattern(RV5StageSystemControl()):
           csr: RiscvCsrOperation.None
-          action: RV5StageSystemOperation.VectorConfig
+          action: RiscvCsrAction.VectorConfig
+          wait: RV5StageWait.None
       | inactive_system_control
 
     DecodeCase(

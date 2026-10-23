@@ -94,53 +94,53 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, dispatch_
   fun flag(name :: String) :~ Bool: taps[name]
   rhodium_vector_admission.call(instance, ~enable: active & flag("vector_admitted"))
   rhodium_vector_fp.call(
-    instance, lane("vector_execution_fp_allocate"),
-    lane("vector_execution_service_owner"), lane("vector_execution_service_tag"),
-    lane("vector_execution_fp_launch"), lane("vector_execution_fp_tag"),
-    lane("vector_execution_fp_return"), lane("vector_execution_fp_return_tag"),
-    lane("vector_execution_fp_flags_valid"), lane("vector_execution_fp_flags"), ~enable: active
+    instance, lane("vector_backend_execution_fp_allocate"),
+    lane("vector_backend_execution_service_owner"), lane("vector_backend_execution_service_tag"),
+    lane("vector_backend_execution_fp_launch"), lane("vector_backend_execution_fp_tag"),
+    lane("vector_backend_execution_fp_return"), lane("vector_backend_execution_fp_return_tag"),
+    lane("vector_backend_execution_fp_flags_valid"), lane("vector_backend_execution_fp_flags"), ~enable: active
   )
 
   rhodium_vector_service.call(
-    instance, lane("vector_execution_service_allocate"), lane("vector_execution_service_owner"),
-    lane("vector_execution_service_tag"), lane("vector_execution_service_divide"),
-    lane("vector_execution_multiply_launch"), lane("vector_execution_multiply_tag"),
-    lane("vector_execution_divide_launch"), lane("vector_execution_divide_tag"),
-    lane("vector_execution_multiply_return"), lane("vector_execution_multiply_return_tag"),
-    lane("vector_execution_divide_return"), lane("vector_execution_divide_return_tag"), lane("vector_execution_service_packed"), ~enable: active
+    instance, lane("vector_backend_execution_service_allocate"), lane("vector_backend_execution_service_owner"),
+    lane("vector_backend_execution_service_tag"), lane("vector_backend_execution_service_divide"),
+    lane("vector_backend_execution_multiply_launch"), lane("vector_backend_execution_multiply_tag"),
+    lane("vector_backend_execution_divide_launch"), lane("vector_backend_execution_divide_tag"),
+    lane("vector_backend_execution_multiply_return"), lane("vector_backend_execution_multiply_return_tag"),
+    lane("vector_backend_execution_divide_return"), lane("vector_backend_execution_divide_return_tag"), lane("vector_backend_execution_service_packed"), ~enable: active
   )
 
-  def issued :: VectorToken(xlen, Bits(xlen.width), slots) = taps["vector_execution_memory_token"]
-  def write :: VectorRegisterWrite(xlen, vlen) = taps["vector_execution_write"]
+  def issued :: VectorToken(xlen, Bits(xlen.width), slots) = taps["vector_backend_execution_memory_token"]
+  def write :: VectorRegisterWrite(xlen, vlen) = taps["vector_backend_execution_write"]
   def completion :: VectorCompletion(xlen, slots) = taps["vector_memory_completion"]
-  def decision :: VectorCommit(xlen, slots) = taps["vector_execution_memory_decision"]
+  def decision :: VectorCommit(xlen, slots) = taps["vector_backend_execution_memory_decision"]
   def pipeline_valid :: Bool = if types.has_key("mmu_pipeline_valid") | mmu["mmu_pipeline_valid"] | Bool(#false)
   def pipeline_address = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | Bits(xlen.width)(0)
   rhodium_vector_cycle.call(
     instance, Bits(64)(xlen.width), Bits(64)(vlen), Bits(64)(slots), Bits(64)(dispatch_depth), pipeline_valid.as_bits().zext(64),
     capture_lane(pipeline_address), lane("vector_memory_split"), Bits(64)(if types.has_key("mmu_fragment_completed") || types.has_key("mmu_fragment_response") | 1 | 0),
-    lane("vector_execution_replay"), ~enable: active
+    lane("vector_backend_execution_replay"), ~enable: active
   )
 
   rhodium_vector_dispatch.call(
-    instance, lane("vector_execution_owner"), lane("vector_execution_base"), lane("vector_execution_eew"),
-    lane("vector_execution_instruction"), lane("vector_execution_vtype"), ~enable: active & flag("vector_execution_admitted")
+    instance, lane("vector_backend_execution_owner"), lane("vector_backend_execution_base"), lane("vector_backend_execution_eew"),
+    lane("vector_backend_execution_instruction"), lane("vector_backend_execution_vtype"), ~enable: active & flag("vector_backend_execution_admitted")
   )
 
   rhodium_vector_issue.call(
-    instance, lane("vector_execution_memory_owner"), capture_lane(issued.completion_tag),
-    lane("vector_execution_memory_first"), lane("vector_execution_memory_destination"), lane("vector_execution_memory_packed"),
-    issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address), lane("vector_execution_memory_effective_address"),
+    instance, lane("vector_backend_execution_memory_owner"), capture_lane(issued.completion_tag),
+    lane("vector_backend_execution_memory_first"), lane("vector_backend_execution_memory_destination"), lane("vector_backend_execution_memory_packed"),
+    issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address), lane("vector_backend_execution_memory_effective_address"),
     capture_lane(issued.physical_address), issued.precertified.as_bits().zext(64),
     capture_lane(issued.byte_mask), capture_lane(issued.store_data),
-    ~enable: active & flag("vector_execution_memory_issue")
+    ~enable: active & flag("vector_backend_execution_memory_issue")
   )
 
   rhodium_vector_write.call(
     instance, capture_lane(write.address), capture_lane(write.mask), capture_lane(write.data),
-    lane("vector_execution_local_write"), lane("vector_execution_packed_write"), lane("vector_execution_splat_write"),
-    lane("vector_execution_write_owner"), lane("vector_execution_packed_write_owner"), lane("vector_execution_splat_owner"),
-    ~enable: active & flag("vector_execution_write_valid")
+    lane("vector_backend_execution_local_write"), lane("vector_backend_execution_packed_write"), lane("vector_backend_execution_splat_write"),
+    lane("vector_backend_execution_write_owner"), lane("vector_backend_execution_packed_write_owner"), lane("vector_backend_execution_splat_owner"),
+    ~enable: active & flag("vector_backend_execution_write_valid")
   )
 
   rhodium_vector_direct.call(instance, lane("vector_memory_direct_tag"), lane("vector_memory_direct_data"), ~enable: active & flag("vector_memory_direct"))
@@ -149,16 +149,16 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, dispatch_
   rhodium_vector_fault.call(instance, lane("vector_memory_fault_tag"), lane("vector_memory_fault_address"), ~enable: active & flag("vector_memory_fault"))
   rhodium_vector_decision.call(
     instance, capture_lane(decision.tag), capture_lane(decision.disposition.as_bits()),
-    ~enable: active & flag("vector_execution_memory_decision_valid")
+    ~enable: active & flag("vector_backend_execution_memory_decision_valid")
   )
 
-  rhodium_vector_drain.call(instance, lane("vector_execution_instructions_owner"), ~enable: active & flag("vector_execution_instructions_drained"))
-  def floating_write = flag("vector_execution_floating_write_valid")
+  rhodium_vector_drain.call(instance, lane("vector_backend_execution_instructions_owner"), ~enable: active & flag("vector_backend_execution_instructions_drained"))
+  def floating_write = flag("vector_backend_execution_floating_write_valid")
   rhodium_vector_scalar_write.call(
-    instance, lane("vector_execution_scalar_write_owner"), floating_write.as_bits().zext(64),
-    mux(floating_write, lane("vector_execution_floating_write_rd"), lane("vector_execution_scalar_write_rd")),
-    mux(floating_write, lane("vector_execution_floating_write_data"), lane("vector_execution_scalar_write_data")),
-    ~enable: active & (floating_write ||| flag("vector_execution_scalar_write_valid"))
+    instance, lane("vector_backend_execution_scalar_write_owner"), floating_write.as_bits().zext(64),
+    mux(floating_write, lane("vector_backend_execution_floating_write_rd"), lane("vector_backend_execution_scalar_write_rd")),
+    mux(floating_write, lane("vector_backend_execution_floating_write_data"), lane("vector_backend_execution_scalar_write_data")),
+    ~enable: active & (floating_write ||| flag("vector_backend_execution_scalar_write_valid"))
   )
 
   taps

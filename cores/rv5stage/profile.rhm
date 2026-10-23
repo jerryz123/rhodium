@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../profile.rhm".core_misa_extensions
   "../vector/profile.rhm".check_vector_profile
   "../csr/config.rhm".RiscvCsrConfig
   "../fp/profile.rhm".check_fp_profile
@@ -16,11 +17,6 @@ import:
   lib("riscv/isa/vector.rhm").VectorLength
   lib("riscv/isa/profile.rhm") open
   lib("riscv/isa/hart.rhm") open
-
-/* Selects unpaged or host Sv39 translation specialization. */
-enum RV5StageMmuMode
-| Bare
-| Sv39
 
 /* Selects iterative or fixed-latency pipelined shared multiplication. */
 enum RV5StageMultiplierKind
@@ -178,7 +174,7 @@ class RV5StageCacheGeometry(instruction :: CacheConfig,
 /* Owns validated ISA selection, cache geometry, and scalar/vector execution capacities. */
 class RV5StageConfig(xlen :: XLen,
                      extensions :: RV5StageExtensions,
-                     mmu_mode :: RV5StageMmuMode,
+                     mmu_mode :: RiscvMmuType,
                      cache_geometry :: RV5StageCacheGeometry,
                      data_cache_service_queue_depth :: PosInt,
                      multiplier :: RV5StageMultiplierKind,
@@ -191,7 +187,7 @@ class RV5StageConfig(xlen :: XLen,
   /* Rejects unsupported translation, privilege, FP, and vector combinations before elaboration. */
   constructor (~xlen: xlen :: XLen,
                ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
-               ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
+               ~mmu_mode: mmu_mode :: RiscvMmuType = RiscvMmuType.Bare,
                ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry(),
                ~data_cache_service_queue_depth: data_cache_service_queue_depth :: PosInt = 2,
                ~multiplier: multiplier :: RV5StageMultiplierKind = RV5StageMultiplierKind.Iterative,
@@ -213,16 +209,16 @@ class RV5StageConfig(xlen :: XLen,
     when extensions.supm && !extensions.ssnpm
     | error(~who: #'RV5StageConfig, "Supm requires Ssnpm hardware")
 
-    when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
+    when xlen == XLen.X32 && mmu_mode != RiscvMmuType.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
 
-    when extensions.svpbmt && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
+    when extensions.svpbmt && (xlen != XLen.X64 || mmu_mode != RiscvMmuType.Sv39)
     | error(~who: #'RV5StageConfig, "Svpbmt requires RV64 Sv39")
 
-    when extensions.svnapot && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
+    when extensions.svnapot && (xlen != XLen.X64 || mmu_mode != RiscvMmuType.Sv39)
     | error(~who: #'RV5StageConfig, "Svnapot requires RV64 Sv39")
 
-    when extensions.hypervisor && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
+    when extensions.hypervisor && (xlen != XLen.X64 || mmu_mode != RiscvMmuType.Sv39)
     | error(~who: #'RV5StageConfig, "H requires RV64 Sv39")
 
     check_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
@@ -254,31 +250,16 @@ class RV5StageConfig(xlen :: XLen,
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
     // Fixed behavioral guarantees validated on the RV64 Sv39 implementation,
     // not optional datapaths or new implementation switches.
-    def supervisor = if xlen == XLen.X64 && mmu_mode == RV5StageMmuMode.Sv39 | ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
+    def supervisor = if xlen == XLen.X64 && mmu_mode == RiscvMmuType.Sv39 | ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
     def names = extensions.names(xlen) ++ supervisor ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
-    def mutable misa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
-    when floating_point_supports_f(extensions.floating_point)
-    | misa := misa ++ [MisaExtension.F]
-
-    when floating_point_supports_d(extensions.floating_point)
-    | misa := misa ++ [MisaExtension.D]
-
-    when extensions.compressed_misa_c(xlen)
-    | misa := misa ++ [MisaExtension.C]
-
-    when vector_profile_is_v(vector)
-    | misa := misa ++ [MisaExtension.V]
-
-    when extensions.hypervisor
-    | misa := misa ++ [MisaExtension.H]
-
+    def misa = core_misa_extensions(extensions.floating_point, extensions.compressed_misa_c(xlen), vector, extensions.hypervisor)
     RiscvIsaProfile(xlen, names, misa)
 
   /* Selects architectural CSR banks without exporting pipeline, cache, or execution configuration. */
   property csr_config :: RiscvCsrConfig:
     RiscvCsrConfig(
       isa_profile,
-      ~mmu_type: if mmu_mode == RV5StageMmuMode.Bare | RiscvMmuType.Bare | RiscvMmuType.Sv39,
+      ~mmu_type: mmu_mode,
       ~floating_point: extensions.floating_point,
       ~compressed: extensions.compressed,
       ~vector: vector,
@@ -297,7 +278,7 @@ class RV5StageConfig(xlen :: XLen,
   property hart_description :: RiscvHartDescription:
     RiscvHartDescription(
       isa_profile,
-      if mmu_mode == RV5StageMmuMode.Bare | RiscvMmuType.Bare | RiscvMmuType.Sv39,
+      mmu_mode,
       RiscvCacheDescription(CacheLineBytes, cache_geometry.instruction.sets, cache_geometry.instruction.capacity_bytes),
       RiscvCacheDescription(CacheLineBytes, cache_geometry.data.sets, cache_geometry.data.capacity_bytes),
       ~cbo_block_bytes: CacheLineBytes,
@@ -307,7 +288,6 @@ class RV5StageConfig(xlen :: XLen,
 export:
   CacheLineBytes
   CacheConfig
-  RV5StageMmuMode
   RV5StageMultiplierKind
   RV5StageExtensions
   RV5StageCacheGeometry

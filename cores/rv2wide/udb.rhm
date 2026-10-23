@@ -3,13 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache/udb.rhm".cache_udb_parameters
-  "../mmu/udb.rhm".mmu_udb_parameters
-  "../udb.rhm".precise_core_udb_parameters
-  "../vector/udb.rhm".vector_udb_parameters
-  lib("riscv/isa/hart.rhm").RiscvMmuType
-  "../csr/udb.rhm".riscv_csr_udb_parameters
-  lib("riscv/udb-profile.rhm").riscv_udb_extensions
+  "../udb.rhm" open
   "profile.rhm".RV2WideConfig
   lib("riscv/udb.rhm") open
   lib("support/annotations.rhm").NonemptyString
@@ -19,25 +13,9 @@ fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, 
   unless physical_address_width <= profile.xlen.width
   | error(~who: #'rv2wide_udb_configuration, "physical address width must fit XLEN")
 
-  def extensions = riscv_udb_extensions(profile.hart_description, ~additional: if profile.mmu_type == RiscvMmuType.Bare | [] | [UdbExtension("Svade", "1.0.0")])
-  def xlen = profile.xlen.width
-  def pma_granularity_log2 = if xlen == 32 | 2 | 3
-  def parameters = [
-    natural_parameter("MXLEN", xlen),
-    natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
-    natural_parameter("PMA_GRANULARITY", pma_granularity_log2),
-    natural_parameter("CACHE_BLOCK_SIZE", profile.hart_description.cbo_block_bytes),
-    boolean_parameter("NON_STANDARD_EXTENSION_IMPLEMENTED", #false)
-  ]
-  def complete_parameters = parameters
-    ++ riscv_csr_udb_parameters(profile.csr_config)
-    ++ cache_udb_parameters(profile.zicbom)
-    ++ mmu_udb_parameters(profile.mmu_type, profile.hypervisor)
-    ++ precise_core_udb_parameters(profile.hypervisor)
-    ++ vector_udb_parameters(profile.vector, profile.vector_length, profile.hypervisor)
-    ++ (if profile.zawrs | [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)] | [])
-    ++ [boolean_parameter("MUTABLE_MISA_C", #false)]
-  UdbConfiguration(name, description, extensions, complete_parameters)
+  def pma_granularity_log2 = if profile.xlen.width == 32 | 2 | 3
+  UdbConfiguration(name, description, core_udb_extensions(profile.hart_description),
+                   core_udb_parameters(profile.hart_description, profile.csr_config, physical_address_width, pma_granularity_log2))
 
 export:
   rv2wide_udb_configuration

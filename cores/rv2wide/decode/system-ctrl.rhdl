@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../csr/decode.rhdl".csr_access_cases
+  "../../csr/decode.rhdl" open
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
@@ -52,42 +52,6 @@ def base_system_cases = decode_groups(RV2WideSystemControl(), ~input: instructio
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
 
-  [ECALL]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.Ecall
-
-  [EBREAK]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.Ebreak
-
-  [MRET]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.Mret
-
-  [SRET]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.Sret
-
-  [WFI]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.Wfi
-
-  [SFENCE_VMA]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.SfenceVma
-
   [FENCE]:
     wait: RV2WideWait.None
     csr: RiscvCsrOperation.None
@@ -105,21 +69,16 @@ def csr_inactive = partial_pattern(RV2WideSystemControl()):
   fence: RV2WideFence.None
   action: RiscvCsrAction.None
 
-def RV2WideSystemCases = base_system_cases ++ csr_access_cases(RV2WideSystemControl(), csr_inactive)
+def system_inactive = partial_pattern(RV2WideSystemControl()):
+  wait: RV2WideWait.None
+  fence: RV2WideFence.None
+
+def RV2WideSystemCases = base_system_cases
+  ++ csr_system_cases(RV2WideSystemControl(), system_inactive, [ECALL, EBREAK] ++ RV2WidePrivilegedInstructions)
+  ++ csr_access_cases(RV2WideSystemControl(), csr_inactive)
 
 // Full invalidation ignores address/ASID operands; ordering retains its own privilege rule.
-def RV2WideInvalidationCases = decode_groups(RV2WideSystemControl(), ~input: instruction_pattern):
-  [SINVAL_VMA]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.SfenceVma
-
-  [SFENCE_W_INVAL, SFENCE_INVAL_IR]:
-    wait: RV2WideWait.None
-    fence: RV2WideFence.None
-    csr: RiscvCsrOperation.None
-    action: RiscvCsrAction.TranslationOrder
+def RV2WideInvalidationCases = csr_system_cases(RV2WideSystemControl(), system_inactive, [SINVAL_VMA, SFENCE_W_INVAL, SFENCE_INVAL_IR])
 
 export:
   RV2WideInvalidationCases

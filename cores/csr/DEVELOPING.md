@@ -11,8 +11,8 @@ owns reusable state implementation, not a core's pipeline policy.
 - `config.rhm` selects bank specialization using existing architectural types.
   It also owns the bank's delegation masks and exports static WARL choices;
   RTL and resolved configuration metadata consume the same values.
-- `decode.rhdl` owns the six CSR operation/source rows; named decoders retain
-  serialization and privileged action mapping.
+- `decode.rhdl` owns CSR operation/source rows and architectural system-action
+  mappings. Named decoders retain fence/wait controls and serialization policy.
 - `udb.rhm` projects bank-owned storage, interrupt sources, endian/XLEN choices,
   and WARL facts from `RiscvCsrConfig`, including guest-state and counter enables.
   Both cores' host profiles expose that same configuration used to instantiate RTL.
@@ -27,7 +27,7 @@ owns reusable state implementation, not a core's pipeline policy.
 Use descriptors in `riscv/isa/` and helpers in `riscv/rtl/`; do not duplicate
 CSR addresses or field encodings. Shared implementation must not import a
 named core. See the [package graph](../../rhodium/DEVELOPING.md).
-Named adapters map their decode controls to `RiscvCsrAction`. The bank must
+Named decoders emit `RiscvCsrAction` directly. The bank must
 not learn about WB bundles, stalls, replay, or deferred completion.
 
 Preserve CSR write priority over counting and synchronous-trap priority over

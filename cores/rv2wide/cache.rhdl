@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../cache/access.rhdl" open
   "../cache/uncached-arbiter.rhdl".UncachedFetchArbiter
   lib("riscv/rtl/hypervisor.rhdl") open
   "bundles.rhdl" open
@@ -20,7 +21,6 @@ import:
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/rtl/trap.rhdl").exception_cause_bits
   "../../riscv/rtl/atomic.rhdl" open
-  "../../riscv/rtl/cmo.rhdl" open
   "../../riscv/rtl/svpbmt.rhdl" open
   "../../riscv/rtl/zihintntl.rhdl" open
   lib("flow/main.rhdl") open
@@ -104,18 +104,15 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def zero_block = request.access.is_cache_block_zero()
   def management = request.access.is_cache_management()
-  def cache_block = request.access.is_cache_block()
-  def first_address = mux(cache_block, request.address.align_down(CacheLineBytes), request.address)
-  def last_address = first_address +& mux(cache_block, Bits(64)(CacheLineBytes - 1), memory_access_bytes(XLen.X64, request.width) - Bits(64)(1))
-  def physical = config.physical_map.lookup(first_address, last_address)
+  def physical = cache_access_region(XLen.X64, config.physical_map, request.address, request.width, request.access)
   def attributes = resolve_memory_attributes(physical, request.pbmt)
   def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
-  def access_permitted = mux(request.access.store_fault_class(), physical.writable, physical.readable)
-  def alignment_permitted = zero_block ||| request.width.is_aligned(request.address)
-  def atomic_permitted = !atomic_request ||| (cacheable & physical.atomic & physical.readable)
-  def zero_permitted = !zero_block ||| physical.cache_block_zero
-  def ordinary_permitted = physical.mapped & alignment_permitted & access_permitted & atomic_permitted & zero_permitted
-  def permitted = mux(management, cbo_management_physical_permission(physical), ordinary_permitted)
+  def writes = request.access.store_fault_class()
+  def permitted = cache_access_permitted(
+    physical, request.access, ~reads: !writes, ~writes: writes, ~atomic_service: cacheable & physical.readable,
+    ~aligned: zero_block ||| request.width.is_aligned(request.address)
+  )
+
 
 
   /* Speculative EX/MEM cache access.

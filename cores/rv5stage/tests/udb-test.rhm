@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../profile.rhm" open
   "../udb.rhm" open
   "../../../riscv/isa/c.rhm" open
@@ -24,7 +25,7 @@ def rv64_double = RV5StageConfig(
     ~supm: #true,
     ~compressed: CCompressedExtensions
   ),
-  ~mmu_mode: RV5StageMmuMode.Sv39
+  ~mmu_mode: RiscvMmuType.Sv39
 )
 
 def rv64_yaml = rv5stage_udb_configuration(
@@ -91,7 +92,7 @@ for (xlen in [XLen.X32, XLen.X64]):
 
 for (svpbmt in [#false, #true]):
   for (svnapot in [#false, #true]):
-    def profile = RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~svpbmt, ~svnapot))
+    def profile = RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RiscvMmuType.Sv39, ~extensions: RV5StageExtensions(~svpbmt, ~svnapot))
     def yaml = rv5stage_udb_configuration(profile, "translation-extensions", "Selected Sv39 translation extensions", 44).to_yaml()
     check:
       profile.isa_profile.isa_extensions.contains("svpbmt") ~is svpbmt

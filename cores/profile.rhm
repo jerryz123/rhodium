@@ -1,0 +1,19 @@
+#lang rhombus
+/* Projects shared processor execution choices into architectural MISA capabilities. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/profile.rhm").MisaExtension
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+
+/* Combines the common IMAB/S/U base with explicitly qualified compressed, FP, vector, and guest capabilities. */
+fun core_misa_extensions(floating_point :: FloatingPointProfile, compressed :: Boolean, vector :: VectorProfile, hypervisor :: Boolean) :: NonemptyList.of(MisaExtension):
+  [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
+    ++ (if floating_point_supports_f(floating_point) | [MisaExtension.F] | [])
+    ++ (if floating_point_supports_d(floating_point) | [MisaExtension.D] | [])
+    ++ (if compressed | [MisaExtension.C] | [])
+    ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | [])
+    ++ (if hypervisor | [MisaExtension.H] | [])
+
+export core_misa_extensions

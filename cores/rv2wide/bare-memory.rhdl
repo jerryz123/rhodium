@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../cache/access.rhdl" open
   "bundles.rhdl" open
   "../cache/protocol.rhdl" open
   "../cache/config.rhm".CacheLineBytes
@@ -15,7 +16,6 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
-  lib("riscv/rtl/cmo.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl").apply_pointer_mask
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -113,15 +113,10 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def request :: RV2WideMemoryReq(xlen, xlen.width) = mem.bits
   def block = request.access.is_cache_block()
   def physical_address = if xlen == XLen.X64 | request.address | request.address.zext(64)
-  def first = mux(block, physical_address.align_down(CacheLineBytes), physical_address)
-  def last = first +& mux(block, Bits(64)(CacheLineBytes - 1), memory_access_bytes(XLen.X64, request.width) - Bits(64)(1))
-  def region = config.physical_map.lookup(first, last)
+  def region = cache_access_region(XLen.X64, config.physical_map, physical_address, request.width, request.access)
   def atomic = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
-  def access_permitted = mux(request.access.store_fault_class(), region.writable, region.readable)
-  def atomic_permitted = !atomic ||| (region.cacheable & region.atomic & region.readable)
-  def zero_permitted = !request.access.is_cache_block_zero() ||| region.cache_block_zero
-  def ordinary_permitted = region.mapped & access_permitted & atomic_permitted & zero_permitted
-  def permitted = mux(request.access.is_cache_management(), cbo_management_physical_permission(region), ordinary_permitted)
+  def writes = request.access.store_fault_class()
+  def permitted = cache_access_permitted(region, request.access, ~reads: !writes, ~writes: writes, ~atomic_service: region.cacheable & region.readable)
   def split_access = request.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !request.width.is_aligned(request.address)
   def busy = misaligned.busy ||| memory.request.valid
   def fast_region = region.cacheable & region.read_idempotent & !region.device

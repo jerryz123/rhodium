@@ -4,13 +4,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
   lib("cores/mmu/context.rhdl").riscv_translation_lookup
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
   "../../fp/types.rhdl" open
-  "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
   lib("cores/mmu/protocol.rhdl") open
   lib("cores/mmu/translation.rhdl") open
@@ -42,7 +42,7 @@ import:
    Speculative MEM accesses replay on contention; authorized requests and vector checks
    retain their own translations, and misaligned accesses authorize one fragment at a time. */
 sync_circuit RV5StageMmu(xlen :: XLen,
-                         mmu_mode :: RV5StageMmuMode,
+                         mmu_mode :: RiscvMmuType,
                          physical_map :: RiscvPhysicalMemoryMap,
                          tlb_entries :: Pow2Int = 8,
                          ~svnapot: svnapot :: Boolean = #false,
@@ -75,7 +75,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   input ordered_busy: Bool
   interface instruction_replay_owner(Valid(Bits(width)), ~role: consumer)
 
-  unless (!hypervisor) || (xlen == XLen.X64 && mmu_mode == RV5StageMmuMode.Sv39)
+  unless (!hypervisor) || (xlen == XLen.X64 && mmu_mode == RiscvMmuType.Sv39)
   | error(~who: #'RV5StageMmu, "guest translation requires the RV64 Sv39 MMU")
 
   def guest_state :: RiscvHypervisorTranslation():
@@ -123,7 +123,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def explicit_guest = demand_mode =/= RiscvGuestMemoryAccess.Normal
   def execute_read = demand_mode === RiscvGuestMemoryAccess.GuestExecuteRead
 
-  def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === Bits(Satp64Mode.width)(Sv39Mode)
+  def satp_sv39 = if mmu_mode == RiscvMmuType.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === Bits(Satp64Mode.width)(Sv39Mode)
   def root_ppn = if xlen == XLen.X32 | Bits(Satp64PPN.width)(0) | csr_field(satp, Satp64PPN)
   def supervisor_or_user = privilege =/= PrivilegeMode.Machine
   def instruction_guest = guest_state.virtualized

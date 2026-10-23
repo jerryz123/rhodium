@@ -32,7 +32,7 @@ execution and retirement behavior.
 | [`../../multiply-decode.rhdl`](../../multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |
 | [`../../divide-decode.rhdl`](../../divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
-| [`system-ctrl.rhdl`](system-ctrl.rhdl) | Zicsr operation, ECALL, EBREAK, WFI, MRET, SRET, and decode-only WRS.NTO/WRS.STO actions |
+| [`system-ctrl.rhdl`](system-ctrl.rhdl) | Shared CSR/system-action mappings from `../../csr/decode.rhdl`, plus independent WRS.NTO/WRS.STO wait controls |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |
 | [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
 | [`../../fp/decode.rhdl`](../../fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |

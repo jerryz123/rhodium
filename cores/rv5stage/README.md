@@ -1050,7 +1050,7 @@ runs the same cross-field validation as direct construction.
 | `profile.vector_extensions` | Orthogonal vector extensions; empty by default, with `Zvfhmin` enabling two SEW=16 conversions, `Zvfh` enabling full vector half precision, and `Zvbb` enabling vector basic bit manipulation |
 | `profile.vector_length` | VLEN in bits; a power of two through 65536; enabled profiles require at least twice XLEN |
 | `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |
-| `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
+| `profile.mmu_mode` | Architectural `RiscvMmuType.Bare` or, for RV64, `RiscvMmuType.Sv39` from `riscv/isa/hart.rhm` |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
 | `profile.data_cache_service_queue_depth` | Positive capacity for authorized L1D requests and same-line miss waiters; defaults to two |
 | `profile.multiplier` | `Iterative` by default, or a three-stage feed-forward `Pipelined` implementation; both provide operand-independent timing |
@@ -1285,8 +1285,8 @@ privilege, trap entry, interrupt selection, and `MRET`/`SRET`. FP profiles add
 the aliased `fflags`, `frm`, and `fcsr` views, `mstatus.FS` state, and derived
 `SD`. The `csr_bank` declaration is the single source for recognized IDs, read
 values, storage, aliases, WARL masks, and ordinary write dispatch.
-[`csr.rhdl`](csr.rhdl) projects RV5Stage's configuration and decoded actions
-to that service. `core.rhdl` authorizes commands at WB, supplies retirement
+[`profile.rhm`](profile.rhm) projects the CSR configuration; the composed
+decoder emits the shared `RiscvCsrAction` directly. `core.rhdl` authorizes commands at WB, supplies retirement
 events, and chooses precise interrupt boundaries after older work drains.
 
 The integer register file has 32 XLEN-wide registers with `x0` hardwired to

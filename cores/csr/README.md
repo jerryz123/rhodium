@@ -69,7 +69,7 @@ page walker, cache engine, or issue/retirement queue here.
 
 CSR IDs, masks, WARL helpers, and architectural semantics remain in
 [`riscv/`](../../riscv/README.md). The RV5Stage
-[profile](../rv5stage/profile.rhm) supplies `csr_config` and its
-[adapter](../rv5stage/csr.rhdl) projects decode controls;
-RV2Wide consumes the bank directly from its [core](../rv2wide/core.rhdl).
+[profile](../rv5stage/profile.rhm) supplies `csr_config`, as does RV2Wide.
+Both decoders use [shared system mappings](decode.rhdl) to emit
+`RiscvCsrAction` directly; no runtime enum-conversion adapter is required.
 Both cores retain WB authorization and retirement policy.

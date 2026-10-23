@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../profile.rhm".core_misa_extensions
   "../fp/profile.rhm".check_fp_profile
   "../vector/profile.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
@@ -16,12 +17,6 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   "../csr/config.rhm".RiscvCsrConfig
   "../cache/config.rhm" open
-
-def RV2WideIsaProfile :: RiscvIsaProfile = RiscvIsaProfile(
-  XLen.X64,
-  ["i", "m", "a", "c", "b", "za64rs", "zba", "zbb", "zbs", "zic64b", "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt", "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"],
-  [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U, MisaExtension.C]
-)
 
 /* Selects implementation resources and optional scalar, supervisor, and hypervisor features with RV32/RV64 scalar widths, mandatory C, and Bare or RV64 Sv39 translation. */
 class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int, vector_dispatch_depth :: PosInt):
@@ -106,7 +101,7 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     def guest = (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
     def supervisor = if xlen == XLen.X64 | (if mmu_type != RiscvMmuType.Bare | ["ssccptr"] | []) ++ ["sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
     def names = scalar ++ compressed_additions ++ (if zfa | ["zfa"] | []) ++ half_extensions ++ memory ++ masking ++ hints ++ system ++ privileged ++ guest ++ (if sscofpmf | ["sscofpmf"] | []) ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
-    def misa = RV2WideIsaProfile.misa_extensions.take(6) ++ (if floating_point_supports_f(floating_point) | [MisaExtension.F] | []) ++ (if floating_point_supports_d(floating_point) | [MisaExtension.D] | []) ++ [MisaExtension.C] ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | []) ++ (if hypervisor | [MisaExtension.H] | [])
+    def misa = core_misa_extensions(floating_point, #true, vector, hypervisor)
     RiscvIsaProfile(xlen, names, misa)
 
   /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
@@ -126,5 +121,4 @@ fun rv2wide_fp_profile(xlen :: XLen) :: FloatingPointProfile:
 
 export:
   rv2wide_fp_profile
-  RV2WideIsaProfile
   RV2WideConfig

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/foundation.rhm").elaborate
@@ -18,9 +19,9 @@ import:
 def config = test_params.test_rv5stage_chi_config
 def params = test_params.test_rv5stage_chi_params
 def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true)
-def rv64_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig( ~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~svnapot: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)), ~mmu_mode: core_profile.RV5StageMmuMode.Sv39, ~data_cache_service_queue_depth: 3 ), ~chi: config, ~reset_address: 2 )), rtl_target).report.design
+def rv64_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig( ~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~svnapot: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)), ~mmu_mode: RiscvMmuType.Sv39, ~data_cache_service_queue_depth: 3 ), ~chi: config, ~reset_address: 2 )), rtl_target).report.design
 def rv32_design = compile_program(elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)), rtl_target).report.design
-def guest_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: core_profile.RV5StageMmuMode.Sv39, ~extensions: core_profile.RV5StageExtensions(~svpbmt: #true, ~hypervisor: #true)), ~chi: config, ~reset_address: 0 )), rtl_target).report.design
+def guest_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RiscvMmuType.Sv39, ~extensions: core_profile.RV5StageExtensions(~svpbmt: #true, ~hypervisor: #true)), ~chi: config, ~reset_address: 0 )), rtl_target).report.design
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def guest = guest_design.modules.find(fun (module_def): module_def.name == "RV5Stage")

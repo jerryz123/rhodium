@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../../cache/protocol.rhdl" open
   "../../load-store.rhdl" open
   "../core.rhdl" open
@@ -28,7 +29,7 @@ import:
 
 sync_circuit RV5StageHypervisorCoreFixture():
   def xlen = XLen.X64
-  def profile = RV5StageConfig(~xlen: xlen, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~hypervisor: #true, ~floating_point: FloatingPointProfile.D, ~compressed: [CompressedExtension.C], ~svinval: #true, ~smstateen: #true, ~sstc: #true, ~ssnpm: #true, ~svpbmt: #true, ~zicbom: #true, ~zicboz: #true, ~zawrs: #true), ~vector: VectorProfile.V, ~vector_length: 128)
+  def profile = RV5StageConfig(~xlen: xlen, ~mmu_mode: RiscvMmuType.Sv39, ~extensions: RV5StageExtensions(~hypervisor: #true, ~floating_point: FloatingPointProfile.D, ~compressed: [CompressedExtension.C], ~svinval: #true, ~smstateen: #true, ~sstc: #true, ~ssnpm: #true, ~svpbmt: #true, ~zicbom: #true, ~zicboz: #true, ~zawrs: #true), ~vector: VectorProfile.V, ~vector_length: 128)
   def physical_map = RiscvPhysicalMemoryMap(44, [
     RiscvPhysicalMemoryRegion(AddressSet(0, 0xffff), test_rv5stage_memory_attributes),
     RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0x7fff), test_rv5stage_memory_attributes),
@@ -63,7 +64,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   input time_counter: Bits(64)
   inst core(RV5StageCore(profile, ~reset_address: 0x1000))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: 0, ~ras_entries: 0))
-  inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, physical_map, ~hypervisor: #true))
+  inst mmu(RV5StageMmu(xlen, RiscvMmuType.Sv39, physical_map, ~hypervisor: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, 8))
   core.frontend_control |> frontend.control
   frontend.packets |> core.packets

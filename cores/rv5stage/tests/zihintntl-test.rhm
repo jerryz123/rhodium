@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
@@ -59,7 +60,8 @@ for (instruction in ZihintntlInstructions, hint in hints, compressed_word in com
     system:
       partial_pattern(RV5StageSystemControl()):
         csr: RiscvCsrOperation.None
-        action: RV5StageSystemOperation.None
+        action: RiscvCsrAction.None
+        wait: RV5StageWait.None
 
     fence:
       pattern(RV5StageFenceControl()):

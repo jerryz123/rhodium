@@ -1,0 +1,34 @@
+#lang rhodium
+/* Classifies complete physical cache-access footprints and permission requirements without owning routing or timing. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "config.rhm".CacheLineBytes
+  "operation.rhdl".CacheOperation
+  "../load-store.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/rtl/cmo.rhdl").cbo_management_physical_permission
+  lib("rhodium/std/bits.rhdl") open
+
+/* Looks up the complete natural-width access or aligned maintenance block, retaining address overflow. */
+fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, address :: Bits(xlen.width), width :: MemoryWidth, operation :: CacheOperation) :~ RiscvPhysicalMemoryLookup():
+  def first = mux(operation.is_cache_block(), address.align_down(CacheLineBytes), address)
+  def last = first +& mux(operation.is_cache_block(), Bits(xlen.width)(CacheLineBytes - 1), memory_access_bytes(xlen, width) - Bits(xlen.width)(1))
+  physical_map.lookup(first, last)
+
+/* Combines PMA permissions with the caller's access intent and service restrictions.
+   Maintenance follows its architectural permission rule independently of ordinary-access alignment or atomic service. */
+fun cache_access_permitted(physical :: RiscvPhysicalMemoryLookup(), operation :: CacheOperation,
+                           ~reads: reads :: Bool, ~writes: writes :: Bool,
+                           ~atomic_service: atomic_service :: Bool = Bool(#true),
+                           ~aligned: aligned :: Bool = Bool(#true)) :~ Bool:
+  def atomic = operation.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+  def ordinary = physical.mapped & (!reads ||| physical.readable) & (!writes ||| physical.writable) & (
+    !atomic ||| (physical.atomic & atomic_service)
+  ) & (!operation.is_cache_block_zero() ||| physical.cache_block_zero) & aligned
+  mux(operation.is_cache_management(), cbo_management_physical_permission(physical), ordinary)
+
+export:
+  cache_access_region
+  cache_access_permitted

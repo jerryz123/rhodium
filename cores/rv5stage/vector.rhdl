@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/vector/admission.rhdl") open
+  lib("cores/vector/backend.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/integer-execution.rhdl") open
   lib("cores/register-write.rhdl") open
@@ -14,7 +14,6 @@ import:
   "../cache/protocol.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
   "../vector/bundles.rhdl" open
-  "../vector/pipeline.rhdl" open
   "vector/memory.rhdl" open
   "mmu/protocol.rhdl" open
   "../vector/muldiv.rhdl" open
@@ -63,13 +62,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
-
-  /* Retained execution and LSU owners.
-     Both continue servicing accepted work independently of the pending descriptor head. */
-
-  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
-  execution.schedule_enable <== Bool(#true)
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
+  inst backend(VectorBackend(xlen, vlen, if hypervisor | RiscvGuestException() | Bool, ~vector_completion_slots: slots, ~pipe: #true, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   input request_fault_address: Bits(xlen.width)
   access.request_fault_address <== request_fault_address
   interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(slots))), ~role: consumer)
@@ -77,70 +71,53 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   if hypervisor
   | block:
       input(request_guest_fault, pipeline_guest_fault): RiscvGuestException()
+      output outcome_guest: RiscvGuestException()
       access.request_guest_fault <== request_guest_fault
       access.pipeline_guest_fault <== pipeline_guest_fault
-  | #void
+      backend.precise_fault <== access.outcome_guest
+      outcome_guest <== backend.outcome_fault
+  | backend.precise_fault <== Bool(#false)
 
-  inst admission(VectorAdmission(xlen, vlen, slots, if hypervisor | RiscvGuestException() | Bool, ~pipe: #true))
-  request |> admission.request
-  admission.dispatch |> execution.request
-  admission.precheck <=> precheck
-  execution.sequencing_done |> admission.sequencing_done
-  admission.requests_idle <== access.requests_idle & !execution.memory_preparing
-  execution.packed_memory <== admission.packed_memory
-  access.outcome |> admission.precise
-  admission.outcome |> outcome
-  available <== admission.available
-  if hypervisor
-  | block:
-      output outcome_guest: RiscvGuestException()
-      admission.precise_fault <== access.outcome_guest
-      outcome_guest <== admission.outcome_fault
-  | admission.precise_fault <== Bool(#false)
-
-  execution.issue |> filter_flow(operation => operation.memory) |> access.issue
-  access.feedback |> execution.decision
-  access.completion |> execution.completion
-  access.store_completed |> execution.store_completed
-  when (admission.execution_certified & access.feedback.valid):
-    assert(access.feedback.bits.disposition.is_one_of(VectorDisposition.Authorized, VectorDisposition.Retry), "certified_vector_cannot_fault")
-
-
-  /* Physical memory and shared execution-service connections.
-     Younger scalar redirects do not cancel allocated vector work. */
-
+  access.store <== backend.store
+  backend.memory_drained <== memory.drained
+  active <== backend.active
+  request |> backend.request
+  backend.precheck <=> precheck
+  backend.outcome |> outcome
+  backend.issue |> access.issue
+  access.feedback |> backend.decision
+  access.completion |> backend.completion
+  access.store_completed |> backend.store_completed
+  access.outcome |> backend.precise
+  backend.requests_idle <== access.requests_idle
+  access.pointer_masking <== backend.pointer_masking
   access.pipeline <=> pipeline
   access.memory <=> memory
   pipeline_physical <== access.pipeline_physical
   request_physical <== access.request_physical
-  access.store <== admission.store
-  access.pointer_masking <== admission.pointer_masking
-  // Only local rejection rewinds the allocated macro; younger scalar redirects do not cancel it.
-  execution.cancel.valid <== Bool(#false)
-  execution.memory_drained <== memory.drained
-  execution.fp_request |> fp_request
-  fp_result |> execution.fp_result
-  execution.multiply_request |> multiply_request
-  multiply_result |> execution.multiply_result
-  execution.divide_request |> divide_request
-  divide_result |> execution.divide_result
-  execution.fp_update |> fp_update
-  execution.fault_start |> fault_start
-  execution.truncate |> truncate
-  retire.valid <== outcome.valid & (outcome.bits.disposition =/= VectorDisposition.Fault)
-  execution.retire |> execution_done
-  execution.saturate |> saturate
-  execution.scalar_result |> scalar_result
-  execution.scalar_writeback |> scalar_writeback
-  execution.floating_result |> floating_result
-  active <== execution.active ||| admission.active
-  sequencing <== execution.sequencing
-  pending <== execution.pending
-  stores_pending <== execution.stores_pending ||| admission.stores_pending
-  loads_pending <== execution.loads_pending ||| admission.loads_pending
-  fp_pending <== execution.fp_pending ||| admission.fp_pending
-  certification_pending <== admission.certification_pending
-  describe_cosim_signals({"admitted": request.fire()}, ~components: {"execution": execution, "memory": access})
+  backend.fp_request |> fp_request
+  fp_result |> backend.fp_result
+  backend.multiply_request |> multiply_request
+  multiply_result |> backend.multiply_result
+  backend.divide_request |> divide_request
+  divide_result |> backend.divide_result
+  backend.fp_update |> fp_update
+  backend.fault_start |> fault_start
+  backend.truncate |> truncate
+  backend.retire |> retire
+  backend.execution_done |> execution_done
+  backend.saturate |> saturate
+  backend.scalar_result |> scalar_result
+  backend.scalar_writeback |> scalar_writeback
+  backend.floating_result |> floating_result
+  sequencing <== backend.sequencing
+  pending <== backend.pending
+  stores_pending <== backend.stores_pending
+  loads_pending <== backend.loads_pending
+  fp_pending <== backend.fp_pending
+  certification_pending <== backend.certification_pending
+  available <== backend.available
+  describe_cosim_signals({"admitted": request.fire()}, ~components: {"backend": backend, "memory": access})
 
 /* Terminates the vector service boundary without state, requests, or architectural effects. */
 sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8, ~hypervisor: hypervisor :: Boolean = #false):

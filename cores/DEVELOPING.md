@@ -94,6 +94,10 @@ of `cores/`.
 ## Add or change a component
 
 Small shared integration modules remain at the root:
+`profile.rhm` composes common MISA capabilities from explicit execution choices;
+`udb.rhm` composes shared bank/cache/MMU/vector declarations for callers opting
+into the precise-execution contract. Named profiles retain optional extension
+selection, qualification claims, and physical integration bounds.
 `chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
 `memory-response.rhdl` owns optional-response pairing and one-cycle LSU result capture;

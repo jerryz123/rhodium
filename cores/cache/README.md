@@ -84,6 +84,13 @@ fault metadata stay with the caller.
 
 ## Non-cacheable service
 
+[`access.rhdl`](access.rhdl) provides combinational `cache_access_region` and
+`cache_access_permitted` helpers for integration boundaries. Footprint lookup
+covers the natural access width or entire aligned CBO block, including address
+overflow. Callers supply read/write intent, atomic-service eligibility, and
+alignment eligibility. PMA still grants permissions; management uses its separate
+architectural rule. These helpers do not select a route or own a transaction.
+
 Cached and uncached services share the physical payload and opaque context.
 `CacheAccess` adds lookup-independent reservation status; `UncachedMemoryAccess`
 wraps each request with its resolved `device` attribute and has no reservation.

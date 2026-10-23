@@ -25,7 +25,16 @@ connects decoded descriptor admission, memory decisions and completions, shared
 FP/multiply/divide services, scalar write reservations, and architectural update
 outputs. [RV5Stage's adapter](../rv5stage/vector.rhdl) and
 [RV2Wide's adapter](../rv2wide/vector.rhdl) connect this service to their
-respective scalar WB and LSU boundaries.
+respective scalar WB and LSU boundaries through `VectorBackend`.
+
+[`backend.rhdl`](backend.rhdl) composes `VectorAdmission` with `VectorExecution`
+for WB-admitted descriptors. It exposes memory issue, decision, completion,
+store acknowledgement, and precise-outcome streams, with caller-typed fault
+provenance. `~pipe` explicitly selects admission credit timing; `~dispatch_depth`
+selects descriptor capacity independently of completion slots. The caller supplies
+LSU request-idle and memory-drained indications and selects arithmetic timing
+and packed multiplication. The composition adds no queues beyond admission and
+execution themselves; scalar retirement policy and LSU staging remain outside.
 
 `decode.rhdl` provides `VectorControl`, authored decode relations, and
 `VectorOperationLegality`. A named core composes those relations with its scalar

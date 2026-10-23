@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/rv5stage/rv5stage.rhdl") open
   lib("cores/chi-hart.rhdl") open
   lib("cores/rv5stage/profile.rhm") open
@@ -30,7 +31,7 @@ def example_profile = RV5StageConfig(
   ~extensions: RV5StageExtensions(
     ~compressed: compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zcb)
   ),
-  ~mmu_mode: RV5StageMmuMode.Sv39
+  ~mmu_mode: RiscvMmuType.Sv39
 )
 
 def program = elaborate(RV5Stage(example_profile, ~chi: example_chi_config, ~reset_address: 0))

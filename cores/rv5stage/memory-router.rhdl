@@ -3,16 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../cache/access.rhdl" open
   "memory-context.rhdl" open
   "../cache/protocol.rhdl" open
-  "../load-store.rhdl".memory_access_bytes
   "../cache/operation.rhdl" open
-  "profile.rhm".CacheLineBytes
   "../cache/io-mshr.rhdl".IOMSHR
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
-  "../../riscv/rtl/cmo.rhdl" open
   "../../riscv/rtl/svpbmt.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -41,22 +39,10 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
 
   def request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = core.request.bits.memory
   def operation = request.access
-  def last_byte_offset = memory_access_bytes(xlen, request.width) - Bits(xlen.width)(1)
-  def zero_block = operation.is_cache_block_zero()
   def management = operation.is_cache_management()
-  def first_address = mux(operation.is_cache_block(), request.address.align_down(CacheLineBytes), request.address)
-  def last_address = first_address +& mux(operation.is_cache_block(), Bits(xlen.width)(CacheLineBytes - 1), last_byte_offset)
-  def physical = physical_map.lookup(first_address, last_address)
+  def physical = cache_access_region(xlen, physical_map, request.address, request.width, operation)
   def attributes = resolve_memory_attributes(physical, core.request.bits.pbmt)
-  def request_reads = operation.is_load() ||| operation.is_atomic()
-  def request_writes = operation.needs_unique()
-  def request_is_atomic = operation.is_one_of(CacheOperation.LoadReserved,
-                                              CacheOperation.StoreConditional,
-                                              CacheOperation.Atomic)
-  def ordinary_permitted = physical.mapped & (!request_reads ||| physical.readable) & (
-    !request_writes ||| physical.writable
-  ) & (!request_is_atomic ||| physical.atomic) & (!zero_block ||| physical.cache_block_zero)
-  def request_permitted = mux(management, cbo_management_physical_permission(physical), ordinary_permitted)
+  def request_permitted = cache_access_permitted(physical, operation, ~reads: operation.returns_old_value(), ~writes: operation.needs_unique())
   // Maintenance must still reach cached aliases when PBMT disables allocation.
   def request_is_uncached = !mux(management, physical.cacheable, attributes.cacheable)
   def local_management = management & request_is_uncached

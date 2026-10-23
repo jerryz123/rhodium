@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../csr/decode.rhdl".csr_instruction_action
   lib("cores/operand.rhdl") open
   lib("cores/vector/instruction-metadata.rhm") open
   "../profile.rhm".RV2WideConfig
@@ -471,8 +472,8 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
 
     DecodeCase(instruction_pattern(entry[0]), output)
 
-  def fences = [[HFENCE_VVMA, RiscvCsrAction.HfenceVvma], [HFENCE_GVMA, RiscvCsrAction.HfenceGvma]] ++ (if svinval | [[HINVAL_VVMA, RiscvCsrAction.HfenceVvma], [HINVAL_GVMA, RiscvCsrAction.HfenceGvma]] | [])
-  memory_cases ++ for List (entry in fences):
+  def fences = [HFENCE_VVMA, HFENCE_GVMA] ++ (if svinval | [HINVAL_VVMA, HINVAL_GVMA] | [])
+  memory_cases ++ for List (instruction in fences):
     def input = instruction_pattern(SFENCE_VMA)
     def output = pattern(RV2WideControl()):
       alu: unused_alu
@@ -488,7 +489,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
         pattern(RV2WideSystemControl()):
           csr: RiscvCsrOperation.None
           immediate: pattern(Bool, _)
-          action: entry[1]
+          action: csr_instruction_action(instruction)
           fence: RV2WideFence.None
           wait: RV2WideWait.None
 
@@ -496,7 +497,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
       fp: inactive_core_fp
       vector: NoVectorControl
 
-    DecodeCase(instruction_pattern(entry[0]), output)
+    DecodeCase(instruction_pattern(instruction), output)
 
 export:
   RV2WideControl

@@ -43,9 +43,8 @@ import:
   "decode/system-ctrl.rhdl" open
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
-  "csr.rhdl" open
   "../csr/file.rhdl" open
-  "../csr/protocol.rhdl".RiscvCsrCommand
+  "../csr/protocol.rhdl" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "profile.rhm".RV5StageConfig
   "profile.rhm".RV5StageMultiplierKind
@@ -207,7 +206,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   /* Identifies system and fence operations that require ordered state, excluding bypassed
      vector configuration. */
   fun core_serializing_operation(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl()) :~ Bool:
-    (system.is_system_operation() & (system.action =/= RV5StageSystemOperation.VectorConfig)) ||| fence.is_fence_operation()
+    (system.is_system_operation() & (system.action =/= RiscvCsrAction.VectorConfig)) ||| fence.is_fence_operation()
 
   /* Selects load or store exception class from the memory operation while retaining the fault
      address. */
@@ -474,13 +473,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   reg wb_reservation_wait_count(~init: Bits(12)(0))
   def wb_reservation_wait_wake = !scalar_data.reservation_valid ||| wb_csrs.wfi_wake
   def wb_reservation_wait_expired = all(wb_reservation_wait_count)
-  def wb_reservation_wait_short = wb_reservation_wait_instruction.system.action === RV5StageSystemOperation.WrsSto
+  def wb_reservation_wait_short = wb_reservation_wait_instruction.system.wait === RV5StageWait.ShortTimeout
   def wb_reservation_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   def wb_reservation_wait_vtw = if hypervisor | wb_csrs.guest_translation.virtualized & csr_flag(wb_csrs.guest_translation.hstatus, HstatusVTW) | Bool(#false)
   def wb_reservation_wait_timeout = wb_reservation_wait_expired & (wb_reservation_wait_short ||| wb_reservation_wait_tw ||| wb_reservation_wait_vtw)
   def wb_reservation_wait_done = wb_reservation_wait_pending & (wb_reservation_wait_wake ||| wb_reservation_wait_timeout)
   def wb_reservation_wait_exception = wb_reservation_wait_done & !wb_reservation_wait_wake & !wb_reservation_wait_short & (wb_reservation_wait_tw ||| wb_reservation_wait_vtw)
-  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & wb_input.bits.system.action.is_one_of(RV5StageSystemOperation.WrsNto, RV5StageSystemOperation.WrsSto)
+  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & (wb_input.bits.system.wait =/= RV5StageWait.None)
   when wb_reservation_wait_accept:
     wb_reservation_wait_count <== Bits(12)(0)
   elsewhen (wb_reservation_wait_pending & !wb_reservation_wait_done & !wb_reservation_wait_expired):
@@ -698,7 +697,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_virtual_instruction = if hypervisor | (id_explicit_guest & wb_csrs.guest_translation.virtualized) ||| (id_cbo & (id_cbo_access === CboAccess.VirtualInstruction)) | Bool(#false)
   def id_guest_illegal = if hypervisor | id_explicit_guest & !wb_csrs.guest_translation.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(wb_csrs.guest_translation.hstatus, HstatusHU) | Bool(#false)
   def id_vector_fp_illegal = id_control.vector.floating_point & (Bool(!floating_point_supports_f(profile)) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > Bits(3)(4))))
-  def id_vector_config_illegal = (id_control.system.action === RV5StageSystemOperation.VectorConfig) & !wb_csrs.vector_enabled
+  def id_vector_config_illegal = (id_control.system.action === RiscvCsrAction.VectorConfig) & !wb_csrs.vector_enabled
   def id_cbo_illegal = id_cbo & (id_cbo_access === CboAccess.IllegalInstruction)
   def id_scalar_fp_illegal = id_control.floating_point_valid & (!wb_csrs.fp_enabled ||| (id_control.floating_point.execution.uses_rounding_mode & !id_fp_rounding.valid))
   def id_illegal = id_vector_fp_illegal ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & !wb_csrs.vector_enabled) ||| id_vector_config_illegal ||| id_cbo_illegal ||| id_scalar_fp_illegal
@@ -711,8 +710,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      Decode selects the source present in EX next cycle; live MEM fault,
      replay, and redirect controls never select its operand payload. */
 
-  def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & (ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (ex_input.bits.system.action === RV5StageSystemOperation.VectorConfig))
-  def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & (mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (mem_input.bits.system.action === RV5StageSystemOperation.VectorConfig))
+  def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & (ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (ex_input.bits.system.action === RiscvCsrAction.VectorConfig))
+  def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & (mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (mem_input.bits.system.action === RiscvCsrAction.VectorConfig))
 
   /* Captures the registered bypass source expected in EX, giving the nearer older producer
      priority. */
@@ -1110,9 +1109,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      In-flight MEM state precedes WB and committed CSR state, allowing dependent
      configurations and launches to consume the newest older result. */
 
-  def ex_is_vector_config = ex_input.bits.system.action === RV5StageSystemOperation.VectorConfig
-  def ex_mem_vector_config = mem_input.valid & (mem_input.bits.system.action === RV5StageSystemOperation.VectorConfig) & !mem_input.bits.replay & !mem_input.bits.exception_valid
-  def ex_wb_vector_config = wb.valid & (wb_offer_bits.system.action === RV5StageSystemOperation.VectorConfig) & !wb_offer_bits.replay & !wb_offer_bits.exception_valid
+  def ex_is_vector_config = ex_input.bits.system.action === RiscvCsrAction.VectorConfig
+  def ex_mem_vector_config = mem_input.valid & (mem_input.bits.system.action === RiscvCsrAction.VectorConfig) & !mem_input.bits.replay & !mem_input.bits.exception_valid
+  def ex_wb_vector_config = wb.valid & (wb_offer_bits.system.action === RiscvCsrAction.VectorConfig) & !wb_offer_bits.replay & !wb_offer_bits.exception_valid
   def ex_vector_base_state = priority_mux(~default: wb_csrs.vector_state):
     ex_mem_vector_config: mem_input.bits.vector_context.state
     ex_wb_vector_config: wb_offer_bits.vector_context.state
@@ -1609,7 +1608,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     instruction: wb_architectural_commit.raw_instruction
     rd: wb_architectural_commit.rd
     csr_operation: wb_architectural_commit.system.csr
-    action: rv5stage_csr_action(wb_architectural_commit.system, wb_architectural_commit.fence)
+    action: wb_architectural_commit.system.action
     csr_address: wb_architectural_commit.csr_address
     csr_source: wb_architectural_commit.csr_source
     vector_config: wb_architectural_commit.vector_config

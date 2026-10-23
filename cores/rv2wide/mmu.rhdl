@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../cache/access.rhdl" open
   lib("cores/mmu/context.rhdl").riscv_translation_lookup
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
@@ -25,7 +26,6 @@ import:
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/rtl/trap.rhdl").exception_cause_bits
   lib("riscv/rtl/csr.rhdl") open
-  lib("riscv/rtl/cmo.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
@@ -269,20 +269,16 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
      than mistaking WB's translation or cache result for its own. */
 
   def mem_address = data_result.physical_address.zext(64)
-  def zero_block = mem.access.is_cache_block_zero()
   def cache_block = mem.access.is_cache_block()
-  def first_address = mux(data_request.access.is_cache_block(), mem_address.align_down(CacheLineBytes), mem_address)
-  def last_address = first_address +& mux(data_request.access.is_cache_block(), Bits(64)(CacheLineBytes - 1), memory_access_bytes(XLen.X64, data_request.width) - Bits(64)(1))
-  def region = config.physical_map.lookup(first_address, last_address)
+  def region = cache_access_region(XLen.X64, config.physical_map, mem_address, data_request.width, data_request.access)
   def attributes = resolve_memory_attributes(region, data_pbmt)
   def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
   def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def mem_misaligned = mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.width.is_aligned(mem.address)
-  def access_permission = mux(mem.access.store_fault_class(), region.writable, region.readable)
-  def atomic_permission = !atomic_request ||| (cacheable & region.atomic & region.readable)
-  def zero_permission = !zero_block ||| region.cache_block_zero
-  def ordinary_permission = region.mapped & access_permission & atomic_permission & zero_permission
-  def permitted = (!execute_read ||| region.executable) & mux(mem.access.is_cache_management(), cbo_management_physical_permission(region), ordinary_permission)
+  def writes = mem.access.store_fault_class()
+  def permitted = (!execute_read ||| region.executable) & cache_access_permitted(
+    region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: cacheable & region.readable
+  )
   def speculative_ok = !data_demand & !vector_probe & !misaligned.busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
   (mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request).updated(~address: mem_address.align_down(8)))) |> physical_pipeline.request
   def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: RV2WideCacheOutcome.Replay):

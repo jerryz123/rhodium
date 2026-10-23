@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../mmu/mmu.rhdl" open
@@ -44,7 +45,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   input replay_pending: Bool
   input replay_pc: Bits(64)
 
-  inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map, ~svnapot: #true))
+  inst mmu(RV5StageMmu(xlen, RiscvMmuType.Sv39, test_rv5stage_chi_config.physical_map, ~svnapot: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, slots))
   instruction |> mmu.instruction
   data |> mmu.data

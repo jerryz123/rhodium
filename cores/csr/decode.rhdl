@@ -1,8 +1,13 @@
 #lang rhodium
-/* Maps CSR instructions into caller-shaped controls without serialization or retirement policy. */
+/* Maps CSR and privileged instructions into caller-shaped controls without serialization or retirement policy. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "protocol.rhdl".RiscvCsrAction
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/isa/privileged.rhm") open
+  lib("riscv/isa/h.rhm") open
+  lib("riscv/isa/svinval.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/rtl/csr.rhdl") open
   lib("riscv/rtl/decode.rhdl") open
@@ -20,4 +25,30 @@ fun csr_access_cases(Control :: DataType, inactive :: Pattern) :: List.of(Decode
 
     DecodeCase(instruction_pattern(instruction), access.intersection(inactive).terms[0])
 
-export csr_access_cases
+/* Resolves architectural system intent at elaboration; unrelated instructions have no CSR action. */
+fun csr_instruction_action(instruction :: InstructionSpec) :: RiscvCsrAction:
+  cond
+  | instruction == ECALL: RiscvCsrAction.Ecall
+  | instruction == EBREAK: RiscvCsrAction.Ebreak
+  | instruction == MRET: RiscvCsrAction.Mret
+  | instruction == SRET: RiscvCsrAction.Sret
+  | instruction == WFI: RiscvCsrAction.Wfi
+  | [SFENCE_VMA, SINVAL_VMA].contains(instruction): RiscvCsrAction.SfenceVma
+  | [HFENCE_VVMA, HINVAL_VVMA].contains(instruction): RiscvCsrAction.HfenceVvma
+  | [HFENCE_GVMA, HINVAL_GVMA].contains(instruction): RiscvCsrAction.HfenceGvma
+  | [SFENCE_W_INVAL, SFENCE_INVAL_IR].contains(instruction): RiscvCsrAction.TranslationOrder
+  | ~else: RiscvCsrAction.None
+
+/* Decodes system intent while retaining caller-owned fence/wait fields and unconstrained CSR operands. */
+fun csr_system_cases(Control :: DataType, inactive :: Pattern, instructions :: List.of(InstructionSpec)) :: List.of(DecodeCase):
+  for List (instruction in instructions):
+    def action = partial_pattern(Control):
+      csr: RiscvCsrOperation.None
+      action: csr_instruction_action(instruction)
+
+    DecodeCase(instruction_pattern(instruction), action.intersection(inactive).terms[0])
+
+export:
+  csr_access_cases
+  csr_instruction_action
+  csr_system_cases

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../../../rhodium/core/dependencies.rhm" open
@@ -98,7 +99,7 @@ for (path in [["request", "valid"], ["request", "bits", "address"]]):
 
 check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "memory_in", ["response", "bits", "replay"], #true)
 
-def mmu = compile_program(elaborate(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map)), rtl_target).report.elaboration
+def mmu = compile_program(elaborate(RV5StageMmu(XLen.X64, RiscvMmuType.Sv39, test_params.test_rv5stage_chi_config.physical_map)), rtl_target).report.elaboration
 for (path in [["valid"], ["bits"]]):
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_in", ["s1_kill"])
   check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["response", "bits", "replay"])

@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../csr.rhdl" open
   "../../csr/file.rhdl" open
-  "../../csr/protocol.rhdl".RiscvCsrCommand
+  "../../csr/protocol.rhdl" open
   "../profile.rhm" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../decode/core-ctrl.rhdl" open
@@ -113,7 +112,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
     instruction: instruction
     rd: instruction[7..12]
     csr_operation: decoder.control.system.csr
-    action: rv5stage_csr_action(decoder.control.system, decoder.control.fence)
+    action: decoder.control.system.action
     csr_address: instruction[20..32]
     csr_source: mux(decoder.control.system.immediate, instruction[15..20].zext(xlen.width), scalar1)
     vector_config: vector_configuration_request(xlen, decoder.control.vector.configure, instruction, scalar1, scalar2)

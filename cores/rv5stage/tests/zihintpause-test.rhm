@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
@@ -44,7 +45,8 @@ def pause_control = partial_pattern(RV5StageControl()):
   system:
     partial_pattern(RV5StageSystemControl()):
       csr: RiscvCsrOperation.None
-      action: RV5StageSystemOperation.None
+      action: RiscvCsrAction.None
+      wait: RV5StageWait.None
 
 def fence_control = partial_pattern(RV5StageControl()):
   hint: RV5StageHintOperation.None

@@ -21,6 +21,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 |---|---|
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
 | `udb.rhm` | Reservation and cache-maintenance policy declarations; integrating cores retain split-access and alignment-fault guarantees |
+| `access.rhdl` | Whole-access PMA footprint and permission classification; callers supply read/write intent, atomic-service restrictions, and alignment |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
 | `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |
@@ -46,6 +47,13 @@ independent hits do not acquire the miss engine. Publish a refilled line only
 after all words are installed. Coherence and committed response ownership are
 never canceled by pipeline flush. Preserve the bounded LR probe-protection
 window independently of reservation validity and drain accepted probes.
+
+Keep admission policy explicit at callers of `access.rhdl`: RV2Wide requires
+readable cached service for atomics and checks natural alignment at committed
+physical admission; RV5Stage retains its separate translation/alignment boundary.
+Management permissions and physical cacheability are independent of PBMT;
+ordinary cacheability uses the resolved PMA/PBMT attributes. The helper owns no
+transaction, queue, or speculative-versus-committed scheduling.
 
 Keep existing `dcache/*` event names and retained transaction lineage stable;
 named-core integration must not summarize an entire cache as a fake trace
