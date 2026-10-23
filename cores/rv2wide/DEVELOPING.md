@@ -303,10 +303,20 @@ outcome before its existing oldest-stop qualification and WB transfer.
 
 Admission is conflict-based, not a list of permitted instruction combinations.
 Keep GPR/FPR dependencies, resource conflicts, scheduled return capacity, and
-serialization distinct. Two WB services (scalar memory, integer M, variable FP,
-or vector descriptors) cannot share a group: their independent rejection or
-retention paths do not provide an age-qualified cross-service acceptance chain.
-This also protects the single descriptor input and scalar deferred-owner port.
+serialization distinct. Scalar memory, integer M, and variable FP share one
+scalar WB admission path; vector descriptors have a separate single input.
+Duplicate claims on either resource split at RR, not every pair of services.
+WB orders scalar/vector admission by age. `wb_scalar_prefix` uses independent,
+registered non-pipelined VDQ credit and nonretaining eligibility to qualify
+scalar requests behind an older descriptor. `wb_scalar_stop` folds scalar
+rejection, fault, retention, and memory ordering before offering a younger
+descriptor. Neither direction consumes final retirement feedback. Keep scalar
+capture/replay independent of vector capture to preserve this acyclic ordering.
+Older rejection suppresses every younger service effect; younger rejection/fault
+preserves the accepted older instruction and recovers only the unsuccessful
+suffix. Include the older same-group vector memory operation in scalar memory
+ordering summaries; a younger vector memory descriptor waits for same-group
+scalar memory to drain. Do not add instruction-pair permission predicates.
 Two configurations contend for the CSR command; two FP operand/control owners
 contend for the selected FPR read bundle; RAS actions and fixed return collisions
 retain their existing capacity checks. Do not recreate permitted-pair predicates
@@ -992,6 +1002,13 @@ Conflict-based pairing checks both age orders of vector/ALU, no-op, branch,
 jump, and fixed-FP partners and configuration/memory/M/FP partners. It retains
 service-admission, descriptor, CSR-command, FPR-read, and FPR RAW/WAW splits,
 and checks configuration/FP authorization across fault/replay.
+Ordered vector/store cases require same-cycle MEM arrival and hit/slow
+co-retirement, store-commit and slow-request rejection, either owner's
+fault/replay, and real full-VDQ rejection behind dependent divides. Their
+public-port oracle checks that no store is offered before its older descriptor
+retires and that replay duplicates neither descriptor acceptance nor mutation.
+The same fixtures check load/M/variable-FP pairs in both age orders, rejection
+by busy integer/FP dividers, and a genuine vector-scalar-result/store-data RAW.
 Both core-vector fixtures run the event pass and production collector. Public
 MEM observations, accepted descriptor requests, and sequencer dispatch/release
 ports form an independent occurrence FIFO. It checks exact MEM parents for every

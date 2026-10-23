@@ -17,6 +17,7 @@ unsigned fast_checks = 0;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 unsigned redirect_count = 0, response_delay = 12;
 unsigned request_block_until = 0;
+unsigned commit_block_until = 0;
 std::uint64_t next_pc = 0x8000, replay_pc = 0, recovery_pc = 0, fault_at = 0;
 std::uint64_t resolve_pc = 0;
 unsigned resolve_disposition = 0;
@@ -39,6 +40,7 @@ bool interrupt_after_admission = false;
 std::map<std::uint64_t, unsigned> trained_branches;
 struct Redirect { std::uint64_t pc, target; unsigned disposition; };
 std::vector<Redirect> observed_redirects;
+std::map<std::uint64_t, std::vector<unsigned>> store_offers, store_writes;
 
 namespace vector_trace {
 struct Owner {
@@ -55,6 +57,8 @@ Offer admission, dispatch;
 bool released = false;
 std::uint64_t trace_cycle = 0, sequence = 0, stall = 0;
 unsigned admissions = 0, dispatches = 0, queued = 0, replacements = 0;
+unsigned rejections = 0;
+std::map<std::uint64_t, unsigned> admission_counts;
 std::array<unsigned, 2> lanes{};
 std::map<rheg::Ref, unsigned> beats;
 constexpr unsigned mem_sites[] = {rv2wide_vector_sites::mem0, rv2wide_vector_sites::mem1};
@@ -111,6 +115,7 @@ void check() {
     CHECK(owner);
     admitted.push_back(*owner);
     ++lanes[owner->lane]; ++admissions;
+    ++admission_counts[owner->pc];
   }
   // A replacement edge still sequences/stalls the old registered descriptor.
   check_occurrence(rv2wide_vector_sites::sequence, sequence);
@@ -151,6 +156,7 @@ void finish() {
 extern "C" void rv2wide_vector_admission(std::uint64_t resetting, std::uint64_t valid,
     std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction) {
   vector_trace::admission = {!resetting && valid && ready, pc, instruction};
+  if (!resetting && valid && !ready) ++vector_trace::rejections;
 }
 extern "C" void rv2wide_vector_dispatch(std::uint64_t resetting, std::uint64_t valid,
     std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction, std::uint64_t released) {
@@ -174,13 +180,14 @@ void write(const Request &request) {
       word = (word & ~mask) | (request.pdata & mask);
     }
   ++stores;
+  store_writes[request.paddress].push_back(cycle);
 }
 void settle() {
   pipeline_in.presponse.pvalid = lookup_live;
   pipeline_in.presponse.pbits = {};
   pipeline_in.presponse.pbits.poutcome = slow ? 0 : lookup.paccess == 2 ? 2 : 1;
   pipeline_in.presponse.pbits.pdata = words[lookup.paddress & ~(std::uint64_t(bytes) - 1)];
-  pipeline_in.pcommit_uready = 1;
+  pipeline_in.pcommit_uready = cycle >= commit_block_until;
   memory_in.pdrained = responses.empty();
   memory_in.pordered_ubusy = 0;
   memory_in.preservation_uvalid = 0;
@@ -288,9 +295,16 @@ void step() {
       }
     }
     if (pipeline_out.pcommit) {
+      store_offers[commit_owner.paddress].push_back(cycle);
       if (authorization_owner && commit_owner.paddress == guarded_store_address)
         CHECK(retired_pcs.contains(authorization_owner));
-      write(commit_owner);
+      if (pipeline_in.pcommit_uready) write(commit_owner);
+    }
+    if (memory_out.prequest.pvalid && memory_out.prequest.pbits.paccess == 2) {
+      const auto address = memory_out.prequest.pbits.paddress;
+      store_offers[address].push_back(cycle);
+      if (authorization_owner && address == guarded_store_address)
+        CHECK(retired_pcs.contains(authorization_owner));
     }
     if (memory_in.presponse.pvalid && memory_out.presponse.pready)
       responses.pop_front();
@@ -376,6 +390,10 @@ void stream(std::initializer_list<std::uint32_t> words, bool fault = false,
   for (unsigned wait = 0; ; ++wait) {
     CHECK(wait < 3000);
     if (recovery_pc) {
+      if (!recover || recovery_pc < base || recovery_pc >= next_pc)
+        std::cerr << "unexpected recovery to " << std::hex << recovery_pc
+                  << " in stream [" << base << ", " << next_pc << ")"
+                  << std::dec << '\n';
       CHECK(recover && recovery_pc >= base && recovery_pc < next_pc);
       sent = (recovery_pc - base) / 4;
       recovery_pc = replay_pc = 0;
@@ -1012,6 +1030,120 @@ void independent_vector_scalar_pairs() {
   CHECK(gprs[3] == 109);
   extract(18, 7, 0);
 }
+void paired_vector_stores() {
+  run(120);
+  setvl(bytes == 8 ? 3 : 2, 2);
+  send(addi(1, 0, 0x500));
+  send(addi(2, 0, 7));
+  const auto move = vi(23, 0, 2, 4, 8);
+  const auto store = [](unsigned offset) {
+    return ((offset >> 5) << 25) | (2 << 20) | (1 << 15) |
+        ((bytes == 8 ? 3 : 2) << 12) | ((offset & 31) << 7) | 0x23u;
+  };
+
+  // Both age orders: hit/slow admission, either store rejection, and either
+  // owner's fault/replay. Younger stores cannot precede descriptor acceptance.
+  for (bool vector_first : {false, true}) for (unsigned mode = 0; mode < 8; ++mode) {
+    run(80);
+    const auto base = next_pc;
+    const auto vector_pc = base + (vector_first ? 0 : 4);
+    const auto store_pc = base + (vector_first ? 4 : 0);
+    const auto admissions = vector_trace::admissions;
+    const auto writes = stores;
+    store_offers[0x500].clear();
+    store_writes[0x500].clear();
+    slow = mode == 1 || mode == 3 || mode == 4;
+    commit_block_until = mode == 2 ? cycle + 24 : 0;
+    request_block_until = mode == 3 ? cycle + 24 : 0;
+    fault_at = mode == 4 ? 0x500 : 0;
+    resolve_pc = mode >= 5 ? (mode == 7 ? store_pc : vector_pc) : 0;
+    resolve_disposition = mode == 5 ? 1 : 2;
+    authorization_owner = vector_first ? vector_pc : 0;
+    guarded_store_address = 0x500;
+    stream({vector_first ? move : store(0), vector_first ? store(0) : move}, mode == 4 || mode == 5,
+           mode == 2 || mode == 3 || mode >= 6);
+    CHECK(memory_cycles.at(base) == memory_cycles.at(base + 4));
+    CHECK(vector_trace::admissions == admissions + (mode == 5 || (mode == 4 && !vector_first) ? 0 : 1));
+    CHECK(stores == writes + (mode == 4 || (mode == 5 && vector_first) ? 0 : 1));
+    if (mode == 4 || mode == 5) {
+      CHECK(last_fault_pc == (mode == 4 ? store_pc : vector_pc));
+      CHECK(retired_pcs.contains(vector_pc) == (mode == 4 && vector_first));
+      CHECK(retired_pcs.contains(store_pc) == (mode == 5 && !vector_first));
+    } else {
+      CHECK(words[0x500] == 7);
+      if (mode < 2) {
+        CHECK(retirement_cycles.at(base) == retirement_cycles.at(base + 4));
+        CHECK(retirement_lanes.at(base + 4) == 1);
+      } else {
+        const auto replay = std::find_if(observed_redirects.begin(), observed_redirects.end(),
+            [base](const auto &redirect) { return redirect.disposition == 2 &&
+                (redirect.pc == base || redirect.pc == base + 4); });
+        CHECK(replay != observed_redirects.end());
+        CHECK(replay->target == (mode == 6 ? vector_pc : store_pc));
+      }
+    }
+    if (mode == 5 && vector_first) CHECK(store_offers[0x500].empty());
+    resolve_pc = authorization_owner = guarded_store_address = fault_at = 0;
+    request_block_until = commit_block_until = 0;
+    slow = false;
+  }
+
+  // A real GPR dependency still splits and forwards the vector scalar result;
+  // descriptor admission alone must not expose the stale store-data register.
+  run(80);
+  send(addi(2, 0, 99));
+  const auto dependent = next_pc;
+  stream({vi(16, 8, 0, 2, 2), store(0)});
+  CHECK(memory_cycles.at(dependent) < memory_cycles.at(dependent + 4));
+  CHECK(words[0x500] == 7 && gprs[2] == 7);
+
+  // Fill real descriptor credit behind dependent divides. Rejected descriptors
+  // must not even offer their younger store, and retry must not duplicate either.
+  send(addi(2, 0, 2));
+  send(addi(4, 0, 128));
+  send(vi(23, 0, 4, 4, 8));
+  run(40);
+  for (unsigned index = 0; index < 10; ++index) {
+    store_offers[0x500 + index * bytes].clear();
+    store_writes[0x500 + index * bytes].clear();
+  }
+  const auto base = next_pc;
+  const auto rejections = vector_trace::rejections;
+  stream({vi(32, 8, 2, 6, 9), store(0),
+          vi(32, 9, 2, 6, 10), store(bytes),
+          vi(32, 10, 2, 6, 11), store(2 * bytes),
+          vi(32, 11, 2, 6, 12), store(3 * bytes),
+          vi(32, 12, 2, 6, 13), store(4 * bytes),
+          vi(32, 13, 2, 6, 14), store(5 * bytes),
+          vi(32, 14, 2, 6, 15), store(6 * bytes),
+          vi(32, 15, 2, 6, 16), store(7 * bytes),
+          vi(32, 16, 2, 6, 17), store(8 * bytes),
+          vi(32, 17, 2, 6, 18), store(9 * bytes)}, false, true);
+  CHECK(vector_trace::rejections > rejections);
+  for (unsigned index = 0; index < 10; ++index) {
+    const auto pc = base + index * 8;
+    const auto address = 0x500 + index * bytes;
+    CHECK(vector_trace::admission_counts.at(pc) == 1);
+    CHECK(store_writes.at(address).size() == 1 && words[address] == 2);
+    CHECK(!store_offers.at(address).empty());
+    for (auto offered : store_offers.at(address))
+      CHECK(offered >= retirement_cycles.at(pc));
+  }
+  extract(18, 7, 0);
+
+  // The same prefix applies in reverse: a hit store can precede a move,
+  // but a younger vector memory descriptor must wait for scalar memory drain.
+  run(80);
+  issue_pair(store(0), move);
+  for (bool vector_first : {false, true}) {
+    run(80);
+    const auto pc = next_pc;
+    const auto load = 0x02000007u | (1 << 15) | (8 << 7);
+    stream({vector_first ? load : store(0), vector_first ? store(0) : load}, false, true);
+    CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+    CHECK(retirement_cycles.at(pc) < retirement_cycles.at(pc + 4));
+  }
+}
 void conflict_based_pairing() {
   run(120);
   setvl(0, 4);
@@ -1082,15 +1214,25 @@ void conflict_based_pairing() {
       if (scalar == divide) CHECK(gprs[12] == 1);
     }
   }
-  // A second independently rejecting WB service still needs a separate group.
+  // A descriptor and scalar service have separate admission resources.
+  // Either age order uses the same WB acceptance prefix, not pair permissions.
   for (auto scalar : {load, multiply, divide}) {
     for (bool vector_first : {false, true}) {
       run(80);
-      const auto base = next_pc;
-      stream({vector_first ? vector_move : scalar, vector_first ? scalar : vector_move});
-      CHECK(memory_cycles.at(base) < memory_cycles.at(base + 4));
+      issue_pair(vector_first ? vector_move : scalar, vector_first ? scalar : vector_move);
     }
   }
+  // A rejected older divider must suppress a younger descriptor just like
+  // rejected memory. A different rd avoids waiting on the first result's WAW.
+  run(80);
+  send(addi(14, 0, -1));
+  const auto busy_divide = (1u << 25) | (2 << 20) | (14 << 15) | (5 << 12) | (12 << 7) | 0x33;
+  send(busy_divide);
+  const auto retry = next_pc;
+  stream({(busy_divide & ~(31u << 7)) | (13 << 7), vector_move}, false, true);
+  CHECK(vector_trace::admission_counts.at(retry + 4) == 1);
+  run(100);
+  CHECK(gprs[13] == (bytes == 8 ? UINT64_MAX : UINT32_MAX) / 7);
   for (auto vector : {vector_move, configure}) {
     const auto base = next_pc;
     stream({vector, vector});
@@ -1111,6 +1253,23 @@ void conflict_based_pairing() {
       }
     }
     fast_enabled = false;
+
+    // Variable FP uses the same ordered admission, including an older busy
+    // divide rejecting its younger descriptor without accepting it twice.
+    send(addi(14, 0, 3));
+    send((0x69u << 25) | (14 << 15) | (4 << 7) | 0x53); // fcvt.d.w f4,x14
+    const auto fp_divide = (0x0du << 25) | (4 << 20) | (3 << 15) | (5 << 7) | 0x53;
+    const auto retry_divide = (fp_divide & ~(31u << 7)) | (6 << 7);
+    for (bool vector_first : {false, true}) {
+      run(80);
+      issue_pair(vector_first ? vector_move : fp_divide, vector_first ? fp_divide : vector_move);
+      const auto retry = next_pc;
+      stream({retry_divide, vector_move}, false, true);
+      CHECK(vector_trace::admission_counts.at(retry + 4) == 1);
+      run(80);
+      send((0x61u << 25) | (6 << 15) | (12 << 7) | 0x53);
+      CHECK(gprs[12] == 2);
+    }
 
     setvl(3, 2);
     send(convert);
@@ -1620,6 +1779,7 @@ int main() {
     paired_vector_arithmetic();
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
+    paired_vector_stores();
     conflict_based_pairing();
     vector_memory_branch_pairs();
     speculative_scalar_authorization();

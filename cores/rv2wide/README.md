@@ -534,10 +534,16 @@ and an older misprediction suppresses the younger instruction.
 Pairing otherwise defaults to allowing independent work. A pair splits on an
 unresolved GPR/FPR dependency, a resource conflict, return/training capacity, or
 an ordering barrier—not because its instruction-class combination is absent
-from a permitted list. Shared limits are one independently admitting WB service
-(scalar memory, integer M, variable FP, or a vector descriptor), one CSR command,
-one FP operand/control read bundle, and one RAS action per group. An explicit
-bypass can waive only the dependency its physical path supplies.
+from a permitted list. Shared limits are one scalar WB service (memory, integer
+M, or variable FP), one vector descriptor, one CSR command, one FP operand/control
+read bundle, and one RAS action per group. Scalar and vector services may pair
+in either age order. WB admits the older service before offering the younger:
+older rejection suppresses the younger service, while younger rejection preserves
+the accepted older instruction and replays only the suffix. A non-memory vector
+instruction need only enter its descriptor queue, not finish execution.
+Memory ordering and unresolved vector-memory authorization can still reject
+the younger service at WB. An explicit bypass can waive only the dependency its
+physical path supplies.
 The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
 relations joined to RV2Wide operand/writeback controls.

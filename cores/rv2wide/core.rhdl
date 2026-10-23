@@ -541,10 +541,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_branch :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].branch.resolver.enable)
   def rr_training_blocked = [rr_branch[0] & (rr_training_projected >= Bits(4)(3)), rr_branch[1] & (rr_training_projected + rr_branch[0].as_bits().zext(4) >= Bits(4)(3))]
   def rr_variable_fp = for List (lane in 0..2): rr_controls[lane].fp.valid & (rr_controls[lane].fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
-  // Only one WB service may reject or retain an owner in a group. Cross-service
-  // pairs need age-qualified acceptance before they can share that boundary.
-  def rr_wb_service = for List (lane in 0..2): rr_controls[lane].memory.enable ||| rr_long[lane] ||| rr_variable_fp[lane] ||| rr_vector[lane]
-  def rr_pair_wb_admission = rr_wb_service[0] & rr_wb_service[1]
+  // Scalar services share one deferred-admission path; vector descriptors
+  // have their own input. Only duplicate claims conflict at RR.
+  def rr_scalar_service = for List (lane in 0..2): rr_controls[lane].memory.enable ||| rr_long[lane] ||| rr_variable_fp[lane]
+  def rr_pair_wb_admission = (rr_scalar_service[0] & rr_scalar_service[1]) ||| (rr_vector[0] & rr_vector[1])
   def rr_pair_csr = rr_vector_config[0] & rr_vector_config[1]
   // Scalar FP control/operands and a vector scalar-FPR snapshot share one
   // selected read bundle; two independent FP owners cannot use it together.
@@ -1220,6 +1220,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def control = wb_live_group[lane].vector.control
     control.integer ||| control.memory ||| control.floating_point ||| control.multiply_divide
 
+  wire wb_scalar_stop: Bool
   def wb_vector_lane = mux(wb_live_valid[0] & wb_vectors[0], Bits(1)(0), Bits(1)(1))
   def wb_vector = wb_live_group[wb_vector_lane]
   def wb_vector_offer = wb_dispatch[wb_vector_lane] & (if vector_enabled | mux(wb_vector_lane === Bits(1)(0), wb_vectors[0], wb_vectors[1]) | Bool(#false))
@@ -1229,7 +1230,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   vector_fast.candidate <== wb_vector.vector.certificate
   def wb_vector_masking_current = wb_vector.vector.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
   def wb_vector_certified = wb_vector.vector.precertified & vector_fast.candidate_current & wb_vector_masking_current
-  vector.request.valid <== wb_vector_offer & wb_vector_ordered & wb_vector_results_available & wb_vector_fpr_available
+  def wb_vector_eligible = wb_vector_ordered & wb_vector_results_available & wb_vector_fpr_available
+  // Credit predicts the older descriptor's acceptance without depending on
+  // a request qualified by the younger scalar service's own outcome.
+  def wb_scalar_prefix = !(wb_live_valid[0] & wb_vectors[0]) ||| (wb_vector_eligible & vector.available & (!wb_vector.vector.control.memory ||| wb_vector_certified))
+  def wb_vector_prefix = (wb_vector_lane === Bits(1)(0)) ||| !wb_scalar_stop
+  vector.request.valid <== wb_vector_offer & wb_vector_eligible & wb_vector_prefix
   vector.request.bits <== wb_vector.vector.updated(~precertified: wb_vector_certified)
   // Admission retains the live lane's owner even when vector memory retires later.
   describe_interface_selection([wb_vector_lane === Bits(1)(0), wb_vector_lane === Bits(1)(1)], ~name: "vector-lane")
@@ -1271,17 +1277,19 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   wb_csrs.vector_retire.valid <== vector.retire.valid ||| (wb_vector_accepted & (!wb_vector.vector.control.memory ||| wb_vector_certified))
 
-  /* Ordinary scalar memory admission selects live WB context independently
-     of the retained vector owner and of final service acceptance. */
+  /* Scalar admission follows the older descriptor's registered credit.
+     The reverse age order qualifies vector admission with scalar outcomes;
+     neither direction depends on final retirement feedback. */
 
   def wb_memory_lane = mux(wb_live_valid[0] & wb_live_group[0].memory.enable, Bits(1)(0), Bits(1)(1))
   def wb_memory :: RV2WideResult(xlen) = wb_live_group[wb_memory_lane]
   // A younger request consumes its older peer's hint on this same WB edge.
   // This selection must not depend on request readiness or retirement feedback.
   def wb_memory_locality = mux(wb_memory_lane === Bits(1)(0), wb_pending_locality, wb_live_group[0].locality_hint)
-  def wb_memory_active = wb_dispatch[wb_memory_lane] & wb_memory.memory.enable
+  def wb_memory_active = wb_dispatch[wb_memory_lane] & wb_memory.memory.enable & wb_scalar_prefix
   def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
+  def wb_memory_capture = wb_split_capture ||| wb_management_capture
   def wb_wait_capture = wb_dispatch[0] & (wb_live_group[0].system.wait =/= RV2WideWait.None)
   def wb_retained_capture = wb_split_capture ||| wb_management_capture ||| wb_wait_capture ||| wb_vector_capture
   def wb_retained_lane = mux(wb_vector_capture, wb_vector_lane, mux(wb_wait_capture, Bits(1)(0), wb_memory_lane))
@@ -1315,9 +1323,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   /* Drain older services before launching retained split work.
      Capture, completion, acceptance, then drain define state-update priority. */
 
-  def wb_slow = wb_memory_active & !wb_retained_capture & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
+  def wb_slow = wb_memory_active & !wb_memory_capture & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
   def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
-  def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| vector.stores_pending ||| (wb_memory.memory.access.store_fault_class() & vector.loads_pending)
+  def wb_older_vector_memory = wb_live_valid[0] & wb_vectors[0] & wb_live_group[0].vector.control.memory
+  def wb_vector_store_pending = vector.stores_pending ||| (wb_older_vector_memory & wb_live_group[0].vector.control.store)
+  def wb_vector_load_pending = vector.loads_pending ||| (wb_older_vector_memory & !wb_live_group[0].vector.control.store)
+  def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| wb_vector_store_pending ||| (wb_memory.memory.access.store_fault_class() & wb_vector_load_pending)
   def wb_prior_drained = wb_load_response.drained & scalar_memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.any() & !rr_completion.valid & fp.drained & !vector.active & !wb_vector_scalar_pending & !wb_vector_fpr_pending
   scalar_split.request.valid <== wb_retained_ready & !wb_management & !wb_reservation_waiting & !wb_retained_vector
   memory_ports.scalar_guest_access <== wb_retained_owner.guest_access
@@ -1383,7 +1394,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_management_fault <== wb_management & wb_admission_fault
   wb_management_accepted <== wb_management & scalar_memory.request.fire()
   def wb_accepted = scalar_memory.request.fire() & !wb_admission_fault & !wb_management
-  def wb_memory_replay = (wb_memory_active & !wb_retained_capture & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !scalar_pipeline.commit_ready)
+  def wb_memory_replay = (wb_memory_active & !wb_memory_capture & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !scalar_pipeline.commit_ready)
   wb_load_response.allocate.valid <== wb_accepted
   wb_load_response.allocate.bits <== wb_memory
   when (wb_accepted & !wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)):
@@ -1400,8 +1411,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   def wb_fp_lane = mux(wb_valid[0] & wb_group[0].fp.valid, Bits(1)(0), Bits(1)(1))
   def wb_fp_token :: RV2WideResult(xlen) = wb_group[wb_fp_lane]
-  def wb_fp_prefix = (wb_fp_lane === Bits(1)(0)) ||| (!wb_older_stop & !(wb_memory_active & (wb_memory_lane === Bits(1)(0)) & (wb_memory_replay ||| wb_admission_fault ||| wb_retained_capture)))
-  fp.variable_issue.valid <== wb_dispatch[wb_fp_lane] & wb_fp_token.fp.valid & (wb_fp_token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot) & wb_fp_prefix
+  fp.variable_issue.valid <== wb_dispatch[wb_fp_lane] & wb_fp_token.fp.valid & (wb_fp_token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot) & wb_scalar_prefix
   fp.variable_issue.bits <== rv2wide_fp_request(xlen, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
   wb_fp_variable_accepted <== fp.variable_issue.fire()
   def wb_fp_replay = fp.variable_issue.valid & !fp.variable_issue.ready
@@ -1412,7 +1422,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   def wb_long_lane = mux(wb_valid[0] & (wb_group[0].muldiv.service =/= RV2WideLongOperation.None), Bits(1)(0), Bits(1)(1))
   def wb_long :: RV2WideResult(xlen) = wb_group[wb_long_lane]
-  def wb_long_active = wb_dispatch[wb_long_lane] & wb_long.write & (wb_long.muldiv.service =/= RV2WideLongOperation.None)
+  def wb_long_active = wb_dispatch[wb_long_lane] & wb_long.write & (wb_long.muldiv.service =/= RV2WideLongOperation.None) & wb_scalar_prefix
   def wb_multiply_accepted = wb_long_active & (wb_long.muldiv.service === RV2WideLongOperation.Multiply)
   ex_multiply.authorize <== wb_multiply_accepted
   def wb_divide_link = interface_link(Decoupled(RV2WideResult(xlen)))
@@ -1443,6 +1453,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_divide_accepted = wb_divide_link.right.fire()
   def wb_divide_replay = wb_divide_link.right.valid & !wb_divide_accepted
   def wb_long_accepted = wb_multiply_accepted ||| wb_divide_accepted
+  // The scalar side can retain or reject its owner. A younger memory
+  // descriptor also waits for any same-group scalar memory to drain.
+  wb_scalar_stop <== (wb_memory_active & (wb_memory_lane === Bits(1)(0)) & (wb_memory_replay ||| wb_admission_fault ||| wb_memory_capture ||| wb_vector.vector.control.memory)) ||| (wb_divide_replay & (wb_long_lane === Bits(1)(0))) ||| (wb_fp_replay & (wb_fp_lane === Bits(1)(0)))
   wb_scoreboard.set.valid <== (wb_accepted & wb_memory.write) ||| wb_long_accepted
   wb_scoreboard.set.bits <== mux(wb_long_accepted, wb_long.rd, wb_memory.rd)
   assert(!(wb_accepted & wb_long_accepted), "rv2wide_one_deferred_owner_per_group")
