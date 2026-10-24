@@ -55,7 +55,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   interface store_completed(Valid(Tag), ~role: producer)
   input pointer_masking: PointerMaskControl()
   output outcome_guest: RiscvGuestFault()
-  output(idle, requests_idle, pipeline_physical, request_physical): Bool
+  output(idle, requests_idle, memory_start_ready, pipeline_physical, request_physical): Bool
 
 
   /* Certified request retention and precise bypass.
@@ -300,6 +300,9 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
      A drained attempt pipeline alone does not release outstanding responses. */
 
   requests_idle <== !queued & !lookup.valid & !mem.valid & !wb.valid & !split_pending
+  // A first read matures next cycle. A successfully released final certified
+  // attempt can supply that edge, but retries, splits, and new captures cannot.
+  memory_start_ready <== replay.empty_after_release & !issue.valid & !lookup.valid & !mem.valid & (!wb.valid ||| resolved) & !split_pending
   idle <== requests_idle & !owners.count.any() & !split_returns.count.any()
   assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")
 

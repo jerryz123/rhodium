@@ -28,6 +28,7 @@ void initialize() {
   reset = 0;
   eval();
   CHECK(idle);
+  CHECK(memory_start_ready);
 }
 void launch() {
   issue_valid = 1;
@@ -100,6 +101,7 @@ int main() {
       issue_valid = 1;
       eval();
       CHECK(issue_ready && lookup && lookup_address == 0x8000);
+      CHECK(!memory_start_ready);
       step();
       issue_valid = 0;
       eval();
@@ -110,6 +112,15 @@ int main() {
         CHECK(completion_valid && completed.ptag == 0 && completed.pdata == full_word);
       else
         CHECK(feedback_valid && !feedback.pslow && feedback.pdata == full_word);
+      CHECK(bool(memory_start_ready) == bool(certificate));
+      if (certificate) {
+        completion_ready = 0;
+        eval();
+        CHECK(!memory_start_ready); // A blocked hit is a retry, not release credit.
+        completion_ready = 1;
+        eval();
+        CHECK(memory_start_ready);
+      }
       drain();
     }
 

@@ -89,7 +89,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   access.completion |> backend.completion
   access.store_completed |> backend.store_completed
   access.outcome |> backend.precise
-  backend.requests_idle <== access.requests_idle
+  backend.memory_start_ready <== access.memory_start_ready
   access.pointer_masking <== backend.pointer_masking
   access.pipeline <=> pipeline
   access.memory <=> memory

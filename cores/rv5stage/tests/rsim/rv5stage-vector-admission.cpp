@@ -16,17 +16,18 @@ bool watch_handoff = false;
 int older_tail_cycle = -1, memory_dispatch_cycle = -1, memory_first_cycle = -1,
     older_last_write_cycle = -1, older_writes = 0;
 constexpr std::uint64_t older_pc = 128, indexed_store_pc = 1024;
+std::uint64_t watched_older_pc = older_pc, watched_memory_pc = indexed_store_pc;
 
 extern "C" void test_admission_sequence(std::uint64_t resetting,
     std::uint64_t request_valid, std::uint64_t request_ready, std::uint64_t pc,
     std::uint64_t sequence_valid, std::uint64_t sequence_ready,
     std::uint64_t sequence_pc, std::uint64_t last) {
   if (resetting || !watch_handoff) return;
-  if (request_valid && request_ready && pc == indexed_store_pc)
+  if (request_valid && request_ready && pc == watched_memory_pc)
     memory_dispatch_cycle = cycle;
   if (sequence_valid && sequence_ready) {
-    if (sequence_pc == older_pc && last) older_tail_cycle = cycle;
-    if (sequence_pc == indexed_store_pc && memory_first_cycle < 0)
+    if (sequence_pc == watched_older_pc && last) older_tail_cycle = cycle;
+    if (sequence_pc == watched_memory_pc && memory_first_cycle < 0)
       memory_first_cycle = cycle;
   }
 }
@@ -114,6 +115,8 @@ void clear() {
   slow_access = 0;
   watch_window = 0;
   watch_handoff = false;
+  watched_older_pc = older_pc;
+  watched_memory_pc = indexed_store_pc;
   older_tail_cycle = memory_dispatch_cycle = memory_first_cycle = -1;
   older_last_write_cycle = -1;
   older_writes = 0;
@@ -264,9 +267,12 @@ void stimulus() {
       CHECK(addresses[index] == indexed_store_pc + 8 && data[index] == 7);
     watch_handoff = false;
 
-    // The memory-only guard also covers an older certified load's final read
-    // before it has entered LSU retention. Its younger faultable store must not
-    // issue a nonstallable read into that still-occupied adapter.
+    // Install on the certified tail, then hold the first faultable read until
+    // the older LSU attempt actually releases, including its final operand return.
+    older_tail_cycle = memory_dispatch_cycle = memory_first_cycle = -1;
+    watched_older_pc = 8192;
+    watched_memory_pc = 1536;
+    watch_handoff = true;
     fast_valid = 1;
     launch(memory_insn(16, 0), UINT64_C(8192), 1, 24);
     fast_valid = 0;
@@ -274,6 +280,9 @@ void stimulus() {
     drain();
     CHECK(accesses == 6 && addresses[4] == UINT64_C(0x12000) &&
           addresses[5] == UINT64_C(1544) && data[5] == 7);
+    CHECK(memory_dispatch_cycle == older_tail_cycle);
+    CHECK(memory_first_cycle == older_tail_cycle + 3);
+    watch_handoff = false;
 
     // Distinct captured mappings need no shared-window installation, and
     // independent loads start on consecutive cycles before either hit returns.

@@ -1017,6 +1017,11 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   waiting for older sequencing to drain. The descriptor carries its mapping
   through later TLB replacement. Cross-page, uncertain, or rejected checks keep
   the retained precise path; a speculative check never starts a page walk.
+- A faultable vector-memory descriptor may replace the older sequencer on its
+  final read edge. Its first memory read waits until the LSU can accept the
+  fixed-latency issue next cycle, crediting successful final certified release
+  without waiting for already accepted slow responses. Retry and split handling
+  retain their existing isolation, with no additional request or result queue.
 - Younger scalar memory waits for older vector stores; younger scalar stores
   also wait for older vector loads. CSR writes and traps drain accepted work;
   pure reads wait only for relevant implicit state updates.

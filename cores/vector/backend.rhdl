@@ -67,7 +67,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   interface precise(Valid(VectorCommit(xlen, slots)), ~role: consumer)
   input precise_fault: Fault
   output outcome_fault: Fault
-  input(requests_idle, memory_drained): Bool
+  input(memory_start_ready, memory_drained): Bool
   output store: Bool
   output pointer_masking: PointerMaskControl()
 
@@ -77,7 +77,9 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   admission.dispatch |> execution.request
   admission.precheck <=> precheck
   execution.sequencing_done |> admission.sequencing_done
-  admission.requests_idle <== requests_idle & !execution.memory_preparing
+  // The single sequencer owns descriptor replacement. LSU isolation belongs
+  // at its first faultable read, not at descriptor installation.
+  admission.requests_idle <== Bool(#true)
   execution.packed_memory <== admission.packed_memory
   precise |> admission.precise
   admission.precise_fault <== precise_fault
@@ -96,7 +98,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
 
   // Only LSU rejection rewinds allocated work; younger scalar redirects never cancel it.
   execution.cancel.valid <== Bool(#false)
-  execution.schedule_enable <== Bool(#true)
+  execution.schedule_enable <== !execution.memory_start_pending ||| memory_start_ready
   execution.memory_drained <== memory_drained
   execution.fp_request |> fp_request
   fp_result |> execution.fp_result

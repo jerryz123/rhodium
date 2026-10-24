@@ -18,6 +18,8 @@ unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 unsigned redirect_count = 0, response_delay = 12;
 unsigned request_block_until = 0;
 unsigned commit_block_until = 0;
+std::uint64_t lookup_retry_address = 0, lookup_slow_address = 0;
+unsigned lookup_retries = 0;
 std::uint64_t next_pc = 0x8000, replay_pc = 0, recovery_pc = 0, fault_at = 0;
 std::uint64_t resolve_pc = 0;
 unsigned resolve_disposition = 0;
@@ -62,6 +64,8 @@ unsigned admissions = 0, dispatches = 0, queued = 0, replacements = 0;
 unsigned rejections = 0;
 std::map<std::uint64_t, unsigned> admission_counts;
 std::map<std::uint64_t, unsigned> admission_cycles;
+std::map<std::uint64_t, unsigned> dispatch_cycles;
+std::map<std::uint64_t, std::vector<unsigned>> sequence_cycles;
 std::array<unsigned, 2> lanes{};
 std::map<rheg::Ref, unsigned> beats;
 constexpr unsigned mem_sites[] = {rv2wide_vector_sites::mem0, rv2wide_vector_sites::mem1};
@@ -96,7 +100,10 @@ void check_occurrence(unsigned site, std::uint64_t &serial) {
   CHECK(graph.field(child, "pc").unsigned_value() == active->pc);
   CHECK(graph.field(child, "instruction").unsigned_value() == active->instruction);
   CHECK(graph.nodes.at(active->parent).cycle < found->second.cycle);
-  if (site == rv2wide_vector_sites::sequence) ++beats[active->parent];
+  if (site == rv2wide_vector_sites::sequence) {
+    ++beats[active->parent];
+    sequence_cycles[active->pc].push_back(cycle);
+  }
   ++serial;
 }
 void check() {
@@ -181,6 +188,8 @@ extern "C" void rv2wide_vector_admission(std::uint64_t resetting, std::uint64_t 
 extern "C" void rv2wide_vector_dispatch(std::uint64_t resetting, std::uint64_t valid,
     std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction, std::uint64_t released) {
   vector_trace::dispatch = {!resetting && valid && ready, pc, instruction};
+  if (!resetting && valid && ready)
+    vector_trace::dispatch_cycles.emplace(pc, cycle);
   vector_trace::released = !resetting && released;
 }
 
@@ -205,7 +214,9 @@ void write(const Request &request) {
 void settle() {
   pipeline_in.presponse.pvalid = lookup_live;
   pipeline_in.presponse.pbits = {};
-  pipeline_in.presponse.pbits.poutcome = slow ? 0 : lookup.paccess == 2 ? 2 : 1;
+  pipeline_in.presponse.pbits.poutcome = slow || (lookup_slow_address && lookup.paddress == lookup_slow_address) ? 0 : lookup.paccess == 2 ? 2 : 1;
+  if (lookup_retries && lookup.paddress == lookup_retry_address)
+    pipeline_in.presponse.pbits.poutcome = 3;
   pipeline_in.presponse.pbits.pdata = words[lookup.paddress & ~(std::uint64_t(bytes) - 1)];
   pipeline_in.pcommit_uready = cycle >= commit_block_until;
   memory_in.pdrained = responses.empty();
@@ -256,6 +267,8 @@ void settle() {
 void step() {
   settle();
   if (!reset) {
+    if (lookup_live && lookup_retries && lookup.paddress == lookup_retry_address)
+      --lookup_retries;
     if (authorization_owner && retired_0_out.pvalid && retired_1_out.pvalid &&
         retired_0_out.pbits.pfetched.ppc == authorization_owner)
       ++authorization_merges;
@@ -1148,6 +1161,64 @@ void vector_gpr_owner_overlap() {
             << replacements << " same-cycle owner replacements\n";
 }
 
+void vector_memory_start_overlap() {
+  for (unsigned mode = 0; mode < 4; ++mode) {
+    run(120);
+    setvl(bytes == 8 ? 3 : 2, 2);
+    send(addi(1, 0, 0x600));
+    send(0x000021b7); // lui x3,2
+    send(addi(3, 3, -8)); // 0x1ff8
+    send(addi(4, 0, 16));
+    const auto first_word = (bytes == 8 ? UINT64_C(0x1111111111111111) : UINT64_C(0x11111111)) + mode;
+    words[0x1600] = first_word;
+    words[0x1600 + bytes] = 19 + mode;
+    words[0x1ff8] = 42;
+    words[0x2008] = 43;
+    fast_enabled = true;
+    slow = mode == 3;
+    fault_at = mode == 3 ? 0x1ff8 : 0;
+    lookup_retry_address = mode == 1 ? 0x1600 + bytes : 0;
+    lookup_retries = mode == 1;
+    lookup_slow_address = mode == 2 ? 0x1600 + bytes : 0;
+    response_delay = 80;
+    const auto base = next_pc;
+    const auto load = 0x02000007 | ((bytes == 8 ? 7 : 6) << 12);
+    // The strided pair crosses a page and therefore keeps precise authorization.
+    stream({load | (1 << 15) | (8 << 7),
+            load | (1 << 27) | (4 << 20) | (3 << 15) | (3 << 7)}, mode == 3, true, false);
+    const auto &older = vector_trace::sequence_cycles.at(base);
+    const auto &younger = vector_trace::sequence_cycles.at(base + 4);
+    CHECK(older.size() == 2 && younger.size() == 2 && !lookup_retries);
+    CHECK(vector_trace::dispatch_cycles.at(base + 4) == older.back());
+    CHECK(younger.front() >= older.back() + 3);
+    if (mode != 1) CHECK(younger.front() == older.back() + 3);
+    else CHECK(younger.front() > older.back() + 3);
+    if (mode == 2) CHECK(!responses.empty()); // Accepted responses do not block launch.
+    if (mode == 3) {
+      CHECK(last_fault_pc == base + 4 && last_cause == 13 && responses.empty());
+      CHECK(retired_pcs.contains(base) && !retired_pcs.contains(base + 4));
+    }
+    std::cout << "Memory start mode " << mode << ": "
+              << younger.front() - older.back() << " cycles after certified tail\n";
+    run(100);
+    lookup_retry_address = lookup_slow_address = 0;
+    fault_at = 0;
+    fast_enabled = slow = false;
+    response_delay = 12;
+    extract(8, 7, first_word);
+    const auto store = 0x02000027 | ((bytes == 8 ? 7 : 6) << 12) | (1 << 15);
+    if (mode != 3) {
+      extract(3, 7, 42);
+      send(store | (3 << 7));
+      run(40);
+      CHECK(words[0x600] == 42 && words[0x600 + bytes] == 43);
+    }
+    send(store | (8 << 7));
+    run(40);
+    CHECK(words[0x600] == first_word && words[0x600 + bytes] == 19 + mode);
+  }
+}
+
 void paired_vector_stores() {
   run(120);
   setvl(bytes == 8 ? 3 : 2, 2);
@@ -1898,6 +1969,7 @@ int main() {
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
     vector_gpr_owner_overlap();
+    vector_memory_start_overlap();
     paired_vector_stores();
     conflict_based_pairing();
     vector_memory_branch_pairs();

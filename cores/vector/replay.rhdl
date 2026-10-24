@@ -18,6 +18,7 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   interface attempt(Decoupled(Token), ~role: producer)
   input(blocked, recover, retry, skip, release): Bool
   output occupied: Bool
+  output empty_after_release: Bool
   output oldest: Token
   def Cursor = Bits(bits.length(slots))
   /* Projects an extended cursor onto physical storage, including the depth-one case. */
@@ -32,6 +33,8 @@ sync_circuit VectorReplay(Token :: DataType, slots :: Pow2Int):
   occupied <== count.any()
   oldest <== requests[request_index(head)]
   def capture = request |> gate_flow(count < Bits(Cursor.width)(slots)) |> to_valid()
+  // Credit only a real last release, and include same-edge durable capture.
+  empty_after_release <== (!count.any() ||| ((count === Bits(Cursor.width)(1)) & release)) & !capture.valid
   def Array(retention, live, feedback) = capture |> fork_valid(3)
   feedback |> captured
   def pending = next_request =/= tail

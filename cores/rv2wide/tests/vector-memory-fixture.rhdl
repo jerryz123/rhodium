@@ -32,7 +32,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   output(lookup, lookup_physical, committed, requested, request_physical, response_ready, split_requested): Bool
   output(lookup_address, lookup_store, request_address, request_store, split_store): Bits(xlen.width)
   output request_mask: Bits(xlen.width / 8)
-  output(feedback_valid, outcome_valid, completion_valid, idle): Bool
+  output(feedback_valid, outcome_valid, completion_valid, idle, memory_start_ready): Bool
   output feedback: VectorCommit(xlen, slots)
   output completed: VectorCompletion(xlen, slots)
   output store_completed_valid: Bool
@@ -124,6 +124,7 @@ sync_circuit RV2WideVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   store_completed_tag <== dut.store_completed.bits
   dut.completion.ready <== completion_ready
   idle <== dut.idle
+  memory_start_ready <== dut.memory_start_ready
   word_bytes <== Bits(4)(xlen.width / 8)
   capacity <== Bits(4)(slots)
 

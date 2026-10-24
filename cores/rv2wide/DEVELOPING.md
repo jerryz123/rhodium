@@ -953,6 +953,13 @@ scalar recovery. The MMU prioritizes WB demand over page-window probes and
 speculative lookups, while keeping accepted PTW response ownership unchanged.
 Translation-context changes must wait until the vector page window is released.
 
+`vector-memory.rhdl` keeps strict `idle`/`requests_idle` separate from
+`memory_start_ready`, the promise that a first faultable read can issue next
+cycle. It credits an actual final certified release only when no older lookup,
+MEM stage, incoming issue, or split remains. Already accepted response owners
+still participate in full drain, but not in that launch permission. Keep this
+permission at the first sequencing transfer rather than descriptor dispatch.
+
 Scalar multiply and fixed FP reserve their EX slots at RR; squashing an EX
 request must not combinationally change vector shared-service admission.
 The GPR calendar includes ordinary younger-slot writes as well as deferred
@@ -1048,6 +1055,11 @@ context/epoch revalidation, and self-contained physical retries after TLB invali
 The RV64 fixture combines H with V/FP, checking both host/guest FS/VS gates,
 guest-fault CSR provenance, and draining accepted vector loads before trap entry.
 The MMU fixture certifies and reuses a nonidentity G-stage vector page mapping.
+Certified-to-faultable overlap cases require tail-edge descriptor replacement
+and a three-cycle hit-path tail-to-first-read gap for a cross-page strided load.
+They inject an older cache replay, retain a delayed accepted response, and fault
+the younger access while checking both older loaded words survive. Public
+dispatch/sequence occurrences and memory effects provide the oracle in both XLENs.
 Run the scalar core and late-FP fixtures when changing the shared service
 reservations; retain their existing EX-to-WB timing checks.
 

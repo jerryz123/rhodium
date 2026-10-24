@@ -108,7 +108,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   input packed_memory: Bool
   input memory_drained: Bool
-  output memory_preparing: Bool
+  output memory_start_pending: Bool
   input schedule_enable: Bool
   output active: Bool
   output sequencing: Bool
@@ -172,6 +172,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Sequencing, operand capture, and owner-indexed recurrence state */
 
   inst sequencer(VectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa, ~packed_multiply: packed_multiply))
+  reg memory_started(~init: Bool(#false))
   def current_packed = sequencer.packed
   inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext(), ~packed_multiply: packed_multiply))
   inst registers(VectorRegisterFile(xlen, vlen))
@@ -297,6 +298,11 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
   s1_read |> operand_fetch.request
   s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
+  when (request.fire()):
+    memory_started <== Bool(#false)
+  elsewhen (sequencer.sequence_request.fire() & sequencer.retained.descriptor.control.memory):
+    memory_started <== Bool(#true)
+
   when replay:
     split_memory_pending <== Bool(#false)
   elsewhen returning_split:
@@ -344,9 +350,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   assert(!(execute.alignment.valid & ex_pipe.egress.valid), "vector_simd_owners_exclusive")
   assert(!(operand_fetch.alignment.valid & sequencer.prepare_alignment.valid), "vector_preparation_alignment_exclusive")
   sequencing <== sequencer.active
-  // Cover older memory before LSU capture, including its final registered read.
-  // Arithmetic in these stages must not hold a younger memory descriptor back.
-  memory_preparing <== (sequencer.active & sequencer.retained.descriptor.control.memory) ||| (operand_fetch.scheduled_return & operand_fetch.issue.bits.beat.control.memory)
+  // Install the next descriptor before LSU drain, but do not launch its first
+  // nonstallable faultable read until the adapter promises next-cycle acceptance.
+  memory_start_pending <== sequencer.active & sequencer.retained.descriptor.control.memory & !sequencer.retained.descriptor.precertified & !memory_started
   pending <== authorized_slots.as_bits().any()
   ex_pipe.flush <== replay
   memory_pipe.flush <== replay

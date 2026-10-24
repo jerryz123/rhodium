@@ -132,12 +132,22 @@ ownership, and cache response shaping; `VectorReplay` owns only durable request
 storage and its ordered attempt/release cursors.
 Its Decoupled attempt advances only on transfer, so an older registered lookup
 can defer a captured packed load without another payload buffer or a lost request.
-For uncertified dispatch, combine adapter idle with `!execution.memory_preparing`.
-That summary includes the active memory sequencer and its final registered
-operand return, closing the gap before LSU capture. It excludes arithmetic:
-the ordinary sequencer handshake permits compute-tail replacement, and the
-per-row hazards govern the new memory reads. Do not restore whole-execution
-sequencing/issue quiescence or wait for already accepted slow responses.
+The backend installs a certified or faultable successor through the ordinary
+sequencer handshake, independently of LSU drain. `memory_start_pending` remains
+true until the current faultable descriptor's first memory read transfers.
+While pending, the backend qualifies the existing `schedule_enable` with the
+caller's `memory_start_ready`; subsequent reads retain the normal authorization
+and suffix-replay protocol. Replacement clears the started bit ahead of an old
+tail transfer, so the next descriptor cannot inherit permission.
+
+The LSU promises next-cycle acceptance only with no older preparation stages,
+split owner, or future durable capture. `VectorReplay.empty_after_release`
+credits only an empty ring or a real final release, including same-edge capture.
+The final certified WB attempt may release capacity on the first-read edge;
+retry, blocked completion, and split takeover must not supply that credit.
+The last registered operand return is covered by its actual durable capture,
+not by a global sequencing-idle summary. Never predict a future cache outcome,
+permit a scheduled read to stall later, or wait for accepted slow responses.
 
 ## Change workflow
 
@@ -215,7 +225,8 @@ and MMU replay fixtures for translation/LSU behavior changes, FP/muldiv fixtures
 for shared arithmetic changes, and cosim/event fixtures for observation changes.
 Its public-port observations require indexed-store dispatch on the older compute
 tail edge and first sequencing before the last arithmetic write. Its certified-
-load/faultable-store case preserves isolation through final memory preparation.
+load/faultable-store case installs the successor on the older tail but holds the
+first read through final memory preparation and actual release.
 Use the managed Racket wrappers and keep generated HDL/native builds untracked.
 
 For packed multiply integration, run `vector-multiply` and

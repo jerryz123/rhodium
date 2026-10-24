@@ -32,7 +32,7 @@ for WB-admitted descriptors. It exposes memory issue, decision, completion,
 store acknowledgement, and precise-outcome streams, with caller-typed fault
 provenance. `~pipe` explicitly selects admission credit timing; `~dispatch_depth`
 selects descriptor capacity independently of completion slots. The caller supplies
-LSU request-idle and memory-drained indications and selects arithmetic timing
+LSU `memory_start_ready` and memory-drained indications and selects arithmetic timing
 and packed multiplication. The composition adds no queues beyond admission and
 execution themselves; scalar retirement policy and LSU staging remain outside.
 
@@ -86,14 +86,17 @@ revalidation. A failed certificate selects precise execution, not an exception.
 [`VectorAdmission`](admission.rhdl) supplies a descriptor queue, head
 certification, pinned-window release, and registered early/precise outcomes.
 `~dispatch_depth` is a positive host integer, defaulting to two stored descriptors
-in addition to the active sequencer. RV2Wide selects four; RV5Stage retains two.
+in addition to the active sequencer. RV2Wide selects six; RV5Stage retains two.
 Its explicit `~pipe` option selects whether admission credit can depend on
 same-cycle dequeue. Fault provenance is an opaque caller-supplied type.
-Uncertified memory waits for older memory preparation and LSU attempts, but can
-replace arithmetic on its final sequencing edge. Per-row data, index, and mask
-hazards still apply; arithmetic results need not drain first. The caller combines
-`VectorExecution.memory_preparing` with its adapter's idle indication to cover
-older memory before LSU capture, without waiting for accepted slow responses.
+`VectorBackend` can install uncertified memory on an older instruction's final
+sequencing edge. It holds the first faultable read until `memory_start_ready`
+guarantees that the fixed-latency operand result can enter the LSU next cycle.
+A successful final certified attempt supplies same-edge release credit; a retry,
+split, blocked return, or new durable capture does not. Accepted slow responses
+may remain outstanding. Per-row data, index, and mask hazards still apply;
+arithmetic results need not drain first. The wait appears as a normal sequencing
+stall, without an extra request or result queue.
 [`VectorReplay`](replay.rhdl) retains certified requests through local retries;
 attempts may run ahead, but release remains ordered. A split takeover can move
 the attempt cursor past the oldest retained request without releasing its owner.

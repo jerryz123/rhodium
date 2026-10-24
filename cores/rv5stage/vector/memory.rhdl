@@ -52,7 +52,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   interface store_completed(Valid(Bits(index_width(slots))), ~role: producer)
   input store: Bool
   input pointer_masking: PointerMaskControl()
-  output(pipeline_physical, request_physical, requests_idle): Bool
+  output(pipeline_physical, request_physical, requests_idle, memory_start_ready): Bool
   def pipeline_guest :: RiscvGuestException():
     if hypervisor
     | block:
@@ -219,6 +219,9 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def truncate = fault & token.truncate_on_fault
   recover <== retry ||| fault ||| split_capture
   resolved <== wb_context.valid & token.precertified & !recover
+  // Reserve the next-cycle issue edge only after all older preparation has
+  // left the pipeline and the durable ring is empty or actually releasing last.
+  memory_start_ready <== replay.empty_after_release & !issue.valid & !lookup.valid & !mem_context.valid & (!arrival.valid ||| resolved) & !split_pending
   when (wb_context.valid & token.precertified):
     assert(!fault, "certified_vector_request_cannot_fault")
     assert(queued & (token.completion_tag === replay.oldest.completion_tag), "vector_retry_resolves_oldest_request")

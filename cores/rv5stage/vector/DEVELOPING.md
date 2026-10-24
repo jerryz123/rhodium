@@ -315,11 +315,13 @@ Zero-stride splats keep mask-prefix sequencing, releasing on early capture of
 their first active probe. Their existing splat owner retains the later drain.
 
 Fallback two-page and potentially faulting operations retain the shared page
-window and precise sequencer checkpoint. They dispatch after older certified
-requests leave the retry ring; older accepted responses may still drain.
-Include `VectorExecution.memory_preparing` in that memory-only isolation through
-the final operand return. Arithmetic can hand off its final sequencing edge to
-an uncertified memory descriptor; required data/index/mask rows still interlock.
+window and precise sequencer checkpoint. They can replace an older instruction
+on its final sequencing edge, but their first memory read waits for the adapter's
+next-cycle acceptance promise. Only actual final release of a certified attempt
+credits that edge; retries, blocked results, splits, and new durable capture
+withhold it. Older accepted responses may still drain. The shared backend uses
+`memory_start_pending` to qualify sequencing, not descriptor installation;
+required data/index/mask rows still interlock.
 Do not reinterpret cache acceptance as permission checking or architectural
 retirement.
 
