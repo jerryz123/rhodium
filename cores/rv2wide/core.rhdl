@@ -272,6 +272,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   vector.truncate |> wb_csrs.vector_truncate
   reg wb_vector_scalar_pending(~init: Bool(#false))
   reg wb_vector_scalar_owner(RV2WideInstruction(xlen))
+  def wb_vector_scalar_return = vector.scalar_result.valid & vector.scalar_result.bits.address.any()
+  def wb_vector_scalar_available = !wb_vector_scalar_pending ||| wb_vector_scalar_return
   reg rr_vector_writeback_waiting(~init: Bool(#false))
   inst wb_vector_scoreboard(Scoreboard(32))
   vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => result.address) |> wb_vector_scoreboard.clear
@@ -346,11 +348,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     data: result.integer_value
     deferred: Bool(#false)
 
-  (Array(wb_gpr_return, wb_fp_return, wb_vector_return) |> valid_arbiter() |> trace_valid_event("core/s4.wb.deferred", ~fields: result):
-    pc: result.fetched.pc
-    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): result.fetched.raw_instruction
-    rd: result.rd
-  ) |> completed
+  Array(wb_gpr_return, wb_fp_return, wb_vector_return) |> valid_arbiter() |> completed
 
   wb_scoreboard.clear.valid <== wb_gpr_return.valid & wb_gpr_return.bits.write
   wb_scoreboard.clear.bits <== wb_gpr_return.bits.rd
@@ -604,7 +602,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def control :: RV2WideControl() = rr_controls[lane]
     def floating_source_pending = rr_vector_frs1[lane] & rr_fp_busy(rr_rs1[lane])
     def floating_destination_blocked = control.vector.floating_point & control.vector.floating_scalar_destination & !fp.drained
-    def vector_execution_blocked = rr_vector[lane] & (wb_vector_scalar_pending ||| floating_source_pending ||| floating_destination_blocked)
+    def integer_result_claim = control.vector.integer & control.vector.scalar_destination & control.writeback.enable & rr_rd[lane].any()
+    def vector_execution_blocked = rr_vector[lane] & ((integer_result_claim & !wb_vector_scalar_available) ||| floating_source_pending ||| floating_destination_blocked)
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
     def floating_result_pending = wb_vector_fpr_pending & control.fp.valid
     def memory_order_blocked = control.memory.enable & (vector.stores_pending ||| (control.memory.access.store_fault_class() & vector.loads_pending))
@@ -1225,7 +1224,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vector = wb_live_group[wb_vector_lane]
   def wb_vector_offer = wb_dispatch[wb_vector_lane] & (if vector_enabled | mux(wb_vector_lane === Bits(1)(0), wb_vectors[0], wb_vectors[1]) | Bool(#false))
   def wb_vector_ordered = !wb_vector.vector.control.memory ||| (wb_prior_memory_drained & !wb_load_response.pending & !wb_ordered_memory_pending)
-  def wb_vector_results_available = !wb_vector_scalar_pending & !wb_vector_fpr_pending
+  def wb_vector_gpr_write = wb_vector.vector.control.integer & wb_vector.vector.control.scalar_destination & wb_vector.write
+  def wb_vector_results_available = (!wb_vector_gpr_write ||| wb_vector_scalar_available) & !wb_vector_fpr_pending
   def wb_vector_fpr_available = !wb_vector.vector.control.floating_scalar_destination ||| !wb_vector.vector.control.floating_point ||| fp.drained
   vector_fast.candidate <== wb_vector.vector.certificate
   def wb_vector_masking_current = wb_vector.vector.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
@@ -1257,19 +1257,24 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   elsewhen (wb_vector_scalar_replay):
     rr_vector_retry_wait <== Bool(#true)
 
-  wb_vector_scoreboard.set.valid <== wb_vector_accepted & wb_vector.write
+  wb_vector_scoreboard.set.valid <== wb_vector_accepted & wb_vector_gpr_write
   wb_vector_scoreboard.set.bits <== wb_vector.rd
   fp.vector_reserve.valid <== wb_vector_accepted & wb_vector.vector.control.floating_point & wb_vector.vector.control.floating_scalar_destination
   fp.vector_reserve.bits <== wb_vector.rd
 
-  // Allocation wins a coincident return; FPR ownership ends on the actual
-  // shared-port write, not when a vector result first becomes available.
-  when (wb_vector_accepted & wb_vector.vector.control.integer & wb_vector.vector.control.scalar_destination):
+  // Only a nonzero GPR writer claims this owner; unrelated vector descriptors
+  // may pass it. A returning result still observes the old owner on replacement.
+  when (wb_vector_scalar_return):
+    assert(wb_vector_scalar_pending & (vector.scalar_result.bits.address === instruction_field(fields.rd, wb_vector_scalar_owner.instruction)), "rv2wide_vector_scalar_return_owner")
+
+  when (wb_vector_accepted & wb_vector_gpr_write):
+    assert(wb_vector_scalar_available, "rv2wide_vector_scalar_owner_available")
     wb_vector_scalar_pending <== Bool(#true)
     wb_vector_scalar_owner <== wb_vector.fetched
-  elsewhen (vector.scalar_result.valid):
+  elsewhen (wb_vector_scalar_return):
     wb_vector_scalar_pending <== Bool(#false)
 
+  // FPR ownership ends on the actual shared-port write, not result availability.
   when (fp.vector_reserve.valid):
     wb_vector_fpr_pending <== Bool(#true)
   elsewhen (fp.vector_written.valid):

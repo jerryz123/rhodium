@@ -944,10 +944,9 @@ This illustrates the current implementation. Packet ownership survives compactin
 one/two-slot consumption, compressed assembly, and flush. Load owners survive in
 their queue, multiply owners traverse the feed-forward authorization path, and
 divide owners remain with the shared divider until accepted completion.
-`core/s4.wb.deferred` marks a deferred service completion reaching WB. Its ancestry
-follows the aligned owner directly from EX multiply launch, or the retained
-service and completion pipeline from WB load/divide acceptance, without
-intermediate service events.
+Scalar pipeline trace checkpoints end at architectural retirement. Later GPR
+writes still appear on the functional `completed` interface and passive cosim
+observations, without a separate scalar completion trace checkpoint.
 Vector `vector/s1.sequence` transfers and stalls inherit the selected
 `core/s3.mem.slotN` occurrence through WB admission and the descriptor queue.
 This follows the accepted instruction, not its PC: faultable vector memory can
@@ -1025,6 +1024,11 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   operations share the same arithmetic units with retained completion tags.
 - Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
   retain their destination until the shared load-write port accepts the result.
+- One nonzero vector-to-GPR result may be outstanding. Only another
+  GPR-producing vector instruction waits for that owner; unrelated vector
+  descriptors can enter the queue subject to ordinary dependencies, credit,
+  and memory ordering. Results targeting x0 do not occupy the owner. A real
+  return permits replacement on the same edge without buffering the value.
 
 For example, `vmv.v.x v8, a0` followed by `li a0, 7` can issue and retire
 together: the vector descriptor captures the old value of `a0` before the

@@ -962,6 +962,15 @@ long enough to create a free slot, while aged scalar completions retain bounded
 priority. FPR scalar moves keep their reservation until the shared load-write
 port actually writes them, not merely until the vector engine produces them.
 
+The single vector-to-GPR owner is capacity for a nonzero scalar destination,
+not a vector dispatch barrier. RR and WB check that claim only for another
+integer scalar-result writer; keep FPR ownership independent. The actual
+nonzero return must match the retained owner's decoded destination and may
+release capacity for same-edge acceptance. That cycle's completion uses the old
+owner, while allocation wins the next-state update. x0 results neither claim
+nor release ownership. Preserve the per-GPR scoreboard and calendar, and keep
+accepted ownership live across scalar recovery until its scheduled write.
+
 ## Validation
 
 Validate the real shared engine, adapters, and integrated core with:
@@ -1023,6 +1032,14 @@ waiting on a delayed load, late multiply interlocks, and either lane's fault/rep
 Independent pairs cover both orders, scalar-source WAR snapshots, VRF/immediate
 versus GPR fields, late GPR-result RAW/WAW splits, accepted-vector drain before
 a younger trap, and actual full-descriptor-queue replay without memory traffic.
+Vector-to-GPR overlap cases hold a move behind a long-running vector divide,
+require younger arithmetic/scalar-to-vector/memory descriptors and independent
+scalars to retire before its return, and verify exact completion identities in
+either WB lane.
+An older x0 extraction must not claim or release the real owner. A second GPR
+writer retains the one-owner interlock; arrival-offset sweeps check replay and
+same-edge owner replacement without duplicate completions. Scan-to-GPR cases
+cover population count and first-set index, including a zero-valued result.
 They also check certified loads/stores retiring at ordinary WB without recovery,
 younger scalar progress, physical remapping, stale-certificate fallback, and
 cross-page fallback. MMU checks cover nonallocating cold certification, warm

@@ -1,10 +1,9 @@
--- Validates RV2Wide ancestry, exact EX+3 multiply writes, variable returns, and RR stall explanations.
+-- Validates RV2Wide fetch/pipeline ancestry, retirement timing, and RR stall explanations.
 -- SPDX-License-Identifier: Apache-2.0
 WITH raw_events AS (
   SELECT s.id, t.name, s.ts, s.arg_set_id,
          EXTRACT_ARG(s.arg_set_id,'debug.pc') AS pc,
          EXTRACT_ARG(s.arg_set_id,'debug.instruction') AS instruction,
-         EXTRACT_ARG(s.arg_set_id,'debug.rd') AS rd,
          CAST(EXTRACT_ARG(s.arg_set_id,'debug.cycle') AS INT) AS cycle
   FROM slice s JOIN rheg_tracks t ON t.id=s.track_id
   WHERE s.name!='stall' AND json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.kind')='transfer'
@@ -17,12 +16,10 @@ WITH raw_events AS (
          a.pc AS parent_pc, b.pc AS child_pc,
          a.pc_block AS parent_block, b.pc_block AS child_block,
          a.instruction AS parent_instruction, b.instruction AS child_instruction,
-         a.rd AS parent_rd, b.rd AS child_rd, b.cycle-a.cycle AS delay
+         b.cycle-a.cycle AS delay
   FROM flow JOIN events a ON a.id=flow.slice_out JOIN events b ON b.id=flow.slice_in
 ), pipeline AS (
   SELECT * FROM events WHERE name GLOB 'core/*.slot[01]'
-), deferred AS (
-  SELECT * FROM events WHERE name='core/s4.wb.deferred'
 ), rr_reason_fields(field) AS (
   VALUES ('data_hazard'),('structural_hazard')
 ), rr_observations AS (
@@ -62,17 +59,6 @@ SELECT
     (src!=replace(dst,'/s3.mem.','/s2.ex.') OR delay!=1 OR parent_pc!=child_pc OR parent_instruction!=child_instruction)) AND
   (SELECT count(*)=0 FROM edges WHERE dst GLOB 'core/s4.wb.slot[01]' AND
     (src NOT IN ('core/s3.mem.slot0','core/s3.mem.slot1') OR delay<1 OR parent_pc!=child_pc OR parent_instruction!=child_instruction)) AND
-  (SELECT count(*)>0 FROM deferred) AND
-  (SELECT count(*)>0 FROM deferred WHERE instruction GLOB 'l[bhwd]*') AND
-  (SELECT count(*)>0 FROM deferred WHERE instruction GLOB 'mul*') AND
-  (SELECT count(*)>0 FROM deferred WHERE instruction GLOB 'div*' OR instruction GLOB 'rem*') AND
-  (SELECT count(*)=0 FROM deferred WHERE pc IS NULL OR instruction IS NULL OR rd IS NULL) AND
-  (SELECT count(*)=0 FROM deferred p WHERE (SELECT count(*) FROM edges e WHERE e.child=p.id)!=1) AND
-  (SELECT count(*)=0 FROM edges WHERE dst='core/s4.wb.deferred' AND
-    (parent_pc!=child_pc OR parent_instruction!=child_instruction OR
-     src NOT IN ('core/s2.ex.slot0','core/s2.ex.slot1','core/s4.wb.slot0','core/s4.wb.slot1') OR
-     (src GLOB 'core/s2.ex.slot[01]' AND (child_instruction NOT GLOB 'mul*' OR delay!=3)) OR
-     (src GLOB 'core/s4.wb.slot[01]' AND (child_instruction GLOB 'mul*' OR delay<4 OR parent_rd!=child_rd)))) AND
   (SELECT count(*)=0 FROM (SELECT parent,dst FROM edges WHERE dst GLOB 'core/*.slot[01]' AND dst NOT GLOB 'core/s1.rr.slot[01]' GROUP BY parent,dst HAVING count(*)>1)) AND
   (SELECT count(*)=0 FROM pipeline WHERE COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),0)!=0) AND
   (SELECT count(*)>0 FROM rr_observations WHERE stalled) AND

@@ -32,7 +32,7 @@ class PredictionTest(unittest.TestCase):
         self.track(1, 'core/s5.wb')
         self.track(2, 'core/s4.wb.slot0')
         self.track(3, 'core/s4.wb.slot1')
-        self.track(4, 'core/s4.wb.deferred')
+        self.track(4, 'vector/complete')
         self.track(5, 'core/s3.mem.slot0')
 
     def track(self, identifier, label, sites=None):
@@ -107,7 +107,7 @@ class PredictionTest(unittest.TestCase):
 
     def test_mixing_completion_with_retirement_in_one_track_is_rejected(self):
         self.track(6, None, sites=[dict(label='core/s4.wb.slot0', kind='transfer'),
-                                  dict(label='core/s4.wb.deferred', kind='transfer')])
+                                  dict(label='vector/complete', kind='transfer')])
         self.event(track=6)
         with self.assertRaisesRegex(ValueError, 'merged with non-retirement'):
             analysis.analyze(self.rows())

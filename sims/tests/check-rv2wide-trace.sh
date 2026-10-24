@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks real RV2Wide instruction, lane, service, and completion lineage with Perfetto.
+# Checks RV2Wide fetch, dual-slot pipeline ancestry, and RR stall reasons with Perfetto.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 : "${TRACE_PROCESSOR:?Set TRACE_PROCESSOR to the native trace_processor_shell executable}"
@@ -12,4 +12,4 @@ if [[ "$actual" != $'"ok"\n1' ]]; then
   printf 'Unexpected RV2Wide trace result: %s\n' "$actual" >&2
   exit 1
 fi
-echo 'RV2Wide fetch, dual-slot pipeline, and delayed-completion ancestry passed'
+echo 'RV2Wide fetch, dual-slot pipeline ancestry, and RR stall reasons passed'

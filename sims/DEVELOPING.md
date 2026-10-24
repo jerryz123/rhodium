@@ -236,8 +236,10 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 Mini/Simple RV2Wide use the same event target, including composition with cosim.
 `trace-smoke` reuses the scalar cosim payload and `check-rv2wide-events.sql` checks
 fetch/packet-to-issue ownership, dual-slot issue, PC/instruction preservation,
-fixed EX/MEM timing, successful WB, exact EX+3 multiply writes, and the
-three-stage variable-return path. The existing RV5Stage trace checks remain separate because its stage and
+fixed EX/MEM timing, successful WB, and RR stall explanations. Direct core
+fixtures and passive cosim observations cover scheduled multiply writes and
+the three-stage variable-return path; these writes add no scalar trace checkpoint.
+The existing RV5Stage trace checks remain separate because its stage and
 prediction contracts differ. Keep trace selection out of SoC/ISA/CI inventories.
 
 `branch-prediction.py` owns core-specific retirement-label selection and the

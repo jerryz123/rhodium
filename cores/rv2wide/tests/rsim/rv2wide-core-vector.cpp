@@ -28,6 +28,8 @@ std::map<std::uint64_t, unsigned> memory_cycles;
 std::map<std::uint64_t, unsigned> retirement_cycles;
 std::map<std::uint64_t, unsigned> retirement_lanes;
 std::map<std::uint64_t, std::uint64_t> retirement_values;
+struct GprCompletion { unsigned cycle, rd, instruction; std::uint64_t value; };
+std::map<std::uint64_t, std::vector<GprCompletion>> gpr_completions;
 struct Response { std::uint64_t data; unsigned due; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
@@ -59,6 +61,7 @@ std::uint64_t trace_cycle = 0, sequence = 0, stall = 0, complete = 0;
 unsigned admissions = 0, dispatches = 0, queued = 0, replacements = 0;
 unsigned rejections = 0;
 std::map<std::uint64_t, unsigned> admission_counts;
+std::map<std::uint64_t, unsigned> admission_cycles;
 std::array<unsigned, 2> lanes{};
 std::map<rheg::Ref, unsigned> beats;
 constexpr unsigned mem_sites[] = {rv2wide_vector_sites::mem0, rv2wide_vector_sites::mem1};
@@ -171,6 +174,8 @@ void finish() {
 extern "C" void rv2wide_vector_admission(std::uint64_t resetting, std::uint64_t valid,
     std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction) {
   vector_trace::admission = {!resetting && valid && ready, pc, instruction};
+  if (!resetting && valid && ready)
+    vector_trace::admission_cycles.emplace(pc, cycle);
   if (!resetting && valid && !ready) ++vector_trace::rejections;
 }
 extern "C" void rv2wide_vector_dispatch(std::uint64_t resetting, std::uint64_t valid,
@@ -281,7 +286,10 @@ void step() {
     }
     if (completed_out.pvalid && completed_out.pbits.pwrite) {
       ++deferred_count;
-      gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
+      const auto &result = completed_out.pbits;
+      gprs[result.prd] = result.pdata;
+      gpr_completions[result.pfetched.ppc].push_back(
+          {cycle, unsigned(result.prd), unsigned(result.pfetched.praw_uinstruction), result.pdata});
     }
     if (branch_update_out.pvalid) {
       CHECK(retired_pcs.contains(branch_update_out.pbits.ppc));
@@ -394,9 +402,8 @@ std::uint32_t vsetivli(unsigned rd, unsigned avl, unsigned type) {
 std::uint32_t vsetvli(unsigned rd, unsigned rs1, unsigned type) {
   return 0x7057 | type << 20 | rs1 << 15 | rd << 7;
 }
-void stream(std::initializer_list<std::uint32_t> words, bool fault = false,
+void stream(const std::vector<std::uint32_t> &program, bool fault = false,
             bool recover = false, bool require_recovery = true) {
-  const std::vector<std::uint32_t> program(words);
   const auto base = next_pc;
   next_pc += 4 * program.size();
   const unsigned faults_before = fault_count, redirects_before = redirect_count;
@@ -1045,6 +1052,102 @@ void independent_vector_scalar_pairs() {
   CHECK(gprs[3] == 109);
   extract(18, 7, 0);
 }
+void vector_gpr_owner_overlap() {
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    run(120);
+    setvl(0, bytes * 2);
+    send(addi(3, 0, 0x640));
+    send(addi(2, 0, 5));
+    send(addi(4, 0, 126));
+    send(vi(23, 0, 4, 4, 2)); // v2 = 126
+    send(vi(23, 0, 2, 4, 3)); // v3 = 5
+    send(addi(4, 0, 2));
+    run(20);
+    words[0x1640] = bytes == 8 ? UINT64_C(0x4444444444444444) : UINT64_C(0x44444444);
+    words[0x1640 + bytes] = words[0x1640];
+    fast_enabled = slow = true;
+    response_delay = 100;
+    send(vi(32, 2, 4, 6, 8)); // long vector divide holds the older VRF producer
+    const auto discarded = next_pc;
+    send(vi(16, 8, 0, 2, 0)); // older vmv.x.s x0 must not claim the owner
+    const auto base = next_pc;
+    const auto move = vi(16, 8, 0, 2, 20);
+    stream({lane ? addi(24, 0, 1) : move, lane ? move : addi(24, 0, 1),
+            vi(0, 3, 3, 0, 9), addi(25, 0, 2),
+            vi(23, 0, 2, 4, 10), addi(26, 0, 3),
+            0x02000007 | (3 << 15) | (11 << 7), addi(27, 0, 4)});
+    const auto move_pc = base + 4 * lane;
+    CHECK(retirement_lanes.at(move_pc) == lane);
+    CHECK(!gpr_completions.contains(move_pc));
+    for (unsigned offset : {8u, 16u, 24u}) {
+      CHECK(vector_trace::admission_counts.at(base + offset) == 1);
+      CHECK(retired_pcs.contains(base + offset));
+    }
+    CHECK(gprs[24] == 1 && gprs[25] == 2 && gprs[26] == 3 && gprs[27] == 4);
+
+    // A second real GPR writer still waits for the single owner, even with a
+    // different rd. The older x0 return must not release or overwrite it.
+    const auto second_pc = next_pc;
+    send(vi(16, 3, 0, 2, 21));
+    run(160);
+    CHECK(!gpr_completions.contains(discarded) && gprs[0] == 0);
+    const auto &first = gpr_completions.at(move_pc);
+    const auto &second = gpr_completions.at(second_pc);
+    CHECK(first.size() == 1 && first.front().rd == 20 &&
+          first.front().instruction == move && first.front().value == 63);
+    CHECK(second.size() == 1 && second.front().rd == 21 && second.front().value == 5);
+    CHECK(vector_trace::admission_cycles.at(second_pc) >= first.front().cycle);
+    for (unsigned offset : {0u, 4u, 8u, 12u, 16u, 20u, 24u, 28u})
+      CHECK(retirement_cycles.at(base + offset) < first.front().cycle);
+    CHECK(gprs[20] == 63 && gprs[21] == 5);
+    fast_enabled = slow = false;
+    response_delay = 12;
+    extract(9, 7, 10);
+    extract(10, 7, 5);
+    extract(11, 7, 0x44);
+  }
+
+  // Sweep pipeline arrival offsets through a ready scalar extraction's return.
+  // This exercises same-edge owner replacement as well as preacceptance replay.
+  unsigned replacements = 0;
+  for (unsigned gap = 0; gap < 8; ++gap) {
+    run(20);
+    const auto base = next_pc;
+    std::vector<std::uint32_t> program{vi(16, 3, 0, 2, 22)};
+    for (unsigned index = 0; index < gap; ++index) program.push_back(addi(24, 0, index));
+    const auto second_pc = base + 4 * program.size();
+    program.push_back(vi(16, 3, 0, 2, 23));
+    stream(program, false, true, false);
+    run(20);
+    const auto &first = gpr_completions.at(base);
+    const auto &second = gpr_completions.at(second_pc);
+    CHECK(first.size() == 1 && second.size() == 1);
+    CHECK(first.front().rd == 22 && second.front().rd == 23 &&
+          first.front().value == 5 && second.front().value == 5);
+    const auto admitted = vector_trace::admission_cycles.at(second_pc);
+    CHECK(admitted >= first.front().cycle);
+    replacements += admitted == first.front().cycle;
+  }
+  CHECK(replacements);
+
+  // The same claim covers scan-to-GPR results, including a zero-valued return.
+  for (unsigned source : {16u, 17u}) { // vcpop.m; vfirst.m
+    const auto base = next_pc;
+    const auto scan = vi(16, 3, source, 2, 22);
+    const auto move = vi(16, 3, 0, 2, 23);
+    stream({scan, move}, false, true, false);
+    run(20);
+    const auto &first = gpr_completions.at(base);
+    const auto &second = gpr_completions.at(base + 4);
+    CHECK(first.size() == 1 && first.front().instruction == scan && first.front().rd == 22);
+    CHECK(first.front().value == (source == 16 ? bytes / 2 : 0));
+    CHECK(second.size() == 1 && second.front().instruction == move && second.front().value == 5);
+    CHECK(vector_trace::admission_cycles.at(base + 4) >= first.front().cycle);
+  }
+  std::cout << "Vector-to-GPR overlap: both WB lanes, x0, queued successors, "
+            << replacements << " same-cycle owner replacements\n";
+}
+
 void paired_vector_stores() {
   run(120);
   setvl(bytes == 8 ? 3 : 2, 2);
@@ -1794,6 +1897,7 @@ int main() {
     paired_vector_arithmetic();
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
+    vector_gpr_owner_overlap();
     paired_vector_stores();
     conflict_based_pairing();
     vector_memory_branch_pairs();
