@@ -4,3 +4,4 @@
 0013-limit-medeleg-walk-to-base-causes.patch
 0014-program-su-wrs-timer-directly.patch
 0015-inhibit-split-counter-preload.patch
+0016-normalize-wfi-handler-retirement.patch
