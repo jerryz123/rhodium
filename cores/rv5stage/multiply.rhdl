@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-format.rhdl") open
   lib("cores/integer-execution.rhdl") open
   "../multiplier.rhdl" open
   "integer-execution.rhdl" open
@@ -88,10 +89,7 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: B
       when (issue.valid):
         assert(available, "scalar_multiply_issue_has_reserved_slot")
 
-  def product = execution_result.bits.value
-  def full_result = mux(execution_result.bits.tag.high_result, product[width..product_width], product[0..width])
-  def word_result_value = product[0..32].into(SInt(32)).sext(64).as_bits()
-  def selected_result = if xlen == XLen.X64 | mux(execution_result.bits.tag.word_result, word_result_value, full_result) | full_result
+  def selected_result = integer_multiply_result(xlen, execution_result.bits.value, execution_result.bits.tag.high_result, execution_result.bits.tag.word_result)
 
   completion.valid <== execution_result.valid & result_authorized
   completion.bits <== RV5StageMultiplyCompletion(xlen):

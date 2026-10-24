@@ -1,0 +1,32 @@
+#lang rhodium
+/* Normalizes scalar M-extension operands and results independently of service scheduling. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "divider.rhdl".DividerResponse
+  lib("riscv/isa/xlen.rhm").XLen
+
+/* Narrows RV64 word division inputs with the selected signedness; RV32 inputs pass through. */
+fun integer_word_operand(xlen :: XLen, value :: Bits(xlen.width), signed_mode :: Bool, word :: Bool) :~ Bits(xlen.width):
+  if xlen == XLen.X32
+  | value
+  | mux(word, mux(signed_mode, value[0..32].into(SInt(32)).sext(64).as_bits(), value[0..32].zext(64)), value)
+
+/* Sign-extends architectural RV64 word results, including unsigned divide/remainder results. */
+fun integer_word_result(xlen :: XLen, value :: Bits(xlen.width), word :: Bool) :~ Bits(xlen.width):
+  if xlen == XLen.X32 | value | mux(word, value[0..32].into(SInt(32)).sext(64).as_bits(), value)
+
+/* Selects an XLEN product half; MULW always takes the sign-extended low word. */
+fun integer_multiply_result(xlen :: XLen, product :: Bits(2 * xlen.width), high :: Bool, word :: Bool) :~ Bits(xlen.width):
+  def selected = mux(high, product[xlen.width..2 * xlen.width], product[0..xlen.width])
+  if xlen == XLen.X32 | selected | mux(word, integer_word_result(xlen, product[0..xlen.width], Bool(#true)), selected)
+
+/* Projects quotient or remainder and applies the architectural word-result rule. */
+fun integer_divide_result(xlen :: XLen, result :: DividerResponse(xlen.width), remainder :: Bool, word :: Bool) :~ Bits(xlen.width):
+  integer_word_result(xlen, mux(remainder, result.remainder, result.quotient), word)
+
+export:
+  integer_word_operand
+  integer_word_result
+  integer_multiply_result
+  integer_divide_result

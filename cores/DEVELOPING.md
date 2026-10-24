@@ -112,6 +112,12 @@ feed-forward multiplication, with explicit scheduled or buffered return adapters
 `register-write.rhdl` supplies a GPR destination/value payload independent of
 physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
+`integer-format.rhdl` owns scalar M-extension word-operand normalization and
+product/quotient/remainder projection, without scheduling or owner types.
+`reservation-wait.rhdl` owns the WRS timer and wake-versus-timeout priority;
+named cores retain the instruction and qualify TW/VTW from their CSR state.
+Capture resets the timer before any same-edge increment. Completion remains a
+level rather than consuming or replacing the caller's retained owner.
 
 `writeback-calendar.rhdl` owns registered write-cycle occupancy and ordered
 same-cycle claims. Keep `registered_free` independent of all reservation
@@ -268,6 +274,10 @@ Use both cores\' composed decode checks when changing these mappings.
 
 Shared instruction mappings and row geometry use
 `cores/tests/{alu-decode,multiply-decode,divide-decode,vector-layout}-test.rhm`.
+Scalar integer formatting changes use `rv5stage-multiply`, `rv5stage-divide`,
+`rv2wide-core`, and `rv2wide-rv32`. Reservation-wait changes use
+`rv5stage-zawrs` and `rv2wide-core`, including timeout-edge reservation loss;
+`rv5stage-hypervisor-core` additionally checks VTW and simultaneous TW/VTW.
 Tagged integer service changes use `rv5stage-integer-execution` for held
 results and scheduled returns, and `rv2wide-core-vector` for shared-client
 ownership and scalar WB authorization.

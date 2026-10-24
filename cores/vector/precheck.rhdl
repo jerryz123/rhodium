@@ -11,7 +11,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/rtl/vector.rhdl".RiscvVectorState
-  lib("rhodium/std/bits.rhdl").count_leading_zeros
+  lib("rhodium/std/bits.rhdl") open
 
 /* Retains widened byte-span arithmetic before pointer normalization and overflow checks. */
 bundle VectorFootprintGeometry():
@@ -28,6 +28,35 @@ bundle VectorFootprint():
   eligible: Bool
   empty: Bool
   range: VectorRange()
+
+/* Carries the normalized start and overflow proof across a caller-selected pipeline boundary. */
+bundle VectorFastStart(xlen :: XLen):
+  address: Bits(xlen.width)
+  no_wrap: Bool
+
+/* Forms a forward or reverse footprint start without adding storage or changing pointer policy. */
+fun vector_fast_start(xlen :: XLen, base :: Bits(xlen.width), geometry :: VectorFootprintGeometry(), masking :: PointerMaskControl()) :~ VectorFastStart(xlen):
+  def offset = geometry.start_offset[0..xlen.width]
+  def raw = mux(geometry.reverse, base - offset, base + offset)
+  VectorFastStart(xlen):
+    address: apply_pointer_mask(xlen, raw, masking)
+    no_wrap: !geometry.start_offset[xlen.width..68].any() & mux(geometry.reverse, base >= offset, raw >= base) & (!geometry.strided ||| (masking.mode === PointerMaskMode.Disabled))
+
+/* Checks a prepared start for aligned one-page certification and expands it to whole memory beats.
+   Callers may register the start and geometry independently before this combinational step. */
+fun vector_fast_range(xlen :: XLen, start :: VectorFastStart(xlen), geometry :: VectorFootprintGeometry(), store :: Bool) :~ VectorFootprint():
+  def first = if xlen == XLen.X32 | start.address.zext(64) | start.address
+  def last_offset = first[0..12].zext(14) + geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
+  def one_page = (geometry.span_bytes <= Bits(68)(4096)) & (last_offset < Bits(14)(4096))
+  def aligned = !(first & ((Bits(64)(1) << geometry.eew) - Bits(64)(1))).any()
+  VectorFootprint():
+    eligible: geometry.eligible & start.no_wrap & one_page & aligned
+    empty: geometry.empty
+    range:
+      VectorRange():
+        first: first.align_down(xlen.width / 8)
+        last: (first[12..64] ++ last_offset[0..12]) ||| Bits(64)(xlen.width / 8 - 1)
+        store: store
 
 /* Multiplies by the constant-selected field count using shifts and additions. */
 fun vector_field_extent(value :: Bits(68), nf :: Bits(3)) :~ Bits(68):
@@ -114,6 +143,9 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDes
         store: descriptor.control.store
 
 export:
+  VectorFastStart
+  vector_fast_start
+  vector_fast_range
   VectorFootprintGeometry
   vector_footprint_geometry
   vector_fast_footprint_geometry

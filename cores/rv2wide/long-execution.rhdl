@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-format.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   "bundles.rhdl" open
   lib("cores/multiplier.rhdl") open
@@ -80,9 +81,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   def wb_owner = owner_issue |> valid_pipe(2)
   def returned = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(operation):
-    def product = execution.result.bits.value
-    def value = mux(operation.control.high_result, product[xlen.width..2 * xlen.width], product[0..xlen.width])
-    def result = if xlen == XLen.X32 | value | mux(operation.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
+    def result = integer_multiply_result(xlen, execution.result.bits.value, operation.control.high_result, operation.control.word_result)
     operation.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
 
@@ -128,8 +127,7 @@ sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2
   reg occupied(~init: Bool(#false))
   (scalar_response |> map_flow(response):
     def owner = response.tag.view(Owner().Scalar).payload
-    def value = mux(owner.control.remainder, response.value.remainder, response.value.quotient)
-    def result = if xlen == XLen.X32 | value | mux(owner.control.word_result, value[0..32].into(SInt(32)).sext(64).into(Bits(64)), value)
+    def result = integer_divide_result(xlen, response.value, owner.control.remainder, owner.control.word_result)
     owner.owner.updated(~data: result, ~deferred: Bool(#false))
   ) |> completed
 

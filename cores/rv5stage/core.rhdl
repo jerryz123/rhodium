@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl") open
   lib("cores/operand.rhdl") open
   lib("cores/integer-service.rhdl") open
   lib("cores/mmu/vector.rhdl") open
@@ -470,20 +471,17 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_reservation_wait_pending = wb_reservation_wait.egress.valid
   def wb_reservation_wait_instruction = wb_reservation_wait.egress.bits
-  reg wb_reservation_wait_count(~init: Bits(12)(0))
-  def wb_reservation_wait_wake = !scalar_data.reservation_valid ||| wb_csrs.wfi_wake
-  def wb_reservation_wait_expired = all(wb_reservation_wait_count)
-  def wb_reservation_wait_short = wb_reservation_wait_instruction.system.wait === RV5StageWait.ShortTimeout
-  def wb_reservation_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
-  def wb_reservation_wait_vtw = if hypervisor | wb_csrs.guest_translation.virtualized & csr_flag(wb_csrs.guest_translation.hstatus, HstatusVTW) | Bool(#false)
-  def wb_reservation_wait_timeout = wb_reservation_wait_expired & (wb_reservation_wait_short ||| wb_reservation_wait_tw ||| wb_reservation_wait_vtw)
-  def wb_reservation_wait_done = wb_reservation_wait_pending & (wb_reservation_wait_wake ||| wb_reservation_wait_timeout)
-  def wb_reservation_wait_exception = wb_reservation_wait_done & !wb_reservation_wait_wake & !wb_reservation_wait_short & (wb_reservation_wait_tw ||| wb_reservation_wait_vtw)
+  inst wb_wait(ReservationWait())
+  wb_wait.active <== wb_reservation_wait_pending
+  wb_wait.reservation_valid <== scalar_data.reservation_valid
+  wb_wait.interrupt_wake <== wb_csrs.wfi_wake
+  wb_wait.short_timeout <== wb_reservation_wait_instruction.system.wait === RV5StageWait.ShortTimeout
+  wb_wait.trap_on_timeout <== (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
+  wb_wait.virtual_trap_on_timeout <== if hypervisor | wb_csrs.guest_translation.virtualized & csr_flag(wb_csrs.guest_translation.hstatus, HstatusVTW) | Bool(#false)
+  def wb_reservation_wait_done = wb_wait.completion.valid
+  def wb_reservation_wait_exception = wb_wait.completion.valid & wb_wait.completion.bits.as_bits().any()
   def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & (wb_input.bits.system.wait =/= RV5StageWait.None)
-  when wb_reservation_wait_accept:
-    wb_reservation_wait_count <== Bits(12)(0)
-  elsewhen (wb_reservation_wait_pending & !wb_reservation_wait_done & !wb_reservation_wait_expired):
-    wb_reservation_wait_count <== wb_reservation_wait_count + Bits(12)(1)
+  wb_wait.capture.valid <== wb_reservation_wait_accept
 
   def Array(wb_integer_responses, wb_fp_responses, wb_other_responses) = scalar_data.response |> demux_flow(3, response):
     priority_mux(~default: Bits(2)(2)):
@@ -1135,9 +1133,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_vector_snapshot <== mux(ex_is_vector_config, ex_configured_vector_state, ex_vector_base_state)
   ex_vector_geometry <== vector_fast_footprint_geometry(xlen, vector_length, ex_input.bits.vector_control, ex_input.bits.instruction, ex_vector_snapshot, ex_forwarded_rs2)
   // Keep the vector footprint address independent of the scalar ALU operand path.
-  def ex_vector_offset = ex_vector_geometry.start_offset[0..width]
-  def ex_vector_first_raw = mux(ex_vector_geometry.reverse, ex_forwarded_rs1 - ex_vector_offset, ex_forwarded_rs1 + ex_vector_offset)
-  def ex_vector_first = if extensions.ssnpm | apply_pointer_mask(xlen, ex_vector_first_raw, ex_input.bits.pointer_masking) | ex_vector_first_raw
+  def ex_vector_start = vector_fast_start(xlen, ex_forwarded_rs1, ex_vector_geometry, ex_input.bits.pointer_masking)
   def ex_vector_illegal = (ex_input.bits.vector_launch & !ex_vector_operation_legal) ||| (ex_is_vector_config & ex_vector_configuration.illegal)
 
   /* EX-local fault classification.
@@ -1280,8 +1276,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire ex_payload: ExecuteMemory(xlen, vector_completion_slots, hypervisor)
   ex_payload.vector_launch <== ex_input.bits.vector_launch
   ex_payload.vector_context <== ex_vector_context
-  ex_payload.vector_fast_first <== ex_vector_first
-  ex_payload.vector_fast_no_wrap <== !ex_vector_geometry.start_offset[width..68].any() & mux(ex_vector_geometry.reverse, ex_forwarded_rs1 >= ex_vector_offset, ex_vector_first_raw >= ex_forwarded_rs1) & (!ex_vector_geometry.strided ||| (ex_input.bits.pointer_masking.mode === PointerMaskMode.Disabled))
+  ex_payload.vector_fast_first <== ex_vector_start.address
+  ex_payload.vector_fast_no_wrap <== ex_vector_start.no_wrap
   ex_payload.vector_fast_geometry <== ex_vector_geometry
   ex_payload.pc <== ex_input.bits.pc
   ex_payload.resume_pc <== ex_resume_pc
@@ -1368,17 +1364,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     cache_outcome(~format: "enum"): mem_cache_outcome
     cache_reason(~format: "enum"): mux(scalar_pipeline.response.valid, scalar_pipeline.response.bits.reason, CachePipelineReason.None)
 
-  def mem_vector_geometry = mem_input.bits.vector_fast_geometry
-  def mem_vector_first = if xlen == XLen.X32 | mem_input.bits.vector_fast_first.zext(64) | mem_input.bits.vector_fast_first
-  def mem_vector_span_fits = mem_vector_geometry.span_bytes <= Bits(68)(4096)
-  def mem_vector_last_offset = mem_vector_first[0..12].zext(14) + mem_vector_geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
-  def mem_vector_one_page = mem_vector_span_fits & (mem_vector_last_offset < Bits(14)(4096))
-  def mem_vector_aligned = (mem_vector_first & ((Bits(64)(1) << mem_vector_geometry.eew) - Bits(64)(1))) === Bits(64)(0)
-  vector_fast.request.valid <== mem_stage_valid & mem_input.bits.vector_launch & mem_vector_geometry.eligible & !mem_vector_geometry.empty & mem_input.bits.vector_fast_no_wrap & mem_vector_one_page & mem_vector_aligned & !mem_input.bits.replay & !mem_input.bits.exception_valid
-  vector_fast.request.bits <== VectorRange():
-    first: mem_vector_first.align_down(width / 8)
-    last: (mem_vector_first[12..64] ++ mem_vector_last_offset[0..12]) ||| Bits(64)(width / 8 - 1)
-    store: mem_input.bits.vector_context.control.store
+  def mem_vector_start = VectorFastStart(xlen):
+    address: mem_input.bits.vector_fast_first
+    no_wrap: mem_input.bits.vector_fast_no_wrap
+
+  def mem_vector_footprint = vector_fast_range(xlen, mem_vector_start, mem_input.bits.vector_fast_geometry, mem_input.bits.vector_context.control.store)
+  vector_fast.request.valid <== mem_stage_valid & mem_input.bits.vector_launch & mem_vector_footprint.eligible & !mem_vector_footprint.empty & !mem_input.bits.replay & !mem_input.bits.exception_valid
+  vector_fast.request.bits <== mem_vector_footprint.range
 
   def Array(mem_context_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_prediction_path) = mem_live |> fork_valid(4)
   mem_context_path |> memory_response.context
@@ -1552,7 +1544,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   elsewhen wb_reservation_wait_exception:
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#true)
-      cause: mux(wb_reservation_wait_tw, exception_cause_bits(ExceptionCause.IllegalInstruction, width), exception_cause_bits(ExceptionCause.VirtualInstruction, width))
+      cause: mux(wb_wait.completion.bits.illegal_instruction, exception_cause_bits(ExceptionCause.IllegalInstruction, width), exception_cause_bits(ExceptionCause.VirtualInstruction, width))
       value: core_instruction_value(wb_offer_bits.raw_instruction)
   otherwise:
     wb_exception <== RV5StageException(xlen):

@@ -82,6 +82,11 @@ that has already become nonspeculative.
 [MMU contracts](../mmu/vector.rhdl) and [page window](../mmu/vector-window.rhdl)
 support certification. The caller owns the DTLB/PTW arbitration and WB context
 revalidation. A failed certificate selects precise execution, not an exception.
+`vector_fast_start` prepares a pointer-normalized start and wrap proof from the
+fast geometry. `vector_fast_range` checks that start for alignment and one-page
+eligibility and rounds the range outward to whole XLEN memory beats. Both are
+combinational, so callers can place a stage boundary between them. Empty ranges
+are reported separately and must not issue a fast check.
 
 [`VectorAdmission`](admission.rhdl) supplies a descriptor queue, head
 certification, pinned-window release, and registered early/precise outcomes.

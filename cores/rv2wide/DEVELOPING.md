@@ -145,6 +145,11 @@ Keep broader ISA qualification in the existing software suites.
 
 ## Implementation map
 
+`../reservation-wait.rhdl` supplies the WRS timer and wake/timeout result;
+the core retains the waiting WB lane and qualifies TW/VTW. Scalar M-extension
+operand/result formatting uses `../integer-format.rhdl`; RR/EX reservations,
+WB authorization, and the two-port writeback policy stay local.
+
 | Owner | Responsibility |
 |---|---|
 | `decode/operand-ctrl.rhdl` | Composes shared operand relations with RV2Wide MOP and dedicated-multiply routing policy |

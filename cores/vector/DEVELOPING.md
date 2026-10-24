@@ -127,6 +127,11 @@ its memory streams to their LSU adapter and select WB policy, fault-provenance
 types, drain qualification, arithmetic resources, and descriptor queue timing.
 Passive execution taps are nested under the backend component; memory taps stay
 on the named LSU. Keep their capture bindings aligned when changing hierarchy.
+Keep `precheck.rhdl`'s fast start preparation separate from one-page range
+qualification. RV5Stage registers the start/wrap proof and geometry at EX/MEM;
+RV2Wide computes both helpers in EX. Neither helper owns validity, registers,
+certificate context, or retirement. Validate changes through
+`rv5stage-vector-memory`, `rv2wide-core-vector`, and its RV32 counterpart.
 The memory adapters retain fixed lookup stages, fault interpretation, split
 ownership, and cache response shaping; `VectorReplay` owns only durable request
 storage and its ordered attempt/release cursors.

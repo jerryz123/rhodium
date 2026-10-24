@@ -1,0 +1,36 @@
+#lang rhodium
+/* Counts reservation-wait timeouts while the caller retains instruction and retirement ownership. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+
+/* Reports normal wake or the selected timeout exception, with illegal-instruction priority. */
+bundle ReservationWaitResult():
+  illegal_instruction: Bool
+  virtual_instruction: Bool
+
+/* Restarts the saturating 12-bit timer on capture; wake beats both timeout classes.
+   Completion remains valid while the caller's active owner is eligible to finish. */
+sync_circuit ReservationWait():
+  interface capture(Pulse(), ~role: consumer)
+  input(active, reservation_valid, interrupt_wake, short_timeout, trap_on_timeout, virtual_trap_on_timeout): Bool
+  interface completion(Valid(ReservationWaitResult()), ~role: producer)
+
+  reg count(~init: Bits(12)(0))
+  def wake = !reservation_valid ||| interrupt_wake
+  def expired = count.all()
+  def timeout = expired & (short_timeout ||| trap_on_timeout ||| virtual_trap_on_timeout)
+  completion.valid <== active & (wake ||| timeout)
+  completion.bits <== ReservationWaitResult():
+    illegal_instruction: !wake & !short_timeout & trap_on_timeout
+    virtual_instruction: !wake & !short_timeout & !trap_on_timeout & virtual_trap_on_timeout
+
+  when (capture.valid):
+    count <== Bits(12)(0)
+  elsewhen (active & !completion.valid & !expired):
+    count <== count + Bits(12)(1)
+
+export:
+  ReservationWaitResult
+  ReservationWait

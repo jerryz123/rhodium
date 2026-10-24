@@ -45,6 +45,8 @@ completion adaptation and instruction/uncached integration.
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in XLEN-wide Zve/V WB-launched sequencer, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | Scalar FP payloads, FPR hazards, LSU bridges, and retirement adaptation over shared [`cores/fp/`](../fp/DEVELOPING.md) components |
 | [`decode/system-ctrl.rhdl`](decode/system-ctrl.rhdl) | Composes shared CSR actions with local reservation-wait control; `core.rhdl` owns WB authorization and retirement |
+| [`../reservation-wait.rhdl`](../reservation-wait.rhdl) | Shared WRS timeout/wakeup mechanism; the core retains its WB instruction and qualifies TW/VTW |
+| [`../integer-format.rhdl`](../integer-format.rhdl) | Scalar multiply/divide operand and result formatting, independent of service ownership |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
 | [`cache.rhdl`](../cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/integer-format.rhdl") open
   lib("cores/integer-service.rhdl") open
   lib("cores/integer-execution.rhdl") open
   "../divider.rhdl" open
@@ -43,14 +44,8 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
   interface execution_result(Irrevocable(IntegerExecutionResult(DividerResponse(width), RV5StageDivideTag())), ~role: consumer)
   inst authorized(Queue(Request, 1))
 
-  def signed_dividend = if xlen == XLen.X64 | issue.bits.dividend[0..32].into(SInt(32)).sext(64).as_bits() | issue.bits.dividend
-  def unsigned_dividend = if xlen == XLen.X64 | issue.bits.dividend[0..32].zext(64) | issue.bits.dividend
-  def signed_divisor = if xlen == XLen.X64 | issue.bits.divisor[0..32].into(SInt(32)).sext(64).as_bits() | issue.bits.divisor
-  def unsigned_divisor = if xlen == XLen.X64 | issue.bits.divisor[0..32].zext(64) | issue.bits.divisor
-  def word_dividend = mux(issue.bits.control.signed_mode, signed_dividend, unsigned_dividend)
-  def word_divisor = mux(issue.bits.control.signed_mode, signed_divisor, unsigned_divisor)
-  def normalized_dividend = if xlen == XLen.X64 | mux(issue.bits.control.word_result, word_dividend, issue.bits.dividend) | issue.bits.dividend
-  def normalized_divisor = if xlen == XLen.X64 | mux(issue.bits.control.word_result, word_divisor, issue.bits.divisor) | issue.bits.divisor
+  def normalized_dividend = integer_word_operand(xlen, issue.bits.dividend, issue.bits.control.signed_mode, issue.bits.control.word_result)
+  def normalized_divisor = integer_word_operand(xlen, issue.bits.divisor, issue.bits.control.signed_mode, issue.bits.control.word_result)
 
   available <== authorized.ingress.ready
   (
@@ -74,9 +69,7 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
   when (issue.valid):
     assert(available, "scalar_divide_issue_has_reserved_slot")
 
-  def result :: Bits(width) = mux(execution_result.bits.tag.remainder, execution_result.bits.value.remainder, execution_result.bits.value.quotient)
-  def word_result_value = if xlen == XLen.X64 | result[0..32].into(SInt(32)).sext(64).as_bits() | result
-  def selected_result = if xlen == XLen.X64 | mux(execution_result.bits.tag.word_result, word_result_value, result) | result
+  def selected_result = integer_divide_result(xlen, execution_result.bits.value, execution_result.bits.tag.remainder, execution_result.bits.tag.word_result)
 
   (
     execution_result |> map_flow(~stable: #true, _result):

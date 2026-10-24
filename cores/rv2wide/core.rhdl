@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl") open
+  lib("cores/integer-format.rhdl") open
   lib("cores/operand.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   "profile.rhm" open
@@ -17,7 +19,7 @@ import:
   "memory-ports.rhdl" open
   lib("cores/vector/decode.rhdl") open
   lib("cores/vector/bundles.rhdl") open
-  lib("cores/vector/precheck.rhdl").vector_fast_footprint_geometry
+  lib("cores/vector/precheck.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/rtl/vector.rhdl") open
@@ -811,18 +813,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def ex_address = apply_pointer_mask(xlen, ex_raw_address, ex_mask)
     // Only the proposed range is meaningful before MEM supplies a certificate.
     def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.rs2)
-    def ex_vector_offset = ex_vector_geometry.start_offset[0..xlen.width]
-    def ex_vector_first_raw = mux(ex_vector_geometry.reverse, ex.rs1 - ex_vector_offset, ex.rs1 + ex_vector_offset)
-    def ex_vector_first_address = apply_pointer_mask(xlen, ex_vector_first_raw, ex_mask)
-    def ex_vector_first = if xlen == XLen.X32 | ex_vector_first_address.zext(64) | ex_vector_first_address
-    def ex_vector_no_wrap = !ex_vector_geometry.start_offset[xlen.width..68].any() & mux(ex_vector_geometry.reverse, ex.rs1 >= ex_vector_offset, ex_vector_first_raw >= ex.rs1) & (!ex_vector_geometry.strided ||| (ex_mask.mode === PointerMaskMode.Disabled))
-    def ex_vector_last_offset = ex_vector_first[0..12].zext(14) + ex_vector_geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
-    def ex_vector_one_page = (ex_vector_geometry.span_bytes <= Bits(68)(4096)) & (ex_vector_last_offset < Bits(14)(4096))
-    def ex_vector_aligned = !(ex_vector_first & ((Bits(64)(1) << ex_vector_geometry.eew) - Bits(64)(1))).any()
-    def ex_vector_range = VectorRange():
-      first: ex_vector_first.align_down(xlen.width / 8)
-      last: (ex_vector_first[12..64] ++ ex_vector_last_offset[0..12]) ||| Bits(64)(xlen.width / 8 - 1)
-      store: ex.control.vector.store
+    def ex_vector_start = vector_fast_start(xlen, ex.rs1, ex_vector_geometry, ex_mask)
+    def ex_vector_footprint = vector_fast_range(xlen, ex_vector_start, ex_vector_geometry, ex.control.vector.store)
     def ex_data_guest:
       if profile.hypervisor
       | block:
@@ -907,8 +899,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       right: ex.rs2
       fp: ex.control.fp
       fp_request: ex.fp_request
-      vector_fast_eligible: ex_vector_geometry.eligible & !ex_vector_geometry.empty & ex_vector_no_wrap & ex_vector_one_page & ex_vector_aligned
-      vector: ex.vector.updated(~scalar: mux(ex.pair_routes[0] === RV2WidePairRoute.VectorScalar, ex_alu_older.result, ex.vector.scalar), ~state: ex_vector_state, ~certificate: ex.vector.certificate.updated(~range: ex_vector_range))
+      vector_fast_eligible: ex_vector_footprint.eligible & !ex_vector_footprint.empty
+      vector: ex.vector.updated(~scalar: mux(ex.pair_routes[0] === RV2WidePairRoute.VectorScalar, ex_alu_older.result, ex.vector.scalar), ~state: ex_vector_state, ~certificate: ex.vector.certificate.updated(~range: ex_vector_footprint.range))
       resolution:
         RV2WideResolution(xlen):
           guest: mux(ex.fetched.fault.valid, ex.fetched.fault.guest, ex_generated_guest)
@@ -1120,18 +1112,19 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   /* Reservation-wait completion uses retained instruction context.
      Wake wins over timeout faults; the counter saturates until completion. */
 
-  reg wb_wait_count(~init: Bits(12)(0))
-  def wb_wait_wake = !scalar_memory.reservation_valid ||| wb_csrs.wfi_wake
-  def wb_wait_short = wb_retained_owner.system.wait === RV2WideWait.ShortTimeout
-  def wb_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
-  def wb_wait_vtw = guest_state.virtualized & csr_flag(guest_state.hstatus, HstatusVTW)
-  def wb_wait_expired = wb_wait_count.all() & (wb_wait_short ||| wb_wait_tw ||| wb_wait_vtw)
-  def wb_wait_complete = wb_reservation_waiting & (wb_wait_wake ||| wb_wait_expired)
-  def wb_wait_fault = !wb_wait_wake & !wb_wait_short & (wb_wait_tw ||| wb_wait_vtw)
+  inst wb_wait(ReservationWait())
+  wb_wait.active <== wb_reservation_waiting
+  wb_wait.reservation_valid <== scalar_memory.reservation_valid
+  wb_wait.interrupt_wake <== wb_csrs.wfi_wake
+  wb_wait.short_timeout <== wb_retained_owner.system.wait === RV2WideWait.ShortTimeout
+  wb_wait.trap_on_timeout <== (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
+  wb_wait.virtual_trap_on_timeout <== guest_state.virtualized & csr_flag(guest_state.hstatus, HstatusVTW)
+  def wb_wait_complete = wb_wait.completion.valid
+  def wb_wait_fault = wb_wait.completion.bits.as_bits().any()
   def wb_wait_resolution = RV2WideResolution(xlen):
     guest: literal(RiscvGuestFault(), 0)
     disposition: mux(wb_wait_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
-    cause: mux(wb_wait_tw, exception_cause_bits(ExceptionCause.IllegalInstruction, xlen.width), exception_cause_bits(ExceptionCause.VirtualInstruction, xlen.width))
+    cause: mux(wb_wait.completion.bits.illegal_instruction, exception_cause_bits(ExceptionCause.IllegalInstruction, xlen.width), exception_cause_bits(ExceptionCause.VirtualInstruction, xlen.width))
     value: if xlen == XLen.X32 | wb_retained_owner.fetched.raw_instruction | wb_retained_owner.fetched.raw_instruction.zext(64)
 
   /* Split, management, and vector completion resolve the captured owner, not live WB.
@@ -1362,10 +1355,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   elsewhen wb_retained_drained:
     wb_retained_state <== RV2WideRetainedState.Ready
 
-  when wb_wait_capture:
-    wb_wait_count <== Bits(12)(0)
-  elsewhen (wb_reservation_waiting & !wb_wait_complete & !wb_wait_count.all()):
-    wb_wait_count <== wb_wait_count + Bits(12)(1)
+  wb_wait.capture.valid <== wb_wait_capture
 
   when (scalar_split.response.valid):
     assert(wb_retained_pending & wb_retained_sent, "rv2wide_split_response_has_retirement_owner")
@@ -1435,11 +1425,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_divide_link.left.bits <== wb_long
   (wb_divide_link.right |> map_flow(operation):
     def control = operation.muldiv.divide
-    def word_left = if xlen == XLen.X32 | operation.left | mux(control.signed_mode, operation.left[0..32].into(SInt(32)).sext(64).into(Bits(64)), operation.left[0..32].zext(64))
-    def word_right = if xlen == XLen.X32 | operation.right | mux(control.signed_mode, operation.right[0..32].into(SInt(32)).sext(64).into(Bits(64)), operation.right[0..32].zext(64))
     def request = DividerRequest(xlen.width):
-      dividend: mux(control.word_result, word_left, operation.left)
-      divisor: mux(control.word_result, word_right, operation.right)
+      dividend: integer_word_operand(xlen, operation.left, control.signed_mode, control.word_result)
+      divisor: integer_word_operand(xlen, operation.right, control.signed_mode, control.word_result)
       signed_mode: control.signed_mode
 
     def owner = RV2WideRetirement(xlen):

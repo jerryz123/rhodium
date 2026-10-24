@@ -665,6 +665,12 @@ VRF operand data. Shared vector code never imports a named core.
 payloads using the public language; `cores/register-write.rhdl` imports XLEN
 for the GPR destination/value payload. Named-core service adapters retain
 selection, launch authorization, and physical writeback policy.
+`cores/integer-format.rhdl` imports the shared divider response and architectural
+XLEN for combinational scalar M-extension formatting. Both cores' arithmetic
+adapters consume it; it imports no named-core configuration or scheduling.
+`cores/reservation-wait.rhdl` imports public Flow for Pulse/Valid ports and owns
+only WRS timeout state and completion classification. Both cores supply the
+retained-owner validity and qualified privilege controls.
 The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
 protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`

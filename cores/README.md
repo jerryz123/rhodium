@@ -54,6 +54,24 @@ writeback, where every result must be consumed on its return cycle.
 Callers retain launch arbitration, scalar authorization, result projection,
 and destination/write-port scheduling.
 
+[`integer-format.rhdl`](integer-format.rhdl) provides combinational scalar
+M-extension formatting: `integer_word_operand` normalizes signed/unsigned RV64
+word-division inputs, `integer_multiply_result` selects the product half or MULW
+result, and `integer_divide_result` selects quotient/remainder with word-result
+sign extension. `integer_word_result` exposes that sign-extension rule directly.
+RV32 values remain XLEN-wide; none of these helpers adds storage or arbitration.
+
+### Reservation waiting
+
+[`ReservationWait`](reservation-wait.rhdl) owns the saturating 12-bit WRS timer.
+`capture` restarts it; `active` refers to a caller-retained instruction. Loss of
+`reservation_valid` or `interrupt_wake` completes normally, ahead of timeout.
+A short wait completes normally at timeout; an unbounded wait times out only
+when the caller enables `trap_on_timeout` or `virtual_trap_on_timeout`. The former
+wins if both apply. `completion` is a Valid level until the caller releases its
+active owner, with separate illegal/virtual-instruction flags. The caller owns
+privilege qualification, instruction retention, trap values, and retirement.
+
 ### Writeback calendar
 
 [`WritebackCalendar(clients, latency, ~queries: 1)`](writeback-calendar.rhdl)
