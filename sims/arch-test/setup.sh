@@ -15,7 +15,7 @@ command -v bundle >/dev/null || { echo 'ACT needs Ruby 3.2+ and Bundler on PATH'
 git -C "$repo_dir" submodule update --init sw/riscv-arch-test
 temp_dir="$(mktemp -d /tmp/rhodium-act-setup.XXXXXX)"
 trap 'rm -rf "$temp_dir"' EXIT
-# UDB 0.1.17's dependency installer selects CPU but not OS and downloads ELF
+# UDB 0.1.18's dependency installer selects CPU but not OS and downloads ELF
 # libz3.so on macOS. Preinstall the matching official native release locally.
 if [[ "$(uname -s)-$(uname -m)" == Darwin-arm64 ]]; then
   z3_dir="$XDG_CACHE_HOME/udb/z3/z3-5.1.0/arm64"

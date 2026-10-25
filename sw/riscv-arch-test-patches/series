@@ -1,7 +1,6 @@
-# Applies canonical vector extensions and platform fixes not yet supplied by ACT.
+# Applies remaining canonical-generator and platform corrections to pinned ACT.
 # SPDX-License-Identifier: Apache-2.0
 0005-avoid-reserved-vsetvl-when-forcing-vill.patch
 0013-limit-medeleg-walk-to-base-causes.patch
 0014-program-su-wrs-timer-directly.patch
-0015-inhibit-split-counter-preload.patch
-0016-normalize-wfi-handler-retirement.patch
+0016-normalize-wfi-interrupt-retirement.patch

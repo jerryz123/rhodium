@@ -280,7 +280,7 @@ exact versions, the implied weaker `Za128rs` bound, a 64-byte `CACHE_BLOCK_SIZE`
 even without CMO decode, and the access-sized `LRSC_RESERVATION_STRATEGY`.
 Definitions follow the [ratified profiles](https://docs.riscv.org/reference/rvb23/v1.0/rvb23.html).
 
-UDB 0.1.17 has an applicability inconsistency for CMO-free profiles: Zic64b
+UDB 0.1.18 has an applicability inconsistency for CMO-free profiles: Zic64b
 requires `CACHE_BLOCK_SIZE`, but that database defines the parameter only for
 Zicbom/Zicbop/Zicboz. The projection retains the truthful hardware value;
 validation of those CMO-free configurations requires a corrected UDB definition.

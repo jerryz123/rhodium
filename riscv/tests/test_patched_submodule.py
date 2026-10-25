@@ -42,6 +42,27 @@ class PatchedSubmoduleTest(unittest.TestCase):
             self.assertEqual((output / "value.txt").read_text(), "after\n")
             self.assertFalse((output / ".git").exists())
 
+    def test_preserves_nested_dependency_sources_and_relative_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "upstream"
+            dependency = source / "dependency"
+            dependency.mkdir(parents=True)
+            (dependency / ".git").write_text("gitdir: external-metadata\n")
+            (dependency / "value.c").write_text("int value = 42;\n")
+            (source / "value.c").symlink_to("dependency/value.c")
+            patches = root / "patches"
+            patches.mkdir()
+            (patches / "series").write_text("# No downstream changes.\n")
+
+            output = root / "build/source"
+            patched_submodule.materialize(source, patches / "series", output)
+
+            self.assertTrue((output / "value.c").is_symlink())
+            self.assertEqual((output / "value.c").readlink(), Path("dependency/value.c"))
+            self.assertEqual((output / "value.c").read_text(), "int value = 42;\n")
+            self.assertFalse((output / "dependency/.git").exists())
+
     def test_rejects_output_inside_pristine_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

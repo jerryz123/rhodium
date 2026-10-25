@@ -89,6 +89,9 @@ The downstream Spike patch keeps `medeleg` page-fault bits 12, 13, and 15
 writable on S-mode harts even when only Bare is implemented. Project that CSR
 readback independently of supported translation modes; the ACT/Sail mask must
 not remove those bits from Bare configurations.
+Publish that same mask as UDB's 64-entry `MEDELEG_DELEGATABLE` array.
+`MIDELEG_DELEGATABLE` includes implemented supervisor/overflow interrupts and
+the three H-mandated VS delegation bits, but not zero-GEILEN SGEIP.
 The DPI adapter keys each model by enclosing simulator scope and the explicit
 hart ID. Hart IDs must remain stable and unique within one simulator scope;
 flattened rsim harts share that scope. Reset clears only the selected hart.

@@ -17,6 +17,10 @@ owns reusable state implementation, not a core's pipeline policy.
   and WARL facts from `RiscvCsrConfig`, including guest-state and counter enables.
   Both cores' host profiles expose that same configuration used to instantiate RTL.
   Pipeline precision and trap-value provenance remain explicit caller claims.
+  UDB's 64-entry `MEDELEG_DELEGATABLE` and `MIDELEG_DELEGATABLE` arrays
+  publish the selected exception mask and implemented supervisor, forced VS,
+  and overflow interrupt delegation. Virtual interrupt sources are mandatory
+  with H, not separate optional UDB switches.
 - `protocol.rhdl` defines the neutral command, architectural action enum, and
   shared pure-read intent/implicit-writer dependency policy.
 - `file.rhdl` owns state, CSR dispatch, trap/return transitions, interrupt

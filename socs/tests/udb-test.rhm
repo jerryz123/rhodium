@@ -96,7 +96,7 @@ for (core in ["rv5stage", "spike", "rv2wide"]):
                        "NON_STANDARD_EXTENSION_IMPLEMENTED: false", "WFI_FINITE: false", "WFI_U_MODE: false", "HPM_COUNTER3_WIDTH: 64"]):
       check: configuration.to_yaml().contains("  " ++ parameter) ~is #true
 
-    for (interrupt in ["MEI", "MSI", "MTI", "SEI", "SSI", "STI", "VSEI", "VSSI", "VSTI"]):
+    for (interrupt in ["MEI", "MSI", "MTI", "SEI", "SSI", "STI"]):
       check: configuration.to_yaml().contains("  " ++ interrupt ++ "_INTR_IMPL: true") ~is #true
 
     check: configuration.to_yaml().contains("  STVEC_MODES: [0") ~is #true

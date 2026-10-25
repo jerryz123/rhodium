@@ -72,6 +72,10 @@ series under
 [`riscv/riscv-isa-sim-patches/`](riscv/riscv-isa-sim-patches/). The upstream
 source remains under the University of California BSD license reproduced in
 [`LICENSE.riscv-isa-sim`](riscv/riscv-isa-sim-patches/LICENSE.riscv-isa-sim).
+Spike also pins Berkeley SoftFloat as its nested
+[`berkeley-softfloat-3`](riscv/riscv-isa-sim/berkeley-softfloat-3/) submodule.
+Its copyright and three-clause redistribution terms are retained in upstream
+[`COPYING.txt`](riscv/riscv-isa-sim/berkeley-softfloat-3/COPYING.txt).
 
 ## Sail reference model
 

@@ -1,0 +1,40 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../config.rhm".RiscvCsrConfig
+  "../udb.rhm".riscv_csr_udb_parameters
+  "csr-profile.rhm".csr_test_isa
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/c.rhm").CCompressedExtensions
+  lib("riscv/udb.rhm").UdbBooleanListValue
+
+fun delegation(parameters, name):
+  def value :: UdbBooleanListValue = parameters.filter(~keep: fun (parameter): parameter.name == name)[0].value
+  value.values
+
+for (xlen in [XLen.X32, XLen.X64]):
+  for (hypervisor in (if xlen == XLen.X64 | [#false, #true] | [#false])):
+    for (counters in [#false, #true]):
+      for (compressed in [[], CCompressedExtensions]):
+        def config = RiscvCsrConfig(csr_test_isa(xlen), ~compressed: compressed, ~hypervisor: hypervisor, ~sscofpmf: counters)
+        def parameters = riscv_csr_udb_parameters(config)
+        def exceptions = delegation(parameters, "MEDELEG_DELEGATABLE")
+        def interrupts = delegation(parameters, "MIDELEG_DELEGATABLE")
+        check:
+          exceptions.length() ~is 64
+          interrupts.length() ~is 64
+          exceptions[0] ~is (compressed == [])
+          exceptions[11] ~is #false
+          exceptions[16] ~is #false
+          exceptions[10] ~is hypervisor
+          exceptions[20] ~is hypervisor
+          interrupts.filter(~keep: fun (enabled): enabled).length() ~is 3 + (if hypervisor | 3 | 0) + (if counters | 1 | 0)
+          interrupts[1] ~is #true
+          interrupts[5] ~is #true
+          interrupts[9] ~is #true
+          interrupts[2] ~is hypervisor
+          interrupts[6] ~is hypervisor
+          interrupts[10] ~is hypervisor
+          interrupts[12] ~is #false
+          interrupts[13] ~is counters

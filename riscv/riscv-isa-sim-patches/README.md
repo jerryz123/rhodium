@@ -33,7 +33,7 @@ The queue is ordered so each change can be reviewed and removed independently:
 15. `0022-mask-unimplemented-guest-interrupt-enable.patch` keeps both SGEIE aliases zero while preserving VS interrupt enables.
 16. `0024-keep-hedeleg-fault-bits-writable.patch` keeps H-mandated software-check and hardware-error delegation writable.
 
-At upstream pin `5a760667bf0d0ab893173b9eeff9c109c8d7dd9a`, ISA profile
+At upstream pin `2c300cd90eb74bb79f3fcdd58596a6f8d842d01c`, ISA profile
 properties, RV32 delegation CSRs, P1P13 gating, CSRIND gating, and overflow
 interrupt ordering are native. Their former downstream patches are retired.
 See [the RISC-V contributor guide](../DEVELOPING.md) for validation ownership.

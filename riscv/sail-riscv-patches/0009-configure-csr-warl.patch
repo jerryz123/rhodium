@@ -11,9 +11,9 @@ diff --git a/config/config.json.in b/config/config.json.in
 index dceaf4aa..a6b8fbfe 100644
 --- a/config/config.json.in
 +++ b/config/config.json.in
-@@ -17,6 +17,10 @@
-     // raise an illegal instruction exception.
-     "E": false,
+@@ -22,6 +22,10 @@
+     // in the extensions with this field below.
+     "misa_implemented": true,
      "writable_fiom": true,
 +    // Implementation-specific CSR WARL choices; defaults preserve native behavior.
 +    "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xCB1FF"}},

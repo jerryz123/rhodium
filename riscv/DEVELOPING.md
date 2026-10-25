@@ -101,7 +101,7 @@ patch contents. Keep native consumers on C++20, including the independently
 compiled RHEG parser. Remove a patch only when upstream implements its contract,
 and retain regression coverage for that behavior.
 
-At pin `5a760667bf0d0ab893173b9eeff9c109c8d7dd9a`, upstream supplies ISA-profile
+At pin `2c300cd90eb74bb79f3fcdd58596a6f8d842d01c`, upstream supplies ISA-profile
 properties, RV32 `medelegh`, CSRIND state-enable gating, the RV32-only P1P13
 guard, and HS overflow-interrupt priority. Their downstream patches are retired.
 The 16-patch series preserves embedding hooks and advertised architectural
@@ -109,6 +109,11 @@ contracts. P1P13 controls the
 [`hedelegh` CSR](https://docs.riscv.org/reference/isa/priv/hypervisor), which is RV32-only.
 Keep native regression coverage for RV32/RV64 with and without H, and for
 `hedelegh` permission checks.
+Spike now links most SoftFloat sources into its pinned
+`berkeley-softfloat-3` submodule. Setup initializes it recursively before the
+materializer copies the source tree, preserving the relative symlinks while
+omitting Git metadata. The parent Spike gitlink fixes the nested revision;
+do not introduce an independent top-level SoftFloat pin.
 Spike selects a naturally aligned 64-byte reservation region with Za64rs,
 otherwise 128 bytes with Za128rs, otherwise exact-address matching. Keep its
 UDB reservation strategy and the Sail projection aligned with that selection.
@@ -130,7 +135,7 @@ The pinned `sail-riscv` submodule is likewise a host-side reference dependency,
 not a pure-model import. Keep it pristine and build the adjacent patch series
 through the shared materializer. Its compiler and emulator installation belong
 to the ACT flow under `sims/arch-test/`.
-At pin `cd3f185e3a40cd402632d78a2bc213d62ae6f753`, the model reports version
+At pin `6f886e69efbbcdd5690808bc4aa87dadb17d38fc`, the model reports version
 0.16 and still requires Sail compiler 0.20.3. Native fault-address reporting
 uses `memory.invalid_physical_address`; `None` preserves full transformed
 addresses. Native Sdtrig support makes trigger CSRs absent when disabled.
@@ -140,6 +145,9 @@ PMAs, explicit interrupt boundaries, empty whole-register memory `vstart`
 cleanup, and external HPM inputs. Shared UDB projection disables Sdtrig for
 no-trigger harts; RV32/RV64 embedded regressions check absent read/write traps
 and native selector access when Sdtrig is enabled.
+Native configuration adds `base.misa_implemented` and
+`extensions.H.hedeleg_zero_writable`. Keep their defaults and the embedding's
+full delegation mask distinct: the new H option controls only bit zero.
 The CSR-WARL patch adds configurable `hedeleg`, HPM selector event IDs, and
 unsupported PMM normalization with legacy defaults. Resolved static policy,
 not observed DUT state, selects each implementation's behavior. The Sstc patch

@@ -49,7 +49,8 @@ build_dir="$work_dir/build"
 staged_install_dir="$work_dir/install"
 trap 'rm -rf "$work_dir"' EXIT
 
-git -C "$repo_dir" submodule update --init riscv/riscv-isa-sim
+# Spike's SoftFloat sources link into its own pinned nested submodule.
+git -C "$repo_dir" submodule update --init --recursive riscv/riscv-isa-sim
 expected_revision="$(git -C "$repo_dir" ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')"
 actual_revision="$(git -C "$spike_dir" rev-parse HEAD)"
 if [[ "$actual_revision" != "$expected_revision" ]]; then

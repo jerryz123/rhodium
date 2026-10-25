@@ -10,6 +10,11 @@ import:
   "../../../riscv/isa/xlen.rhm".XLen
   "../../../socs/configs/selection.rhm".IsaPreset
   "../../../socs/configs/spike-core-profile.rhm".spike_soc_profile
+  lib("riscv/udb.rhm").UdbBooleanListValue
+
+fun delegation(configuration, name):
+  def value :: UdbBooleanListValue = configuration.parameters.filter(~keep: fun (parameter): parameter.name == name)[0].value
+  value.values
 
 // This unit fixture exercises the existing projection, not a production ISA preset.
 def isa = RiscvIsaProfile(
@@ -90,7 +95,27 @@ for (parameter in ["MXLEN: 32", "PHYS_ADDR_WIDTH: 32", "MTVAL_WIDTH: 32", "STVAL
 for (preset in [IsaPreset.RVA23, IsaPreset.RV32Int, IsaPreset.RV32Max]):
   def config = spike_soc_profile(preset)
   def config_yaml = spike_udb_configuration(config, "no-pmp", "SoC without PMP").to_yaml()
+  def exported = spike_udb_configuration(config, "delegation", "Implementation delegation")
+  def exceptions = delegation(exported, "MEDELEG_DELEGATABLE")
+  def interrupts = delegation(exported, "MIDELEG_DELEGATABLE")
   check:
+    exceptions.length() ~is 64
+    interrupts.length() ~is 64
+    exceptions[0] ~is #false
+    exceptions[11] ~is #false
+    exceptions[16] ~is #false
+    exceptions[10] ~is (preset == IsaPreset.RVA23)
+    exceptions[12] ~is #true
+    exceptions[13] ~is #true
+    exceptions[15] ~is #true
+    interrupts[1] ~is #true
+    interrupts[5] ~is #true
+    interrupts[9] ~is #true
+    interrupts[2] ~is (preset == IsaPreset.RVA23)
+    interrupts[6] ~is (preset == IsaPreset.RVA23)
+    interrupts[10] ~is (preset == IsaPreset.RVA23)
+    interrupts[12] ~is #false
+    interrupts[13] ~is #true
     config.pmp_regions ~is 0
     config_yaml.contains("  AMO_MISALIGNED_BEHAVIOR: \"always raise access fault\"") ~is #true
     config_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true

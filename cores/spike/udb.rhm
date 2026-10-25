@@ -9,6 +9,7 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "profile.rhm".SpikeConfig
   lib("riscv/isa/trap.rhm") open
+  lib("riscv/isa/interrupt.rhm") open
 
 /* Exports the pinned Spike implementation's delegation masks and PMM normalization, not observed state. */
 fun spike_csr_warl_policy(profile :: SpikeConfig) :: Map:
@@ -157,6 +158,8 @@ fun spike_udb_configuration(profile :: SpikeConfig,
   /* Test whether this hart explicitly advertises the named ISA extension. */
   fun has(name :: String) :: Boolean: advertised.contains(name)
   def width = profile.hart_description.xlen.width
+  def medeleg_mask :: Nat = spike_csr_warl_policy(profile)["medeleg_mask"]
+  def mideleg_mask = interrupt_mask(SupervisorInterruptCauses ++ (if has("h") | VirtualSupervisorInterruptCauses | []) ++ (if has("sscofpmf") | [InterruptCause.LocalCounterOverflow] | []))
   def counter_enables = for List (index in 0..32): index < 3 || (index == 3 && has("sscofpmf"))
   def counter_inhibits = for List (index in 0..32): index == 0 || index == 2 || (index == 3 && has("sscofpmf"))
   def hpm_counters = for List (index in 0..32): index == 3 && has("sscofpmf")
@@ -172,6 +175,8 @@ fun spike_udb_configuration(profile :: SpikeConfig,
   | error(~who: #'spike_udb_configuration, "Sail models 0, 16, or 64 PMP entries")
 
   def mutable parameters = [
+     boolean_list_parameter("MEDELEG_DELEGATABLE", for List (index in 0..64): (medeleg_mask bits.and (1 bits.(<<) index)) != 0),
+     boolean_list_parameter("MIDELEG_DELEGATABLE", for List (index in 0..64): (mideleg_mask bits.and (1 bits.(<<) index)) != 0),
      // Bare RV32 addresses need 32 bits; enabled PMP exposes Spike's wider CSR masks.
      natural_parameter("MXLEN", width),
      natural_parameter("PHYS_ADDR_WIDTH", if width == 32 | (if profile.pmp_regions == 0 | 32 | 34) | 56),
@@ -300,7 +305,6 @@ fun spike_udb_configuration(profile :: SpikeConfig,
         boolean_parameter("MUTABLE_MISA_H", #true), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
         string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 14),
         natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0, 1]),
-        boolean_parameter("VSEI_INTR_IMPL", #true), boolean_parameter("VSSI_INTR_IMPL", #true), boolean_parameter("VSTI_INTR_IMPL", #true),
         boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
         boolean_list_parameter("HCOUNTENABLE_EN", counter_enables),
         boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),

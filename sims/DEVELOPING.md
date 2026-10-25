@@ -469,7 +469,7 @@ projection supplies the exact writable mask for generic CSR comparisons.
 The Sail adapter
 projects the independent UDB AMO and LR/SC misalignment choices to their
 corresponding exceptions without changing the DUT claims. The ACT-local UDB
-overlay declares `AMO_MISALIGNED_BEHAVIOR`, which is absent from UDB 0.1.17;
+overlay declares `AMO_MISALIGNED_BEHAVIOR`, which is absent from UDB 0.1.18;
 both core projections state it explicitly. Do not infer AMO fault selection
 from scalar misalignment support or the LR/SC policy.
 
@@ -513,10 +513,15 @@ The shared RVA23 preset uses this path for both RV5Stage and Spike. Enabling
 the profile does not create ACT coverage: report missing H/Sha test inventory
 separately from generation failures and runtime results. Do not replace it
 with a scalar or non-H reference profile to make a lane pass.
-Pinned UDB 0.1.17 natively accepts legal zero-GEILEN harts; no lower-bound
+Pinned UDB 0.1.18 natively accepts legal zero-GEILEN harts; no lower-bound
 overlay is required. The ACT-local UDB copy references the supported
 `arch-test/udb-overlay/` mechanism for remaining schema corrections; its
 extension list and parameter values are unchanged.
+UDB 0.1.18 requires 64-entry `MEDELEG_DELEGATABLE` and
+`MIDELEG_DELEGATABLE` arrays. The shared CSR and Spike projections publish
+their implementation-owned policies, including forced VS delegation with H.
+H's virtual interrupt sources are mandatory; do not restore their removed
+optional `VSEI_INTR_IMPL`, `VSSI_INTR_IMPL`, or `VSTI_INTR_IMPL` parameters.
 The overlay removes UDB's erroneous Sstvala and Shvstvala requirements
 that EBREAK report its PC: the profiles explicitly exempt EBREAK/C.EBREAK.
 UDB has only one breakpoint-reporting flag, so this narrower exception cannot
@@ -542,16 +547,19 @@ and header/runner contracts together. The shared linker layout keeps test data
 addresses equal between Sail signature payloads and self-checking DUT payloads;
 model-specific text and HTIF mailboxes follow test data and stack.
 
-At ACT pin `e82b786d52145315338c5aca0499d556fafcfb7d`, native vector-FP
+At ACT pin `ea22c06859691c5e2b44ef1fe4f7e06a8f1e4256`, native vector-FP
 generation supplies operand widths and separate scalar/broadcast register
 groups. Native privileged generators use record-counted trap signature storage,
 UDB counter guards, and bounded LR/SC retries. Do not restore the retired
 replacement FP generators, word-count sizing, or zeroed LR/SC result patches.
 Native generators also supply vector crypto/bitmanip, valid SEW expansion,
 and ordered-index alignment. The remaining patches add legal whole-register
-vill setup, base delegation coverage, direct S/U timer programming, and race-free
-RV32 HPM preloading. The preload saves the selector's high half, inhibits M/S/U
-counting during both counter writes, and restores the filter/OF bits before the workload.
+vill setup, base delegation coverage, and direct S/U timer programming.
+Native Sscofpmf generation inhibits every privilege during counter preloading,
+then enables the selected filter before the workload; its upstream implementation
+replaces the former RV32 split-counter preload patch. Suite merges and renames,
+including the expanded hypervisor framework, require fresh generation and
+complete inventory-based reporting rather than an old filename/count baseline.
 Generated UDB headers live in `work/<config>/env`. Keep the native all-suite
 selection and required Sail 0.16 check unchanged; refresh dependencies against
 ACT's lockfile before generation. The platform provides both external-interrupt
@@ -863,7 +871,7 @@ Ubuntu runtime libraries; Spike additionally needs its pinned shared libraries
 at the producer's runtime path. All producer/consumer jobs use the same runner image.
 
 Keep tool downloads checksum-pinned and update compiler/ACT/Sail compatibility
-together. UDB 0.1.17 uses `SUPPORTED_PMLEN_SSNPM` instead of an active `PMLEN`;
+together. UDB 0.1.18 uses `SUPPORTED_PMLEN_SSNPM` instead of an active `PMLEN`;
 core projections declare the complete supported set, and the shared Sail adapter
 maps those capabilities without selecting a runtime PMM mode. On macOS arm64,
 ACT setup preinstalls checksum-pinned native Z3 5.1.0 in UDB's versioned cache.
