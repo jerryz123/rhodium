@@ -768,8 +768,7 @@ hardware configuration unchanged during these comparisons.
 Program suite CI consumes the shared target descriptions, then
 `tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
-not a shape/ISA naming assumption. The six program-suite Simple configs produce
-eight build groups and sixteen execution jobs. Build jobs consume
+not a shape/ISA naming assumption. Build jobs consume
 `PREBUILT_PROGRAM_TARGET`, compile once per group, and publish checksum-bearing
 archives; their caches are keyed by the group and software inputs rather than
 the simulator config. `sw/build/bind.py` validates each archive against the
@@ -779,6 +778,14 @@ and `bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
+Bringup-Bench builds its entire bounded upstream inventory once per compatible
+group, then expands execution to eight deterministic shards for every eligible
+config. Each shard uses two workers; neither coverage nor sharding depends on
+core identity. Keep the shard count in `tools/ci/policy.py`, fan-out after build
+grouping in `tools/ci/programs.py`, and runner arguments in
+`program-test/Makefile.inc`. Separate result paths and artifact names preserve
+all shard diagnostics. Local execution defaults to one shard unless explicitly
+partitioned with `PROGRAM_SHARD_INDEX` and `PROGRAM_SHARD_COUNT`.
 Software-target and ELF-layout checks run once in the native job. Platform tests
 use the same grouping/archive/binding machinery in `ci-platform.yml`:
 `platform-plan` groups the shared targets and OpenSBI DTBs, `platform-build`

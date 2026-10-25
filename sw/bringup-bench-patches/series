@@ -6,3 +6,4 @@
 0004-remove-unused-anagram-argv-read.patch
 0005-bound-numeric-workloads.patch
 0006-bound-bubble-sort.patch
+0007-reduce-functional-inputs.patch

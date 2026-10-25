@@ -42,6 +42,34 @@ profile instead of the upstream default of 256. It retains the complete
 sortedness check and uses a replacement output hash calibrated by the native
 hash-alone host build before target simulation.
 
+`0007-reduce-functional-inputs.patch` further bounds twelve workloads that
+previously exceeded one million retired instructions on `simple-spike-rva23`:
+
+| Workload | Bounded input; retained coverage |
+|---|---|
+| banner | Width 64 through its existing option; complete original message |
+| bloom-filter | 256 items; linear membership reference for every query |
+| congrad | 16-by-16 grid; 25 conjugate-gradient iterations and solution checksum |
+| connect4-minimax | Legal six-ply opening; depth-two self-play through game completion |
+| donut | Angular increments 0.35 and 0.10; one complete frame |
+| knights-tour | Legal eight-square prefix; backtracking completes the 5-by-5 tour |
+| mandelbrot | 48-by-32 image; unchanged 100-iteration limit |
+| ntt-kernel | 128 elements; three transforms and full quadratic reference comparison |
+| rad-to-deg | Five-degree samples; both conversions over a complete turn |
+| randshell-sort | 128 values; complete sortedness check |
+| spirograph | 256 samples; unchanged ten rotations and curve parameters |
+| sudoku-solver | Three additional valid givens; complete solution by backtracking |
+
+Calibrate these hashes with the native `TARGET_HAHOST` build before running
+the RISC-V ELFs. Independently recompute FNV-1a over captured native output
+bytes and compare it with the hash-alone result; do not derive the oracle from
+the DUT. Clang native builds need `-U__clang__` to select the upstream header's
+portable type definitions rather than its invalid `signed __SIZE_TYPE__`
+typedef. Use `LIBMIN_MALLOC_ALIGN_BYTES=8` to match the RISC-V adapter.
+Validate complete Sudoku and knight-tour solutions and a
+sorted permutation, not merely successful program exits. The knight-tour
+output hash remains unchanged because its prefix belongs to the original tour.
+
 When advancing the submodule, check each patch against the new revision,
 remove fixes already upstream, and rerun the `lz-compress` functional test on
 both single-core SoCs. The build rejects patches that no longer apply.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Groups software builds by generated requirements while preserving every selected SoC run.
+# Groups shared software builds before expanding per-config execution shards.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
 from program_target import elf_build_spec, load_target, target_fingerprint
+from .policy import PROGRAM_SHARD_COUNTS
 
 
 def program_matrices(matrix, targets, fdts=None):
@@ -31,7 +32,9 @@ def program_matrices(matrix, targets, fdts=None):
         spec = elf_build_spec(target, suite, options)
         build_id = suite + '-' + target_fingerprint(spec)
         builds.setdefault(build_id, dict(soc=soc, suite=suite, build_id=build_id, options=options))
-        runs.append(entry | dict(build_id=build_id))
+        shard_count = PROGRAM_SHARD_COUNTS.get(suite, 1)
+        runs.extend(entry | dict(build_id=build_id, shard=shard, shard_count=shard_count)
+                    for shard in range(shard_count))
     return dict(build={'include': list(builds.values())}, run={'include': runs})
 
 

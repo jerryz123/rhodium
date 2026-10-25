@@ -243,8 +243,8 @@ flowchart TD
     Simulators --> Platform
     Targets --> ProgramTargets["Group identical program ELF build requirements"]
     Simulators --> ProgramTargets
-    ProgramTargets --> ProgramBuilds["Compile program suites once per group<br/>eight groups in the current matrix"]
-    ProgramBuilds --> Programs["Bind shared ELFs to each exact target<br/>sixteen SoC/suite execution jobs"]
+    ProgramTargets --> ProgramBuilds["Compile program suites once per compatible group"]
+    ProgramBuilds --> Programs["Bind shared ELFs to each exact target<br/>per-config execution shards"]
     Simulators --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
     Sail --> ActBuild
@@ -316,7 +316,7 @@ both functional shards and the alternate-configuration shard.
 
 All Simple RVA23 single-core software matrices independently select ISA tests,
 benchmarks, both CoreMark variants, Embench-IoT, SKL vector execution workloads,
-and one bounded Bringup-Bench selection. SKL uses the upstream capability-filtered
+and the complete bounded Bringup-Bench inventory. SKL uses the upstream capability-filtered
 catalog without X390 or standalone scalar suites. SKL retains all test-input and
 benchmark cases but disables numerical verification and reference-buffer setup.
 Both RTL jobs require Sail cosim for architectural checking; Spike is an
@@ -325,7 +325,13 @@ execution smoke test, not an independent numerical oracle.
 compiles each group once, and distributes one ELF archive to all compatible
 configs. Each run binds the archive to its own full target fingerprint and
 checks its simulator attestation. Compiler installation and ELF caches belong
-only to the build jobs; execution jobs retain every selected test.
+only to the build jobs; execution shards retain every selected test.
+Bringup-Bench uses eight shards and two workers per shard on every eligible
+config, including Spike. `policy.py` owns the suite's shard count;
+`programs.py` expands execution only after grouping compatible ELF builds.
+Each shard publishes separate diagnostics, and all shards are required for the
+software workflow to succeed. Do not add core-specific selections or rebuild
+the suite per shard.
 Program adapter contracts run once before the build matrix. A failed build does
 not prevent execution jobs from attempting other published groups.
 Platform adapters run once in the planning job. Each OpenSBI execution

@@ -112,9 +112,6 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/program-logs"
-          if [[ "$SUITE" == bringup ]]; then
-            export BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor
-          fi
           case "$SUITE" in
             coremark|coremark_scalar) build_target="$SUITE-elf" ;;
             *) build_target="$SUITE-elfs" ;;
@@ -148,7 +145,7 @@ jobs:
           retention-days: 7
 
   programs:
-    name: Run ${{ matrix.suite }} / ${{ matrix.soc }}
+    name: Run ${{ matrix.suite }} / ${{ matrix.soc }}${{ matrix.shard_count > 1 && format(' / shard {0}', matrix.shard) || '' }}
     needs: [program-plan, program-build]
     if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -193,7 +190,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/program-elfs/suite.tar.gz" -C "$suite_dir"
           python3 sw/build/bind.py --manifest "$suite_dir/manifest.json" \
             --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$suite_dir/run-manifest.json"
-      - name: Run every selected workload
+      - name: Run selected workload shard
         env:
           RTL_BACKEND: ${{ matrix.backend }}
           COSIM: ${{ matrix.cosim && '1' || '0' }}
@@ -205,12 +202,13 @@ jobs:
           make -C sims "$SUITE-run" SOC="$SOC" \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
             PROGRAM_MANIFEST="/tmp/rhodium-program-tests/$SOC/$SUITE/run-manifest.json" \
+            PROGRAM_SHARD_INDEX=${{ matrix.shard }} PROGRAM_SHARD_COUNT=${{ matrix.shard_count }} \
             PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
       - name: Publish workload results and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.soc }}-${{ matrix.suite }}-results-${{ github.sha }}
+          name: ${{ matrix.soc }}-${{ matrix.suite }}-${{ matrix.shard }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/program-logs
             /tmp/rhodium-program-tests/*/*/manifest.json

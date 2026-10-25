@@ -17,6 +17,8 @@ LITMUS7 ?=
 LITMUS7_LIBDIR ?=
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
+PROGRAM_SHARD_INDEX ?= 0
+PROGRAM_SHARD_COUNT ?= 1
 PROGRAM_TIMEOUT ?= 300
 BRINGUP_TIMEOUT ?= 360
 SKL_TIMEOUT ?= 900
@@ -225,7 +227,8 @@ skl-test: skl-elfs
 isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test skl-test isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run skl-run: simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/results" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/results$(if $(filter-out 1,$(PROGRAM_SHARD_COUNT)),/shard-$(PROGRAM_SHARD_INDEX)-of-$(PROGRAM_SHARD_COUNT))" \
+	  --shard-index $(PROGRAM_SHARD_INDEX) --shard-count $(PROGRAM_SHARD_COUNT) \
 	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(if $(filter skl,$(NATIVE_RUN_SUITE)),$(SKL_TIMEOUT),$(PROGRAM_TIMEOUT))) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
 
 tiled-mt-benchmark-test: tiled-mt-benchmark-elfs
@@ -275,8 +278,7 @@ single-core-software-test:
 	  for suite in isa benchmark coremark coremark_scalar embench; do \
 	    $(MAKE) "$$suite-test" SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	  done; \
-	  $(MAKE) bringup-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) \
-	    BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor || status=1; \
+	  $(MAKE) bringup-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) ACT_CONFIGURATION="$(SOFTWARE_SOC)-$$core-$(SOC_ISA)" || status=1; \
 	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	  if test "$(SOC_ISA)" = rva23; then $(MAKE) skl-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; fi; \

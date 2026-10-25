@@ -73,6 +73,7 @@ CORE_CHECKS = frozenset(
 RSIM_CORE_CHECKS = frozenset(key for key in CORE_CHECKS if key.startswith("rsim-"))
 RSIM_COMPONENT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("rsim-"))
 NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup", "skl")
+PROGRAM_SHARD_COUNTS = {"bringup": 8}
 PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")
 # Software policy has exactly two axes. Core choice only selects the DUT.
 SOFTWARE_TESTS = {

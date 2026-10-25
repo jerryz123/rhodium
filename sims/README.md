@@ -565,7 +565,8 @@ can access platform devices, including the boot-address register and UART.
 ## SoC software suites
 
 Run the complete profile-selected upstream ISA suite, benchmarks, both CoreMark
-variants, Embench-IoT, SKL vector suites, a Bringup-Bench smoke, configuration-exact ACT, and OpenSBI validation on
+variants, Embench-IoT, SKL vector suites, the bounded Bringup-Bench suite,
+configuration-exact ACT, and OpenSBI validation on
 both single-core SoCs:
 
 ```sh
@@ -580,9 +581,10 @@ select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
 `embench-test`, `bringup-test`, and `skl-test` targets remain available for
-focused execution. SKL requires Simple RVA23. CI schedules the native program
-suites, a bounded Bringup-Bench smoke, and ACT independently for each enrolled core;
-it also validates OpenSBI. Each ACT lane uses its own UDB projection and
+focused execution. SKL requires Simple RVA23. CI schedules these program suites and
+ACT independently for Spike, RV5Stage, and RV2Wide; Bringup-Bench runs the full
+bounded inventory in eight shards per config, with two workers per shard.
+CI also validates OpenSBI on these configs. Each ACT lane uses its own UDB projection and
 generated test inventory.
 
 The full ISA adapter selects upstream physical-environment tests from the
@@ -758,9 +760,14 @@ runtime failure is not an exclusion. For a short local port check, set
 `BRINGUP_BENCHMARKS=bubble-sort,blake2b,fft-int` with `bringup-test`, or use
 `bringup-elfs` to build without execution. The manifest records the full
 upstream count, exact selection, expected hashes, target fingerprint, and ELF
-metadata. CI and `single-core-software-test` select eight names from this same
-suite for routine SoC execution; an explicit unselected `bringup-test` attempts
-all 108 and reports any failures or timeouts.
+metadata. CI and `single-core-software-test` include all 108 workloads from this
+same bounded suite and report any failures or timeouts. CI uses eight
+deterministic shards and two workers per shard for each of
+`simple-spike-rva23`, `simple-rv5stage-rva23`, and `simple-rv2wide-rva23`, with
+one shared ELF build for compatible targets. Local `bringup-run` and
+`bringup-test` accept `PROGRAM_SHARD_INDEX` (zero-based) and
+`PROGRAM_SHARD_COUNT`; the default remains one unsharded run. Sharded results
+are saved under `results/shard-INDEX-of-COUNT` without overwriting other shards.
 The expensive workloads use patched, bounded input sizes and their own pinned
 output hashes; unchanged workloads retain upstream references. For example,
 checkers performs one depth-two search, bubble-sort sorts 128 values, LZ77
@@ -810,8 +817,8 @@ including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.
 
 CI builds program suites once per distinct ELF build specification and runs the
-shared binaries on every selected compatible SoC. The current matrix has eight
-program build groups and sixteen SoC/suite execution jobs. The shared build
+shared binaries on every selected compatible SoC. Execution sharding does not
+duplicate the shared ELF builds. The shared build
 artifacts contain `manifest.json`, an instruction report when available, and every selected ELF at the manifest's
 relative path, including ISA binaries without a filename extension. Extract an
 archive to an empty directory and bind it to the intended simulator target:
