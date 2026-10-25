@@ -53,11 +53,11 @@ class Selection:
             self.add_native("coremark")
         elif matches(path, "sw/build/build-embench.py", "sw/embench-iot-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*"):
             self.add_native("embench")
-        elif matches(path, "sw/build/build-bringup-bench.py", "sw/bringup-bench-riscv-baremetal/*", "sw/bringup-bench-patches/*", "sw/bringup-bench", "sw/bringup-bench/*", "sw/tests/test_bringup_bench.py"):
+        elif matches(path, "sw/build/build-bringup-bench.py", "sw/bringup-bench-riscv-baremetal/*", "sw/bringup-bench-patches/*", "sw/bringup-bench", "sw/bringup-bench/*"):
             self.add_native("bringup")
         elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py", "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "tools/write-riscv-udb-config.rhm"):
             self.arch = True
-        elif matches(path, "riscv/patched_submodule.py", "riscv/tests/test_patched_submodule.py", "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
+        elif matches(path, "riscv/patched_submodule.py", "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
             self.all_programs()
         elif matches(path, "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/build/build.py"):
             self.add_native("isa", "benchmark")
@@ -133,15 +133,15 @@ class Selection:
                      "sw/coremark-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*",
                      "sw/embench-iot-riscv-baremetal/*", "sw/bringup-bench",
                      "sw/bringup-bench/*", "sw/bringup-bench-riscv-baremetal/*",
-                     "sw/bringup-bench-patches/*", "sw/tests/test_bringup_bench.py"):
+                     "sw/bringup-bench-patches/*"):
             pass
-        elif matches(path, "sims/program-test/*", "sims/tests/test_program_test.py", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_bringup_bench.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-toolchain.sh"):
+        elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-toolchain.sh"):
             self.simulation = True
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             self.simulation = True
         elif matches(path, "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py"):
             pass
-        elif matches(path, "riscv/patched_submodule.py", "riscv/tests/test_patched_submodule.py"):
+        elif matches(path, "riscv/patched_submodule.py"):
             self.add_checks("host-models", "host-backend", "host-hygiene")
             self.simulation = True
         elif matches(path, "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
@@ -165,15 +165,13 @@ class Selection:
             self.add_checks(*HOST_CHECKS, "verilog-direct", *CIRCT_CHECKS)
             self.simulation = True
             self.all_programs()
-        elif path == "tools/testing/racket-build-cache-test.sh":
-            self.add_checks("host-hygiene")
         elif path == "tools/write-rv5stage-core-diagram.rhm":
             self.add_checks("host-examples")
         elif path == "tools/write-riscv-udb-config.rhm":
             self.add_checks("host-models", "host-cores", "host-socs")
         elif path == "tools/write-noc-router-diagram.rhm":
             self.add_checks("host-examples")
-        elif matches(path, ".githooks/pre-commit", "tools/check-license-headers.sh", "tools/check-parameter-annotations.rkt", "tools/parameter-annotation-scope.txt", "tools/check-boundaries.sh", "rfpl/check-boundaries.sh", "noc/check-boundaries.sh", "riscv/check-boundaries.sh", "chi/check-boundaries.sh", "cores/check-boundaries.sh", "cores/tests/check-boundaries.sh", "socs/check-boundaries.sh"):
+        elif matches(path, ".githooks/pre-commit", "tools/check-license-headers.sh", "tools/check-parameter-annotations.rkt", "tools/parameter-annotation-scope.txt", "tools/check-boundaries.sh", "rfpl/check-boundaries.sh", "noc/check-boundaries.sh", "riscv/check-boundaries.sh", "chi/check-boundaries.sh", "cores/check-boundaries.sh", "socs/check-boundaries.sh"):
             self.add_checks("host-hygiene")
         elif matches(path, "rhodium/event/*", "rheg/*"):
             self.add_checks("host-foundation", "host-backend", "circt-language")

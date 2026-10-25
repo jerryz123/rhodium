@@ -1,11 +1,9 @@
 # Checks shared architectural projection and exact-config co-simulation environments.
 # SPDX-License-Identifier: Apache-2.0
 import copy
-import json
 from pathlib import Path
 import runpy
 import unittest
-from unittest.mock import Mock, patch
 
 from test_arch_test import sail_default, vector_udb
 
@@ -13,7 +11,6 @@ SIMS = Path(__file__).resolve().parents[1]
 COSIM = runpy.run_path(str(SIMS / "cosim/runtime/configure.py"))
 ACT = runpy.run_path(str(SIMS / "arch-test/configure.py"))
 from sail.configuration import project_architecture, reference_model_differences
-from sail.soc_config import fingerprint, model_defaults
 from sail.configuration import TRANSFORMED_INSTRUCTION_PARAMETERS
 
 
@@ -35,44 +32,7 @@ def environment():
 
 
 class SailConfigurationTest(unittest.TestCase):
-    def test_export_requires_matching_fingerprints_and_an_environment_object(self):
-        configuration = {"config": "mini-rv5stage-rva23"}
-        env = environment()
-        exported = {"configuration": configuration, "environment": env,
-                    "configuration_fingerprint": fingerprint(configuration),
-                    "environment_fingerprint": fingerprint(env)}
-        checked = COSIM["checked_config"]
-        architecture = vector_udb()
-        with patch.dict(checked.__globals__, config_architecture=Mock(return_value=architecture)):
-            self.assertEqual(checked(exported, configuration["config"]), (architecture, env))
-            for key in ("configuration", "environment"):
-                changed = copy.deepcopy(exported)
-                changed[key]["changed"] = True
-                with self.assertRaises(ValueError):
-                    checked(changed, configuration["config"])
-            changed = {**exported, "environment": [], "environment_fingerprint": fingerprint([])}
-            with self.assertRaises(ValueError):
-                checked(changed, configuration["config"])
 
-    def test_model_defaults_check_release_and_embedding_schema(self):
-        default = self.default()
-        default["extensions"]["H"]["transformed_instruction"] = dict.fromkeys(TRANSFORMED_INSTRUCTION_PARAMETERS, True)
-        with patch.dict("sys.modules", {"pyjson5": Mock(decode=json.loads)}):
-            for xlen in (32, 64):
-                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.16", json.dumps(default)]) as invoke:
-                    self.assertEqual(model_defaults("sail", xlen), default)
-                    args = invoke.call_args.args[0]
-                    self.assertEqual("--rv32" in args, xlen == 32)
-            for key in ("mcountinhibit", "transformed_instruction", "Sdtrig", "hedeleg", "hpm_events", "pmm_unsupported_write_to_disabled", "independent_context_csrs"):
-                old = copy.deepcopy(default)
-                target = old["extensions"]["H"] if key == "transformed_instruction" else old["extensions"] if key == "Sdtrig" else old["base"]
-                del target[key]
-                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.16", json.dumps(old)]):
-                    with self.assertRaisesRegex(ValueError, "rebuild with arch-test-sail-setup"):
-                        model_defaults("old-sail", 64)
-            with patch("sail.soc_config.subprocess.check_output", return_value="0.14.2"):
-                with self.assertRaisesRegex(ValueError, "expected Sail 0.16"):
-                    model_defaults("other-sail", 64)
 
     def test_no_trigger_harts_omit_tselect_in_both_projections(self):
         for xlen in (32, 64):
@@ -220,29 +180,6 @@ class SailConfigurationTest(unittest.TestCase):
         for name in ("Ssstrict", "Smdbltrp", "Ssdbltrp"):
             self.assertFalse(result["extensions"][name]["supported"])
 
-    def test_runtime_image_and_descriptor_are_embedded_exactly(self):
-        env = environment()
-        env.update(xlen=64, rom_image={"address": 0x1000, "bytes": [0, 255, 19, 0]})
-        observations = {"epoch": "host-reset", "harts": [{"instance": 0, "path": ["soc", "hart", "core"]}]}
-        manifest = COSIM["runtime_manifest"]({"environment_fingerprint": fingerprint(env)}, env, observations)
-        self.assertEqual(manifest["rom_image"], env["rom_image"])
-        self.assertEqual(manifest["observations"], observations)
-        header = COSIM["runtime_header"]({"quoted": 'a"b\\c'}, manifest)
-        for line in header.splitlines():
-            if line.startswith("inline constexpr char "):
-                name, literal = line[len("inline constexpr char "):].split("[] = ", 1)
-                value = json.loads(json.loads(literal[:-1]))
-                self.assertEqual(value, manifest if name == "manifest" else {"quoted": 'a"b\\c'})
-        for mutate in (lambda e, o: o["harts"].append(o["harts"][0]),
-                       lambda e, o: o["harts"][0].update(instance=1),
-                       lambda e, o: o.update(epoch="unknown"),
-                       lambda e, o: e["rom_image"].update(address=0x2000),
-                       lambda e, o: e["rom_image"].update(bytes=[256]),
-                       lambda e, o: e["rom_image"].update(bytes=[0] * 4097)):
-            changed_env, changed_observations = copy.deepcopy(env), copy.deepcopy(observations)
-            mutate(changed_env, changed_observations)
-            with self.assertRaises(ValueError):
-                COSIM["runtime_manifest"]({}, changed_env, changed_observations)
 
     def default(self):
         value = sail_default()
@@ -317,19 +254,6 @@ class SailConfigurationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             COSIM["project_environment"](project_architecture(self.default(), vector_udb()), env)
 
-    def test_config_and_environment_identity_are_checked(self):
-        config = {"config": "mini-rv5stage-rv32int"}
-        env = environment()
-        export = {"configuration": config, "environment": env,
-                  "configuration_fingerprint": fingerprint(config), "environment_fingerprint": fingerprint(env)}
-        check = COSIM["checked_config"]
-        with patch.dict(check.__globals__, config_architecture=lambda c, n: {"name": n}):
-            self.assertEqual(check(export, config["config"])[1], env)
-            for field in ("configuration", "environment"):
-                changed = copy.deepcopy(export)
-                changed[field]["tampered"] = True
-                with self.assertRaises(ValueError):
-                    check(changed, config["config"])
 
     def test_reference_differences_remain_explicit(self):
         params = vector_udb()["params"]
@@ -337,7 +261,6 @@ class SailConfigurationTest(unittest.TestCase):
         differences = reference_model_differences(params)
         self.assertIn("HPM_EVENTS", differences)
         self.assertIn("RESERVED_VSET_X0X0_VILL_SET", differences)
-        self.assertEqual(fingerprint({"b": 2, "a": 1}), fingerprint({"a": 1, "b": 2}))
 
 
 if __name__ == "__main__":

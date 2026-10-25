@@ -115,9 +115,7 @@ litmus-setup: isa-setup
 program-test-setup: isa-setup coremark-setup embench-setup bringup-setup litmus-setup
 
 program-test-adapter-test:
-	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_program_build.py'
-	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_bringup_bench.py'
 
 litmus-adapter-test:
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_litmus_build.py'

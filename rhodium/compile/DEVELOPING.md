@@ -90,7 +90,7 @@ the emission targets; production compile code remains independent of them.
 
 ```sh
 tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm rhodium/backend/tests/prepared-rtl-test.rhm rhodium/backend/tests/rtl-pipeline-test.rhm
-make backend-test check-boundaries ci-plan-test
+make backend-test check-boundaries
 ```
 
 The backend host target and shared compile manifest include this package's tests.

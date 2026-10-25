@@ -76,5 +76,5 @@ WB authorization, and flag updates. Add `rv5stage-vector-fp` for shared service
 arbitration, retagging, vector reservation, or scalar/vector movement changes.
 Run the [shared FP fixtures](../../fp/DEVELOPING.md#validation) for arithmetic,
 service, or register-file changes. Moves/import changes require
-`make check-boundaries`; fixture moves also require `make ci-plan-test`.
+`make check-boundaries`; fixture moves also require reviewing CI path selection.
 The [CIRCT guide](../../../tools/testing/circt/DEVELOPING.md) owns runner modes.

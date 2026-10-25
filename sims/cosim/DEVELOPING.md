@@ -213,7 +213,7 @@ make -C sims sail-cosim-test
 tools/run-racket-tests.sh sims/cosim/tests/pass/pass-test.rhm
 make -C sims simulation-runtime-test sail-config-adapter-test
 FIXTURES='cosim-hooks rv5stage-cosim32 rv5stage-cosim-vector' bash tools/testing/circt/run.sh --simulate-only
-make check-boundaries ci-plan-test
+make check-boundaries
 ```
 
 Native tests cover callback order, ownership, replay/tag reuse, epochs, malformed

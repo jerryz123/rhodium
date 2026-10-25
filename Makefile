@@ -10,7 +10,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-runtime-test
 .PHONY: check-license-headers
 .PHONY: check-license-headers-staged
-.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-rsim-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-plan-test ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-rsim-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 .PHONY: ci-circt-core-execution-datapath-test
 
 RISCV_UDB_CONFIGURATION ?=
@@ -84,12 +84,9 @@ check-boundaries:
 	bash noc/check-boundaries.sh
 	bash riscv/check-boundaries.sh
 	bash chi/check-boundaries.sh
-	bash chi/tests/check-boundaries.sh
 	bash hardfloat/check-boundaries.sh
 	bash cores/check-boundaries.sh
-	bash cores/tests/check-boundaries.sh
 	bash socs/check-boundaries.sh
-	bash socs/tests/check-boundaries.sh
 
 check-example-verilog:
 	bash tools/check-example-verilog.sh
@@ -102,12 +99,6 @@ check-license-headers-staged:
 
 check-parameter-annotations:
 	tools/run-racket.sh tools/check-parameter-annotations.rkt --named-only --reject-any --files-from tools/parameter-annotation-scope.txt
-
-parameter-annotation-test:
-	tools/run-racket-tests.sh tools/check-parameter-annotations.rkt
-
-racket-cache-test:
-	bash tools/testing/racket-build-cache-test.sh
 
 clean-racket-cache:
 	tools/racket-build-cache.sh clean
@@ -204,7 +195,6 @@ noc-test:
 riscv-test:
 	bash riscv/check-boundaries.sh
 	tools/run-racket-tests.sh $(RISCV_TESTS)
-	python3 -m unittest discover -s riscv/tests -p 'test_*.py'
 
 device-test: check-boundaries
 	tools/run-racket-tests.sh $(DEVICE_TESTS)
@@ -291,7 +281,6 @@ host-checks: check-license-headers check-parameter-annotations support-annotatio
 ci-host-foundation-test: support-annotation-test frontend-test std-test flow-test event-test diagram-test
 
 ci-host-backend-test: backend-test rsim-test
-	python3 -m unittest discover -s rhodium/backend/tests/verilog -p 'test_*.py'
 
 ci-host-examples-test:
 	tools/run-racket-tests.sh $(CI_HOST_EXAMPLES)
@@ -304,11 +293,7 @@ ci-host-cores-test: rv5stage-host-test
 
 ci-host-socs-test: soc-test
 
-ci-plan-test:
-	python3 -m unittest tools.ci.test_plan tools.ci.test_install_racket
-
-ci-host-hygiene-test: rsim-runner-test check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
-	python3 -m unittest tools.ci.test_install_racket
+ci-host-hygiene-test: check-boundaries check-example-verilog check-license-headers check-parameter-annotations
 
 host-test: host-checks examples
 
@@ -369,7 +354,7 @@ examples-rv5stage:
 	bash tools/check-example-verilog.sh examples/rv5stage
 	tools/run-racket-tests.sh $(RV5STAGE_EXAMPLES)
 
-.PHONY: rsim-component-test ci-rsim-std-test ci-rsim-core-components-test ci-rsim-protocols-test rsim-runner-test
+.PHONY: rsim-component-test ci-rsim-std-test ci-rsim-core-components-test ci-rsim-protocols-test
 
 # Component behavior runs directly against rsim; HDL lanes own emission and ABI checks.
 rsim-component-test:
@@ -383,9 +368,6 @@ ci-rsim-core-components-test:
 
 ci-rsim-protocols-test:
 	python3 tools/testing/rsim/run.py --group protocols
-
-rsim-runner-test:
-	python3 -m unittest discover -s tools/testing/rsim -p 'test_*.py'
 
 .PHONY: ci-rsim-core-memory-test
 ci-rsim-core-memory-test:

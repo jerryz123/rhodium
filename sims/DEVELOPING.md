@@ -119,8 +119,8 @@ sources to Verilator alongside the unchanged `TestDriver.v` and native adapters.
 Missing required model/bridge companions trigger a fresh emission. Tracing
 remains CIRCT-only. CI keeps the full existing workload selection on rsim.
 
-Keep build wiring validation separate from execution qualification. Simulator
-adapter tests cover backend directories, source arguments, and provenance.
+Validate build wiring through actual compilation and execution, not a separate
+suite of Makefile or command-construction tests.
 The backend's [CHI differential fixture](../rhodium/backend/DEVELOPING.md)
 qualifies one real native memory. Simple RV5Stage RVA23 also passes the existing
 smoke ELF through the real FESVR loader and unchanged `TestDriver.v` with
@@ -145,9 +145,8 @@ variants, including per-variant cycle and wall-clock bounds.
 The simulator workflow passes the optimization override explicitly to Make; the harness workflow uses the
 attested prebuilt binary, bounds execution, and uploads per-target logs even on
 failure. Keep these variants outside `test-configs.txt` and the ACT, benchmark,
-and platform-test inventories. Test changes with
-`python3 -m unittest tools.ci.test_plan` and `make -C sims program-test-adapter-test`, then rebuild
-and run the selected smoke through the prebuilt-artifact path. Linux CI remains
+and platform-test inventories. Validate changes by rebuilding and running the
+selected smoke through the prebuilt-artifact path. Linux CI remains
 the owner of runner-specific compiler, memory, and timeout validation.
 
 ## Implementation map
@@ -565,11 +564,13 @@ selection and required Sail 0.16 check unchanged; refresh dependencies against
 ACT's lockfile before generation. The platform provides both external-interrupt
 macro aliases used by the native M-mode helpers.
 
-Run `make -C sims arch-test-adapter-test program-test-adapter-test` for generation,
-completion, deadlines, artifact identity, and complete-result checks using system
-Python without ACT dependencies. Run `make -C sims litmus-setup litmus-adapter-test`
-separately for tests requiring the pinned source corpus. CI runs the shared
-checks before workloads and the litmus check only after its source setup. With ACT
+Run `make -C sims arch-test-adapter-test program-test-adapter-test` for
+architectural projection, target configuration, and ELF memory-range checks
+using system Python without ACT dependencies. Run
+`make -C sims litmus-setup litmus-adapter-test` separately for pinned memory-model
+outcomes, and `make -C sims opensbi-adapter-test` for firmware layout checks.
+Validate generation, caching, artifact handoff, and runner changes through the
+actual build and execution path, not mocked tools or workflow-text tests. With ACT
 installed, run `make -C sims arch-test SOC=simple-rv5stage-rva23` to generate and execute all applicable
 tests; the architecture-test CI lane uses this same target. When changing the driver, also run the existing smoke
 and exercise a small `+max-cycles` timeout. See the
@@ -732,8 +733,8 @@ its own harness starts; no harness waits for unrelated simulator builds.
 their original build-and-run targets remain available locally. Standalone smoke,
 MMIO, boot, and UART payloads still use the compiler. Missing prebuilt artifacts
 are errors, never permission to regenerate them. Native DPI/transport,
-cosim-hook, runtime, ACT/program adapter, and selected Spike native/ABI checks
-run once in the shared native job.
+cosim-hook, runtime, architectural projection, software-target, and selected
+Spike native/ABI checks run once in the shared native job.
 Mapped Mini execution
 retains its separate build dependencies; Spike consumers retain their runtime
 library setup. Configs other than the three Simple smoke-only
@@ -766,7 +767,7 @@ and `bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
-Program adapter contracts run once in the native job. Platform tests
+Software-target and ELF-layout checks run once in the native job. Platform tests
 use the same grouping/archive/binding machinery in `ci-platform.yml`:
 `platform-plan` groups the shared targets and OpenSBI DTBs, `platform-build`
 compiles each compatible group, and `platform` executes every config.
@@ -857,8 +858,8 @@ for RV5Stage RVA23, need only the native simulator, Python, and upstream
 runner, plus the pinned Spike shared libraries for Spike shards—not Sail,
 Ruby, Racket, or a compiler.
 `arch-test/shard.py` takes every sorted generated ELF and partitions
-by index modulo shard count. Its tests enforce disjoint full coverage and safe
-replacement of stale shard links. Shard inventories and results are artifacts;
+by index modulo shard count, replacing stale shard links safely.
+Shard inventories and results are artifacts;
 all configured matrix jobs must complete to claim full execution coverage.
 
 Each config CI build publishes `VTestDriver` and its JSON attestation. Consumers

@@ -102,19 +102,22 @@ outside the HDL-free rsim suite.
   version control.
 - Reserve broader suites for cross-layer, shared-infrastructure, or complete
   backend-pipeline changes.
+- Do not add tests of CI planning, workflow text or shell steps, Makefile
+  recipes, mocked compilation, test-runner orchestration, build caches, or
+  artifact packaging and reuse, or self-tests of repository hygiene checkers.
+  Validate infrastructure changes through the
+  actual affected build and behavioral test path. Keep production integrity
+  checks and failure handling in the tools themselves.
 
 ## CI ownership
 
-CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
+CI applies the declarative policy in [`../ci/`](../ci/plan.py).
 [`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
-by [`policy.py`](../ci/policy.py). Planner tests protect dependency selection,
-conservative handling of unknown paths, preservation of selected runs through
-build sharing, shard partitioning, and rejection of failed, cancelled, or
-unexpectedly skipped workflows. Derive coverage from the owning inventories;
-do not freeze fixture totals, shard counts, config catalogs, YAML wording, or
-step order in a second test inventory. Keep executable workflow-shell checks
-for setting propagation and failure reporting. Artifact validation and cache
-integrity belong to their owning adapter tests, not workflow-text snapshots.
+by [`policy.py`](../ci/policy.py). Derive coverage from the owning inventories
+without duplicating fixture totals, shard counts, config catalogs, or workflow
+structure in a test inventory. Unknown paths select all lanes. The stable gate
+rejects failed, cancelled, or unexpectedly skipped selected workflows. Producers
+and consumers validate artifact integrity and compatibility during actual use.
 
 The config rows come from the single
 [`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
@@ -127,16 +130,16 @@ host MMIO, UART, and ISA smoke. Only these explicit variants use narrowed
 workload policy; ordinary backend selection never reduces coverage.
 All simulator rows select `OPT_FAST=-O2`; initialization and Verilator runtime
 compilation inherit it. Prebuilt consumers carry backend provenance explicitly
-through software, ACT, platform, and harness jobs. Workflow tests exercise
-optimization propagation, bounded arguments, and nonzero status through log
-capture. CI retains build and harness logs.
+through software, ACT, platform, and harness jobs. Preserve optimization
+propagation, bounded arguments, and nonzero status through log capture in the
+actual build and run commands. CI retains build and harness logs.
 
 All Mini/Simple RV5Stage and RV2Wide rsim rows, plus the two RV5Stage HDL
 variants, publish a cosim-enabled simulator under their config artifact name. Propagate
 that selection to native ISA, ACT, and firmware consumers; verify the variant
 and install GMP. Native and ACT runners require nonempty successful checking.
-Cosim enrollment does not add matrix rows or change workload selection. The planner unit tests also reject tracked executable
-inputs that select no lane. When the plan selects any downstream work, CI
+Cosim enrollment does not add matrix rows or change workload selection.
+When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects
 every matrix shard.
@@ -164,11 +167,10 @@ target. Local build-and-run targets remain available; CI uses builder-free run
 targets. Shared build failures retain diagnostics and do not cancel other groups.
 
 One native-check job owns config-independent DPI, transport, runtime, cosim-hook,
-ACT-adapter, and program-adapter tests. Spike native and ABI checks run once when
-any Spike simulator is selected. Per-config hardware elaboration and execution
-remain in their own jobs. Planner tests run only in the plan job, not again in
-host hygiene. The gate requires all selected shared producers and native checks,
-including cancellation or unexpectedly skipped jobs.
+architectural projection, and software-target tests. Spike native and ABI checks
+run once when any Spike simulator is selected. Per-config hardware elaboration
+and execution remain in their own jobs. The gate requires all selected shared
+producers and native checks, including cancellation or unexpectedly skipped jobs.
 
 Local runner scripts preserve the same freshness boundary with a persistent
 compiled root owned by each worktree under `.rhodium-cache/`. The cache is keyed
@@ -371,8 +373,8 @@ Recognized documentation and inert repository metadata select no functional
 test jobs. The optional Emacs integration and most of `vlsi/` have no
 functional CI lane; Rhodium sources there still receive source hygiene, while
 `vlsi/sim/` and the mapped MiniRV5StageSoC flow select simulation. Unrecognized
-paths fail closed by selecting every lane, and the planner tests reject tracked
-executable source that selects no lane. The root workflow owns only triggers,
+paths fail closed by selecting every lane; tracked executable inputs must select
+their affected owners. The root workflow owns only triggers,
 planning, the shared Racket and Sail artifacts, reusable-workflow calls, and the stable
 `CI` gate. The reusable workflows separately own capability checks, simulator
 construction, simulation, and bare-metal software. Composite actions own only
@@ -386,8 +388,9 @@ identifiers within `hardfloat/`, while exempting exact legal texts and external
 submodule contents.
 
 When adding or moving executable source, update the planner if its existing
-dependency rules do not select every affected owner. Run `make ci-plan-test`
-before relying on its downstream matrix selection.
+dependency rules do not select every affected owner. Inspect the plan with
+`python3 -m tools.ci.plan --paths PATH... --pretty` and run the affected build
+and behavioral tests.
 
 ## Change workflow
 

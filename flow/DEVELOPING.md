@@ -226,7 +226,6 @@ compiled root automatically:
 tools/run-racket-tests.sh flow/tests/std-flow-test.rhm flow/tests/std-flow-chain-test.rhm flow/tests/std-flow-static-test.rhm
 make examples-std
 make check-boundaries
-make ci-plan-test
 ```
 
 For cycle-visible behavior, select the relevant existing fixtures:

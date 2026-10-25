@@ -159,17 +159,18 @@ platform hooks, schema overlays, and full generation/execution checks.
 
 ## Validation
 
-Run the focused builder tests and simulator adapters first:
+Run the focused software-target, ELF-layout, and architectural-projection checks:
 
 ```sh
 python3 -m unittest discover -s sw/tests
 make -C sims program-test-adapter-test arch-test-adapter-test opensbi-adapter-test
-make ci-plan-test
 make check-license-headers check-boundaries
 ```
 
-For moved upstreams or ports, also initialize their new submodule paths and
-build representative ELFs with the existing `make -C sims ...-elfs` or
+Build recipes, caches, artifact reuse, and runner orchestration have no separate
+test suites. Validate those changes through the actual affected build and
+execution path. For moved upstreams or ports, initialize their new submodule
+paths and build representative ELFs with the existing `make -C sims ...-elfs` or
 `...-firmware` targets. Execute at least one workload and OpenSBI validation
 on each affected SoC to validate the load and completion boundary. The
 [simulator guide](../sims/README.md) owns those commands and generated-artifact

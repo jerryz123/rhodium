@@ -63,8 +63,8 @@ changing this adapter, in addition to the shared decode test.
    before launching nonstallable work. Both paths must drain fairly.
 4. Update public behavior in README, capability checks, and caller integration
    when changing a supported specialization or timing contract.
-5. Run `make check-boundaries` after moves or import changes and
-   `make ci-plan-test` after moving executable tests or fixture inventory.
+5. Run `make check-boundaries` after moves or import changes and inspect CI
+   path selection after moving executable tests or fixture inventory.
    Generated HDL/MLIR and simulator output are not checked in.
 
 `timing.rhdl` owns fixed return delays and initiation interval one. Keep service

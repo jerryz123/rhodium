@@ -204,8 +204,6 @@ external interrupt inputs, M/S claim arbitration, completion, and rearming.
 The DTB subprocess uses `tools/run-racket.sh`: local runs rebuild changed
 dependencies, while CI reuses its verified exact-commit bytecode artifact.
 Keep this entrypoint in the root Makefile's compilation manifest.
-`bash socs/tests/check-boundaries.sh` exercises import rejection and ensures
-enumeration/search errors cannot silently pass the boundary audit.
 
 `tests/main-memory-test.rhm` checks Ziccif/Ziccamoa/Ziccrse memory-map preconditions in
 MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledSoC. Cacheable regions must be coherent HN-F RAM

@@ -1,5 +1,5 @@
 #lang racket/base
-;; Checks Rhombus source declarations for explicitly annotated parameters.
+#| Checks Rhombus source declarations for explicitly annotated parameters. |#
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/cmdline
@@ -19,35 +19,43 @@
 
 (define annotation-operators '(:: :~))
 
+#| Returns a syntax list's children, or an empty list for an atom. |#
 (define (syntax-children stx)
   (or (syntax->list stx) '()))
 
+#| Extracts symbols and keywords used in declaration heads and bindings. |#
 (define (syntax-atom stx)
   (define value (syntax-e stx))
   (and (or (symbol? value) (keyword? value)) value))
 
+#| Reads the leading tag of a parsed shrubbery form. |#
 (define (form-tag stx)
   (define children (syntax-children stx))
   (and (pair? children) (syntax-atom (car children))))
 
+#| Recognizes one exact shrubbery operator token. |#
 (define (operator? stx operator)
   (equal? (syntax->datum stx) `(op ,operator)))
 
+#| Finds the first child with the requested shrubbery tag. |#
 (define (form-index items tag)
   (for/first ([item (in-list items)]
               [index (in-naturals)]
               #:when (eq? (form-tag item) tag))
     index))
 
+#| Collects immediate symbols without entering nested syntax. |#
 (define (direct-symbols items)
   (filter symbol? (filter values (map syntax-atom items))))
 
+#| Selects an inherited declaration kind or one authored in the head. |#
 (define (find-declaration-kind head inherited-kind)
   (or inherited-kind
       (for/first ([kind (in-list '(class constructor method fun))]
                   #:when (member kind (direct-symbols head)))
         kind)))
 
+#| Extracts the declared name, preserving anonymous functions. |#
 (define (find-declaration-name kind head inherited-kind)
   (cond
     [(eq? kind 'constructor) "constructor"]
@@ -60,6 +68,7 @@
              (if tail (cdr tail) '()))))
      (and (pair? candidates) (symbol->string (last candidates)))]))
 
+#| Decodes a declaration's head and parameter groups without expanding it. |#
 (define (parse-declaration group [inherited-kind #f])
   (and (eq? (form-tag group) 'group)
        (let* ([items (cdr (syntax-children group))]
@@ -79,9 +88,11 @@
                       (cdr (syntax-children (list-ref items parens-index)))
                       (and (eq? kind 'fun) (not name)))))))))
 
+#| Recognizes the repetition marker that introduces no parameter binding. |#
 (define (ellipsis-parameter? parameter)
   (equal? (syntax->datum parameter) '(group (op ...))))
 
+#| Finds a keyword parameter's nested binding group. |#
 (define (keyword-binding-group parameter)
   (define items (cdr (syntax-children parameter)))
   (and (pair? items)
@@ -92,6 +103,7 @@
                     #:when (eq? (form-tag candidate) 'group))
          candidate)))
 
+#| Checks the binding before its default expression for an annotation. |#
 (define (binding-has-annotation? parameter)
   (define binding (or (keyword-binding-group parameter) parameter))
   (for/or ([item (in-list (cdr (syntax-children binding)))]
@@ -99,6 +111,7 @@
     (for/or ([operator (in-list annotation-operators)])
       (operator? item operator))))
 
+#| Detects a broad Any annotation before a parameter's default expression. |#
 (define (binding-has-any-annotation? parameter)
   (define binding (or (keyword-binding-group parameter) parameter))
   (define annotation-started? #f)
@@ -113,6 +126,7 @@
        (and annotation-started?
             (eq? (syntax-atom item) 'Any))])))
 
+#| Selects the binding token used for parameter diagnostics. |#
 (define (parameter-location parameter)
   (define binding (or (keyword-binding-group parameter) parameter))
   (or (for/first ([item (in-list (cdr (syntax-children binding)))]
@@ -123,6 +137,7 @@
         item)
       parameter))
 
+#| Formats a parameter's binding token for diagnostics. |#
 (define (parameter-name parameter)
   (define value (syntax-atom (parameter-location parameter)))
   (cond
@@ -130,6 +145,7 @@
     [(keyword? value) (keyword->string value)]
     [else "<pattern>"]))
 
+#| Identifies multi-case function and method declaration families. |#
 (define (group-family-kind group)
   (and (eq? (form-tag group) 'group)
        (let* ([items (cdr (syntax-children group))]
@@ -139,12 +155,14 @@
                      #:when (member kind (direct-symbols head)))
            kind))))
 
+#| Collects annotation violations while respecting anonymous and receiver policy. |#
 (define (check-parsed parsed
                       path
                       #:include-anonymous? [include-anonymous? #t]
                       #:reject-any? [reject-any? #f])
   (define found '())
 
+  #| Records missing or forbidden annotations, excluding implicit receivers. |#
   (define (record-declaration! parsed-declaration implicit-receiver?)
     (when (and parsed-declaration
                (or include-anonymous?
@@ -174,11 +192,13 @@
                   issue)
                  found))))))
 
+  #| Checks every case with its enclosing declaration-family context. |#
   (define (walk-alternatives alternatives family-kind implicit-method-receiver?)
     (for ([alternative (in-list (cdr (syntax-children alternatives)))])
       (for ([group (in-list (cdr (syntax-children alternative)))])
         (walk group family-kind implicit-method-receiver?))))
 
+  #| Traverses authored declarations without checking quoted generated syntax. |#
   (define (walk stx [inherited-kind #f] [implicit-method-receiver? #false])
     (define tag (form-tag stx))
     (unless (eq? tag 'quotes)
@@ -201,6 +221,7 @@
   (walk parsed)
   (reverse found))
 
+#| Parses a source string and checks its parameter annotations. |#
 (define (check-source source [path "<source>"]
                       #:include-anonymous? [include-anonymous? #t]
                       #:reject-any? [reject-any? #f])
@@ -212,6 +233,7 @@
    #:include-anonymous? include-anonymous?
    #:reject-any? reject-any?))
 
+#| Checks one language source file after validating its required language line. |#
 (define (check-file path
                     #:include-anonymous? [include-anonymous? #t]
                     #:reject-any? [reject-any? #f])
@@ -230,18 +252,22 @@
        #:include-anonymous? include-anonymous?
        #:reject-any? reject-any?))))
 
+#| Recognizes the source extensions subject to annotation policy. |#
 (define (rhombus-source-path? path)
   (member (path-get-extension path) '(#".rhm" #".rhdl")))
 
+#| Identifies paths exempted by a tests directory component. |#
 (define (tests-path? path)
   (for/or ([component (in-list (explode-path (simplify-path path)))])
     (and (path? component)
          (string=? (path->string component) "tests"))))
 
+#| Prunes tool, bytecode, Git, and test directories during source discovery. |#
 (define (descend-directory? path)
   (not (member (path->string (file-name-from-path path))
                '(".git" ".tools" "compiled" "tests"))))
 
+#| Resolves supplied paths into a sorted, unique production-source inventory. |#
 (define (collect-source-files paths)
   (sort
    (remove-duplicates
@@ -267,6 +293,7 @@
     equal?)
    path<?))
 
+#| Drops comments and blank lines from a source-scope manifest. |#
 (define (scope-lines->paths lines)
   (for/list ([line (in-list lines)]
              #:do [(define trimmed (string-trim line))]
@@ -274,9 +301,11 @@
                           (string-prefix? trimmed "#")))
     trimmed))
 
+#| Reads the production-source paths declared by a scope file. |#
 (define (scope-file-paths path)
   (scope-lines->paths (file->lines path)))
 
+#| Prints one located annotation diagnostic to the error stream. |#
 (define (display-violation problem)
   (eprintf "~a:~a:~a: ~a ~a parameter `~a` ~a\n"
            (violation-path problem)
@@ -324,123 +353,3 @@
              (length problems)
              (if (= (length problems) 1) "" "s"))
     (exit 1)))
-
-(module+ test
-  (require rackunit)
-
-  (define annotated-source
-    #<<SOURCE
-fun identity(value :: Any): value
-fun apply(~value: value :: Any = #false): value
-fun trusted(value :~ Any): value
-fun repeat(value :: Any, ...): value
-class Box(value :: Any):
-  method replace(next :: Any): Box(next)
-  constructor(initial :: Any): Box(initial)
-SOURCE
-    )
-  (check-equal? (check-source annotated-source) '())
-
-  (define unannotated-source
-    #<<SOURCE
-fun identity(value): value
-class Box(value :: Any, label):
-  method replace(next): Box(next, "")
-  constructor(initial): Box(initial, "")
-SOURCE
-    )
-  (define unannotated (check-source unannotated-source))
-  (check-equal? (map violation-kind unannotated)
-                '(fun class method constructor))
-  (check-equal? (map violation-parameter unannotated)
-                '("value" "label" "next" "initial"))
-
-  (define keyword-source
-    "fun keyword(~value: value): value\n")
-  (check-equal?
-   (map violation-parameter (check-source keyword-source))
-   '("value"))
-
-  (define anonymous-source
-    "def callback = fun (value): value\n")
-  (check-equal? (length (check-source anonymous-source)) 1)
-  (check-equal?
-   (check-source anonymous-source #:include-anonymous? #f)
-   '())
-
-  (define hardware-enum-source
-    #<<SOURCE
-hardware_enum State:
-  Idle = 0
-  method active(state) :: Bool: state === State.Idle
-  method select(state, choice): choice
-SOURCE
-    )
-  (check-equal?
-   (map violation-parameter (check-source hardware-enum-source))
-   '("choice"))
-
-  (define bundle-method-source
-    #<<SOURCE
-bundle Flag():
-  set: Bool
-  method active(flag): flag.set
-  method combine(flag, other): flag.set & other.set
-SOURCE
-    )
-  (check-equal?
-   (map violation-parameter (check-source bundle-method-source))
-   '("other"))
-
-  (define multi-case-source
-    #<<SOURCE
-fun choose
-| choose(value): value
-| choose(left :: Any, right): right
-SOURCE
-    )
-  (check-equal? (map violation-parameter (check-source multi-case-source))
-                '("value" "right"))
-
-  (define quoted-source
-    #<<SOURCE
-macro 'make':
-  'fun generated(value): value'
-SOURCE
-    )
-  (check-equal? (check-source quoted-source) '())
-
-  (define default-expression-source
-    "fun defaulted(value = (other :: Any)): value\n")
-  (check-equal?
-   (map violation-parameter (check-source default-expression-source))
-   '("value"))
-
-  (define diagnostic-output (open-output-string))
-  (parameterize ([current-error-port diagnostic-output])
-    (display-violation (first unannotated)))
-  (check-true
-   (string-contains? (get-output-string diagnostic-output)
-                     "lacks a :: or :~ annotation"))
-
-  (check-equal?
-   (scope-lines->paths
-    '("# Strict source scope" "" "  rhodium/std  " "rhodium/core/ops.rhm"))
-   '("rhodium/std" "rhodium/core/ops.rhm"))
-
-  (check-true (tests-path? (build-path "noc" "tests" "model-test.rhm")))
-  (check-true (tests-path? (build-path "cores" "ricket" "tests" "core-test.rhm")))
-  (check-false (tests-path? (build-path "rhodium" "core" "types.rhm")))
-
-  (define broad-annotation-source
-    #<<SOURCE
-fun broad(value :: Any): value
-fun broad_union(value :: String || Any): value
-SOURCE
-    )
-  (define broad-annotations
-    (check-source broad-annotation-source #:reject-any? #t))
-  (check-equal? (map violation-parameter broad-annotations)
-                '("value" "value"))
-  (check-equal? (map violation-issue broad-annotations)
-                '(any any)))

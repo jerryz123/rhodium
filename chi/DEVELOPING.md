@@ -55,8 +55,8 @@ The child guides own file-level maps and local extension rules:
 | [`tests/`](tests/) | Host tests, invalid cases, rsim fixture exports, and C++ behavior drivers |
 
 The boundary audit recursively enumerates production sources while excluding
-`tests/`; `bash chi/tests/check-boundaries.sh` covers nested imports, the pure
-bridge, and search/enumeration failure propagation.
+`tests/` and checks the pure bridge's imports separately. Search and enumeration
+failures must fail the audit.
 
 ## Extend a protocol layer
 
