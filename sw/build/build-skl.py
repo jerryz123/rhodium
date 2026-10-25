@@ -98,9 +98,17 @@ def main():
     cmake_version = subprocess.check_output([cmake, '--version'], text=True)
     metadata = elf_build_metadata(target, 'skl', FUNCTIONAL_PROFILE)
     flags = (*FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}')
+    runtime_libraries = {}
+    for name in ('libc.a', 'libm.a', 'libgcc.a'):
+        path = Path(subprocess.check_output(
+            [compiler, *flags, f'-print-file-name={name}'], text=True).strip()).resolve()
+        if not path.is_file():
+            parser.error(f'the selected compiler has no {name} runtime library')
+        runtime_libraries[name] = dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
     key_input = json.dumps(dict(revision=revision, source=str(source), compiler=compiler,
                                compiler_version=version, cmake_version=cmake_version,
-                               flags=flags, build_spec=metadata['build_spec']), sort_keys=True).encode()
+                               flags=flags, runtime_libraries=runtime_libraries,
+                               build_spec=metadata['build_spec']), sort_keys=True).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
                  Path(__file__).with_name('build.py'),
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py',
@@ -165,6 +173,7 @@ def main():
                     patches=[dict(name=patch.name, sha256=hashlib.sha256(patch.read_bytes()).hexdigest())
                              for patch in patches],
                     compiler_flags=list(flags), compiler_arch=compiler_arch, cache_key=key,
+                    runtime_libraries=runtime_libraries,
                     mode='execution-only', scoring=False,
                     march=target['march'], mabi=target['mabi'], target=target,
                     target_fingerprint=target_fingerprint(target), tests=tests, files=files, **metadata)

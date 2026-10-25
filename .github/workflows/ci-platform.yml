@@ -89,9 +89,9 @@ jobs:
           path: |
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
-          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.github/workflows/ci-platform.yml') }}-${{ github.sha }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.github/workflows/ci-platform.yml') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.github/workflows/ci-platform.yml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.github/workflows/ci-platform.yml') }}-
       - name: Build and package shared ELFs
         env:
           SOC: ${{ matrix.soc }}

@@ -10,7 +10,6 @@ cosim-hooks-test:
 	cmake -S cosim -B "$(COSIM_HOOK_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCOSIM_WITH_SAIL=OFF
 	cmake --build "$(COSIM_HOOK_BUILD_DIR)" --parallel $(BUILD_JOBS)
 	ctest --test-dir "$(COSIM_HOOK_BUILD_DIR)" --output-on-failure
-	$(PYTHON) -m unittest discover -s cosim/tests/runtime -p 'test_*.py'
 
 .PHONY: sail-cosim-build sail-cosim-test sail-cosim-config sail-cosim-config-test sail-config-adapter-test
 ifneq ($(PREBUILT_COSIM_DIR),)

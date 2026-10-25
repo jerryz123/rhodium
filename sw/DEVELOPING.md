@@ -118,6 +118,16 @@ still invoke report callbacks so their failures propagate. Emit one integer-only
 `SKL-BENCH` line per successful benchmark case instead of upstream floating-point
 throughput reports. Newlib owns allocation and formatting;
 the port owns only heap bounds, startup, and the single HTIF syscall boundary.
+The toolchain setup rebuilds the pinned GCC release's Newlib and libgcc for
+RV64GC/LP64D with `-mcmodel=medany`, keeping its matching headers and libraries
+together. `tools/install-riscv-runtime.sh` owns those checksum-pinned sources
+and library-only recipes; it uses GCC's installed target headers without
+rebuilding the compiler. The existing toolchain cache owns the installed result.
+Do not change the SoC RAM map or add libc symbol overrides to accommodate
+medlow archives.
+All toolchain-dependent CI caches include both installer scripts. SKL also
+records and hashes the compiler-selected `libc.a`, `libm.a`, and `libgcc.a`, so
+replacing a runtime without changing the GCC version invalidates its ELF cache.
 Keep upstream sources pristine. The manifest declares execution-only mode;
 Sail cosim checks architectural execution in the RTL CI jobs, not SKL numerical
 accuracy. Plain Spike and non-cosim RTL runs provide execution smoke coverage.
@@ -152,7 +162,7 @@ Check finite-domain bounds, sequential ordering, zero/tail lengths, distinct
 random streams, and BF16 rounding against the compiler's conversion helpers.
 Inspect generated code to confirm vectorization without per-element RNG or
 BF16 helper calls. The ordered patch contents and recorded initialization/reporting
-policies must invalidate cached builds. Qualify runtime or buffer-policy changes with the
+policies must invalidate cached builds. Validate runtime or buffer-policy changes with the
 full suite on Spike and both RTL cores with Sail cosim.
 SKL uses the existing GCC/Newlib toolchain; GCC ignores Clang unroll pragmas
 without treating them as errors. CMake and compiler identity, port bytes, and

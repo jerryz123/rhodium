@@ -238,9 +238,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-harness-builds/${{ matrix.build_id }}
-          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.gitmodules') }}-${{ github.sha }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.gitmodules') }}-
+            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-
       - name: Build compatible harness ELFs once
         env:
           SOC: ${{ matrix.soc }}

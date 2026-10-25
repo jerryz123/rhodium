@@ -67,7 +67,7 @@ class Selection:
             self.all_programs()
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             pass
-        elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-toolchain.sh", ".github/actions/setup-riscv-toolchain/*"):
+        elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-*.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
 
         # Backend oracles cover memory lowering, UART, and Flow events.
@@ -138,7 +138,7 @@ class Selection:
                      "sw/bringup-bench-patches/*",
                      "sw/build/build-skl.py", "sw/skl", "sw/skl/*", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*"):
             pass
-        elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-toolchain.sh"):
+        elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-*.sh"):
             self.simulation = True
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             self.simulation = True

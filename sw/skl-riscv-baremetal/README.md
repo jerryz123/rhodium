@@ -24,6 +24,12 @@ builds without simulation; `skl-run` executes an existing manifest through the
 normal simulator flow. `PROGRAM_JOBS`, `SKL_TIMEOUT` (900 seconds per suite), and `SKL_MAX_CYCLES`
 bound execution; `BUILD_JOBS` controls compilation.
 
+The RV64 C runtime must support the target's high RAM addresses. CI's cached
+toolchain setup builds pinned Newlib and libgcc with `-mcmodel=medany`;
+custom compilers must likewise provide compatible `libc`, `libm`, and compiler
+runtime libraries. Application compiler flags do not rebuild precompiled
+libraries. SKL records the selected runtime archive hashes in its manifest.
+
 Upstream's CMake catalog and compiler-detected target extensions select the
 suites. X390 implementations and standalone scalar-reference suites are
 excluded. At the pinned revision this selects 28 suites: three depthwise
