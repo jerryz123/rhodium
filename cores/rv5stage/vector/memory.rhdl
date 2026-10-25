@@ -1,10 +1,9 @@
 #lang rhodium
-/* Retains certified physical requests across local cache retries and precisely resolves
-   faulting attempts. */
+/* Adapts shared vector issue to RV5Stage cache decisions, split ownership, and precise outcomes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/vector/replay.rhdl") open
+  lib("cores/vector/memory-issue.rhdl").VectorMemoryIssue
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "../../vector/bundles.rhdl" open
@@ -68,8 +67,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     | literal(RiscvGuestException(), 0)
 
 
-  /* Retained physical requests and split ownership.
-     Certified capture is durable; retry rewinds unaccepted requests, not completed work. */
+  /* Shared lookup issue and local split ownership.
+     Certified capture is durable; a split takeover skips its retained request. */
 
   inst split_owner(OfferRegister(Decision()))
   def split_pending = split_owner.egress.valid
@@ -77,56 +76,37 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   wire recover: Bool
   wire retry: Bool
   wire resolved: Bool
-  inst replay(VectorReplay(Token, slots))
-  replay.blocked <== split_pending
-  replay.recover <== recover
-  replay.retry <== retry
-  replay.skip <== split_capture
-  replay.release <== resolved
-  def queued = replay.occupied
-  def Array(certified_input, faultable_input) = issue |> demux_flow(2, token => !token.precertified)
-  certified_input |> replay.request
-  def capture_feedback = replay.captured
-  def direct = faultable_input |> gate_flow(!queued & !recover & !split_pending)
-  def Array(registered_input, packed_load) = Array(replay.attempt, direct) |> arbiter() |> demux_flow(2, token => token.packed & !token.store)
-  def registered_lookup = registered_input |> to_valid() |> valid_pipe(1, ~flush: recover)
-  def immediate_lookup = packed_load |> gate_flow(!registered_lookup.valid) |> to_valid()
-  def lookup = Array(registered_lookup, immediate_lookup) |> valid_arbiter()
-  requests_idle <== !queued & !lookup.valid & !split_pending
+  inst launch(VectorMemoryIssue(xlen, slots))
+  issue |> launch.issue
+  launch.blocked <== split_pending
+  launch.recover <== recover
+  launch.retry <== retry
+  launch.skip <== split_capture
+  launch.release <== resolved
+  requests_idle <== !launch.occupied & !launch.lookup.valid & !split_pending
 
 
+  /* Lookup formation.
+     The shared issue path supplies the timed beat; RV5Stage supplies cache shape. */
 
-  /* Capture feedback and lookup formation.
-     Prepared packed loads bypass ordinary EX storage, but never an older lookup.
-     Durable ownership is reported independently of cache acceptance or retries. */
-
-  def durable = capture_feedback |> valid_pipe(1) |> map_valid(operation => VectorCommit(xlen, slots)):
-    tag: operation.completion_tag
-    pc: operation.context
-    disposition: VectorDisposition.Authorized
-    slow: Bool(#true)
-    data: Bits(xlen.width)(0)
-    cause: Bits(xlen.width)(0)
-    fault_address: operation.address
-
-  def Array(lookup_path, context_path) = lookup |> fork_valid(2)
-  def access = lookup.bits.memory & lookup.bits.enabled
-  def address = mux(lookup.bits.precertified, lookup.bits.physical_address, apply_pointer_mask(xlen, lookup.bits.address[0..xlen.width], pointer_masking))
-  def lookup_store = mux(lookup.bits.precertified, lookup.bits.store, store)
-  pipeline_physical <== lookup.bits.precertified
-  def width = lookup.bits.memory_width.into(MemoryWidth)
+  def Array(lookup_path, context_path) = launch.lookup |> fork_valid(2)
+  def access = launch.lookup.bits.memory & launch.lookup.bits.enabled
+  def address = mux(launch.lookup.bits.precertified, launch.lookup.bits.physical_address, apply_pointer_mask(xlen, launch.lookup.bits.address[0..xlen.width], pointer_masking))
+  def lookup_store = mux(launch.lookup.bits.precertified, launch.lookup.bits.store, store)
+  pipeline_physical <== launch.lookup.bits.precertified
+  def width = launch.lookup.bits.memory_width.into(MemoryWidth)
   def misaligned = access & !width.is_aligned(address)
   def request = PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)):
-    byte_mask: lookup.bits.byte_mask[0..xlen.width / 8]
+    byte_mask: launch.lookup.bits.byte_mask[0..xlen.width / 8]
     address: address
     access: mux(lookup_store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     unsigned: Bool(#true)
-    data: lookup.bits.store_data[0..xlen.width]
+    data: launch.lookup.bits.store_data[0..xlen.width]
     context:
       RV5StageMemoryContext(slots):
-        writeback: RV5StageMemoryWriteback(slots).Vector(lookup.bits.completion_tag)
+        writeback: RV5StageMemoryWriteback(slots).Vector(launch.lookup.bits.completion_tag)
         origin: RV5StageDataOrigin.Core
 
     locality: RiscvMemoryLocality.Default
@@ -221,10 +201,10 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   resolved <== wb_context.valid & token.precertified & !recover
   // Reserve the next-cycle issue edge only after all older preparation has
   // left the pipeline and the durable ring is empty or actually releasing last.
-  memory_start_ready <== replay.empty_after_release & !issue.valid & !lookup.valid & !mem_context.valid & (!arrival.valid ||| resolved) & !split_pending
+  memory_start_ready <== launch.empty_after_release & !issue.valid & !launch.lookup.valid & !mem_context.valid & (!arrival.valid ||| resolved) & !split_pending
   when (wb_context.valid & token.precertified):
     assert(!fault, "certified_vector_request_cannot_fault")
-    assert(queued & (token.completion_tag === replay.oldest.completion_tag), "vector_retry_resolves_oldest_request")
+    assert(launch.occupied & (token.completion_tag === launch.oldest_tag), "vector_retry_resolves_oldest_request")
 
 
 
@@ -276,8 +256,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
 
   def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
   def precise_feedback = feedback_path |> filter_valid(_event => !token.precertified)
-  Array(durable, precise_feedback) |> valid_arbiter() |> feedback
-  assert(!(durable.valid & precise_feedback.valid), "vector_capture_and_precise_feedback_are_exclusive")
+  Array(launch.durable, precise_feedback) |> valid_arbiter() |> feedback
+  assert(!(launch.durable.valid & precise_feedback.valid), "vector_capture_and_precise_feedback_are_exclusive")
   outcome_path |> filter_valid(event => !token.precertified & (event.disposition =/= VectorDisposition.Retry) & (token.last ||| fault)) |> outcome
 
 

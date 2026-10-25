@@ -171,7 +171,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
-| `vector-memory.rhdl` | Vector lookup timing, shared replay retention, precise split outcomes and ordered raw-word extraction |
+| `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to RV2Wide decisions, precise split outcomes, and ordered raw-word extraction |
 | `memory-ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |

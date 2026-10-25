@@ -85,6 +85,7 @@ new payload buffers or instruction-ID reconstruction.
 | `geometry.rhdl`, `precheck.rhdl` | Beat geometry and conservative certification footprints |
 | `backend.rhdl` | Common admission/execution composition, service forwarding, and precise fault transport; no named LSU protocol |
 | `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
+| `memory-issue.rhdl` | Shared LSU issue selection, packed-load bypass, ordinary lookup register, and durable capture feedback |
 | `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
 | `instruction-metadata.rhm` | Canonical base decode domains and scalar operand/destination metadata |
 | `udb.rhm` | Shared execution geometry and architectural policy for named-core UDB projections |
@@ -132,9 +133,16 @@ qualification. RV5Stage registers the start/wrap proof and geometry at EX/MEM;
 RV2Wide computes both helpers in EX. Neither helper owns validity, registers,
 certificate context, or retirement. Validate changes through
 `rv5stage-vector-memory`, `rv2wide-core-vector`, and its RV32 counterpart.
-The memory adapters retain fixed lookup stages, fault interpretation, split
+`VectorMemoryIssue` composes `VectorReplay` with certified/direct arbitration,
+the ordinary lookup register, packed-load bypass, and delayed capture feedback.
+Do not add buffering or flush the durable-feedback pipe during recovery. An
+older registered lookup wins over a packed bypass; the latter retains ready-valid
+backpressure until it can launch. Both core adapters use this same frontend.
+The adapters retain the later MEM/WB stages, fault interpretation, split
 ownership, and cache response shaping; `VectorReplay` owns only durable request
-storage and its ordered attempt/release cursors.
+storage and its ordered attempt/release cursors. The frontend exposes ring
+occupancy, oldest-tag identity, and release credit without exporting its child
+instance. The caller still combines credit with its own pipeline/split occupancy.
 Its Decoupled attempt advances only on transfer, so an older registered lookup
 can defer a captured packed load without another payload buffer or a lost request.
 The backend installs a certified or faultable successor through the ordinary

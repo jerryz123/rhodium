@@ -1,10 +1,10 @@
 #lang rhodium
-/* Adapts sequenced vector beats to RV2Wide's fixed lookup, WB admission, and ordered returns. */
+/* Adapts shared vector issue to RV2Wide lookup decisions, WB admission, and ordered returns. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/cosim-source.rhm").describe_cosim_signals
-  lib("cores/vector/replay.rhdl") open
+  lib("cores/vector/memory-issue.rhdl").VectorMemoryIssue
   "bundles.rhdl" open
   lib("cores/vector/bundles.rhdl") open
   lib("cores/cache/operation.rhdl") open
@@ -58,9 +58,8 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   output(idle, requests_idle, memory_start_ready, pipeline_physical, request_physical): Bool
 
 
-  /* Certified request retention and precise bypass.
-     Recovery flushes unaccepted attempt stages; retry rewinds the retained ring.
-     Accepted return and split owners survive. Durable capture reports authorization. */
+  /* Shared lookup issue and retained response owners.
+     Recovery flushes unaccepted attempts; accepted return and split owners survive. */
 
   wire recover: Bool
   wire retry: Bool
@@ -69,55 +68,38 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   reg split_token(Attempt())
   inst owners(Queue(ReturnOwner(), slots))
   inst split_returns(Queue(VectorCompletion(xlen, slots), 1))
-  inst replay(VectorReplay(Token, slots))
-  replay.blocked <== split_pending
-  replay.recover <== recover
-  replay.retry <== retry
-  replay.skip <== Bool(#false)
-  replay.release <== resolved
-  def queued = replay.occupied
-  def Array(certified_input, faultable_input) = issue |> demux_flow(2, token => !token.precertified)
-  certified_input |> replay.request
-  def captured = replay.captured
-  def direct = faultable_input |> gate_flow(!queued & !recover & !split_pending)
-  def Array(registered_input, packed_load) = Array(replay.attempt, direct) |> arbiter() |> demux_flow(2, token => token.packed & !token.store)
-  def registered_lookup = registered_input |> to_valid() |> valid_pipe(1, ~flush: recover)
-  def immediate_lookup = packed_load |> gate_flow(!registered_lookup.valid) |> to_valid()
-  def lookup = Array(registered_lookup, immediate_lookup) |> valid_arbiter()
-  def durable = captured |> valid_pipe(1) |> map_valid(token => VectorCommit(xlen, slots)):
-    tag: token.completion_tag
-    pc: token.context
-    disposition: VectorDisposition.Authorized
-    slow: Bool(#true)
-    data: Bits(xlen.width)(0)
-    cause: Bits(xlen.width)(0)
-    fault_address: token.address
+  inst launch(VectorMemoryIssue(xlen, slots))
+  issue |> launch.issue
+  launch.blocked <== split_pending
+  launch.recover <== recover
+  launch.retry <== retry
+  launch.skip <== Bool(#false)
+  launch.release <== resolved
 
 
-  /* Lookup launch: packed loads use their prepared address directly at issue.
-     Older registered ordinary accesses win collisions; durable packed attempts wait
-     in replay storage. Stores and elementwise accesses retain their EX register. */
+  /* Lookup formation.
+     The shared issue path supplies the timed beat; RV2Wide positions raw cache words. */
 
-  def Array(lookup_attempt, retained_attempt) = lookup |> fork_valid(2)
-  def address = mux(lookup.bits.precertified, lookup.bits.physical_address, apply_pointer_mask(xlen, lookup.bits.address, pointer_masking))
-  pipeline_physical <== lookup.bits.precertified
-  def width = lookup.bits.memory_width.into(MemoryWidth)
+  def Array(lookup_attempt, retained_attempt) = launch.lookup |> fork_valid(2)
+  def address = mux(launch.lookup.bits.precertified, launch.lookup.bits.physical_address, apply_pointer_mask(xlen, launch.lookup.bits.address, pointer_masking))
+  pipeline_physical <== launch.lookup.bits.precertified
+  def width = launch.lookup.bits.memory_width.into(MemoryWidth)
   inst store_data(StoreGen(xlen, xlen.width / 8))
   store_data.address <== address
   store_data.width <== width
-  store_data.value <== lookup.bits.store_data
+  store_data.value <== launch.lookup.bits.store_data
   def request = RV2WideMemoryReq(xlen, xlen.width):
     address: address
-    access: mux(lookup.bits.store, CacheOperation.Store, CacheOperation.Load)
+    access: mux(launch.lookup.bits.store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     data: store_data.data
-    mask: lookup.bits.byte_mask
+    mask: launch.lookup.bits.byte_mask
     locality: RiscvMemoryLocality.Default
     pbmt: PageMemoryType.PMA
     guest_access: RiscvGuestMemoryAccess.Normal
 
-  def misaligned = lookup.bits.enabled & !width.is_aligned(address)
+  def misaligned = launch.lookup.bits.enabled & !width.is_aligned(address)
   lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
 
 
@@ -245,7 +227,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   Array(offered_hit, delayed, split_returns.egress) |> arbiter() |> completion
   when (wb.valid & token.precertified):
     assert(!fault & !attempt.misaligned, "rv2wide_certified_vector_request_is_aligned_and_nonfaulting")
-    assert(queued & (token.completion_tag === replay.oldest.completion_tag), "rv2wide_vector_retry_resolves_oldest_request")
+    assert(launch.occupied & (token.completion_tag === launch.oldest_tag), "rv2wide_vector_retry_resolves_oldest_request")
 
 
   /* Architectural outcomes distinguish retry, truncation, and fault.
@@ -287,8 +269,8 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     fault_address: result.fault_address
 
   def Array(decision, retirement) = Array(immediate, split_decision) |> valid_arbiter() |> fork_valid(2)
-  Array(durable, decision) |> valid_arbiter() |> feedback
-  assert(!(durable.valid & decision.valid), "rv2wide_vector_capture_and_precise_feedback_are_exclusive")
+  Array(launch.durable, decision) |> valid_arbiter() |> feedback
+  assert(!(launch.durable.valid & decision.valid), "rv2wide_vector_capture_and_precise_feedback_are_exclusive")
   def last_beat = mux(returned_split, split_token.token.last, token.last)
   retirement |> filter_valid(event => (event.disposition =/= VectorDisposition.Retry) & (last_beat ||| event.disposition.is_one_of(VectorDisposition.Fault, VectorDisposition.Truncate))) |> outcome
   outcome_guest <== priority_mux(~default: wb.bits.response.guest):
@@ -299,10 +281,10 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
   /* Quiescence includes accepted owners as well as unaccepted attempts.
      A drained attempt pipeline alone does not release outstanding responses. */
 
-  requests_idle <== !queued & !lookup.valid & !mem.valid & !wb.valid & !split_pending
+  requests_idle <== !launch.occupied & !launch.lookup.valid & !mem.valid & !wb.valid & !split_pending
   // A first read matures next cycle. A successfully released final certified
   // attempt can supply that edge, but retries, splits, and new captures cannot.
-  memory_start_ready <== replay.empty_after_release & !issue.valid & !lookup.valid & !mem.valid & (!wb.valid ||| resolved) & !split_pending
+  memory_start_ready <== launch.empty_after_release & !issue.valid & !launch.lookup.valid & !mem.valid & (!wb.valid ||| resolved) & !split_pending
   idle <== requests_idle & !owners.count.any() & !split_returns.count.any()
   assert(!(accepted & (retry ||| fault)), "rv2wide_vector_accepted_request_never_replays")
 

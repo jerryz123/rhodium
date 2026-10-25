@@ -1,0 +1,65 @@
+#lang rhodium
+/* Retains certified vector memory beats and schedules fixed-cycle lookup attempts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "replay.rhdl".VectorReplay
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+/* Separates durable capture from faultable issue without changing lookup latency.
+   Ordinary beats register once; packed loads bypass unless an older registered beat
+   owns lookup. Recovery flushes attempts, not certified capture or its feedback.
+   The caller resolves/retries retained requests and owns split and response state. */
+sync_circuit VectorMemoryIssue(xlen :: XLen, slots :: Pow2Int):
+  def Token = VectorToken(xlen, Bits(xlen.width), slots)
+  interface issue(Decoupled(Token), ~role: consumer)
+  interface lookup(Valid(Token), ~role: producer)
+  interface durable(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  input(blocked, recover, retry, skip, release): Bool
+  output(occupied, empty_after_release): Bool
+  output oldest_tag: Bits(index_width(slots))
+
+
+  /* Certified retention and direct issue.
+     A faultable beat cannot pass retained work or a caller-owned split. */
+
+  inst replay(VectorReplay(Token, slots))
+  replay.blocked <== blocked
+  replay.recover <== recover
+  replay.retry <== retry
+  replay.skip <== skip
+  replay.release <== release
+  occupied <== replay.occupied
+  empty_after_release <== replay.empty_after_release
+  oldest_tag <== replay.oldest.completion_tag
+  def Array(certified, faultable) = issue |> demux_flow(2, token => !token.precertified)
+  certified |> replay.request
+  def direct = faultable |> gate_flow(!replay.occupied & !recover & !blocked)
+
+
+  /* Lookup scheduling.
+     Packed loads retain backpressure until their same-cycle lookup can run. */
+
+  def Array(ordinary, packed_load) = Array(replay.attempt, direct) |> arbiter() |> demux_flow(2, token => token.packed & !token.store)
+  def registered = ordinary |> to_valid() |> valid_pipe(1, ~flush: recover)
+  def immediate = packed_load |> gate_flow(!registered.valid) |> to_valid()
+  Array(registered, immediate) |> valid_arbiter() |> lookup
+
+
+  /* Durable authorization.
+     Report capture one cycle later, independently of lookup recovery or completion. */
+
+  (replay.captured |> valid_pipe(1) |> map_valid(token => VectorCommit(xlen, slots)):
+    tag: token.completion_tag
+    pc: token.context
+    disposition: VectorDisposition.Authorized
+    slow: Bool(#true)
+    data: Bits(xlen.width)(0)
+    cause: Bits(xlen.width)(0)
+    fault_address: token.address
+  ) |> durable
+
+export VectorMemoryIssue

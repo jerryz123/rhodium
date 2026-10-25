@@ -102,6 +102,20 @@ split, blocked return, or new durable capture does not. Accepted slow responses
 may remain outstanding. Per-row data, index, and mask hazards still apply;
 arithmetic results need not drain first. The wait appears as a normal sequencing
 stall, without an extra request or result queue.
+
+[`VectorMemoryIssue`](memory-issue.rhdl) supplies the common LSU issue frontend.
+Its Decoupled `issue` accepts vector memory tokens; Valid `lookup` presents
+ordinary beats one cycle later and packed loads in the issue cycle when no
+older registered beat owns lookup. Certified beats remain retained across
+retries and report `durable` authorization one cycle after capture, even during
+recovery. Faultable beats wait behind retained requests and the caller's
+`blocked` condition. The caller supplies recovery, retry, split-skip, and ordered
+release decisions and retains responsibility for suppressing younger effects.
+`occupied` and `oldest_tag` describe only retained certified requests;
+`empty_after_release` accounts for same-edge release and capture, not downstream
+lookup stages or accepted responses. Core adapters combine that credit with
+their own pipeline and split state to compute `memory_start_ready`.
+
 [`VectorReplay`](replay.rhdl) retains certified requests through local retries;
 attempts may run ahead, but release remains ordered. A split takeover can move
 the attempt cursor past the oldest retained request without releasing its owner.

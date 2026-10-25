@@ -647,7 +647,10 @@ the pure vector/XLEN models plus the RISC-V vector RTL adapter; the execution
 instruction tracker consumes its destination-group mask for pending row hazards.
 `cores/rv5stage/vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
 shared cache protocols and memory operations, named completion context, and RISC-V trap/pointer-masking
-adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
+adapters. Both named vector memory adapters import `cores/vector/memory-issue.rhdl`
+for shared lookup issue and durable feedback. That module imports vector bundles,
+`VectorReplay`, pure XLEN, public `Pow2Int`, and Flow; it imports no named cache or
+core protocol. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
 arbitration and tagged response routing, plus public `std/bits.rhdl` for
 completion geometry. No memory adapter imports a cache implementation.
 `vector/precheck.rhdl` imports vector descriptor/control types, the shared MMU
