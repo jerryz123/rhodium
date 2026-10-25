@@ -4,12 +4,12 @@
 
 import:
   "../cache/access.rhdl" open
+  "../cache/prefetch.rhdl".cache_prefetch_physical
   lib("cores/mmu/context.rhdl").riscv_translation_lookup
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   "bundles.rhdl" open
   "../cache/protocol.rhdl" open
-  "../cache/config.rhm".CacheLineBytes
   "../cache/operation.rhdl" open
   "../cache-prefetch.rhdl" open
   "../chi-hart.rhdl" open
@@ -203,19 +203,11 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
   def prefetch_translated = normal_data_guest ||| (prefetch_privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode))
   def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].any()
-  def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64).align_down(CacheLineBytes)
-  def prefetch_region = config.physical_map.lookup(prefetch_address, prefetch_address +& Bits(64)(CacheLineBytes - 1))
-  def prefetch_attributes = resolve_memory_attributes(prefetch_region, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
-  def prefetch_permission = mux_lookup(prefetch_request.operation, ~default: Bool(#false)):
-    CachePrefetchOperation.Instruction: prefetch_region.executable
-    CachePrefetchOperation.Read: prefetch_region.readable
-    CachePrefetchOperation.Write: prefetch_region.writable
-
-  def prefetch_cacheable = mux(instruction_prefetch, prefetch_attributes.instruction_cacheable, prefetch_attributes.cacheable)
-  def prefetch_ordinary_memory = prefetch_region.mapped & prefetch_cacheable & !prefetch_attributes.strongly_ordered & prefetch_attributes.read_idempotent
+  def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64)
+  def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
   def prefetch_probe_available = instruction_prefetch ||| !vector_fast.request.valid
-  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_ordinary_memory & prefetch_permission
-  (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_address))) |> physical_prefetch_pipe.ingress
+  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_physical.ordinary_memory & prefetch_physical.permitted
+  (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_physical.address))) |> physical_prefetch_pipe.ingress
   physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
 
 

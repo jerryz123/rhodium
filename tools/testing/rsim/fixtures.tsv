@@ -209,6 +209,7 @@ rv2wide-assembly-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wi
 rv2wide-frontend-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/rv2wide/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-bht	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-bht.rhm	program	cores/rv2wide/tests/rsim/rv2wide-bht.cpp
 rv2wide-mmu	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/rv2wide/tests/rsim/rv2wide-mmu.cpp
+rv2wide-bare-memory	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/rv2wide/tests/rsim/rv2wide-bare-memory.cpp
 rv5stage-chi-requests	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-chi-requests.rhm	program	cores/rv5stage/tests/rsim/rv5stage-chi-requests.cpp
 rv5stage-vector	cores-vector-functional-1	cores/vector/tests/rsim/emit-rv5stage-vector.rhm	program	cores/vector/tests/rsim/rv5stage-vector.cpp
 rv5stage-vector-control	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-control.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-control.cpp

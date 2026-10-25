@@ -27,6 +27,7 @@ the caller rather than adding a dependency back toward a core.
 | [`types.rhdl`](types.rhdl) | Precision, register-use, and execution controls |
 | [`profile.rhm`](profile.rhm) | Implemented XLEN/FP/half/Zfa capability combinations |
 | [`decode.rhdl`](decode.rhdl) | Metadata-derived register use, partial execution relations, and standalone decoder |
+| [`scalar-decode.rhdl`](scalar-decode.rhdl) | Canonical FP memory classification, scalar source/destination metadata, and partial operand/LSU patterns |
 | [`bundles.rhdl`](bundles.rhdl) | Opaque-tag operand request/result and retagging |
 | [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write FPR storage and forwarding |
 | [`load-store.rhdl`](load-store.rhdl) | FP load boxing and raw low-precision store shaping without LSU policy |
@@ -39,6 +40,13 @@ the caller rather than adding a dependency back toward a core.
 | [`tests/`](tests/) | Shared decode contracts and standalone behavioral fixtures |
 
 ## Change workflow
+
+Both named decoders use `fp_scalar_metadata` for FP address-generation and LSU
+patterns. Preserve free arithmetic routing and store-extension fields. The
+callers still select ALU activation, inactive rows, and architectural writeback:
+RV2Wide enables its scalar destination column, while RV5Stage delegates FP
+integer results to its FP completion path. Run both composed decode tests when
+changing this adapter, in addition to the shared decode test.
 
 1. Change physical types and canonical mappings together, preserving partial
    care masks. Do not introduce a duplicate instruction-kind enum.

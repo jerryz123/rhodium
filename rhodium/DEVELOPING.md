@@ -532,6 +532,10 @@ named profiles retain defaults, restrictions, and qualification predicates.
 `cores/cache/access.rhdl` consumes cache operation/geometry, load/store widths,
 architectural PMA/CMO/XLEN, and public bit helpers. Both cores consume its
 combinational classification while retaining their access-intent and service policies.
+`cores/cache/prefetch.rhdl` consumes cache geometry/prefetch operations,
+architectural PMA/PBMT, and public bit helpers. Both translated MMU adapters
+consume its physical classification without moving hint cancellation or final
+eligibility into the cache package.
 `cores/operand.rhdl` consumes architectural immediate formats and extraction;
 `cores/operand-decode.rhdl` adds canonical I/M/A/B/Zicond instruction catalogs and XLEN, the public
 RISC-V decode adapter, and `std/decode.rhdl`. Named decoders consume these
@@ -553,9 +557,10 @@ consume these contracts and `std/bits.rhdl` / `flow/main.rhdl`.
 `cores/mmu/context.rhdl` consumes the shared translation protocol, public
 hypervisor/privilege/Sv39/CSR adapters, and pure CSR/Sv39 descriptors to form
 stateless lookup context. Both named MMUs consume it while retaining arbitration.
-Both named Sv39 MMUs also consume `cores/mmu/vector-certificate.rhdl` for the
+Both named Sv39 MMUs and RV2Wide's Bare adapter consume `cores/mmu/vector-certificate.rhdl` for the
 shared fast proof and epoch. It imports the shared vector/translation/host-result
-contracts, the window's page-PMA helper, architectural XLEN/PMA/PBMT, and Flow;
+contracts, the window's page-PMA helper, architectural XLEN/PMA/PBMT/guest context,
+public bit helpers, and Flow;
 it imports no named pipeline or TLB-selection policy.
 Both host adapters are wiring-only; entry storage, permission checking, and
 walker continuation/response ownership belong to those shared implementations.
@@ -699,6 +704,10 @@ buffering, and completion arbitration. Shared types and operand bundles import
 RISC-V/HardFloat representation contracts, not instruction catalogs or named-core
 configuration. `cores/fp/decode.rhdl` imports canonical FP catalogs, the public
 RISC-V decode adapter, and `std/decode.rhdl` for partial component relations.
+`cores/fp/scalar-decode.rhdl` consumes canonical F/D/Zfhmin instruction and
+operand descriptors, shared operand/load-store/cache-operation types, and
+`std/decode.rhdl`. Both named decoders consume its scalar metadata and partial
+patterns while retaining inactive-resource and writeback policy.
 `cores/fp/load-store.rhdl` imports shared precision types and architectural
 boxing/HardFloat representation helpers without LSU policy. Named FP wrappers
 consume that value adapter rather than defining their own boxing/shaping.

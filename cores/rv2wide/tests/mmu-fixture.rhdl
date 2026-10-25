@@ -6,6 +6,7 @@ import:
   lib("riscv/rtl/pointer-masking.rhdl") open
   lib("flow/main.rhdl") open
   "../mmu.rhdl" open
+  "../bare-memory.rhdl" open
   "../bundles.rhdl" open
   "cache-fixture.rhdl" open
   "../../cache/protocol.rhdl" open
@@ -19,7 +20,7 @@ import:
   lib("riscv/isa/xlen.rhm") open
   lib("cores/mmu/vector.rhdl") open
 
-sync_circuit RV2WideMmuFixture():
+sync_circuit RV2WideMmuFixture(~bare: bare :: Boolean = #false):
   input privilege: Bits(2)
   input(satp, mstatus): Bits(64)
   input invalidate: Bool
@@ -67,7 +68,7 @@ sync_circuit RV2WideMmuFixture():
   output response_ready: Bool
   output completed: Bool
   output completed_data: Bits(64)
-  inst mmu(RV2WideMmu(test_fetch_chi, ~svnapot: #true))
+  inst mmu(if bare | RV2WideBareMemory(XLen.X64, test_fetch_chi) | RV2WideMmu(test_fetch_chi, ~svnapot: #true))
   mmu.pipeline_vector <== vector_access
   mmu.request_vector <== vector_access
   vector_precheck.request |> gate_flow(!ordered_precheck ||| mmu.memory.request.ready) |> mmu.vector_precheck.request

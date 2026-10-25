@@ -38,7 +38,8 @@ execution and retirement behavior.
 | [`../../fp/decode.rhdl`](../../fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
 | [`../../vector/decode.rhdl`](../../vector/decode.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
 | [`../../../riscv/rtl/decode.rhdl`](../../../riscv/rtl/decode.rhdl) | Catalog-independent RISC-V case construction, exclusion, exact-pattern comparison, and component lookup helpers |
-| [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, scalar controls for FP rows, profile validation, and the integrated decoder circuit |
+| [`../../fp/scalar-decode.rhdl`](../../fp/scalar-decode.rhdl) | Shared FP scalar operand/address and LSU patterns |
+| [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, FP scalar-resource activation/writeback policy, profile validation, and the integrated decoder circuit |
 
 ALU and operand relations use each XLEN catalog's own immediate-shift
 `InstructionSpec` because those encodings differ. Other shared instructions
@@ -53,8 +54,8 @@ rebinding by name. Memory width is the shared
    Exact-one lookup deliberately turns a missing or duplicate row into an
    elaboration error.
 3. For FP, supply operand metadata and an execution case, include the
-   instruction in the selected FP catalog, and let the core adapter own scalar
-   columns.
+   instruction in the selected FP catalog, and reuse `fp/scalar-decode.rhdl`
+   for scalar operands/LSU fields. Core adapters own activation and writeback.
 4. Leave inactive fields as explicit care-mask don't-cares only when downstream
    logic cannot observe them behind the corresponding validity or enable bit.
 5. Add focused domain and representative-control assertions, then verify the

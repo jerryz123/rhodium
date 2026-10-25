@@ -6,4 +6,7 @@ import:
   "../mmu-fixture.rhdl" open
 
 def program = elaborate(RV2WideMmuFixture())
-export program
+def bare_program = elaborate(RV2WideMmuFixture(~bare: #true))
+export:
+  program
+  bare_program

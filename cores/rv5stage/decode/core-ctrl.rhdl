@@ -37,15 +37,13 @@ import:
   "../../../riscv/isa/zihintpause.rhm" open
   "../../../riscv/isa/zihintntl.rhm" open
   "../../fp/decode.rhdl" open
+  "../../fp/scalar-decode.rhdl".fp_scalar_metadata
   "../../vector/decode.rhdl" open
   "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/isa/zvbb.rhm" as vector_bitmanip
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
-  "../../../riscv/isa/f.rhm" as f
-  "../../../riscv/isa/d.rhm" as d
-  "../../../riscv/isa/zfhmin.rhm" as zfhmin
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -60,7 +58,6 @@ import:
   "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/model/instruction.rhm".InstructionSpec
-  "../../../riscv/model/formats.rhm" open
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
 
@@ -147,59 +144,16 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
   for List (instruction in instructions):
     block:
       def input = instruction_pattern(instruction)
-      def half_load = [zfhmin.FLH].contains(instruction)
-      def load = [f.FLW, d.FLD, zfhmin.FLH].contains(instruction)
-      def store = [f.FSW, d.FSD, zfhmin.FSH].contains(instruction)
-      def memory = load || store
-      def double = [d.FLD, d.FSD].contains(instruction)
-      def integer_sources = instruction.operands.filter(
-        ~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer
-      )
-
-      def immediate = cond
-      | load: OperandImmediate.I
-      | store: OperandImmediate.S
-      | ~else: OperandImmediate.Zero
-
-      def memory_width = cond
-      | double: MemoryWidth.Double
-      | half_load || [zfhmin.FSH].contains(instruction): MemoryWidth.Half
-      | ~else: MemoryWidth.Word
-
-      def alu_control = if memory | scalar_address_alu | unused_scalar_alu
-      def operand_control:
-        if memory
-        | pattern(OperandControl()):
-            uses_rs1: Bool(#true)
-            uses_rs2: Bool(#false)
-            left: OperandASelect.Register
-            right: OperandBSelect.Immediate
-            immediate: immediate
-        | partial_pattern(OperandControl()):
-            uses_rs1: Bool(!integer_sources.is_empty())
-            uses_rs2: Bool(#false)
-
-      def memory_control:
-        cond
-        | load:
-            partial_pattern(RV5StageMemoryControl()):
-              access: CacheOperation.Load
-              width: memory_width
-              unsigned: Bool(#true)
-        | store:
-            partial_pattern(RV5StageMemoryControl()):
-              access: CacheOperation.Store
-              width: memory_width
-        | ~else: inactive_memory_control
+      def scalar = fp_scalar_metadata(instruction)
 
       DecodeCase(
         input,
         pattern(RV5StageControl()):
           guest_access: RiscvGuestMemoryAccess.Normal
-          alu: alu_control
-          operand: operand_control
+          alu: if scalar.memory | scalar_address_alu | unused_scalar_alu
+          operand: scalar.operands()
           branch: inactive_branch_control
-          memory: memory_control
+          memory: if scalar.memory | scalar.memory_control(RV5StageMemoryControl()) | inactive_memory_control
           prefetch: CachePrefetchOperation.None
           multiply: pattern(RiscvMultiplyControl(), _)
           divide: pattern(RiscvDivideControl(), _)

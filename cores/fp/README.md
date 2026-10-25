@@ -121,6 +121,13 @@ relations retain don't-care fields; callers compose the case lists into their
 own complete decoder rather than instantiate parallel decoders.
 `FloatingPointInstructionDecoder` is available for standalone users.
 
+[`fp_scalar_metadata`](scalar-decode.rhdl) supplies scalar source/destination
+roles and FP load/store classification. Its `operands()` and
+`memory_control(Control)` methods return partial decode patterns, not hardware
+decoders; use the latter only for memory rows. Callers retain scalar writeback
+and resource-enable policy. Arithmetic ALU routing and store load-extension
+fields remain unconstrained.
+
 ## Limits and integration
 
 The extracted specialization contract remains disabled FP, RV32F, or RV64D,

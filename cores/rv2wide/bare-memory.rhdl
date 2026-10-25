@@ -21,6 +21,8 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/mmu/vector-window.rhdl") open
+  lib("cores/mmu/vector-certificate.rhdl").VectorCertificate
+  lib("cores/mmu/translation.rhdl").RiscvTlbLookup
   lib("cores/mmu/protocol.rhdl").RiscvTranslationResult
 
 /* Preserves EX/MEM lookup timing and WB authority with physical PMA checks.
@@ -54,22 +56,12 @@ sync_circuit RV2WideBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
 
   /* Bare certificates retain identity mappings; invalidation still separates admission epochs. */
 
-  reg vector_invalidation_epoch(~init: Bits(2)(0))
-  when invalidate:
-    vector_invalidation_epoch <== vector_invalidation_epoch + Bits(2)(1)
-
-  def fast_page = vector_fast.request.bits.first.align_down(4096)
-  vector_fast.response.valid <== vector_fast.request.valid & !invalidate & vector_page_permitted(config.physical_map, fast_page, vector_fast.request.bits.store)
-  vector_fast.response.bits <== VectorFastCertificate(xlen):
-    range: vector_fast.request.bits
-    ppn: vector_fast.request.bits.first[12..56]
-    virtualized: Bool(#false)
-    context: literal(RiscvGuestTranslationContext(), 0)
-    invalidation_epoch: vector_invalidation_epoch
-
-  vector_fast.candidate_current <== vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch
-  when (vector_fast.request.valid):
-    assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "rv2wide_bare_vector_fast_range_is_one_page")
+  inst certificate(VectorCertificate(xlen, config.physical_map, ~bare: #true))
+  vector_fast <=> certificate.check
+  certificate.invalidate <== invalidate
+  certificate.current <== literal(RiscvTlbLookup(), 0)
+  certificate.translation.valid <== Bool(#false)
+  certificate.translation.bits <== empty_translation
 
 
   /* Bare instruction translation.

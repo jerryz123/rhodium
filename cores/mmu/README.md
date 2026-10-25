@@ -90,6 +90,12 @@ the two-bit epoch at the edge; candidate comparison observes the pre-edge epoch.
 The caller owns TLB arbitration, same-cycle WB/invalidation exclusion, and
 certificate lifetime so a candidate cannot survive an epoch wrap.
 
+With `~bare: #true`, the same component certifies identity mappings directly
+from the request's full 64-bit address; `translation` and `current` are unused
+and may be tied to zero. It emits a nonvirtual, zero-context certificate and
+validates candidates by epoch alone. Page-PMA permissions and invalidation
+timing are unchanged; no truncated physical address may alias mapped memory.
+
 `VectorWindow` in `vector-window.rhdl` checks a caller-provided range spanning
 at most two adjacent 4 KiB pages and retains its mappings until release. Its
 first page probe is offered in the cycle after accepting the range, using only

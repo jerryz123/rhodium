@@ -53,6 +53,9 @@ Preserve these invariants when extending the components:
   itself depend on scalar WB/MMU acceptance. Preserve the independent MEM
   certificate path and allow an immediate response to a registered probe.
 - `VectorCertificate` owns only the epoch register and combinational proof.
+  Its Bare specialization uses the full 64-bit identity address for PMA checks
+  before extracting PPN, emits zero/nonvirtual context, and compares only
+  candidate epochs. Do not strengthen Bare validation with unused context bits.
   Preserve demand-accurate A/D permission results, not relaxed prefetch permission.
   RV5Stage selects an idle demand lookup; RV2Wide uses its independent probe.
   Keep those arbitration policies and normal-versus-explicit-guest context
@@ -99,3 +102,5 @@ registered warm-hit probing, demand contention, immutable ranges, and held
 responses. Independent mock-memory responders cannot detect that feedback loop.
 Fast-certificate changes use `rv5stage-mmu-replay` and `rv2wide-mmu` for
 permission/PMA rejection, context and epoch changes, and lookup contention.
+Also run `rv2wide-bare-memory` for identity proofs, high-address rejection,
+unused candidate context, and pre-edge versus post-edge invalidation semantics.

@@ -1,0 +1,53 @@
+#lang rhodium
+/* Derives scalar operands and LSU patterns for canonical floating-point instructions. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../operand.rhdl" open
+  "../load-store.rhdl".MemoryWidth
+  "../cache/operation.rhdl".CacheOperation
+  lib("riscv/model/main.rhm") open
+  lib("riscv/isa/f.rhm") as f
+  lib("riscv/isa/d.rhm") as d
+  lib("riscv/isa/zfhmin.rhm") as half
+  lib("rhodium/std/decode.rhdl") open
+
+/* Describes scalar participation without selecting ALU activation or architectural writeback policy. */
+class FloatingPointScalarMetadata(memory :: Boolean, store :: Boolean, uses_rs1 :: Boolean,
+                                  integer_destination :: Boolean, width :: MemoryWidth):
+  /* Constrains address generation only for memory instructions; arithmetic routing stays free. */
+  method operands() :: Pattern:
+    if memory
+    | pattern(OperandControl()):
+        uses_rs1: Bool(#true)
+        uses_rs2: Bool(#false)
+        left: OperandASelect.Register
+        right: OperandBSelect.Immediate
+        immediate: if store | OperandImmediate.S | OperandImmediate.I
+    | partial_pattern(OperandControl()):
+        uses_rs1: Bool(uses_rs1)
+        uses_rs2: Bool(#false)
+
+  /* Supplies active LSU fields in the caller's bundle; stores leave load extension unconstrained. */
+  method memory_control(Control :: DataType) :: Pattern:
+    partial_pattern(Control):
+      access: if store | CacheOperation.Store | CacheOperation.Load
+      width: width
+      unsigned: if store | pattern(Bool, _) | Bool(#true)
+
+/* Uses canonical instruction identities for memory widths and operand banks for GPR participation. */
+fun fp_scalar_metadata(instruction :: InstructionSpec) :: FloatingPointScalarMetadata:
+  def load = [half.FLH, f.FLW, d.FLD].contains(instruction)
+  def store = [half.FSH, f.FSW, d.FSD].contains(instruction)
+  def source = instruction.operands.find(fun (operand): operand.name == "rs1" && operand.role == "source" && operand.bank == RegisterBank.Integer)
+  def destination = instruction.operands.find(fun (operand): operand.role == "destination" && operand.bank == RegisterBank.Integer)
+  def width = cond
+  | [half.FLH, half.FSH].contains(instruction): MemoryWidth.Half
+  | [d.FLD, d.FSD].contains(instruction): MemoryWidth.Double
+  | ~else: MemoryWidth.Word
+
+  FloatingPointScalarMetadata(load || store, store, source != #false, destination != #false, width)
+
+export:
+  FloatingPointScalarMetadata
+  fp_scalar_metadata

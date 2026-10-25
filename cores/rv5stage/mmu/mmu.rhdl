@@ -10,6 +10,7 @@ import:
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
+  "../../cache/prefetch.rhdl".cache_prefetch_physical
   "../../fp/types.rhdl" open
   "protocol.rhdl" open
   lib("cores/mmu/protocol.rhdl") open
@@ -252,22 +253,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     prefetch_request.address
   )
 
-  def prefetch_line_address = prefetch_translated_address.align_down(64)
-  def prefetch_physical = physical_map.lookup(prefetch_line_address, prefetch_line_address +& Bits(width)(63))
-  def prefetch_attributes = resolve_memory_attributes(prefetch_physical, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
-  def prefetch_access_permitted = mux_lookup(
-    prefetch_request.operation,
-    ~default: Bool(#false),
-    [
-      [CachePrefetchOperation.Instruction, prefetch_physical.executable],
-      [CachePrefetchOperation.Read, prefetch_physical.readable],
-      [CachePrefetchOperation.Write, prefetch_physical.writable]
-    ]
-  )
+  def prefetch_physical = cache_prefetch_physical(width, physical_map, prefetch_translated_address, prefetch_request.operation, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
 
   virtual_prefetch_pipe.egress
-    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & mux(instruction_prefetch, prefetch_attributes.instruction_cacheable, prefetch_attributes.cacheable) & prefetch_access_permitted)
-    |> map_valid(request => request.updated(~address: prefetch_line_address))
+    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_physical.permitted)
+    |> map_valid(request => request.updated(~address: prefetch_physical.address))
     |> physical_prefetch_pipe.ingress
 
   // Cancel at the clock edge without reconnecting demand squash to cache admission.

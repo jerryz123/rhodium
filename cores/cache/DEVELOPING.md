@@ -22,6 +22,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
 | `udb.rhm` | Reservation and cache-maintenance policy declarations; integrating cores retain split-access and alignment-fault guarantees |
 | `access.rhdl` | Whole-access PMA footprint and permission classification; callers supply read/write intent, atomic-service restrictions, and alignment |
+| `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and operation-specific permissions, without staging or final eligibility |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
 | `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |
@@ -54,6 +55,13 @@ physical admission; RV5Stage retains its separate translation/alignment boundary
 Management permissions and physical cacheability are independent of PBMT;
 ordinary cacheability uses the resolved PMA/PBMT attributes. The helper owns no
 transaction, queue, or speculative-versus-committed scheduling.
+
+`prefetch.rhdl` shares physical classification, not hint admission. RV5Stage
+checks cacheability/permission and cancels staged hints at the clock edge.
+RV2Wide's translated adapter additionally requires ordinary idempotent memory,
+checks probe availability/address bounds, and gates the outgoing flush cycle.
+Keep these differences in the callers; use `rv5stage-mmu-replay` and
+`rv2wide-mmu` for prefetch changes.
 
 Keep existing `dcache/*` event names and retained transaction lineage stable;
 named-core integration must not summarize an entire cache as a fake trace

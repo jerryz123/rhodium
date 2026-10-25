@@ -16,6 +16,9 @@ import:
   "../../../riscv/isa/zfa.rhm" as zfa
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../decode.rhdl" as controls
+  "../scalar-decode.rhdl".fp_scalar_metadata
+  "../../load-store.rhdl".MemoryWidth
+  "../../operand.rhdl".OperandImmediate
   lib("rhodium/std/decode.rhdl") open
   lib("hardfloat/main.rhdl").MinMaxOperation
 
@@ -143,3 +146,25 @@ check:
   controls.fp_profile_supported(XLen.X64, FloatingPointProfile.None, HalfPrecisionProfile.Zfhmin) ~is #false
   controls.check_fp_profile(XLen.X32, FloatingPointProfile.D) ~throws ""
   controls.check_fp_profile(XLen.X64, FloatingPointProfile.None, ~zfa: #true) ~throws ""
+
+for (instruction in controls.fp_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)):
+  def scalar = fp_scalar_metadata(instruction)
+  def registers = field_pattern(control_for(zfa_d_half_cases, instruction), "registers")
+  check:
+    field_pattern(registers, "uses_integer_rs1").matches(bool.Bool(scalar.uses_rs1)) ~is #true
+    field_pattern(registers, "destination").matches(controls.FloatDestination.Integer) ~is scalar.integer_destination
+    field_pattern(scalar.operands(), "uses_rs1").matches(bool.Bool(scalar.uses_rs1)) ~is #true
+    field_pattern(scalar.operands(), "uses_rs2").matches(bool.Bool(#false)) ~is #true
+
+  unless scalar.memory
+  | for (name in ["left", "right", "immediate"]):
+      check: field_pattern(scalar.operands(), name).care_bits ~is 0
+
+for (entry in [[zfhmin.FLH, zfhmin.FSH, MemoryWidth.Half], [f.FLW, f.FSW, MemoryWidth.Word], [d.FLD, d.FSD, MemoryWidth.Double]]):
+  for (store in [#false, #true]):
+    def scalar = fp_scalar_metadata(entry[if store | 1 | 0])
+    check:
+      scalar.memory ~is #true
+      scalar.store ~is store
+      scalar.width.packed_value() ~is entry[2].packed_value()
+      field_pattern(scalar.operands(), "immediate").matches(if store | OperandImmediate.S | OperandImmediate.I) ~is #true

@@ -1,0 +1,40 @@
+#lang rhodium
+/* Classifies a translated prefetch's complete physical line without owning admission or cancellation. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "config.rhm".CacheLineBytes
+  "../cache-prefetch.rhdl".CachePrefetchOperation
+  lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+/* Separates physical permission/cacheability from the stronger ordinary-memory restriction. */
+bundle CachePrefetchPhysical(address_width :: PosInt):
+  address: Bits(address_width)
+  permitted: Bool
+  cacheable: Bool
+  ordinary_memory: Bool
+
+/* Aligns the line, retains end-address overflow, and resolves PBMT without granting PMA permissions. */
+fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysicalMemoryMap,
+                            address :: Bits(address_width), operation :: CachePrefetchOperation,
+                            pbmt :: PageMemoryType) :~ CachePrefetchPhysical(address_width):
+  def first = address.align_down(CacheLineBytes)
+  def region = physical_map.lookup(first, first +& Bits(address_width)(CacheLineBytes - 1))
+  def attributes = resolve_memory_attributes(region, pbmt)
+  def permitted = mux_lookup(operation, ~default: Bool(#false)):
+    CachePrefetchOperation.Instruction: region.executable
+    CachePrefetchOperation.Read: region.readable
+    CachePrefetchOperation.Write: region.writable
+
+  def cacheable = mux(operation === CachePrefetchOperation.Instruction, attributes.instruction_cacheable, attributes.cacheable)
+  CachePrefetchPhysical(address_width):
+    address: first
+    permitted: permitted
+    cacheable: cacheable
+    ordinary_memory: region.mapped & cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+
+export:
+  CachePrefetchPhysical
+  cache_prefetch_physical

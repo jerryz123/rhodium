@@ -17,6 +17,7 @@ import:
   lib("cores/alu-decode.rhdl") open
   lib("cores/branch-decode.rhdl") open
   lib("cores/fp/decode.rhdl") open
+  lib("cores/fp/scalar-decode.rhdl").fp_scalar_metadata
   lib("cores/vector/decode.rhdl") open
   lib("riscv/isa/v.rhm") as vector_isa
   lib("riscv/isa/zvbb.rhm").ZvbbInstructions
@@ -24,7 +25,6 @@ import:
   lib("cores/load-store.rhdl").MemoryWidth
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("cores/cache-prefetch.rhdl") open
-  lib("riscv/model/main.rhm").RegisterBank
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/rv64i.rhm") open
@@ -388,45 +388,23 @@ fun rv2wide_control_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
 
   def floating_cases = for List (instruction in selected_fp_instructions):
     def input = instruction_pattern(instruction)
-    def load = instruction.name in ["FLH", "FLW", "FLD"]
-    def store = instruction.name in ["FSH", "FSW", "FSD"]
-    def memory = load || store
-    def integer_source = instruction.operands.filter(~keep: fun (operand): operand.name == "rs1" && operand.role == "source" && operand.bank == RegisterBank.Integer).length() > 0
-    def integer_destination = instruction.operands.filter(~keep: fun (operand): operand.role == "destination" && operand.bank == RegisterBank.Integer).length() > 0
-    def operands = partial_pattern(OperandControl()):
-      uses_rs1: Bool(integer_source)
-      uses_rs2: Bool(#false)
-
-    def memory_operands = partial_pattern(OperandControl()):
-      uses_rs1: Bool(#true)
-      uses_rs2: Bool(#false)
-      left: OperandASelect.Register
-      right: OperandBSelect.Immediate
-      immediate: if load | OperandImmediate.I | OperandImmediate.S
-
-    def memory_control = partial_pattern(RV2WideMemoryControl()):
-      enable: Bool(#true)
-      access: if load | CacheOperation.Load | CacheOperation.Store
-      width:
-        cond
-        | instruction.name in ["FLH", "FSH"]: MemoryWidth.Half
-        | instruction.name in ["FLW", "FSW"]: MemoryWidth.Word
-        | ~else: MemoryWidth.Double
-
-      unsigned: if load | Bool(#true) | pattern(Bool, _)
+    def scalar = fp_scalar_metadata(instruction)
+    def memory_control = if scalar.memory
+    | scalar.memory_control(RV2WideMemoryControl()).intersection(partial_pattern(RV2WideMemoryControl()): enable: Bool(#true)).terms[0]
+    | inactive_core_memory
 
     def output = pattern(RV2WideControl()):
       guest_access: RiscvGuestMemoryAccess.Normal
-      alu: if memory | component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)) | unused_alu
-      operand: if memory | memory_operands | operands
+      alu: if scalar.memory | component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)) | unused_alu
+      operand: scalar.operands()
       branch: component_output(fp_branches, input)
-      memory: if memory | memory_control | inactive_core_memory
+      memory: memory_control
       prefetch: CachePrefetchOperation.None
       pause: Bool(#false)
       locality_hint: RiscvMemoryLocality.Default
       writeback:
         partial_pattern(RV2WideWritebackControl()):
-          enable: Bool(integer_destination)
+          enable: Bool(scalar.integer_destination)
 
       system: component_output(RV2WideSystemCases, instruction_pattern(ADDI))
       muldiv: component_output(fp_long, input)
