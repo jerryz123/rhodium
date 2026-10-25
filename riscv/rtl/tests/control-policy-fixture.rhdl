@@ -4,6 +4,7 @@
 import:
   "../interrupt.rhdl" open
   "../privilege.rhdl" open
+  "../trap.rhdl" open
   "../vector.rhdl" open
   "../../isa/vector.rhm" open
   "../../isa/xlen.rhm" open
@@ -12,6 +13,9 @@ circuit RiscvControlPolicyFixture():
   input(pending, enabled, delegated, mstatus): Bits(64)
   input privilege: PrivilegeMode
   input vtype: Bits(32)
+  input(fault_store, fault_page, fault_guest_page): Bool
+  output fault_cause32: Bits(32)
+  output fault_cause64: Bits(64)
   output(valid32, valid64): Bool
   output(cause32, cause64): Bits(4)
   output(target32, target64): RiscvTrapTarget
@@ -31,5 +35,7 @@ circuit RiscvControlPolicyFixture():
   vill64 <== type64.vill
   vlmax32 <== type32.vlmax
   vlmax64 <== type64.vlmax
+  fault_cause32 <== data_fault_cause(XLen.X32, fault_store, ~page_fault: fault_page, ~guest_page_fault: fault_guest_page)
+  fault_cause64 <== data_fault_cause(XLen.X64, fault_store, ~page_fault: fault_page, ~guest_page_fault: fault_guest_page)
 
 export RiscvControlPolicyFixture

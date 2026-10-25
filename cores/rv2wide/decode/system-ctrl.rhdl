@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   "../../csr/decode.rhdl" open
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/isa/rv64i.rhm") open
@@ -25,52 +26,46 @@ hardware_enum RV2WideFence:
   Memory
   Instruction
 
-/* Selects reservation waiting independently of CSR effects and ordinary WFI sleep. */
-hardware_enum RV2WideWait:
-  None
-  NoTimeout
-  ShortTimeout
-
 /* Separates source mode from architectural CSR intent, fences, and trap/return/wait action. */
 bundle RV2WideSystemControl():
   csr: RiscvCsrOperation
   immediate: Bool
   action: RiscvCsrAction
   fence: RV2WideFence
-  wait: RV2WideWait
+  wait: ReservationWaitMode
 
   /* Identifies operations using the single WB command path, independently of read ordering. */
   method uses_command(control) :: Bool:
-    (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None) ||| (control.fence =/= RV2WideFence.None) ||| (control.wait =/= RV2WideWait.None)
+    (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None) ||| (control.fence =/= RV2WideFence.None) ||| (control.wait =/= ReservationWaitMode.None)
 
 def RV2WidePrivilegedInstructions = [MRET, SRET, WFI, SFENCE_VMA]
 def RV2WideSystemInstructions = [ECALL, EBREAK, FENCE, FENCE_I] ++ ZicsrInstructions ++ RV2WidePrivilegedInstructions
 def base_system_cases = decode_groups(RV2WideSystemControl(), ~input: instruction_pattern):
   group excluding_instructions(RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions, [ECALL, EBREAK, FENCE]):
-    wait: RV2WideWait.None
+    wait: ReservationWaitMode.None
     fence: RV2WideFence.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
 
   [FENCE]:
-    wait: RV2WideWait.None
+    wait: ReservationWaitMode.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
     fence: RV2WideFence.Memory
 
   [FENCE_I]:
-    wait: RV2WideWait.None
+    wait: ReservationWaitMode.None
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.None
     fence: RV2WideFence.Instruction
 
 def csr_inactive = partial_pattern(RV2WideSystemControl()):
-  wait: RV2WideWait.None
+  wait: ReservationWaitMode.None
   fence: RV2WideFence.None
   action: RiscvCsrAction.None
 
 def system_inactive = partial_pattern(RV2WideSystemControl()):
-  wait: RV2WideWait.None
+  wait: ReservationWaitMode.None
   fence: RV2WideFence.None
 
 def RV2WideSystemCases = base_system_cases
@@ -82,7 +77,6 @@ def RV2WideInvalidationCases = csr_system_cases(RV2WideSystemControl(), system_i
 
 export:
   RV2WideInvalidationCases
-  RV2WideWait
   RV2WideFence
   RV2WideSystemControl
   RV2WideSystemInstructions

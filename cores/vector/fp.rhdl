@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   "../fp/bundles.rhdl" open
   "bundles.rhdl" open
   "decode.rhdl" open
@@ -17,8 +18,8 @@ import:
 
 /* Builds a slot-tagged shared FP request with independently boxed operand precisions.
    Captures widening/fused topology and result domain without adding vector-only arithmetic. */
-fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), tag :: Bits(index_width(slots))) :~ FpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
-  def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), tag :: Bits(index_width(slots))) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), Bits(index_width(slots))):
+  def profile = fp_transport_profile(xlen)
   def flen = floating_point_register_width(profile)
 
   /* Format mapping and conversion controls.

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
@@ -33,7 +34,7 @@ check:
   ZawrsCoreControlCases.length() ~is 2
   ZawrsSystemCases.length() ~is 2
 
-for (instruction in ZawrsInstructions, wait in [RV5StageWait.NoTimeout, RV5StageWait.ShortTimeout]):
+for (instruction in ZawrsInstructions, wait in [ReservationWaitMode.NoTimeout, ReservationWaitMode.ShortTimeout]):
   def row = ZawrsCoreControlCases.find(fun (candidate): candidate.input.matches(hw.Bits(32)(instruction.encode([]))))
   def expected = partial_pattern(RV5StageControl()):
     operand:

@@ -25,7 +25,7 @@ the caller rather than adding a dependency back toward a core.
 | File | Responsibility |
 |---|---|
 | [`types.rhdl`](types.rhdl) | Precision, register-use, and execution controls |
-| [`profile.rhm`](profile.rhm) | Implemented XLEN/FP/half/Zfa capability combinations |
+| [`profile.rhm`](profile.rhm) | Native XLEN-dependent transport shapes and implemented XLEN/FP/half/Zfa capability combinations |
 | [`decode.rhdl`](decode.rhdl) | Metadata-derived register use, partial execution relations, and standalone decoder |
 | [`scalar-decode.rhdl`](scalar-decode.rhdl) | Canonical FP memory classification, scalar source/destination metadata, and partial operand/LSU patterns |
 | [`bundles.rhdl`](bundles.rhdl) | Opaque-tag operand request/result and retagging |
@@ -40,6 +40,11 @@ the caller rather than adding a dependency back toward a core.
 | [`tests/`](tests/) | Shared decode contracts and standalone behavioral fixtures |
 
 ## Change workflow
+
+Named pipeline bundles/adapters and the shared vector backend use
+`fp_transport_profile` directly for native request/result widths, including
+disabled paths. Keep this transport selection independent of ISA capability
+checks and decode enablement; changing it changes payloads at all consumers.
 
 Both named decoders use `fp_scalar_metadata` for FP address-generation and LSU
 patterns. Preserve free arithmetic routing and store-extension fields. The

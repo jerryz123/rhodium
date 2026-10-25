@@ -74,7 +74,10 @@ implementation.
 
 The `riscv-control-policy` fixture checks M/S destination-first interrupt
 arbitration for RV32/RV64, per-cause enables and privilege gates, and ELEN32/64
-vtype normalization. Pair it with `riscv/tests/vector-test.rhm` for host geometry
+vtype normalization. It also covers every load/store, page, and guest-page
+combination for `data_fault_cause` at both widths. Named-core tests retain
+coverage of caller-specific fault qualification and retirement ordering.
+Pair it with `riscv/tests/vector-test.rhm` for host geometry
 changes and `riscv-hypervisor-csr` when interrupt selection changes.
 
 For guest execution contracts, pair `riscv/tests/hypervisor-test.rhm` and

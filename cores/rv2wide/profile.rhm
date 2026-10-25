@@ -105,10 +105,5 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
       ~vector: if vector_profile_enabled(vector) | RiscvVectorDescription(vector_length, vector_profile_elen_bits(vector)) | #false
     )
 
-/* Selects the implemented FP transport shape, including the disabled adapter: RV32F or RV64D. */
-fun rv2wide_fp_profile(xlen :: XLen) :: FloatingPointProfile:
-  if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-
 export:
-  rv2wide_fp_profile
   RV2WideConfig

@@ -12,7 +12,6 @@ import:
   "../../cache/operation.rhdl" open
   "../../load-store.rhdl".MemoryWidth
   "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/isa/trap.rhm" open
   "../../../riscv/rtl/trap.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
@@ -225,10 +224,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
       outcome_guest <== guest
   | #void
 
-  def guest_page_cause = mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
-  def ordinary_page_cause = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
-  def page_cause = mux(guest.page_fault, guest_page_cause, ordinary_page_cause)
-  def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
+  def fault_cause = data_fault_cause(xlen, store, ~page_fault: page_fault, ~guest_page_fault: page_fault & guest.page_fault)
   def response_capture = response_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
     pc: decision.request_context.token.context
     address: decision.request_context.request.address
@@ -251,7 +247,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     disposition: disposition
     slow: accepted ||| (split_pending & !fault)
     data: operation.data
-    cause: mux(page_fault, page_cause, access_cause)
+    cause: fault_cause
     fault_address: fault_address
 
   def Array(feedback_path, outcome_path) = decision |> fork_valid(2)

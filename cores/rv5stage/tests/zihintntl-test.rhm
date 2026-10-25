@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
@@ -61,7 +62,7 @@ for (instruction in ZihintntlInstructions, hint in hints, compressed_word in com
       partial_pattern(RV5StageSystemControl()):
         csr: RiscvCsrOperation.None
         action: RiscvCsrAction.None
-        wait: RV5StageWait.None
+        wait: ReservationWaitMode.None
 
     fence:
       pattern(RV5StageFenceControl()):

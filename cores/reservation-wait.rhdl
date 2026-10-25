@@ -1,9 +1,15 @@
 #lang rhodium
-/* Counts reservation-wait timeouts while the caller retains instruction and retirement ownership. */
+/* Defines reservation-wait modes and counts timeouts without owning instruction retirement. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
+
+/* Distinguishes an inactive control column from indefinite and short reservation waiting. */
+hardware_enum ReservationWaitMode:
+  None
+  NoTimeout
+  ShortTimeout
 
 /* Reports normal wake or the selected timeout exception, with illegal-instruction priority. */
 bundle ReservationWaitResult():
@@ -32,5 +38,6 @@ sync_circuit ReservationWait():
     count <== count + Bits(12)(1)
 
 export:
+  ReservationWaitMode
   ReservationWaitResult
   ReservationWait

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/cosim-source.rhm").describe_cosim_signals
   lib("cores/vector/backend.rhdl") open
   "bundles.rhdl" open
@@ -20,7 +21,6 @@ import:
   lib("cores/fp/register-file.rhdl").FloatingPointRegisterWrite
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/vector.rhm") open
-  lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -30,7 +30,7 @@ import:
    last-beat acceptance, and final execution drain. The scalar core owns age order,
    architectural retirement, and arithmetic/write-port arbitration at these ports. */
 sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
-  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def fp_profile = fp_transport_profile(xlen)
   def Tag = Bits(index_width(slots))
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)
@@ -104,7 +104,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
 
 /* Terminates the optional vector client without allocating a sequencer, VRF, or execution state. */
 sync_circuit RV2WideVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8):
-  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def fp_profile = fp_transport_profile(xlen)
   def Tag = Bits(index_width(slots))
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)

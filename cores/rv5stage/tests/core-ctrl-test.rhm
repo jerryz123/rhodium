@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand-decode.rhdl") open
   lib("cores/operand.rhdl") as scalar_operands
@@ -307,25 +308,25 @@ def ecall_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.None
   immediate: bool.Bool(#false)
   action: RiscvCsrAction.Ecall
-  wait: system_controls.RV5StageWait.None
+  wait: ReservationWaitMode.None
 
 def wfi_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.None
   immediate: bool.Bool(#false)
   action: RiscvCsrAction.Wfi
-  wait: system_controls.RV5StageWait.None
+  wait: ReservationWaitMode.None
 
 def csrrw_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.Write
   immediate: bool.Bool(#false)
   action: RiscvCsrAction.None
-  wait: system_controls.RV5StageWait.None
+  wait: ReservationWaitMode.None
 
 def csrrsi_system = system_controls.RV5StageSystemControl():
   csr: csr_controls.RiscvCsrOperation.Set
   immediate: bool.Bool(#true)
   action: RiscvCsrAction.None
-  wait: system_controls.RV5StageWait.None
+  wait: ReservationWaitMode.None
 
 def memory_fence = fence_controls.RV5StageFenceControl():
   action: fence_controls.RV5StageFenceOperation.Memory

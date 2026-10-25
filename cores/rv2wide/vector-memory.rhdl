@@ -12,7 +12,6 @@ import:
   lib("cores/load-store.rhdl") open
   lib("cores/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
-  lib("riscv/isa/trap.rhm") open
   lib("riscv/rtl/trap.rhdl") open
   lib("riscv/rtl/atomic.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
@@ -236,13 +235,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
 
   def page_fault = wb.bits.response.outcome === RV2WideCacheOutcome.PageFault
   def guest_page_fault = wb.bits.response.outcome === RV2WideCacheOutcome.GuestPageFault
-  /* Selects the architectural fault class using the retained operation, never live scalar state. */
-  fun fault_cause(store :: Bool, page :: Bool, guest :: Bool) :~ Bits(xlen.width):
-    priority_mux(~default: mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))):
-      guest: mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
-      page: mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
-
-  def lookup_cause = fault_cause(token.store, page_fault, guest_page_fault)
+  def lookup_cause = data_fault_cause(xlen, token.store, ~page_fault: page_fault, ~guest_page_fault: guest_page_fault)
   def fault_disposition = mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
   def immediate_disposition = priority_mux(~default: VectorDisposition.Authorized):
     access_retry: VectorDisposition.Retry
@@ -257,7 +250,7 @@ sync_circuit RV2WideVectorMemory(xlen :: XLen, slots :: Pow2Int):
     cause: mux(admission_fault, memory.fault.bits.cause, lookup_cause)
     fault_address: mux(admission_fault, memory.fault.bits.value, decision.attempt.request.address)
 
-  def split_cause = fault_cause(split_token.token.store, split.response.bits.page_fault, split.response.bits.guest.page_fault)
+  def split_cause = data_fault_cause(xlen, split_token.token.store, ~page_fault: split.response.bits.page_fault, ~guest_page_fault: split.response.bits.guest.page_fault)
   def split_fault_disposition = mux(split_token.token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
   def split_decision = split.response |> filter_valid(_result => split_pending) |> map_valid(result => VectorCommit(xlen, slots)):
     tag: split_token.token.completion_tag

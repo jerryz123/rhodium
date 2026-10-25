@@ -44,7 +44,7 @@ scalar and vector capabilities; scalar decode must continue to use
 `profile.half_precision`. The core-vector fixture exercises scalar Zfhmin with
 full Zvfh, including half arithmetic, width conversions, flag completion, and
 scalar/vector FP contention.
-`rv2wide_fp_profile(xlen)` selects the native pipeline transport shape (RV32F
+The shared [`fp_transport_profile(xlen)`](../fp/profile.rhm) selects the native pipeline transport shape (RV32F
 or RV64D), including the disabled adapter. Do not put 64-bit FPR payloads in
 RV32 pipeline tokens. The raw FP-load transport remains 64 bits because the
 shared boxing helper consumes a width-independent load image.

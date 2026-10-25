@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait-decode.rhdl").ReservationWaitCases
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   "../../csr/decode.rhdl".csr_instruction_action
   lib("cores/operand.rhdl") open
   lib("cores/vector/instruction-metadata.rhm") open
@@ -109,7 +111,7 @@ fun rv2wide_vector_cases(profile :: RV2WideConfig) :: List.of(DecodeCase):
           csr: RiscvCsrOperation.None
           action: if configuration | RiscvCsrAction.VectorConfig | RiscvCsrAction.None
           fence: RV2WideFence.None
-          wait: RV2WideWait.None
+          wait: ReservationWaitMode.None
 
       muldiv: inactive_long
       fp: partial_pattern(RV2WideFpControl()): valid: Bool(#false)
@@ -253,7 +255,7 @@ fun rv2wide_instructions(profile :: RV2WideConfig) :: List.of(InstructionSpec):
 
 /* WRS is operand-free and uses the core's retained WB owner, not a memory request. */
 
-def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WRS_STO, RV2WideWait.ShortTimeout]]):
+def RV2WideWaitCases = for List (entry in ReservationWaitCases):
   def output = pattern(RV2WideControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
@@ -273,13 +275,13 @@ def RV2WideWaitCases = for List (entry in [[WRS_NTO, RV2WideWait.NoTimeout], [WR
         csr: RiscvCsrOperation.None
         action: RiscvCsrAction.None
         fence: RV2WideFence.None
-        wait: entry[1]
+        wait: entry.output
 
     muldiv: inactive_long
     fp: inactive_core_fp
     vector: NoVectorControl
 
-  DecodeCase(instruction_pattern(entry[0]), output)
+  DecodeCase(entry.input, output)
 
 
 /* PAUSE refines FENCE into an operand-free hint with no ordering or CSR action. */
@@ -469,7 +471,7 @@ fun rv2wide_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
           immediate: pattern(Bool, _)
           action: csr_instruction_action(instruction)
           fence: RV2WideFence.None
-          wait: RV2WideWait.None
+          wait: ReservationWaitMode.None
 
       muldiv: inactive_long
       fp: inactive_core_fp

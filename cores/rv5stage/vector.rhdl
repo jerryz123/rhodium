@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/vector/backend.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/integer-execution.rhdl") open
@@ -20,7 +21,6 @@ import:
   "../multiplier.rhdl" open
   "../divider.rhdl" open
   "../fp/register-file.rhdl".FloatingPointRegisterWrite
-  "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
@@ -33,7 +33,7 @@ import:
    Keeps page-window ownership, fault-certainty barriers, and registered architectural
    outcomes separate from the older execution owner's retained requests and results. */
 sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~hypervisor: hypervisor :: Boolean = #false):
-  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def fp_profile = fp_transport_profile(xlen)
   def Tag = Bits(index_width(slots))
   def MultiplyTag = VectorMultiplyTag(slots)
   def DivideTag = VectorDivideTag(slots)
@@ -121,7 +121,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
 
 /* Terminates the vector service boundary without state, requests, or architectural effects. */
 sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8, ~hypervisor: hypervisor :: Boolean = #false):
-  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def fp_profile = fp_transport_profile(xlen)
   def Tag = Bits(index_width(slots))
   def MultiplyTag = VectorMultiplyTag(slots)
   def DivideTag = VectorDivideTag(slots)

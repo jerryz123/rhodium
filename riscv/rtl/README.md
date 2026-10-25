@@ -59,7 +59,7 @@ Dependency enforcement and extension workflow are documented in
 | [`hpm-counter.rhdl`](hpm-counter.rhdl) | `RiscvHpmWrite`, `RiscvHpmCounter` | One RV32/RV64 64-bit event counter with Sscofpmf privilege filtering and sticky overflow; valid events supply `event_count: Bits(2)` (zero, one, or two) |
 | [`timer.rhdl`](timer.rhdl) | `RiscvTimerAccess`, `sstc_access`, `sstc_pending` | Stateless Sstc machine/guest denial priority and unsigned wrapping-time comparison; callers own CSR selection, storage, and pending-bit composition |
 | [`state-enable.rhdl`](state-enable.rhdl) | `RiscvStateEnableAccess`, `state_enable_access` | Stateless M/H SE and ENVCFG access hierarchy with machine-denial priority; callers own implemented CSR selection, state, WARL masks, and base privilege checks |
-| [`trap.rhdl`](trap.rhdl) | `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause_bits` | Select and delegate synchronous exceptions without owning state |
+| [`trap.rhdl`](trap.rhdl) | `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause_bits`, `data_fault_cause` | Select and delegate synchronous exceptions without owning state |
 | [`interrupt.rhdl`](interrupt.rhdl) | `RiscvInterrupts`, `resolve_riscv_interrupt`, `interrupt_cause_bits` | Materialize pending bits and standard M/S priority and delegation without owning state |
 | [`pma.rhdl`](pma.rhdl) | `RiscvPhysicalMemoryAttributes`, `RiscvPhysicalMemoryRegion`, `RiscvPhysicalMemoryMap`, `RiscvPhysicalMemoryLookup` | Validate host-authored regions and perform hardware access lookup |
 | [`sv39.rhdl`](sv39.rhdl) | `Sv39Access`, `Sv39Pte`, `Sv39Translation`, and `sv39_*` helpers | Materialize Sv39 geometry, demand permission, and A/D-independent prefetch permission as typed hardware |
@@ -250,6 +250,11 @@ architectural causes to caller-selected widths and select standard trap and
 interrupt decisions from caller-supplied state. They own no registers or
 retirement boundary. Concrete cores still own CSR storage, privilege
 transitions, interrupt sampling, and the precise commit point.
+
+`data_fault_cause(xlen, store, ~page_fault: ..., ~guest_page_fault: ...)`
+selects the load/store cause at XLEN width, prioritizing guest-page, then page,
+then access faults. It does not determine whether a fault occurred. Callers
+qualify the flags, retain the faulting address, and order retirement themselves.
 
 [`pma.rhdl`](pma.rhdl) defines stable host parameters for nonoverlapping
 physical-memory regions and their read, write, execute, cacheable, atomic,

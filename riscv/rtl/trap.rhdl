@@ -19,6 +19,18 @@ fun exception_cause_bits(cause :: ExceptionCause,
                          width :: PosInt) :~ Bits(width):
   Bits(width)(exception_code(cause))
 
+/* Encodes a data access fault, prioritizing guest-page over page faults.
+   The caller qualifies these flags and retains fault validity, address, and retirement order. */
+fun data_fault_cause(xlen :: XLen, store :: Bool,
+                     ~page_fault: page_fault :: Bool,
+                     ~guest_page_fault: guest_page_fault :: Bool) :~ Bits(xlen.width):
+  def access = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
+  def page = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
+  def guest = mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
+  priority_mux(~default: access):
+    guest_page_fault: guest
+    page_fault: page
+
 /* Prioritizes explicit exceptions over generated exceptions and applies supported medeleg routing below Machine mode. */
 fun resolve_riscv_trap(xlen :: XLen,
                        explicit_valid :: Bool,
@@ -50,4 +62,5 @@ fun resolve_riscv_trap(xlen :: XLen,
 export:
   RiscvTrapDecision
   exception_cause_bits
+  data_fault_cause
   resolve_riscv_trap

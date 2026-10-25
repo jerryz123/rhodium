@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
+  lib("riscv/isa/zawrs.rhm") open
   rhombus.bits.(<<) as <<
   rhombus.bits.(>>) as >>
   lib("rhodium/frontend/support/hardware-literal.rhm").PackedLiteral
@@ -48,9 +50,18 @@ for (xlen in [XLen.X32, XLen.X64]):
     ~vector: if rv64 | VectorProfile.V | VectorProfile.Zve32f,
     ~vector_length: if rv64 | 128 | 64,
     ~hypervisor: rv64,
+    ~zawrs: #true,
     ~svinval: rv64
   )
   def cases = rv2wide_control_cases(config)
+  for (instruction in ZawrsInstructions, mode in [ReservationWaitMode.NoTimeout, ReservationWaitMode.ShortTimeout]):
+    def control = output_for(cases, instruction)
+    check:
+      field(field(control.value, "system"), "wait").packed_value() ~is mode.packed_value()
+      cared(control, "system", "wait") ~is #true
+      cared(control, "system", "immediate") ~is #false
+      field(field(control.value, "memory"), "enable").packed_value() ~is 0
+      field(field(control.value, "writeback"), "enable").packed_value() ~is 0
   def returned_elsewhere = [LB, LH, LW, LBU, LHU] ++ ZicsrInstructions ++ (
     if rv64 | [LD, LWU] ++ RV64AInstructions ++ RV64MInstructions | RV32AInstructions ++ RV32MInstructions
   )

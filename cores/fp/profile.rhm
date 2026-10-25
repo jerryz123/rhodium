@@ -1,10 +1,14 @@
 #lang rhombus
-/* Defines the scalar FP specialization combinations implemented by the shared components. */
+/* Defines native FP transport shapes and supported scalar FP specialization combinations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm") open
+
+/* Selects the shared native transport shape, even for disabled adapters; this does not enable ISA extensions. */
+fun fp_transport_profile(xlen :: XLen) :: FloatingPointProfile:
+  if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
 
 /* Tests supported disabled, RV32F, and RV64D scalar FP/half-precision combinations. */
 fun fp_profile_supported(xlen :: XLen,
@@ -29,5 +33,6 @@ fun check_fp_profile(xlen :: XLen,
           "FP supports only disabled FP, RV32F, or RV64D, with optional Zfhmin, Zfh, or Zfa")
 
 export:
+  fp_transport_profile
   fp_profile_supported
   check_fp_profile

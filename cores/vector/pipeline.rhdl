@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/integer-execution.rhdl") open
   lib("cores/register-write.rhdl") open
   "../fp/bundles.rhdl" open
@@ -28,7 +29,6 @@ import:
   "../load-store.rhdl" open
   "../multiplier.rhdl" open
   "../divider.rhdl" open
-  "../../riscv/isa/fp-profile.rhm" open
   "sequencer.rhdl" open
   "execute.rhdl" open
   "mask.rhdl".VectorScanResult
@@ -76,7 +76,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     precertified: Bool
 
   def OwnedResult = VectorOwnedResult(xlen, vlen, vector_completion_slots)
-  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def fp_profile = fp_transport_profile(xlen)
   def FpRequest = FpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   def FpResult = FpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   interface fp_request(Decoupled(FpRequest), ~role: producer)

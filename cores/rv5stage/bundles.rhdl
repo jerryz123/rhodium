@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/operand.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/register-write.rhdl") open
@@ -12,7 +13,6 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("cores/bpred/protocol.rhdl") open
   "../../riscv/isa/xlen.rhm" open
-  "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/atomic.rhdl" open
@@ -173,7 +173,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   data_request_valid: Bool
   data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
   fp_compute: Bool
-  fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
+  fp_issue: RV5StageFpIssue(xlen, fp_transport_profile(xlen), Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)
   writeback_source: RV5StageWritebackSelect
   writeback_enable: Bool
@@ -212,7 +212,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   data_request_valid: Bool
   data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
   fp_compute: Bool
-  fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
+  fp_issue: RV5StageFpIssue(xlen, fp_transport_profile(xlen), Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)
   writeback_source: RV5StageWritebackSelect
   write_enable: Bool

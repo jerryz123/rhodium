@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/reservation-wait.rhdl") open
   lib("cores/operand.rhdl") open
   lib("cores/integer-service.rhdl") open
@@ -112,7 +113,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def trace_isa = "rv" ++ to_string(width) ++ String.join(trace_single_letters.filter(~keep: fun (name): core_profile.isa_profile.isa_extensions.contains(name)), "") ++ "_" ++ String.join(core_profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
-  def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def effective_fp_profile = fp_transport_profile(xlen)
   def fp_timing = selected_fp_timing.at_least(2)
   def wb_calendar_span = math.max(8, fp_timing.maximum + 1)
   def wb_calendar_width = index_width(wb_calendar_span + 1)
@@ -475,12 +476,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_wait.active <== wb_reservation_wait_pending
   wb_wait.reservation_valid <== scalar_data.reservation_valid
   wb_wait.interrupt_wake <== wb_csrs.wfi_wake
-  wb_wait.short_timeout <== wb_reservation_wait_instruction.system.wait === RV5StageWait.ShortTimeout
+  wb_wait.short_timeout <== wb_reservation_wait_instruction.system.wait === ReservationWaitMode.ShortTimeout
   wb_wait.trap_on_timeout <== (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   wb_wait.virtual_trap_on_timeout <== if hypervisor | wb_csrs.guest_translation.virtualized & csr_flag(wb_csrs.guest_translation.hstatus, HstatusVTW) | Bool(#false)
   def wb_reservation_wait_done = wb_wait.completion.valid
   def wb_reservation_wait_exception = wb_wait.completion.valid & wb_wait.completion.bits.as_bits().any()
-  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & (wb_input.bits.system.wait =/= RV5StageWait.None)
+  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & (wb_input.bits.system.wait =/= ReservationWaitMode.None)
   wb_wait.capture.valid <== wb_reservation_wait_accept
 
   def Array(wb_integer_responses, wb_fp_responses, wb_other_responses) = scalar_data.response |> demux_flow(3, response):
@@ -1526,8 +1527,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     | literal(RiscvGuestException(), 0)
 
   def wb_store_fault = wb_offer_bits.data_request.access.into(CacheOperation).store_fault_class()
-  def wb_guest_page_cause = mux(wb_store_fault, exception_cause_bits(ExceptionCause.StoreGuestPageFault, width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, width))
-  def wb_page_cause = mux(wb_store_fault, exception_cause_bits(ExceptionCause.StorePageFault, width), exception_cause_bits(ExceptionCause.LoadPageFault, width))
   wire wb_exception: RV5StageException(xlen)
   when (wb_offer_bits.exception_valid):
     wb_exception <== RV5StageException(xlen):
@@ -1537,7 +1536,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   elsewhen wb_page_fault:
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#true)
-      cause: mux(wb_guest.page_fault, wb_guest_page_cause, wb_page_cause)
+      cause: data_fault_cause(xlen, wb_store_fault, ~page_fault: Bool(#true), ~guest_page_fault: wb_guest.page_fault)
       value: wb_fault_address
   elsewhen wb_access_fault:
     wb_exception <== core_data_exception(wb_offer_bits.data_request.access, wb_fault_address, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)

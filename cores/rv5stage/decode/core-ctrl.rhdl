@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   "../../csr/decode.rhdl".csr_instruction_action
   lib("cores/csr/protocol.rhdl").RiscvCsrAction
   lib("cores/operand-decode.rhdl") open
@@ -99,7 +100,7 @@ def inactive_writeback_control = partial_pattern(RV5StageWritebackControl()):
 def inactive_system_control = partial_pattern(RV5StageSystemControl()):
   csr: RiscvCsrOperation.None
   action: RiscvCsrAction.None
-  wait: RV5StageWait.None
+  wait: ReservationWaitMode.None
 
 def inactive_fence_control = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.None
@@ -224,7 +225,7 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperat
         partial_pattern(RV5StageSystemControl()):
           csr: RiscvCsrOperation.None
           action: csr_instruction_action(instruction)
-          wait: RV5StageWait.None
+          wait: ReservationWaitMode.None
       fence:
         pattern(RV5StageFenceControl()):
           action: fence
@@ -330,7 +331,7 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
       | partial_pattern(RV5StageSystemControl()):
           csr: RiscvCsrOperation.None
           action: RiscvCsrAction.VectorConfig
-          wait: RV5StageWait.None
+          wait: ReservationWaitMode.None
       | inactive_system_control
 
     DecodeCase(

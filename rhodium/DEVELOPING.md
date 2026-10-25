@@ -363,8 +363,10 @@ shared FP execution, timing, register-file, and load-boxing APIs plus Flow,
 pure FP/XLEN descriptors, and that calendar. Its composed decoder imports the
 shared FP control relation and pure register-bank metadata. No dependency on
 RV5Stage is introduced.
-RV2Wide's FP adapter and pipeline bundles import its profile-owned native FP
-transport selector, keeping RV32F/RV64D payload widths consistent.
+Both named cores' pipeline bundles, cores, and vector adapters, RV2Wide's FP
+adapter, and the shared vector backend/completion/pipeline/FP adapter directly
+import `cores/fp/profile.rhm` for the native FP transport selector, keeping
+RV32F/RV64D payload widths consistent independently of enabled ISA features.
 RV2Wide's `profile.rhm` imports the stable generator-parameter contract and
 shared cache geometry alongside pure ISA/hart descriptors and the shared CSR
 configuration used by both RTL and WARL metadata. `hart.rhdl` uses
@@ -429,7 +431,7 @@ RV2Wide's core, MMU, and composition import the same passive metadata bridge
 for dual WB slots, CSR command context, deferred return ownership, and physical
 request/fragment provenance. Its vector and memory-port adapters also import
 the passive metadata bridge. `sims/cosim/rv2wide/capture.rhdl` imports frontend `kernel.input`,
-RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing helpers,
+RV2Wide bundles/profile, shared FP bundles/types/timing/load-boxing and native-transport profile helpers,
 architectural privilege/interrupt/XLEN/FP-profile descriptors,
 the shared vector capture module, and the common transport widening helper;
 it adds no observer state or outputs.
@@ -682,8 +684,14 @@ selection, launch authorization, and physical writeback policy.
 XLEN for combinational scalar M-extension formatting. Both cores' arithmetic
 adapters consume it; it imports no named-core configuration or scheduling.
 `cores/reservation-wait.rhdl` imports public Flow for Pulse/Valid ports and owns
-only WRS timeout state and completion classification. Both cores supply the
+shared wait modes, WRS timeout state, and completion classification. Both cores supply the
 retained-owner validity and qualified privilege controls.
+`cores/reservation-wait-decode.rhdl` imports those modes, canonical Zawrs
+descriptors, `riscv/rtl/instruction-pattern.rhdl`, and public decode relations.
+Both named decoders directly consume the shared mode and mapping; neither
+reexports a core-specific enum. Both scalar cores and vector memory adapters
+consume `riscv/rtl/trap.rhdl` for data-fault causes, leaving operation class,
+flag qualification, fault addresses, and retirement policy with the caller.
 The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
 protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`

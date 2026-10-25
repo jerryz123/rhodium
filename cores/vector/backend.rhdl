@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/vector/admission.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/integer-execution.rhdl") open
@@ -16,7 +17,6 @@ import:
   "../multiplier.rhdl" open
   "../divider.rhdl" open
   "../fp/register-file.rhdl".FloatingPointRegisterWrite
-  "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
@@ -35,7 +35,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
                            ~packed_multiply: packed_multiply :: Boolean = #false,
                            ~fixed_fp: fixed_fp :: Boolean = #false,
                            ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
-  def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def fp_profile = fp_transport_profile(xlen)
   def Tag = Bits(index_width(slots))
   def MultiplyTag = VectorMultiplyTag(slots)
   def DivideTag = VectorDivideTag(slots)

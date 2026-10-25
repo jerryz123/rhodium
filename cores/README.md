@@ -68,6 +68,11 @@ RV32 values remain XLEN-wide; none of these helpers adds storage or arbitration.
 
 ### Reservation waiting
 
+[`ReservationWaitMode`](reservation-wait.rhdl) distinguishes `None`,
+`NoTimeout`, and `ShortTimeout`. [`ReservationWaitCases`](reservation-wait-decode.rhdl)
+maps canonical WRS instructions to those modes for composition into a core's
+partial control relation; it does not impose serialization or trap policy.
+
 [`ReservationWait`](reservation-wait.rhdl) owns the saturating 12-bit WRS timer.
 `capture` restarts it; `active` refers to a caller-retained instruction. Loss of
 `reservation_valid` or `interrupt_wake` completes normally, ahead of timeout.

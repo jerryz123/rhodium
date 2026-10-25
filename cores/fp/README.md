@@ -130,6 +130,10 @@ fields remain unconstrained.
 
 ## Limits and integration
 
+[`fp_transport_profile(xlen)`](profile.rhm) selects the native shared-service
+transport shape: F for X32 and D for X64, including disabled adapters. This is
+independent of enabled ISA features; it does not enable F or D in a core profile.
+
 The extracted specialization contract remains disabled FP, RV32F, or RV64D,
 with optional Zfhmin, Zfh, and Zfa. `profile.rhm` checks those component
 capabilities without importing named-core configuration. This extraction does

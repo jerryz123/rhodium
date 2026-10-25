@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 constexpr unsigned codes[] = {11, 3, 7, 9, 1, 5, 13};
 int checks{};
@@ -45,6 +44,15 @@ int main() {
     mstatus = 0;
     privilege = 0;
     vtype = 0;
+    for (unsigned flags = 0; flags < 8; ++flags) {
+      fault_store = flags & 1;
+      fault_page = (flags >> 1) & 1;
+      fault_guest_page = (flags >> 2) & 1;
+      const unsigned expected = (fault_guest_page ? 21 : fault_page ? 13 : 5)
+                                + (fault_store ? 2 : 0);
+      eval();
+      CHECK(fault_cause32 == expected && fault_cause64 == expected);
+    }
 
     for (int first = 0; first < 7; first++) {
       for (int second = first; second < 7; second++) {

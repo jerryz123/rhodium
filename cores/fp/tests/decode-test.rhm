@@ -17,10 +17,15 @@ import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../decode.rhdl" as controls
   "../scalar-decode.rhdl".fp_scalar_metadata
+  "../profile.rhm".fp_transport_profile
   "../../load-store.rhdl".MemoryWidth
   "../../operand.rhdl".OperandImmediate
   lib("rhodium/std/decode.rhdl") open
   lib("hardfloat/main.rhdl").MinMaxOperation
+
+check:
+  fp_transport_profile(XLen.X32) ~is FloatingPointProfile.F
+  fp_transport_profile(XLen.X64) ~is FloatingPointProfile.D
 
 fun exact_pattern_equal(left, right):
   left.type.type_equal(right.type) && right.type.type_equal(left.type) && left.width == right.width && left.value_bits == right.value_bits && left.care_bits == right.care_bits

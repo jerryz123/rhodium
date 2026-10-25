@@ -117,10 +117,13 @@ physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
 `integer-format.rhdl` owns scalar M-extension word-operand normalization and
 product/quotient/remainder projection, without scheduling or owner types.
-`reservation-wait.rhdl` owns the WRS timer and wake-versus-timeout priority;
+`reservation-wait.rhdl` owns the shared wait modes, WRS timer, and wake-versus-timeout priority;
 named cores retain the instruction and qualify TW/VTW from their CSR state.
 Capture resets the timer before any same-edge increment. Completion remains a
 level rather than consuming or replacing the caller's retained owner.
+`reservation-wait-decode.rhdl` maps canonical WRS encodings to those modes.
+Named decoders compose the relation into their own partial controls, retaining
+inactive-resource and serialization policy and leaving unused operands free.
 
 `writeback-calendar.rhdl` owns registered write-cycle occupancy and ordered
 same-cycle claims. Keep `registered_free` independent of all reservation

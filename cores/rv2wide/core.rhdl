@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/reservation-wait.rhdl") open
   lib("cores/integer-format.rhdl") open
   lib("cores/operand.rhdl") open
@@ -104,16 +105,6 @@ fun rv2wide_serializing_operation(system :: RV2WideSystemControl(), instruction 
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
 sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def xlen = profile.xlen
-
-  /* Encodes guest-page, page, then access faults using the retained operation's fault class. */
-  fun memory_fault_cause(access :: CacheOperation, guest_page_fault :: Bool, page_fault :: Bool) :: Bits(xlen.width):
-    def store = access.store_fault_class()
-    def guest_cause = mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
-    def page_cause = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
-    def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
-    priority_mux(~default: access_cause):
-      guest_page_fault: guest_cause
-      page_fault: page_cause
 
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(64)
@@ -672,7 +663,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   when (wb_gpr_calendar.reserve[1].valid):
     assert(wb_gpr_calendar.reserve[1].ready, "rv2wide_multiply_booked_writeback")
 
-  def rr_fp_request = FpExecutionRequest(xlen, rv2wide_fp_profile(xlen), RV2WideFpSchedule()):
+  def rr_fp_request = FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule()):
     tag:
       RV2WideFpSchedule():
         lane: rr_fp_lane
@@ -1029,7 +1020,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def mem_lookup_resolution = RV2WideResolution(xlen):
       guest: scalar_pipeline.response.bits.guest
       disposition: mem_disposition
-      cause: memory_fault_cause(mem.memory.access, mem_outcome === RV2WideCacheOutcome.GuestPageFault, mem_page_fault)
+      cause: data_fault_cause(xlen, mem.memory.access.store_fault_class(), ~page_fault: mem_page_fault, ~guest_page_fault: mem_outcome === RV2WideCacheOutcome.GuestPageFault)
       value: mem.address
 
     def mem_taken = mem.branch.update.branch & mem_resolver.result.bits.taken
@@ -1107,7 +1098,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   reg wb_retained_locality(RiscvMemoryLocality)
   reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
   def wb_management = wb_retained_pending & wb_retained_owner.memory.enable & wb_retained_owner.memory.access.is_cache_management()
-  wb_reservation_waiting <== wb_retained_pending & (wb_retained_owner.system.wait =/= RV2WideWait.None)
+  wb_reservation_waiting <== wb_retained_pending & (wb_retained_owner.system.wait =/= ReservationWaitMode.None)
 
   /* Reservation-wait completion uses retained instruction context.
      Wake wins over timeout faults; the counter saturates until completion. */
@@ -1116,7 +1107,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_wait.active <== wb_reservation_waiting
   wb_wait.reservation_valid <== scalar_memory.reservation_valid
   wb_wait.interrupt_wake <== wb_csrs.wfi_wake
-  wb_wait.short_timeout <== wb_retained_owner.system.wait === RV2WideWait.ShortTimeout
+  wb_wait.short_timeout <== wb_retained_owner.system.wait === ReservationWaitMode.ShortTimeout
   wb_wait.trap_on_timeout <== (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   wb_wait.virtual_trap_on_timeout <== guest_state.virtualized & csr_flag(guest_state.hstatus, HstatusVTW)
   def wb_wait_complete = wb_wait.completion.valid
@@ -1138,7 +1129,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_split_resolution = RV2WideResolution(xlen):
     guest: scalar_split.response.bits.guest.details
     disposition: mux(wb_split_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
-    cause: memory_fault_cause(wb_retained_owner.memory.access, scalar_split.response.bits.guest.page_fault, scalar_split.response.bits.page_fault)
+    cause: data_fault_cause(xlen, wb_retained_owner.memory.access.store_fault_class(), ~page_fault: scalar_split.response.bits.page_fault, ~guest_page_fault: scalar_split.response.bits.guest.page_fault)
     value: scalar_split.response.bits.fault_address[0..xlen.width]
 
   def wb_vector_resolution = RV2WideResolution(xlen):
@@ -1288,7 +1279,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
   def wb_memory_capture = wb_split_capture ||| wb_management_capture
-  def wb_wait_capture = wb_dispatch[0] & (wb_live_group[0].system.wait =/= RV2WideWait.None)
+  def wb_wait_capture = wb_dispatch[0] & (wb_live_group[0].system.wait =/= ReservationWaitMode.None)
   def wb_retained_capture = wb_split_capture ||| wb_management_capture ||| wb_wait_capture ||| wb_vector_capture
   def wb_retained_lane = mux(wb_vector_capture, wb_vector_lane, mux(wb_wait_capture, Bits(1)(0), wb_memory_lane))
   def wb_retained_candidate :: RV2WideResult(xlen) = wb_live_group[wb_retained_lane]

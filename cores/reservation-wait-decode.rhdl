@@ -1,0 +1,16 @@
+#lang rhodium
+/* Maps canonical WRS instructions to shared reservation-wait modes without core control policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "reservation-wait.rhdl".ReservationWaitMode
+  lib("riscv/isa/zawrs.rhm") open
+  lib("riscv/rtl/instruction-pattern.rhdl").instruction_pattern
+  lib("rhodium/std/decode.rhdl") open
+
+def ReservationWaitCases = [
+  DecodeCase(instruction_pattern(WRS_NTO), ReservationWaitMode.NoTimeout),
+  DecodeCase(instruction_pattern(WRS_STO), ReservationWaitMode.ShortTimeout)
+]
+
+export ReservationWaitCases
