@@ -96,7 +96,8 @@ void observe() {
           CHECK(insn.pprediction.pvalid == taken &&
                 (!taken || insn.pprediction.ptarget == target_pc));
           CHECK(insn.pdirection.pbase_uindex == ((branch_pc >> 1) & 4095));
-          if (scenario == 13 || scenario == 14 || scenario == 15)
+          if (scenario == 1 || scenario == 12 || scenario == 13 ||
+              scenario == 14 || scenario == 15)
             CHECK(insn.pdirection.pbase_utaken && !insn.pdirection.pgshare_utaken);
           if (taken)
             CHECK(int(instructions_out.pbits.pcount) == lane + 1);
@@ -189,7 +190,9 @@ void begin_case(int which, std::uint8_t want_taken = 1,
       branch_update_in = {};
     }
   } else if (btb_taken) {
-    direction_update_in = {1, std::uint16_t(expected_index ^ 0x100), std::uint16_t((branch_pc >> 1) & 4095), 0, 0, 1};
+    // Two gshare wins overcome the cold bimodal preference. Train another
+    // history row so the current gshare row stays not-taken while base warms.
+    direction_update_in = {1, std::uint16_t(expected_index ^ 0x100), std::uint16_t((branch_pc >> 1) & 4095), 0, 1, 1};
     falling();
     falling();
     direction_update_in = {1, expected_index, std::uint16_t((branch_pc >> 1) & 4095), 1, 0, 0};
