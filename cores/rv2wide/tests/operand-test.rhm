@@ -10,6 +10,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open
+  lib("riscv/isa/zicond.rhm") open
   lib("riscv/isa/zimop.rhm") open
 
 fun output_for(cases, instruction):
@@ -45,5 +46,8 @@ for (xlen in [XLen.X32, XLen.X64]):
   for (instruction in ZimopInstructions):
     check_pattern(output_for(cases, instruction), mop_operands)
 
-  check_pattern(output_for(cases, LR_W), load_reserved_operands)
-  check_pattern(output_for(cases, SC_W), atomic_operands)
+  for (instruction in (if xlen == XLen.X32 | RV32AInstructions | RV64AInstructions)):
+    check_pattern(output_for(cases, instruction), if [LR_W, LR_D].contains(instruction) | load_reserved_operands | atomic_operands)
+
+  for (instruction in ZicondInstructions):
+    check_pattern(output_for(cases, instruction), register_operands)

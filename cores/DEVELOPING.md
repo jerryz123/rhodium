@@ -94,10 +94,13 @@ of `cores/`.
 ## Add or change a component
 
 Small shared integration modules remain at the root:
-`profile.rhm` composes common MISA capabilities from explicit execution choices;
+`profile.rhm` composes common ISA-name groups and MISA capabilities from explicit execution choices;
 `udb.rhm` composes shared bank/cache/MMU/vector declarations for callers opting
 into the precise-execution contract. Named profiles retain optional extension
 selection, qualification claims, and physical integration bounds.
+Keep configuration defaults and supervisor qualification predicates local. In
+particular, RV5Stage advertises its supervisor guarantees only for RV64 Sv39;
+RV2Wide also advertises the non-page-table guarantees for RV64 Bare.
 `chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
 `memory-response.rhdl` owns optional-response pairing and one-cycle LSU result capture;
@@ -130,7 +133,7 @@ queries, reset, paused aging, and invalid reservations; pair it with named-core
 FP/multiply/vector fixtures when changing a caller.
 
 `operand.rhdl` owns scalar source-use, ALU routing, and immediate controls;
-`operand-decode.rhdl` owns the common I/B relations and reusable partial
+`operand-decode.rhdl` owns the common I/M/A/B/Zicond relations and reusable partial
 patterns. Named decoders compose their domains and retain different MOP
 routing policies; dedicated M services leave ALU operand routing free. Preserve
 care masks when moving relations: sharing a type is not permission to constrain

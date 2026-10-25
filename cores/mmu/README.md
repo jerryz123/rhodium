@@ -81,6 +81,15 @@ Probe PBMT applies the G override followed by a non-PMA stage-one override.
 core. A fast certificate carries one page mapping and its context/epoch identity;
 the caller must revalidate it before nonspeculative use.
 
+[`VectorCertificate`](vector-certificate.rhdl) implements that fast proof check.
+It consumes a caller-selected, demand-permission-checked translation and normal
+data context, emits a same-cycle certificate for a cacheable, idempotent PMA page,
+and compares a candidate's context and invalidation epoch at WB. It adds no
+lookup stage or walk. Invalidation suppresses new proofs immediately and advances
+the two-bit epoch at the edge; candidate comparison observes the pre-edge epoch.
+The caller owns TLB arbitration, same-cycle WB/invalidation exclusion, and
+certificate lifetime so a candidate cannot survive an epoch wrap.
+
 `VectorWindow` in `vector-window.rhdl` checks a caller-provided range spanning
 at most two adjacent 4 KiB pages and retains its mappings until release. Its
 first page probe is offered in the cycle after accepting the range, using only

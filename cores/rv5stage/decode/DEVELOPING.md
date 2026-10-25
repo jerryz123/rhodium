@@ -26,7 +26,7 @@ execution and retirement behavior.
 | File | Owned control |
 |---|---|
 | [`../../alu-decode.rhdl`](../../alu-decode.rhdl), [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | Reusable I/B/Zicond ALU mapping; RV5Stage catalog completion and optional CBO/Zawrs rows |
-| [`../../operand.rhdl`](../../operand.rhdl), [`../../operand-decode.rhdl`](../../operand-decode.rhdl), [`operand-ctrl.rhdl`](operand-ctrl.rhdl) | Shared scalar controls and I/B operand relations; RV5Stage catalog completion and execution-unit routing policy |
+| [`../../operand.rhdl`](../../operand.rhdl), [`../../operand-decode.rhdl`](../../operand-decode.rhdl), [`operand-ctrl.rhdl`](operand-ctrl.rhdl) | Shared scalar controls and I/M/A/B/Zicond operand relations; RV5Stage catalog completion and MOP routing policy |
 | [`../../branch-decode.rhdl`](../../branch-decode.rhdl), [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Reusable branch-resolver mapping; RV5Stage catalog completion and optional rows |
 | [`mem-ctrl.rhdl`](mem-ctrl.rhdl) | Load, store, LR/SC, and AMO operation, width, atomic operation, and load extension |
 | [`../../multiply-decode.rhdl`](../../multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |

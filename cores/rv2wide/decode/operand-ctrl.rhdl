@@ -6,9 +6,6 @@ import:
   lib("cores/operand.rhdl") open
   lib("cores/operand-decode.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/isa/m.rhm") open
-  lib("riscv/isa/a.rhm") open
-  lib("riscv/isa/zicond.rhm") open
   lib("riscv/isa/zimop.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
@@ -20,13 +17,8 @@ import:
 fun rv2wide_operand_cases(xlen :: XLen):
   def base = if xlen == XLen.X32 | RV32IOperandCases | RV64IOperandCases
   def bitmanip = if xlen == XLen.X32 | RV32BOperandCases | RV64BOperandCases
-  def reserved = if xlen == XLen.X32 | [LR_W] | [LR_W, LR_D]
-  def atomic = if xlen == XLen.X32 | RV32AInstructions | RV64AInstructions
-  def multiply = if xlen == XLen.X32 | RV32MInstructions | RV64MInstructions
-  def multiply_operands = partial_pattern(OperandControl()):
-    uses_rs1: Bool(#true)
-    uses_rs2: Bool(#true)
-
+  def atomic = if xlen == XLen.X32 | RV32AOperandCases | RV64AOperandCases
+  def multiply = if xlen == XLen.X32 | RV32MOperandCases | RV64MOperandCases
   def mop_operands = pattern(OperandControl()):
     uses_rs1: Bool(#false)
     uses_rs2: Bool(#false)
@@ -34,11 +26,7 @@ fun rv2wide_operand_cases(xlen :: XLen):
     right: OperandBSelect.Immediate
     immediate: OperandImmediate.Zero
 
-  base ++ bitmanip ++ combine_case_groups([
-    instruction_cases(reserved, load_reserved_operands),
-    instruction_cases(excluding_instructions(atomic, reserved), atomic_operands),
-    instruction_cases(ZicondInstructions, register_operands),
-    instruction_cases(multiply, multiply_operands),
+  base ++ bitmanip ++ atomic ++ ZicondOperandCases ++ multiply ++ combine_case_groups([
     instruction_cases(ZimopInstructions, mop_operands),
     instruction_cases([CSRRW, CSRRS, CSRRC], csr_register_operands),
     instruction_cases([CSRRWI, CSRRSI, CSRRCI, MRET, SRET, WFI, SFENCE_VMA, FENCE_I], no_operands)

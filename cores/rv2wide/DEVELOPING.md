@@ -152,7 +152,7 @@ WB authorization, and the two-port writeback policy stay local.
 
 | Owner | Responsibility |
 |---|---|
-| `decode/operand-ctrl.rhdl` | Composes shared operand relations with RV2Wide MOP and dedicated-multiply routing policy |
+| `decode/operand-ctrl.rhdl` | Composes shared I/M/A/B/Zicond operand relations with RV2Wide MOP routing policy |
 | `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
 | `decode/system-ctrl.rhdl` | Architectural CSR operation/source, trap/return/wait, and serialized fence columns |
 | `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |
@@ -168,7 +168,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
-| `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
+| `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, shared fast-certificate proof with local probe arbitration, WB miss priority, physical-response ownership |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
 | `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to RV2Wide decisions, precise split outcomes, and ordered raw-word extraction |

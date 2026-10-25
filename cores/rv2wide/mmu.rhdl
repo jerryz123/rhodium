@@ -34,6 +34,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("cores/mmu/vector.rhdl") open
   lib("cores/mmu/vector-window.rhdl") open
+  lib("cores/mmu/vector-certificate.rhdl").VectorCertificate
 
 /* Distinguishes physical response owners independently of live translation and fragment state. */
 hardware_enum RV2WidePhysicalOwner:
@@ -110,10 +111,6 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
      Cancel the walker one cycle later; accepted physical response owners remain live. */
 
   reg cancel(~init: Bool(#false))
-  reg vector_invalidation_epoch(~init: Bits(2)(0))
-  when invalidate:
-    vector_invalidation_epoch <== vector_invalidation_epoch + Bits(2)(1)
-
   cancel <== invalidate
   walker.cancel <== cancel
   itlb.invalidate_all <== invalidate
@@ -175,21 +172,14 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
-  def vector_context = lookup(Bits(64)(0), Sv39Access.Load, data_privilege, normal_data_guest)
-  vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.virtualized === vector_context.virtualized) & (vector_fast.candidate.context.as_bits() === vector_context.context.as_bits())
+  inst certificate(VectorCertificate(XLen.X64, config.physical_map))
+  vector_fast <=> certificate.check
+  certificate.invalidate <== invalidate
+  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, data_privilege, normal_data_guest)
   // The independent probe certifies MEM while the demand port serves older work.
   // Certification checks real A/D permissions; only optional data hints may drop.
-  def fast_page = (dtlb.probe_translation.physical_address[12..56] ++ Bits(12)(0)).zext(64)
-  vector_fast.response.valid <== vector_fast.request.valid & !invalidate & dtlb.probe_hit & (dtlb.probe_translation.fault === RiscvTranslationFault.None) & (dtlb.probe_pbmt === PageMemoryType.PMA) & vector_page_permitted(config.physical_map, fast_page, vector_fast.request.bits.store)
-  vector_fast.response.bits <== VectorFastCertificate(XLen.X64):
-    range: vector_fast.request.bits
-    ppn: dtlb.probe_translation.physical_address[12..56]
-    virtualized: vector_context.virtualized
-    context: vector_context.context
-    invalidation_epoch: vector_invalidation_epoch
-
-  when (vector_fast.request.valid):
-    assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "rv2wide_vector_fast_range_is_one_page")
+  certificate.translation.valid <== vector_fast.request.valid & dtlb.probe_hit
+  certificate.translation.bits <== riscv_host_result(dtlb.probe_translation).updated(~pbmt: dtlb.probe_pbmt)
 
 
   /* Registered hints never contend with demand translation or allocate a walk.

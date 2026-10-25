@@ -54,6 +54,7 @@ with `COSIM=1` instead of maintaining a separate cosim-only Sv39 program.
 |---|---|
 | [`protocol.rhdl`](protocol.rhdl) | RV5Stage guest-aware virtual requests and split outcomes |
 | [`../../mmu/vector.rhdl`](../../mmu/vector.rhdl) | Shared vector certificates and page probes |
+| [`../../mmu/vector-certificate.rhdl`](../../mmu/vector-certificate.rhdl) | Fast-proof eligibility, context/epoch validation, and certificate construction; this MMU still owns demand-port selection |
 | [`../../mmu/`](../../mmu/DEVELOPING.md) | Shared TLB/walker implementation, host/guest contracts, and direct fixture ownership |
 | [`../../mmu/vector-window.rhdl`](../../mmu/vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, retained fragment demand translation, physical checks, and separate core/PTE physical offers |

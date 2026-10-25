@@ -1,5 +1,5 @@
 #lang rhodium
-/* Authors reusable scalar operand relations with inactive routing fields unconstrained. */
+/* Authors reusable I/M/A/B/Zicond operand relations with inactive routing fields unconstrained. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,10 @@ import:
   lib("riscv/isa/zba.rhm") as zba
   lib("riscv/isa/zbb.rhm") as zbb
   lib("riscv/isa/zbs.rhm") as zbs
+  lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/a.rhm") open
+  lib("riscv/isa/zicond.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
@@ -134,6 +138,24 @@ def no_operands = partial_pattern(OperandControl()):
   uses_rs1: Bool(#false)
   uses_rs2: Bool(#false)
 
+/* Dedicated M services read both registers without observing ALU routing controls. */
+def muldiv_operands = partial_pattern(OperandControl()):
+  uses_rs1: Bool(#true)
+  uses_rs2: Bool(#true)
+
+def RV32MOperandCases = instruction_cases(RV32MInstructions, muldiv_operands)
+def RV64MOperandCases = instruction_cases(RV64MInstructions, muldiv_operands)
+
+/* LR reads only its address register; SC and AMOs additionally read store/operand data. */
+fun atomic_operand_cases(xlen :: XLen) :: List.of(DecodeCase):
+  def instructions = if xlen == XLen.X32 | RV32AInstructions | RV64AInstructions
+  def reserved = if xlen == XLen.X32 | [LR_W] | [LR_W, LR_D]
+  instruction_cases(reserved, load_reserved_operands) ++ instruction_cases(excluding_instructions(instructions, reserved), atomic_operands)
+
+def RV32AOperandCases = atomic_operand_cases(XLen.X32)
+def RV64AOperandCases = atomic_operand_cases(XLen.X64)
+def ZicondOperandCases = instruction_cases(ZicondInstructions, register_operands)
+
 def shared_bitmanip_register_instructions = [
   zba.SH1ADD, zba.SH2ADD, zba.SH3ADD,
   zbb.ANDN, zbb.ORN, zbb.XNOR, zbb.MIN, zbb.MINU, zbb.MAX, zbb.MAXU,
@@ -157,6 +179,11 @@ def RV32IOperandDecode = ValidDecodeGen(RV32IOperandCases)
 def RV64IOperandDecode = ValidDecodeGen(RV64IOperandCases)
 
 export:
+  RV32MOperandCases
+  RV64MOperandCases
+  RV32AOperandCases
+  RV64AOperandCases
+  ZicondOperandCases
   RV32IOperandCases
   RV64IOperandCases
   RV32BOperandCases

@@ -214,6 +214,15 @@ for (cases in [operand_controls.RV32RV5StageOperandCases, operand_controls.RV64R
       field_is_free(operand, "right") ~is #true
       field_is_free(operand, "immediate") ~is #true
 
+for (cases in [operand_controls.RV32RV5StageOperandCases, operand_controls.RV64RV5StageOperandCases],
+     instructions in [RV32AInstructions, RV64AInstructions]):
+  for (instruction in instructions):
+    def expected = if [LR_W, LR_D].contains(instruction) | load_reserved_operands | atomic_operands
+    check: exact_pattern_equal(control_for_instruction(cases, instruction), expected) ~is #true
+
+  for (instruction in zicond.ZicondInstructions):
+    check: exact_pattern_equal(control_for_instruction(cases, instruction), register_operands) ~is #true
+
 // Preserve memory ordering classification without constraining the unused scalar LSU payload.
 for (row in controls.VectorCoreControlCases):
   def control = row.output

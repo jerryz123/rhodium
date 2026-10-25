@@ -1,0 +1,44 @@
+#lang rhodium
+/* Validates speculative single-page vector proofs against translation, PMA, and context epochs. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "vector.rhdl" open
+  "vector-window.rhdl".vector_page_permitted
+  "translation.rhdl".RiscvTlbLookup
+  "protocol.rhdl".RiscvTranslationResult
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
+  lib("flow/main.rhdl") open
+
+/* Issues a combinational certificate only for a caller-selected, permission-checked hit.
+   The caller owns TLB arbitration and supplies the normal data context independently of
+   concurrent explicit-guest requests. Invalidation advances the epoch at the edge;
+   it suppresses new proofs immediately but does not change candidate timing. */
+sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap):
+  interface check(VectorFastCheck(xlen), ~role: responder)
+  interface translation(Valid(RiscvTranslationResult()), ~role: consumer)
+  input current: RiscvTlbLookup()
+  input invalidate: Bool
+
+  reg epoch(~init: Bits(2)(0))
+  when invalidate:
+    epoch <== epoch + Bits(2)(1)
+
+  check.candidate_current <== (check.candidate.invalidation_epoch === epoch) & (check.candidate.virtualized === current.virtualized) & (check.candidate.context.as_bits() === current.context.as_bits())
+  def page = (translation.bits.physical_address[12..56] ++ Bits(12)(0)).zext(64)
+  def page_permitted = vector_page_permitted(physical_map, page, check.request.bits.store)
+  def proof = translation |> filter_valid(result => check.request.valid & !invalidate & !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA) & page_permitted)
+  (proof |> map_valid(result => VectorFastCertificate(xlen)):
+    range: check.request.bits
+    ppn: result.physical_address[12..56]
+    virtualized: current.virtualized
+    context: current.context
+    invalidation_epoch: epoch
+  ) |> check.response
+
+  when (check.request.valid):
+    assert(check.request.bits.first[12..64] === check.request.bits.last[12..64], "vector_fast_range_is_one_page")
+
+export VectorCertificate

@@ -22,9 +22,14 @@ architectural result selection.
 
 [`operand.rhdl`](operand.rhdl) provides `OperandControl`, `OperandASelect`,
 `OperandBSelect`, and `OperandImmediate`. Import
-[`operand-decode.rhdl`](operand-decode.rhdl) for canonical RV32/RV64 I/B operand
+[`operand-decode.rhdl`](operand-decode.rhdl) for canonical RV32/RV64 I/M/A/B/Zicond operand
 relations and partial source-use patterns. Inactive fields remain don't-cares;
 each core composes its extension domains and dedicated execution-unit routing.
+
+[`profile.rhm`](profile.rhm) projects explicitly selected capabilities into ISA
+name groups and MISA bits. Its scalar, FP, memory, hint, privileged, and supervisor
+helpers do not choose defaults or qualify an implementation. Named profiles
+retain configuration validation and decide which guarantees they may publish.
 
 | Component | Interface and parameters | Timing contract | Component owns | Caller owns |
 |---|---|---|---|---|

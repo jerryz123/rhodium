@@ -15,6 +15,7 @@ def rv64_integer = RV5StageConfig(
   ~xlen: XLen.X64,
   ~mmu_mode: RiscvMmuType.Sv39
 )
+def rv64_bare = RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RiscvMmuType.Bare)
 
 def rv64_double = rv64_integer with (
   extensions = rv64_integer.extensions with (
@@ -36,6 +37,7 @@ def rv32_half = rv64_integer with (
 )
 
 check:
+  rv64_bare.isa_profile.isa_extensions ~is rv64_integer.isa_profile.isa_extensions.filter(~keep: fun (name): !["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"].contains(name))
   RV5StageExtensions().hypervisor ~is #false
   (rv64_integer with (extensions = rv64_integer.extensions with (hypervisor = #true))).isa_profile.misa_extension_bits ~is rv64_integer.isa_profile.misa_extension_bits + 128
   (rv64_integer with (extensions = rv64_integer.extensions with (hypervisor = #true, smstateen = #true))).isa_profile.isa_extensions.contains("sha") ~is #true

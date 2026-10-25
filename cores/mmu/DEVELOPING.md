@@ -28,6 +28,7 @@ entry storage, replacement, walk frames, and response ownership stay here.
 | `context.rhdl` | Stateless host/guest lookup construction from caller-selected effective controls |
 | `udb.rhm` | Bare/Sv39 and guest translation modes and identifier capacities, excluding pipeline fault-precision claims |
 | `vector.rhdl` | Core-neutral range certificates, context identity, and page-probe interfaces |
+| `vector-certificate.rhdl` | Fast-proof PMA/translation checks, certificate construction, and context/epoch validation |
 | `vector-window.rhdl` | Two-page certification and pinned mappings; failed proof selects precise fallback |
 | `tlb.rhdl` | Associative bank, current permission checks, probes, refill, and host-port adapter |
 | `walker.rhdl` | Host/nested traversal, PTE validation, saved VS frame, cancel/drain, host-port adapter |
@@ -51,6 +52,12 @@ Preserve these invariants when extending the components:
   range. Do not restore admission-to-probe bypass: a live descriptor offer may
   itself depend on scalar WB/MMU acceptance. Preserve the independent MEM
   certificate path and allow an immediate response to a registered probe.
+- `VectorCertificate` owns only the epoch register and combinational proof.
+  Preserve demand-accurate A/D permission results, not relaxed prefetch permission.
+  RV5Stage selects an idle demand lookup; RV2Wide uses its independent probe.
+  Keep those arbitration policies and normal-versus-explicit-guest context
+  selection in the callers. Do not add buffering or gate candidate comparison
+  with invalidation before the epoch edge.
 - Keep the `mmu/walk` trace label and retained ownership contract stable.
   Residency excludes Idle and Drain; cancellation ends the architectural walk
   occurrence but does not erase physical response ownership.
@@ -90,3 +97,5 @@ page-check admission with older scalar request readiness, preserving the feedbac
 topology used by ordered WB admission. It checks rejection before capture,
 registered warm-hit probing, demand contention, immutable ranges, and held
 responses. Independent mock-memory responders cannot detect that feedback loop.
+Fast-certificate changes use `rv5stage-mmu-replay` and `rv2wide-mmu` for
+permission/PMA rejection, context and epoch changes, and lookup contention.

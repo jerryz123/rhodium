@@ -19,6 +19,7 @@ import:
   lib("cores/mmu/tlb.rhdl") open
   lib("cores/mmu/walker.rhdl") open
   "../../mmu/vector-window.rhdl" open
+  "../../mmu/vector-certificate.rhdl".VectorCertificate
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../../cache/operation.rhdl" open
   "../icache/protocol.rhdl" open
@@ -144,14 +145,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   /* Vector certificate context
      Physical certificates are independent of the retained fallback page window. */
 
-  reg vector_invalidation_epoch(~init: Bits(2)(0))
-  when invalidate_all:
-    vector_invalidation_epoch <== vector_invalidation_epoch + Bits(2)(1)
-
   // WB validates the MEM snapshot independently of the fallback page window.
   // Certified vector requests carry their own physical address thereafter.
-  def vector_context = lookup(Bits(64)(0), Sv39Access.Load, normal_data_privilege, satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine) & !normal_data_guest, normal_data_guest)
-  vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.virtualized === vector_context.virtualized) & (vector_fast.candidate.context.as_bits() === vector_context.context.as_bits())
+  inst certificate(VectorCertificate(xlen, physical_map))
+  vector_fast <=> certificate.check
+  certificate.invalidate <== invalidate_all
+  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, normal_data_privilege, satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine) & !normal_data_guest, normal_data_guest)
 
 
   /* Instruction S0 admission and S1 ownership */
@@ -214,17 +213,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def demand_access = mux(data_demand, data_access_kind, mux(speculative_store, Sv39Access.Store, Sv39Access.Load))
   dtlb.lookup <== lookup(demand_address, demand_access, data_privilege, data_translation_enabled & !data_guest, data_guest).updated(~execute_read: execute_read)
   dtlb.invalidate_all <== invalidate_all
-  def vector_fast_page = (dtlb_result.physical_address[12..56] ++ Bits(12)(0)).zext(64)
-  vector_fast.response.valid <== fast_selected & !invalidate_all & dtlb.hit & !dtlb_result.fault & !dtlb_result.access_fault & (dtlb_result.pbmt === PageMemoryType.PMA) & vector_page_permitted(physical_map, vector_fast_page, vector_fast.request.bits.store)
-  vector_fast.response.bits <== VectorFastCertificate(xlen):
-    range: vector_fast.request.bits
-    ppn: dtlb_result.physical_address[12..56]
-    virtualized: vector_context.virtualized
-    context: vector_context.context
-    invalidation_epoch: vector_invalidation_epoch
-
-  when (vector_fast.request.valid):
-    assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "vector_fast_range_is_one_page")
+  certificate.translation.valid <== fast_selected & dtlb.hit
+  certificate.translation.bits <== dtlb_result
 
 
   /* Prefetch translation

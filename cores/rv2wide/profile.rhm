@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm".core_misa_extensions
+  "../profile.rhm" open
   "../fp/profile.rhm".check_fp_profile
   "../vector/profile.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
@@ -85,22 +85,12 @@ class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache ::
     vector_execution_half_precision(half_precision, vector_extensions)
 
   property isa_profile :: RiscvIsaProfile:
-    def half_extensions = match half_precision
-    | HalfPrecisionProfile.None: []
-    | HalfPrecisionProfile.Zfhmin: ["zfhmin"]
-    | HalfPrecisionProfile.Zfh: ["zfh"]
-
-    def fp = (if floating_point_supports_f(floating_point) | ["f"] | []) ++ (if floating_point_supports_d(floating_point) | ["d"] | [])
-    def scalar = ["i", "m", "a"] ++ fp ++ ["c", "b"] ++ (if hypervisor | ["h"] | []) ++ ["za64rs", "zba", "zbb", "zbs"]
-    def compressed_additions = (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | []) ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
-    def memory = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | []) ++ (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ ["zicclsm"] ++ (if ziccrse | ["ziccrse"] | [])
-    def hints = (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | [])
-    def system = ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
+    def scalar = core_scalar_extensions(floating_point, compressed, hypervisor) ++ core_fp_extensions(half_precision, zfa)
+    def memory = core_memory_extensions(~zicbop: zicbop, ~zicboz: zicboz, ~zicbom: zicbom, ~ziccamoa: ziccamoa, ~ziccif: ziccif, ~ziccrse: ziccrse)
     def masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
-    def privileged = (if sstc | ["sstc"] | []) ++ (if svinval | ["svinval"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | [])
-    def guest = (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
-    def supervisor = if xlen == XLen.X64 | (if mmu_type != RiscvMmuType.Bare | ["ssccptr"] | []) ++ ["sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
-    def names = scalar ++ compressed_additions ++ (if zfa | ["zfa"] | []) ++ half_extensions ++ memory ++ masking ++ hints ++ system ++ privileged ++ guest ++ (if sscofpmf | ["sscofpmf"] | []) ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
+    def privileged = core_privileged_extensions(~sstc: sstc, ~svinval: svinval, ~svpbmt: svpbmt, ~svnapot: svnapot, ~smstateen: smstateen, ~hypervisor: hypervisor, ~sscofpmf: sscofpmf)
+    def supervisor = if xlen == XLen.X64 | core_supervisor_extensions(~page_tables: mmu_type != RiscvMmuType.Bare) | []
+    def names = scalar ++ memory ++ masking ++ core_hint_extensions(zawrs, zihintpause, zihintntl) ++ CoreSystemExtensions ++ privileged ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
     def misa = core_misa_extensions(floating_point, #true, vector, hypervisor)
     RiscvIsaProfile(xlen, names, misa)
 

@@ -25,6 +25,7 @@ check:
   integer32.csr_config.mmu_type ~is RiscvMmuType.Bare
   integer32.isa_profile.isa_extensions.contains("ssu64xl") ~is #false
   bare64.hart_description.mmu_type ~is RiscvMmuType.Bare
+  bare64.isa_profile.isa_extensions ~is integer.isa_profile.isa_extensions.filter(~keep: fun (name): name != "ssccptr")
   integer.hart_description.mmu_type ~is RiscvMmuType.Sv39
   RV2WideConfig(~xlen: XLen.X32, ~mmu_type: RiscvMmuType.Sv39) ~throws "Bare or RV64 Sv39"
   RV2WideConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.D) ~throws "disabled FP, RV32F, or RV64D"

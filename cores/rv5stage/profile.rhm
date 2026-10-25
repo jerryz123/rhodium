@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm".core_misa_extensions
+  "../profile.rhm" open
   "../vector/profile.rhm".check_vector_profile
   "../csr/config.rhm".RiscvCsrConfig
   "../fp/profile.rhm".check_fp_profile
@@ -108,54 +108,11 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
 
   /* Projects scalar feature choices into ISA names, including fixed implemented guarantees. */
   method names(xlen :: XLen) :: NonemptyList.of(String):
-    def mutable single_letter = ["i", "m", "a"]
-    when floating_point_supports_f(floating_point)
-    | single_letter := single_letter ++ ["f"]
-
-    when floating_point_supports_d(floating_point)
-    | single_letter := single_letter ++ ["d"]
-
-    when compressed.contains(CompressedExtension.C)
-    | single_letter := single_letter ++ ["c"]
-
-    single_letter := single_letter ++ ["b"]
-    when hypervisor
-    | single_letter := single_letter ++ ["h"]
-
-    def mutable multi_letter = []
-    multi_letter := multi_letter ++ ["za64rs", "zba", "zbb", "zbs"]
-    when !compressed.contains(CompressedExtension.C) && compressed.contains(CompressedExtension.Zca)
-    | multi_letter := multi_letter ++ ["zca"]
-
-    when compressed.contains(CompressedExtension.Zcb)
-    | multi_letter := multi_letter ++ ["zcb"]
-
-    unless compressed.contains(CompressedExtension.C)
-    | block:
-        when compressed.contains(CompressedExtension.Zcd)
-        | multi_letter := multi_letter ++ ["zcd"]
-
-        when compressed.contains(CompressedExtension.Zcf)
-        | multi_letter := multi_letter ++ ["zcf"]
-
-    when compressed.contains(CompressedExtension.Zcmop)
-    | multi_letter := multi_letter ++ ["zcmop"]
-
-    when zfa
-    | multi_letter := multi_letter ++ ["zfa"]
-
-    cond
-    | half_precision == HalfPrecisionProfile.Zfh:
-        multi_letter := multi_letter ++ ["zfh"]
-    | half_precision == HalfPrecisionProfile.Zfhmin:
-        multi_letter := multi_letter ++ ["zfhmin"]
-    | ~else: #void
-
-    def cache_block = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
-    def main_memory = (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ ["zicclsm"] ++ (if ziccrse | ["ziccrse"] | [])
+    def scalar = core_scalar_extensions(floating_point, compressed, hypervisor) ++ core_fp_extensions(half_precision, zfa)
+    def memory = core_memory_extensions(~zicbop: zicbop, ~zicboz: zicboz, ~zicbom: zicbom, ~ziccamoa: ziccamoa, ~ziccif: ziccif, ~ziccrse: ziccrse)
     def pointer_masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
-    def privileged = (if sstc | ["sstc"] | []) ++ (if svinval | ["svinval"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | []) ++ (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
-    single_letter ++ multi_letter ++ cache_block ++ main_memory ++ pointer_masking ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"] ++ privileged ++ (if sscofpmf | ["sscofpmf"] | [])
+    def privileged = core_privileged_extensions(~sstc: sstc, ~svinval: svinval, ~svpbmt: svpbmt, ~svnapot: svnapot, ~smstateen: smstateen, ~hypervisor: hypervisor, ~sscofpmf: sscofpmf)
+    scalar ++ memory ++ pointer_masking ++ core_hint_extensions(zawrs, zihintpause, zihintntl) ++ CoreSystemExtensions ++ privileged
 
 /* Groups independently configurable instruction and data cache geometries. */
 class RV5StageCacheGeometry(instruction :: CacheConfig,
@@ -250,7 +207,7 @@ class RV5StageConfig(xlen :: XLen,
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
     // Fixed behavioral guarantees validated on the RV64 Sv39 implementation,
     // not optional datapaths or new implementation switches.
-    def supervisor = if xlen == XLen.X64 && mmu_mode == RiscvMmuType.Sv39 | ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
+    def supervisor = if xlen == XLen.X64 && mmu_mode == RiscvMmuType.Sv39 | core_supervisor_extensions(~page_tables: #true) | []
     def names = extensions.names(xlen) ++ supervisor ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
     def misa = core_misa_extensions(extensions.floating_point, extensions.compressed_misa_c(xlen), vector, extensions.hypervisor)
     RiscvIsaProfile(xlen, names, misa)

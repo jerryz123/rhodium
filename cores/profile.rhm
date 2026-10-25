@@ -1,11 +1,62 @@
 #lang rhombus
-/* Projects shared processor execution choices into architectural MISA capabilities. */
+/* Projects explicit shared execution and qualification choices into ISA names and MISA bits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/profile.rhm").MisaExtension
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/isa/c.rhm").CompressedExtension
+
+/* Names the common scalar base and explicitly selected FP, compressed, and guest subsets. */
+fun core_scalar_extensions(floating_point :: FloatingPointProfile, compressed :: List.of(CompressedExtension), hypervisor :: Boolean) :: NonemptyList.of(String):
+  def has_c = compressed.contains(CompressedExtension.C)
+  ["i", "m", "a"]
+    ++ (if floating_point_supports_f(floating_point) | ["f"] | [])
+    ++ (if floating_point_supports_d(floating_point) | ["d"] | [])
+    ++ (if has_c | ["c"] | []) ++ ["b"] ++ (if hypervisor | ["h"] | [])
+    ++ ["za64rs", "zba", "zbb", "zbs"]
+    ++ (if !has_c && compressed.contains(CompressedExtension.Zca) | ["zca"] | [])
+    ++ (if compressed.contains(CompressedExtension.Zcb) | ["zcb"] | [])
+    ++ (if !has_c && compressed.contains(CompressedExtension.Zcd) | ["zcd"] | [])
+    ++ (if !has_c && compressed.contains(CompressedExtension.Zcf) | ["zcf"] | [])
+    ++ (if compressed.contains(CompressedExtension.Zcmop) | ["zcmop"] | [])
+
+/* Names additional FP operations without selecting or validating an execution profile. */
+fun core_fp_extensions(half_precision :: HalfPrecisionProfile, zfa :: Boolean) :: List.of(String):
+  def half = match half_precision
+  | HalfPrecisionProfile.None: []
+  | HalfPrecisionProfile.Zfhmin: ["zfhmin"]
+  | HalfPrecisionProfile.Zfh: ["zfh"]
+
+  (if zfa | ["zfa"] | []) ++ half
+
+/* Projects shared cache guarantees and caller-qualified memory properties, not cache geometry. */
+fun core_memory_extensions(~zicbop: zicbop :: Boolean, ~zicboz: zicboz :: Boolean, ~zicbom: zicbom :: Boolean,
+                           ~ziccamoa: ziccamoa :: Boolean, ~ziccif: ziccif :: Boolean, ~ziccrse: ziccrse :: Boolean) :: NonemptyList.of(String):
+  ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
+    ++ (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ ["zicclsm"] ++ (if ziccrse | ["ziccrse"] | [])
+
+/* Names selected wait and locality hints independently of each core's scheduling policy. */
+fun core_hint_extensions(zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean) :: List.of(String):
+  (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | [])
+
+def CoreSystemExtensions = ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
+
+/* Projects selected CSR/translation features and their shared guest guarantees; enabling
+   Sha still requires both caller-selected H and state-enable support. */
+fun core_privileged_extensions(~sstc: sstc :: Boolean, ~svinval: svinval :: Boolean, ~svpbmt: svpbmt :: Boolean,
+                               ~svnapot: svnapot :: Boolean, ~smstateen: smstateen :: Boolean,
+                               ~hypervisor: hypervisor :: Boolean, ~sscofpmf: sscofpmf :: Boolean) :: List.of(String):
+  (if sstc | ["sstc"] | []) ++ (if svinval | ["svinval"] | []) ++ (if svpbmt | ["svpbmt"] | [])
+    ++ (if svnapot | ["svnapot"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | [])
+    ++ (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | [])
+    ++ (if hypervisor && smstateen | ["sha"] | []) ++ (if sscofpmf | ["sscofpmf"] | [])
+
+/* Names the RV64 supervisor guarantees only after the caller qualifies the configuration.
+   Page-table coherence is a separate choice so Bare and translated policies stay local. */
+fun core_supervisor_extensions(~page_tables: page_tables :: Boolean) :: NonemptyList.of(String):
+  (if page_tables | ["ssccptr"] | []) ++ ["sstvecd", "sstvala", "sscounterenw", "ssu64xl"]
 
 /* Combines the common IMAB/S/U base with explicitly qualified compressed, FP, vector, and guest capabilities. */
 fun core_misa_extensions(floating_point :: FloatingPointProfile, compressed :: Boolean, vector :: VectorProfile, hypervisor :: Boolean) :: NonemptyList.of(MisaExtension):
@@ -16,4 +67,12 @@ fun core_misa_extensions(floating_point :: FloatingPointProfile, compressed :: B
     ++ (if vector_profile_is_v(vector) | [MisaExtension.V] | [])
     ++ (if hypervisor | [MisaExtension.H] | [])
 
-export core_misa_extensions
+export:
+  core_scalar_extensions
+  core_fp_extensions
+  core_memory_extensions
+  core_hint_extensions
+  CoreSystemExtensions
+  core_privileged_extensions
+  core_supervisor_extensions
+  core_misa_extensions
