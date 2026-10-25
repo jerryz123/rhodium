@@ -881,6 +881,12 @@ void paired_scalar_configurations() {
   issue_pair(addi(12, 0, 100), configure);
   CHECK(gprs[12] == 100 && gprs[13] == 2);
 
+  // Early constants supply dependent AVL/vtype through the same RR operand capture.
+  issue_pair(addi(14, 0, 3), vsetvli(13, 14, 0));
+  CHECK(gprs[13] == 3);
+  issue_pair(addi(15, 0, 0), configure);
+  CHECK(gprs[13] == 3);
+
   // Coalescing RF writes must not merge or substitute the two retirement values.
   const auto config_first = next_pc;
   issue_pair(vsetivli(10, 3, 0), addi(10, 0, 91));
@@ -898,14 +904,14 @@ void paired_scalar_configurations() {
   send(0xc20023f3); // csrr x7,vl
   CHECK(gprs[0] == 0 && gprs[7] == 3 && gprs[11] == 78);
 
-  // Neither direction gains a dependent EX ALU/configuration bypass.
+  // VL results retain their interlock; an RR constant can supply the next AVL.
   const auto vl_dependency = next_pc;
   stream({vsetivli(10, 3, 0), addi(11, 10, 1)});
   CHECK(memory_cycles.at(vl_dependency + 4) > memory_cycles.at(vl_dependency));
   CHECK(gprs[10] == 3 && gprs[11] == 4);
   const auto avl_dependency = next_pc;
   stream({addi(14, 0, 2), vsetvli(10, 14, 8)});
-  CHECK(memory_cycles.at(avl_dependency + 4) > memory_cycles.at(avl_dependency));
+  CHECK(memory_cycles.at(avl_dependency + 4) == memory_cycles.at(avl_dependency));
   CHECK(gprs[14] == 2 && gprs[10] == 2);
   const auto configs = next_pc;
   stream({vsetivli(10, 3, 0), vsetivli(13, 2, 8)});

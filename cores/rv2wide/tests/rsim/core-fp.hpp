@@ -11,6 +11,7 @@ constexpr unsigned xlen = 8 * sizeof(memory_in.presponse.pbits);
 constexpr unsigned native_precision = xlen == 32 ? 0 : 1;
 constexpr unsigned native_width = xlen == 32 ? 2 : 3;
 int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0;
+std::map<std::uint64_t, int> memory_cycles;
 std::array<std::uint64_t, 32> gprs{};
 std::uint64_t next_pc = 0x8000, load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
               inject_pc = 0;
@@ -80,6 +81,9 @@ void observe() {
       ((retired(0).pbits.pfetched.pinstruction & 127) == UINT64_C(0x53) ||
        (retired(1).pbits.pfetched.pinstruction & 127) == UINT64_C(0x53)))
     fp_pairs++;
+  for (int i = 0; i < 2; i++)
+    if (memory_stage(i).pvalid)
+      memory_cycles[memory_stage(i).pbits.ppc] = cycles;
   for (int i = 0; i < 2; i++)
     if (retired(i).pvalid) {
       commits++;
@@ -160,6 +164,33 @@ int main() {
     expect_gpr(8, 11);
     CHECK(fp_pairs >= 2);
 
+    // Early GPR constants must reach the FP request's integer snapshot, not stale RF.
+    {
+      const auto pc = next_pc;
+      send(0x00001eb7, fp(0x68 + native_precision, 27, 29, 0), 1); // lui x29,1; fcvt.s/d.w
+      drain();
+      CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+      expect_fpr(27, xlen == 32 ? UINT64_C(0x45800000) : UINT64_C(0x40b0000000000000));
+    }
+    // FP memory shares the composed address and zero-offset bypass, but retains FPR data.
+    {
+      send(0x10000e93); // x29=256
+      drain();
+      const auto pc = next_pc;
+      send(0x008e8e93, (0xff8u << 20) | (29 << 15) | (native_width << 12) | (27 << 7) | 7, 1);
+      drain();
+      CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+      expect_fpr(27, load_data);
+      send(0x10000e93, 0x00800e13, 1); // x29=256, x28=8
+      drain();
+      const auto store_pc = next_pc;
+      send((28 << 20) | (29 << 15) | (29 << 7) | 0x33,
+           (27 << 20) | (29 << 15) | (native_width << 12) | 0x27, 1);
+      drain();
+      CHECK(memory_cycles.at(store_pc) == memory_cycles.at(store_pc + 4));
+      CHECK(stored_data == load_data);
+    }
+
     // Same-destination pairing preserves age when FP returns at WB or later.
     send(fp(0x60 + native_precision, 21, 2, 0), UINT64_C(0x6300a93),
          1);                 // older FP x21=32, younger integer x21=99
@@ -196,9 +227,10 @@ int main() {
     send(fp(0x60 + native_precision, 9, 8, 0));
     drain();
     expect_gpr(9, 3);
+    const int before_stores = stores;
     send(0x10800427 | (native_width << 12)); // fsw/fsd f8,264(x0)
     drain();
-    CHECK(stores == 1 && stored_data == load_data);
+    CHECK(stores == before_stores + 1 && stored_data == load_data);
 
     slow_load = 1;
     expected_locality = 4;

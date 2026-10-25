@@ -69,6 +69,7 @@ int branch_updates = 0;
 int invalidations = 0;
 int multiply_mem_cycle = -1, dependent_mem_cycle = -1;
 std::map<std::uint64_t, int> multiply_authorized_cycle;
+std::map<std::uint64_t, int> memory_cycles;
 int multiply_stream_cycle = -1, multiply_stream_count = 0;
 int conditional_dual = 0, mop_dual = 0;
 int waw_dual = 0, waw_deferred = 0;
@@ -1078,6 +1079,7 @@ void reset_core() {
   expected_completions.clear();
   response_owners.clear();
   multiply_authorized_cycle.clear();
+  memory_cycles.clear();
   expected_branch_taken.clear();
   training_pending.clear();
   for (int i = 0; i < 32; i++)
@@ -1176,7 +1178,7 @@ int main() {
     CHECK(longest_dual_run >= 16);
 
     // Partial packets coalesce, and a dependency can forward from either EX lane.
-    send(UINT64_C(0x200), imm(5, 0, 7), regop(6, 5, 5));
+    send(UINT64_C(0x200), imm(5, 1, -12), regop(6, 5, 5));
     send(UINT64_C(0x208), imm(7, 0, 19), regop(8, 7, 6));
     send(UINT64_C(0x210), imm(9, 0, -1), imm(10, 0, 31));
     send(UINT64_C(0x218), regop(11, 9, 10, 5, 32), regop(12, 10, 9));
@@ -3242,6 +3244,145 @@ int main() {
       send(pc + 24, imm(13, 10, 0), 0, 1);
       drain();
     }
+    // Immediate-only producers replace either GPR source without cascading EX ALUs.
+    for (unsigned upper : {0u, 1u, 0x7ffffu, 0x80000u, 0xfffffu}) {
+      for (int lower : {-2048, -1, 0, 2047}) {
+        for (bool word : {false, true}) {
+          reset_core();
+          const auto pc = UINT64_C(0x18000);
+          send(pc, (upper << 12) | (3 << 7) | 0x37,
+               imm(3, 3, lower, 0, word ? 0x1b : 0x13));
+          drain();
+          CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+          send(pc + 8, imm(4, 3, 0), 0, 1);
+          drain();
+        }
+      }
+    }
+    for (bool word : {false, true}) {
+      for (int consumer = 0; consumer < 3; ++consumer) {
+        reset_core();
+        const auto pc = UINT64_C(0x18020);
+        const auto second = consumer == 0 ? regop(4, 3, 3)
+                            : consumer == 1 ? imm(4, 3, 3, 4)
+                                            : m_insn(4, 3, 3, 0);
+        send(pc, imm(3, 0, -7, 0, word ? 0x1b : 0x13), second);
+        drain();
+        CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+        send(pc + 8, imm(5, 4, 0), 0, 1);
+        drain();
+      }
+    }
+
+    // Both offset signs and carry out of twelve bits use the original register/PC base.
+    for (bool pc_relative : {false, true}) {
+      for (int offset_case = 0; offset_case < 5; ++offset_case) {
+        const int upper[] = {-2048, -8, 0, 8, 2040};
+        const int lower[] = {-2048, 8, 0, -8, 2040};
+        const unsigned pages[] = {0x80000, 0x7ffff, 0xfffff, 1, 0};
+        for (bool writing : {false, true}) {
+          for (bool slow : {false, true}) {
+            reset_core();
+            lookup_mode = slow ? 0 : 1;
+            const auto base = UINT64_C(0x300) - std::uint64_t(std::int64_t(upper[offset_case])) - std::uint64_t(std::int64_t(lower[offset_case]));
+            const auto base_upper = unsigned((base + 0x800) >> 12) & 0xfffff;
+            const int base_lower = int(base & 0xfff) - ((base & 0x800) ? 4096 : 0);
+            send(UINT64_C(0x180f0), (base_upper << 12) | (1 << 7) | 0x37, imm(1, 1, base_lower));
+            send(UINT64_C(0x180f8), imm(2, 0, 77), 0, 1);
+            drain();
+            const auto pc = pc_relative ? UINT64_C(0x300) - sign_extend(std::uint64_t(pages[offset_case]) << 12, 32) - std::uint64_t(std::int64_t(lower[offset_case]))
+                                        : UINT64_C(0x18108);
+            const auto first = pc_relative ? ((pages[offset_case] << 12) | (3 << 7) | 0x17)
+                                           : imm(3, 1, upper[offset_case]);
+            const auto second = writing ? store(2, 3, lower[offset_case], 3)
+                                        : imm(4, 3, lower[offset_case], 3, 3);
+            send(pc, first, second);
+            drain();
+            CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+            send(pc + 8, imm(5, 3, 0),
+                 writing ? imm(6, 3, lower[offset_case], 3, 3) : imm(6, 4, 0));
+            drain();
+          }
+        }
+      }
+    }
+
+    // Zero-offset stores reuse any ordinary ALU address, including simultaneous store-data RAW.
+    for (bool same_data : {false, true}) {
+      for (bool slow : {false, true}) {
+        reset_core();
+        lookup_mode = slow ? 0 : 1;
+        send(UINT64_C(0x18200), imm(1, 0, 0x100), imm(2, 0, 0x200));
+        drain();
+        send(UINT64_C(0x18208), regop(3, 1, 2), store(same_data ? 3 : 2, 3, 0, 3));
+        drain();
+        CHECK(memory_cycles.at(UINT64_C(0x18208)) == memory_cycles.at(UINT64_C(0x1820c)));
+        send(UINT64_C(0x18210), imm(4, 3, 0, 3, 3), imm(5, 3, 0));
+        drain();
+      }
+    }
+
+    // Word-result producers and register-register additions cannot fold an arbitrary displacement.
+    for (bool word : {false, true}) {
+      reset_core();
+      lookup_mode = 1;
+      auto pc = UINT64_C(0x18300);
+      constant64(pc, 1, word ? UINT64_C(0x1234567800000300) : UINT64_C(0x300));
+      send(pc, imm(2, 0, 8), 0, 1);
+      drain();
+      pc += 4;
+      send(pc, word ? imm(3, 1, 8, 0, 0x1b) : regop(3, 1, 2), store(2, 3, -8, 3));
+      drain();
+      CHECK(memory_cycles.at(pc) < memory_cycles.at(pc + 4));
+    }
+
+    // Composition never substitutes a folded offset for raw store data, including split ownership.
+    reset_core();
+    send(UINT64_C(0x18400), imm(1, 0, 0x300), 0, 1);
+    drain();
+    {
+      const int before = split_requests;
+      stop_at(UINT64_C(0x18408), UINT64_C(0x1840c), 3);
+      send(UINT64_C(0x18404), imm(3, 1, 1), store(3, 3, 0, 3));
+      drain();
+      CHECK(split_requests == before + 1);
+      CHECK(memory_cycles.at(UINT64_C(0x18404)) == memory_cycles.at(UINT64_C(0x18408)));
+      stop_at(UINT64_C(0x1840c), UINT64_C(0x18410), 3);
+      send(UINT64_C(0x1840c), imm(4, 3, 0, 3, 3), 0, 1);
+      drain();
+    }
+
+    // A same-group failure preserves only the successful prefix and never commits the younger store.
+    for (int lane = 0; lane < 2; ++lane) {
+      for (bool replay : {false, true}) {
+        reset_core();
+        lookup_mode = 1;
+        send(UINT64_C(0x18500), imm(1, 0, 0x300), imm(2, 0, 77));
+        drain();
+        const auto pc = UINT64_C(0x18508);
+        inject_enable = 1;
+        inject_pc = pc + 4 * lane;
+        inject_result = {.pdisposition = std::uint8_t(replay ? 2 : 1),
+                         .pcause = 5, .pvalue = UINT64_C(0xdead)};
+        stop_at(inject_pc, inject_pc, replay ? 2 : 1, 5, UINT64_C(0xdead));
+        const int before = stores;
+        send(pc, imm(3, 1, -8), store(2, 3, 8, 3), 2, lane == 1, 0);
+        drain();
+        CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4) && stores == before);
+        inject_enable = 0;
+        send(pc + 8, imm(5, 3, 0), 0, 1);
+        drain();
+        if (replay) {
+          if (lane == 0)
+            send(pc, imm(3, 1, -8), store(2, 3, 8, 3));
+          else
+            send(pc + 4, store(2, 3, 8, 3), 0, 1);
+          drain();
+          CHECK(stores == before + 1);
+        }
+      }
+    }
+
     // Both architectural values survive U/I folding, including signed overflow
     // of a 32-bit folded offset, PC carry/borrow, and RV64 modular wrap.
     for (int pc_case = 0; pc_case < 3; pc_case++) {
@@ -3356,7 +3497,7 @@ int main() {
       send(UINT64_C(0x1090c), imm(5, 3, 0), imm(6, 4, 0));
       drain();
     }
-    // Nearby operations retain normal RAW splitting, and x0 is not a producer.
+    // Other PC-relative ALU consumers split; LUI constants forward and x0 is not a producer.
     for (int scenario = 0; scenario < 4; scenario++) {
       std::uint32_t first, second;
       int before_pairs, before_dual;
@@ -3375,7 +3516,7 @@ int main() {
       send(UINT64_C(0x10920), first, second);
       drain();
       CHECK(auipc_addi_pairs == before_pairs &&
-            dual_commits == before_dual + (scenario == 3 ? 1 : 0));
+            dual_commits == before_dual + (scenario >= 2 ? 1 : 0));
       send(UINT64_C(0x10928), imm(5, 3, 0), imm(6, 4, 0));
       drain();
     }
@@ -3539,7 +3680,7 @@ int main() {
       drain();
     }
 
-    // Offset and resource boundaries retain ordinary dependent instruction ordering.
+    // Constants cover nonzero offsets and atomic/store bases; deferred producers still split.
     for (int scenario = 0; scenario < 6; scenario++) {
       int before_pairs;
       std::uint32_t first, second;
@@ -3589,6 +3730,8 @@ int main() {
       send(UINT64_C(0x11208), first, second);
       drain();
       CHECK(address_pairs == before_pairs);
+      CHECK((memory_cycles.at(UINT64_C(0x11208)) == memory_cycles.at(UINT64_C(0x1120c))) ==
+            (scenario == 0 || scenario == 1 || scenario == 4 || scenario == 5));
       send(UINT64_C(0x11210), imm(5, 3, 0), imm(6, 4, 0));
       drain();
     }
@@ -3721,7 +3864,7 @@ int main() {
       drain();
       CHECK(store_data_pairs == before_pairs + 1);
     }
-    // A dependent address and deferred producers still split; x0 supplies zero.
+    // Both store operands can use a constant; deferred producers still split and x0 supplies zero.
     for (int scenario = 0; scenario < 4; scenario++) {
       int before_pairs;
       std::uint32_t first, second;
@@ -3758,7 +3901,7 @@ int main() {
       before_pairs = store_data_pairs;
       send(UINT64_C(0x12148), first, second);
       drain();
-      CHECK(store_data_pairs == before_pairs);
+      CHECK(store_data_pairs == before_pairs + (scenario == 0 ? 1 : 0));
       send(UINT64_C(0x12150),
            imm(4, scenario == 0 ? 3 : 1, scenario == 2 ? 8 : 0, 3, UINT64_C(3)),
            0, 1);
@@ -4892,6 +5035,7 @@ void observe() {
       }
       for (int lane = 0; lane < 2; lane++)
         if (memory_stage(lane).pvalid) {
+          memory_cycles[memory_stage(lane).pbits.ppc] = cycles;
           if (memory_stage(lane).pbits.ppc == UINT64_C(0xab08))
             multiply_mem_cycle = cycles;
           if (memory_stage(lane).pbits.ppc == UINT64_C(0xab10))
@@ -4920,10 +5064,9 @@ void observe() {
                   {19, 27, 51, 59, 55, 23, 3, 47, 111, 103}) ||
            mop_encoding(memory_stage(0).pbits.pinstruction)) &&
           sv_slice(memory_stage(1).pbits.pinstruction, 0, (6) - (0) + 1) ==
-              UINT64_C(3)) {
-        CHECK(sv_slice(memory_stage(1).pbits.pinstruction, 20,
-                       (31) - (20) + 1) == 0 &&
-              !(one_of(memory_stage(0).pbits.pinstruction & 127,
+              UINT64_C(3) &&
+          sv_slice(memory_stage(1).pbits.pinstruction, 20, 12) == 0) {
+        CHECK(!(one_of(memory_stage(0).pbits.pinstruction & 127,
                        {3, 47, 111, 103})) &&
               !((one_of(memory_stage(0).pbits.pinstruction & 127, {51, 59})) &&
                 sv_slice(memory_stage(0).pbits.pinstruction, 25,
@@ -4945,10 +5088,7 @@ void observe() {
            mop_encoding(memory_stage(0).pbits.pinstruction)) &&
           sv_slice(memory_stage(1).pbits.pinstruction, 0, (6) - (0) + 1) ==
               UINT64_C(0x23)) {
-        CHECK(sv_slice(memory_stage(0).pbits.pinstruction, 7, (11) - (7) + 1) !=
-                  sv_slice(memory_stage(1).pbits.pinstruction, 15,
-                           (19) - (15) + 1) &&
-              !(one_of(memory_stage(0).pbits.pinstruction & 127,
+        CHECK(!(one_of(memory_stage(0).pbits.pinstruction & 127,
                        {3, 111, 103})) &&
               !((one_of(memory_stage(0).pbits.pinstruction & 127, {51, 59})) &&
                 sv_slice(memory_stage(0).pbits.pinstruction, 25,
@@ -4985,7 +5125,11 @@ void observe() {
               UINT64_C(0x67))
         CHECK(
             sv_slice(memory_stage(0).pbits.pinstruction, 7, (11) - (7) + 1) !=
-            sv_slice(memory_stage(1).pbits.pinstruction, 15, (19) - (15) + 1));
+                sv_slice(memory_stage(1).pbits.pinstruction, 15, (19) - (15) + 1) ||
+            (memory_stage(0).pbits.pinstruction & 127) == 55 ||
+            (one_of(memory_stage(0).pbits.pinstruction & 127, {19, 27}) &&
+             sv_slice(memory_stage(0).pbits.pinstruction, 12, 3) == 0 &&
+             sv_slice(memory_stage(0).pbits.pinstruction, 15, 5) == 0));
       if (cycles > 80000)
         fail(1,
              "watchdog: commits=%0d pending=%0d next_pc=%h "
@@ -5158,6 +5302,11 @@ void observe() {
                          (6) - (0) + 1) == UINT64_C(0x6f))
               wb_overrides++;
         }
+        if (expected_redirects.empty())
+          std::cerr << "Unexpected redirect pc=" << std::hex << redirect_out.pbits.ppc
+                    << " disposition=" << unsigned(redirect_out.pbits.presolution.pdisposition)
+                    << " cause=" << redirect_out.pbits.presolution.pcause
+                    << " value=" << redirect_out.pbits.presolution.pvalue << std::dec << '\n';
         CHECK(expected_redirects.size() > 0);
         want = expected_redirects.take();
         CHECK(redirect_out.pbits.ppc == want.ppc &&

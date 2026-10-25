@@ -489,25 +489,36 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
 ```
 
 RR consumes zero, one, or two instructions. Independent ALU operations can
-issue and retire two per cycle. AUIPC can pair with a dependent ADDI, including
-an ADDI overwriting the same destination. Both execute in parallel and retain
-their own PCs, instructions, and retirement values; this does not add a pipeline
-stage or an older-ALU-to-younger-ALU path in EX. All other destination hazards
-and fault/replay rules still apply.
+issue and retire two per cycle. Immediate-only integer producers such as LUI
+and ADDI from x0 can supply either younger GPR source directly at RR. This
+includes LUI+ADDI/ADDIW constant construction, binary ALU inputs, store data,
+and scalar operands captured by FP/vector work. Both architectural instructions
+remain distinct; normal resource, destination, and fault/replay checks still apply.
 
-A slot-0 integer ALU producer can pair with a
-slot-1 integer load that uses its result as the base address and has zero
-decoded displacement, including HLV/HLVX when H is enabled. EX sends the producer's result directly to the load lookup,
-without a second dependent address addition or an extra pipeline stage.
-This includes a load overwriting the producer's destination. This address
-bypass excludes stores, atomics, nonzero-offset loads, and memory, M, FP, CSR,
-or control-transfer producers.
+AUIPC can pair with a dependent ADDI, including an ADDI overwriting the same
+destination. A full-width ADDI or AUIPC can also pair with a scalar load/store
+using its destination as the base, with any decoded displacement. RR combines
+the immediates and supplies the producer's original base or PC, so the two EX
+additions execute independently. This covers stack adjustment followed by a
+register save, as well as PC-relative data accesses. The folded sum preserves
+signed carry and XLEN wrap; a nonconstant ADDIW producer cannot use this
+composition because its intermediate word truncation must remain visible.
+
+A slot-0 ordinary integer ALU producer can also pair with a slot-1 scalar
+load/store using its result as the base with zero decoded displacement,
+including FP memory operations and HLV/HLVX when enabled. EX sends the producer's
+result directly to the lookup without a second dependent address addition or
+an extra stage. Loads may overwrite the producer's destination; stores can
+simultaneously consume its result as their integer data. Atomics do not use
+address composition or EX address bypass, but may consume an early RR constant.
+Deferred, FP, CSR, or control-transfer producers retain their ordinary interlocks.
+Arbitrary nonconstant ALU producers still cannot supply a nonzero-offset address.
 
 An older ordinary integer ALU producer can also pair with a younger integer
 store consuming its result as store data. EX forwards the selected ALU result
 before byte-lane shaping and retains it through WB authorization. The store
-address must remain independent of the producer; positive, negative, and zero
-store offsets are supported. Deferred producers and FP stores retain their
+address uses its own valid route when dependent; positive, negative, and zero
+store offsets are supported. Deferred producers and FP store data retain their
 ordinary interlocks. Faults and replay preserve the successful older prefix
 without authorizing a rejected younger store.
 
@@ -516,8 +527,9 @@ branch consuming its result as either or both comparison operands. EX calculates
 the target independently; MEM compares registered operands, substituting the
 older lane's registered result. There is no dependent ALU-to-comparator path
 in EX and no extra redirect cycle. Other comparison operands retain normal
-interlocks. Load, M, FP, CSR, and control-transfer producers, and dependent
-JALR targets, do not use this bypass. Older faults and replay suppress the
+interlocks. Load, M, FP, CSR, and control-transfer producers do not use this
+bypass. Dependent JALR targets require an early constant or ordinary interlocking,
+not an EX ALU-to-target bypass. Older faults and replay suppress the
 younger branch's recovery, retirement, and predictor training.
 Vector arithmetic also supports an older ALU-produced integer scalar operand;
 see [vector execution](#vector-execution). Other same-group RAW dependencies split the pair.
@@ -1046,8 +1058,9 @@ retire together when otherwise unblocked. The older ALU result is captured in
 the vector descriptor; it is not fed through a second dependent scalar ALU.
 This includes integer-scalar arithmetic using the shared vector multiply/divide
 services. Loads, scalar multiply/divide, FP, system, and control-transfer
-producers retain their existing interlocks. Vector memory base/stride forwarding
-and dependent vset VL-to-GPR pairing are unchanged.
+producers retain their existing interlocks. Early RR constants can also supply
+vector memory base/stride and configuration operands; general EX ALU-to-vector
+memory forwarding and dependent vset VL-to-GPR pairing remain interlocked.
 
 Standalone callers supply WB-authorized, nonspeculative `VectorDescriptor` requests, page-window
 certification, shared FP/multiply/divide services, and scalar write reservations.

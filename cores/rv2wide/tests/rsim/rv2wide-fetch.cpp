@@ -2271,8 +2271,9 @@ void stimulus() {
     wactive = 0;
     for (int r = 0; r < 32; r++)
       registers[r] = 0;
-    insn(UINT64_C(1536), UINT64_C(4279));
-    insn(UINT64_C(1540), addi(1, 1, -1024));
+    // Keep setup on the ordinary EX forwarding path rather than an early constant pair.
+    insn(UINT64_C(1536), addi(1, 0, 3) | (6 << 12)); // ori x1,x0,3
+    insn(UINT64_C(1540), addi(1, 1, 10) | (1 << 12)); // slli x1,x1,10
     insn(UINT64_C(1544), addi(2, 0, 40));
     insn(UINT64_C(1548), (((uint128(UINT64_C(0)) & mask128(7)) << 25) |
                           ((uint128(UINT64_C(0)) & mask128(5)) << 20) |

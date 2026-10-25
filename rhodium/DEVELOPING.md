@@ -332,9 +332,11 @@ pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
 `branch-training.rhdl`, and `load-response.rhdl` import the same Flow facade for
 stream contracts, instruction/retired-training storage, owner storage, and
 atomic response/context joining.
-RV2Wide's `pairing.rhdl` imports its composed control, operand, and system-control types
-and shared cache-operation enum. `core.rhdl` consumes its combinational pairing
-result; `bundles.rhdl` imports its operand-route type for EX storage. No shared
+RV2Wide's `pairing.rhdl` imports its composed control, shared ALU/operand types,
+system-control types, cache-operation enum, and canonical instruction fields/patterns.
+`core.rhdl` consumes its combinational pairing
+result; `bundles.rhdl` imports its operand-route type and folded-immediate width
+for EX storage. No shared
 component or architectural catalog depends on this named-core policy.
 RV2Wide's bundles also import the shared `cores/branch-resolver.rhdl` control
 payload for registered MEM comparison; operand bypass and recovery remain core policy.

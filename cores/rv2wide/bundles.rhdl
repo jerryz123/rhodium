@@ -5,6 +5,7 @@
 import:
   lib("cores/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".RV2WidePairRoute
+  "pairing.rhdl".rv2wide_pair_immediate_width
   "decode/core-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
@@ -169,13 +170,14 @@ bundle RV2WideFpLoad(xlen :: XLen):
   data: Bits(64)
 
 
-/* Holds RR operands, controls, and same-pair address, store-data, and branch selections. */
+/* Holds RR operands, controls, composed immediates, and same-pair consumer routes. */
 bundle RV2WideExecute(xlen :: XLen):
   fetched: RV2WideInstruction(xlen)
   control: RV2WideControl()
   rs1: Bits(xlen.width)
   rs2: Bits(xlen.width)
   pair_routes: Vec(2, RV2WidePairRoute)
+  pair_immediate: Bits(rv2wide_pair_immediate_width(xlen))
   rd: Bits(5)
   illegal: Bool
   virtual_instruction: Bool

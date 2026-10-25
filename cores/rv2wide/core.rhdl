@@ -588,8 +588,15 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def destination_blocked = rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(xlen, rr_rd[lane], rr_producers))
     rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| rs1_blocked ||| rs2_blocked ||| destination_blocked)
 
-  // Fold both immediates before EX so the paired ALUs remain independent.
-  def rr_pair_offset = instruction_immediate(fields.UImmediate, rr_head.entries[0].instruction, xlen.width) + instruction_immediate(fields.IImmediate, rr_head.entries[1].instruction, xlen.width)
+  // A U+I/S sum needs 33 signed bits on RV64; RV32 sums wrap at XLEN.
+  def rr_pair_width = rv2wide_pair_immediate_width(xlen)
+  def rr_older_immediate :: OperandImmediate = rr_controls[0].operand.immediate
+  def rr_younger_immediate :: OperandImmediate = rr_controls[1].operand.immediate
+  def rr_pair_constant = rr_older_immediate.decode(rr_head.entries[0].instruction, xlen.width)
+  def rr_pair_offset = rr_older_immediate.decode(rr_head.entries[0].instruction, rr_pair_width) + rr_younger_immediate.decode(rr_head.entries[1].instruction, rr_pair_width)
+  def rr_pair_base = mux(rr_controls[0].operand.left === OperandASelect.Pc, rr_head.entries[0].pc, rr_left[0].data)
+  def rr_left_data = vec(for List (lane in 0..2): mux(Bool(lane == 1) & (rr_pairing.routes[0] === RV2WidePairRoute.Constant), rr_pair_constant, rr_left[lane].data))
+  def rr_right_data = vec(for List (lane in 0..2): mux(Bool(lane == 1) & (rr_pairing.routes[1] === RV2WidePairRoute.Constant), rr_pair_constant, rr_right[lane].data))
   def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
   def rr_vector_blocked = for List (lane in 0..2):
     def control :: RV2WideControl() = rr_controls[lane]
@@ -677,7 +684,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     left_precision: rr_fp_control.execution.source_precision
     right_precision: rr_fp_control.execution.source_precision
     third_precision: rr_fp_control.execution.source_precision
-    integer_operand: rr_left[rr_fp_lane].data
+    integer_operand: rr_left_data[rr_fp_lane]
     immediate_index: rr_rs1[rr_fp_lane]
     rounding_mode: mux(rr_fp_lane === Bits(1)(0), rr_rounding[0].mode, rr_rounding[1].mode)
 
@@ -690,7 +697,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   for (lane in 0..2):
     def ex_ingress = ex_pipe[lane].ingress
     def rr_access :: CacheOperation = rr_controls[lane].memory.access
-    def rr_auipc_addi = Bool(lane == 1) & (rr_pairing.routes[0] === RV2WidePairRoute.AuipcAddi)
+    def rr_composed = Bool(lane == 1) & (rr_pairing.routes[0] === RV2WidePairRoute.ImmediateAdd)
     ex_pipe[lane].flush <== rr_squash
     // Younger offers inherit the older offer's blockers, not a generic age hazard.
     def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & rr_pair_data_conflict))
@@ -708,13 +715,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => RV2WideExecute(xlen)):
       fetched: fetched
       control: rr_controls[lane].updated(
-        ~operand: rr_controls[lane].operand.updated(~right: mux(rr_auipc_addi, OperandBSelect.Register, rr_controls[lane].operand.right)),
         ~memory: rr_controls[lane].memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
       )
 
-      rs1: mux(rr_auipc_addi, rr_head.entries[0].pc, rr_left[lane].data)
-      rs2: mux(rr_auipc_addi, rr_pair_offset, rr_right[lane].data)
+      rs1: mux(rr_composed, rr_pair_base, rr_left_data[lane])
+      rs2: rr_right_data[lane]
       pair_routes: if lane == 1 | rr_pairing.routes | vec(RV2WidePairRoute.Register, RV2WidePairRoute.Register)
+      pair_immediate: rr_pair_offset
       rd: rr_rd[lane]
       illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane] ||| rr_vector_illegal[lane] ||| (rr_cbo_illegal[lane] & !rr_virtual_instruction[lane]) ||| rr_guest_illegal[lane]
       virtual_instruction: rr_decoded[lane].valid & rr_virtual_instruction[lane]
@@ -727,9 +734,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
           instruction: fetched.instruction
           state: dont_care(RiscvVectorState(xlen))
           control: rr_controls[lane].vector
-          scalar: rr_left[lane].data
+          scalar: rr_left_data[lane]
           floating_scalar: fp.read_values[0][0..xlen.width]
-          stride: rr_right[lane].data
+          stride: rr_right_data[lane]
           masked: !fetched.instruction[25].into(Bool)
           rounding_mode: wb_csrs.frm.into(RoundingMode)
           pointer_masking: wb_csrs.pointer_masking
@@ -775,7 +782,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def ex_is_vector = ex.control.vector.integer ||| ex.control.vector.memory ||| ex.control.vector.floating_point ||| ex.control.vector.multiply_divide
     def ex_vector_illegal = (ex_is_vector & !ex_vector_legality.legal) ||| (ex_is_vector_config & ex_configuration.illegal)
     def ex_executable = !ex.illegal & !ex_vector_illegal & !ex.virtual_instruction & !ex.fetched.fault.valid
-    def ex_immediate = ex.control.operand.immediate.decode(ex.fetched.instruction, xlen.width)
+    def ex_pair_immediate = if xlen == XLen.X32 | ex.pair_immediate | ex.pair_immediate.into(SInt(rr_pair_width)).sext(xlen.width).as_bits()
+    def ex_immediate = mux(ex.pair_routes[0] === RV2WidePairRoute.ImmediateAdd, ex_pair_immediate, ex.control.operand.immediate.decode(ex.fetched.instruction, xlen.width))
     ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.rs1):
       OperandASelect.Pc: ex.fetched.pc
       OperandASelect.Zero: Bits(xlen.width)(0)
@@ -787,7 +795,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
        Mask after the selected address bypass. Explicit guest execute-reads
        disable guest masking; ordinary MPRV/MPV applies only to data privilege. */
 
-    def ex_raw_address = if lane == 1 | mux(ex.pair_routes[0] === RV2WidePairRoute.LoadAddress, ex_alu_older.result, ex_alu.result) | ex_alu.result
+    def ex_raw_address = if lane == 1 | mux(ex.pair_routes[0] === RV2WidePairRoute.MemoryAddress, ex_alu_older.result, ex_alu.result) | ex_alu.result
     def ex_explicit_guest = ex.control.guest_access =/= RiscvGuestMemoryAccess.Normal
     // Serialized CSR updates flush younger work before a new masking mode is observed.
     def ex_mask :: PointerMaskControl():

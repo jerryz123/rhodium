@@ -374,6 +374,19 @@ void stimulus() {
     emit(ld(2, 25, 26, 4), 1, UINT64_C(2147483648));
     emit(st(0, 8, 26, 7));
     emit(ld(4, 25, 26, 7), 1, 3);
+    // Constants replace both ALU inputs; LUI sign/XLEN wrap remains architectural.
+    emit(0x80000eb7, 1, 0x80000000); // lui x29,0x80000
+    emit(ri(0, 29, 29, -2048), 1, 0x7ffff800);
+    emit(ri(0, 29, 0, -1), 1, UINT32_MAX);
+    emit(rr(0, 7, 30, 29, 29), 1, UINT32_MAX);
+    // Nonconstant ADDI composition keeps raw store data separate from its offset.
+    emit(ri(0, 29, 24, 64), 1, 3136);
+    emit(st(2, 8, 29, -56));
+    emit(ld(2, 30, 29, -56), 1, 3);
+    // A register-register address producer uses the zero-offset store route.
+    emit(rr(0, 0, 29, 24, 8), 1, 3075);
+    emit(st(0, 8, 29, 0));
+    emit(ld(4, 30, 29, 0), 1, 3);
     emit(csr(1, UINT64_C(384), 0,
              2)); // attempted Sv32 satp is WARL zero in Bare
     emit(csr(2, UINT64_C(384), 25, 0), 1, 0);

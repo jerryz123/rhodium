@@ -4,22 +4,30 @@
 
 import:
   "decode/core-ctrl.rhdl".RV2WideControl
-  lib("cores/operand.rhdl").OperandImmediate
+  lib("cores/operand.rhdl") open
+  lib("cores/alu.rhdl").AluResultSelect
   "decode/system-ctrl.rhdl" open
   lib("cores/cache/operation.rhdl").CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/rv32i.rhm") as rv32
+  lib("riscv/model/formats.rhm") as fields
+  lib("riscv/rtl/instruction-fields.rhdl").instruction_field
   lib("riscv/rtl/instruction-pattern.rhdl").instruction_pattern
   lib("rhodium/std/decode.rhdl") open
 
 /* Names operand rewrites and physical consumer muxes, not a general EX-to-EX bypass. */
 hardware_enum RV2WidePairRoute:
   Register
-  LoadAddress
+  Constant
+  MemoryAddress
   StoreData
   BranchOperand
-  AuipcAddi
+  ImmediateAdd
   VectorScalar
+
+/* Sizes a signed sum of two instruction immediates without losing RV64 U-immediate carry. */
+fun rv2wide_pair_immediate_width(xlen :: XLen) :: PosInt:
+  if xlen == XLen.X32 | 32 | 33
 
 /* Shares one route decision between source interlocks and pipeline mux controls. */
 bundle RV2WidePairing():
@@ -38,24 +46,36 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
   def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
   def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
   def producer = writes & !older_deferred & !older.fp.valid & !older.system.uses_command() & !older.branch.resolver.enable
-  def integer_memory = !younger.fp.valid & younger.memory.enable
-  def load_address = integer_memory & (younger.memory.access === CacheOperation.Load) & !immediate.decode(instructions[1], xlen.width).any()
-  def store_data = integer_memory & (younger.memory.access === CacheOperation.Store)
+  def scalar_memory = younger.memory.enable & younger.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def memory_address = scalar_memory & !immediate.decode(instructions[1], xlen.width).any()
+  def store_data = !younger.fp.valid & younger.memory.enable & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
   def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1
   def is_auipc = DecodeGen([DecodeCase(instruction_pattern(rv32.AUIPC), Bool(#true))], ~default: Bool(#false))
   def is_addi = DecodeGen([DecodeCase(instruction_pattern(rv32.ADDI), Bool(#true))], ~default: Bool(#false))
   def auipc_addi = is_auipc(instructions[0]) & is_addi(instructions[1])
 
-  /* Only rs1 has the AUIPC+ADDI rewrite or vector scalar capture.
-     Memory and branch consumers retain their existing routes; an ineligible producer keeps the RF route. */
+  /* Early operands and composed addresses.
+     A zero-based immediate adder supplies its constant directly at RR. Full-width
+     register/PC-based immediate adders compose with the younger memory offset. */
+
+  def immediate_adder = (older.operand.right === OperandBSelect.Immediate) & !older.operand.uses_rs2 & (older.alu.result_select === AluResultSelect.Adder) & !older.alu.subtract & !older.alu.unsigned_word & !older.alu.shift_add_amount.any()
+  def register_base = older.operand.left === OperandASelect.Register
+  def pc_base = older.operand.left === OperandASelect.Pc
+  def constant = immediate_adder & ((older.operand.left === OperandASelect.Zero) ||| (register_base & !instruction_field(fields.rs1, instructions[0]).any()))
+  def composed_address = scalar_memory & immediate_adder & !older.alu.word & (register_base ||| pc_base)
+
+  /* Source-specific physical routes.
+     Constants replace ordinary operand capture; only rs1 has immediate composition
+     or the address bypass. An ineligible producer retains every ordinary interlock. */
 
   def routes = vec(
     for List (source in 0..2):
-      def consumer = if source == 0 | load_address | store_data
-      def memory_route = if source == 0 | RV2WidePairRoute.LoadAddress | RV2WidePairRoute.StoreData
+      def consumer = if source == 0 | memory_address | store_data
+      def memory_route = if source == 0 | RV2WidePairRoute.MemoryAddress | RV2WidePairRoute.StoreData
       def selected = priority_mux(~default: RV2WidePairRoute.Register):
-        Bool(source == 0) & auipc_addi: RV2WidePairRoute.AuipcAddi
+        constant: RV2WidePairRoute.Constant
+        Bool(source == 0) & (auipc_addi ||| composed_address): RV2WidePairRoute.ImmediateAdd
         consumer: memory_route
         branch_operand: RV2WidePairRoute.BranchOperand
         Bool(source == 0) & vector_scalar: RV2WidePairRoute.VectorScalar
@@ -69,5 +89,6 @@ fun rv2wide_pairing(controls :: Vec(2, RV2WideControl()), valid :: Vec(2, Bool),
 
 export:
   RV2WidePairRoute
+  rv2wide_pair_immediate_width
   RV2WidePairing
   rv2wide_pairing

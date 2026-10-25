@@ -259,14 +259,22 @@ so never infer younger-write priority from the port number. Insert direct FP
 returns into their WB lane's forwarding payload; late FP returns precede the
 pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
 
-For an AUIPC followed by ADDI reading its nonzero destination, RR folds the
-sign-extended U and I immediates at the selected XLEN. Capture the older PC and folded
-offset in the younger token's existing operand registers and select its register
-right operand; EX's ordinary ALU then adds them independently of the older ALU.
-Keep both instruction records intact. Waive only that younger rs1 read and
-same-pair RAW check; all older and younger destination reservations remain.
-Do not truncate the folded offset to 32 bits or cascade EX ALUs. Neighboring
-OP-IMM operations, ADDIW, and other producers retain their ordinary interlocks.
+RR forwards an immediate-only ordinary adder's constant to either replaced GPR
+source. LUI and ADDI/ADDIW from x0 need no EX result. Use the substituted capture
+values consistently for scalar operands, the FP integer request, and vector
+scalar/stride snapshots; no consumer may bypass its interlock yet capture stale RF
+data. Keep the ordinary producer eligibility, destination reservations, and
+unrelated source checks. Nonconstant ALU chains still interlock.
+
+For AUIPC+ADDI or a full-width immediate adder feeding a scalar load/store base,
+RR folds the producer and consumer immediates and captures the producer's
+original register base or PC in younger rs1. `pair_immediate` carries the folded
+sum separately from rs2: a store still needs its original data operand. The sum
+uses 33 signed bits on RV64 and wraps at 32 bits on RV32. `ImmediateAdd` selects
+that immediate at EX; the two ordinary ALUs remain independent. Preserve both
+architectural instruction records and the older prefix on a younger rejection.
+Nonconstant word-result producers cannot compose addresses because their
+intermediate truncation/sign-extension is observable.
 
 
 `pairing.rhdl` selects one `RV2WidePairRoute` per younger source and returns
@@ -274,14 +282,14 @@ unresolved dependencies in `RV2WidePairing`. Its selected routes are the sole
 authority for both RAW/readiness exemptions and the pipeline consumer muxes.
 Keep resource conflicts, deferred WAW checks, and admission state in `core.rhdl`;
 a route never overrides those interlocks. Classify consumers with decoded
-controls and displacement; the AUIPC/ADDI operand rewrite additionally checks
-its exact instruction forms.
+controls and displacement. Immediate-adder classification checks the physical
+adder transforms; the retained AUIPC/ADDI rewrite checks its exact forms.
 
-For scalar memory, RR may waive the younger rs1 RAW/read interlock only for a zero-displacement
-integer load (including HLV/HLVX) whose base is the same-pair older non-memory,
+For scalar memory, RR may waive the younger rs1 RAW/read interlock for a zero-displacement
+load/store (including FP memory and HLV/HLVX) whose base is the same-pair older non-memory,
 non-M, non-FP, non-system, non-branch writer. The older writer still passes every
 ordinary admission interlock.
-Carry the `LoadAddress` route across the existing EX register; select slot zero's
+Carry the `MemoryAddress` route across the existing EX register; select slot zero's
 ALU result directly as the younger address, after rather than before the younger
 ALU. Never route this bypass through another dependent addition. Keep normal
 MEM checks, WB authorization, split-access ownership, and fault/replay priority.
@@ -291,7 +299,8 @@ The same ordinary ALU producer may supply a younger integer store's rs2.
 Waive only that source's RAW/read interlock and carry its `StoreData` route
 through EX. Select the older ALU result before StoreGen and retain the raw value
 in the existing MEM/WB `store_data` payload, including slow and split accesses.
-Do not waive the store's rs1 dependency or restrict its immediate offset.
+The store's rs1 dependency needs its own constant, composition, or address route;
+store-data forwarding alone does not waive it or restrict its immediate offset.
 Producer admission, WB store authorization, and oldest fault/replay priority
 remain unchanged; FP stores, atomics, and deferred producers do not use this path.
 
@@ -927,7 +936,8 @@ or depend on the original TLB entry or fallback page window remaining resident.
 `vsetvli`, `vsetivli`, and `vsetvl` consume the CSR command but not a WB service
 admission. They may pair whenever the common dependency/resource/order checks
 permit, without draining vector execution. Keep the single-configuration limit;
-there is no same-pair VL-to-GPR or ALU-to-configuration bypass. Fixed FP WB
+there is no same-pair VL-to-GPR or EX ALU-to-configuration bypass. Early constants
+can supply configuration GPR inputs through ordinary RR capture. Fixed FP WB
 authorization permits an EX-validated configuration on the same edge, without
 depending on CSR command-success feedback; other system commands serialize.
 The existing two GPR ports and lane-qualified CSR result selection need no
@@ -1151,6 +1161,11 @@ MEM qualification, replay/restart, older-fault priority, and reset cancellation.
 AUIPC/ADDI cases check signed-immediate extremes, carry/borrow and RV64 wrap,
 same/different/x0 destinations, sustained pairing, EX and stored-RF consumers,
 pending destinations, excluded neighboring operations, recovery, and reset.
+Constant forwarding adds LUI/ADDIW signed boundaries and replacement of both
+binary sources. Address composition covers both offset signs, 13/33-bit carry,
+original register/PC bases, hit/slow services, simultaneous store-data dependencies,
+split ownership, precise older/younger fault and replay, and excluded word/general
+adder producers. RV32 fetching and FP/vector fixtures check their operand snapshots.
 Same-pair ALU/conditional-branch scenarios cover every predicate, either/both
 replaced sources, signed/unsigned disagreement, both prediction directions,
 selected word/B/AUIPC results, sustained dual issue, producer RAW/WAW and unrelated
