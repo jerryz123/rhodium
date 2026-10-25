@@ -314,13 +314,18 @@ jobs for their trace/runtime and observation contracts; its `cores-execution`
 selector combines frontend and datapath, while the vector aggregates retain
 both functional shards and the alternate-configuration shard.
 
-Both RVA23 single-core software matrices independently select ISA tests, benchmarks,
-both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
+All Simple RVA23 single-core software matrices independently select ISA tests,
+benchmarks, both CoreMark variants, Embench-IoT, SKL vector execution workloads,
+and one bounded Bringup-Bench selection. SKL uses the upstream capability-filtered
+catalog without X390 or standalone scalar suites. SKL retains all test-input and
+benchmark cases but disables numerical verification and reference-buffer setup.
+Both RTL jobs require Sail cosim for architectural checking; Spike is an
+execution smoke test, not an independent numerical oracle.
 `ci-software.yml` projects generated target descriptors into suite build groups,
 compiles each group once, and distributes one ELF archive to all compatible
 configs. Each run binds the archive to its own full target fingerprint and
 checks its simulator attestation. Compiler installation and ELF caches belong
-only to the build jobs; the sixteen execution jobs retain every selected test.
+only to the build jobs; execution jobs retain every selected test.
 Program adapter contracts run once before the build matrix. A failed build does
 not prevent execution jobs from attempting other published groups.
 Platform adapters run once in the planning job. Each OpenSBI execution

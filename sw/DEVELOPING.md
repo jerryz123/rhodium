@@ -14,7 +14,7 @@ remain in [`socs/`](../socs/DEVELOPING.md),
 ## Source and build ownership
 
 The named upstream submodules are pinned at repository gitlinks. Keep their
-checkouts pristine. Apply the ordered architectural-test and Bringup-Bench patch
+checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, and SKL patch
 series only to build-local copies through
 [`riscv/patched_submodule.py`](../riscv/patched_submodule.py). Put Rhodium-owned
 bare-metal startup, linkers, output checks, and ports beside their corresponding
@@ -24,7 +24,7 @@ upstream source. Preserve upstream licensing and the repository's
 [`build/`](build/) owns ELF construction, target validation, compiler and ISA
 checks, content-addressed build reuse, and manifests. `build.py` and `isa.mk`
 compile the ISA tests and upstream benchmarks; the named benchmark builders
-compile CoreMark, Embench-IoT, and Bringup-Bench. ISA selection derives upstream
+compile CoreMark, Embench-IoT, Bringup-Bench, and SKL. ISA selection derives upstream
 groups, native-width smoke operations, and Make XLEN from the target descriptor.
 F/D targets also select representative arithmetic, fused operations, division,
 conversion, load/store, and move smoke tests for each advertised precision.
@@ -98,6 +98,70 @@ variants and all bounded workload profiles unchanged during path-only moves;
 do not infer suite selection from prior pass status.
 
 ## Shared software builds
+
+`build-skl.py` uses the adjacent SKL bare-metal CMake project to consume
+upstream's test-registration hook and extension detector. Pass the generated
+target's compiler flags to that detector as well as the compilation commands.
+Exclude X390 source implementations and executable suites and standalone
+scalar-reference suites. Keep upstream test cases enabled as execution workloads.
+Do not copy upstream's catalog into a first-party allowlist. The generated
+inventory must be nonempty, sorted, unique, and contained in its build root.
+The patched upstream driver consumes its callback interface and counter/status/allocation
+helpers, requiring both test-input workloads and benchmark cases before emitting
+a success marker. Clear each case's verification callback before initialization
+so reference buffers are neither allocated nor populated. Do not call numerical
+verification or padding/clobber checks. Upstream tables still reference scalar
+symbols, so linking the reference library does not imply executing its routines.
+Preserve the remaining callback ordering, status gates, cleanup,
+and execute-step counter boundaries. All callbacks run at error-only log level;
+still invoke report callbacks so their failures propagate. Emit one integer-only
+`SKL-BENCH` line per successful benchmark case instead of upstream floating-point
+throughput reports. Newlib owns allocation and formatting;
+the port owns only heap bounds, startup, and the single HTIF syscall boundary.
+Keep upstream sources pristine. The manifest declares execution-only mode;
+Sail cosim checks architectural execution in the RTL CI jobs, not SKL numerical
+accuracy. Plain Spike and non-cosim RTL runs provide execution smoke coverage.
+[`skl-patches/series`](skl-patches/series) owns the fixed upstream adaptations:
+the first patch bounds the single functional profile, the second changes the
+existing driver to execution-only sequencing and integer reporting, and the
+third optimizes input initialization. Apply them only through the shared
+patched-submodule materializer, never Python source substitutions or edits to
+the submodule. The bare-metal port owns only CMake, startup, linker, and syscalls;
+there is no second suite driver or symbol-renaming override.
+Preserve every case, including zero sizes, strides, dilation, depth multipliers,
+and generic/specialized kernel coverage. Keep the descriptive dimensions in the
+shared build specification consistent with the bounded-workload patch; they
+are not a second source transformation or a benchmark score. When advancing the
+upstream pin, review patch contexts, case catalogs, and kernel contracts.
+The initialization patch adds `test/buffers.h` and `test/fp-buffers.h` to the
+build-local source. Fill full source allocations, including padding, but only
+allocate audited write-only data-movement and depthwise destinations. Preserve
+allocation sizes, alignment, geometry, and cleanup. Retain GEMM C initialization
+because it is a read/write operand. Re-audit independence from initial output
+contents and the no-alias contract on upstream updates. Specialized FP16/FP32
+depthwise kernels read partial sums only after their first filter-row pass has
+initialized the output; those internal reads do not require a prefill.
+Replace only floating-point random and sequential generators, not global
+`rand()`, integer generators, or static input copying. Preserve every case's
+typed domain and initialization mode.
+Case/stream/index mixing makes random fills vectorizable; FP32/FP64 interpolation
+avoids intermediate FP16/BF16 arithmetic, so generated samples are not bitwise
+upstream inputs. BF16 uses alias-permitted integer storage and explicit
+round-to-nearest/ties-to-even encoding, without a native BF16 ISA requirement.
+Check finite-domain bounds, sequential ordering, zero/tail lengths, distinct
+random streams, and BF16 rounding against the compiler's conversion helpers.
+Inspect generated code to confirm vectorization without per-element RNG or
+BF16 helper calls. The ordered patch contents and recorded initialization/reporting
+policies must invalidate cached builds. Qualify runtime or buffer-policy changes with the
+full suite on Spike and both RTL cores with Sail cosim.
+SKL uses the existing GCC/Newlib toolchain; GCC ignores Clang unroll pragmas
+without treating them as errors. CMake and compiler identity, port bytes, and
+the upstream revision, patch series, and shared materializer participate in the
+content key. A complete checksum-verified cache hit skips source materialization
+and CMake, but still checks linked ISA attributes and RAM bounds. On a cache miss,
+apply the patches and remove corrupt owned ELFs before asking CMake to rebuild them.
+Publish the upstream MIT and Rhodium Apache license texts as checksum-bearing
+manifest files so the generic ELF archive carries the required notices too.
 
 `build/program_target.py` projects a suite's ELF build specification from the
 generated SoC descriptor. Keep config names and resolved microarchitecture

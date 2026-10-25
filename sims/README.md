@@ -565,7 +565,7 @@ can access platform devices, including the boot-address register and UART.
 ## SoC software suites
 
 Run the complete profile-selected upstream ISA suite, benchmarks, both CoreMark
-variants, Embench-IoT, a Bringup-Bench smoke, configuration-exact ACT, and OpenSBI validation on
+variants, Embench-IoT, SKL vector suites, a Bringup-Bench smoke, configuration-exact ACT, and OpenSBI validation on
 both single-core SoCs:
 
 ```sh
@@ -579,10 +579,10 @@ make -C sims single-core-software-test ISA=rva23
 select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
-`embench-test`, and `bringup-test` targets accept either single-core SoC and
-remain available for focused execution. CI schedules five complete program
-suites, a bounded Bringup-Bench smoke, and ACT independently for Spike and RV5Stage;
-it also validates OpenSBI on both. Each ACT lane uses its own UDB projection and
+`embench-test`, `bringup-test`, and `skl-test` targets remain available for
+focused execution. SKL requires Simple RVA23. CI schedules the native program
+suites, a bounded Bringup-Bench smoke, and ACT independently for each enrolled core;
+it also validates OpenSBI. Each ACT lane uses its own UDB projection and
 generated test inventory.
 
 The full ISA adapter selects upstream physical-environment tests from the
@@ -768,6 +768,27 @@ compresses and decompresses 256 bytes once, pi-calc generates 100 digits, and
 rho-factor samples 4- through 8-bit inputs. These are functional integration tests, not equivalent benchmark
 scores or substitutes for running the original upstream workloads.
 
+`skl-test` runs the [SiFive Kernel Library port](../sw/skl-riscv-baremetal/)
+on Simple RV5Stage, RV2Wide, and Spike with `ISA=rva23`. Upstream's CMake
+catalog selects every target-supported suite except X390 variants and standalone
+scalar-reference suites (28 at the pinned revision). All test-input and benchmark
+cases run without numerical/reference or clobber checking. A suite-completion
+marker with workload/benchmark counts is required in addition to HTIF pass.
+Use `COSIM=1` on RTL to check architectural execution against Sail, as CI does;
+this does not check SKL's mathematical accuracy. Spike and non-cosim runs are
+execution smoke tests. Use `skl-elfs` for build-only execution or
+`skl-run` for an existing shared manifest; the normal cache, simulator,
+cosim, JSON/JUnit, and CI artifact flows apply. CMake 3.23+ is required to build.
+Pack/unpack/transpose use cheap deterministic source patterns and do not pre-fill
+write-only destinations; other input generation is unchanged. Benchmark output
+contains integer cycle/instruction counters without floating-point throughput
+formatting. See the [port contract](../sw/skl-riscv-baremetal/README.md) for details.
+
+```sh
+make -C sims skl-setup
+make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
+```
+
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
 CI installs a checksum-pinned GCC/Newlib release via
 `bash tools/install-riscv-toolchain.sh` (x86-64 Linux); local builds accept
@@ -823,16 +844,19 @@ simulation job separately publishes its hand-written smoke ELFs, and ACT
 publishes its generated ELF archive.
 
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
+SKL uses `SKL_TIMEOUT=900` because each ELF contains an entire upstream kernel suite.
 Tiled multihart benchmarks and tiled litmus smoke have separate 600-second
 defaults (`TILED_MT_BENCHMARK_TIMEOUT` and `LITMUS_SMOKE_TIMEOUT`).
 `PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks, CoreMark, and
-Embench-IoT use 100 million. These are safety budgets, including loading,
+Embench-IoT and SKL use 100 million. These are safety budgets, including loading,
 not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
-`COREMARK_MAX_CYCLES`, or `EMBENCH_MAX_CYCLES` when diagnosing timeouts.
-Benchmark CI checks correctness, never exact cycle counts.
+`COREMARK_MAX_CYCLES`, `EMBENCH_MAX_CYCLES`, or `SKL_MAX_CYCLES` when diagnosing timeouts.
+Benchmark CI never requires exact cycle counts. SKL checks architectural execution
+through cosim on RTL rather than numerical output; other suites retain their
+documented result checks.
 
-CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT on pull requests and
-pushes to `main`; manual dispatch selects all six. The program suites consume
+CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, SKL, and ACT on pull requests and
+pushes to `main`; manual dispatch selects the complete configured matrix. The program suites consume
 each core's exact-commit executable, with the matching patched Spike runtime
 where needed. ACT builds or reuses one verified, complete profile-specific ELF
 inventory for each single-core SoC, then partitions it across independent

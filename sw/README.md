@@ -8,7 +8,7 @@ Rhodium bare-metal ports, downstream source patches, and ELF builders. The
 upstream submodules remain pristine. Generated sources, firmware, and ELFs live
 under the build roots, not in this directory.
 
-The RISC-V, CoreMark, Embench-IoT, and Bringup-Bench performance workloads use
+The RISC-V, CoreMark, Embench-IoT, Bringup-Bench, and SKL performance workloads use
 `-O3`. CoreMark-scalar also disables auto-vectorization. The generated manifests
 record the compiler flags and identify each binary's target and source revision.
 
@@ -20,6 +20,7 @@ record the compiler flags and identify each binary's target and source revision.
 | CoreMark | [`coremark/`](coremark/) and [`coremark-riscv-baremetal/`](coremark-riscv-baremetal/) |
 | Embench-IoT | [`embench-iot/`](embench-iot/) and [`embench-iot-riscv-baremetal/`](embench-iot-riscv-baremetal/) |
 | Bringup-Bench | [`bringup-bench/`](bringup-bench/), [`bringup-bench-patches/`](bringup-bench-patches/), and [`bringup-bench-riscv-baremetal/`](bringup-bench-riscv-baremetal/) |
+| SiFive Kernel Library (RVA23 vector suites) | [`skl/`](skl/), [`skl-patches/`](skl-patches/), and [`skl-riscv-baremetal/`](skl-riscv-baremetal/) |
 | RISC-V memory-model litmus tests | [`litmus-tests-riscv/`](litmus-tests-riscv/) and [`litmus-riscv-baremetal/`](litmus-riscv-baremetal/) |
 
 Use the [simulator workflows](../sims/README.md) to select a concrete SoC,
@@ -30,6 +31,7 @@ For example:
 make -C sims program-test-setup
 make -C sims isa-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims bringup-test SOC=simple CORE=spike ISA=rva23
+make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
 make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
 make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage ISA=rva23 LITMUS7=/path/to/litmus7

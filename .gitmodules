@@ -32,3 +32,6 @@
 [submodule "riscv/sail-riscv"]
 	path = riscv/sail-riscv
 	url = https://github.com/riscv/sail-riscv.git
+[submodule "sw/skl"]
+	path = sw/skl
+	url = https://github.com/sifiveinc/skl.git

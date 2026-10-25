@@ -28,6 +28,7 @@ the repository's Apache-2.0 license does not replace those terms:
 - `sw/coremark`
 - `sw/embench-iot`
 - `sw/bringup-bench`
+- `sw/skl`
 - `sw/litmus-tests-riscv`
 - `vlsi/double_wide_openframe`
 
@@ -52,6 +53,15 @@ Rhodium checks output hashes as a functional workload suite, not a benchmark
 score. The ordered downstream patch series in
 [`sw/bringup-bench-patches/`](sw/bringup-bench-patches/)
 is applied only to build-local copies; the pinned submodule remains pristine.
+
+SiFive Kernel Library is used from its pristine pinned upstream checkout under
+the MIT license in [`sw/skl/LICENSE.txt`](sw/skl/LICENSE.txt). Its scalar
+references may remain linked through upstream tables but are not executed.
+The ordered [`sw/skl-patches/`](sw/skl-patches/) series applies bounded workloads,
+execution-only driver sequencing, and input initialization changes only to
+build-local copies. The adapted driver retains its upstream MIT provenance
+alongside Apache-2.0 contributions; the new initialization helpers and separate
+bare-metal port are Apache-2.0. Preserve upstream's notices when distributing compiled ELFs.
 
 The RISC-V litmus corpus and its precomputed Herd result log are used from the
 pinned upstream checkout under BSD-2-Clause. Its license remains in

@@ -1,0 +1,5 @@
+# Applies the bounded SKL execution and initialization adaptations in order.
+# SPDX-License-Identifier: Apache-2.0
+0001-bound-workloads-for-rtl.patch
+0002-execution-only-driver.patch
+0003-efficient-input-initialization.patch

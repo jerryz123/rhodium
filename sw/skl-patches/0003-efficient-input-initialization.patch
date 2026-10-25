@@ -1,0 +1,469 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Generate SKL inputs efficiently and omit write-only output fills
+Purpose: Move the qualified deterministic input helpers and audited destination allocations into SKL.
+SPDX-License-Identifier: Apache-2.0 AND MIT
+
+Apply only to the pinned SKL build-local copy; retain upstream notices.
+
+diff --git a/test/buffers.h b/test/buffers.h
+new file mode 100644
+--- /dev/null
++++ b/test/buffers.h
+@@ -0,0 +1,60 @@
++/* Initializes data-movement sources with vectorizable integer patterns and allocates write-only outputs. */
++/* SPDX-License-Identifier: Apache-2.0 */
++#pragma once
++
++#include "skl-test-driver.h"
++#include <stdint.h>
++
++/* Each element depends only on its index and case ID, not on earlier elements.
++ * Unsigned shifts/XORs vary all bits without a per-element RNG or division.
++ * Chunked 32-bit induction avoids wasting RV64 vector lanes on 64-bit indices. */
++#define RHODIUM_SKL_DEFINE_FILL(TYPE)                                           \
++    static inline void rhodium_skl_fill_##TYPE(TYPE *data, size_t len,           \
++                                                unsigned int case_id)          \
++    {                                                                          \
++        uint32_t seed = UINT32_C(0x9e3779b9) * ((uint32_t)case_id + 1);          \
++        uint32_t offset = 0;                                                   \
++        while (len) {                                                          \
++            uint32_t count = len > UINT32_MAX ? UINT32_MAX : (uint32_t)len;     \
++            for (uint32_t i = 0; i < count; ++i) {                              \
++                uint32_t value = (offset + i) ^ seed;                           \
++                value ^= value << 7;                                           \
++                value ^= value >> 9;                                           \
++                value ^= value << 8;                                           \
++                data[i] = (TYPE)value;                                          \
++            }                                                                  \
++            data += count;                                                     \
++            len -= count;                                                      \
++            offset += count;                                                   \
++        }                                                                      \
++    }
++
++RHODIUM_SKL_DEFINE_FILL(uint8_t)
++RHODIUM_SKL_DEFINE_FILL(uint16_t)
++RHODIUM_SKL_DEFINE_FILL(uint32_t)
++#undef RHODIUM_SKL_DEFINE_FILL
++
++static inline void *rhodium_skl_allocate(skl_test_t *test, size_t region,
++                                        size_t bytes)
++{
++    void *data = skl_test_driver_alloc(region, bytes);
++    if (bytes && !data)
++        test->status.init_status = SKL_TEST_FAIL;
++    return data;
++}
++
++/* These macros accept side-effect-free test and upstream buffer expressions.
++ * Fill the complete source span, including readable padding. Destinations must
++ * be write-only kernel operands; allocating them must not initialize padding. */
++#define RHODIUM_SKL_DESTINATION(TEST, TYPE, BUF)                                 \
++    do {                                                                       \
++        (BUF)->data = rhodium_skl_allocate((TEST), (BUF)->region,                \
++                                           (BUF)->len * sizeof(TYPE));          \
++    } while (0)
++
++#define RHODIUM_SKL_SOURCE(TEST, TYPE, BUF)                                      \
++    do {                                                                       \
++        RHODIUM_SKL_DESTINATION(TEST, TYPE, BUF);                                \
++        if ((BUF)->data)                                                        \
++            rhodium_skl_fill_##TYPE((BUF)->data, (BUF)->len, (TEST)->id);         \
++    } while (0)
+diff --git a/test/depthwise_conv2d/depthwise_conv2d_f16_f16_f16.c b/test/depthwise_conv2d/depthwise_conv2d_f16_f16_f16.c
+--- a/test/depthwise_conv2d/depthwise_conv2d_f16_f16_f16.c
++++ b/test/depthwise_conv2d/depthwise_conv2d_f16_f16_f16.c
+@@ -13,6 +13,7 @@
+ #include "depthwise_conv2d_f16_f16_f16.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl.h"
+ #include <math.h>
+ #include <stddef.h>
+@@ -34,7 +35,7 @@
+ 
+   SKL_TEST_BUF_CREATE(t, _Float16, &h->input);
+   SKL_TEST_BUF_CREATE(t, _Float16, &h->filter);
+-  SKL_TEST_BUF_CREATE(t, _Float16, &h->output);
++  RHODIUM_SKL_DESTINATION(t, _Float16, &h->output);
+ 
+   if (h->steps.verify) {
+     // Only allocate if lengths are non-zero to avoid malloc(0)
+diff --git a/test/depthwise_conv2d/depthwise_conv2d_f32_f32_f32.c b/test/depthwise_conv2d/depthwise_conv2d_f32_f32_f32.c
+--- a/test/depthwise_conv2d/depthwise_conv2d_f32_f32_f32.c
++++ b/test/depthwise_conv2d/depthwise_conv2d_f32_f32_f32.c
+@@ -13,6 +13,7 @@
+ #include "depthwise_conv2d_f32_f32_f32.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl.h"
+ #include <math.h>
+ #include <stddef.h>
+@@ -30,7 +31,7 @@
+ 
+   SKL_TEST_BUF_CREATE(t, float, &h->input);
+   SKL_TEST_BUF_CREATE(t, float, &h->filter);
+-  SKL_TEST_BUF_CREATE(t, float, &h->output);
++  RHODIUM_SKL_DESTINATION(t, float, &h->output);
+ 
+   if (h->steps.verify) {
+     // Only allocate if lengths are non-zero to avoid malloc(0)
+diff --git a/test/depthwise_conv2d/depthwise_conv2d_i8_i8_i32.c b/test/depthwise_conv2d/depthwise_conv2d_i8_i8_i32.c
+--- a/test/depthwise_conv2d/depthwise_conv2d_i8_i8_i32.c
++++ b/test/depthwise_conv2d/depthwise_conv2d_i8_i8_i32.c
+@@ -13,6 +13,7 @@
+ #include "depthwise_conv2d_i8_i8_i32.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl.h"
+ #include <stddef.h>
+ #include <stdint.h>
+@@ -29,7 +30,7 @@
+ 
+   SKL_TEST_BUF_CREATE(t, int8_t, &h->input);
+   SKL_TEST_BUF_CREATE(t, int8_t, &h->filter);
+-  SKL_TEST_BUF_CREATE(t, int32_t, &h->output);
++  RHODIUM_SKL_DESTINATION(t, int32_t, &h->output);
+ 
+   if (h->steps.verify && h->output.len) {
+     h->ctx.ref_output = malloc(h->output.len * sizeof(int32_t));
+diff --git a/test/fp-buffers.h b/test/fp-buffers.h
+new file mode 100644
+--- /dev/null
++++ b/test/fp-buffers.h
+@@ -0,0 +1,100 @@
++/* Generates domain-bounded SKL floating-point inputs without scalar RNG or BF16 arithmetic helpers. */
++/* SPDX-License-Identifier: Apache-2.0 */
++#pragma once
++
++#include <stdint.h>
++#include <string.h>
++
++/* GCC has no BF16 vector mode on RVA23. An alias-permitted integer view lets
++ * its vectorizer store encodings without requiring native BF16 instructions. */
++typedef uint16_t rhodium_skl_bf16_storage __attribute__((may_alias));
++
++/* Each sample is independent; the per-fill stream distinguishes equal-domain
++ * operands without depending on allocation addresses or a serial RNG loop. */
++static inline float rhodium_skl_fraction(uint32_t index, uint32_t seed)
++{
++    uint32_t value = index + seed;
++    value = (value ^ (value >> 16)) * UINT32_C(0x7feb352d);
++    value = (value ^ (value >> 15)) * UINT32_C(0x846ca68b);
++    value ^= value >> 16;
++    return (float)(value >> 8) * 0x1p-24f;
++}
++
++/* BF16 is storage, not an ISA requirement. Bit copies avoid compiler-generated
++ * software conversions; narrowing uses round-to-nearest, ties-to-even and
++ * preserves infinities while quieting NaNs rather than rounding them to infinity. */
++static inline float rhodium_skl_decode_bf16(__bf16 value)
++{
++    uint16_t narrow;
++    uint32_t wide;
++    float result;
++    memcpy(&narrow, &value, sizeof(narrow));
++    wide = (uint32_t)narrow << 16;
++    memcpy(&result, &wide, sizeof(result));
++    return result;
++}
++
++static inline uint16_t rhodium_skl_encode_bf16(float value)
++{
++    uint32_t wide;
++    memcpy(&wide, &value, sizeof(wide));
++    uint32_t nan_mask = -(uint32_t)((wide & UINT32_C(0x7fffffff)) > UINT32_C(0x7f800000));
++    uint32_t rounded = (wide + UINT32_C(0x7fff) + ((wide >> 16) & 1)) >> 16;
++    return (uint16_t)((rounded & ~nan_mask) | (((wide >> 16) | UINT32_C(0x40)) & nan_mask));
++}
++
++/* Keep random versus sequential versus static selection in upstream's buffer
++ * dispatcher. Compute FP16/BF16 interpolation in FP32, narrowing only the final
++ * value. Clamp rounding at the original typed bounds. Chunked 32-bit induction
++ * permits vectorization without imposing a new buffer-length limit. */
++#define RHODIUM_SKL_FP_GENERATORS(TYPE, WORK, STORAGE, DECODE, ENCODE)           \
++    static inline void skl_test_buf_random_##TYPE(                            \
++        skl_test_t *test, TYPE *data, size_t len, TYPE min, TYPE max)           \
++    {                                                                         \
++        static uint32_t stream;                                               \
++        uint32_t seed = UINT32_C(0x9e3779b9) * (++stream + test->id);          \
++        uint32_t offset = 0;                                                   \
++        WORK low = DECODE(min), high = DECODE(max);                            \
++        while (len) {                                                         \
++            uint32_t count = len > UINT32_MAX ? UINT32_MAX : (uint32_t)len;    \
++            STORAGE *storage = (STORAGE *)(void *)data;                       \
++            for (uint32_t i = 0; i < count; ++i) {                             \
++                WORK value = low + (high - low) *                             \
++                    (WORK)rhodium_skl_fraction(offset + i, seed);             \
++                value = value < low ? low : value;                            \
++                value = value > high ? high : value;                          \
++                storage[i] = ENCODE(value);                                   \
++            }                                                                 \
++            data += count;                                                    \
++            len -= count;                                                     \
++            offset += count;                                                  \
++        }                                                                     \
++    }                                                                         \
++    static inline void skl_test_buf_seq_##TYPE(                               \
++        skl_test_t *test, TYPE *data, size_t len, TYPE min, TYPE max)           \
++    {                                                                         \
++        (void)test;                                                           \
++        WORK low = DECODE(min), high = DECODE(max);                            \
++        WORK step = len ? (high - low) / (WORK)len : 0;                        \
++        size_t offset = 0;                                                     \
++        while (len) {                                                         \
++            uint32_t count = len > UINT32_MAX ? UINT32_MAX : (uint32_t)len;    \
++            STORAGE *storage = (STORAGE *)(void *)data;                       \
++            WORK base = (WORK)offset;                                         \
++            for (uint32_t i = 0; i < count; ++i) {                             \
++                WORK value = low + step * (base + (WORK)i);                   \
++                value = value < low ? low : value;                            \
++                value = value > high ? high : value;                          \
++                storage[i] = ENCODE(value);                                   \
++            }                                                                 \
++            data += count;                                                    \
++            len -= count;                                                     \
++            offset += count;                                                  \
++        }                                                                     \
++    }
++
++RHODIUM_SKL_FP_GENERATORS(_Float16, float, _Float16, (float), (_Float16))
++RHODIUM_SKL_FP_GENERATORS(float, float, float, (float), (float))
++RHODIUM_SKL_FP_GENERATORS(double, double, double, (double), (double))
++RHODIUM_SKL_FP_GENERATORS(__bf16, float, rhodium_skl_bf16_storage, rhodium_skl_decode_bf16, rhodium_skl_encode_bf16)
++#undef RHODIUM_SKL_FP_GENERATORS
+diff --git a/test/pack/pack_e16rc_e16rcprc.c b/test/pack/pack_e16rc_e16rcprc.c
+--- a/test/pack/pack_e16rc_e16rcprc.c
++++ b/test/pack/pack_e16rc_e16rcprc.c
+@@ -13,6 +13,7 @@
+ #include "pack_e16rc_e16rcprc.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl_test_pack.h"
+ 
+ #include <stddef.h>
+@@ -56,8 +57,8 @@
+         (m1 - 1) * rs1 + (n1 - 1) * cs1 + (m0 - 1) * rs0 + (n0 - 1) * cs0 + 1;
+   }
+ 
+-  SKL_TEST_BUF_CREATE(t, uint16_t, &h->src);
+-  SKL_TEST_BUF_CREATE(t, uint16_t, &h->dst);
++  RHODIUM_SKL_SOURCE(t, uint16_t, &h->src);
++  RHODIUM_SKL_DESTINATION(t, uint16_t, &h->dst);
+   if (h->steps.verify && h->dst.len) {
+     h->ctx.ref_dst = malloc(h->dst.len * sizeof(uint16_t));
+ 
+diff --git a/test/pack/pack_e32rc_e32rcprc.c b/test/pack/pack_e32rc_e32rcprc.c
+--- a/test/pack/pack_e32rc_e32rcprc.c
++++ b/test/pack/pack_e32rc_e32rcprc.c
+@@ -13,6 +13,7 @@
+ #include "pack_e32rc_e32rcprc.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl_test_pack.h"
+ 
+ #include <stddef.h>
+@@ -56,8 +57,8 @@
+         (m1 - 1) * rs1 + (n1 - 1) * cs1 + (m0 - 1) * rs0 + (n0 - 1) * cs0 + 1;
+   }
+ 
+-  SKL_TEST_BUF_CREATE(t, uint32_t, &h->src);
+-  SKL_TEST_BUF_CREATE(t, uint32_t, &h->dst);
++  RHODIUM_SKL_SOURCE(t, uint32_t, &h->src);
++  RHODIUM_SKL_DESTINATION(t, uint32_t, &h->dst);
+   if (h->steps.verify && h->dst.len) {
+     h->ctx.ref_dst = malloc(h->dst.len * sizeof(uint32_t));
+ 
+diff --git a/test/pack/pack_e8rc_e8rcprc.c b/test/pack/pack_e8rc_e8rcprc.c
+--- a/test/pack/pack_e8rc_e8rcprc.c
++++ b/test/pack/pack_e8rc_e8rcprc.c
+@@ -13,6 +13,7 @@
+ #include "pack_e8rc_e8rcprc.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl_test_pack.h"
+ 
+ #include <stddef.h>
+@@ -56,8 +57,8 @@
+         (m1 - 1) * rs1 + (n1 - 1) * cs1 + (m0 - 1) * rs0 + (n0 - 1) * cs0 + 1;
+   }
+ 
+-  SKL_TEST_BUF_CREATE(t, uint8_t, &h->src);
+-  SKL_TEST_BUF_CREATE(t, uint8_t, &h->dst);
++  RHODIUM_SKL_SOURCE(t, uint8_t, &h->src);
++  RHODIUM_SKL_DESTINATION(t, uint8_t, &h->dst);
+   if (h->steps.verify && h->dst.len) {
+     h->ctx.ref_dst = malloc(h->dst.len * sizeof(uint8_t));
+ 
+diff --git a/test/pack/transpose_e16.c b/test/pack/transpose_e16.c
+--- a/test/pack/transpose_e16.c
++++ b/test/pack/transpose_e16.c
+@@ -13,6 +13,7 @@
+ #include "transpose_e16.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include <inttypes.h>
+ #include <stddef.h>
+ #include <stdint.h>
+@@ -31,8 +32,8 @@
+   if (t->status.init_status != SKL_TEST_PASS)
+     return;
+ 
+-  SKL_TEST_BUF_CREATE(t, uint16_t, &h->a);
+-  SKL_TEST_BUF_CREATE(t, uint16_t, &h->at);
++  RHODIUM_SKL_SOURCE(t, uint16_t, &h->a);
++  RHODIUM_SKL_DESTINATION(t, uint16_t, &h->at);
+   if (h->steps.verify && h->at.len) {
+     h->ctx.ref_at = malloc(h->at.len * sizeof(uint16_t));
+ 
+diff --git a/test/pack/transpose_e32.c b/test/pack/transpose_e32.c
+--- a/test/pack/transpose_e32.c
++++ b/test/pack/transpose_e32.c
+@@ -13,6 +13,7 @@
+ #include "transpose_e32.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include <inttypes.h>
+ #include <stddef.h>
+ #include <stdint.h>
+@@ -31,8 +32,8 @@
+   if (t->status.init_status != SKL_TEST_PASS)
+     return;
+ 
+-  SKL_TEST_BUF_CREATE(t, uint32_t, &h->a);
+-  SKL_TEST_BUF_CREATE(t, uint32_t, &h->at);
++  RHODIUM_SKL_SOURCE(t, uint32_t, &h->a);
++  RHODIUM_SKL_DESTINATION(t, uint32_t, &h->at);
+   if (h->steps.verify && h->at.len) {
+     h->ctx.ref_at = malloc(h->at.len * sizeof(uint32_t));
+ 
+diff --git a/test/pack/transpose_e8.c b/test/pack/transpose_e8.c
+--- a/test/pack/transpose_e8.c
++++ b/test/pack/transpose_e8.c
+@@ -13,6 +13,7 @@
+ #include "transpose_e8.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include <inttypes.h>
+ #include <stddef.h>
+ #include <stdint.h>
+@@ -31,8 +32,8 @@
+   if (t->status.init_status != SKL_TEST_PASS)
+     return;
+ 
+-  SKL_TEST_BUF_CREATE(t, uint8_t, &h->a);
+-  SKL_TEST_BUF_CREATE(t, uint8_t, &h->at);
++  RHODIUM_SKL_SOURCE(t, uint8_t, &h->a);
++  RHODIUM_SKL_DESTINATION(t, uint8_t, &h->at);
+   if (h->steps.verify && h->at.len) {
+     h->ctx.ref_at = malloc(h->at.len * sizeof(uint8_t));
+ 
+diff --git a/test/pack/unpack_e16rcprc_e16rc.c b/test/pack/unpack_e16rcprc_e16rc.c
+--- a/test/pack/unpack_e16rcprc_e16rc.c
++++ b/test/pack/unpack_e16rcprc_e16rc.c
+@@ -13,6 +13,7 @@
+ #include "unpack_e16rcprc_e16rc.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl_test_pack.h"
+ 
+ #include <stddef.h>
+@@ -56,8 +57,8 @@
+     h->dst.len = (m - 1) * rs + (n - 1) * cs + 1;
+   }
+ 
+-  SKL_TEST_BUF_CREATE(t, uint16_t, &h->src);
+-  SKL_TEST_BUF_CREATE(t, uint16_t, &h->dst);
++  RHODIUM_SKL_SOURCE(t, uint16_t, &h->src);
++  RHODIUM_SKL_DESTINATION(t, uint16_t, &h->dst);
+   if (h->steps.verify && h->dst.len) {
+     h->ctx.ref_dst = malloc(h->dst.len * sizeof(uint16_t));
+ 
+diff --git a/test/pack/unpack_e32rcprc_e32rc.c b/test/pack/unpack_e32rcprc_e32rc.c
+--- a/test/pack/unpack_e32rcprc_e32rc.c
++++ b/test/pack/unpack_e32rcprc_e32rc.c
+@@ -13,6 +13,7 @@
+ #include "unpack_e32rcprc_e32rc.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl_test_pack.h"
+ 
+ #include <stddef.h>
+@@ -56,8 +57,8 @@
+     h->dst.len = (m - 1) * rs + (n - 1) * cs + 1;
+   }
+ 
+-  SKL_TEST_BUF_CREATE(t, uint32_t, &h->src);
+-  SKL_TEST_BUF_CREATE(t, uint32_t, &h->dst);
++  RHODIUM_SKL_SOURCE(t, uint32_t, &h->src);
++  RHODIUM_SKL_DESTINATION(t, uint32_t, &h->dst);
+   if (h->steps.verify && h->dst.len) {
+     h->ctx.ref_dst = malloc(h->dst.len * sizeof(uint32_t));
+ 
+diff --git a/test/pack/unpack_e8rcprc_e8rc.c b/test/pack/unpack_e8rcprc_e8rc.c
+--- a/test/pack/unpack_e8rcprc_e8rc.c
++++ b/test/pack/unpack_e8rcprc_e8rc.c
+@@ -13,6 +13,7 @@
+ #include "unpack_e8rcprc_e8rc.h"
+ #include "skl-ref.h"
+ #include "skl-test-driver.h"
++#include "buffers.h"
+ #include "skl_test_pack.h"
+ 
+ #include <stddef.h>
+@@ -56,8 +57,8 @@
+     h->dst.len = (m - 1) * rs + (n - 1) * cs + 1;
+   }
+ 
+-  SKL_TEST_BUF_CREATE(t, uint8_t, &h->src);
+-  SKL_TEST_BUF_CREATE(t, uint8_t, &h->dst);
++  RHODIUM_SKL_SOURCE(t, uint8_t, &h->src);
++  RHODIUM_SKL_DESTINATION(t, uint8_t, &h->dst);
+   if (h->steps.verify && h->dst.len) {
+     h->ctx.ref_dst = malloc(h->dst.len * sizeof(uint8_t));
+ 
+diff --git a/test/skl-test-driver.h b/test/skl-test-driver.h
+--- a/test/skl-test-driver.h
++++ b/test/skl-test-driver.h
+@@ -402,10 +402,6 @@
+ SKL_TEST_BUF_RANDOM_IMPL(uint16_t, uint16_t, INT,   PRIu16)
+ SKL_TEST_BUF_RANDOM_IMPL(uint32_t, uint32_t, INT,   PRIu32)
+ SKL_TEST_BUF_RANDOM_IMPL(uint64_t, uint64_t, INT,   PRIu64)
+-SKL_TEST_BUF_RANDOM_IMPL(_Float16, double,   FLOAT, "f")
+-SKL_TEST_BUF_RANDOM_IMPL(__bf16,   double,   FLOAT, "f")
+-SKL_TEST_BUF_RANDOM_IMPL(float,    double,   FLOAT, "f")
+-SKL_TEST_BUF_RANDOM_IMPL(double,   double,   FLOAT, "f")
+ // clang-format on
+ 
+ /**
+@@ -442,10 +438,6 @@
+ SKL_TEST_BUF_SEQ_IMPL(uint16_t, uint16_t, PRIu16)
+ SKL_TEST_BUF_SEQ_IMPL(uint32_t, uint32_t, PRIu32)
+ SKL_TEST_BUF_SEQ_IMPL(uint64_t, uint64_t, PRIu64)
+-SKL_TEST_BUF_SEQ_IMPL(_Float16, double,   "f")
+-SKL_TEST_BUF_SEQ_IMPL(__bf16,   double,   "f")
+-SKL_TEST_BUF_SEQ_IMPL(float,    double,   "f")
+-SKL_TEST_BUF_SEQ_IMPL(double,   double,   "f")
+ // clang-format on
+ 
+ /**
+@@ -552,6 +544,8 @@
+     }                                                                          \
+   } while (0)
+ 
++#include "fp-buffers.h"
++
+ //----- Utility functions for use in tests -----
+ 
+ /**

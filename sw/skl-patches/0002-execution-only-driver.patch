@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Run every SKL workload without numerical verification
+Purpose: Use the existing driver for execution-only sequencing and compact integer benchmark reporting.
+SPDX-License-Identifier: Apache-2.0 AND MIT
+
+Apply only to the pinned SKL build-local copy; retain upstream notices.
+
+diff --git a/test/skl-test-driver.c b/test/skl-test-driver.c
+--- a/test/skl-test-driver.c
++++ b/test/skl-test-driver.c
+@@ -1,7 +1,7 @@
+ // Copyright (c) 2026 SiFive, Inc. All rights reserved.
+ // Licensed under the MIT License.
+ // See LICENSE file in the project root for full license information.
+-// SPDX-License-Identifier: MIT
++// SPDX-License-Identifier: Apache-2.0 AND MIT
+ 
+ #include "skl-test-driver.h"
+ #include <inttypes.h>
+@@ -98,103 +98,60 @@
+ #undef STEP_PASSED
+ }
+ 
+-static void log_separator(skl_test_t *t, char sep) {
+-  enum { SEP_LEN = 10 };
+-  char buf[SEP_LEN];
+-  memset(buf, sep, sizeof(buf));
+-  buf[sizeof(buf) - 1] = '\0';
+-  SKL_TEST_LOG(t, SKL_TEST_LOG_INFO, "%s\n", buf);
++/* Rhodium execution-only sequencing retains upstream MIT provenance;
++ * the adaptation is also distributed under Apache-2.0. */
++int skl_test_driver_run_suite(skl_test_suite_t *suite)
++{
++    size_t workloads = 0, benchmarks = 0;
++    if (!suite || !suite->name || !suite->tests ||
++        suite->test_size < sizeof(skl_test_steps_t))
++        return 1;
++    for (size_t i = 0; i < suite->num_tests; ++i) {
++        const skl_test_steps_t *steps =
++            (const skl_test_steps_t *)((const char *)suite->tests + i * suite->test_size);
++        if (!steps->execute)
++            return 1;
++        if (steps->verify)
++            ++workloads;
++        else
++            ++benchmarks;
++    }
++    if (!workloads || !benchmarks)
++        return 1;
++    srand(1);
++    int failures = 0;
++    printf("SKL suite: %s cases=%zu\n", suite->name, suite->num_tests);
++    for (size_t i = 0; i < suite->num_tests; ++i) {
++        skl_test_t test = {.harness = (char *)suite->tests + i * suite->test_size,
++                           .suite_name = suite->name, .id = (unsigned int)i};
++        skl_test_steps_t *steps = test.harness;
++        int benchmark = steps->verify == NULL;
++        test.log_level = SKL_TEST_LOG_ERROR;
++        /* Initialization and cleanup also use this callback to gate reference
++         * buffers. Clear it before either can allocate or copy oracle data. */
++        steps->verify = NULL;
++        if (steps->init)
++            steps->init(&test);
++        if (skl_test_driver_status(&test) == SKL_TEST_PASS && steps->warmup)
++            steps->warmup(&test);
++        if (skl_test_driver_status(&test) == SKL_TEST_PASS) {
++            skl_test_driver_update_counters(&test.counters);
++            steps->execute(&test);
++            skl_test_driver_update_counters(&test.counters);
++        }
++        if (steps->report)
++            steps->report(&test);
++        if (steps->cleanup)
++            steps->cleanup(&test);
++        if (benchmark && skl_test_driver_status(&test) == SKL_TEST_PASS)
++            printf("SKL-BENCH: %s case=%u cycles=%" PRIu64 " instructions=%" PRIu64 "\n",
++                   suite->name, test.id, test.counters.cycles, test.counters.instret);
++        if (skl_test_driver_status(&test) != SKL_TEST_PASS) {
++            fprintf(stderr, "SKL case %zu: Test failed\n", i);
++            ++failures;
++        }
++    }
++    printf("SKL-RESULT: %s %s workloads=%zu benchmarks=%zu failures=%d\n",
++           suite->name, failures ? "FAIL" : "PASS", workloads, benchmarks, failures);
++    return failures;
+ }
+-
+-int skl_test_driver_run_suite(skl_test_suite_t *suite) {
+-  int failures = 0;
+-
+-  // Log test suite start (and avoid lint warning)
+-  int log_level = SKL_TEST_LOG_LEVEL;
+-  if (suite->num_tests > 0 && suite->name != NULL &&
+-      log_level >= SKL_TEST_LOG_INFO) {
+-    skl_test_driver_log(NULL, stdout, "Running test suite %s with %zd tests\n",
+-                        suite->name, suite->num_tests);
+-  }
+-
+-  // Main loop over all tests
+-  for (size_t i = 0; i < suite->num_tests; ++i) {
+-
+-    skl_test_t t = {.harness = (char *)suite->tests + i * suite->test_size,
+-                    .suite_name = suite->name,
+-                    .id = i,
+-                    .log_level = log_level,
+-                    .counters = {.cycles = 0, .instret = 0},
+-                    .status = {.init_status = SKL_TEST_PASS,
+-                               .warmup_status = SKL_TEST_PASS,
+-                               .execute_status = SKL_TEST_PASS,
+-                               .verify_status = SKL_TEST_PASS,
+-                               .report_status = SKL_TEST_PASS,
+-                               .cleanup_status = SKL_TEST_PASS}};
+-    log_separator(&t, '=');
+-
+-    // Retrieve test steps: first harness struct member must be a
+-    // skl_test_steps_t .
+-    skl_test_steps_t *steps = (skl_test_steps_t *)t.harness;
+-
+-#define LOG_STEP(STEP_STATUS, STEP_STR)                                        \
+-  SKL_TEST_LOG(&t, SKL_TEST_LOG_DEBUG, STEP_STR ": %s.\n",                     \
+-               (t.status.STEP_STATUS == SKL_TEST_PASS ? "passed" : "FAILED"))
+-
+-    // Initialize
+-    if (steps->init != NULL) {
+-      steps->init(&t);
+-      LOG_STEP(init_status, "Init");
+-    }
+-
+-    // Warmup
+-    if (skl_test_driver_status(&t) == SKL_TEST_PASS && steps->warmup != NULL) {
+-      steps->warmup(&t);
+-      LOG_STEP(warmup_status, "Warmup");
+-    }
+-
+-    // Execute
+-    if (skl_test_driver_status(&t) == SKL_TEST_PASS) {
+-      skl_test_driver_update_counters(&t.counters);
+-      steps->execute(&t);
+-      skl_test_driver_update_counters(&t.counters);
+-      LOG_STEP(execute_status, "Execute");
+-    }
+-
+-    // Verify
+-    if (skl_test_driver_status(&t) == SKL_TEST_PASS && steps->verify != NULL) {
+-      steps->verify(&t);
+-      LOG_STEP(verify_status, "Verify");
+-    }
+-
+-    // Report
+-    if (steps->report != NULL) {
+-      steps->report(&t);
+-      LOG_STEP(report_status, "Report");
+-    }
+-
+-    // Cleanup
+-    if (steps->cleanup != NULL) {
+-      steps->cleanup(&t);
+-      LOG_STEP(cleanup_status, "Cleanup");
+-    }
+-
+-#undef LOG_STEP
+-
+-    // Check final status and update failure count
+-    if (skl_test_driver_status(&t) != SKL_TEST_PASS) {
+-      SKL_TEST_LOG(&t, SKL_TEST_LOG_ERROR, "Test failed\n");
+-      failures++;
+-    }
+-    log_separator(&t, '=');
+-    SKL_TEST_LOG(&t, SKL_TEST_LOG_INFO, "\n");
+-  }
+-
+-  if (log_level >= SKL_TEST_LOG_INFO) {
+-    skl_test_driver_log(NULL, stdout,
+-                        "Test suite %s completed %zd tests with %d failures\n",
+-                        suite->name, suite->num_tests, failures);
+-  }
+-
+-  return failures;
+-}

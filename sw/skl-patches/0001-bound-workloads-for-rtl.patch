@@ -1,0 +1,1615 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Bound SKL workload data volume for RTL execution
+Purpose: Preserve every case while bounding repeated dimensions for the single functional profile.
+SPDX-License-Identifier: Apache-2.0 AND MIT
+
+Apply only to the pinned SKL build-local copy; retain upstream notices.
+
+diff --git a/test/depthwise_conv2d/rvv/depthwise_conv2d_f16_f16_f16_zvfh.c b/test/depthwise_conv2d/rvv/depthwise_conv2d_f16_f16_f16_zvfh.c
+--- a/test/depthwise_conv2d/rvv/depthwise_conv2d_f16_f16_f16_zvfh.c
++++ b/test/depthwise_conv2d/rvv/depthwise_conv2d_f16_f16_f16_zvfh.c
+@@ -49,16 +49,16 @@
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+   {BENCH, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+   {BENCH, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+@@ -70,122 +70,122 @@
+   /* depth_multiplier = 1, dilation = 1, stride = 1 */
+   /* Test generic kernel */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+   /* Test specialized 3x3 kernel */
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 1, dilation = 1, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 1, .dilation_width_factor = 1
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 512, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 1, .dilation_width_factor = 1
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 1, dilation = 2, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 1, .stride_width = 1,
++   .dilation_height_factor = 2, .dilation_width_factor = 2
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+ 
+   /* depth_multiplier = 1, dilation = 2, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 512, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 2, .dilation_width_factor = 2
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+ 
+   /* depth_multiplier = 2, dilation = 1, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 2, dilation = 1, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 1024, 
+-   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 1, .dilation_width_factor = 1
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 1024, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 34,
++   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 1, .dilation_width_factor = 1
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 2, dilation = 2, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+ 
+   /* depth_multiplier = 2, dilation = 2, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 1024, 
+-   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 1024, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 34,
++   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 2, .dilation_width_factor = 2
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+@@ -193,17 +193,17 @@
+   /* depth_multiplier = 1, dilation = 1, stride = 1, channel < vlmax */
+   /* Test generic kernel */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 15, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 15, 
++   .input_height = 8, .input_width = 8, .input_channel = 15,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 15,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+   /* Test specialized 3x3 kernel */
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 15, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 15, 
++   .input_height = 8, .input_width = 8, .input_channel = 15,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 15,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+diff --git a/test/depthwise_conv2d/rvv/depthwise_conv2d_f32_f32_f32_zve32f.c b/test/depthwise_conv2d/rvv/depthwise_conv2d_f32_f32_f32_zve32f.c
+--- a/test/depthwise_conv2d/rvv/depthwise_conv2d_f32_f32_f32_zve32f.c
++++ b/test/depthwise_conv2d/rvv/depthwise_conv2d_f32_f32_f32_zve32f.c
+@@ -49,16 +49,16 @@
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+   {BENCH, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+   {BENCH, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+@@ -70,122 +70,122 @@
+   /* depth_multiplier = 1, dilation = 1, stride = 1 */
+   /* Test generic kernel */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+   /* Test specialized 3x3 kernel */
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 1, dilation = 1, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 1, .dilation_width_factor = 1
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 512, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 1, .dilation_width_factor = 1
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 1, dilation = 2, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 1, .stride_width = 1,
++   .dilation_height_factor = 2, .dilation_width_factor = 2
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+ 
+   /* depth_multiplier = 1, dilation = 2, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 512, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 2, .dilation_width_factor = 2
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+ 
+   /* depth_multiplier = 2, dilation = 1, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 2, dilation = 1, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 1024, 
+-   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 1, .dilation_width_factor = 1
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 1024, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 34,
++   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 1, .dilation_width_factor = 1
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+ 
+   /* depth_multiplier = 2, dilation = 2, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+ 
+   /* depth_multiplier = 2, dilation = 2, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 1024, 
+-   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 1024, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 34,
++   .depth_multiplier = 2, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 2, .dilation_width_factor = 2
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2
+   },
+@@ -193,17 +193,17 @@
+   /* depth_multiplier = 1, dilation = 1, stride = 1, channel < vlmax */
+   /* Test generic kernel */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 15, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 15, 
++   .input_height = 8, .input_width = 8, .input_channel = 15,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 15,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+   /* Test specialized 3x3 kernel */
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 15, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 15, 
++   .input_height = 8, .input_width = 8, .input_channel = 15,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 15,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1
+   },
+diff --git a/test/depthwise_conv2d/rvv/depthwise_conv2d_i8_i8_i32_zve32x.c b/test/depthwise_conv2d/rvv/depthwise_conv2d_i8_i8_i32_zve32x.c
+--- a/test/depthwise_conv2d/rvv/depthwise_conv2d_i8_i8_i32_zve32x.c
++++ b/test/depthwise_conv2d/rvv/depthwise_conv2d_i8_i8_i32_zve32x.c
+@@ -50,17 +50,17 @@
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+ {BENCH, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+   },
+ {BENCH, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+@@ -73,18 +73,18 @@
+   /* depth_multiplier = 1, dilation = 1, stride = 1 */
+   /* Test generic kernel */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+   },
+   /* Test specialized 3x3 kernel */
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+@@ -92,17 +92,17 @@
+ 
+   /* depth_multiplier = 1, dilation = 1, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 1, .dilation_width_factor = 1,
+-   .input_zero_point = 0
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 512, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 1, .dilation_width_factor = 1,
++   .input_zero_point = 0
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+@@ -110,17 +110,17 @@
+ 
+   /* depth_multiplier = 1, dilation = 2, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2,
+-   .input_zero_point = 0
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 512, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 1, .stride_width = 1,
++   .dilation_height_factor = 2, .dilation_width_factor = 2,
++   .input_zero_point = 0
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2,
+    .input_zero_point = 0
+@@ -128,17 +128,17 @@
+ 
+   /* depth_multiplier = 1, dilation = 2, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 512, 
+-   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+-   .dilation_height_factor = 2, .dilation_width_factor = 2,
+-   .input_zero_point = 0
+-  },
+-  {TEST, .use_specialization = 1,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 512, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 17,
++   .depth_multiplier = 1, .stride_height = 2, .stride_width = 2,
++   .dilation_height_factor = 2, .dilation_width_factor = 2,
++   .input_zero_point = 0
++  },
++  {TEST, .use_specialization = 1,
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 17,
+    .depth_multiplier = 1, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2,
+    .input_zero_point = 0
+@@ -146,9 +146,9 @@
+ 
+   /* depth_multiplier = 2, dilation = 1, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+@@ -156,9 +156,9 @@
+ 
+   /* depth_multiplier = 2, dilation = 1, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 7, .output_width = 7, .output_channel = 1024, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 3, .output_width = 3, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+@@ -166,9 +166,9 @@
+ 
+   /* depth_multiplier = 2, dilation = 2, stride = 1 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 12, .output_width = 12, .output_channel = 1024, 
++   .input_height = 8, .input_width = 8, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 4, .output_width = 4, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2,
+    .input_zero_point = 0
+@@ -176,9 +176,9 @@
+ 
+   /* depth_multiplier = 2, dilation = 2, stride = 2 */
+   {TEST, .use_specialization = 0,
+-   .input_height = 15, .input_width = 15, .input_channel = 512, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 6, .output_width = 6, .output_channel = 1024, 
++   .input_height = 7, .input_width = 7, .input_channel = 17,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 2, .output_width = 2, .output_channel = 34,
+    .depth_multiplier = 2, .stride_height = 2, .stride_width = 2, 
+    .dilation_height_factor = 2, .dilation_width_factor = 2,
+    .input_zero_point = 0
+@@ -187,18 +187,18 @@
+   /* depth_multiplier = 1, dilation = 1, stride = 1, channel < vlmax */
+   /* Test generic kernel */
+   {TEST, .use_specialization = 0,
+-   .input_height = 16, .input_width = 16, .input_channel = 15, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 15, 
++   .input_height = 8, .input_width = 8, .input_channel = 15,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 15,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+   },
+   /* Test specialized 3x3 kernel */
+   {TEST, .use_specialization = 1,
+-   .input_height = 16, .input_width = 16, .input_channel = 15, 
+-   .filter_height = 3, .filter_width = 3, 
+-   .output_height = 14, .output_width = 14, .output_channel = 15, 
++   .input_height = 8, .input_width = 8, .input_channel = 15,
++   .filter_height = 3, .filter_width = 3,
++   .output_height = 6, .output_width = 6, .output_channel = 15,
+    .depth_multiplier = 1, .stride_height = 1, .stride_width = 1, 
+    .dilation_height_factor = 1, .dilation_width_factor = 1,
+    .input_zero_point = 0
+diff --git a/test/elementwise/unary_bf16.h b/test/elementwise/unary_bf16.h
+--- a/test/elementwise/unary_bf16.h
++++ b/test/elementwise/unary_bf16.h
+@@ -48,8 +48,8 @@
+ void unary_bf16_report(skl_test_t *t);
+ void unary_bf16_cleanup(skl_test_t *t);
+ 
+-#define UNARY_BF16_TEST_DEFAULTS .in = {.len = 65536, .mode = SKL_TEST_RANDOM}
+-#define UNARY_BF16_BENCH_DEFAULTS .in = {.len = 1024, .mode = SKL_TEST_SEQ}
++#define UNARY_BF16_TEST_DEFAULTS .in = {.len = 257, .mode = SKL_TEST_RANDOM}
++#define UNARY_BF16_BENCH_DEFAULTS .in = {.len = 257, .mode = SKL_TEST_SEQ}
+ #define BASIC_STEPS                                                            \
+   .steps = {                                                                   \
+       .init = unary_bf16_init,                                                 \
+diff --git a/test/elementwise/unary_f16.h b/test/elementwise/unary_f16.h
+--- a/test/elementwise/unary_f16.h
++++ b/test/elementwise/unary_f16.h
+@@ -48,8 +48,8 @@
+ void unary_f16_report(skl_test_t *t);
+ void unary_f16_cleanup(skl_test_t *t);
+ 
+-#define UNARY_FP16_TEST_DEFAULTS .in = {.len = 16384, .mode = SKL_TEST_RANDOM}
+-#define UNARY_FP16_BENCH_DEFAULTS .in = {.len = 1024, .mode = SKL_TEST_SEQ}
++#define UNARY_FP16_TEST_DEFAULTS .in = {.len = 257, .mode = SKL_TEST_RANDOM}
++#define UNARY_FP16_BENCH_DEFAULTS .in = {.len = 257, .mode = SKL_TEST_SEQ}
+ #define BASIC_STEPS                                                            \
+   .steps = {                                                                   \
+       .init = unary_f16_init,                                                  \
+diff --git a/test/elementwise/unary_f32.h b/test/elementwise/unary_f32.h
+--- a/test/elementwise/unary_f32.h
++++ b/test/elementwise/unary_f32.h
+@@ -50,8 +50,8 @@
+ void unary_f32_report(skl_test_t *t);
+ void unary_f32_cleanup(skl_test_t *t);
+ 
+-#define UNARY_F32_TEST_DEFAULTS .in = {.len = 65536, .mode = SKL_TEST_RANDOM}
+-#define UNARY_F32_BENCH_DEFAULTS .in = {.len = 1024, .mode = SKL_TEST_SEQ}
++#define UNARY_F32_TEST_DEFAULTS .in = {.len = 257, .mode = SKL_TEST_RANDOM}
++#define UNARY_F32_BENCH_DEFAULTS .in = {.len = 257, .mode = SKL_TEST_SEQ}
+ #define BASIC_STEPS                                                            \
+   .steps = {                                                                   \
+       .init = unary_f32_init,                                                  \
+diff --git a/test/gemm/rvv/skl_gemm_f16_f16_f16_zvfh.c b/test/gemm/rvv/skl_gemm_f16_f16_f16_zvfh.c
+--- a/test/gemm/rvv/skl_gemm_f16_f16_f16_zvfh.c
++++ b/test/gemm/rvv/skl_gemm_f16_f16_f16_zvfh.c
+@@ -50,7 +50,7 @@
+ gemm_f16rcprc_f16rcprc_f16rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+-    {BENCH, .m1 =  64, .n1 = 128, .k1 = 128, .alpha = (_Float16) 1.f},
++    {BENCH, .m1 =  7, .n1 = 17, .k1 = 19, .alpha = (_Float16) 1.f},
+ #endif // SKL_ENABLE_BENCHMARKS
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -61,31 +61,31 @@
+ 
+     /* Small odd dimensions for remainder handling */
+     {TEST, .m1 = 7,   .n1 = 7,   .k1 = 7,  .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 17,  .n1 = 17,  .k1 = 17, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 9,  .n1 = 17,  .k1 = 9, .alpha = (_Float16) 2.f},
+ 
+     /* Skinny matrices (one dimension = 1) */
+-    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 31, .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 33,  .n1 = 1,   .k1 = 31, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 11, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 9,  .n1 = 1,   .k1 = 11, .alpha = (_Float16) 2.f},
+ 
+     /* k=0 edge case (C = beta*C, no A*B contribution) */
+-    {TEST, .m1 = 33,  .n1 = 33,  .k1 = 0,  .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 0,  .alpha = (_Float16) 2.f,  .beta = (_Float16) 3.f},
++    {TEST, .m1 = 9,  .n1 = 33,  .k1 = 0,  .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 0,  .alpha = (_Float16) 2.f,  .beta = (_Float16) 3.f},
+ 
+     /* Vector length boundary tests (multiples of 4, 8, 16, 32) */
+-    {TEST, .m1 = 16,  .n1 = 256, .k1 = 16, .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 32,  .n1 = 512, .k1 = 32, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 8,  .n1 = 256, .k1 = 8, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 8,  .n1 = 512, .k1 = 8, .alpha = (_Float16) 2.f},
+ 
+     /* Near-boundary tests (±1 from vector length multiples) */
+-    {TEST, .m1 = 15,  .n1 = 255, .k1 = 31, .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 31,  .n1 = 257, .k1 = 15, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 11,  .n1 = 255, .k1 = 11, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 11,  .n1 = 257, .k1 = 11, .alpha = (_Float16) 2.f},
+ 
+     /* Wide and tall matrices */
+-    {TEST, .m1 = 33,  .n1 = 129, .k1 = 32, .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 129, .n1 = 33,  .k1 = 32, .alpha = (_Float16) 2.f},
+-    {TEST, .m1 = 31,  .n1 = 133, .k1 = 32, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 9,  .n1 = 129, .k1 = 8, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 9, .n1 = 33,  .k1 = 8, .alpha = (_Float16) 2.f},
++    {TEST, .m1 = 11,  .n1 = 133, .k1 = 8, .alpha = (_Float16) 2.f},
+ 
+     /* Beta scaling test */
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = (_Float16) 2.f,  .beta = (_Float16) 3.f},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = (_Float16) 2.f,  .beta = (_Float16) 3.f},
+ #endif // SKL_ENABLE_TESTS
+ };
+ // clang-format on
+diff --git a/test/gemm/rvv/skl_gemm_f16_f16_f32_zvfh.c b/test/gemm/rvv/skl_gemm_f16_f16_f32_zvfh.c
+--- a/test/gemm/rvv/skl_gemm_f16_f16_f32_zvfh.c
++++ b/test/gemm/rvv/skl_gemm_f16_f16_f32_zvfh.c
+@@ -50,7 +50,7 @@
+ gemm_f16rcprc_f16rcprc_f32rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+-    {BENCH, .m1 =  64, .n1 = 128, .k1 = 128, .alpha = 1.f},
++    {BENCH, .m1 =  7, .n1 = 17, .k1 = 19, .alpha = 1.f},
+ #endif // SKL_ENABLE_BENCHMARKS
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -61,32 +61,32 @@
+ 
+     /* Small odd dimensions for remainder handling */
+     {TEST, .m1 = 7,   .n1 = 7,   .k1 = 7,  .alpha = 2.f},
+-    {TEST, .m1 = 17,  .n1 = 17,  .k1 = 17, .alpha = 2.f},
++    {TEST, .m1 = 9,  .n1 = 17,  .k1 = 9, .alpha = 2.f},
+ 
+     /* GEMV (m1 == 1) */
+-    {TEST, .m1 = 1,   .n1 = 255, .k1 = 31, .alpha = 2.f},
+-    {TEST, .m1 = 1,   .n1 = 256, .k1 = 31, .alpha = 2.f},
+-    {TEST, .m1 = 1,   .n1 = 257, .k1 = 31, .alpha = 2.f},
++    {TEST, .m1 = 1,   .n1 = 255, .k1 = 11, .alpha = 2.f},
++    {TEST, .m1 = 1,   .n1 = 256, .k1 = 11, .alpha = 2.f},
++    {TEST, .m1 = 1,   .n1 = 257, .k1 = 11, .alpha = 2.f},
+ 
+     /* k1 == 0 edge case (C = beta*C, no A*B contribution) */
+     {TEST, .m1 =  1,  .n1 = 33,  .k1 = 0,  .alpha = 2.f,  .beta = 2.f},
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 0,  .alpha = 2.f,  .beta = 2.f},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 0,  .alpha = 2.f,  .beta = 2.f},
+ 
+     /* Vector length boundary tests (multiples of 4, 8, 16, 32) */
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 16, .alpha = 2.f},
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 2.f},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 8, .alpha = 2.f},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 2.f},
+ 
+     /* Near-boundary tests (±1 from vector length multiples) */
+-    {TEST, .m1 = 15,  .n1 = 17,  .k1 = 31, .alpha = 2.f},
+-    {TEST, .m1 = 31,  .n1 = 33,  .k1 = 15, .alpha = 2.f},
++    {TEST, .m1 = 11,  .n1 = 17,  .k1 = 11, .alpha = 2.f},
++    {TEST, .m1 = 11,  .n1 = 33,  .k1 = 11, .alpha = 2.f},
+ 
+     /* Wide and tall matrices */
+-    {TEST, .m1 = 33,  .n1 = 129, .k1 = 32, .alpha = 2.f},
+-    {TEST, .m1 = 129, .n1 = 33,  .k1 = 32, .alpha = 2.f},
+-    {TEST, .m1 = 31,  .n1 = 133, .k1 = 32, .alpha = 2.f},
++    {TEST, .m1 = 9,  .n1 = 129, .k1 = 8, .alpha = 2.f},
++    {TEST, .m1 = 9, .n1 = 33,  .k1 = 8, .alpha = 2.f},
++    {TEST, .m1 = 11,  .n1 = 133, .k1 = 8, .alpha = 2.f},
+ 
+     /* No beta scaling tests (beta=1, accumulate into existing C) */
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 2.f,  .beta = 1.f},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 2.f,  .beta = 1.f},
+ #endif // SKL_ENABLE_TESTS
+ };
+ // clang-format on
+diff --git a/test/gemm/rvv/skl_gemm_f32_f32_f32_zve32f.c b/test/gemm/rvv/skl_gemm_f32_f32_f32_zve32f.c
+--- a/test/gemm/rvv/skl_gemm_f32_f32_f32_zve32f.c
++++ b/test/gemm/rvv/skl_gemm_f32_f32_f32_zve32f.c
+@@ -50,7 +50,7 @@
+ gemm_f32rcprc_f32rcprc_f32rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+-    {BENCH, .m1 =  64, .n1 = 128, .k1 = 128, .alpha = 1.f},
++    {BENCH, .m1 =  7, .n1 = 17, .k1 = 19, .alpha = 1.f},
+ #endif // SKL_ENABLE_BENCHMARKS
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -60,30 +60,30 @@
+     {TEST, .m1 = 1,   .n1 = 1,   .k1 = 1,  .alpha = 1.f},
+     /* Small odd dimensions for remainder handling */
+     {TEST, .m1 = 7,   .n1 = 7,   .k1 = 7,  .alpha = 1.f},
+-    {TEST, .m1 = 17,  .n1 = 17,  .k1 = 17, .alpha = 1.f},
++    {TEST, .m1 = 9,  .n1 = 17,  .k1 = 9, .alpha = 1.f},
+     /* Padded leading dimensions */
+-    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 13, .alpha = 1.f,  .rsa1 = 14, .rsb1 = 17, .rsc1 = 17},
+-    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 13, .alpha = 1.f,  .rsa1 = 13, .rsb1 = 18, .rsc1 = 17},
+-    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 13, .alpha = 1.f,  .rsa1 = 13, .rsb1 = 17, .rsc1 = 18},
+-    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 13, .alpha = 1.f,  .rsa1 = 14, .rsb1 = 18, .rsc1 = 18},
++    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 9, .alpha = 1.f,  .rsa1 = 14, .rsb1 = 17, .rsc1 = 17},
++    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 9, .alpha = 1.f,  .rsa1 = 13, .rsb1 = 18, .rsc1 = 17},
++    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 9, .alpha = 1.f,  .rsa1 = 13, .rsb1 = 17, .rsc1 = 18},
++    {TEST, .m1 = 7,   .n1 = 17,  .k1 = 9, .alpha = 1.f,  .rsa1 = 14, .rsb1 = 18, .rsc1 = 18},
+     /* Skinny matrices (one dimension = 1) */
+-    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 31, .alpha = 1.f},
+-    {TEST, .m1 = 33,  .n1 = 1,   .k1 = 31, .alpha = 1.f},
++    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 11, .alpha = 1.f},
++    {TEST, .m1 = 9,  .n1 = 1,   .k1 = 11, .alpha = 1.f},
+     /* k=0 edge case (C = beta*C, no A*B contribution) */
+-    {TEST, .m1 = 33,  .n1 = 33,  .k1 = 0,  .alpha = 1.f},
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 0,  .alpha = 1.f,  .beta = 1.f},
++    {TEST, .m1 = 9,  .n1 = 33,  .k1 = 0,  .alpha = 1.f},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 0,  .alpha = 1.f,  .beta = 1.f},
+     /* Vector length boundary tests (multiples of 4, 8, 16, 32) */
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 16, .alpha = 1.f},
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 1.f},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 8, .alpha = 1.f},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 1.f},
+     /* Near-boundary tests (±1 from vector length multiples) */
+-    {TEST, .m1 = 15,  .n1 = 17,  .k1 = 31, .alpha = 1.f},
+-    {TEST, .m1 = 31,  .n1 = 33,  .k1 = 15, .alpha = 1.f},
++    {TEST, .m1 = 11,  .n1 = 17,  .k1 = 11, .alpha = 1.f},
++    {TEST, .m1 = 11,  .n1 = 33,  .k1 = 11, .alpha = 1.f},
+     /* Wide and tall matrices */
+-    {TEST, .m1 = 33,  .n1 = 129, .k1 = 32, .alpha = 1.f},
+-    {TEST, .m1 = 129, .n1 = 33,  .k1 = 32, .alpha = 1.f},
+-    {TEST, .m1 = 31,  .n1 = 133, .k1 = 32, .alpha = 1.f},
++    {TEST, .m1 = 9,  .n1 = 129, .k1 = 8, .alpha = 1.f},
++    {TEST, .m1 = 9, .n1 = 33,  .k1 = 8, .alpha = 1.f},
++    {TEST, .m1 = 11,  .n1 = 133, .k1 = 8, .alpha = 1.f},
+     /* Beta scaling test (beta=1, accumulate into existing C) */
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 1.f,  .beta = 1.f},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 1.f,  .beta = 1.f},
+ #endif // SKL_ENABLE_TESTS
+ };
+ // clang-format on
+diff --git a/test/gemm/rvv/skl_gemm_f64_f64_f64_zve64d.c b/test/gemm/rvv/skl_gemm_f64_f64_f64_zve64d.c
+--- a/test/gemm/rvv/skl_gemm_f64_f64_f64_zve64d.c
++++ b/test/gemm/rvv/skl_gemm_f64_f64_f64_zve64d.c
+@@ -50,7 +50,7 @@
+ gemm_f64rcprc_f64rcprc_f64rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+-    {BENCH, .m1 =  64, .n1 = 128, .k1 = 128, .alpha = 1.0},
++    {BENCH, .m1 =  7, .n1 = 17, .k1 = 19, .alpha = 1.0},
+ #endif // SKL_ENABLE_BENCHMARKS
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -61,31 +61,31 @@
+ 
+     /* Small odd dimensions for remainder handling */
+     {TEST, .m1 = 7,   .n1 = 7,   .k1 = 7,  .alpha = 2.0},
+-    {TEST, .m1 = 17,  .n1 = 17,  .k1 = 17, .alpha = 2.0},
++    {TEST, .m1 = 9,  .n1 = 17,  .k1 = 9, .alpha = 2.0},
+ 
+     /* Skinny matrices (one dimension = 1) */
+-    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 31, .alpha = 2.0},
+-    {TEST, .m1 = 33,  .n1 = 1,   .k1 = 31, .alpha = 2.0},
++    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 11, .alpha = 2.0},
++    {TEST, .m1 = 9,  .n1 = 1,   .k1 = 11, .alpha = 2.0},
+ 
+     /* k=0 edge case (C = beta*C, no A*B contribution) */
+-    {TEST, .m1 = 33,  .n1 = 33,  .k1 = 0,  .alpha = 2.0},
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 0,  .alpha = 2.0,  .beta = 3.0},
++    {TEST, .m1 = 9,  .n1 = 33,  .k1 = 0,  .alpha = 2.0},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 0,  .alpha = 2.0,  .beta = 3.0},
+ 
+     /* Vector length boundary tests (multiples of 4, 8, 16, 32) */
+-    {TEST, .m1 = 16,  .n1 =  64, .k1 = 16, .alpha = 2.0},
+-    {TEST, .m1 = 32,  .n1 = 128, .k1 = 32, .alpha = 2.0},
++    {TEST, .m1 = 8,  .n1 =  32, .k1 = 8, .alpha = 2.0},
++    {TEST, .m1 = 8,  .n1 = 32, .k1 = 8, .alpha = 2.0},
+ 
+     /* Near-boundary tests (±1 from vector length multiples) */
+-    {TEST, .m1 = 15,  .n1 = 63,  .k1 = 31, .alpha = 2.0},
+-    {TEST, .m1 = 31,  .n1 = 65,  .k1 = 15, .alpha = 2.0},
++    {TEST, .m1 = 11,  .n1 = 31,  .k1 = 11, .alpha = 2.0},
++    {TEST, .m1 = 11,  .n1 = 33,  .k1 = 11, .alpha = 2.0},
+ 
+     /* Wide and tall matrices */
+-    {TEST, .m1 = 33,  .n1 = 129, .k1 = 32, .alpha = 2.0},
+-    {TEST, .m1 = 129, .n1 = 33,  .k1 = 32, .alpha = 2.0},
+-    {TEST, .m1 = 31,  .n1 = 133, .k1 = 32, .alpha = 2.0},
++    {TEST, .m1 = 9,  .n1 = 33, .k1 = 8, .alpha = 2.0},
++    {TEST, .m1 = 9, .n1 = 33,  .k1 = 8, .alpha = 2.0},
++    {TEST, .m1 = 11,  .n1 = 37, .k1 = 8, .alpha = 2.0},
+ 
+     /* Beta scaling test */
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 2.0,  .beta = 3.0},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 2.0,  .beta = 3.0},
+ #endif // SKL_ENABLE_TESTS
+ };
+ // clang-format on
+diff --git a/test/gemm/rvv/skl_gemm_i8_i8_i32_zve32x.c b/test/gemm/rvv/skl_gemm_i8_i8_i32_zve32x.c
+--- a/test/gemm/rvv/skl_gemm_i8_i8_i32_zve32x.c
++++ b/test/gemm/rvv/skl_gemm_i8_i8_i32_zve32x.c
+@@ -50,7 +50,7 @@
+ gemm_i8rcprc_i8rcprc_i32rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+-    {BENCH, .m1 =  64, .n1 = 128, .k1 = 128, .alpha = 1},
++    {BENCH, .m1 =  7, .n1 = 17, .k1 = 19, .alpha = 1},
+ #endif // SKL_ENABLE_BENCHMARKS
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -60,25 +60,25 @@
+     {TEST, .m1 = 1,   .n1 = 1,   .k1 = 1,  .alpha = 1},
+     /* Small odd dimensions for remainder handling */
+     {TEST, .m1 = 7,   .n1 = 7,   .k1 = 7,  .alpha = 1},
+-    {TEST, .m1 = 17,  .n1 = 17,  .k1 = 17, .alpha = 1},
++    {TEST, .m1 = 9,  .n1 = 17,  .k1 = 9, .alpha = 1},
+     /* Skinny matrices (one dimension = 1) */
+-    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 31, .alpha = 1},
+-    {TEST, .m1 = 33,  .n1 = 1,   .k1 = 31, .alpha = 1},
++    {TEST, .m1 = 1,   .n1 = 33,  .k1 = 11, .alpha = 1},
++    {TEST, .m1 = 9,  .n1 = 1,   .k1 = 11, .alpha = 1},
+     /* k=0 edge case (C = beta*C, no A*B contribution) */
+-    {TEST, .m1 = 33,  .n1 = 33,  .k1 = 0,  .alpha = 1},
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 0,  .alpha = 1,  .beta = 1},
++    {TEST, .m1 = 9,  .n1 = 33,  .k1 = 0,  .alpha = 1},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 0,  .alpha = 1,  .beta = 1},
+     /* Vector length boundary tests (multiples of 4, 8, 16, 32) */
+-    {TEST, .m1 = 16,  .n1 = 16,  .k1 = 16, .alpha = 1},
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 1},
++    {TEST, .m1 = 8,  .n1 = 16,  .k1 = 8, .alpha = 1},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 1},
+     /* Near-boundary tests (±1 from vector length multiples) */
+-    {TEST, .m1 = 15,  .n1 = 17,  .k1 = 31, .alpha = 1},
+-    {TEST, .m1 = 31,  .n1 = 33,  .k1 = 15, .alpha = 1},
++    {TEST, .m1 = 11,  .n1 = 17,  .k1 = 11, .alpha = 1},
++    {TEST, .m1 = 11,  .n1 = 33,  .k1 = 11, .alpha = 1},
+     /* Wide and tall matrices */
+-    {TEST, .m1 = 33,  .n1 = 129, .k1 = 32, .alpha = 1},
+-    {TEST, .m1 = 129, .n1 = 33,  .k1 = 32, .alpha = 1},
+-    {TEST, .m1 = 31,  .n1 = 133, .k1 = 32, .alpha = 1},
++    {TEST, .m1 = 9,  .n1 = 129, .k1 = 8, .alpha = 1},
++    {TEST, .m1 = 9, .n1 = 33,  .k1 = 8, .alpha = 1},
++    {TEST, .m1 = 11,  .n1 = 133, .k1 = 8, .alpha = 1},
+     /* Beta scaling test (beta=1, accumulate into existing C) */
+-    {TEST, .m1 = 32,  .n1 = 32,  .k1 = 32, .alpha = 1,  .beta = 1},
++    {TEST, .m1 = 8,  .n1 = 32,  .k1 = 8, .alpha = 1,  .beta = 1},
+ #endif // SKL_ENABLE_TESTS
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_pack_e16rc_e16rcprc_zve32x.c b/test/pack/rvv/skl_pack_e16rc_e16rcprc_zve32x.c
+--- a/test/pack/rvv/skl_pack_e16rc_e16rcprc_zve32x.c
++++ b/test/pack/rvv/skl_pack_e16rc_e16rcprc_zve32x.c
+@@ -47,7 +47,7 @@
+ pack_e16rc_e16rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+-  {BENCH, .m = 128, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
++  {BENCH, .m = 16, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64},
+ #endif
+ 
+@@ -135,28 +135,28 @@
+    .rs0 = 4, .cs0 = 1, .rs1 = 12, .cs1 = 4},
+ 
+   /* Larger matrices */
+-  {TEST, .m = 64, .n = 64, .rs = 64, .cs = 1, .m0 = 8, .n0 = 8,
++  {TEST, .m = 16, .n = 64, .rs = 64, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 512, .cs1 = 64},
+-  {TEST, .m = 128, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
++  {TEST, .m = 16, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64},
+ 
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072},
+ 
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_pack_e32rc_e32rcprc_zve32x.c b/test/pack/rvv/skl_pack_e32rc_e32rcprc_zve32x.c
+--- a/test/pack/rvv/skl_pack_e32rc_e32rcprc_zve32x.c
++++ b/test/pack/rvv/skl_pack_e32rc_e32rcprc_zve32x.c
+@@ -47,7 +47,7 @@
+ pack_e32rc_e32rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+-  {BENCH, .m = 128, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
++  {BENCH, .m = 16, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64},
+ #endif
+ 
+@@ -135,28 +135,28 @@
+    .rs0 = 4, .cs0 = 1, .rs1 = 12, .cs1 = 4},
+ 
+   /* Larger matrices */
+-  {TEST, .m = 64, .n = 64, .rs = 64, .cs = 1, .m0 = 8, .n0 = 8,
++  {TEST, .m = 16, .n = 64, .rs = 64, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 512, .cs1 = 64},
+-  {TEST, .m = 128, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
++  {TEST, .m = 16, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64},
+ 
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072},
+ 
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_pack_e8rc_e8rcprc_zve32x.c b/test/pack/rvv/skl_pack_e8rc_e8rcprc_zve32x.c
+--- a/test/pack/rvv/skl_pack_e8rc_e8rcprc_zve32x.c
++++ b/test/pack/rvv/skl_pack_e8rc_e8rcprc_zve32x.c
+@@ -47,7 +47,7 @@
+ pack_e8rc_e8rcprc_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+-  {BENCH, .m = 128, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
++  {BENCH, .m = 16, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64},
+ #endif
+ 
+@@ -135,28 +135,28 @@
+    .rs0 = 4, .cs0 = 1, .rs1 = 12, .cs1 = 4},
+ 
+   /* Larger matrices */
+-  {TEST, .m = 64, .n = 64, .rs = 64, .cs = 1, .m0 = 8, .n0 = 8,
++  {TEST, .m = 16, .n = 64, .rs = 64, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 512, .cs1 = 64},
+-  {TEST, .m = 128, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
++  {TEST, .m = 16, .n = 128, .rs = 128, .cs = 1, .m0 = 8, .n0 = 8,
+    .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64},
+ 
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 200, .cs = 1, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 40, .cs = 1, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072},
+ 
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024},
+-  {TEST, .m = 300, .n = 200, .rs = 1, .cs = 300, .m0 = 64, .n0 = 16,
+-   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024},
++  {TEST, .m = 172, .n = 40, .rs = 1, .cs = 172, .m0 = 64, .n0 = 16,
++   .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_transpose_e16_zve32x.c b/test/pack/rvv/skl_transpose_e16_zve32x.c
+--- a/test/pack/rvv/skl_transpose_e16_zve32x.c
++++ b/test/pack/rvv/skl_transpose_e16_zve32x.c
+@@ -45,7 +45,7 @@
+ transpose_e16_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+-  {BENCH, .m = 128, .n = 128},
++  {BENCH, .m = 16, .n = 128},
+ #endif
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -57,34 +57,34 @@
+   {TEST, .m =   1, .n =   1},
+ 
+   /* Almost square, dimensions near powers of 2 */
+-  {TEST, .m =  63, .n =  64},
+-  {TEST, .m =  64, .n =  63},
+-  {TEST, .m =  64, .n =  64},
+-  {TEST, .m =  64, .n =  65},
+-  {TEST, .m =  65, .n =  64},
++  {TEST, .m =  31, .n =  64},
++  {TEST, .m =  16, .n =  63},
++  {TEST, .m =  16, .n =  64},
++  {TEST, .m =  16, .n =  65},
++  {TEST, .m =  17, .n =  64},
+ 
+-  {TEST, .m = 127, .n = 128},
+-  {TEST, .m = 128, .n = 127},
+-  {TEST, .m = 128, .n = 128},
+-  {TEST, .m = 128, .n = 129},
+-  {TEST, .m = 129, .n = 128},
++  {TEST, .m = 31, .n = 128},
++  {TEST, .m = 16, .n = 127},
++  {TEST, .m = 16, .n = 128},
++  {TEST, .m = 16, .n = 129},
++  {TEST, .m = 17, .n = 128},
+ 
+-  {TEST, .m = 255, .n = 256},
+-  {TEST, .m = 256, .n = 255},
+-  {TEST, .m = 256, .n = 256},
+-  {TEST, .m = 256, .n = 257},
+-  {TEST, .m = 257, .n = 256},
++  {TEST, .m = 31, .n = 256},
++  {TEST, .m = 16, .n = 255},
++  {TEST, .m = 16, .n = 256},
++  {TEST, .m = 16, .n = 257},
++  {TEST, .m = 17, .n = 256},
+ 
+   /* Wide/tall matrices */
+   {TEST, .m =   1, .n = 128},
+   {TEST, .m =   2, .n = 128},
+-  {TEST, .m = 128, .n =   1},
+-  {TEST, .m = 128, .n =   2},
++  {TEST, .m = 16, .n =   1},
++  {TEST, .m = 16, .n =   2},
+ 
+   /* Nontrivial leading dimensions */
+-  {TEST, .m = 128, .n = 128, .rsa = 256, .rsat = 256},
+-  {TEST, .m = 256, .n = 128, .rsa = 256, .rsat = 256},
+-  {TEST, .m = 128, .n = 256, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 128, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 128, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 256, .rsa = 256, .rsat = 256},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_transpose_e32_zve32x.c b/test/pack/rvv/skl_transpose_e32_zve32x.c
+--- a/test/pack/rvv/skl_transpose_e32_zve32x.c
++++ b/test/pack/rvv/skl_transpose_e32_zve32x.c
+@@ -45,7 +45,7 @@
+ transpose_e32_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+-  {BENCH, .m = 128, .n = 128},
++  {BENCH, .m = 16, .n = 128},
+ #endif
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -57,34 +57,34 @@
+   {TEST, .m =   1, .n =   1},
+ 
+   /* Almost square, dimensions near powers of 2 */
+-  {TEST, .m =  63, .n =  64},
+-  {TEST, .m =  64, .n =  63},
+-  {TEST, .m =  64, .n =  64},
+-  {TEST, .m =  64, .n =  65},
+-  {TEST, .m =  65, .n =  64},
++  {TEST, .m =  31, .n =  64},
++  {TEST, .m =  16, .n =  63},
++  {TEST, .m =  16, .n =  64},
++  {TEST, .m =  16, .n =  65},
++  {TEST, .m =  17, .n =  64},
+ 
+-  {TEST, .m = 127, .n = 128},
+-  {TEST, .m = 128, .n = 127},
+-  {TEST, .m = 128, .n = 128},
+-  {TEST, .m = 128, .n = 129},
+-  {TEST, .m = 129, .n = 128},
++  {TEST, .m = 31, .n = 128},
++  {TEST, .m = 16, .n = 127},
++  {TEST, .m = 16, .n = 128},
++  {TEST, .m = 16, .n = 129},
++  {TEST, .m = 17, .n = 128},
+ 
+-  {TEST, .m = 255, .n = 256},
+-  {TEST, .m = 256, .n = 255},
+-  {TEST, .m = 256, .n = 256},
+-  {TEST, .m = 256, .n = 257},
+-  {TEST, .m = 257, .n = 256},
++  {TEST, .m = 31, .n = 256},
++  {TEST, .m = 16, .n = 255},
++  {TEST, .m = 16, .n = 256},
++  {TEST, .m = 16, .n = 257},
++  {TEST, .m = 17, .n = 256},
+ 
+   /* Wide/tall matrices */
+   {TEST, .m =   1, .n = 128},
+   {TEST, .m =   2, .n = 128},
+-  {TEST, .m = 128, .n =   1},
+-  {TEST, .m = 128, .n =   2},
++  {TEST, .m = 16, .n =   1},
++  {TEST, .m = 16, .n =   2},
+ 
+   /* Nontrivial leading dimensions */
+-  {TEST, .m = 128, .n = 128, .rsa = 256, .rsat = 256},
+-  {TEST, .m = 256, .n = 128, .rsa = 256, .rsat = 256},
+-  {TEST, .m = 128, .n = 256, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 128, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 128, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 256, .rsa = 256, .rsat = 256},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_transpose_e8_zve32x.c b/test/pack/rvv/skl_transpose_e8_zve32x.c
+--- a/test/pack/rvv/skl_transpose_e8_zve32x.c
++++ b/test/pack/rvv/skl_transpose_e8_zve32x.c
+@@ -45,7 +45,7 @@
+ transpose_e8_t tests[] = {
+ #ifdef SKL_ENABLE_BENCHMARKS
+   // Benchmark tests
+-  {BENCH, .m = 128, .n = 128},
++  {BENCH, .m = 16, .n = 128},
+ #endif
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -57,34 +57,34 @@
+   {TEST, .m =   1, .n =   1},
+ 
+   /* Almost square, dimensions near powers of 2 */
+-  {TEST, .m =  63, .n =  64},
+-  {TEST, .m =  64, .n =  63},
+-  {TEST, .m =  64, .n =  64},
+-  {TEST, .m =  64, .n =  65},
+-  {TEST, .m =  65, .n =  64},
++  {TEST, .m =  31, .n =  64},
++  {TEST, .m =  16, .n =  63},
++  {TEST, .m =  16, .n =  64},
++  {TEST, .m =  16, .n =  65},
++  {TEST, .m =  17, .n =  64},
+ 
+-  {TEST, .m = 127, .n = 128},
+-  {TEST, .m = 128, .n = 127},
+-  {TEST, .m = 128, .n = 128},
+-  {TEST, .m = 128, .n = 129},
+-  {TEST, .m = 129, .n = 128},
++  {TEST, .m = 31, .n = 128},
++  {TEST, .m = 16, .n = 127},
++  {TEST, .m = 16, .n = 128},
++  {TEST, .m = 16, .n = 129},
++  {TEST, .m = 17, .n = 128},
+ 
+-  {TEST, .m = 255, .n = 256},
+-  {TEST, .m = 256, .n = 255},
+-  {TEST, .m = 256, .n = 256},
+-  {TEST, .m = 256, .n = 257},
+-  {TEST, .m = 257, .n = 256},
++  {TEST, .m = 31, .n = 256},
++  {TEST, .m = 16, .n = 255},
++  {TEST, .m = 16, .n = 256},
++  {TEST, .m = 16, .n = 257},
++  {TEST, .m = 17, .n = 256},
+ 
+   /* Wide/tall matrices */
+   {TEST, .m =   1, .n = 128},
+   {TEST, .m =   2, .n = 128},
+-  {TEST, .m = 128, .n =   1},
+-  {TEST, .m = 128, .n =   2},
++  {TEST, .m = 16, .n =   1},
++  {TEST, .m = 16, .n =   2},
+ 
+   /* Nontrivial leading dimensions */
+-  {TEST, .m = 128, .n = 128, .rsa = 256, .rsat = 256},
+-  {TEST, .m = 256, .n = 128, .rsa = 256, .rsat = 256},
+-  {TEST, .m = 128, .n = 256, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 128, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 128, .rsa = 256, .rsat = 256},
++  {TEST, .m = 16, .n = 256, .rsa = 256, .rsat = 256},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_unpack_e16rcprc_e16rc_zve32x.c b/test/pack/rvv/skl_unpack_e16rcprc_e16rc_zve32x.c
+--- a/test/pack/rvv/skl_unpack_e16rcprc_e16rc_zve32x.c
++++ b/test/pack/rvv/skl_unpack_e16rcprc_e16rc_zve32x.c
+@@ -49,7 +49,7 @@
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+     {BENCH, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64,
+-     .m = 128, .n = 128, .rs = 128, .cs = 1},
++     .m = 16, .n = 128, .rs = 128, .cs = 1},
+ #endif
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -137,27 +137,27 @@
+ 
+     /* Larger matrices */
+     {TEST, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 512, .cs1 = 64,
+-     .m = 64, .n = 64, .rs = 64, .cs = 1},
++     .m = 16, .n = 64, .rs = 64, .cs = 1},
+     {TEST, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64,
+-     .m = 128, .n = 128, .rs = 128, .cs = 1},
++     .m = 16, .n = 128, .rs = 128, .cs = 1},
+ 
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
+ 
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_unpack_e32rcprc_e32rc_zve32x.c b/test/pack/rvv/skl_unpack_e32rcprc_e32rc_zve32x.c
+--- a/test/pack/rvv/skl_unpack_e32rcprc_e32rc_zve32x.c
++++ b/test/pack/rvv/skl_unpack_e32rcprc_e32rc_zve32x.c
+@@ -49,7 +49,7 @@
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+     {BENCH, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64,
+-     .m = 128, .n = 128, .rs = 128, .cs = 1},
++     .m = 16, .n = 128, .rs = 128, .cs = 1},
+ #endif
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -137,27 +137,27 @@
+ 
+     /* Larger matrices */
+     {TEST, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 512, .cs1 = 64,
+-     .m = 64, .n = 64, .rs = 64, .cs = 1},
++     .m = 16, .n = 64, .rs = 64, .cs = 1},
+     {TEST, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64,
+-     .m = 128, .n = 128, .rs = 128, .cs = 1},
++     .m = 16, .n = 128, .rs = 128, .cs = 1},
+ 
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
+ 
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/pack/rvv/skl_unpack_e8rcprc_e8rc_zve32x.c b/test/pack/rvv/skl_unpack_e8rcprc_e8rc_zve32x.c
+--- a/test/pack/rvv/skl_unpack_e8rcprc_e8rc_zve32x.c
++++ b/test/pack/rvv/skl_unpack_e8rcprc_e8rc_zve32x.c
+@@ -48,7 +48,7 @@
+ #ifdef SKL_ENABLE_BENCHMARKS
+     // Benchmark tests
+     {BENCH, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64,
+-     .m = 128, .n = 128, .rs = 128, .cs = 1},
++     .m = 16, .n = 128, .rs = 128, .cs = 1},
+ #endif
+ 
+ #ifdef SKL_ENABLE_TESTS
+@@ -136,27 +136,27 @@
+ 
+     /* Larger matrices */
+     {TEST, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 512, .cs1 = 64,
+-     .m = 64, .n = 64, .rs = 64, .cs = 1},
++     .m = 16, .n = 64, .rs = 64, .cs = 1},
+     {TEST, .m0 = 8, .n0 = 8, .rs0 = 1, .cs0 = 8, .rs1 = 1024, .cs1 = 64,
+-     .m = 128, .n = 128, .rs = 128, .cs = 1},
++     .m = 16, .n = 128, .rs = 128, .cs = 1},
+ 
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 200, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 40, .cs = 1},
+ 
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 13312, .cs1 = 1024,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
+-    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 5120,
+-     .m = 300, .n = 200, .rs = 1, .cs = 300},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 16, .cs0 = 1, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 3072, .cs1 = 1024,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
++    {TEST, .m0 = 64, .n0 = 16, .rs0 = 1, .cs0 = 64, .rs1 = 1024, .cs1 = 3072,
++     .m = 172, .n = 40, .rs = 1, .cs = 172},
+ #endif
+ };
+ // clang-format on
+diff --git a/test/softmax/softmax_f32.h b/test/softmax/softmax_f32.h
+--- a/test/softmax/softmax_f32.h
++++ b/test/softmax/softmax_f32.h
+@@ -69,7 +69,7 @@
+   BETA_BENCHMARKS(BENCHMARK, BASE_PARAMS(VAR), .m = 1, .n = 1024)
+ 
+ #define VARIANT_2D_BENCHMARKS(VAR)                                             \
+-  BETA_BENCHMARKS(BENCHMARK, BASE_2D_PARAMS(VAR), .m = 128, .n = 128)
++  BETA_BENCHMARKS(BENCHMARK, BASE_2D_PARAMS(VAR), .m = 5, .n = 128)
+ 
+ 
+ #define BETA_TESTS(...)                                                        \
+@@ -93,19 +93,19 @@
+ #define COLS_TESTS(CONTINUE,...)                                               \
+   CONTINUE(1, __VA_ARGS__),                                                    \
+   CONTINUE(27, __VA_ARGS__),                                                   \
+-  CONTINUE(131, __VA_ARGS__),                                                  \
+-  CONTINUE(380, __VA_ARGS__),                                                  \
+-  CONTINUE(732, __VA_ARGS__),                                                  \
+-  CONTINUE(1312, __VA_ARGS__)
++  CONTINUE(67, __VA_ARGS__),                                                  \
++  CONTINUE(60, __VA_ARGS__),                                                  \
++  CONTINUE(28, __VA_ARGS__),                                                  \
++  CONTINUE(64, __VA_ARGS__)
+ 
+ #define SIZE_TESTS(...)                                                        \
+   COLS_TESTS(NAT_TESTS,__VA_ARGS__, .m = 1)
+ 
+ #define ROWS_TESTS(...)                                                        \
+   COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 1),                                 \
+-  COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 12),                                \
+-  COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 37),                                \
+-  COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 135)
++  COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 2),                                \
++  COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 3),                                \
++  COLS_TESTS(ALIGN_TESTS,__VA_ARGS__, .m = 5)
+ 
+ #define ZERO_TESTS(...)                                                        \
+   {__VA_ARGS__, .m = 0, .n = 8, .beta = 1.0f},                                 \

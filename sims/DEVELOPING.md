@@ -659,6 +659,18 @@ functional failures. Keep sources in
 each pinned submodule untouched. Compiler/source/adapter changes must invalidate
 binary reuse; regenerate the manifest on every build invocation.
 
+[`../sw/build/build-skl.py`](../sw/build/build-skl.py) consumes upstream's CMake
+catalog through the adjacent bare-metal port. Simple RVA23 selects all eligible
+vector suites except X390 and standalone scalar reference executables. All
+upstream cases remain execution workloads, but their numerical verification
+callbacks and reference-buffer initialization are disabled by the ordered
+[`../sw/skl-patches/`](../sw/skl-patches/) series applied to a build-local copy.
+Keep compilation and inventory
+ownership in `sw/`; this layer supplies the generated target and reuses the
+ordinary runner, output contracts, shared archives, and simulator attestation.
+CI policy enrolls every Simple RVA23 core, with Sail cosim on both RTL cores;
+Spike provides execution smoke coverage. No SKL numerical accuracy is asserted.
+
 Target-native benchmark builds are the default. `baseline` is an explicit
 comparison mode, not an alternative hardware capability claim. Keep the target
 descriptor and its fingerprint in the workload manifest, bind the same
