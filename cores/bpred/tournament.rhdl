@@ -46,17 +46,17 @@ sync_circuit TournamentBht(row_bits :: PosInt = 10):
 
 
   /* Chooser lookup and lazy row initialization.
-     Invalid rows prefer bimodal, including combinational reads during clear. */
+     Cold rows strongly prefer bimodal so one disagreement cannot switch predictors. */
 
   def rows = 1 << row_bits
-  def cold = vec(for List (_ in 0..4): Bits(2)(1))
+  def cold = vec(for List (_ in 0..4): Bits(2)(0))
   mem choices(rows, Vec(4, Bits(2)))
   reg valid_rows(~init: literal(Vec(rows, Bool), 0))
   def counters = mux(valid_rows[choice_row] & !clear.valid, choices[choice_row], cold)
   for (bank in 0..4):
     use_gshare[bank] <== counters[bank][1].into(Bool)
 
-  def prefix_counter = mux(valid_rows[prefix_choice_row] & !clear.valid, choices[prefix_choice_row][3], Bits(2)(1))
+  def prefix_counter = mux(valid_rows[prefix_choice_row] & !clear.valid, choices[prefix_choice_row][3], Bits(2)(0))
   prefix_use_gshare <== prefix_counter[1].into(Bool)
 
 

@@ -99,7 +99,10 @@ outcome; a not-taken prediction is still valid metadata.
 `TournamentBht(row_bits = 10)` layers two `Bht` instances with a PC-indexed
 two-bit chooser. All three tables have four banks per row: 3 KiB of counter
 data and 384 bytes of row-valid bits at the default size. Bimodal and gshare
-counters start weakly not-taken; choosers start weakly preferring bimodal.
+counters start weakly not-taken; choosers start strongly preferring bimodal.
+One winning gshare disagreement does not switch a cold chooser; two consecutive
+winning disagreements do. Alternating winners from the cold state retain the
+bimodal preference instead of switching on every update.
 
 The caller supplies independent `base_row`, `gshare_row`, and `choice_row`
 addresses. `base_taken`, `gshare_taken`, and `use_gshare` expose four direction

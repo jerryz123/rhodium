@@ -5,8 +5,9 @@ using Table = std::array<std::array<unsigned, 4>, 8>;
 Table base_model, history_model, choice_model;
 
 void cold_model() {
-  for (auto *table : {&base_model, &history_model, &choice_model})
+  for (auto *table : {&base_model, &history_model})
     for (auto &row : *table) row.fill(1);
+  for (auto &row : choice_model) row.fill(0);
 }
 void check_rows() {
   for (unsigned r = 0; r < 8; ++r) {
@@ -48,6 +49,17 @@ int main() {
     tick_model(); tick_model();
     reset = 0;
     check_rows();
+    // SLRE-like alternating winners must retain the cold bimodal preference.
+    // Bank three also exercises the independent retained-prefix chooser read.
+    for (unsigned iteration = 0; iteration < 46; ++iteration) {
+      train(3, 11, true, false, iteration % 2 != 0);
+      CHECK(choice_model[0][3] == (iteration % 2 == 0 ? 1u : 0u));
+    }
+    // Sustained evidence must still switch to gshare after two winning updates.
+    train(3, 11, true, false, false);
+    CHECK(choice_model[0][3] == 1);
+    train(3, 11, true, false, false);
+    CHECK(choice_model[0][3] == 2);
     // Changing history contexts must not fragment the bimodal loop counter.
     for (unsigned iteration = 0; iteration < 8; ++iteration)
       train(7, iteration * 4 + 3, iteration != 0, false, true);
@@ -77,6 +89,7 @@ int main() {
     clear_in = {};
     check_rows();
     train(7, 19, false, true, true);
+    CHECK(choice_model[1][3] == 1);
     reset = 1;
     tick_model();
     reset = 0;
