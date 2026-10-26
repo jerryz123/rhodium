@@ -764,8 +764,9 @@ metadata. CI and `single-core-software-test` include all 108 workloads from this
 same bounded suite and report any failures or timeouts. CI uses eight
 deterministic shards and two workers per shard for each of
 `simple-spike-rva23`, `simple-rv5stage-rva23`, and `simple-rv2wide-rva23`, with
-one shared ELF build for compatible targets. Local `bringup-run` and
-`bringup-test` accept `PROGRAM_SHARD_INDEX` (zero-based) and
+one shared ELF build for compatible targets. `BRINGUP_TIMEOUT` defaults to
+600 seconds per workload; `BRINGUP_MAX_CYCLES` remains 100 million cycles.
+Local `bringup-run` and `bringup-test` accept `PROGRAM_SHARD_INDEX` (zero-based) and
 `PROGRAM_SHARD_COUNT`; the default remains one unsharded run. Sharded results
 are saved under `results/shard-INDEX-of-COUNT` without overwriting other shards.
 The expensive workloads use patched, bounded input sizes and their own pinned

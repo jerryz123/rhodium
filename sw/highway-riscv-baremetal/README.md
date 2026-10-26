@@ -97,8 +97,9 @@ measured phases, not estimates from per-case counters.
 
 Compilation uses the generated SoC ISA/ABI and RAM description, with native RVV
 static dispatch and no scalar target or reference comparisons. The port enables
-Highway's explicit FP16 RVV override for the supported GCC toolchain. Scalar
-tails and scalar work internal to a vector algorithm remain legitimate.
+Highway's explicit FP16 RVV override for the supported GCC toolchain and disables
+runtime target detection globally, without requiring OS auxiliary-vector
+services. Scalar tails and scalar work internal to a vector algorithm remain legitimate.
 Sail cosim on the RTL cores checks architectural execution, not numerical or
 algorithmic correctness. Spike is an execution smoke check.
 

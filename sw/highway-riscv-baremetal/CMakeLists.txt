@@ -3,7 +3,8 @@
 cmake_minimum_required(VERSION 3.23)
 project(rhodium-highway LANGUAGES C CXX ASM)
 set(CMAKE_CXX_STANDARD 17)
-add_compile_definitions(HWY_COMPILE_ONLY_STATIC HWY_HAVE_RUNTIME_DISPATCH_RVV=0 HWY_RVV_HAVE_F16_VEC=1
+add_compile_definitions(HWY_COMPILE_ONLY_STATIC HWY_HAVE_RUNTIME_DISPATCH=0
+  HWY_HAVE_RUNTIME_DISPATCH_RVV=0 HWY_RVV_HAVE_F16_VEC=1
   HWY_OS_RNG_SECURE_SEED=0 PROFILER_ENABLED=0)
 add_compile_options(-ffunction-sections -fdata-sections -fno-pie)
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti;-fno-threadsafe-statics;-Wno-pragmas>")
