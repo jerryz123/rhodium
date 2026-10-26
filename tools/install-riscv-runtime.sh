@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Builds pinned Newlib and libgcc for RV64GC/LP64D medany without rebuilding GCC.
+# Builds pinned C/C++ runtime libraries for RV64GC/LP64D medany without rebuilding GCC.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 cc="$(command -v "${1:?usage: install-riscv-runtime.sh COMPILER PREFIX}")"
+cxx="${cc%gcc}g++"
 prefix="${2:?usage: install-riscv-runtime.sh COMPILER PREFIX}"
 revision=8ba4275b83ec27529f67e0d477611fa6d8d6e6bd
 digest=8e27b243f9e677af3714e411fd9b7bdb687b2963218a08c48a109b5537e033cc
@@ -11,6 +12,9 @@ gcc_digest=b62f8feee8f9f6e3c9bb60e09546c869dacd2b1e2948a2da2c610ce76a3e5e89
 target="$("$cc" -dumpmachine)"
 [[ "$target" == riscv64-unknown-elf ]] || { echo 'The runtime requires an RV64 bare-metal compiler.' >&2; exit 1; }
 gcc_version="$("$cc" -dumpfullversion)"
+[[ -x "$cxx" && "$("$cxx" -dumpfullversion)" == "$gcc_version" ]] || {
+  echo 'The runtime requires matching GCC and G++ compilers.' >&2; exit 1;
+}
 sdk="$("$cc" -print-file-name=plugin)/include"
 [[ -f "$sdk/auto-host.h" && -f "$sdk/tm.h" ]] || {
   echo 'The installed GCC target headers are required to build libgcc.' >&2; exit 1;
@@ -20,12 +24,14 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
   checksum=(shasum -a 256)
 fi
-identity="$( { cat "$0"; "$cc" --version; } | "${checksum[@]}" | awk '{print $1}')"
+identity="$( { cat "$0"; "$cc" --version; "$cxx" --version; } | "${checksum[@]}" | awk '{print $1}')"
 stamp="$prefix/.runtime-medany-sha256"
 if [[ -f "$stamp" && "$(<"$stamp")" == "$identity" &&
       -f "$prefix/$target/lib/libc.a" && -f "$prefix/$target/lib/libm.a" &&
+      -f "$prefix/$target/lib/libstdc++.a" && -f "$prefix/$target/lib/libsupc++.a" &&
+      -f "$prefix/$target/include/c++/$gcc_version/$target/bits/c++config.h" &&
       -f "$prefix/lib/gcc/$target/$gcc_version/libgcc.a" ]]; then
-  echo "Reusing medany C runtime at $prefix"
+  echo "Reusing medany C/C++ runtime at $prefix"
   exit 0
 fi
 work="$(mktemp -d /tmp/rhodium-runtime.XXXXXX)"
@@ -56,6 +62,9 @@ actual="$("${checksum[@]}" "$work/gcc.tar.gz" | awk '{print $1}')"
 [[ "$actual" == "$gcc_digest" ]] || { echo 'GCC source checksum mismatch.' >&2; exit 1; }
 mkdir "$work/gcc-source" "$work/libgcc-build"
 tar -xzf "$work/gcc.tar.gz" -C "$work/gcc-source" --strip-components=1
+[[ "$(<"$work/gcc-source/gcc/BASE-VER")" == "$gcc_version" ]] || {
+  echo 'The pinned runtime sources must match the installed GCC version.' >&2; exit 1;
+}
 mkdir -p "$work/libgcc-build/gcc" "$work/libgcc-build/$target/libgcc"
 cp -R "$sdk/." "$work/libgcc-build/gcc/"
 # libgcc's standalone Makefile consumes these two compiler-build variables and
@@ -76,6 +85,22 @@ printf '%s\n' 'GCC_CFLAGS = -DIN_GCC -DCROSS_DIRECTORY_STRUCTURE' \
 )
 mkdir -p "$work/install/lib/gcc/$target/$gcc_version"
 cp "$work/libgcc-build/$target/libgcc/libgcc.a" "$work/install/lib/gcc/$target/$gcc_version/"
+mkdir "$work/libstdcxx-build"
+(
+  cd "$work/libstdcxx-build"
+  "$work/gcc-source/libstdc++-v3/configure" --host="$target" --target="$target" \
+    --with-cross-host="$("$work/gcc-source/config.guess")" --prefix="$work/install" \
+    --with-gxx-include-dir="$work/install/$target/include/c++/$gcc_version" \
+    --with-newlib --disable-shared --disable-multilib --disable-nls \
+    --disable-threads --disable-libstdcxx-pch \
+    CC="$cc" CXX="$cxx" \
+    CFLAGS='-O2 -march=rv64gc -mabi=lp64d -mcmodel=medany' \
+    CXXFLAGS='-O2 -march=rv64gc -mabi=lp64d -mcmodel=medany' \
+    CPPFLAGS="-isystem $work/install/$target/include" \
+    LDFLAGS="-B$work/install/lib/gcc/$target/$gcc_version/ -B$work/install/$target/lib/"
+  "$make_command" --jobs="${BUILD_JOBS:-4}"
+  "$make_command" install
+)
 # Install matching headers and libraries together; retain the compiler and
 # any existing non-default multilib directories in the destination prefix.
 mkdir -p "$prefix"

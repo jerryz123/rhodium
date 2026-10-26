@@ -118,11 +118,12 @@ still invoke report callbacks so their failures propagate. Emit one integer-only
 `SKL-BENCH` line per successful benchmark case instead of upstream floating-point
 throughput reports. Newlib owns allocation and formatting;
 the port owns only heap bounds, startup, and the single HTIF syscall boundary.
-The toolchain setup rebuilds the pinned GCC release's Newlib and libgcc for
-RV64GC/LP64D with `-mcmodel=medany`, keeping its matching headers and libraries
-together. `tools/install-riscv-runtime.sh` owns those checksum-pinned sources
+The toolchain setup rebuilds the pinned GCC release's Newlib, libgcc,
+libstdc++, and libsupc++ for RV64GC/LP64D with `-mcmodel=medany`, keeping matching
+headers and libraries together. `tools/install-riscv-runtime.sh` owns those checksum-pinned sources
 and library-only recipes; it uses GCC's installed target headers without
-rebuilding the compiler. The existing toolchain cache owns the installed result.
+rebuilding the compiler. GCC and G++ must match the pinned runtime source version.
+The existing toolchain cache owns the installed result.
 Do not change the SoC RAM map or add libc symbol overrides to accommodate
 medlow archives.
 All toolchain-dependent CI caches include both installer scripts. SKL also
@@ -182,6 +183,9 @@ emits the ELF inventory. Keep input sizes, repetitions, and covered API families
 in the port, with descriptive selection metadata in the build specification.
 The whole executable port inventory, GCC/G++ and CMake identities, source pin,
 and generated target requirements invalidate the content-addressed build.
+The selected `libc.a`, `libm.a`, `libgcc.a`, `libstdc++.a`, and `libsupc++.a`
+paths and hashes also participate in that identity and are recorded in the manifest.
+Rebuilding a runtime with the same compiler version must not reuse older ELFs.
 Use Highway's native static target and explicit GCC FP16-vector override; reject
 unsupported target capabilities rather than silently falling back to scalar.
 The port's synchronous executor supplies only the single-worker ThreadPool API

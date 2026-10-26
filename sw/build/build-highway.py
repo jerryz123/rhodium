@@ -96,11 +96,19 @@ def main():
     cmake_version = subprocess.check_output([cmake, '--version'], text=True)
     metadata = elf_build_metadata(target, 'highway', FUNCTIONAL_PROFILE)
     flags = (*FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}')
+    runtime_libraries = {}
+    for name in ('libc.a', 'libm.a', 'libgcc.a', 'libstdc++.a', 'libsupc++.a'):
+        path = Path(subprocess.check_output(
+            [cxx, *flags, f'-print-file-name={name}'], text=True).strip()).resolve()
+        if not path.is_file():
+            parser.error(f'the selected compiler has no {name} runtime library')
+        runtime_libraries[name] = dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
     key_input = json.dumps(dict(revision=revision, source=str(source), compiler=compiler,
                                compiler_version=version, cxx=cxx,
                                cxx_version=cxx_version,
                                cmake_version=cmake_version,
-                               flags=flags, build_spec=metadata['build_spec']), sort_keys=True).encode()
+                               flags=flags, runtime_libraries=runtime_libraries,
+                               build_spec=metadata['build_spec']), sort_keys=True).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
                  Path(__file__).with_name('build.py'),
                  *port_inputs]:
@@ -160,6 +168,7 @@ def main():
         files.append(dict(path=name, sha256=hashlib.sha256(data).hexdigest()))
     manifest = dict(suite='highway', revision=revision, compiler=version, cxx_compiler=cxx_version, cmake=cmake_version,
                     compiler_flags=list(flags), compiler_arch=compiler_arch, cache_key=key,
+                    runtime_libraries=runtime_libraries,
                     mode='execution-only', scoring=False,
                     march=target['march'], mabi=target['mabi'], target=target,
                     target_fingerprint=target_fingerprint(target), tests=tests, files=files, **metadata)
