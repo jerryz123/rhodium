@@ -35,3 +35,6 @@
 [submodule "sw/skl"]
 	path = sw/skl
 	url = https://github.com/sifiveinc/skl.git
+[submodule "sw/highway"]
+	path = sw/highway
+	url = https://github.com/google/highway.git

@@ -671,6 +671,15 @@ ordinary runner, output contracts, shared archives, and simulator attestation.
 CI policy enrolls every Simple RVA23 core, with Sail cosim on both RTL cores;
 Spike provides execution smoke coverage. No SKL numerical accuracy is asserted.
 
+[`../sw/build/build-highway.py`](../sw/build/build-highway.py) builds the adjacent
+repository-owned benchmark compilation directory against pristine Highway
+library sources. No upstream benchmark-source patches are used. The complete
+bounded native-RVV inventory follows the SKL shape/ISA policy, shared ELF build,
+archive/binding, normal attested runner, and cosim flow. Keep workload selection,
+single-worker adaptation, and C++/TLS startup in `sw/`; this layer owns only the
+generated target and execution limits. Use `highway-elfs`, `highway-test`, and
+`highway-run` rather than a separate benchmark execution path.
+
 Target-native benchmark builds are the default. `baseline` is an explicit
 comparison mode, not an alternative hardware capability claim. Keep the target
 descriptor and its fingerprint in the workload manifest, bind the same
@@ -768,7 +777,8 @@ hardware configuration unchanged during these comparisons.
 Program suite CI consumes the shared target descriptions, then
 `tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
-not a shape/ISA naming assumption. Build jobs consume
+not a shape/ISA naming assumption. Each distinct suite projection produces one
+build group while every selected SoC/suite retains its execution shards. Build jobs consume
 `PREBUILT_PROGRAM_TARGET`, compile once per group, and publish checksum-bearing
 archives; their caches are keyed by the group and software inputs rather than
 the simulator config. `sw/build/bind.py` validates each archive against the

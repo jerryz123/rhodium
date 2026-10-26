@@ -57,6 +57,8 @@ class Selection:
             self.add_native("bringup")
         elif matches(path, "sw/build/build-skl.py", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*", "sw/skl", "sw/skl/*"):
             self.add_native("skl")
+        elif matches(path, "sw/build/build-highway.py", "sw/highway-riscv-baremetal/*", "sw/highway", "sw/highway/*"):
+            self.add_native("highway")
         elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py", "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "tools/write-riscv-udb-config.rhm"):
             self.arch = True
         elif matches(path, "riscv/patched_submodule.py", "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
@@ -136,7 +138,8 @@ class Selection:
                      "sw/embench-iot-riscv-baremetal/*", "sw/bringup-bench",
                      "sw/bringup-bench/*", "sw/bringup-bench-riscv-baremetal/*",
                      "sw/bringup-bench-patches/*",
-                     "sw/build/build-skl.py", "sw/skl", "sw/skl/*", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*"):
+                     "sw/build/build-skl.py", "sw/skl", "sw/skl/*", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*",
+                     "sw/build/build-highway.py", "sw/highway", "sw/highway/*", "sw/highway-riscv-baremetal/*"):
             pass
         elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-*.sh"):
             self.simulation = True

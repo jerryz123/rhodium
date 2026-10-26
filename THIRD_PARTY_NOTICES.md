@@ -29,6 +29,7 @@ the repository's Apache-2.0 license does not replace those terms:
 - `sw/embench-iot`
 - `sw/bringup-bench`
 - `sw/skl`
+- `sw/highway`
 - `sw/litmus-tests-riscv`
 - `vlsi/double_wide_openframe`
 
@@ -62,6 +63,13 @@ execution-only driver sequencing, and input initialization changes only to
 build-local copies. The adapted driver retains its upstream MIT provenance
 alongside Apache-2.0 contributions; the new initialization helpers and separate
 bare-metal port are Apache-2.0. Preserve upstream's notices when distributing compiled ELFs.
+
+Google Highway is used from its pristine pinned checkout under the dual
+Apache-2.0/BSD-3-Clause terms in [`sw/highway/LICENSE`](sw/highway/LICENSE).
+The upstream sources and notices are unchanged. Repository-owned benchmark
+drivers and the bare-metal compilation/runtime port under
+[`sw/highway-riscv-baremetal/`](sw/highway-riscv-baremetal/) are Apache-2.0.
+The ELF archive carries the upstream and Rhodium license texts.
 
 The RISC-V litmus corpus and its precomputed Herd result log are used from the
 pinned upstream checkout under BSD-2-Clause. Its license remains in

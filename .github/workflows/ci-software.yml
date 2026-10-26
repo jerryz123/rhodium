@@ -89,6 +89,7 @@ jobs:
             embench) source=sw/embench-iot ;;
             bringup) source=sw/bringup-bench ;;
             skl) source=sw/skl ;;
+            highway) source=sw/highway ;;
             *) source=sw/riscv-isa-tests ;;
           esac
           echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
@@ -103,7 +104,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-program-builds/${{ matrix.build_id }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-v2-${{ matrix.build_id }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-*.sh', 'riscv/gnu-toolchain.rhm', 'sw/build/**', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'sw/skl-riscv-baremetal/**', 'sw/skl-patches/**', 'riscv/patched_submodule.py', 'sims/program-test/Makefile.inc', '.github/workflows/ci-software.yml') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-program-v2-${{ matrix.build_id }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-*.sh', 'riscv/gnu-toolchain.rhm', 'sw/build/**', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'sw/skl-riscv-baremetal/**', 'sw/skl-patches/**', 'sw/highway-riscv-baremetal/**', 'riscv/patched_submodule.py', 'sims/program-test/Makefile.inc', '.github/workflows/ci-software.yml') }}"
       - name: Build and package selected workload ELFs
         env:
           SUITE: ${{ matrix.suite }}

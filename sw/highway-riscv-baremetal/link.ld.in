@@ -1,0 +1,42 @@
+/* Places Highway code, single-hart TLS, Newlib heap, and stack within target RAM without overlap. */
+/* SPDX-License-Identifier: Apache-2.0 */
+OUTPUT_ARCH(riscv)
+ENTRY(_start)
+MEMORY { ram (rwx) : ORIGIN = @RAM_ORIGIN@, LENGTH = @RAM_LENGTH@ }
+PHDRS { text PT_LOAD FLAGS(5); data PT_LOAD FLAGS(6); }
+SECTIONS
+{
+  . = ORIGIN(ram);
+  .text.init : { KEEP(*(.text.init)) } > ram :text
+  .text : { *(.text .text.*) } > ram :text
+  .rodata : { *(.rodata .rodata.*) } > ram :text
+  .preinit_array : { PROVIDE_HIDDEN(__preinit_array_start = .); KEEP(*(.preinit_array)) PROVIDE_HIDDEN(__preinit_array_end = .); } > ram :text
+  .init_array : { PROVIDE_HIDDEN(__init_array_start = .); KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*))) KEEP(*(.init_array)) PROVIDE_HIDDEN(__init_array_end = .); } > ram :text
+  .fini_array : { PROVIDE_HIDDEN(__fini_array_start = .); KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*))) KEEP(*(.fini_array)) PROVIDE_HIDDEN(__fini_array_end = .); } > ram :text
+  . = ALIGN(0x1000);
+  .tohost : { KEEP(*(.tohost)) } > ram :data
+  .data : { *(.data .data.*) } > ram :data
+  .sdata :
+  {
+    __global_pointer$ = . + 0x800;
+    *(.srodata .srodata.*) *(.sdata .sdata.*)
+  } > ram :data
+  .tdata ALIGN(64) : { *(.tdata .tdata.*) } > ram :data
+  .tbss ALIGN(64) : { *(.tbss .tbss.*) } > ram :data
+  __tls_base = SIZEOF(.tdata) ? ADDR(.tdata) : ADDR(.tbss);
+  __bss_start = ADDR(.tbss);
+  /* TLS NOBITS does not advance the MEMORY region's normal allocation cursor. */
+  .bss (ADDR(.tbss) + SIZEOF(.tbss)) :
+  {
+    . = ALIGN(64);
+    *(.sbss .sbss.*) *(.bss .bss.*) *(COMMON)
+    . = ALIGN(16);
+  } > ram :data
+  __bss_end = ADDR(.bss) + SIZEOF(.bss);
+  __heap_start = __bss_end;
+  __stack_top = ORIGIN(ram) + LENGTH(ram);
+  __heap_end = __stack_top - 0x10000;
+  ASSERT(ADDR(.bss) >= ADDR(.tbss) + SIZEOF(.tbss), "Highway TLS overlaps ordinary BSS")
+  ASSERT((__tls_base & 63) == 0, "Highway TLS base is not aligned")
+  ASSERT(__heap_start < __heap_end, "Highway image leaves no heap or stack space")
+}

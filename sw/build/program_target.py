@@ -61,7 +61,7 @@ def elf_build_spec(target, suite, options=None):
     """Project compilation and inventory inputs without simulator identity."""
     validate_target(target)
     suite = 'bringup' if suite == 'bringup-bench' else suite
-    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'litmus', 'opensbi'):
+    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'highway', 'litmus', 'opensbi'):
         raise ValueError(f'unsupported shared ELF suite: {suite}')
     options = options or {}
     if suite == 'opensbi':
@@ -73,7 +73,7 @@ def elf_build_spec(target, suite, options=None):
             raise ValueError('OpenSBI build specification requires the generated FDT checksum')
         return dict(suite=suite, target=layout, options=options)
     projected = {field: target[field] for field in ('xlen', 'march', 'mabi', 'ram')}
-    if suite in ('isa', 'benchmark', 'skl', 'litmus'):
+    if suite in ('isa', 'benchmark', 'skl', 'highway', 'litmus'):
         projected['extensions'] = sorted(target['extensions'])
     if suite == 'isa':
         projected.update(mmu_mode=target.get('mmu_mode', 'bare'),

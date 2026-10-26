@@ -315,12 +315,16 @@ selector combines frontend and datapath, while the vector aggregates retain
 both functional shards and the alternate-configuration shard.
 
 All Simple RVA23 single-core software matrices independently select ISA tests,
-benchmarks, both CoreMark variants, Embench-IoT, SKL vector execution workloads,
+benchmarks, both CoreMark variants, Embench-IoT, SKL and Highway vector execution workloads,
 and the complete bounded Bringup-Bench inventory. SKL uses the upstream capability-filtered
 catalog without X390 or standalone scalar suites. SKL retains all test-input and
 benchmark cases but disables numerical verification and reference-buffer setup.
 Both RTL jobs require Sail cosim for architectural checking; Spike is an
 execution smoke test, not an independent numerical oracle.
+Highway uses repository-owned bounded drivers linked with the pristine upstream
+library, not modified hosted benchmarks. All benchmark families use the same
+single profile on each core. Its CMake/G++ build runs only in the shared producer;
+execution consumes the ordinary checksum-bearing ELF archive and bound manifest.
 `ci-software.yml` projects generated target descriptors into suite build groups,
 compiles each group once, and distributes one ELF archive to all compatible
 configs. Each run binds the archive to its own full target fingerprint and

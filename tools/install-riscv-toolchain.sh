@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the pinned Linux RV64 compiler and medany C runtime for high RAM.
+# Installs the pinned Linux RV64 C/C++ toolchain and medany C runtime for high RAM.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,8 +27,12 @@ if [[ ! -f "$install_dir/.archive-sha256" ]] || [[ "$(<"$install_dir/.archive-sh
   mv "$temp_dir/install" "$install_dir"
 fi
 cc="$install_dir/bin/riscv64-unknown-elf-gcc"
+cxx="$install_dir/bin/riscv64-unknown-elf-g++"
+test -x "$cxx"
 test "$("$cc" -dumpversion | cut -d. -f1)" -ge 15
 bash "$repo_dir/tools/install-riscv-runtime.sh" "$cc" "$install_dir"
 "$cc" --version
+"$cxx" --version
 "$install_dir/bin/riscv64-unknown-elf-objdump" --version
 test -f "$("$cc" -march=rv64imafdc_zicsr_zifencei -mabi=lp64d -print-file-name=libm.a)"
+test -f "$("$cxx" -march=rv64imafdc_zicsr_zifencei -mabi=lp64d -print-file-name=libstdc++.a)"

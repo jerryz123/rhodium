@@ -24,7 +24,7 @@ upstream source. Preserve upstream licensing and the repository's
 [`build/`](build/) owns ELF construction, target validation, compiler and ISA
 checks, content-addressed build reuse, and manifests. `build.py` and `isa.mk`
 compile the ISA tests and upstream benchmarks; the named benchmark builders
-compile CoreMark, Embench-IoT, Bringup-Bench, and SKL. ISA selection derives upstream
+compile CoreMark, Embench-IoT, Bringup-Bench, SKL, and Highway. ISA selection derives upstream
 groups, native-width smoke operations, and Make XLEN from the target descriptor.
 F/D targets also select representative arithmetic, fused operations, division,
 conversion, load/store, and move smoke tests for each advertised precision.
@@ -172,6 +172,45 @@ and CMake, but still checks linked ISA attributes and RAM bounds. On a cache mis
 apply the patches and remove corrupt owned ELFs before asking CMake to rebuild them.
 Publish the upstream MIT and Rhodium Apache license texts as checksum-bearing
 manifest files so the generic ELF archive carries the required notices too.
+
+`build-highway.py` builds the repository-owned CMake project in
+[`highway-riscv-baremetal/`](highway-riscv-baremetal/), linking unmodified
+[`highway/`](highway/) headers and library sources directly. Do not patch,
+copy, or compile upstream's hosted benchmark drivers. The adjacent benchmark
+sources own one bounded native-RVV profile; CMake discovers all of them and
+emits the ELF inventory. Keep input sizes, repetitions, and covered API families
+in the port, with descriptive selection metadata in the build specification.
+The whole executable port inventory, GCC/G++ and CMake identities, source pin,
+and generated target requirements invalidate the content-addressed build.
+Use Highway's native static target and explicit GCC FP16-vector override; reject
+unsupported target capabilities rather than silently falling back to scalar.
+The port's synchronous executor supplies only the single-worker ThreadPool API
+needed by library builders and Iguana. It is not a threading implementation.
+Startup must initialize constructors and TLS as well as BSS, FP/vector state,
+the Newlib heap, and the single HTIF boundary. Keep deterministic inputs and
+sort PRNG state, anti-elision barriers, canonical input preparation before mutation,
+nonempty completion accounting, and status checks. Do not add scalar reference
+passes. All families run on Spike and both RTL cores with Sail cosim; this is
+execution coverage, not algorithmic accuracy or an upstream performance score.
+Keep the lossless per-measurement records buffered through the existing HTIF
+boundary, with bounded integer formatting and explicit write/overflow failures.
+Execute each case once without a warmup; these counters are not warmed
+performance scores. Preserve all sort datatypes/patterns/orders at the reduced
+size grid, B-tree construction/traversal/mutation with bounded hit/miss/boundary
+queries, and math functions/tags with endpoint-preserving input subsampling.
+Attribute input preparation, kernels, reporting, and hash builders to
+measured phases; document probe and end-of-run accounting boundaries. Retain
+all constructors and packed conversions on the target. Prevent dense compiler
+if-conversion of sparse packed-slot scans without disabling unconditional-loop
+vectorization. Reuse canonical inputs only when their typed contents and required
+mutation restoration are preserved, and keep B-tree construction inside its
+workload. Qualify word-wide memory helpers for independently varied source and
+destination alignment, tails, values, returns, and guards. Full-profile changes
+require all ten suites on all three cores, case-inventory comparisons, and
+before/after full-run instruction and runtime evidence.
+Validate the normal shared archive/binder path and checksum-verified cache reuse,
+in addition to building and running every ELF. Preserve upstream license notices
+in the published archive and keep the submodule pristine.
 
 `build/program_target.py` projects a suite's ELF build specification from the
 generated SoC descriptor. Keep config names and resolved microarchitecture

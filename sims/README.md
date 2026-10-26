@@ -580,8 +580,8 @@ make -C sims single-core-software-test ISA=rva23
 select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
-`embench-test`, `bringup-test`, and `skl-test` targets remain available for
-focused execution. SKL requires Simple RVA23. CI schedules these program suites and
+`embench-test`, `bringup-test`, `skl-test`, and `highway-test` targets remain available for
+focused execution. SKL and Highway require Simple RVA23. CI schedules these program suites and
 ACT independently for Spike, RV5Stage, and RV2Wide; Bringup-Bench runs the full
 bounded inventory in eight shards per config, with two workers per shard.
 CI also validates OpenSBI on these configs. Each ACT lane uses its own UDB projection and
@@ -796,7 +796,26 @@ make -C sims skl-setup
 make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
 ```
 
+`highway-test` builds the [Highway vector workloads](../sw/highway-riscv-baremetal/)
+from repository-owned benchmark drivers linked with the pristine Highway
+submodule. It neither patches nor compiles upstream's hosted benchmark sources.
+The single bounded profile covers algorithms, dot/delta, all 28 benchmark math
+functions, VQSort, hashes, LeMac, hash tables, Iguana, and B-trees. The port owns
+fixed repetitions, deterministic inputs, single-worker execution, and C++/TLS
+startup. Numerical reference comparisons and hosted timing calibration are not
+run. Each ELF requires a nonempty `HIGHWAY-RESULT: PASS` completion; integer
+guest counters are diagnostic, not official performance scores. CI runs the
+same profile on every Simple RVA23 core with Sail cosim on RTL.
+
+```sh
+make -C sims highway-setup
+make -C sims highway-test SOC=simple-spike-rva23
+make -C sims highway-test SOC=simple-rv5stage-rva23 COSIM=1
+make -C sims highway-test SOC=simple-rv2wide-rva23 COSIM=1
+```
+
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
+Highway additionally requires the matching GNU C++17 compiler and libstdc++.
 CI installs a checksum-pinned GCC/Newlib release via
 `bash tools/install-riscv-toolchain.sh` (x86-64 Linux); local builds accept
 `RISCV_CC=/path/to/riscv64-unknown-elf-gcc`.
@@ -851,18 +870,18 @@ simulation job separately publishes its hand-written smoke ELFs, and ACT
 publishes its generated ELF archive.
 
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
-SKL uses `SKL_TIMEOUT=900` because each ELF contains an entire upstream kernel suite.
+SKL and Highway use `SKL_TIMEOUT=900` and `HIGHWAY_TIMEOUT=900` because each ELF contains an entire kernel family.
 Tiled multihart benchmarks and tiled litmus smoke have separate 600-second
 defaults (`TILED_MT_BENCHMARK_TIMEOUT` and `LITMUS_SMOKE_TIMEOUT`).
 `PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks, CoreMark, and
-Embench-IoT and SKL use 100 million. These are safety budgets, including loading,
+Embench-IoT, SKL, and Highway use 100 million. These are safety budgets, including loading,
 not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
-`COREMARK_MAX_CYCLES`, `EMBENCH_MAX_CYCLES`, or `SKL_MAX_CYCLES` when diagnosing timeouts.
-Benchmark CI never requires exact cycle counts. SKL checks architectural execution
+`COREMARK_MAX_CYCLES`, `EMBENCH_MAX_CYCLES`, `SKL_MAX_CYCLES`, or `HIGHWAY_MAX_CYCLES` when diagnosing timeouts.
+Benchmark CI never requires exact cycle counts. SKL and Highway check architectural execution
 through cosim on RTL rather than numerical output; other suites retain their
 documented result checks.
 
-CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, SKL, and ACT on pull requests and
+CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, SKL, Highway, and ACT on pull requests and
 pushes to `main`; manual dispatch selects the complete configured matrix. The program suites consume
 each core's exact-commit executable, with the matching patched Spike runtime
 where needed. ACT builds or reuses one verified, complete profile-specific ELF

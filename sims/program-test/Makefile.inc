@@ -11,6 +11,8 @@ BRINGUP_PORT_DIR ?= $(REPO_DIR)/sw/bringup-bench-riscv-baremetal
 SKL_DIR ?= $(REPO_DIR)/sw/skl
 SKL_PATCH_SERIES ?= $(REPO_DIR)/sw/skl-patches/series
 SKL_PORT_DIR ?= $(REPO_DIR)/sw/skl-riscv-baremetal
+HIGHWAY_DIR ?= $(REPO_DIR)/sw/highway
+HIGHWAY_PORT_DIR ?= $(REPO_DIR)/sw/highway-riscv-baremetal
 LITMUS_DIR ?= $(REPO_DIR)/sw/litmus-tests-riscv
 LITMUS_PORT_DIR ?= $(REPO_DIR)/sw/litmus-riscv-baremetal
 LITMUS7 ?=
@@ -22,6 +24,7 @@ PROGRAM_SHARD_COUNT ?= 1
 PROGRAM_TIMEOUT ?= 300
 BRINGUP_TIMEOUT ?= 360
 SKL_TIMEOUT ?= 900
+HIGHWAY_TIMEOUT ?= 900
 TILED_MT_BENCHMARK_TIMEOUT ?= 600
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
@@ -39,6 +42,7 @@ EMBENCH_WARMUP_HEAT ?= 0
 EMBENCH_MAX_CYCLES ?= 100000000
 BRINGUP_MAX_CYCLES ?= 100000000
 SKL_MAX_CYCLES ?= 100000000
+HIGHWAY_MAX_CYCLES ?= 100000000
 BRINGUP_BENCHMARKS ?=
 LITMUS_CASES ?= all
 LITMUS_RUNS ?= 10
@@ -68,8 +72,10 @@ NATIVE_RUN_CYCLES_coremark_scalar = $(COREMARK_MAX_CYCLES)
 NATIVE_RUN_CYCLES_embench = $(EMBENCH_MAX_CYCLES)
 NATIVE_RUN_CYCLES_bringup = $(BRINGUP_MAX_CYCLES)
 NATIVE_RUN_CYCLES_skl = $(SKL_MAX_CYCLES)
+NATIVE_RUN_CYCLES_highway = $(HIGHWAY_MAX_CYCLES)
 
 .PHONY: skl-setup skl-elfs skl-test skl-run
+.PHONY: highway-setup highway-elfs highway-test highway-run
 
 .PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test litmus-adapter-test program-target simulator-attestation
 .PHONY: isa-elfs benchmark-elfs tiled-mt-benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test tiled-mt-benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
@@ -122,10 +128,13 @@ bringup-setup:
 skl-setup:
 	git -C $(REPO_DIR) submodule update --init sw/skl
 
+highway-setup:
+	git -C $(REPO_DIR) submodule update --init sw/highway
+
 litmus-setup: isa-setup
 	git -C $(REPO_DIR) submodule update --init sw/litmus-tests-riscv
 
-program-test-setup: isa-setup coremark-setup embench-setup bringup-setup skl-setup litmus-setup
+program-test-setup: isa-setup coremark-setup embench-setup bringup-setup skl-setup highway-setup litmus-setup
 
 program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_program_build.py'
@@ -214,6 +223,12 @@ skl-elfs: program-target
 	  --output "$(PROGRAM_CONFIG_ROOT)/skl" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --jobs $(BUILD_JOBS)
 
+highway-elfs: program-target
+	@test "$(SOC_SHAPE)-$(SOC_ISA)" = simple-rva23 || (echo 'Highway supports Simple SoCs with ISA=rva23' >&2; exit 2)
+	$(PYTHON) $(REPO_DIR)/sw/build/build-highway.py --source "$(HIGHWAY_DIR)" --port "$(HIGHWAY_PORT_DIR)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/highway" --compiler "$(RISCV_CC)" \
+	  --target "$(PROGRAM_TARGET)" --jobs $(BUILD_JOBS)
+
 simulator-attestation: simulator
 
 isa-test: isa-elfs
@@ -223,13 +238,14 @@ coremark_scalar-test: coremark_scalar-elf
 embench-test: embench-elfs
 bringup-test: bringup-elfs
 skl-test: skl-elfs
+highway-test: highway-elfs
 
-isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test skl-test isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run skl-run: simulator-attestation
+isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test skl-test highway-test isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run skl-run highway-run: simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/results$(if $(filter-out 1,$(PROGRAM_SHARD_COUNT)),/shard-$(PROGRAM_SHARD_INDEX)-of-$(PROGRAM_SHARD_COUNT))" \
 	  --shard-index $(PROGRAM_SHARD_INDEX) --shard-count $(PROGRAM_SHARD_COUNT) \
-	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(if $(filter skl,$(NATIVE_RUN_SUITE)),$(SKL_TIMEOUT),$(PROGRAM_TIMEOUT))) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
+	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(if $(filter skl,$(NATIVE_RUN_SUITE)),$(SKL_TIMEOUT),$(if $(filter highway,$(NATIVE_RUN_SUITE)),$(HIGHWAY_TIMEOUT),$(PROGRAM_TIMEOUT)))) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
 
 tiled-mt-benchmark-test: tiled-mt-benchmark-elfs
 tiled-mt-benchmark-test tiled-mt-benchmark-run: simulator-attestation
@@ -282,4 +298,5 @@ single-core-software-test:
 	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) ACT_CONFIGURATION="$(SOFTWARE_SOC)-$$core-$(SOC_ISA)" || status=1; \
 	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	  if test "$(SOC_ISA)" = rva23; then $(MAKE) skl-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; fi; \
+	  if test "$(SOC_ISA)" = rva23; then $(MAKE) highway-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; fi; \
 	done; exit "$$status"
