@@ -38,6 +38,7 @@ class Collector {
     Environment environment;
     std::map<EffectId, Effect> effects;
     std::map<Word, Word> seals;
+    bool dirty = false, ready = false;
   };
   struct Hart {
     Word epoch, next = 0;
@@ -47,6 +48,7 @@ class Collector {
     bool exhausted = false;
     std::optional<Environment> sampled_environment;
     std::optional<Word> drain_through;
+    std::vector<Word> changed;
   };
   std::map<Word, Hart> harts_;
   std::optional<Word> sample_, previous_sample_;

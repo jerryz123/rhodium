@@ -23,6 +23,9 @@ VectorCheck::VectorCheck(SailReference& reference, VectorRegisters& unknown,
   fields = vector_memory && !whole_memory ? 1 + (encoding >> 29) : 1;
   indexed = vector_memory && (addressing & 1);
   fault_only_first = vector_memory && opcode == 7 && addressing == 0 && subop == 16;
+  // Scalar instructions need no vector pre-state. Unexpected vector effects
+  // still fail against the empty destination set in check_writes.
+  if (!vector_compute && !vector_memory) return;
   vector_type = reference_.csr(0xc21);
   vector_length = reference_.csr(0xc20);
   vector_start = reference_.csr(8);
@@ -34,14 +37,13 @@ VectorCheck::VectorCheck(SailReference& reference, VectorRegisters& unknown,
   memory_length = whole_memory ? (1 + (encoding >> 29)) * vector_mask.size() / memory_eew :
       mask_memory ? (vector_length + 7) / 8 : vector_length;
   usable_vector_type = whole_memory || !(vector_type >> (reference_.xlen() - 1));
-  if (vector_compute || vector_memory)
-    for (unsigned reg = 0; reg != 32; ++reg) {
-      auto value = reference_.vector_register(reg);
-      const auto found = vector_unknown_.find(reg);
-      if (found != vector_unknown_.end())
-        for (unsigned byte = 0; byte != value.size(); ++byte) value[byte] ^= found->second.at(byte);
-      before.emplace(reg, std::move(value));
-    }
+  for (unsigned reg = 0; reg != 32; ++reg) {
+    auto value = reference_.vector_register(reg);
+    const auto found = vector_unknown_.find(reg);
+    if (found != vector_unknown_.end())
+      for (unsigned byte = 0; byte != value.size(); ++byte) value[byte] ^= found->second.at(byte);
+    before.emplace(reg, std::move(value));
+  }
 }
 void VectorCheck::validate_execution(const StepResult& step, const std::vector<const MemoryEffect*>& memory) {
   // Sail owns legality. Reserved encodings and invalid register groups have no
@@ -132,7 +134,8 @@ void VectorCheck::check_writes(const std::vector<const observation::RegisterWrit
     unknown.resize(actual.size()); allowed.resize(actual.size()); changed.resize(actual.size());
     for (unsigned byte = 0; byte != actual.size(); ++byte) {
       const auto difference = actual[byte] ^ expected[byte];
-      require(!(difference & ~(allowed[byte] | (unknown[byte] & ~changed[byte]))), "vector post-state v" + std::to_string(reg));
+      if (difference & ~(allowed[byte] | (unknown[byte] & ~changed[byte])))
+        require(false, "vector post-state v" + std::to_string(reg));
       unknown[byte] = difference;
     }
   }

@@ -68,7 +68,7 @@ int begin_sample(std::uint64_t cycle) noexcept {
 int end_sample() noexcept {
   return boundary([&] {
     binding->check();
-    for (auto record : collector->end_sample()) {
+    for (auto& record : collector->end_sample()) {
       if (corrupt >= 0 && record.id.order == static_cast<std::uint64_t>(corrupt)) {
         for (auto& [id, effect] : record.effects) {
           (void)id;

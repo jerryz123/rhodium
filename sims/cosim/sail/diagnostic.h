@@ -4,7 +4,7 @@
 #include "../events/record.h"
 #include <sstream>
 #include <stdexcept>
-#include <string>
+#include <string_view>
 
 namespace rhodium::cosim {
 // Copyable per-record diagnostic context, shared by the comparison helpers.
@@ -14,7 +14,7 @@ class Check {
       : id_(record.id), pc_(std::holds_alternative<observation::Instruction>(record.event)
           ? std::get<observation::Instruction>(record.event).pc
           : std::get<observation::Interrupt>(record.event).trap.epc) {}
-  void operator()(bool okay, const std::string& detail) const {
+  void operator()(bool okay, std::string_view detail) const {
     if (okay) return;
     std::ostringstream message;
     message << "cosim mismatch: epoch " << id_.epoch << " order " << id_.order

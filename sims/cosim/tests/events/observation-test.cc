@@ -56,6 +56,77 @@ static void delayed() {
   require(r[0].hart == 10);
   c.finish();
 }
+static void pending_prefix() {
+  Collector c;
+  c.reset(0, 0, {10, 0x80000000, {3, false}, 64, 256, true});
+  c.begin_sample(0);
+  Environment pins{0x80, 123, 4};
+  pins.hpm_counters = {{3, 27}, {31, 99}};
+  pins.hpm_overflows = Word{1} << 31;
+  c.sampled_environment(0, pins);
+  // Hold the head while a large, complete younger prefix accumulates. Insert
+  // in reverse order to exercise callback-order-independent publication.
+  for (Word order = 128; order > 0; --order) {
+    c.instruction(0, {0,order}, instruction(0));
+    c.retire(0, {0,order}, retired());
+  }
+  c.instruction(0, {0,0}, instruction((Word{1} << 63) | 1));
+  c.retire(0, {0,0}, retired());
+  c.effect(0, {0,0}, {63,2}, write(12));
+  c.effect(0, {0,0}, {63,0}, write(10));
+  c.seal(0, {0,0}, 63, 3);
+  c.seal(0, {0,0}, 0, 0);
+  require(c.end_sample().empty());
+  for (Word sample = 1; sample < 5; ++sample) {
+    c.begin_sample(sample);
+    c.sampled_environment(0, {0, 200 + sample, 4 + sample});
+    require(c.end_sample().empty());
+  }
+  c.begin_sample(5);
+  // No new header: sampled inputs are not required and must not replace the
+  // admission environment. Filling the missing middle index releases everyone.
+  c.effect(0, {0,0}, {63,1}, write(11));
+  auto records = c.end_sample();
+  require(records.size() == 129);
+  for (Word order = 0; order < records.size(); ++order) {
+    const auto& r = records[order];
+    require(r.id.order == order && r.sample == 0 && r.environment.time == pins.time);
+    require(r.environment.hpm_counters == pins.hpm_counters && r.environment.hpm_overflows == pins.hpm_overflows);
+  }
+  require(records[0].effects.size() == 3);
+  require(std::get<RegisterWrite>(records[0].effects.at({63,1})).value == 11);
+  c.finish();
+}
+static void changed_younger_rejections() {
+  for (unsigned kind = 0; kind < 6; ++kind) {
+    Collector c(4096, 4); reset(c); c.begin_sample(0);
+    c.instruction(0, {0,0}, instruction()); // Blocks publication of order one.
+    c.instruction(0, {0,1}, instruction());
+    c.retire(0, {0,1}, retired());
+    if (kind < 3) c.seal(0, {0,1}, 0, 0); // Complete, but still pending.
+    require(c.end_sample().empty());
+    c.begin_sample(1); require(c.end_sample().empty());
+    c.begin_sample(2);
+    if (kind == 0) c.effect(0, {0,1}, {0,0}, write()); // Exceeds cached seal.
+    if (kind == 1) c.effect(0, {0,1}, {63,0}, write()); // Undeclared effect.
+    if (kind == 2) c.seal(0, {0,1}, 63, 0); // Undeclared zero-effect seal.
+    if (kind == 3) { // A later seal invalidates an earlier unsealed effect.
+      c.effect(0, {0,1}, {0,1}, write());
+      require(c.end_sample().empty());
+      c.begin_sample(3);
+      c.seal(0, {0,1}, 0, 1);
+    }
+    if (kind == 4) { // Missing younger headers still fail at the sample barrier.
+      c.effect(0, {0,2}, {0,0}, write());
+    }
+    if (kind == 5) { // Aggregate sealed counts remain bounded before completion.
+      c.instruction(0, {0,2}, instruction(3));
+      c.seal(0, {0,2}, 0, 3); c.seal(0, {0,2}, 1, 2);
+    }
+    rejects([&]{c.end_sample();});
+    rejects([&]{c.begin_sample(4);}); // A failed validation still poisons the session.
+  }
+}
 static void drain() {
   Collector c; reset(c); reset(c, 1); c.begin_sample(0);
   c.instruction(0, {0,0}, instruction()); c.retire(0, {0,0}, retired());
@@ -205,6 +276,6 @@ static void widths_and_partial_fetch() {
   rejects([&]{invalid.effect(0,{0,0},{0,0},write());});
 }
 int main() {
-  permutations(); delayed(); drain(); sampled_environment(); partial_exception_and_reset(); invalid(); dpi(); epoch_query(); widths_and_partial_fetch();
+  permutations(); delayed(); pending_prefix(); changed_younger_rejections(); drain(); sampled_environment(); partial_exception_and_reset(); invalid(); dpi(); epoch_query(); widths_and_partial_fetch();
   std::cout << "cosim observation tests passed\n";
 }

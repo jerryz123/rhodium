@@ -21,8 +21,9 @@ void Collector::privilege(Privilege v) {
 void Collector::trap(Trap v) { privilege(v.privilege); }
 Collector::Hart& Collector::hart(Word instance) {
   usable();
-  check(harts_.contains(instance), "unregistered hart instance");
-  return harts_.at(instance);
+  const auto found = harts_.find(instance);
+  check(found != harts_.end(), "unregistered hart instance");
+  return found->second;
 }
 void Collector::reset(Word instance, Word epoch, ResetState state) {
   usable();
@@ -36,7 +37,7 @@ void Collector::reset(Word instance, Word epoch, ResetState state) {
     check(epoch > old.epoch && state.hart == old.state.hart, "reset must advance epoch and preserve hart identity");
   }
   // Reset explicitly abandons all incomplete old-epoch instructions.
-  harts_.insert_or_assign(instance, Hart{epoch, 0, state, {}, {}, false, {}, {}});
+  harts_.insert_or_assign(instance, Hart{epoch, 0, state, {}, {}, false, {}, {}, {}});
 }
 void Collector::begin_sample(Word sample) {
   usable();
@@ -50,19 +51,24 @@ Word Collector::sample() { usable(); check(sample_.has_value(), "callback outsid
 void Collector::environment(Word instance, Environment inputs) {
   auto& h = hart(instance);
   check(!sample_, "set environment before beginning the sample");
-  h.environment = inputs;
+  h.environment = std::move(inputs);
 }
 void Collector::sampled_environment(Word instance, Environment inputs) {
   auto& h = hart(instance);
   check(sample_.has_value() && !h.sampled_environment, "duplicate or out-of-sample environment");
-  h.sampled_environment = inputs;
+  h.sampled_environment = std::move(inputs);
 }
 Collector::Pending& Collector::pending(Word instance, Id id) {
   auto& h = hart(instance);
   check(sample_.has_value(), "observation outside sample");
   check(id.epoch == h.epoch && !h.exhausted && id.order >= h.next, "stale epoch or already published order");
   check(id.order - h.next < max_pending_, "instruction order exceeds observation window");
-  return h.pending[id.order];
+  auto& p = h.pending[id.order];
+  if (!p.dirty) {
+    h.changed.push_back(id.order);
+    p.dirty = true;
+  }
+  return p;
 }
 bool Collector::accepts(Word instance, Id id) {
   const auto& h = hart(instance);
@@ -146,46 +152,46 @@ bool Collector::complete(const Pending& p) {
     check(seal == p.seals.end() || eid.index < seal->second, "effect exceeds sealed count");
   }
   std::size_t total = 0;
+  Word sealed = 0;
   for (const auto& [producer, count] : p.seals) {
     check(producers & (Word{1} << producer), "undeclared sealing producer");
     check(count <= max_effects_ - total, "sealed effects exceed record limit");
     total += count;
+    sealed |= Word{1} << producer;
   }
   if (!p.outcome) return false;
   if (const auto* i = std::get_if<Instruction>(&*p.event); i && std::holds_alternative<Retirement>(*p.outcome))
     check(i->instruction_bytes && i->encoding_valid_bytes == i->instruction_bytes, "retired instruction lacks complete encoding");
-  for (Word producer = 0; producer < 64; ++producer) {
-    if (!(producers & (Word{1} << producer))) continue;
-    const auto seal = p.seals.find(producer);
-    if (seal == p.seals.end()) return false;
-    for (Word index = 0; index < seal->second; ++index)
-      if (!p.effects.contains({producer, index})) return false;
-  }
-  return true;
+  // Identities are unique and every effect is inside its producer's sealed
+  // range. With all producers sealed, equal cardinality proves there are no
+  // missing indices; do not probe every index or scan all 64 producer bits.
+  return sealed == producers && p.effects.size() == total;
 }
 std::vector<Record> Collector::end_sample() {
   usable();
   check(sample_.has_value(), "no open sample");
   std::vector<Record> result;
   for (auto& [instance, h] : harts_) {
-    if (h.state.sampled_inputs)
-      for (const auto& [order, p] : h.pending) {
-        (void)order;
-        check(!p.event || p.sample != *sample_ || h.sampled_environment.has_value(), "missing header environment");
-      }
     // Edge callbacks are unordered. Freeze the environment onto new headers only
     // after all callbacks arrive; delayed completion must never replace it.
-    if (h.sampled_environment)
-      for (auto& [order, p] : h.pending) {
-        (void)order;
-        if (p.event && p.sample == *sample_) p.environment = *h.sampled_environment;
+    // Every mutation queues its order exactly once. Revalidate all
+    // changed records, including younger ones blocked behind an older record.
+    for (auto order : h.changed) {
+      auto& p = h.pending.at(order);
+      if (p.event && p.sample == *sample_) {
+        check(!h.state.sampled_inputs || h.sampled_environment.has_value(), "missing header environment");
+        if (h.sampled_environment) p.environment = *h.sampled_environment;
       }
-    // Validate younger records even while an older record blocks publication.
-    for (const auto& [order, p] : h.pending) { (void)order; complete(p); }
-    while (!h.exhausted && h.pending.contains(h.next) && complete(h.pending.at(h.next))) {
-      auto& p = h.pending.at(h.next);
-      result.push_back({instance, h.state.hart, p.sample, {h.epoch, h.next}, *p.event, *p.outcome, p.environment, std::move(p.effects)});
-      h.pending.erase(h.next);
+      p.ready = complete(p);
+      p.dirty = false;
+    }
+    h.changed.clear();
+    while (!h.exhausted && !h.pending.empty()) {
+      const auto first = h.pending.begin();
+      auto& p = first->second;
+      if (first->first != h.next || !p.ready) break;
+      result.push_back({instance, h.state.hart, p.sample, {h.epoch, h.next}, *p.event, *p.outcome, std::move(p.environment), std::move(p.effects)});
+      h.pending.erase(first);
       if (h.next == std::numeric_limits<Word>::max()) h.exhausted = true;
       else ++h.next;
     }

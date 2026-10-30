@@ -33,6 +33,10 @@ void run(int mutation, unsigned xlen = 64) {
   if (mutation == 1) std::get<o::RegisterWrite>(r.effects.at({0, 0})).value ^= 1;
   if (mutation == 2) std::get<o::Retirement>(r.outcome).next_pc += 4;
   if (mutation == 3) r.effects.clear();
+  if (mutation == 10) r.effects[{0, 1}] = r.effects.at({0, 0});
+  if (mutation == 11) std::get<o::RegisterWrite>(r.effects.at({0, 0})).index = UINT64_MAX;
+  if (mutation == 12) r.effects[{0, 1}] = o::RegisterWrite{o::Bank::Integer, 31, 0, mask, 0};
+  if (mutation == 13) r.effects[{0, 1}] = o::RegisterWrite{o::Bank::Vector, 31, 0, 1, 0};
   checker.check(r);
   r = record(1, words[1]);
   r.effects[{0, 0}] = o::RegisterWrite{o::Bank::Integer, 1, 0, mask, 7};
@@ -367,7 +371,7 @@ int main() {
   rv32_cycle_high();
   run(0,32);
   interrupt_case(0,32);
-  for (int mutation = 1; mutation <= 9; ++mutation) {
+  for (int mutation = 1; mutation <= 13; ++mutation) {
     bool rejected = false;
     try { run(mutation,32); } catch (const std::runtime_error&) { rejected = true; }
     if (!rejected) throw std::runtime_error("RV32 mutation was not detected");
@@ -383,11 +387,13 @@ int main() {
     checker.check(next);
     if (checker.checked() != 2) throw std::runtime_error("WFI must occupy exactly one record");
   }
-  for (int mutation = 1; mutation <= 9; ++mutation) {
+  for (int mutation = 1; mutation <= 13; ++mutation) {
     bool rejected = false;
     try { run(mutation); }
     catch (const std::runtime_error& error) {
       rejected = std::string(error.what()).find("cosim mismatch:") != std::string::npos;
+      if (mutation == 1) rejected &= std::string(error.what()).find("register value x2") != std::string::npos;
+      if (mutation == 3) rejected &= std::string(error.what()).find("missing register write x2") != std::string::npos;
     }
     if (!rejected) throw std::runtime_error("mutation was not detected");
   }
@@ -397,5 +403,5 @@ int main() {
     try { interrupt_case(mutation); } catch (const std::runtime_error&) { rejected = true; }
     if (!rejected) throw std::runtime_error("interrupt/CSR mutation was not detected");
   }
-  std::cout << "Scalar checker: independent effects, interrupts, counters, and sixteen corruptions passed\n";
+  std::cout << "Scalar checker: independent effects, interrupts, counters, and corruptions passed\n";
 }

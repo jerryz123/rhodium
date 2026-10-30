@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "checker.h"
 #include "memory.h"
+#include <array>
 #include <stdexcept>
 #include <utility>
 
@@ -65,7 +66,8 @@ void SailChecker::check(const observation::Record& record) {
   previous_sample_ = record.sample;
   // Validate effects and supply only permitted environmental nondeterminism.
   MemoryCheck memory(vector, require, backed_range, [this](std::uint64_t address, std::size_t size) { return reference_.externally_mutable(address, size); });
-  std::map<std::pair<Bank, unsigned>, const observation::RegisterWrite*> registers;
+  std::array<const observation::RegisterWrite*, 64> registers{};
+  std::size_t observed_registers = 0;
   std::vector<const observation::RegisterWrite*> vector_writes;
   std::optional<std::uint64_t> fp_flags;
   auto accumulated_flags = reference_.csr(1);
@@ -80,8 +82,11 @@ void SailChecker::check(const observation::Record& record) {
         continue;
       }
       const auto mask = value->bank == Bank::Integer ? xmask : reference_.flen() == 32 ? UINT32_MAX : UINT64_MAX;
-      require((value->bank == Bank::Integer || value->bank == Bank::FloatingPoint) && value->bit_offset == 0 && value->mask == mask && !(value->value & ~mask), "unsupported register effect");
-      require(registers.emplace(std::pair{value->bank, unsigned(value->index)}, value).second, "duplicate register effect");
+      require((value->bank == Bank::Integer || value->bank == Bank::FloatingPoint) && value->index < 32 && value->bit_offset == 0 && value->mask == mask && !(value->value & ~mask), "unsupported register effect");
+      auto& slot = registers[(value->bank == Bank::Integer ? 0 : 32) + value->index];
+      require(!slot, "duplicate register effect");
+      slot = value;
+      ++observed_registers;
     } else if (const auto* value = std::get_if<CsrUpdate>(&effect);
                value && value->operation == CsrOperation::SetBits && value->address == 1) {
       require(!fp_flags && value->mask == 31 && value->value <= 31, "invalid or duplicate FP flag contribution");
@@ -141,13 +146,15 @@ void SailChecker::check(const observation::Record& record) {
     require(write.bank == rhodium::cosim::RegisterWrite::Bank::Integer ||
             write.bank == rhodium::cosim::RegisterWrite::Bank::FloatingPoint, "unsupported reference register bank");
     const auto bank = write.bank == rhodium::cosim::RegisterWrite::Bank::Integer ? Bank::Integer : Bank::FloatingPoint;
-    const auto key = std::pair{bank, write.index};
-    const auto name = std::string(bank == Bank::Integer ? "x" : "f") + std::to_string(write.index);
+    require(write.index < 32, "invalid reference register index");
+    const auto* observed = registers[(bank == Bank::Integer ? 0 : 32) + write.index];
     ++expected_registers;
-    require(registers.contains(key), "missing register write " + name);
-    require(registers.at(key)->value == word(write.value), "register value " + name);
+    if (!observed)
+      require(false, std::string("missing register write ") + (bank == Bank::Integer ? "x" : "f") + std::to_string(write.index));
+    if (observed->value != word(write.value))
+      require(false, std::string("register value ") + (bank == Bank::Integer ? "x" : "f") + std::to_string(write.index));
   }
-  require(expected_registers == registers.size(), "extra register effect");
+  require(expected_registers == observed_registers, "extra register effect");
   vector.check_writes(vector_writes);
   accumulated_flags |= fp_flags.value_or(0);
   // Explicit CSR effects from other hook producers remain checkable, but the
@@ -157,7 +164,8 @@ void SailChecker::check(const observation::Record& record) {
     if (const auto* csr = std::get_if<CsrUpdate>(&effect)) {
       if (csr->operation == CsrOperation::SetBits && csr->address == 1) continue;
       require(csr->operation == CsrOperation::AssignMasked, "unsupported CSR delta operation");
-      require((reference_.csr(csr->address) & csr->mask) == (csr->value & csr->mask), "CSR delta " + std::to_string(csr->address));
+      if ((reference_.csr(csr->address) & csr->mask) != (csr->value & csr->mask))
+        require(false, "CSR delta " + std::to_string(csr->address));
       if (csr->address == 1 || csr->address == 3)
         accumulated_flags = (accumulated_flags & ~(csr->mask & 31)) | (csr->value & csr->mask & 31);
     }

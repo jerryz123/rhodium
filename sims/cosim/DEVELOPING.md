@@ -44,6 +44,16 @@ sequencer release, seals the producer. Intermediate reduction results remain
 private; only architectural writes become register effects. Shared-service flags
 accumulate per instruction. Do not reconstruct physical CSR accumulation or
 export bank snapshots solely to compare deterministic state.
+
+The collector queues each changed record once per sample, freezes inputs only
+for newly admitted headers, and validates every changed record before publishing
+the ready prefix. Readiness is cached until another callback changes that record;
+idle cycles do not rescan pending effects. Younger malformed records must still
+fail at the settled barrier even when an older incomplete record blocks them.
+Unique effect identities inside sealed ranges, matching total effect counts, and
+seals for every declared producer establish completeness without probing every
+possible producer or effect index.
+
 Vector scalar-result ports carry their compute-maturity owner into the vector
 effect stream, including FPR writes that dirty FS without an arithmetic flag
 contribution. Preserve integer x0 suppression without suppressing FP register zero.
@@ -68,7 +78,9 @@ and memory. Sail owns deterministic CSR evolution, privilege transitions, and
 translation. Compare CSR reads through GPR results. Generic explicit CSR effects
 remain supported, but are not mandatory observations.
 `VectorCheck` owns one instruction's reconstructed pre-state and optional bit coverage;
-only the unknown-bit map survives instructions. It does not implement vector
+it reads vector pre-state only for vector instructions and still rejects vector
+effects on scalar records. Only the unknown-bit map survives instructions.
+It does not implement vector
 arithmetic or an opcode qualification whitelist. Validate vector execution geometry
 only after Sail determines legality; IllegalInstruction still checks its trap and
 unchanged architectural state. `MemoryCheck` compares physical
@@ -186,6 +198,10 @@ the `cosim_runtime` CMake target produces only the reference/checker, hart
 adapter libraries, and link flags consumed by the simulator. `sail-cosim-build`
 configures with `BUILD_TESTING=OFF` and selects that target, not CMake's default
 build of all test executables. CI builds these archives in the shared Sail job.
+The Make targets apply the simulator's `OPT_FAST` policy (default `-O2`) to the
+native runtime and hook tests, retaining debug symbols and assertions through
+explicit Debug flags. Use `OPT_FAST=-O0` for an unoptimized diagnostic build;
+do not use a release preset that disables the native test assertions.
 `PREBUILT_COSIM_DIR` selects downloaded runtime libraries and verifies the
 `runtime/artifact.py` checksum manifest against native source content, commit,
 platform, workspace, and absolute link paths. Missing or incompatible libraries

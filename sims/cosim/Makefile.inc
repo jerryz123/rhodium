@@ -7,7 +7,7 @@ COSIM_PYTHON ?= $(ACT_PYTHON)
 COSIM_HOOK_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/cosim-hooks
 .PHONY: cosim-hooks-test
 cosim-hooks-test:
-	cmake -S cosim -B "$(COSIM_HOOK_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCOSIM_WITH_SAIL=OFF
+	cmake -S cosim -B "$(COSIM_HOOK_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_DEBUG=$(OPT_FAST) -g" -DBUILD_TESTING=ON -DCOSIM_WITH_SAIL=OFF
 	cmake --build "$(COSIM_HOOK_BUILD_DIR)" --parallel $(BUILD_JOBS)
 	ctest --test-dir "$(COSIM_HOOK_BUILD_DIR)" --output-on-failure
 
@@ -17,7 +17,7 @@ sail-cosim-build:
 	$(PYTHON) cosim/runtime/artifact.py verify "$(COSIM_BUILD_DIR)"
 else
 sail-cosim-build:
-	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DCOSIM_WITH_SAIL=ON \
+	cmake -S cosim -B "$(COSIM_BUILD_DIR)" -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_DEBUG=$(OPT_FAST) -g" -DBUILD_TESTING=OFF -DCOSIM_WITH_SAIL=ON \
 	  -DSailModel_DIR="$(COSIM_SAIL_PREFIX)/lib/cmake/SailModel"
 	cmake --build "$(COSIM_BUILD_DIR)" --target cosim_runtime --parallel $(BUILD_JOBS)
 endif
@@ -66,7 +66,7 @@ $(COSIM_RUNTIME_DEPENDENCIES):
 	@echo "Prebuilt cosim runtime file is missing: $@" >&2; exit 2
 else
 COSIM_RUNTIME_DEPENDENCIES := $(COSIM_BUILD_DIR)/runtime.stamp
-$(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/rv2wide/*.[ch]* $(CURDIR)/cosim/vector/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt
+$(COSIM_BUILD_DIR)/runtime.stamp: $(wildcard $(CURDIR)/cosim/events/*.[ch]* $(CURDIR)/cosim/rv5stage/*.[ch]* $(CURDIR)/cosim/rv2wide/*.[ch]* $(CURDIR)/cosim/vector/*.[ch]* $(CURDIR)/cosim/sail/*.[ch]* $(CURDIR)/cosim/runtime/*.[ch]*) $(CURDIR)/cosim/CMakeLists.txt $(CURDIR)/cosim/Makefile.inc
 	$(MAKE) sail-cosim-build SOC=$(SOC_ID)
 	touch "$@"
 endif
