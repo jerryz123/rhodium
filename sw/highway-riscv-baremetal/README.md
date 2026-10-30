@@ -67,6 +67,9 @@ are unchanged, with fewer samples per input domain.
 
 Packed u16 cuckoo queries preserve Highway's minimum of 2^18 buckets while
 using its supported one-slot bucket geometry to bound the table footprint.
+Ordinary u32 cuckoo queries exercise both indexing variants; packed u16 queries
+exercise only power-of-two indexing, avoiding a second minimum-sized table
+initialization and conversion. `highway_phast` runs seven measurements in total.
 Cuckoo2x2 and packed cuckoo inputs use sparse public data/slot constructors,
 with both primary and secondary placements, instead of scalar matching searches.
 The upstream queries and packed-slot conversion are unchanged. PHAST, ShardMul,

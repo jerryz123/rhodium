@@ -1,4 +1,4 @@
-// Exercises Highway PHAST, ShardMul, and both cuckoo hash table query representations with one synchronous worker.
+// Exercises Highway hash families with both u32 indexing paths and one bounded packed-u16 case.
 // SPDX-License-Identifier: Apache-2.0
 #include "benchmark.h"
 #include "hash-inputs.h"
@@ -85,5 +85,5 @@ void RunBenchmarks() {
     }
   });
   BenchCuckoo<false, false>(keys); BenchCuckoo<false, true>(keys);
-  BenchCuckoo<true, false>(keys); BenchCuckoo<true, true>(keys);
+  BenchCuckoo<true, true>(keys);
 }
