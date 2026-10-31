@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# Collects whole-ELF cycles and imports complete CI measurements as reviewed regression baselines.
+# Compares whole-ELF cycles by config, suite, and test name and imports numeric baselines from CI.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -76,22 +75,18 @@ def expectations(record, directory):
         print(f'performance: unbaselined {identity["soc"]}/{identity["suite"]}; collecting cycles', flush=True)
         return {}
     try:
-        data = path.read_bytes()
-        record['baseline_sha256'] = hashlib.sha256(data).hexdigest()
-        baseline = json.loads(data)
-        if baseline['identity'] != identity:
-            raise ValueError('performance baseline inputs differ; review and explicitly re-import results')
+        baseline = json.loads(path.read_text())
         expected = baseline['cycles']
         if set(expected) != set(identity['inventory']) or not all(positive(value) for value in expected.values()):
-            raise ValueError('invalid performance baseline cycle inventory')
-        if baseline['tolerance_percent'] != TOLERANCE_PERCENT:
-            raise ValueError('invalid performance baseline tolerance')
+            raise ValueError('invalid performance baseline test names or cycle counts')
     except (OSError, ValueError, KeyError, TypeError) as error:
         # Still execute the suite and upload fresh measurements for review.
         record.update(state='incompatible-baseline', reason=f'{path}: {error}')
         print(f'performance: {record["reason"]}; collecting cycles before failing the gate', flush=True)
         return {}
     record['state'] = 'checked'
+    # Resume identity follows the actual expectations, not a baseline fingerprint.
+    record['expected_cycles'] = expected
     return expected
 
 
@@ -179,9 +174,7 @@ def import_results(records, directory):
             if sorted(test['name'] for test in tests) != names[index::count]:
                 raise ValueError(f'{path}: shard test inventory differs from the complete workload')
             cycles.update({test['name']: test['cycles'] for test in tests})
-        baseline = dict(_purpose='Reviewed whole-ELF cycle expectations; import complete canonical CI results explicitly.',
-                        _license='SPDX-License-Identifier: Apache-2.0', identity=identity,
-                        tolerance_percent=TOLERANCE_PERCENT, generated_from=record['simulator'], cycles=cycles)
+        baseline = dict(cycles=cycles)
         updates.append((baseline_path(directory, identity), baseline))
     # Validate the complete input set before changing any checked-in expectations.
     for path, baseline in updates:

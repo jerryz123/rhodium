@@ -890,26 +890,34 @@ per-ELF comparison, summaries, and explicit import. The runner atomically
 checkpoints self-contained `performance.json` next to `results.json`; provenance
 includes simulator commit/hash/platform/backend/variant, exact target and build
 fingerprints, and the complete suite's ELF hashes and boot-hart selections.
-The measurement contract and loaded baseline hash participate in resume identity.
+Baseline comparison uses only the config/suite file path, test names, and cycle
+counts. Repository state defines the workload; never require hashes or
+fingerprints to match a prior baseline. The loaded numeric expectations
+participate in resume identity so changing them cannot reuse stale comparisons.
 Import validates functionally successful complete shard coverage before writing any files;
 results from different simulator builds or input sets cannot be combined.
 
 `program-test/performance-baselines/<config>/<suite>.json` is an explicitly
-checked-in generated reference, unlike disposable simulation output. No initial
-numbers are seeded by this implementation. Bootstrap from the first successful
-Linux/rsim CI artifacts, review the complete inventory, and repeat representative
-runs to confirm stability before promoting expectations. Retain the normal CI
+checked-in generated reference, unlike disposable simulation output. The initial
+references come from successful [CI run 41240854761](https://github.com/jerryz123/rhodium/actions/runs/41240854761).
+Files contain only a `cycles` mapping from test names to expected counts.
+Their purpose is defined here and the repository's Apache-2.0 license applies;
+do not add purpose or license fields to the data. The ±10% tolerance is
+centralized in the tool. Keep hashes, fingerprints, and
+simulator provenance in uploaded artifacts, not checked-in baselines.
+For new config/suite references, bootstrap
+from successful Linux/rsim CI artifacts, review the complete inventory, and
+repeat representative runs to check stability. Retain the normal CI
 ELF build options and variants: `cosim` for Simple RTL, `normal` for Spike and
 Tiled. Import a single run's complete shards; do not merge repetitions or mix
-results from different commits. The baseline's simulator commit/hash are
-provenance, not matching keys, so RTL changes remain measurable.
+results from different commits.
 
 For intentional changes, inspect the always-collected delta and functional
 result, then explicitly import and review the affected
 config/suite files. The importer accepts a directory or explicit
 `performance.json` paths, so unaffected suites need not be replaced. Keep the
 ±10% policy in the tool; do not widen individual expectations to hide
-regressions. Missing baselines are visibly unbaselined; malformed or mismatched
+regressions. Missing baselines are visibly unbaselined; malformed or name-mismatched
 existing baselines fail the performance gate after execution, so fresh numbers
 are still available for review. Functional status remains separate from the
 performance result: performance-only failures are importable, functional

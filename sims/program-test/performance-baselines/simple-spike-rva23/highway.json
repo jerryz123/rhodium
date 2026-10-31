@@ -1,0 +1,14 @@
+{
+  "cycles": {
+    "highway_algo": 59251,
+    "highway_btree": 93286,
+    "highway_delta": 19651,
+    "highway_dot": 17718,
+    "highway_hash": 15365,
+    "highway_iguana": 888394,
+    "highway_lemac": 114962,
+    "highway_math": 71002,
+    "highway_phast": 2867232,
+    "highway_sort": 175592
+  }
+}

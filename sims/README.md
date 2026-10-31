@@ -912,13 +912,14 @@ jobs and shards publish compact `performance-…` artifacts containing
 `performance.json` and display the per-ELF counts in the job summary. Functional
 failures still fail CI and cannot become baselines.
 
-Initially there are no checked-in expectations. The runner
-reports missing config/suite baselines as **unbaselined** and
+The runner reports missing config/suite baselines as **unbaselined** and
 uploads measurements without failing for missing numbers. Once a reviewed
 baseline is checked in, canonical Linux/rsim runs fail on a change greater than
-±10% for any ELF, including unexpectedly large speedups. Changed ELF hashes,
-workload inventories, build settings, or target fingerprints require explicit
-baseline review instead of silently comparing different inputs. Simple RTL runs use
+±10% for any ELF, including unexpectedly large speedups. Baselines contain only
+test names and expected cycles, keyed by config and suite through their file paths.
+Software, compiler, and RTL changes are compared against these expectations
+without requiring matching hashes or fingerprints. Added or renamed tests require
+a baseline inventory update. Simple RTL runs use
 the CI `cosim` variant; Spike and Tiled use `normal`. Other platforms/backends/variants
 record measurements but do not compare them to canonical expectations.
 
@@ -935,7 +936,7 @@ included config/suite to have completed with functional success, identical input
 simulator provenance. It writes reviewable files under
 `program-test/performance-baselines/`; review and commit those numbers separately.
 CI never updates them. Every run uploads newly collected numbers, even when
-the performance gate fails or an existing baseline describes different inputs.
+the performance gate fails or an existing baseline has an invalid test inventory.
 After an intentional change, review these measurements and explicitly import
 the affected results. A performance-only failure does not prevent import;
 a functional failure, timeout, or incomplete shard set does.

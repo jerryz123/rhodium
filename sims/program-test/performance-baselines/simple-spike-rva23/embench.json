@@ -1,0 +1,23 @@
+{
+  "cycles": {
+    "aha-mont64": 1139,
+    "crc32": 5615,
+    "depthconv": 1320,
+    "edn": 5061,
+    "huffbench": 17904,
+    "matmult-int": 15557,
+    "md5sum": 4220,
+    "nettle-aes": 8436,
+    "nettle-sha256": 3291,
+    "nsichneu": 8550,
+    "picojpeg": 13064,
+    "qrduino": 20819,
+    "sglib-combined": 12469,
+    "slre": 3122,
+    "statemate": 2710,
+    "tarfind": 5611,
+    "ud": 3647,
+    "wikisort": 12224,
+    "xgboost": 101849
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "cycles": {
+    "dhrystone.riscv": 411763,
+    "median.riscv": 29055,
+    "memcpy.riscv": 85240,
+    "mm.riscv": 379348,
+    "multiply.riscv": 33754,
+    "qsort.riscv": 187159,
+    "rsort.riscv": 165846,
+    "spmv.riscv": 111859,
+    "towers.riscv": 25387,
+    "vec-daxpy.riscv": 55855,
+    "vec-memcpy.riscv": 80825,
+    "vec-sgemm.riscv": 77978,
+    "vec-strcmp.riscv": 21258,
+    "vvadd.riscv": 25323
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "cycles": {
+    "mt-matmul.riscv": 109247,
+    "mt-memcpy.riscv": 232232,
+    "mt-vvadd.riscv": 312500
+  }
+}

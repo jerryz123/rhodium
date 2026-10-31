@@ -1,0 +1,32 @@
+{
+  "cycles": {
+    "skl_depthwise_conv2d_f16_f16_f16_zvfh": 823894,
+    "skl_depthwise_conv2d_f32_f32_f32_zve32f": 897060,
+    "skl_depthwise_conv2d_i8_i8_i32_zve32x": 1198322,
+    "skl_exp_bf16_zve32f": 52757,
+    "skl_exp_f16_zvfh": 46396,
+    "skl_exp_f32_zve32f": 53943,
+    "skl_gelu_f32_zve32f": 283684,
+    "skl_gemm_f16_f16_f16_zvfh": 1075608,
+    "skl_gemm_f16_f16_f32_zvfh": 591112,
+    "skl_gemm_f32_f32_f32_zve32f": 426426,
+    "skl_gemm_f64_f64_f64_zve64d": 456621,
+    "skl_gemm_i8_i8_i32_zve32x": 653463,
+    "skl_pack_e16rc_e16rcprc_zve32x": 975416,
+    "skl_pack_e32rc_e32rcprc_zve32x": 1347255,
+    "skl_pack_e8rc_e8rcprc_zve32x": 826130,
+    "skl_sigmoid_bf16_zve32f": 228858,
+    "skl_sigmoid_f16_zvfh": 182030,
+    "skl_sigmoid_f32_zve32f": 234125,
+    "skl_softmax_bf16_zve32f": 1087717,
+    "skl_softmax_f16_zvfh": 864700,
+    "skl_softmax_f32_zve32f": 224187,
+    "skl_softmax_f32r_zve32f": 2701453,
+    "skl_transpose_e16_zve32x": 760956,
+    "skl_transpose_e32_zve32x": 1159482,
+    "skl_transpose_e8_zve32x": 721507,
+    "skl_unpack_e16rcprc_e16rc_zve32x": 1113847,
+    "skl_unpack_e32rcprc_e32rc_zve32x": 1447003,
+    "skl_unpack_e8rcprc_e8rc_zve32x": 956430
+  }
+}
