@@ -1,4 +1,4 @@
-# Shares program ELF builds across compatible SoCs and runs per-config and architectural tests.
+# Shares ELF builds and publishes per-config functional results and whole-ELF performance measurements.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI software
@@ -205,6 +205,20 @@ jobs:
             PROGRAM_MANIFEST="/tmp/rhodium-program-tests/$SOC/$SUITE/run-manifest.json" \
             PROGRAM_SHARD_INDEX=${{ matrix.shard }} PROGRAM_SHARD_COUNT=${{ matrix.shard_count }} \
             PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+      - name: Summarize whole-ELF cycles
+        if: always() && matrix.suite != 'isa'
+        run: |
+          if [[ -d /tmp/rhodium-program-tests ]]; then
+            python3 sims/program-test/performance.py summary --results /tmp/rhodium-program-tests >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish importable performance measurements
+        if: always() && matrix.suite != 'isa'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-${{ matrix.soc }}-${{ matrix.suite }}-${{ matrix.shard }}-${{ github.sha }}
+          path: /tmp/rhodium-program-tests/*/*/results/**/performance.json
+          if-no-files-found: warn
+          retention-days: 30
       - name: Publish workload results and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

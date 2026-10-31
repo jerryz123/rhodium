@@ -21,6 +21,7 @@ PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_SHARD_INDEX ?= 0
 PROGRAM_SHARD_COUNT ?= 1
+PROGRAM_PERFORMANCE_BASELINES ?= $(REPO_DIR)/sims/program-test/performance-baselines
 PROGRAM_TIMEOUT ?= 300
 BRINGUP_TIMEOUT ?= 600
 SKL_TIMEOUT ?= 900
@@ -245,6 +246,7 @@ isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/results$(if $(filter-out 1,$(PROGRAM_SHARD_COUNT)),/shard-$(PROGRAM_SHARD_INDEX)-of-$(PROGRAM_SHARD_COUNT))" \
 	  --shard-index $(PROGRAM_SHARD_INDEX) --shard-count $(PROGRAM_SHARD_COUNT) \
+	  --performance-baselines "$(PROGRAM_PERFORMANCE_BASELINES)" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(if $(filter skl,$(NATIVE_RUN_SUITE)),$(SKL_TIMEOUT),$(if $(filter highway,$(NATIVE_RUN_SUITE)),$(HIGHWAY_TIMEOUT),$(PROGRAM_TIMEOUT)))) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
 
 tiled-mt-benchmark-test: tiled-mt-benchmark-elfs
@@ -254,6 +256,7 @@ tiled-mt-benchmark-test tiled-mt-benchmark-run: simulator-attestation
 	  $(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$$output/manifest.json)" \
 	    --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	    --output "$$output/results" --jobs $(PROGRAM_JOBS) \
+	    --performance-baselines "$(PROGRAM_PERFORMANCE_BASELINES)" \
 	    --timeout $(TILED_MT_BENCHMARK_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES) || status=1; \
 	done; exit $$status
 

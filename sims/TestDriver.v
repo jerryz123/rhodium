@@ -1,4 +1,4 @@
-// Clocks a generated SoCHarness and bounds execution with an optional max-cycles plusarg.
+// Clocks SoCHarness, bounds execution, and measures reset-release to first HTIF exit.
 // SPDX-License-Identifier: Apache-2.0
 module TestDriver;
   reg clock;
@@ -7,6 +7,8 @@ module TestDriver;
   integer max_cycles;
   reg [31:0] pending_exit;
   integer drain_status;
+  reg [63:0] elapsed_cycles;
+  reg [63:0] completion_cycles;
   import "DPI-C" function int rhodium_sim_open();
   import "DPI-C" function int rhodium_sim_begin(input bit reset_active);
   import "DPI-C" function int rhodium_sim_end();
@@ -41,6 +43,8 @@ module TestDriver;
     clock = 1'b0;
     reset = 1'b1;
     pending_exit = 0;
+    elapsed_cycles = 0;
+    completion_cycles = 0;
     max_cycles = 1000000;
     if ($value$plusargs("max-cycles=%d", max_cycles)) begin
       if (max_cycles <= 0) $fatal(1, "max-cycles must be positive");
@@ -55,7 +59,11 @@ module TestDriver;
       @(posedge clock);
       // Observe completion after all rising-edge DPI callbacks have settled.
       @(negedge clock);
-      if (pending_exit == 0 && exit != 0) pending_exit = exit;
+      elapsed_cycles = elapsed_cycles + 1;
+      if (pending_exit == 0 && exit != 0) begin
+        pending_exit = exit;
+        completion_cycles = elapsed_cycles;
+      end
       drain_status = 0;
       if (pending_exit != 0) begin
         drain_status = rhodium_sim_drain();
@@ -70,6 +78,8 @@ module TestDriver;
     end else if (pending_exit != 1) begin
       $fatal(1, "SoC harness reported target failure: exit word %0d", pending_exit);
     end else begin
+      // Publish only after successful finalization; exclude post-exit drain.
+      $display("RHODIUM-PERF: cycles=%0d", completion_cycles);
       $display("SoC harness simulation passed");
       $finish;
     end

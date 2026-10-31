@@ -39,7 +39,9 @@ def main():
             if not fail:
                 if result.stdout.count("SoC harness simulation passed") != 1 or "%Fatal" in result.stdout:
                     raise AssertionError(result.stdout)
-            elif "SoC harness simulation passed" in result.stdout:
+                if result.stdout.count("RHODIUM-PERF:") != 1 or "RHODIUM-PERF: cycles=5\n" not in result.stdout:
+                    raise AssertionError(result.stdout)
+            elif "SoC harness simulation passed" in result.stdout or "RHODIUM-PERF:" in result.stdout:
                 raise AssertionError(result.stdout)
             if cycles is not None:
                 for enabled, message in ((cosim, f"test cosim closed: samples={cycles + 3}"),

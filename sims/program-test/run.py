@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
 from program_target import target_fingerprint, validate_target
+import performance
 
 
 LITMUS_STATE_LINE = re.compile(r'^\s*(\d+)\s*[*:]>(.*)$')
@@ -60,7 +61,7 @@ def check_litmus_states(test, lines):
     return None
 
 
-def execute(test, simulator, root, output, timeout, cycles, cosim=False):
+def execute(test, simulator, root, output, timeout, cycles, cosim=False, expected=None, performance_error=None):
     started = time.monotonic()
     elf = (root / test['elf']).resolve()
     log_path = output / (test['name'] + '.log')
@@ -71,6 +72,9 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False):
     status = 'error'
     reason = None
     checked_records = None
+    functional_status = None
+    measured_cycles = None
+    comparison = {}
     try:
         if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
             raise ValueError(f'ELF checksum mismatch: {elf}')
@@ -105,6 +109,7 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False):
                     status = 'timeout'
                     reason = 'cycle-timeout'
                 elif code == 0 and 'SoC harness simulation passed' in text:
+                    measured_cycles = performance.measure(text, cycles)
                     if cosim:
                         completions = re.findall(r'^Sail cosim: checked ([0-9]+) scalar records$', text, re.MULTILINE)
                         if len(completions) == 1 and int(completions[0]) > 0:
@@ -127,20 +132,38 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False):
                         status = 'failed' if reason else 'passed'
                     else:
                         status = 'passed'
+                    functional_status = status
+                    if status == 'passed':
+                        if performance_error:
+                            status = 'failed'
+                            reason = performance_error
+                        elif expected is not None:
+                            comparison, outside = performance.compare(measured_cycles, expected)
+                            if outside:
+                                status = 'failed'
+                                reason = (f'whole-ELF cycles {measured_cycles}, expected {expected}, '
+                                          f'change {comparison["delta_percent"]:+.2f}% exceeds ±10%')
                 else:
                     status = 'failed'
             finally:
                 with ACTIVE_LOCK:
                     ACTIVE_PROCESSES.discard(process.pid)
     except (OSError, ValueError) as error:
-        log_path.write_text(str(error) + '\n')
+        status = 'error'
+        reason = str(error)
+        with log_path.open('a') as log:
+            log.write(str(error) + '\n')
     result = dict(name=test['name'], status=status, seconds=time.monotonic() - started,
                   log=str(log_path), command=command)
     if reason:
         result['reason'] = reason
     if checked_records is not None:
         result['cosim_checked_records'] = checked_records
-    print(f'{status}: {test["name"]}', flush=True)
+    if measured_cycles is not None:
+        result.update(cycles=measured_cycles, **comparison)
+    result['functional_status'] = functional_status or status
+    detail = f': {reason}' if reason else (f' ({measured_cycles} cycles)' if measured_cycles is not None else '')
+    print(f'{status}: {test["name"]}{detail}', flush=True)
     return result
 
 
@@ -156,6 +179,7 @@ def main():
     parser.add_argument('--shard-index', type=int, default=0)
     parser.add_argument('--shard-count', type=int, default=1)
     parser.add_argument('--resume', action='store_true', help='reuse completed results only for an identical run')
+    parser.add_argument('--performance-baselines', type=Path, default=performance.BASELINES)
     args = parser.parse_args()
     if min(args.jobs, args.timeout, args.max_cycles) <= 0:
         parser.error('jobs, timeout, and max-cycles must be positive')
@@ -166,6 +190,7 @@ def main():
     manifest = json.loads(manifest_bytes)
     target = None
     cosim = False
+    simulator_metadata = {}
     if 'target' in manifest:
         try:
             target = validate_target(manifest['target'])
@@ -195,6 +220,11 @@ def main():
                 or harts != sorted(harts) or len(harts) != len(set(harts))
                 or any(hart not in target['harts'] for hart in harts)):
             parser.error(f'{test["name"]}: harts must be a canonical nonempty subset of the target')
+    try:
+        performance_record = performance.context(manifest, simulator_metadata)
+        expected_cycles = performance.expectations(performance_record, args.performance_baselines)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        parser.error(str(error))
     tests = [test for index, test in enumerate(sorted(tests, key=lambda test: test['name']))
              if index % args.shard_count == args.shard_index]
     if not tests:
@@ -203,7 +233,8 @@ def main():
     run_fingerprint = hashlib.sha256(json.dumps(dict(
         manifest_sha256=manifest_sha256,
         simulator_sha256=hashlib.sha256(args.simulator.read_bytes()).hexdigest(),
-        timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim),
+        timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim,
+        performance=performance_record),
         sort_keys=True).encode()).hexdigest()
     identity = hashlib.sha256(json.dumps(dict(
         run_fingerprint=run_fingerprint,
@@ -233,9 +264,11 @@ def main():
                        complete=not pending, shard_index=args.shard_index,
                        shard_count=args.shard_count, pending=pending, summary=summary,
                        build_failures=manifest.get('build_failures', []), tests=results)
+        payload['performance'] = performance_record
         temporary = result_path.with_suffix('.json.tmp')
         temporary.write_text(json.dumps(payload, indent=2) + '\n')
         temporary.replace(result_path)
+        performance.write_record(args.output, performance_record, payload)
         return results, summary
 
     checkpoint()
@@ -260,7 +293,9 @@ def main():
 
             def submit(test):
                 future = executor.submit(execute, test, args.simulator.resolve(), args.manifest.parent,
-                                         args.output, args.timeout, args.max_cycles, cosim)
+                                         args.output, args.timeout, args.max_cycles, cosim,
+                                         expected_cycles.get(test['name']),
+                                         performance_record.get('reason') if performance_record else None)
                 futures[future] = test['name']
 
             for _ in range(min(args.jobs, len(pending_tests))):

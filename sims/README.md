@@ -878,7 +878,8 @@ defaults (`TILED_MT_BENCHMARK_TIMEOUT` and `LITMUS_SMOKE_TIMEOUT`).
 Embench-IoT, SKL, and Highway use 100 million. These are safety budgets, including loading,
 not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
 `COREMARK_MAX_CYCLES`, `EMBENCH_MAX_CYCLES`, `SKL_MAX_CYCLES`, or `HIGHWAY_MAX_CYCLES` when diagnosing timeouts.
-Benchmark CI never requires exact cycle counts. SKL and Highway check architectural execution
+Benchmark CI uses the [whole-ELF regression contract](#whole-elf-cycle-regressions), not exact cycle equality.
+SKL and Highway check architectural execution
 through cosim on RTL rather than numerical output; other suites retain their
 documented result checks.
 
@@ -894,6 +895,52 @@ ISA/benchmark/CoreMark/Embench-IoT binaries and complete ACT ELF bundles are cac
 by their build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
 CI also runs the focused eight-hart benchmarks on both Tiled cores.
+
+### Whole-ELF cycle regressions
+
+Every successful native ELF run records simulated cycles from reset release to
+the first observed HTIF exit. This includes loading, boot, benchmark work, and
+reporting, but excludes subsequent cosimulation drain. It requires no guest
+instrumentation and is not a benchmark-region score. Spike's count describes
+the Spike-backed harness, not predicted hardware performance; compare each
+configuration only to its own baseline.
+
+CI collects `benchmark`, `coremark`, `coremark_scalar`, `embench`, `bringup`,
+`skl`, and `highway` on Simple RVA23 with RV5Stage, RV2Wide, and Spike, plus the
+existing eight-hart benchmarks on Tiled RVA23 with RV5Stage and Spike. Existing
+jobs and shards publish compact `performance-…` artifacts containing
+`performance.json` and display the per-ELF counts in the job summary. Functional
+failures still fail CI and cannot become baselines.
+
+Initially there are no checked-in expectations. The runner
+reports missing config/suite baselines as **unbaselined** and
+uploads measurements without failing for missing numbers. Once a reviewed
+baseline is checked in, canonical Linux/rsim runs fail on a change greater than
+±10% for any ELF, including unexpectedly large speedups. Changed ELF hashes,
+workload inventories, build settings, or target fingerprints require explicit
+baseline review instead of silently comparing different inputs. Simple RTL runs use
+the CI `cosim` variant; Spike and Tiled use `normal`. Other platforms/backends/variants
+record measurements but do not compare them to canonical expectations.
+
+Download one CI run's compact artifacts and import them explicitly:
+
+```sh
+gh run download RUN_ID --pattern 'performance-*' --dir /tmp/rhodium-performance-results
+python3 sims/program-test/performance.py summary --results /tmp/rhodium-performance-results
+python3 sims/program-test/performance.py import --results /tmp/rhodium-performance-results
+```
+
+Use a fresh download directory per run. Import requires every shard of each
+included config/suite to have completed with functional success, identical inputs and
+simulator provenance. It writes reviewable files under
+`program-test/performance-baselines/`; review and commit those numbers separately.
+CI never updates them. Every run uploads newly collected numbers, even when
+the performance gate fails or an existing baseline describes different inputs.
+After an intentional change, review these measurements and explicitly import
+the affected results. A performance-only failure does not prevent import;
+a functional failure, timeout, or incomplete shard set does.
+The [contributor guide](DEVELOPING.md#whole-elf-performance-baseline-maintenance)
+describes qualification and update ownership.
 
 ## Architectural certification tests
 

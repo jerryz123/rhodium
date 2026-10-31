@@ -139,6 +139,15 @@ variants, publish a cosim-enabled simulator under their config artifact name. Pr
 that selection to native ISA, ACT, and firmware consumers; verify the variant
 and install GMP. Native and ACT runners require nonempty successful checking.
 Cosim enrollment does not add matrix rows or change workload selection.
+The existing RVA23 benchmark jobs also collect
+[whole-ELF cycle measurements](../../sims/README.md#whole-elf-cycle-regressions).
+Native shards and Tiled multihart harness jobs upload compact `performance-…`
+artifacts and job summaries even on failure. With no checked-in config/suite
+baseline they report unbaselined results; an existing baseline enforces the
+per-ELF ±10% gate and exact workload identity. This adds no benchmark runs,
+guest instrumentation, or trace jobs. Baselines are promoted explicitly from a
+successful run's complete artifacts, never written by CI; their ownership and
+qualification live in the [simulator contributor guide](../../sims/DEVELOPING.md#whole-elf-performance-baseline-maintenance).
 When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects

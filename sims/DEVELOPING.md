@@ -874,6 +874,55 @@ summary against the full generated inventory. Never interpret an empty or partia
 suite as success, and preserve the upstream runner's nonzero status independently
 of reporting. Failed generation must stop before DUT execution.
 
+### Whole-ELF performance baseline maintenance
+
+The [public measurement and bootstrap contract](README.md#whole-elf-cycle-regressions)
+owns cycle semantics, enrolled workloads, tolerances, and commands.
+`TestDriver.v` freezes its counter at the first nonzero HTIF exit and publishes
+`RHODIUM-PERF: cycles=N` only after successful runtime finish and drain. The
+common program runner requires exactly one positive, bounded record for every
+successful ELF, independently of whether its suite has performance expectations.
+Keep this metric separate from guest counters, trace timestamps, wall time,
+and per-benchmark timing regions.
+
+`program-test/performance.py` owns measurement parsing, baseline matching,
+per-ELF comparison, summaries, and explicit import. The runner atomically
+checkpoints self-contained `performance.json` next to `results.json`; provenance
+includes simulator commit/hash/platform/backend/variant, exact target and build
+fingerprints, and the complete suite's ELF hashes and boot-hart selections.
+The measurement contract and loaded baseline hash participate in resume identity.
+Import validates functionally successful complete shard coverage before writing any files;
+results from different simulator builds or input sets cannot be combined.
+
+`program-test/performance-baselines/<config>/<suite>.json` is an explicitly
+checked-in generated reference, unlike disposable simulation output. No initial
+numbers are seeded by this implementation. Bootstrap from the first successful
+Linux/rsim CI artifacts, review the complete inventory, and repeat representative
+runs to confirm stability before promoting expectations. Retain the normal CI
+ELF build options and variants: `cosim` for Simple RTL, `normal` for Spike and
+Tiled. Import a single run's complete shards; do not merge repetitions or mix
+results from different commits. The baseline's simulator commit/hash are
+provenance, not matching keys, so RTL changes remain measurable.
+
+For intentional changes, inspect the always-collected delta and functional
+result, then explicitly import and review the affected
+config/suite files. The importer accepts a directory or explicit
+`performance.json` paths, so unaffected suites need not be replaced. Keep the
+±10% policy in the tool; do not widen individual expectations to hide
+regressions. Missing baselines are visibly unbaselined; malformed or mismatched
+existing baselines fail the performance gate after execution, so fresh numbers
+are still available for review. Functional status remains separate from the
+performance result: performance-only failures are importable, functional
+failures and incomplete results are not. CI uploads measurements on failure as
+well as success, with no separate collection mode.
+
+Validate counter changes with `make -C sims simulation-runtime-test`, including
+delayed drain, transient exit, and failed finalization. Validate execution and
+baseline-policy changes through a real affected ELF run, not synthetic runner
+or workflow-text tests. Run `git diff --check` after baseline/doc changes.
+
+### Shared Sail artifacts
+
 CI builds the patched Sail model once in `arch-sail`, caches it by gitlink,
 patch series, compiler version, and installer, then distributes the exact-commit
 model artifact to the ACT generation matrix. Each single-core configuration's

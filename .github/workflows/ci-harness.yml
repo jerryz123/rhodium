@@ -1,4 +1,4 @@
-# Builds software and executes one attested config without unrelated hardware toolchains.
+# Executes one attested config and publishes smoke, multihart, and whole-ELF cycle results.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI harness
@@ -139,6 +139,20 @@ jobs:
               PREBUILT_SIMULATOR="$simulator" "${run_args[@]}" "${manifest_args[@]}" 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-$target.log" || status=1
           done
           exit "$status"
+      - name: Summarize multihart whole-ELF cycles
+        if: always() && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        run: |
+          if [[ -d /tmp/rhodium-program-tests ]]; then
+            python3 sims/program-test/performance.py summary --results /tmp/rhodium-program-tests >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish importable multihart performance measurements
+        if: always() && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-${{ fromJSON(inputs.config).soc }}-multihart-${{ github.sha }}
+          path: /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/results/performance.json
+          if-no-files-found: warn
+          retention-days: 30
       - name: Verify RV5Stage-specific NTL cache timing
         if: fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'
         run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
