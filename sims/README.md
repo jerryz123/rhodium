@@ -921,9 +921,40 @@ execution jobs consuming that SoC's exact-commit executable. The
 [CI policy guide](../tools/testing/DEVELOPING.md#ci-ownership) documents shard allocation.
 Spike shards restore the producer's pinned libraries.
 ISA/benchmark/CoreMark/Embench-IoT binaries and complete ACT ELF bundles are cached
-by their build inputs, but results are always rerun. Full Linux suite validation remains
+by their build inputs. Eligible executions can also reuse the evidence described
+below. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
 CI also runs the focused eight-hart benchmarks on all three Tiled cores.
+
+### Execution evidence reuse
+
+CI can reuse successful native software and ACT simulator output when the exact
+executable, resolved shared libraries, selected ELFs and auxiliary files, run
+options, runner contract, and host environment match. Current-commit simulator
+attestation and input checks still run first. A hit rechecks the raw log against
+the current functional checks, Sail-completion requirement, and performance
+expectations; it does not restore a green job verdict. Results record whether
+execution was reused and the originating commit and CI run.
+
+Local reuse is opt-in:
+
+```sh
+RHODIUM_EXECUTION_CACHE=/tmp/rhodium-execution-evidence \
+  make -C sims coremark-run SOC=simple-rv5stage-rva23 COSIM=1 STATS=1
+```
+
+Use the same environment variable with `arch-test-run` for ACT. Set
+`RHODIUM_FORCE_FRESH_EXECUTION=1` to execute again, or select **force_fresh**
+when manually dispatching CI. The Python runners also accept `--execution-cache`
+and `--force-fresh`. Forced fresh execution cannot be combined with the native
+runner's separate `--resume` option.
+
+Missing, invalid, or unavailable evidence falls back to execution. Failed,
+timed-out, and incomplete executions are not published for reuse. A functional
+pass with a performance-only failure is reusable, because every replay applies
+the current expectations again. CI restores exact keys only and publishes
+complete successful functional evidence only from `main`. Litmus, multihart,
+trace, platform, and harness jobs remain fresh.
 
 ### RTL statistics
 

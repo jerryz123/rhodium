@@ -186,7 +186,7 @@ def write_record(output, record, payload):
         return
     measured = {key: payload[key] for key in ('complete', 'pending', 'shard_index', 'shard_count', 'build_failures')}
     measured.update(performance=record, tests=[{key: result[key] for key in
-                    ('name', 'status', 'functional_status', 'measurement', 'comparisons', 'reason') if key in result}
+                    ('name', 'status', 'functional_status', 'measurement', 'comparisons', 'reason', 'execution') if key in result}
                     for result in payload['tests']])
     path = output / 'performance.json'
     temporary = path.with_suffix('.json.tmp')

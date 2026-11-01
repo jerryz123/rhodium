@@ -19,13 +19,20 @@ jobs:
     name: Run${{ matrix.shard_count > 1 && format(' / shard {0}', matrix.shard) || '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      RHODIUM_FORCE_FRESH_EXECUTION: ${{ github.event.inputs.force_fresh == 'true' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Locate execution evidence
+        run: |
+          echo "RHODIUM_EXECUTION_CACHE=$RUNNER_TEMP/execution-evidence" >> "$GITHUB_ENV"
+          echo "RHODIUM_EXECUTION_CONTEXT=$RUNNER_TEMP/execution-context.json" >> "$GITHUB_ENV"
       - name: Install simulator runtime dependencies
+        # Execution evidence is restored only after dependencies and inputs are verified.
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
@@ -54,20 +61,16 @@ jobs:
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
             --backend "${{ matrix.backend }}" --variant "${{ matrix.variant }}"
           ldd "$RUNNER_TEMP/$SOC/VTestDriver"
-      - name: Bind and run selected suites
+      - name: Bind selected suites
+        id: bind
         env:
-          RTL_BACKEND: ${{ matrix.backend }}
-          COSIM: ${{ matrix.cosim && '1' || '0' }}
-          STATS: ${{ matrix.stats && '1' || '0' }}
           SUITES: ${{ toJSON(matrix.suites) }}
           SOC: ${{ matrix.soc }}
         run: |
-          set -o pipefail
           mkdir -p "$RUNNER_TEMP/program-logs"
           jq -er '.[] | [.suite, .build_id] | @tsv' <<< "$SUITES" > "$RUNNER_TEMP/selected-suites.tsv"
           status=0
           while IFS=$'\t' read -r suite build_id; do
-            echo "::group::$suite"
             suite_dir="/tmp/rhodium-program-tests/$SOC/$suite"
             archive="$RUNNER_TEMP/program-elfs/$build_id.tar.gz"
             mkdir -p "$suite_dir"
@@ -76,6 +79,48 @@ jobs:
                  --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$suite_dir/run-manifest.json"; then
               status=1
               echo "::error::Could not prepare $suite for $SOC"
+            fi
+          done < "$RUNNER_TEMP/selected-suites.tsv"
+          echo "failed=$status" >> "$GITHUB_OUTPUT"
+      - name: Identify execution inputs
+        id: execution-identity
+        if: steps.bind.outputs.failed == '0'
+        env:
+          SOC: ${{ matrix.soc }}
+          SELECTION: ${{ toJSON(matrix) }}
+        run: |
+          manifests=()
+          while IFS=$'\t' read -r suite _build_id; do
+            manifests+=(--manifest "/tmp/rhodium-program-tests/$SOC/$suite/run-manifest.json")
+          done < "$RUNNER_TEMP/selected-suites.tsv"
+          python3 sims/program-test/execution.py prepare --kind native \
+            --simulator "$RUNNER_TEMP/$SOC/VTestDriver" --metadata "$RUNNER_TEMP/$SOC/VTestDriver.json" \
+            "${manifests[@]}" --selection "$SELECTION" \
+            --shard-index ${{ matrix.shard }} --shard-count ${{ matrix.shard_count }} \
+            --output "$RHODIUM_EXECUTION_CONTEXT" >> "$GITHUB_OUTPUT"
+      - name: Restore exact execution evidence
+        id: evidence-cache
+        if: steps.execution-identity.outputs.key != '' && env.RHODIUM_FORCE_FRESH_EXECUTION != '1'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.RHODIUM_EXECUTION_CACHE }}
+          key: execution-${{ steps.execution-identity.outputs.key }}
+      - name: Run or recheck selected suites
+        env:
+          RTL_BACKEND: ${{ matrix.backend }}
+          COSIM: ${{ matrix.cosim && '1' || '0' }}
+          STATS: ${{ matrix.stats && '1' || '0' }}
+          SOC: ${{ matrix.soc }}
+          BIND_FAILED: ${{ steps.bind.outputs.failed }}
+        run: |
+          set -o pipefail
+          status="$BIND_FAILED"
+          while IFS=$'\t' read -r suite _build_id; do
+            echo "::group::$suite"
+            suite_dir="/tmp/rhodium-program-tests/$SOC/$suite"
+            if [[ ! -f "$suite_dir/run-manifest.json" ]]; then
+              status=1
               echo '::endgroup::'
               continue
             fi
@@ -87,6 +132,20 @@ jobs:
             echo '::endgroup::'
           done < "$RUNNER_TEMP/selected-suites.tsv"
           exit "$status"
+      - name: Check complete functional evidence
+        id: evidence-ready
+        if: ${{ always() && !cancelled() && steps.execution-identity.outputs.key != '' }}
+        run: |
+          python3 sims/program-test/execution.py ready --context "$RHODIUM_EXECUTION_CONTEXT" \
+            --directory "$RHODIUM_EXECUTION_CACHE" >> "$GITHUB_OUTPUT"
+      - name: Save successful execution evidence
+        if: ${{ always() && !cancelled() && steps.evidence-ready.outputs.ready == 'true' && steps.evidence-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.RHODIUM_EXECUTION_CACHE }}
+          key: execution-${{ steps.execution-identity.outputs.key }}
+
       - name: Summarize whole-ELF cycles
         if: always() && matrix.group != 'isa'
         run: |

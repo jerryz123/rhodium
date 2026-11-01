@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-# Accounts for every generated ACT ELF using the upstream runner's completion summary.
+# Accounts for every ACT ELF and preserves the provenance of reused execution evidence.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
 from pathlib import Path
+import sys
 import xml.etree.ElementTree as ET
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'program-test'))
+import execution
 
 
 def report(elf_dir):
@@ -34,8 +38,13 @@ def report(elf_dir):
             outcome = 'failed'
         else:
             outcome = 'error'
-        results.append(dict(name=str(elf.relative_to(elf_dir)), status=outcome,
-                            detail=status or 'missing result', log=str(log)))
+        result = dict(name=str(elf.relative_to(elf_dir)), status=outcome,
+                      detail=status or 'missing result', log=str(log))
+        if log.exists():
+            info = execution.log_info(log.read_text(errors='replace'))
+            if info is not None:
+                result['execution'] = info
+        results.append(result)
     if entries:
         raise ValueError('ACT summary contains results outside the generated ELF inventory')
     counts = {state: sum(r['status'] == state for r in results) for state in ('passed', 'failed', 'timeout', 'error')}

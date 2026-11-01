@@ -19,12 +19,18 @@ jobs:
     name: Run / shard ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      RHODIUM_FORCE_FRESH_EXECUTION: ${{ github.event.inputs.force_fresh == 'true' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Locate execution evidence
+        run: |
+          echo "RHODIUM_EXECUTION_CACHE=$RUNNER_TEMP/execution-evidence" >> "$GITHUB_ENV"
+          echo "RHODIUM_EXECUTION_CONTEXT=$RUNNER_TEMP/execution-context.json" >> "$GITHUB_ENV"
       - name: Initialize upstream runner
         run: git submodule update --init sw/riscv-arch-test
       - name: Install Spike runtime dependencies
@@ -65,7 +71,27 @@ jobs:
           mkdir -p /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
           cp "$RUNNER_TEMP/act/configuration.json" /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/configuration.json
           tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
-      - name: Run the complete deterministic shard
+      - name: Identify execution inputs
+        id: execution-identity
+        env:
+          SELECTION: ${{ toJSON(matrix) }}
+        run: |
+          python3 sims/program-test/execution.py prepare --kind arch \
+            --simulator "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" \
+            --metadata "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver.json" \
+            --elf-dir /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs \
+            --shard-index ${{ matrix.shard }} --shard-count ${{ matrix.shard_count }} \
+            --selection "$SELECTION" --output "$RHODIUM_EXECUTION_CONTEXT" >> "$GITHUB_OUTPUT"
+      - name: Restore exact execution evidence
+        id: evidence-cache
+        if: steps.execution-identity.outputs.key != '' && env.RHODIUM_FORCE_FRESH_EXECUTION != '1'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.RHODIUM_EXECUTION_CACHE }}
+          key: execution-${{ steps.execution-identity.outputs.key }}
+      - name: Run or recheck the complete deterministic shard
+        id: run
         env:
           RTL_BACKEND: ${{ matrix.backend }}
           COSIM: ${{ matrix.cosim && '1' || '0' }}
@@ -76,6 +102,19 @@ jobs:
           make -C sims arch-test-run ACT_CONFIGURATION=${{ matrix.configuration }} ACT_PYTHON=python3 \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" \
             ACT_JOBS=2 ACT_SHARDS=${{ matrix.shard_count }} ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
+      - name: Check complete functional evidence
+        id: evidence-ready
+        if: ${{ always() && !cancelled() && steps.execution-identity.outputs.key != '' && steps.run.conclusion == 'success' }}
+        run: |
+          python3 sims/program-test/execution.py ready --context "$RHODIUM_EXECUTION_CONTEXT" \
+            --directory "$RHODIUM_EXECUTION_CACHE" >> "$GITHUB_OUTPUT"
+      - name: Save successful execution evidence
+        if: ${{ always() && !cancelled() && steps.evidence-ready.outputs.ready == 'true' && steps.evidence-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.RHODIUM_EXECUTION_CACHE }}
+          key: execution-${{ steps.execution-identity.outputs.key }}
       - name: Publish shard results and inventory
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

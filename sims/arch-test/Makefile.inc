@@ -83,7 +83,7 @@ arch-test-run:
 	$(if $(filter 1,$(ACT_SHARDS)),@true,$(PYTHON) arch-test/shard.py --elf-dir "$(ACT_ELF_DIR)" --output "$(ACT_RUN_ELF_DIR)" --index $(ACT_SHARD) --count $(ACT_SHARDS))
 	rm -f "$(ACT_RUN_ELF_DIR)/../summary.log"
 	@status=0; $(ACT_PYTHON) $(ACT_DIR)/run_tests.py --jobs $(ACT_JOBS) --timeout $(ACT_TIMEOUT) \
-	  '"$(ACT_PYTHON)" "$(CURDIR)/arch-test/run.py" --simulator "$(ACT_SIMULATOR)" --max-cycles $(ACT_MAX_CYCLES) $(if $(filter 1,$(COSIM)),--cosim)' \
+	  '"$(ACT_PYTHON)" "$(CURDIR)/arch-test/run.py" --simulator "$(ACT_SIMULATOR)" --max-cycles $(ACT_MAX_CYCLES) --timeout $(ACT_TIMEOUT) $(if $(filter 1,$(COSIM)),--cosim)' \
 	  $(ACT_RUN_ELF_DIR) || status=$$?; \
 	$(PYTHON) arch-test/report.py $(ACT_RUN_ELF_DIR) || status=1; \
 	exit $$status

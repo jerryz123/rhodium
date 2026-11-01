@@ -900,6 +900,40 @@ summary against the full generated inventory. Never interpret an empty or partia
 suite as success, and preserve the upstream runner's nonzero status independently
 of reporting. Failed generation must stop before DUT execution.
 
+### Content-addressed execution evidence
+
+The [public reuse contract](README.md#execution-evidence-reuse) describes local
+controls and supported workloads. `program-test/execution.py` owns runtime and
+input identities, checksum-verified raw logs, and execution provenance. Native
+`run.py` and the ACT single-ELF adapter reuse output, not verdicts. The current
+native checker always reparses measurements and reapplies output contracts and
+baselines; the ACT adapter always rechecks HTIF and Sail completion before the
+unchanged upstream runner and inventory reporter account for the selected shard.
+Keep litmus, multihart, tracing, and platform/harness jobs out of CI reuse.
+
+After verifying the current simulator attestation and workload artifacts, CI
+prepares one runtime context per execution job. Hash the executable and resolved
+dynamic-library closure, host ABI/CPU/image and relevant runtime environment,
+backend/instrumentation/target identity, runner and invocation sources, and exact
+selected ELF/auxiliary inputs and options. An unresolved library disables reuse.
+Do not include the repository commit or numeric performance expectations in this
+identity: the current artifact remains independently attested, while expectations
+are reapplied. Do not restore the prepared runtime context from the cache; it is
+local to the current verified executable. Per-case keys include actual input
+hashes and cycle/wall limits.
+
+CI uses exact cache keys without prefix fallbacks. Cache operations are optional;
+unavailable or corrupt evidence means execution, not skipped checks. Only trusted
+`main` push/manual runs save evidence after the complete selected inventory has
+current functional passes and verified per-case receipts. Performance-only
+failure does not prevent saving those raw logs. Failed or partial executions
+cannot create a reusable bundle. Preserve original execution provenance in both
+`results.json` and `performance.json`, separately from current artifact provenance.
+Manual dispatch's `force_fresh` bypasses reads; local users have the equivalent
+environment variable and runner option. Do not add orchestration/meta-tests;
+validate changes using real ELF execution, replay, changed expectations, forced
+fresh execution, and timeout behavior, plus workflow lint.
+
 ### Whole-ELF performance baseline maintenance
 
 The [public measurement and bootstrap contract](README.md#whole-elf-cycle-regressions)
@@ -1017,7 +1051,8 @@ unsafe archive members before extraction. Cache hits also compare the current
 configuration and input key. Invalid bundles fail closed; only successful full
 generation and packaging can reach the explicit cache-save step. On a miss,
 retain reference intermediates but replace the generated ELF inventory as usual.
-Never cache DUT results: every execution shard runs the current simulator.
+Execution evidence is separate from generated ELF caching and follows the
+[content-addressed evidence contract](#content-addressed-execution-evidence).
 
 Run host binding checks with:
 

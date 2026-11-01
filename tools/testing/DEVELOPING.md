@@ -453,7 +453,15 @@ GCC/Newlib toolchain; Linux image production uses Buildroot's Linux/musl toolcha
 ACT execution consumes its shared ELF archive without installing
 the compiler or reference-model toolchain again. Generation can reuse only an
 exact-input, checksum- and inventory-verified complete bundle; execution still
-uses the current commit's simulator and reruns every shard. The configured deterministic shards cover
+verifies the current commit's simulator. Native software and ACT shards may reuse
+checksum-verified raw execution evidence under the
+[simulation reuse contract](../../sims/DEVELOPING.md#content-addressed-execution-evidence).
+Current functional checks, Sail completion, inventory accounting, and performance
+expectations still run; a cache hit never skips the job's verdict. Only trusted
+`main` runs publish complete functional evidence, with exact-key restore and a
+force-fresh dispatch option. Optional cache transfer failures may continue; test
+failures may not. Platform, harness, multihart, and litmus jobs execute freshly.
+The configured deterministic shards cover
 the full generated inventory, including failures. They run independently with bounded process parallelism and
 upload logs plus JSON/JUnit results even when execution fails. Do not add
 `continue-on-error` or pass-based exclusions to make new suites green. Measure a

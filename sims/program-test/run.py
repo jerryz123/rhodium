@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Executes every manifest ELF with bounded resources and explicit HTIF completion accounting.
+# Executes or rechecks verified ELF evidence with current functional and performance contracts.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import threading
@@ -18,6 +19,7 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
 from program_target import target_fingerprint, validate_target
 import performance
+import execution
 
 
 LITMUS_STATE_LINE = re.compile(r'^\s*(\d+)\s*[*:]>(.*)$')
@@ -61,7 +63,48 @@ def check_litmus_states(test, lines):
     return None
 
 
-def execute(test, simulator, root, output, timeout, cycles, cosim=False, expected=None, performance_error=None):
+def check_output(test, text, code, cycles, cosim, expected, performance_error):
+    """Apply current functional contracts and expectations to fresh or reused output."""
+    result = dict(status='failed', functional_status='failed')
+    lines = text.splitlines()
+    if any('SoC harness simulation timed out' in line for line in lines):
+        return dict(status='timeout', functional_status='timeout', reason='cycle-timeout')
+    if code != 0 or 'SoC harness simulation passed' not in text:
+        return result
+    measurement = performance.measure(text, cycles)
+    result['measurement'] = measurement
+    completions = re.findall(r'^Sail cosim: checked ([0-9]+) scalar records$', text, re.MULTILINE)
+    checked = int(completions[0]) if len(completions) == 1 and int(completions[0]) > 0 else None
+    if checked is not None:
+        result['cosim_checked_records'] = checked
+    required = test.get('required_output', [])
+    forbidden = test.get('forbidden_output', [])
+    if (not isinstance(required, list) or not isinstance(forbidden, list)
+            or any(not isinstance(marker, str) or not marker for marker in required + forbidden)):
+        raise ValueError(f'{test["name"]}: invalid output contract')
+    missing = [marker for marker in required if marker not in text]
+    present = [marker for marker in forbidden if marker in text]
+    if cosim and checked is None:
+        result['reason'] = 'missing, duplicate, or empty cosim completion'
+    elif missing or present:
+        result['reason'] = f'missing output {missing}; forbidden output {present}'
+    else:
+        reason = check_litmus_states(test, lines) if 'litmus_allowed_states' in test else None
+        result.update(status='failed' if reason else 'passed', functional_status='failed' if reason else 'passed')
+        if reason:
+            result['reason'] = reason
+        elif performance_error:
+            result.update(status='failed', reason=performance_error)
+        elif expected is not None:
+            comparison, failures = performance.compare(measurement, expected)
+            result.update(comparison)
+            if failures:
+                result.update(status='failed', reason='; '.join(failures))
+    return result
+
+
+def execute(test, simulator, root, output, timeout, cycles, cosim=False, expected=None,
+            performance_error=None, evidence=None, auxiliary_files=None):
     started = time.monotonic()
     elf = (root / test['elf']).resolve()
     log_path = output / (test['name'] + '.log')
@@ -69,100 +112,63 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
     if 'harts' in test:
         command.append('+boot-harts=' + ','.join(str(hart) for hart in test['harts']))
     command += ['+permissive', f'+max-cycles={cycles}', '+permissive-off', str(elf)]
-    status = 'error'
-    reason = None
-    checked_records = None
-    functional_status = None
-    measurement = None
-    comparison = {}
+    result = dict(status='error', functional_status='error')
+    key, cached = None, None
+    code = None
     try:
-        if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
+        files = dict(elf=elf)
+        if execution.digest(elf) != test['sha256']:
             raise ValueError(f'ELF checksum mismatch: {elf}')
         if 'payload' in test:
             payload = test['payload']
             path = (root / payload['elf']).resolve()
             if not path.is_relative_to(root.resolve()):
                 raise ValueError('auxiliary payload is outside the suite')
-            if hashlib.sha256(path.read_bytes()).hexdigest() != payload['sha256']:
+            if execution.digest(path) != payload['sha256']:
                 raise ValueError(f'ELF checksum mismatch: {path}')
+            files['payload'] = path
             command.insert(-1, '+payload=' + str(path))
-        with log_path.open('w') as log:
-            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            with ACTIVE_LOCK:
-                ACTIVE_PROCESSES.add(process.pid)
-            try:
-                if CANCELLED.is_set():
-                    os.killpg(process.pid, signal.SIGKILL)
-                code = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait()
-                status = 'timeout'
-                reason = 'wall-timeout'
-            else:
-                text = log_path.read_text(errors='replace')
-                lines = text.splitlines()
-                if any('SoC harness simulation timed out' in line for line in lines):
-                    status = 'timeout'
-                    reason = 'cycle-timeout'
-                elif code == 0 and 'SoC harness simulation passed' in text:
-                    measurement = performance.measure(text, cycles)
-                    if cosim:
-                        completions = re.findall(r'^Sail cosim: checked ([0-9]+) scalar records$', text, re.MULTILINE)
-                        if len(completions) == 1 and int(completions[0]) > 0:
-                            checked_records = int(completions[0])
-                    required = test.get('required_output', [])
-                    forbidden = test.get('forbidden_output', [])
-                    if (not isinstance(required, list) or not isinstance(forbidden, list)
-                            or any(not isinstance(marker, str) or not marker for marker in required + forbidden)):
-                        raise ValueError(f'{test["name"]}: invalid output contract')
-                    missing = [marker for marker in required if marker not in text]
-                    present = [marker for marker in forbidden if marker in text]
-                    if cosim and checked_records is None:
-                        status = 'failed'
-                        reason = 'missing, duplicate, or empty cosim completion'
-                    elif missing or present:
-                        status = 'failed'
-                        reason = f'missing output {missing}; forbidden output {present}'
-                    elif 'litmus_allowed_states' in test:
-                        reason = check_litmus_states(test, lines)
-                        status = 'failed' if reason else 'passed'
-                    else:
-                        status = 'passed'
-                    functional_status = status
-                    if status == 'passed':
-                        if performance_error:
-                            status = 'failed'
-                            reason = performance_error
-                        elif expected is not None:
-                            comparison, failures = performance.compare(measurement, expected)
-                            if failures:
-                                status = 'failed'
-                                reason = '; '.join(failures)
-                else:
-                    status = 'failed'
-            finally:
+        eligible = 'litmus_allowed_states' not in test and len(test.get('harts', [0])) == 1
+        if evidence and eligible:
+            files.update(auxiliary_files or {})
+            key = evidence.key(dict(test=test, timeout=timeout, max_cycles=cycles, cosim=cosim), files)
+            cached = evidence.read(key)
+        if cached:
+            shutil.copyfile(cached[1], log_path)
+            code = cached[0]['returncode']
+        else:
+            with log_path.open('w') as log:
+                process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 with ACTIVE_LOCK:
-                    ACTIVE_PROCESSES.discard(process.pid)
+                    ACTIVE_PROCESSES.add(process.pid)
+                try:
+                    if CANCELLED.is_set():
+                        os.killpg(process.pid, signal.SIGKILL)
+                    code = process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+                    result.update(status='timeout', functional_status='timeout', reason='wall-timeout')
+                finally:
+                    with ACTIVE_LOCK:
+                        ACTIVE_PROCESSES.discard(process.pid)
+        if code is not None:
+            result = check_output(test, log_path.read_text(errors='replace'), code, cycles, cosim, expected, performance_error)
+            if result['functional_status'] == 'passed' and evidence and not cached:
+                evidence.save(key, log_path, code, time.monotonic() - started)
     except (OSError, ValueError) as error:
-        status = 'error'
-        reason = str(error)
+        result = dict(status='error', functional_status='error', reason=str(error))
         with log_path.open('a') as log:
             log.write(str(error) + '\n')
-    result = dict(name=test['name'], status=status, seconds=time.monotonic() - started,
-                  log=str(log_path), command=command)
-    if reason:
-        result['reason'] = reason
-    if checked_records is not None:
-        result['cosim_checked_records'] = checked_records
-    if measurement is not None:
-        result.update(measurement=measurement, **comparison)
-    result['functional_status'] = functional_status or status
-    detail = f': {reason}' if reason else (f' ({measurement["cycles"]} cycles)' if measurement is not None else '')
-    print(f'{status}: {test["name"]}{detail}', flush=True)
+    result.update(name=test['name'], seconds=time.monotonic() - started, log=str(log_path), command=command)
+    result['execution'] = evidence.info(key, cached) if evidence else dict(reused=False)
+    detail = ': ' + result['reason'] if 'reason' in result else (
+        f' ({result["measurement"]["cycles"]} cycles)' if 'measurement' in result else '')
+    reused = ' [reused execution]' if cached else ''
+    print(f'{result["status"]}: {test["name"]}{detail}{reused}', flush=True)
     return result
 
 
@@ -179,7 +185,12 @@ def main():
     parser.add_argument('--shard-count', type=int, default=1)
     parser.add_argument('--resume', action='store_true', help='reuse completed results only for an identical run')
     parser.add_argument('--performance-baselines', type=Path, default=performance.BASELINES)
+    parser.add_argument('--execution-cache', type=Path, help='reuse successful raw execution evidence')
+    parser.add_argument('--force-fresh', action='store_true', help='ignore cached execution evidence')
     args = parser.parse_args()
+    force_fresh = args.force_fresh or os.environ.get('RHODIUM_FORCE_FRESH_EXECUTION') == '1'
+    if force_fresh and args.resume:
+        parser.error('--resume cannot be combined with forced fresh execution')
     if min(args.jobs, args.timeout, args.max_cycles) <= 0:
         parser.error('jobs, timeout, and max-cycles must be positive')
     if args.shard_count <= 0 or not 0 <= args.shard_index < args.shard_count:
@@ -206,6 +217,14 @@ def main():
                 or simulator_metadata.get('soc') != target['soc']
                 or simulator_metadata.get('sha256') != hashlib.sha256(args.simulator.read_bytes()).hexdigest()):
             parser.error('workload target does not match simulator attestation')
+    evidence = execution.Evidence(args.simulator, 'native', simulator_metadata, args.execution_cache, force_fresh)
+    auxiliary_files = {}
+    for file in manifest.get('files', []):
+        path = (args.manifest.parent / file['path']).resolve()
+        if (not path.is_relative_to(args.manifest.parent.resolve())
+                or execution.digest(path) != file['sha256']):
+            parser.error('auxiliary input is outside the suite or has an invalid checksum')
+        auxiliary_files['file:' + file['path']] = path
     tests = manifest['tests']
     names = [test['name'] for test in tests]
     if not tests or len(set(names)) != len(names) or any(Path(n).name != n or n in ('.', '..') for n in names):
@@ -294,7 +313,8 @@ def main():
                 future = executor.submit(execute, test, args.simulator.resolve(), args.manifest.parent,
                                          args.output, args.timeout, args.max_cycles, cosim,
                                          expected_measurements.get(test['name']),
-                                         performance_record.get('reason') if performance_record else None)
+                                         performance_record.get('reason') if performance_record else None, evidence,
+                                         auxiliary_files)
                 futures[future] = test['name']
 
             for _ in range(min(args.jobs, len(pending_tests))):

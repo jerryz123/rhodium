@@ -9,6 +9,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      force_fresh:
+        description: Execute software and ACT simulations without reusing prior execution evidence.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
