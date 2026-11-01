@@ -67,8 +67,8 @@ ifeq ($(TRACE),1)
 ifneq ($(RTL_BACKEND),circt)
 $(error TRACE=1 currently requires RTL_BACKEND=circt)
 endif
-ifeq ($(filter $(word 1,$(HARNESS_SELECTOR))-$(word 2,$(HARNESS_SELECTOR)),simple-rv5stage tiled-rv5stage mini-rv2wide simple-rv2wide),)
-$(error TRACE=1 supports Simple/Tiled RV5Stage or Mini/Simple RV2Wide SoCs only)
+ifeq ($(filter $(SOC_CORE),rv5stage rv2wide),)
+$(error TRACE=1 requires RV5Stage or RV2Wide)
 endif
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-trace
 TRACE_HEADER = $(SOC_BUILD_DIR)/soc_events.h

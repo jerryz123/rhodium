@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
+from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIGS, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
 
 
 def matches(path, *patterns):
@@ -274,8 +274,8 @@ class Selection:
         entry = simulation_entry if self.simulation else simulator_entry
         builds = [entry(*config) for config in configs] if run_simulator else []
         if self.simulation:
-            builds.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend, smoke_variant=True)
-                          for backend in BACKEND_SMOKE_VARIANTS)
+            builds.extend(simulation_entry(*config, backend=backend, smoke_variant=True)
+                          for config in BACKEND_SMOKE_CONFIGS for backend in BACKEND_SMOKE_VARIANTS)
         # Matching-row needs are not supported by Actions matrices. Configs
         # with downstream execution use named jobs; build-only rows stay batched.
         pipelines = set(SINGLE_CORE_SOCS) | {row['soc'] for row in platform_configs()}

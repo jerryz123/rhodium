@@ -58,7 +58,7 @@ check:
   metadata_fingerprint(config_metadata(model, slower)) == metadata_fingerprint(config_metadata(model)) ~is #false
 
 for (isa in [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RVA23]):
-  def platforms = for List (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+  def platforms = for List (core in [CoreKind.RV5Stage, CoreKind.RV2Wide, CoreKind.Spike]):
     def config = resolve_soc_config(SoCSelection(SoCShape.Simple, core, isa))
     def platform = ActPlatform(config.description)
     check:
@@ -71,6 +71,7 @@ for (isa in [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RVA23]):
     platform.to_json("same-platform")
 
   check: platforms[0] ~is platforms[1]
+  check: platforms[0] ~is platforms[2]
 
 // Relocation and a second RAM window must follow the description, not a config table.
 def base = resolve_soc_config(named_soc_selection("simple-spike-rv32max")).description

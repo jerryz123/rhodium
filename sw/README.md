@@ -38,7 +38,7 @@ make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
 make -C sims highway-test SOC=simple-rv5stage-rva23 COSIM=1
 make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
 make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage ISA=rva23 LITMUS7=/path/to/litmus7
+make -C sims litmus-smoke-test SOC=tiled CORE=rv2wide ISA=rva23 LITMUS7=/path/to/litmus7
 make -C sims litmus-smoke-test SOC=tiled CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7
 ```
 
@@ -48,7 +48,7 @@ payloads remain under [`sims/tests/`](../sims/tests/) and
 [`sims/opensbi/tests/`](../sims/opensbi/tests/) because they test harness behavior.
 
 The litmus7 profiles share one target-bound builder and port.
-`litmus-smoke-test` runs a checked-in nine-case selection on both tiled cores
+`litmus-smoke-test` runs a checked-in nine-case selection on all three tiled cores
 in CI, while `litmus-full-test` is a local/manual run of every target-supported
 case. A source-tree litmus7 build also needs `LITMUS7_LIBDIR`; see the
 [simulator workflow](../sims/README.md) for sharding, result paths, and the

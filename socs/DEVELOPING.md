@@ -118,7 +118,7 @@ in its own projection. UDB continues to own HPM event IDs and counter presence.
 |---|---|
 | Architectural host description and device-tree projection | [`description.rhm`](platform/description.rhm) |
 | RV5Stage processor profiles | [`core-profiles.rhm`](configs/core-profiles.rhm) |
-| RV2Wide Mini/Simple scalar and RV32/RV64 vector policy | [`rv2wide-core-profile.rhm`](configs/rv2wide-core-profile.rhm), [`rv2wide.rhdl`](harts/rv2wide.rhdl) |
+| RV2Wide shape-owned scalar and RV32/RV64 vector policy | [`rv2wide-core-profile.rhm`](configs/rv2wide-core-profile.rhm), [`rv2wide.rhdl`](harts/rv2wide.rhdl) |
 | Typed config selection, architectural presets, and shared resolution | [`selection.rhm`](configs/selection.rhm), [`isa-profiles.rhm`](configs/isa-profiles.rhm), [`resolve.rhm`](configs/resolve.rhm) |
 | Spike processor profile | [`spike-core-profile.rhm`](configs/spike-core-profile.rhm) |
 | Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |
@@ -189,7 +189,7 @@ make soc-test
 ```
 
 This target also generates native DTBs for the Mini, Single, and Tiled shapes
-with both RV5Stage and Spike harts,
+with RV5Stage, RV2Wide, and Spike harts,
 round-trips their inspection DTS through `dtc`, and checks architectural
 properties with `fdtdump` and `fdtget`. It also checks that the same native DTB
 bytes are finalized into each SoC's BootROM image. Generated artifacts remain

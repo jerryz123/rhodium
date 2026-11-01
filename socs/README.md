@@ -13,6 +13,7 @@ those belong to the [`sims/` harnesses](../sims/README.md).
 Start with the comparison below, then read the section for the selected system.
 For component internals, follow the owning guides for
 [RV5Stage](../cores/rv5stage/README.md),
+[RV2Wide](../cores/rv2wide/README.md),
 [Spike](../cores/spike/README.md), [CHI](../chi/README.md),
 [NoC planning](../noc/README.md), and [platform devices](../devices/README.md)
 instead of treating this page as a component catalog.
@@ -49,9 +50,9 @@ Canonical identities are `<shape>-<core>-<isa>`; exported metadata records
 that identity under the `config` key.
 
 `RVA23` publishes the mandatory RVA23U64/S64 architectural capabilities with
-RV64D, VLEN=128, and Sv39 on both core implementations. The independent
+RV64D, VLEN=128, and Sv39 on both RTL cores and Spike. The independent
 [mandatory-requirement gate](tests/udb-test.rhm) checks versioned UDB declarations
-and required architectural parameters for all six shape/core configs. This
+and required architectural parameters for all nine shape/core configs. This
 includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
 published capabilities. Declaration completeness
 is not an external certification or an exhaustive system validation;
@@ -60,7 +61,7 @@ firmware and the execution environment retain their own obligations.
 integer RV32/Zve32x architecture; `RV32Max` adds scalar F and Zve32f, without D,
 Zfa, or half precision. Both use VLEN=64, ELEN=32 and Bare translation and retain
 the same integer/system extensions. RV5Stage uses a 32-bit SIMD lane for both.
-Both RV5Stage and Spike bind these exact profiles. Mini and Simple support all four RV32 bindings; their common BootROM
+All three hart implementations bind these exact profiles on Mini and Simple; their common BootROM
 detects XLEN at runtime using shared RV32/RV64 reset code, while the boot-entry
 register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
@@ -87,17 +88,20 @@ the core's fixed Zicsr/Zifencei, Zicntr/Zihpm, Zicond, Zimop, Zkt, Za64rs,
 Zic64b/Zicclsm, B constituents, and the validated Sv39 supervisor guarantees.
 Their names describe the scalar baseline, not an exhaustive extension string.
 
-RV2Wide binds all six ISA presets on Mini and Simple only:
+RV2Wide binds all six ISA presets on Mini and Simple, and all four RV64 presets on Tiled:
 `mini-rv2wide-rv64imacb`, `simple-rv2wide-rv64imacb`, and their
 `rv64imafdcb` F/D counterparts. Its profile uses Sv39,
-the shared CSR bank and caches, and a pipelined multiplier on both shapes.
+the shared CSR bank and caches, and a pipelined multiplier on every shape.
 The `mini-rv2wide-rv32int` and `simple-rv2wide-rv32int` bindings use Bare
 translation and Zve32x/VLEN64 with Zvbb/Zvkt. Their `rv32max` counterparts add
 F and Zve32f with the same VLEN64 and Bare platform. `rv64max` enables F/D,
 V with VLEN128, Zfh/Zvfh, and all scalar/supervisor features of the exact preset.
 `mini-rv2wide-rva23` and `simple-rv2wide-rva23` additionally enable H/Sha and
 the guest-supervisor guarantees. Mini selects 32-set direct-mapped private caches; Simple selects
-64-set four-way private caches. These bindings use the same BootROM, devices,
+64-set four-way private caches; Tiled selects 64-set direct-mapped private caches,
+matching the other RTL core's shape policy. The default Tiled configuration has
+eight RV2Wide harts sharing the same four LLC slices and CHI mesh.
+These bindings use the same BootROM, devices,
 host interface, and harness as the other harts. See [RV2Wide](../cores/rv2wide/README.md).
 
 The presets are `RV32Int`, `RV32Max`, `RV64IMACB`, `RV64IMAFDCB`, `RV64Max`,
@@ -139,9 +143,9 @@ configuration and architectural description come from the same selected preset.
 | `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 512-set, eight-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router |
 | `TiledSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles |
 
-Each shape accepts RV5Stage or Spike; Mini and Single additionally accept RV2Wide's lean scalar binding. The selected
+Each shape accepts RV5Stage, RV2Wide, or Spike. The selected
 profile determines its ISA, caches, MMU, and device-tree properties; the shape
-determines the fabric and memory topology. All six configs expose the same
+determines the fabric and memory topology. All configurations expose the same
 [`SoCHostInterface`](platform/host-interface.rhdl): a
 non-caching RN-F port for coherent RAM and non-snooping MMIO access.
 Each author-facing SoC parameter object owns one hart binding, which projects the same implementation-neutral
@@ -218,8 +222,8 @@ or connect a simulation PTY.
 
 [`udb.rhm`](configs/udb.rhm) catalogs concrete RISC-V Unified Database configurations
 for repository SoC and processor combinations. It joins a named core's UDB
-projection with platform facts. Both core bindings disable PMP in SoC configs.
-RV32 Bare configs use 32-bit physical addresses; RV64 RV5Stage projects the
+projection with platform facts. All three core bindings disable PMP in SoC configs.
+RV32 Bare configs use 32-bit physical addresses; both RV64 RTL cores project the
 CHI fabric width and Spike projects its model's 56-bit physical limit, even
 though its SoC fabric has a narrower mapped address range. The
 generic writer and Make target know only the catalog key, so a

@@ -9,12 +9,21 @@ import:
   "../tiled-soc/main.rhdl" as tiled_rv5stage
   "../configs/tiled-rv5stage.rhdl" as tiled_default
   "../tiled-soc/compile.rhdl" as compiler
+  "../configs/selection.rhm" open
+  "../configs/resolve.rhm".resolve_soc_config
 
 def compiled = compiler.compile_tiled_soc(tiled_default.default_tiled_soc_config)
+def dual_mini = resolve_soc_config(named_soc_selection("mini-rv2wide-rva23")).configuration()
+def dual_simple = resolve_soc_config(named_soc_selection("simple-rv2wide-rva23")).configuration()
+def dual_tiled = resolve_soc_config(named_soc_selection("tiled-rv2wide-rva23")).configuration()
+def dual_compiled = compiler.compile_tiled_soc(dual_tiled)
 def systems = [
   [single_core.single_core_rv5stage_soc_params.fabric.hart_config, single_core.single_core_rv5stage_soc_params.description],
   [mini_rv5stage.mini_rv5stage_soc_fabric_params.hart_config, mini_rv5stage.mini_rv5stage_soc_params.description],
-  [compiled.hart_config, tiled_default.default_tiled_soc_config.description]
+  [compiled.hart_config, tiled_default.default_tiled_soc_config.description],
+  [dual_mini.fabric.hart_config, dual_mini.description],
+  [dual_simple.params.fabric.hart_config, dual_simple.description],
+  [dual_compiled.hart_config, dual_tiled.description]
 ]
 
 fun address_count(mask :: Nat) :: PosInt:

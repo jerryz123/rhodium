@@ -20,13 +20,16 @@ the simulation-only `SpikeCore` DPI boundary while retaining the selected
 SoC shape's coherent fabric and platform contract.
 
 RV2Wide is also synthesizable and binds the existing Mini/Simple shapes with
-`rva23`, `rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb`. The non-RVA23 RV64 configs run
+`rva23`, `rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb`;
+Tiled supports the four RV64 presets. The non-RVA23 RV64 configs run
 only capability-filtered ISA smoke; both RV32 presets follow the shared
 shape/ISA software policy (platform tests, plus Simple's native ISA and ACT),
 with ordinary BootROM/FESVR loading and target-selected Sail cosimulation.
 RVA23 uses the same shape/ISA policy as RV5Stage and Spike: Mini runs platform
 tests and ISA smoke; Simple additionally enrolls the full native suites, ACT,
-OpenSBI, and the focused platform workloads. Its ACT run uses 16 shards.
+OpenSBI, and the focused platform workloads. Tiled adds the same eight-hart
+benchmarks and model-checked litmus smoke as the other hart bindings.
+Its ACT run uses 16 shards.
 Their optional flow tracing uses the same event pass and RHEG exporter. The SoC resolver owns
 their fixed ISA and cache resources, not this harness.
 
@@ -41,11 +44,11 @@ Each `(SOC, CORE, ISA)` selection has an isolated default rsim build directory.
 Explicit CIRCT and direct SV append `-circt` and `-verilog`; instrumentation
 adds its existing suffix afterward. CI publishes an exact-commit simulator and
 target descriptor for each build variant. All enrolled configs use rsim with
-their existing workload selection. One Simple RVA23 CIRCT variant runs smoke,
+their existing workload selection. Each RTL core's Simple RVA23 CIRCT variant runs smoke,
 boot, host MMIO, UART, and ISA smoke; the direct-SV variant runs smoke, host MMIO,
 and UART. Backend variants stay outside the architectural inventory.
 Software-only changes still build the enrolled full-suite Simple configs; simulation
-changes build every enrolled config and both HDL variants. Every selection
+changes build every enrolled config and both HDL backends for each RTL core. Every selection
 emits the same `SoCHarness` top contract.
 
 The configured host emitter calls `elaborate` once and passes the resulting
@@ -56,7 +59,7 @@ explicitly require concrete preparation. Do not prepare the configured source
 before target selection or reconstruct a program from only its design/top.
 
 All enrolled Mini/Simple RV5Stage and RV2Wide rsim rows build with `COSIM=1`,
-as do the RV5Stage CIRCT and direct SystemVerilog variants. Each instrumented row publishes one
+as do both cores' CIRCT and direct SystemVerilog variants. Each instrumented row publishes one
 simulator under its unchanged config artifact name; its local build directory
 retains the `-cosim` suffix.
 The shared Sail job publishes the model and config-independent cosim archives;
@@ -232,7 +235,8 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 
 ### Event export integration
 
-Mini/Simple RV2Wide use the same event target, including composition with cosim.
+Mini/Simple/Tiled RV2Wide use the same event target; Mini/Simple additionally
+support composition with cosim. RV5Stage exposes the same shape selection.
 `trace-smoke` reuses the scalar cosim payload and `check-rv2wide-events.sql` checks
 fetch/packet-to-issue ownership, dual-slot issue, PC/instruction preservation,
 fixed EX/MEM timing, successful WB, and RR stall explanations. Direct core
@@ -694,27 +698,28 @@ duplicate ISA, topology, or RAM constants in Python. A manifest test may select
 a nonempty canonical subset through `harts`. The runner validates that subset
 against the target and translates it to `+boot-harts=`; tests without the field
 retain the hart-zero default.
-Both Single-core RVA23 configs own the complete profile-selected ISA inventory,
-benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Both single-core SoCs own independent ACT configurations:
-Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
+All three Simple RVA23 configs own the complete profile-selected ISA inventory,
+benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Each owns an independent ACT configuration:
+Spike's UDB projection reflects its pinned implementation, and each RTL core uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-All four Simple RV32 configs additionally select their full upstream ISA inventory
+All six Simple RV32 configs additionally select their full upstream ISA inventory
 and ACT in CI. Program suite selection is keyed by shape/ISA in `tools/ci/policy.py`;
 RV64 benchmark ports remain outside RV32 coverage. ACT projects XLEN, physical
 addressability, indexed-memory EEW and vector geometry independently. RV32
 configs use 32-bit physical addresses and disable PMP; both retain the platform's
 44-bit CHI fabric. Generate each core's own Sail
 expectations; never reuse one implementation's WARL/PMP claims for the other.
-The six CI Mini configs and both Tiled configs use capability-filtered ISA smoke.
-For each of `rv64max`, `rv64imacb`, and `rv64imafdcb`, RV5Stage and Spike enroll
-only Simple. RV2Wide enrolls Mini and Simple for the two lean scalar presets,
-and only Simple for `rv64max`; Mini RV2Wide RV64Max remains a supported manual
-selection. All these RV64 configs run only `isa-smoke`: no platform suite, full
+The enrolled Mini and Tiled configs use capability-filtered ISA smoke.
+Both RTL cores enroll Mini and Simple for `rv64imacb` and `rv64imafdcb`, and
+only Simple for `rv64max`; their Mini RV64Max configs remain supported manual
+selections. Spike enrolls Simple for all three presets.
+These RV64 configs run only `isa-smoke`: no platform suite, full
 native ISA suite, ACT, benchmarks, OpenSBI, or litmus. Keep this policy keyed by
 shape/ISA so every core exercises the same capability-filtered selection.
-RV2Wide's enrolled configs enable Sail cosimulation on the ordinary simulator.
-Both Tiled configs additionally own the focused upstream multihart benchmark selection. The
+Both RTL cores' enrolled Mini/Simple configs enable Sail cosimulation on the
+ordinary simulator; Tiled remains non-cosim for both.
+All three Tiled configs additionally own the focused upstream multihart benchmark selection. The
 Make targets and CI select only eight participating harts, retaining all three
 workloads without repeating them at smaller hart counts. The
 adapter materializes a private build-tree view of the pinned benchmark sources
@@ -762,7 +767,7 @@ Mapped Mini execution
 retains its additional build dependencies; ordinary harness execution reuses
 the producer's installed native libraries and hardware tools. Configs other than the three Simple smoke-only
 presets run platform checks; Mini
-and Tiled profiles run `isa-smoke`, and both Tiled cores run multihart
+and Tiled profiles run `isa-smoke`, and all Tiled cores run multihart
 benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only;
 each core binding consumes the identical selection. The matrix disables
 fail-fast, attempts every selected target even after failure, and uploads independent results.
@@ -861,7 +866,7 @@ accepting that mapping. Other supervisor guarantees retain their modeled
 extension switches; preserve the exact published UDB input.
 
 The platform test matrix runs the same checked-in, litmus7-generated
-smoke selection on both exact tiled simulators. Litmus7 and ELFs are built only
+smoke selection on all three exact tiled simulators. Litmus7 and ELFs are built only
 in the shared build jobs; execution retains histogram checking and its own
 90-minute job budget. OpenSBI executions retain independent 45-minute budgets
 and share firmware only when layout and generated DTB contents match.

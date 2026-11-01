@@ -1333,8 +1333,10 @@ The fixture runner invokes the repository-managed Racket wrapper. Run host
 checks through `tools/run-racket-tests.sh` and other elaboration through
 `tools/run-racket.sh`; do not bypass the managed compiled root. After changing
 fixture ownership, confirm the rsim runner's `--group cores-components --list`
-includes `rv2wide-core`, `rv2wide-fetch`, and `rv2wide-rv32`. Mini/Simple integration uses the existing shape harnesses
+includes `rv2wide-core`, `rv2wide-fetch`, and `rv2wide-rv32`. Mini/Simple/Tiled integration uses the existing shape harnesses
 and their normal FESVR loading and BootROM path. Run `boot-test` and `isa-smoke`
 with `SOC=mini-rv2wide-rv64imacb` and `SOC=simple-rv2wide-rv64imacb` for platform
-changes. Keep CI enrollment in `sims/test-configs.txt` and workload selection
+changes. Tiled RVA23 additionally runs the ordinary eight-hart benchmark and
+model-checked litmus smoke paths; its trace selection uses the same event pass.
+Keep CI enrollment in `sims/test-configs.txt` and workload selection
 in the shared shape/ISA policy, not in the processor configuration.

@@ -33,12 +33,13 @@ def Rva23MandatoryUdb = [
 // Matching platforms and ISA selections must describe the same component
 // behavior despite different issue, retirement, and execution timing. PMA
 // granularity remains an explicit integration choice, not component policy.
-for (isa in ["rv32int", "rv32max", "rv64imacb", "rv64imafdcb", "rv64max", "rva23"]):
-  def scalar = riscv_udb_configuration("simple-rv5stage-" ++ isa)
-  def dual = riscv_udb_configuration("simple-rv2wide-" ++ isa)
-  def scalar_components = scalar.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
-  def dual_components = dual.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
-  check: scalar_components.map(fun (parameter): parameter.to_yaml()).sort() ~is dual_components.map(fun (parameter): parameter.to_yaml()).sort()
+for (shape in ["mini", "simple", "tiled"]):
+  for (isa in ["rv32int", "rv32max", "rv64imacb", "rv64imafdcb", "rv64max", "rva23"]):
+    def scalar = riscv_udb_configuration(shape ++ "-rv5stage-" ++ isa)
+    def dual = riscv_udb_configuration(shape ++ "-rv2wide-" ++ isa)
+    def scalar_components = scalar.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
+    def dual_components = dual.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
+    check: scalar_components.map(fun (parameter): parameter.to_yaml()).sort() ~is dual_components.map(fun (parameter): parameter.to_yaml()).sort()
 
 fun missing_rva23_extensions(extensions :: List.of(UdbExtension)) :: List.of(String):
   fun absent(requirement):
@@ -50,7 +51,7 @@ fun missing_rva23_extensions(extensions :: List.of(UdbExtension)) :: List.of(Str
   def missing = Rva23MandatoryUdb.filter(~keep: absent)
   missing.map(fun (requirement): requirement[0])
 
-for (core in ["rv5stage", "spike"]):
+for (core in ["rv5stage", "rv2wide", "spike"]):
   for (isa in ["rv32int", "rv32max"]):
     def rv32 = riscv_udb_configuration("simple-" ++ core ++ "-" ++ isa)
     def yaml = rv32.to_yaml()
@@ -71,7 +72,7 @@ for (core in ["rv5stage", "spike"]):
       check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 
 for (core in ["rv5stage", "spike", "rv2wide"]):
-  for (shape in (if core == "rv2wide" | ["mini", "simple"] | ["mini", "simple", "tiled"])):
+  for (shape in ["mini", "simple", "tiled"]):
     def config = resolve_soc_config(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
     def configuration = config.udb()
     def hart = config.description.hart

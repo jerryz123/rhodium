@@ -1,5 +1,5 @@
 #lang rhombus
-/* Applies Mini/Simple cache resources to RV2Wide's exact scalar and RV32/RV64 vector presets. */
+/* Applies shape-owned cache resources to RV2Wide's exact scalar and RV32/RV64 vector presets. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,12 +10,12 @@ import:
   "selection.rhm" open
   "isa-profiles.rhm".soc_architecture
 
-/* Rejects unsupported shapes or architectures rather than silently selecting a weaker hart. */
+/* Applies Mini/Simple/Tiled cache geometry and rejects an inexact architectural projection. */
 fun rv2wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV2WideConfig:
-  unless [SoCShape.Mini, SoCShape.Simple].contains(shape)
-  | error(~who: #'rv2wide_soc_profile, "RV2Wide supports Mini/Simple shapes")
-
-  def cache = if shape == SoCShape.Mini | CacheConfig(32, 1) | CacheConfig(64, 4)
+  def cache = match shape
+  | SoCShape.Mini: CacheConfig(32, 1)
+  | SoCShape.Simple: CacheConfig(64, 4)
+  | SoCShape.Tiled: CacheConfig(64, 1)
   def architecture = soc_architecture(preset)
   def has = architecture.has
   def compressed = CCompressedExtensions ++ (if has("zcb") | [CompressedExtension.Zcb] | []) ++ (if has("zcmop") | [CompressedExtension.Zcmop] | [])

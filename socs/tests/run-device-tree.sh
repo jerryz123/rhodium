@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-checks RV5Stage and requested Spike config DTBs against standard device-tree tools.
+# Cross-checks all three RVA23 hart bindings and shapes against standard device-tree tools.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -20,7 +20,9 @@ trap cleanup EXIT
 env PLTCOLLECTS="$repo_dir": "$repo_dir/tools/run-racket.sh" \
   "$repo_dir/socs/tests/write-device-trees.rhm" "$fixture_dir"
 
-for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
+hardware_names=(single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc
+                single-core-rv2wide-soc mini-rv2wide-soc tiled-rv2wide-soc)
+for name in "${hardware_names[@]}"; do
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
   fdtdump "$fixture_dir/$name.dtb" > "$fixture_dir/$name.dump" 2>&1
@@ -53,7 +55,7 @@ for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
   # Resolve CPU phandles rather than assuming their numeric allocation.
   contexts=()
   hart_count=1
-  [[ "$name" != tiled-rv5stage-soc ]] || hart_count=8
+  [[ "$name" != tiled-* ]] || hart_count=8
   for ((hart=0; hart<hart_count; hart++)); do
     for extension in zic64b za64rs ziccif ziccamoa zicclsm ziccrse; do
       case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
@@ -96,14 +98,14 @@ for name in single-core-spike-soc mini-spike-soc tiled-spike-soc; do
   done
 done
 
-for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
+for name in "${hardware_names[@]}"; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zcmop "*) ;;
     *) echo "$name DTB does not advertise Zcmop" >&2; exit 1 ;;
   esac
 done
 
-for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
+for name in "${hardware_names[@]}"; do
   for extension in zfh zvfh zvkt zvkb zvl32b zvl64b zvl128b zcb zfa zicbom ssnpm supm; do
     case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
       *" $extension "*) ;;
@@ -130,3 +132,23 @@ done
 [[ "$(fdtget -t x "$fixture_dir/tiled-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7 2 3 2 7 3 3 3 7 4 3 4 7 5 3 5 7 6 3 6 7 7 3 7 7 8 3 8 7" ]]
 [[ "$(fdtget -l "$fixture_dir/tiled-rv5stage-soc.dtb" / | grep -c '^memory@')" == "1" ]]
 grep -Fq 'Rhodium Tiled RV5Stage SoC' "$fixture_dir/tiled-rv5stage-soc.dump"
+
+for shape in single-core mini tiled; do
+  name="$shape-rv2wide-soc"
+  case "$shape" in
+    single-core) model='Rhodium Single-Core RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=16384; harts=1 ;;
+    mini) model='Rhodium Mini RV2Wide SoC'; memory_bytes=10000; cache_sets=32; cache_bytes=2048; harts=1 ;;
+    tiled) model='Rhodium Tiled RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=8 ;;
+  esac
+  [[ "$(fdtget "$fixture_dir/$name.dtb" / model)" == "$model" ]]
+  [[ "$(fdtget -t x "$fixture_dir/$name.dtb" /memory@80000000 reg)" == "0 80000000 0 $memory_bytes" ]]
+  [[ "$(fdtget -l "$fixture_dir/$name.dtb" /cpus | grep -c '^cpu@')" == "$harts" ]]
+  for ((hart=0; hart<harts; hart++)); do
+    [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-base)" == rv64i ]]
+    [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" mmu-type)" == riscv,sv39 ]]
+    for cache in i d; do
+      [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" "$cache-cache-sets")" == "$cache_sets" ]]
+      [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" "$cache-cache-size")" == "$cache_bytes" ]]
+    done
+  done
+done

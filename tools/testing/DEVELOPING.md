@@ -132,8 +132,8 @@ The config rows come from the single
 by shape and ISA, independently of core. Simulator matrices additionally carry
 backend, cosim selection, and artifact identity. rsim is the default for every
 enrolled config; the full shape/ISA workloads remain unchanged.
-`BACKEND_SMOKE_VARIANTS` in `policy.py` adds `simple-rv5stage-rva23-verilog`
-with three smoke tests and `simple-rv5stage-rva23-circt` with smoke, boot,
+`BACKEND_SMOKE_VARIANTS` in `policy.py` adds a Simple RVA23 direct-SV variant
+with three smoke tests and a CIRCT variant with smoke, boot,
 host MMIO, UART, and ISA smoke. Only these explicit variants use narrowed
 workload policy; ordinary backend selection never reduces coverage.
 All simulator rows select `OPT_FAST=-O2`; initialization and Verilator runtime
@@ -142,7 +142,8 @@ through software, ACT, platform, and harness jobs. Preserve optimization
 propagation, bounded arguments, and nonzero status through log capture in the
 actual build and run commands. CI retains build and harness logs.
 
-All Mini/Simple RV5Stage and RV2Wide rsim rows, plus the two RV5Stage HDL
+Both RTL cores receive both variants with the same selection.
+All Mini/Simple RV5Stage and RV2Wide rsim rows, plus their four HDL
 variants, publish a cosim-enabled simulator under their config artifact name. Propagate
 that selection to native ISA, ACT, and firmware consumers; verify the variant
 and install GMP. Native and ACT runners require nonempty successful checking.
@@ -390,19 +391,19 @@ Platform adapters run once in the planning job. Each OpenSBI execution
 validates one single-core config under simulation change selection and
 publishes separate diagnostics. A failed platform build does not prevent
 execution jobs from attempting other published build groups.
-All four Simple RV32 configs select upstream ISA tests;
+All six Simple RV32 configs select upstream ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
 Selected Simple RV32/RVA23 configs retain their own ACT generation and execution.
 ACT shard counts are unchanged by runner grouping. Counts live in `tools/ci/policy.py` and
 only split execution; each profile still generates one shared ELF archive and
 builds one simulator. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
-adapter/source changes select the owning lane. All six CI Mini and both Tiled
+adapter/source changes select the owning lane. Enrolled Mini and Tiled
 configs receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
-`rv64imafdcb` presets enroll only their paired Simple configs; these six configs
-run only that suite, without ACT,
-benchmarks, or platform tests. Mini/Simple RV2Wide RV64IMACB enroll the same
-ISA-smoke-only policy with cosim enabled on those existing rows. Both Tiled cores run the
+`rv64imafdcb` presets enroll their paired Simple configs; both RTL cores also
+enroll Mini for the two lean presets. These run only ISA smoke, without ACT,
+benchmarks, or platform tests. Both RTL cores use the same shape/ISA inventory,
+enforced by the planner, with cosim enabled on Mini/Simple. All three Tiled cores run the
 eight-hart benchmark manifests in CI. Harness execution reuses the simulator
 producer's hardware tools and native libraries; only standalone platform payloads
 need the RISC-V compiler on that runner. ISA smoke consumes shared ELF archives

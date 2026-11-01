@@ -17,7 +17,7 @@ including the `tests/` exemption.
 
 ## Choose a harness
 
-`SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
+`SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|rv2wide|spike` chooses
 the hart implementation; `ISA=rv32int|rv32max|rv64imacb|rv64imafdcb|rv64max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
@@ -46,12 +46,14 @@ configuration generation do not imply full ACT validation. See the
 [Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
 Core selection does not add a runtime mux to the RTL.
 
-RV2Wide is available on Mini and Simple with `rva23`, `rv32int`, `rv32max`, `rv64max`, and the lean
-`rv64imacb`/`rv64imafdcb` presets:
+RV2Wide is available on Mini and Simple with `rva23`, `rv32int`, `rv32max`,
+`rv64max`, and the lean `rv64imacb`/`rv64imafdcb` presets. Eight-hart Tiled
+supports the same four RV64 presets as the other cores:
 
 ```sh
 make -C sims simulator SOC=mini-rv2wide-rv64imacb
 make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
+make -C sims smoke tiled-mt-benchmark-test SOC=tiled-rv2wide-rva23
 ```
 
 These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
@@ -351,8 +353,8 @@ Affected occurrences carry `ancestry_unknown` in Perfetto; they are not silently
 treated as independent roots. Invalid contracts and unsafe lineage structures
 still reject the build.
 
-Tracing is opt-in on the normal simulator and run targets. It supports Simple/Tiled
-RV5Stage and Mini/Simple RV2Wide, with an explicit supported ISA selection:
+Tracing is opt-in on the normal simulator and run targets. It supports RV5Stage
+and RV2Wide on Mini, Simple, and Tiled, with an explicit supported ISA selection:
 
 ```sh
 make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
@@ -598,7 +600,7 @@ checks its physical variant. Privileged-platform groups remain outside this ISA 
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
-Run the smaller, single-hart ISA selections on either core in Mini, Simple, or Tiled:
+Run the smaller, single-hart ISA selections on any core in Mini, Simple, or Tiled:
 
 ```sh
 make -C sims program-test-setup
@@ -606,20 +608,22 @@ make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rv32max
 make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rva23
 make -C sims isa-smoke SOC=mini CORE=spike ISA=rva23
 make -C sims isa-smoke SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims isa-smoke SOC=tiled CORE=rv2wide ISA=rva23
 make -C sims isa-smoke SOC=tiled CORE=spike ISA=rva23
 ```
 
 Run the target-capability-filtered upstream multihart benchmarks with eight
-harts on either Tiled config:
+harts on any Tiled config:
 
 ```sh
 make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-rva23
+make -C sims tiled-mt-benchmark-test SOC=tiled-rv2wide-rva23
 make -C sims tiled-mt-benchmark-test SOC=tiled-spike-rva23
 ```
 
 Each command is independently runnable. CI gives each config its own job, so
 one slow or failing Tiled run cannot suppress another config's result.
-Both Tiled cores run the same multihart manifests in CI. Slow runs remain
+All three Tiled cores run the same multihart manifests in CI. Slow runs remain
 visible as timeouts, not as core-specific exclusions.
 
 Selection follows each concrete SoC's core profile and covers representative
@@ -642,17 +646,19 @@ by the target's extensions. Eight workers divide the upstream matrix benchmark's
 16 rows evenly while exercising shared barriers and data through the coherent mesh.
 The private build overlay reports a successful HTIF exit only after every
 selected hart reaches its exit; a nonzero exit from any hart fails the run.
-ACT and the complete program suites remain restricted to the two single-core
-SoCs.
+ACT and the complete program suites remain restricted to Simple compositions.
 
-Run the same model-checked litmus7 path in either eight-hart tiled composition.
-Smoke selects a fixed nine-case subset for CI; full selects every case supported
+Run the same model-checked litmus7 path in any eight-hart tiled composition.
+Smoke selects a fixed nine-case subset for CI on RV5Stage, RV2Wide, and Spike;
+full selects every case supported
 by the target's ISA and hart count (3,443 at the current upstream pin). Each
 case boots only the two to four harts it needs:
 
 ```sh
 make -C sims litmus-setup
 make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage ISA=rva23 \
+  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+make -C sims litmus-smoke-test SOC=tiled CORE=rv2wide ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
 make -C sims litmus-smoke-test SOC=tiled CORE=spike ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
@@ -672,7 +678,7 @@ to one sample per case; increase them when the extra simulated time is useful.
 The explicit `LITMUS7` executable is required. CI builds herdtools7 from
 commit `7a64d9d8480ae02d9065b2778b4f2d473c6595ae`; local runs should use
 the same revision for comparable results. No tool is downloaded by the Make
-targets. The full profile is manual only; CI runs smoke for both cores.
+targets. The full profile is manual only; CI runs smoke for all three cores.
 
 For parallel full execution, run `litmus-full-elfs` once, then invoke
 `litmus-full-run` for shard indexes `0` through `LITMUS_FULL_SHARD_COUNT-1`
@@ -894,7 +900,7 @@ Spike shards restore the producer's pinned libraries.
 ISA/benchmark/CoreMark/Embench-IoT binaries and complete ACT ELF bundles are cached
 by their build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
-CI also runs the focused eight-hart benchmarks on both Tiled cores.
+CI also runs the focused eight-hart benchmarks on all three Tiled cores.
 
 ### RTL statistics
 
@@ -929,7 +935,7 @@ configuration only to its own baseline.
 
 CI collects `benchmark`, `coremark`, `coremark_scalar`, `embench`, `bringup`,
 `skl`, and `highway` on Simple RVA23 with RV5Stage, RV2Wide, and Spike, plus the
-existing eight-hart benchmarks on Tiled RVA23 with RV5Stage and Spike. Existing
+existing eight-hart benchmarks on Tiled RVA23 with all three cores. Existing
 jobs and shards publish compact `performance-…` artifacts containing
 `performance.json` and display the per-ELF counts in the job summary. Functional
 failures still fail CI and cannot become baselines.

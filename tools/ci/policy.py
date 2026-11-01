@@ -119,6 +119,14 @@ TEST_CONFIGS = tuple(line for line in (ROOT / "sims/test-configs.txt").read_text
                       if line and not line.startswith("#"))
 if len(TEST_CONFIGS) != len(set(TEST_CONFIGS)):
     raise ValueError("duplicate CI config")
+# Hardware implementations must exercise the same shape/ISA selections.
+paired_selections = {
+    core: {(SELECTIONS[soc][0], SELECTIONS[soc][2]) for soc in TEST_CONFIGS
+           if SELECTIONS[soc][1] == core}
+    for core in ('rv5stage', 'rv2wide')
+}
+if paired_selections['rv5stage'] != paired_selections['rv2wide']:
+    raise ValueError("RV5Stage and RV2Wide CI shape/ISA selections must match")
 SIMULATOR_CONFIGS = tuple((key, *SELECTIONS[key][:2]) for key in TEST_CONFIGS)
 SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
                          if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
@@ -141,7 +149,10 @@ def native_configs(suite):
 
 # Backend variants reuse the architectural config and software target descriptor.
 # Only simulator build/run matrices include this additional backend test.
-BACKEND_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
+BACKEND_SMOKE_CONFIGS = (
+    ('simple-rv5stage-rva23', 'simple', 'rv5stage'),
+    ('simple-rv2wide-rva23', 'simple', 'rv2wide'),
+)
 DEFAULT_BACKEND = 'rsim'
 BACKEND_SMOKE_VARIANTS = {
     'verilog': dict(software_tests=('smoke', 'host-mmio-test', 'uart-pty-test')),

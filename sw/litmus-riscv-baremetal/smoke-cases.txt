@@ -1,4 +1,4 @@
-# Names a bounded, model-checked litmus7 selection for tiled Spike and RV5Stage CI.
+# Names the same bounded, model-checked litmus7 selection for all three tiled core bindings.
 # SPDX-License-Identifier: Apache-2.0
 # Two-hart load/store, dependency, fence, AMO, and acquire coverage.
 MP

@@ -619,6 +619,17 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  sim-tiled-rv2wide-rva23:
+    name: SoC / tiled-rv2wide-rva23
+    needs: [plan, targets, harness-isa, harness-benchmark]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled-rv2wide-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled-rv2wide-rva23'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
   sim-tiled-spike-rva23:
     name: SoC / tiled-spike-rva23
     needs: [plan, targets, harness-isa, harness-benchmark]
@@ -1024,6 +1035,14 @@ jobs:
     with:
       matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['tiled-rv5stage-rva23']) }}
 
+  platform-tiled-rv2wide-rva23:
+    name: Platform / tiled-rv2wide-rva23
+    needs: [plan, sim-tiled-rv2wide-rva23, platform-plan, platform-builds-litmus]
+    if: ${{ always() && !cancelled() && needs.sim-tiled-rv2wide-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled-rv2wide-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['tiled-rv2wide-rva23']) }}
+
   platform-tiled-spike-rva23:
     name: Platform / tiled-spike-rva23
     needs: [plan, sim-tiled-spike-rva23, platform-plan, platform-builds-litmus]
@@ -1062,6 +1081,7 @@ jobs:
       - sim-simple-spike-rva23
       - sim-simple-rv2wide-rva23
       - sim-tiled-rv5stage-rva23
+      - sim-tiled-rv2wide-rva23
       - sim-tiled-spike-rva23
       - sim-plain
       - sim-cosim
@@ -1107,6 +1127,7 @@ jobs:
       - platform-simple-spike-rva23
       - platform-simple-rv2wide-rva23
       - platform-tiled-rv5stage-rva23
+      - platform-tiled-rv2wide-rva23
       - platform-tiled-spike-rva23
     if: always()
     runs-on: ubuntu-slim

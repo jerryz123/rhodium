@@ -39,7 +39,11 @@ maximal RV64 preset: F/D, full V with VLEN128, Zfh/Zvfh, Zvbb/Zvkt, and the
 preset's scalar and supervisor extensions with Sv39.
 The corresponding `mini-rv2wide-rva23` and `simple-rv2wide-rva23` selections
 add H/Sha and the guest-supervisor guarantees to that same architecture.
-No Tiled RV2Wide selection is provided.
+All four RV64 presets also have `tiled-rv2wide-<isa>` selections; TiledSoC
+currently requires RV64 for every core implementation. The default tiled
+composition instantiates eight harts with 64-set direct-mapped L1s, four shared
+LLC slices, and the ordinary coherent CHI mesh. Its RVA23 CI lane runs the same
+platform smoke, ISA smoke, eight-hart benchmarks, and litmus smoke as RV5Stage.
 
 ## Entry point
 
@@ -258,7 +262,7 @@ the existing lean SoC presets:
 | `~hypervisor: #true` | H: VS/VU execution, Sv39/Sv39x4 two-stage translation, virtual interrupts, guest CSRs, HLV/HLVX/HSV, and HFENCE |
 
 Selecting both hypervisor and state-enable support publishes Sha and the
-shared bank's guest supervisor guarantees. The Mini/Simple `rva23` presets
+shared bank's guest supervisor guarantees. The Mini/Simple/Tiled `rva23` presets
 combine these with full V, half-precision FP, and the maximal scalar and
 supervisor configuration; `rv64max` retains the same features except H/Sha.
 
@@ -920,8 +924,8 @@ must not return pre-reset responses afterward.
 
 ## Pipeline event tracing
 
-Mini/Simple bindings support the existing event-trace compile pass with `TRACE=1`.
-It is independent of `COSIM=1`; both can be enabled on the same simulator.
+Mini/Simple/Tiled bindings support the existing event-trace compile pass with `TRACE=1`.
+It is independent of `COSIM=1`; both can be enabled on Mini/Simple simulators.
 See the [simulator commands](../../sims/README.md#export-soc-events-to-perfetto).
 
 `frontend/s0.request` captures the admitted PC. `frontend/s1.lookup` captures
@@ -990,7 +994,7 @@ the embedded 64-bit profiles and V, with scalar D required for vector floating p
 VLEN must provide at least two XLEN-wide rows per register.
 For example, `RV2WideConfig(~floating_point: FloatingPointProfile.D,
 ~vector: VectorProfile.V)` selects VLEN=128 and eight completion slots.
-The Mini/Simple `rv64max`, `rv32int`, and `rv32max` presets enable vector execution and the shared vector
+The `rv64max`, `rv32int`, and `rv32max` presets enable vector execution and the shared vector
 cosim observer. RV32Max uses the existing shared FP service for scalar and
 vector FP without adding another execution unit or FPR write port.
 
