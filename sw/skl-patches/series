@@ -3,3 +3,4 @@
 0001-bound-workloads-for-rtl.patch
 0002-execution-only-driver.patch
 0003-efficient-input-initialization.patch
+0004-precomputed-input-tiles.patch

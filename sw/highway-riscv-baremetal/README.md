@@ -64,6 +64,9 @@ that invocation, not warmed steady-state performance. Sort and unique copy
 canonical inputs before mutation. Math precomputes its typed values before
 timing and reuses one output buffer per vector tag; function and tag coverage
 are unchanged, with fewer samples per input domain.
+Dot and delta read aligned compile-time inputs with exactly the original typed
+values; their input generation no longer executes on the target. Delta retains
+a separate writable output allocation.
 
 Packed u16 cuckoo queries preserve Highway's minimum of 2^18 buckets while
 using its supported one-slot bucket geometry to bound the table footprint.

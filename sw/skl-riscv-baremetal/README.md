@@ -51,8 +51,10 @@ floating-point throughput formatting are suppressed; errors remain visible.
 Reported measurements cover the kernel's execute step, not the full program; these functional runs are not
 published comparative benchmark scores.
 
-The nine pack, unpack, and transpose suites use deterministic, case-ID/index-based
-integer patterns instead of per-element `rand()` and modulo operations. Every
+The nine pack, unpack, and transpose suites copy deterministic precomputed
+1024-element tiles, rotated by case and input stream. Integer GEMM and convolution
+likewise copy typed tiles within the original input ranges. Values differ from
+upstream and the former generated patterns; no input RNG runs on the target. Every
 source element in the allocated span is initialized, including stride and tile
 padding. Their distinct write-only destinations retain the original allocation
 size and alignment but are not pre-filled. Depthwise convolution outputs are

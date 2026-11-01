@@ -20,7 +20,7 @@ padded cache-line storage to avoid false sharing with workload data during host 
 | UDB-driven architectural tests | [`riscv-arch-test/`](riscv-arch-test/) and [`riscv-arch-test-patches/`](riscv-arch-test-patches/) |
 | OpenSBI firmware | [`opensbi/`](opensbi/) and [`build/opensbi.py`](build/opensbi.py) |
 | CoreMark | [`coremark/`](coremark/) and [`coremark-riscv-baremetal/`](coremark-riscv-baremetal/) |
-| Embench-IoT | [`embench-iot/`](embench-iot/) and [`embench-iot-riscv-baremetal/`](embench-iot-riscv-baremetal/) |
+| Embench-IoT | [`embench-iot/`](embench-iot/), [`embench-iot-patches/`](embench-iot-patches/), and [`embench-iot-riscv-baremetal/`](embench-iot-riscv-baremetal/) |
 | Bringup-Bench | [`bringup-bench/`](bringup-bench/), [`bringup-bench-patches/`](bringup-bench-patches/), and [`bringup-bench-riscv-baremetal/`](bringup-bench-riscv-baremetal/) |
 | SiFive Kernel Library (RVA23 vector suites) | [`skl/`](skl/), [`skl-patches/`](skl-patches/), and [`skl-riscv-baremetal/`](skl-riscv-baremetal/) |
 | Highway (bounded native-RVV workloads) | [`highway/`](highway/) and [`highway-riscv-baremetal/`](highway-riscv-baremetal/) |

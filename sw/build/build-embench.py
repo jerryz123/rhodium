@@ -11,6 +11,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from riscv.patched_submodule import materialize, read_series
 from build import check_elf_memory
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
@@ -123,6 +125,8 @@ def materialize_sources(sources, destination, local_scale):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
+    parser.add_argument('--patch-series', type=Path,
+                        default=Path(__file__).resolve().parents[1] / 'embench-iot-patches/series')
     parser.add_argument('--port', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--compiler', required=True)
@@ -140,6 +144,7 @@ def main():
     try:
         target = load_target(args.target)
         sources = verify_upstream(source)
+        series, patches = read_series(args.patch_series)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
     if target['xlen'] != 64:
@@ -155,7 +160,9 @@ def main():
     key_input = (revision + version + str(source) + compiler + str(args.scale)
                  + str(args.local_scale)
                  + str(args.warmup_heat) + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
-    for path in [Path(__file__), Path(__file__).with_name('program_target.py'), *port_inputs]:
+    for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
+                 Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py',
+                 series, *patches, *port_inputs]:
         key_input += path.read_bytes()
     key = hashlib.sha256(key_input).hexdigest()
     build = output / 'build' / key
@@ -164,6 +171,8 @@ def main():
         (output / generated).unlink(missing_ok=True)
     linker = build / 'link.ld'
     write_linker(port / 'link.ld.in', linker, target['ram'][0])
+    source = materialize(source, series, build / 'source')
+    sources = benchmark_sources(source)
     generated_sources, upstream_scales = materialize_sources(
         sources, build / 'functional-sources', args.local_scale)
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], build)
@@ -215,6 +224,10 @@ def main():
             report.append(dict(name=benchmark, elf_arch=elf_arch,
                                **instruction_inventory(objdump, elf)))
     manifest = dict(suite='embench', revision=revision, compiler=version, cache_key=key,
+                    patch_series_sha256=hashlib.sha256(series.read_bytes()).hexdigest(),
+                    patches=[dict(name=patch.name,
+                                  sha256=hashlib.sha256(patch.read_bytes()).hexdigest())
+                             for patch in patches],
                     compiler_flags=' '.join((*COMMON_FLAGS, f'-march={target["march"]}',
                                              f'-mabi={target["mabi"]}')),
                     mode='functional', scoring=False, scale=args.scale,

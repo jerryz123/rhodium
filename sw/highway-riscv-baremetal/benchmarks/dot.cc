@@ -1,21 +1,18 @@
-// Runs Highway's floating-point dot product with bounded aligned and tail-sized inputs.
+// Runs Highway dot products from constant aligned inputs without target-side generation.
 // SPDX-License-Identifier: Apache-2.0
 #include "benchmark.h"
 #include "hwy/aligned_allocator.h"
 #include "hwy/contrib/dot/dot-inl.h"
+#include "constant-inputs.h"
 template <class T>
 void BenchType(const char* name) {
   const hn::ScalableTag<T> d;
-  auto a = hwy::AllocateAligned<T>(257), b = hwy::AllocateAligned<T>(257);
-  HWY_ASSERT(a && b);
-  HighwaySetPhase(HighwayPhase::Inputs);
-  for (size_t i = 0; i < 257; ++i) {
-    a[i] = hwy::ConvertScalarTo<T>(static_cast<float>(i % 17) * 0.125f);
-    b[i] = hwy::ConvertScalarTo<T>(static_cast<float>(i % 7) * 0.25f);
-  }
-  HighwaySetPhase(HighwayPhase::Setup);
+  alignas(64) static constexpr auto left = DotInputs<T, 17, 8>();
+  alignas(64) static constexpr auto right = DotInputs<T, 7, 4>();
+  const T* a = OpaqueInput(left);
+  const T* b = OpaqueInput(right);
   for (size_t n : kSizes) Measure(name, n, [&] {
-    const auto sum = hn::Dot::Compute<0>(d, a.get(), b.get(), n);
+    const auto sum = hn::Dot::Compute<0>(d, a, b, n);
     Consume(sum);
   });
 }

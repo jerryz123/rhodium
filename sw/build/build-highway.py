@@ -26,7 +26,7 @@ FUNCTIONAL_PROFILE = dict(repetitions=1, warmups=0, execution='native-rvv-only',
                           hash_table_keys=64, cuckoo_inputs='sparse-public-data-layout',
                           packed_cuckoo_indexing='power-of-two',
                           hash_driver_auto_vectorization='unconditional-loops-no-if-conversion',
-                          input_preparation='reusable-typed-inputs-and-restoration-copies',
+                          input_preparation='constant-dot-delta-inputs-and-mutation-restoration-copies',
                           memory_operations='short-byte-vectors-aligned-e64m8-bulk-byte-fallback',
                           threading='synchronous-single-worker', reporting='buffered-integer-phase-counters')
 

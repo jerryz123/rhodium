@@ -14,7 +14,7 @@ remain in [`socs/`](../socs/DEVELOPING.md),
 ## Source and build ownership
 
 The named upstream submodules are pinned at repository gitlinks. Keep their
-checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, and SKL patch
+checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, Embench, and SKL patch
 series only to build-local copies through
 [`riscv/patched_submodule.py`](../riscv/patched_submodule.py). Put Rhodium-owned
 bare-metal startup, linkers, output checks, and ports beside their corresponding
@@ -146,8 +146,9 @@ accuracy. Plain Spike and non-cosim RTL runs provide execution smoke coverage.
 [`skl-patches/series`](skl-patches/series) owns the fixed upstream adaptations:
 the first patch bounds the single functional profile, the second changes the
 existing driver to execution-only sequencing and integer reporting, and the
-third optimizes input initialization. Apply them only through the shared
-patched-submodule materializer, never Python source substitutions or edits to
+third optimizes floating-point initialization and audited output allocations;
+the fourth supplies constant movement and integer input tiles. Apply them only
+through the shared patched-submodule materializer, never Python source substitutions or edits to
 the submodule. The bare-metal port owns only CMake, startup, linker, and syscalls;
 there is no second suite driver or symbol-renaming override.
 Preserve every case, including zero sizes, strides, dilation, depth multipliers,
@@ -163,9 +164,13 @@ because it is a read/write operand. Re-audit independence from initial output
 contents and the no-alias contract on upstream updates. Specialized FP16/FP32
 depthwise kernels read partial sums only after their first filter-row pass has
 initialized the output; those internal reads do not require a prefill.
-Replace only floating-point random and sequential generators, not global
-`rand()`, integer generators, or static input copying. Preserve every case's
-typed domain and initialization mode.
+The movement sources and integer GEMM/convolution random inputs copy rotated
+1024-element constant tiles from `test/input-values.inc`. This bounds ELF size
+without target-side pattern generation. Keep full readable padding initialized,
+all original allocations/frees, and GEMM C's signed input domain. The integer
+adapter rejects changed random domains; explicit static and sequential inputs
+retain upstream initialization. These samples deliberately differ from upstream
+and the former per-case movement pattern. Do not replace global `rand()`.
 Case/stream/index mixing makes random fills vectorizable; FP32/FP64 interpolation
 avoids intermediate FP16/BF16 arithmetic, so generated samples are not bitwise
 upstream inputs. BF16 uses alias-permitted integer storage and explicit
@@ -175,7 +180,10 @@ random streams, and BF16 rounding against the compiler's conversion helpers.
 Inspect generated code to confirm vectorization without per-element RNG or
 BF16 helper calls. The ordered patch contents and recorded initialization/reporting
 policies must invalidate cached builds. Validate runtime or buffer-policy changes with the
-full suite on Spike and both RTL cores with Sail cosim.
+full suite on Spike and both RTL cores with Sail cosim. For input fixture checks,
+run `python3 -m unittest discover -s sw/tests -p test_benchmark_inputs.py` with
+initialized upstream submodules; `RHODIUM_BRINGUP_SOURCE` and `RHODIUM_SKL_SOURCE`
+may name pristine temporary checkouts instead.
 SKL uses the existing GCC/Newlib toolchain; GCC ignores Clang unroll pragmas
 without treating them as errors. CMake and compiler identity, port bytes, and
 the upstream revision, patch series, and shared materializer participate in the
@@ -217,7 +225,10 @@ Attribute input preparation, kernels, reporting, and hash builders to
 measured phases; document probe and end-of-run accounting boundaries. Retain
 all constructors and packed conversions on the target. Prevent dense compiler
 if-conversion of sparse packed-slot scans without disabling unconditional-loop
-vectorization. Reuse canonical inputs only when their typed contents and required
+vectorization. Dot and delta use aligned, constexpr typed inputs; obscure their
+addresses at the kernel boundary to prevent compile-time evaluation. Keep the
+same 257-element readable extent and exact prior values. Reuse canonical inputs
+only when their typed contents and required
 mutation restoration are preserved, and keep B-tree construction inside its
 workload. Qualify word-wide memory helpers for independently varied source and
 destination alignment, tails, values, returns, and guards. Full-profile changes
@@ -226,6 +237,14 @@ before/after full-run instruction and runtime evidence.
 Validate the normal shared archive/binder path and checksum-verified cache reuse,
 in addition to building and running every ELF. Preserve upstream license notices
 in the published archive and keep the submodule pristine.
+
+Embench's [`embench-iot-patches/series`](embench-iot-patches/series) supplies the
+exact seed-zero CRC32 input bytes before the builder applies its bounded scales.
+Bringup-Bench's packet fixture likewise preserves every seed-42 packet field and
+the existing output hash. Both kernels use opaque input pointers to retain
+target execution. Keep patch bytes and the shared materializer in builder cache
+identities, and refresh whole-ELF performance expectations from qualified CI
+measurements after intentional setup-cost changes.
 
 `build/program_target.py` projects a suite's ELF build specification from the
 generated SoC descriptor. Keep config names and resolved microarchitecture

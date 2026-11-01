@@ -51,7 +51,7 @@ class Selection:
             self.add_native("isa")
         elif matches(path, "sw/build/build-coremark.py", "sw/coremark-riscv-baremetal/*", "sw/coremark", "sw/coremark/*"):
             self.add_native("coremark")
-        elif matches(path, "sw/build/build-embench.py", "sw/embench-iot-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*"):
+        elif matches(path, "sw/build/build-embench.py", "sw/embench-iot-riscv-baremetal/*", "sw/embench-iot-patches/*", "sw/embench-iot", "sw/embench-iot/*"):
             self.add_native("embench")
         elif matches(path, "sw/build/build-bringup-bench.py", "sw/bringup-bench-riscv-baremetal/*", "sw/bringup-bench-patches/*", "sw/bringup-bench", "sw/bringup-bench/*"):
             self.add_native("bringup")
@@ -135,7 +135,7 @@ class Selection:
                      "sw/build/build-coremark.py", "sw/build/build-embench.py",
                      "sw/build/build-bringup-bench.py", "sw/coremark", "sw/coremark/*",
                      "sw/coremark-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*",
-                     "sw/embench-iot-riscv-baremetal/*", "sw/bringup-bench",
+                     "sw/embench-iot-riscv-baremetal/*", "sw/embench-iot-patches/*", "sw/bringup-bench",
                      "sw/bringup-bench/*", "sw/bringup-bench-riscv-baremetal/*",
                      "sw/bringup-bench-patches/*",
                      "sw/build/build-skl.py", "sw/skl", "sw/skl/*", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*",
