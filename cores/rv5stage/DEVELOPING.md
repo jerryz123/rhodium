@@ -300,13 +300,21 @@ its architectural GPR destination in the scoreboard. Delay this authorization
 through the remaining arithmetic stages and discard results without it. Timing
 identifies the scalar owner, so no ticket allocator or cancellation table is
 needed. Pipeline recovery must not flush authorization for committed older work.
-Iterative multiply and divide still enqueue from authorized WB commit, with
-operand payloads from the normal WB pipeline token. Retained CMO and WRS
-contexts must not select arithmetic operands. Their scalar adapters retain a
-one-entry request queue reserved in ID; the iterative multiplier also retains
-its scalar staging queue and vector-first arbiter. The divider retains its
-round-robin arbiter and two-entry service queue. Standalone elastic wrappers
-remain available for callers that do not promise immediate result consumption.
+Iterative multiply still enqueues from authorized WB commit, with a one-entry
+scalar request queue reserved in ID, scalar staging, and vector-first arbitration.
+Integer division instead reserves an idle shared service in ID and launches
+directly from authorized WB, without scalar or shared waiting-request queues.
+Both use operand payloads from the normal WB token; retained CMO and WRS contexts
+must not select arithmetic operands. The divider's registered busy bit spans
+request acceptance through result consumption and survives speculative flush.
+Existing ID/EX/MEM/WB token validity reserves a scalar's future launch against
+vector requests; cancellation releases that claim without another payload owner.
+A waiting vector gets the next turn after a scalar reservation, preventing
+successive scalar launches from starving it. ID admission reads registered
+ownership, not arbitration readiness, so the reservation gate cannot feed back
+into its own admission. The service retains only the active owner and its
+backpressured terminal result. Standalone elastic wrappers remain available
+for callers that do not promise immediate result consumption.
 The vector multiplier request queue retains operands from accepted feed-forward
 beats during shared-service contention and bypasses when empty. Result tags
 retain selection and destination metadata until consumption.

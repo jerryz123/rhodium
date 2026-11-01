@@ -1,8 +1,11 @@
 // Runs the independent division program with a clocked instruction responder and store oracle.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
-constexpr std::array<std::uint32_t, 23> program{
-    0x06400293, 0x00700313, 0x0262c3b3, 0x00900913, 0x05203023, 0x0262e433,
+constexpr std::array<std::uint32_t, 25> program{
+    // A taken branch cancels a younger divide before the live division stream.
+    // Its speculative service claim must not block subsequent authorized work.
+    0x06400293, 0x00700313, 0x00000463, 0x0262c2b3,
+    0x0262c3b3, 0x00900913, 0x05203023, 0x0262e433,
     0xf9c00493, 0x0264c533, 0x0264e5b3, 0xfff00613, 0x00200693, 0x02d6573b,
     0x02d677bb, 0x0264c83b, 0x0264e8bb, 0x00703023, 0x00803423, 0x00a03823,
     0x00b03c23, 0x02e03023, 0x02f03423, 0x03003823, 0x03103c23};

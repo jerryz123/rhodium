@@ -1,5 +1,5 @@
 #lang rhodium
-/* Adapts the reusable iterative divider to RV5Stage's deferred-writeback protocol. */
+/* Launches authorized RV5Stage divisions directly and projects deferred results. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -30,8 +30,8 @@ bundle RV5StageDivideTag():
   remainder: Bool
   word_result: Bool
 
-/* Queues authorized division, normalizes RV64 word operands, and maps tagged results
-   to GPR completions while preserving result backpressure. */
+/* Normalizes authorized operands and directly launches the reserved divider;
+   only the executing service retains destination and result-selection metadata. */
 sync_circuit RV5StageDivideScalar(xlen :: XLen):
   def width = xlen.width
 
@@ -42,12 +42,11 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
   def Request = IntegerExecutionRequest(DividerRequest(width), RV5StageDivideTag())
   interface execution_request(Decoupled(Request), ~role: producer)
   interface execution_result(Irrevocable(IntegerExecutionResult(DividerResponse(width), RV5StageDivideTag())), ~role: consumer)
-  inst authorized(Queue(Request, 1))
 
   def normalized_dividend = integer_word_operand(xlen, issue.bits.dividend, issue.bits.control.signed_mode, issue.bits.control.word_result)
   def normalized_divisor = integer_word_operand(xlen, issue.bits.divisor, issue.bits.control.signed_mode, issue.bits.control.word_result)
 
-  available <== authorized.ingress.ready
+  available <== execution_request.ready
   (
     issue |> to_decoupled() |> map_flow(issued):
       IntegerExecutionRequest(DividerRequest(width), RV5StageDivideTag()):
@@ -62,9 +61,7 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
             dividend: normalized_dividend
             divisor: normalized_divisor
             signed_mode: issued.control.signed_mode
-  ) |> authorized.ingress
-
-  authorized.egress |> execution_request
+  ) |> execution_request
 
   when (issue.valid):
     assert(available, "scalar_divide_issue_has_reserved_slot")
